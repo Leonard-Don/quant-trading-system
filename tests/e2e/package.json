@@ -1,0 +1,21 @@
+{
+  "name": "pythonproject",
+  "version": "1.0.0",
+  "description": "现代化的前后端分离量化交易系统，提供策略回测、行情获取与分析能力，适合研究与教学使用。",
+  "main": "verify_industry_features.js",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "verify:industry": "node verify_industry_features.js",
+    "test": "npm run verify:industry"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "playwright": "^1.58.2"
+  }
+}

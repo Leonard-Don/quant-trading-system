@@ -1,0 +1,3601 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "量化交易系统API",
+    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.2.0\n    - **API版本**: v1\n    - **最后更新**: 2025-12-24\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
+    "termsOfService": "https://example.com/terms/",
+    "contact": {
+      "name": "量化交易系统支持",
+      "url": "https://example.com/contact/",
+      "email": "support@example.com"
+    },
+    "license": {
+      "name": "MIT License",
+      "url": "https://opensource.org/licenses/MIT"
+    },
+    "version": "3.2.0"
+  },
+  "paths": {
+    "/market-data/": {
+      "post": {
+        "tags": [
+          "Market Data"
+        ],
+        "summary": "获取市场数据",
+        "description": "获取市场数据",
+        "operationId": "get_market_data_market_data__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarketDataRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/market-data/search": {
+      "get": {
+        "tags": [
+          "Market Data"
+        ],
+        "summary": "搜索股票代码",
+        "description": "搜索股票代码",
+        "operationId": "search_symbols_market_data_search_get",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Query"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/strategies/": {
+      "get": {
+        "tags": [
+          "Strategies"
+        ],
+        "summary": "获取所有可用策略",
+        "description": "获取系统中所有可用的交易策略\n使用 lru_cache 缓存策略列表以提高性能",
+        "operationId": "get_strategies_strategies__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StrategyInfo"
+                  },
+                  "type": "array",
+                  "title": "Response Get Strategies Strategies  Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "运行策略回测",
+        "description": "运行交易策略回测",
+        "operationId": "run_backtest_backtest__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BacktestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/compare": {
+      "get": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "比较多个策略的性能",
+        "description": "比较多个策略的性能\n\n包含：\n1. 并发执行回测\n2. 服务端计算综合评分 (收益40%, 夏普30%, 风控30%)",
+        "operationId": "compare_strategies_backtest_compare_get",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Symbol"
+            }
+          },
+          {
+            "name": "strategies",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Strategies"
+            }
+          },
+          {
+            "name": "start_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Start Date"
+            }
+          },
+          {
+            "name": "end_date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "End Date"
+            }
+          },
+          {
+            "name": "initial_capital",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 100000.0,
+              "title": "Initial Capital"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/history": {
+      "get": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "获取回测历史记录",
+        "description": "获取回测历史记录\n\nArgs:\n    limit: 返回记录数量限制 (默认20)\n    symbol: 按股票代码过滤\n    strategy: 按策略名称过滤",
+        "operationId": "get_backtest_history_backtest_history_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "symbol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Symbol"
+            }
+          },
+          {
+            "name": "strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Strategy"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/history/stats": {
+      "get": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "获取回测历史统计",
+        "description": "获取回测历史统计信息",
+        "operationId": "get_backtest_stats_backtest_history_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/history/{record_id}": {
+      "get": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "获取特定回测记录",
+        "description": "根据ID获取回测记录详情",
+        "operationId": "get_backtest_record_backtest_history__record_id__get",
+        "parameters": [
+          {
+            "name": "record_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Record Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "删除回测记录",
+        "description": "删除特定回测记录",
+        "operationId": "delete_backtest_record_backtest_history__record_id__delete",
+        "parameters": [
+          {
+            "name": "record_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Record Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/report": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "生成回测报告 PDF",
+        "description": "生成策略回测报告 PDF\n\n如果提供了 backtest_result，则直接使用；\n否则会先运行回测再生成报告。",
+        "operationId": "generate_report_backtest_report_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/report/base64": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "生成回测报告 (Base64)",
+        "description": "生成策略回测报告并返回 Base64 编码\n适用于前端直接下载",
+        "operationId": "generate_report_base64_backtest_report_base64_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/status": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "系统状态检查",
+        "description": "系统状态检查接口\n\nArgs:\n    detailed: 是否执行详细检查 (默认 False，仅返回基础资源使用情况)",
+        "operationId": "get_system_status_system_status_get",
+        "parameters": [
+          {
+            "name": "detailed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Detailed"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/performance": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "获取性能指标概览",
+        "description": "获取性能指标",
+        "operationId": "get_system_performance_overview_system_performance_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/health-check": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "综合健康检查",
+        "description": "综合健康检查",
+        "operationId": "comprehensive_health_check_system_health_check_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/metrics": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "获取详细性能指标",
+        "description": "获取性能指标",
+        "operationId": "get_performance_metrics_system_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/alerts/summary": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "获取告警摘要",
+        "description": "获取告警摘要",
+        "operationId": "get_alert_summary_system_alerts_summary_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/alerts/{alert_index}/resolve": {
+      "post": {
+        "tags": [
+          "System"
+        ],
+        "summary": "解决告警",
+        "description": "解决告警",
+        "operationId": "resolve_alert_system_alerts__alert_index__resolve_post",
+        "parameters": [
+          {
+            "name": "alert_index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Alert Index"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/system/dependencies": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "依赖项连通性检查",
+        "description": "检查所有外部依赖项的连通性\n包括：yfinance API、缓存系统、ML模型等",
+        "operationId": "check_dependencies_system_dependencies_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/realtime/quote/{symbol}": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "获取实时报价",
+        "description": "获取股票的统一实时报价信息。",
+        "operationId": "get_quote_realtime_quote__symbol__get",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Symbol"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/realtime/quotes": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "批量获取实时报价",
+        "description": "批量获取股票的统一实时报价信息。",
+        "operationId": "get_quotes_realtime_quotes_get",
+        "parameters": [
+          {
+            "name": "symbols",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Symbols"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/realtime/subscribe": {
+      "post": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "兼容层：确认订阅请求",
+        "description": "兼容旧客户端的订阅确认接口，不维护持久订阅态。",
+        "operationId": "subscribe_realtime_subscribe_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "deprecated": true
+      }
+    },
+    "/realtime/unsubscribe": {
+      "post": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "兼容层：确认取消订阅请求",
+        "description": "兼容旧客户端的取消订阅确认接口，不维护持久订阅态。",
+        "operationId": "unsubscribe_realtime_unsubscribe_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "deprecated": true
+      }
+    },
+    "/analysis/analyze": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "分析股票趋势",
+        "description": "分析股票趋势，返回趋势方向、支撑阻力位和技术评分",
+        "operationId": "analyze_trend_analysis_analyze_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrendAnalysisResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/comprehensive": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "综合分析",
+        "description": "综合分析股票，整合趋势、量价、情绪等多维度分析\n返回综合评分和投资建议",
+        "operationId": "comprehensive_analysis_analysis_comprehensive_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/overview": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "分析总览",
+        "description": "轻量总览分析，返回评分与关键信号",
+        "operationId": "analysis_overview_analysis_overview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/fundamental": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "基本面分析",
+        "description": "基本面分析",
+        "operationId": "analyze_fundamental_analysis_fundamental_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/klines": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "K线数据",
+        "description": "获取K线数据（默认150条）",
+        "operationId": "get_klines_analysis_klines_post",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 150,
+              "title": "Limit"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/volume-price": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "量价分析",
+        "description": "分析成交量与价格的关系",
+        "operationId": "analyze_volume_price_analysis_volume_price_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/sentiment": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "市场情绪分析",
+        "description": "分析市场情绪和恐慌程度",
+        "operationId": "analyze_sentiment_analysis_sentiment_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/patterns": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "形态识别",
+        "description": "识别K线形态和图表形态",
+        "operationId": "recognize_patterns_analysis_patterns_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/prediction": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "AI价格预测",
+        "description": "使用AI模型预测未来价格",
+        "operationId": "predict_prices_analysis_prediction_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/correlation": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "多股票相关性分析",
+        "description": "分析多只股票之间的价格相关性\n返回相关性矩阵和统计信息",
+        "operationId": "analyze_correlation_analysis_correlation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CorrelationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/models": {
+      "get": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "获取可用模型列表",
+        "description": "获取所有可用的预测模型列表",
+        "operationId": "get_available_models_analysis_models_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/prediction/compare": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "多模型预测对比",
+        "description": "使用多个模型进行预测并对比结果\n同时返回 Random Forest 和 LSTM 的预测结果",
+        "operationId": "compare_model_predictions_analysis_prediction_compare_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/prediction/lstm": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "LSTM 模型预测",
+        "description": "使用 LSTM 神经网络模型进行价格预测",
+        "operationId": "predict_with_lstm_analysis_prediction_lstm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/train/all": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "训练所有模型",
+        "description": "为指定股票训练所有可用的预测模型\n包括 Random Forest 和 LSTM",
+        "operationId": "train_all_models_analysis_train_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/technical-indicators": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "技术指标快照",
+        "description": "获取常用技术指标快照（RSI、MACD、布林带）",
+        "operationId": "get_technical_indicators_analysis_technical_indicators_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/sentiment-history": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "历史情绪趋势",
+        "description": "获取过去N天的恐慌贪婪指数历史趋势",
+        "operationId": "get_sentiment_history_analysis_sentiment_history_post",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 30,
+              "title": "Days"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/industry-comparison": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "行业对比分析",
+        "description": "获取同行业公司的关键指标对比",
+        "operationId": "get_industry_comparison_analysis_industry_comparison_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analysis/risk-metrics": {
+      "post": {
+        "tags": [
+          "Analysis"
+        ],
+        "summary": "风险评估增强",
+        "description": "获取 VaR、最大回撤、夏普比率等风险指标",
+        "operationId": "get_risk_metrics_analysis_risk_metrics_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrendAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/optimization/optimize": {
+      "post": {
+        "tags": [
+          "Optimization"
+        ],
+        "summary": "投资组合优化",
+        "description": "计算投资组合的最优资产配置权重",
+        "operationId": "optimize_portfolio_optimization_optimize_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_optimize_portfolio_optimization_optimize_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/trade/portfolio": {
+      "get": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "获取投资组合状态",
+        "description": "获取当前账户余额、持仓和总资产",
+        "operationId": "get_portfolio_trade_portfolio_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/trade/execute": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "执行交易",
+        "description": "执行买入或卖出交易",
+        "operationId": "execute_trade_trade_execute_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/trade/history": {
+      "get": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "获取交易历史",
+        "description": "获取历史交易记录",
+        "operationId": "get_trade_history_trade_history_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/trade/reset": {
+      "post": {
+        "tags": [
+          "Trading"
+        ],
+        "summary": "重置账户",
+        "description": "重置模拟账户",
+        "operationId": "reset_account_trade_reset_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/industries/hot": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Hot Industries",
+        "description": "获取热门行业排名\n\n基于动量、资金流向和成交量变化综合评分，识别当前市场关注度高的行业。\n\n- **top_n**: 返回排名前 N 的行业\n- **lookback_days**: 用于计算动量和资金流向的回看周期\n- **sort_by**: 排序字段 (total_score, change_pct, money_flow, industry_volatility)\n- **order**: 排序顺序 (desc, asc)",
+        "operationId": "get_hot_industries_industry_industries_hot_get",
+        "parameters": [
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "description": "返回前N个热门行业",
+              "default": 10,
+              "title": "Top N"
+            },
+            "description": "返回前N个热门行业"
+          },
+          {
+            "name": "lookback_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 30,
+              "minimum": 1,
+              "description": "回看周期（天）",
+              "default": 5,
+              "title": "Lookback Days"
+            },
+            "description": "回看周期（天）"
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "排序字段: total_score, change_pct, money_flow, industry_volatility",
+              "default": "total_score",
+              "title": "Sort By"
+            },
+            "description": "排序字段: total_score, change_pct, money_flow, industry_volatility"
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "排序顺序: desc, asc",
+              "default": "desc",
+              "title": "Order"
+            },
+            "description": "排序顺序: desc, asc"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IndustryRankResponse"
+                  },
+                  "title": "Response Get Hot Industries Industry Industries Hot Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/industries/{industry_name}/stocks": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Industry Stocks",
+        "description": "获取行业成分股及排名\n\n返回指定行业内按综合得分排名的股票列表。\n\n- **industry_name**: 行业名称（如 \"电子\"、\"医药生物\"）\n- **top_n**: 返回排名前 N 的股票",
+        "operationId": "get_industry_stocks_industry_industries__industry_name__stocks_get",
+        "parameters": [
+          {
+            "name": "industry_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Industry Name"
+            }
+          },
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "返回前N只股票",
+              "default": 20,
+              "title": "Top N"
+            },
+            "description": "返回前N只股票"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/StockResponse"
+                  },
+                  "title": "Response Get Industry Stocks Industry Industries  Industry Name  Stocks Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/industries/heatmap": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Industry Heatmap",
+        "description": "获取行业热力图数据\n\n返回所有行业的涨跌幅和市值数据，用于渲染热力图可视化。",
+        "operationId": "get_industry_heatmap_industry_industries_heatmap_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "description": "分析周期（天）",
+              "default": 5,
+              "title": "Days"
+            },
+            "description": "分析周期（天）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeatmapResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/industries/{industry_name}/trend": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Industry Trend",
+        "description": "获取行业趋势分析\n\n返回指定行业的详细趋势分析，包括涨幅/跌幅前5的股票。",
+        "operationId": "get_industry_trend_industry_industries__industry_name__trend_get",
+        "parameters": [
+          {
+            "name": "industry_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Industry Name"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "description": "分析周期（天）",
+              "default": 30,
+              "title": "Days"
+            },
+            "description": "分析周期（天）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndustryTrendResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/industries/clusters": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Industry Clusters",
+        "description": "获取行业聚类分析\n\n使用 K-Means 算法将行业聚类为热门组和非热门组。",
+        "operationId": "get_industry_clusters_industry_industries_clusters_get",
+        "parameters": [
+          {
+            "name": "n_clusters",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10,
+              "minimum": 2,
+              "description": "聚类数量",
+              "default": 4,
+              "title": "N Clusters"
+            },
+            "description": "聚类数量"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClusterResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/industries/rotation": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Industry Rotation",
+        "description": "获取行业轮动对比数据\n\n比较多个行业在不同时间周期的涨跌幅表现。\n\n- **industries**: 行业名称列表，用逗号分隔（如2-5个）",
+        "operationId": "get_industry_rotation_industry_industries_rotation_get",
+        "parameters": [
+          {
+            "name": "industries",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "行业名称列表，逗号分隔",
+              "title": "Industries"
+            },
+            "description": "行业名称列表，逗号分隔"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndustryRotationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/leaders": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Leader Stocks",
+        "description": "获取龙头股推荐列表\n\n- hot (热点先锋): 使用独立的 0-100 动量评分，聚焦短期涨势与资金关注度。\n- core (核心资产): 使用 0-100 综合评分，侧重长线基本面与流动性。",
+        "operationId": "get_leader_stocks_industry_leaders_get",
+        "parameters": [
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "返回龙头股数量",
+              "default": 20,
+              "title": "Top N"
+            },
+            "description": "返回龙头股数量"
+          },
+          {
+            "name": "top_industries",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "从前N个热门行业中选取",
+              "default": 5,
+              "title": "Top Industries"
+            },
+            "description": "从前N个热门行业中选取"
+          },
+          {
+            "name": "per_industry",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "每个行业选取的龙头数量",
+              "default": 5,
+              "title": "Per Industry"
+            },
+            "description": "每个行业选取的龙头数量"
+          },
+          {
+            "name": "list_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "hot",
+                "core"
+              ],
+              "type": "string",
+              "description": "榜单类型：hot(热点先锋) 或 core(核心资产)",
+              "default": "hot",
+              "title": "List Type"
+            },
+            "description": "榜单类型：hot(热点先锋) 或 core(核心资产)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LeaderStockResponse"
+                  },
+                  "title": "Response Get Leader Stocks Industry Leaders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/leaders/{symbol}/detail": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Leader Detail",
+        "description": "获取龙头股详细分析\n\n返回指定股票的完整分析报告，包括评分详情、技术分析和历史价格。\n\n- **symbol**: 股票代码（如 \"000001\"、\"600519\"）",
+        "operationId": "get_leader_detail_industry_leaders__symbol__detail_get",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Symbol"
+            }
+          },
+          {
+            "name": "score_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "core",
+                "hot"
+              ],
+              "type": "string",
+              "description": "评分类型: core 或 hot",
+              "default": "core",
+              "title": "Score Type"
+            },
+            "description": "评分类型: core 或 hot"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaderDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/health": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Health Check",
+        "description": "行业分析模块健康检查 + 数据源状态\n\n返回当前活跃数据源、能力、连接状态等详细信息",
+        "operationId": "health_check_industry_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/summary": {
+      "post": {
+        "tags": [
+          "Events"
+        ],
+        "summary": "获取股票相关事件",
+        "description": "获取股票的事件信息，包括财报、分红和新闻",
+        "operationId": "get_events_summary_events_summary_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "summary": "Root",
+        "description": "根路径",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "健康检查"
+        ],
+        "summary": "基础健康检查",
+        "description": "基础健康检查接口",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BacktestRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters",
+            "default": {}
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 10000
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "strategy"
+        ],
+        "title": "BacktestRequest"
+      },
+      "BacktestResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "BacktestResponse"
+      },
+      "Body_optimize_portfolio_optimization_optimize_post": {
+        "properties": {
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Symbols"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period",
+            "default": "1y"
+          },
+          "objective": {
+            "type": "string",
+            "title": "Objective",
+            "default": "max_sharpe"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbols"
+        ],
+        "title": "Body_optimize_portfolio_optimization_optimize_post"
+      },
+      "ClusterResponse": {
+        "properties": {
+          "clusters": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Clusters",
+            "description": "各簇行业列表"
+          },
+          "hot_cluster": {
+            "type": "integer",
+            "title": "Hot Cluster",
+            "description": "热门簇索引",
+            "default": -1
+          },
+          "cluster_stats": {
+            "additionalProperties": {
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Cluster Stats",
+            "description": "各簇统计"
+          },
+          "points": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Points",
+            "description": "聚类散点数据"
+          }
+        },
+        "type": "object",
+        "title": "ClusterResponse",
+        "description": "聚类分析响应"
+      },
+      "CorrelationRequest": {
+        "properties": {
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Symbols"
+          },
+          "period_days": {
+            "type": "integer",
+            "title": "Period Days",
+            "default": 90
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbols"
+        ],
+        "title": "CorrelationRequest"
+      },
+      "EventRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "EventRequest"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HeatmapDataItem": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "行业名称"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value",
+            "description": "涨跌幅"
+          },
+          "size": {
+            "type": "number",
+            "title": "Size",
+            "description": "市值/成交额",
+            "default": 0
+          },
+          "stockCount": {
+            "type": "integer",
+            "title": "Stockcount",
+            "description": "成分股数量",
+            "default": 0
+          },
+          "moneyFlow": {
+            "type": "number",
+            "title": "Moneyflow",
+            "description": "资金流向",
+            "default": 0
+          },
+          "turnoverRate": {
+            "type": "number",
+            "title": "Turnoverrate",
+            "description": "换手率",
+            "default": 0
+          },
+          "industryVolatility": {
+            "type": "number",
+            "title": "Industryvolatility",
+            "description": "行业区间波动率(%)",
+            "default": 0
+          },
+          "industryVolatilitySource": {
+            "type": "string",
+            "title": "Industryvolatilitysource",
+            "description": "行业波动率来源: historical_index/stock_dispersion/amplitude_proxy/turnover_rate_proxy/change_proxy/unavailable",
+            "default": "unavailable"
+          },
+          "netInflowRatio": {
+            "type": "number",
+            "title": "Netinflowratio",
+            "description": "主力净流入占比",
+            "default": 0
+          },
+          "leadingStock": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leadingstock",
+            "description": "领涨股"
+          },
+          "sizeSource": {
+            "type": "string",
+            "title": "Sizesource",
+            "description": "热力图尺寸口径: live/snapshot/proxy/estimated，与 marketCapSource 类别保持一致",
+            "default": "estimated"
+          },
+          "marketCapSource": {
+            "type": "string",
+            "title": "Marketcapsource",
+            "description": "行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*",
+            "default": "unknown"
+          },
+          "marketCapSnapshotAgeHours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Marketcapsnapshotagehours",
+            "description": "快照市值距今小时数，仅 snapshot_* 来源时存在"
+          },
+          "marketCapSnapshotIsStale": {
+            "type": "boolean",
+            "title": "Marketcapsnapshotisstale",
+            "description": "快照市值是否超过新鲜度阈值",
+            "default": false
+          },
+          "valuationSource": {
+            "type": "string",
+            "title": "Valuationsource",
+            "description": "估值来源: akshare_sw/tencent_leader_proxy/unavailable",
+            "default": "unavailable"
+          },
+          "valuationQuality": {
+            "type": "string",
+            "title": "Valuationquality",
+            "description": "估值质量: industry_level/leader_proxy/unavailable",
+            "default": "unavailable"
+          },
+          "dataSources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Datasources",
+            "description": "该行业记录使用到的数据源"
+          },
+          "industryIndex": {
+            "type": "number",
+            "title": "Industryindex",
+            "description": "行业指数点位",
+            "default": 0
+          },
+          "totalInflow": {
+            "type": "number",
+            "title": "Totalinflow",
+            "description": "总流入资金（亿元）",
+            "default": 0
+          },
+          "totalOutflow": {
+            "type": "number",
+            "title": "Totaloutflow",
+            "description": "总流出资金（亿元）",
+            "default": 0
+          },
+          "leadingStockChange": {
+            "type": "number",
+            "title": "Leadingstockchange",
+            "description": "领涨股涨跌幅（%），1日特有",
+            "default": 0
+          },
+          "leadingStockPrice": {
+            "type": "number",
+            "title": "Leadingstockprice",
+            "description": "领涨股当前股价（元），1日特有",
+            "default": 0
+          },
+          "pe_ttm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pe Ttm",
+            "description": "滚动市盈率(PE TTM)"
+          },
+          "pb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pb",
+            "description": "市净率(PB)"
+          },
+          "dividend_yield": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dividend Yield",
+            "description": "静态股息率(%)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "value"
+        ],
+        "title": "HeatmapDataItem",
+        "description": "热力图数据项"
+      },
+      "HeatmapResponse": {
+        "properties": {
+          "industries": {
+            "items": {
+              "$ref": "#/components/schemas/HeatmapDataItem"
+            },
+            "type": "array",
+            "title": "Industries",
+            "description": "行业数据"
+          },
+          "max_value": {
+            "type": "number",
+            "title": "Max Value",
+            "description": "最大值",
+            "default": 0
+          },
+          "min_value": {
+            "type": "number",
+            "title": "Min Value",
+            "description": "最小值",
+            "default": 0
+          },
+          "update_time": {
+            "type": "string",
+            "title": "Update Time",
+            "description": "更新时间"
+          }
+        },
+        "type": "object",
+        "required": [
+          "update_time"
+        ],
+        "title": "HeatmapResponse",
+        "description": "热力图响应"
+      },
+      "IndustryRankResponse": {
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "title": "Rank",
+            "description": "排名"
+          },
+          "industry_name": {
+            "type": "string",
+            "title": "Industry Name",
+            "description": "行业名称"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "综合得分"
+          },
+          "momentum": {
+            "type": "number",
+            "title": "Momentum",
+            "description": "动量指标",
+            "default": 0
+          },
+          "change_pct": {
+            "type": "number",
+            "title": "Change Pct",
+            "description": "涨跌幅",
+            "default": 0
+          },
+          "money_flow": {
+            "type": "number",
+            "title": "Money Flow",
+            "description": "资金流向",
+            "default": 0
+          },
+          "flow_strength": {
+            "type": "number",
+            "title": "Flow Strength",
+            "description": "资金强度",
+            "default": 0
+          },
+          "industryVolatility": {
+            "type": "number",
+            "title": "Industryvolatility",
+            "description": "行业区间波动率(%)",
+            "default": 0
+          },
+          "industryVolatilitySource": {
+            "type": "string",
+            "title": "Industryvolatilitysource",
+            "description": "行业波动率来源: historical_index/stock_dispersion/amplitude_proxy/turnover_rate_proxy/change_proxy/unavailable",
+            "default": "unavailable"
+          },
+          "stock_count": {
+            "type": "integer",
+            "title": "Stock Count",
+            "description": "成分股数量",
+            "default": 0
+          },
+          "total_market_cap": {
+            "type": "number",
+            "title": "Total Market Cap",
+            "description": "总市值",
+            "default": 0
+          },
+          "marketCapSource": {
+            "type": "string",
+            "title": "Marketcapsource",
+            "description": "行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*",
+            "default": "unknown"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rank",
+          "industry_name",
+          "score"
+        ],
+        "title": "IndustryRankResponse",
+        "description": "行业排名响应"
+      },
+      "IndustryRotationResponse": {
+        "properties": {
+          "industries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Industries",
+            "description": "对比行业列表"
+          },
+          "periods": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Periods",
+            "description": "统计周期"
+          },
+          "data": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Data",
+            "description": "轮动数据"
+          },
+          "update_time": {
+            "type": "string",
+            "title": "Update Time",
+            "description": "更新时间"
+          }
+        },
+        "type": "object",
+        "required": [
+          "update_time"
+        ],
+        "title": "IndustryRotationResponse",
+        "description": "行业轮动对比响应"
+      },
+      "IndustryTrendResponse": {
+        "properties": {
+          "industry_name": {
+            "type": "string",
+            "title": "Industry Name",
+            "description": "行业名称"
+          },
+          "stock_count": {
+            "type": "integer",
+            "title": "Stock Count",
+            "description": "成分股数量",
+            "default": 0
+          },
+          "total_market_cap": {
+            "type": "number",
+            "title": "Total Market Cap",
+            "description": "总市值",
+            "default": 0
+          },
+          "avg_pe": {
+            "type": "number",
+            "title": "Avg Pe",
+            "description": "平均市盈率",
+            "default": 0
+          },
+          "industry_volatility": {
+            "type": "number",
+            "title": "Industry Volatility",
+            "description": "行业区间波动率(%)",
+            "default": 0
+          },
+          "industry_volatility_source": {
+            "type": "string",
+            "title": "Industry Volatility Source",
+            "description": "行业波动率来源",
+            "default": "unavailable"
+          },
+          "period_days": {
+            "type": "integer",
+            "title": "Period Days",
+            "description": "周期天数",
+            "default": 30
+          },
+          "period_change_pct": {
+            "type": "number",
+            "title": "Period Change Pct",
+            "description": "周期内行业涨跌幅",
+            "default": 0
+          },
+          "period_money_flow": {
+            "type": "number",
+            "title": "Period Money Flow",
+            "description": "周期内资金流向",
+            "default": 0
+          },
+          "top_gainers": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Top Gainers",
+            "description": "涨幅前5"
+          },
+          "top_losers": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Top Losers",
+            "description": "跌幅前5"
+          },
+          "rise_count": {
+            "type": "integer",
+            "title": "Rise Count",
+            "description": "上涨股票数",
+            "default": 0
+          },
+          "fall_count": {
+            "type": "integer",
+            "title": "Fall Count",
+            "description": "下跌股票数",
+            "default": 0
+          },
+          "flat_count": {
+            "type": "integer",
+            "title": "Flat Count",
+            "description": "平盘股票数",
+            "default": 0
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "description": "是否为降级数据",
+            "default": false
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "降级或补充说明"
+          },
+          "update_time": {
+            "type": "string",
+            "title": "Update Time",
+            "description": "更新时间"
+          }
+        },
+        "type": "object",
+        "required": [
+          "industry_name",
+          "update_time"
+        ],
+        "title": "IndustryTrendResponse",
+        "description": "行业趋势响应"
+      },
+      "LeaderDetailResponse": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol",
+            "description": "股票代码"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "股票名称",
+            "default": ""
+          },
+          "total_score": {
+            "type": "number",
+            "title": "Total Score",
+            "description": "综合得分",
+            "default": 0
+          },
+          "score_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score Type",
+            "description": "评分类型: core(综合评分) 或 hot(动量评分)"
+          },
+          "dimension_scores": {
+            "type": "object",
+            "title": "Dimension Scores",
+            "description": "各维度得分"
+          },
+          "raw_data": {
+            "type": "object",
+            "title": "Raw Data",
+            "description": "原始数据"
+          },
+          "technical_analysis": {
+            "type": "object",
+            "title": "Technical Analysis",
+            "description": "技术分析"
+          },
+          "price_data": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Price Data",
+            "description": "价格数据"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "LeaderDetailResponse",
+        "description": "龙头股详细信息响应"
+      },
+      "LeaderStockResponse": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol",
+            "description": "股票代码"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "股票名称",
+            "default": ""
+          },
+          "industry": {
+            "type": "string",
+            "title": "Industry",
+            "description": "所属行业",
+            "default": ""
+          },
+          "score_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Score Type",
+            "description": "评分类型: core(综合评分) 或 hot(动量评分)"
+          },
+          "global_rank": {
+            "type": "integer",
+            "title": "Global Rank",
+            "description": "全局排名",
+            "default": 0
+          },
+          "industry_rank": {
+            "type": "integer",
+            "title": "Industry Rank",
+            "description": "行业内排名",
+            "default": 0
+          },
+          "total_score": {
+            "type": "number",
+            "title": "Total Score",
+            "description": "综合得分",
+            "default": 0
+          },
+          "market_cap": {
+            "type": "number",
+            "title": "Market Cap",
+            "description": "市值",
+            "default": 0
+          },
+          "pe_ratio": {
+            "type": "number",
+            "title": "Pe Ratio",
+            "description": "市盈率",
+            "default": 0
+          },
+          "change_pct": {
+            "type": "number",
+            "title": "Change Pct",
+            "description": "涨跌幅",
+            "default": 0
+          },
+          "dimension_scores": {
+            "type": "object",
+            "title": "Dimension Scores",
+            "description": "各维度得分"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "LeaderStockResponse",
+        "description": "龙头股推荐响应"
+      },
+      "MarketDataRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "interval": {
+            "type": "string",
+            "title": "Interval",
+            "default": "1d"
+          },
+          "period": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Period"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "MarketDataRequest"
+      },
+      "ReportRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "backtest_result": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backtest Result"
+          },
+          "parameters": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "strategy"
+        ],
+        "title": "ReportRequest",
+        "description": "报告生成请求"
+      },
+      "StockResponse": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol",
+            "description": "股票代码"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "股票名称",
+            "default": ""
+          },
+          "rank": {
+            "type": "integer",
+            "title": "Rank",
+            "description": "行业内排名",
+            "default": 0
+          },
+          "total_score": {
+            "type": "number",
+            "title": "Total Score",
+            "description": "综合得分",
+            "default": 0
+          },
+          "scoreStage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorestage",
+            "description": "评分阶段: quick(快速评分) 或 full(完整评分)"
+          },
+          "market_cap": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Market Cap",
+            "description": "市值"
+          },
+          "pe_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pe Ratio",
+            "description": "市盈率"
+          },
+          "change_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Pct",
+            "description": "涨跌幅"
+          },
+          "industry": {
+            "type": "string",
+            "title": "Industry",
+            "description": "所属行业",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "StockResponse",
+        "description": "股票信息响应"
+      },
+      "StrategyInfo": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "parameters"
+        ],
+        "title": "StrategyInfo"
+      },
+      "SubscriptionRequest": {
+        "properties": {
+          "symbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Symbols"
+          }
+        },
+        "type": "object",
+        "title": "SubscriptionRequest",
+        "description": "兼容层订阅请求。"
+      },
+      "TradeRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "quantity": {
+            "type": "integer",
+            "title": "Quantity"
+          },
+          "price": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "action",
+          "quantity"
+        ],
+        "title": "TradeRequest"
+      },
+      "TrendAnalysisRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "interval": {
+            "type": "string",
+            "title": "Interval",
+            "default": "1d"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "TrendAnalysisRequest"
+      },
+      "TrendAnalysisResponse": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "trend": {
+            "type": "string",
+            "title": "Trend"
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "support_levels": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Support Levels"
+          },
+          "resistance_levels": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Resistance Levels"
+          },
+          "indicators": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Indicators"
+          },
+          "trend_details": {
+            "type": "object",
+            "title": "Trend Details"
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp"
+          },
+          "multi_timeframe": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Multi Timeframe"
+          },
+          "trend_strength": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trend Strength"
+          },
+          "signal_strength": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signal Strength"
+          },
+          "momentum": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Momentum"
+          },
+          "volatility": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volatility"
+          },
+          "fibonacci_levels": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fibonacci Levels"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "trend",
+          "score",
+          "support_levels",
+          "resistance_levels",
+          "indicators",
+          "trend_details",
+          "timestamp"
+        ],
+        "title": "TrendAnalysisResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
