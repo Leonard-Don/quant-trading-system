@@ -55,10 +55,11 @@ htmlcov/
 .dmypy.json
 dmypy.json
 
-# Logs
-logs/*.log
+# Logs & runtime files
+logs/
 *.log
 *.log.*
+*.pid
 
 # Cache (all runtime cache files)
 cache/
