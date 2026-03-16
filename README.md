@@ -54,7 +54,7 @@
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/your-username/quant-trading-system.git
+git clone https://github.com/Leonard-Don/quant-trading-system.git
 cd quant-trading-system
 
 # 2. 配置环境变量
