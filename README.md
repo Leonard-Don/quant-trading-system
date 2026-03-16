@@ -20,6 +20,8 @@
 
 > 当前不提供公开在线 Demo。请在本地同时启动后端和前端后体验完整功能。
 
+![产品预览](docs/screenshots/product-tour.gif)
+
 ### 30 秒体验
 
 ```bash
