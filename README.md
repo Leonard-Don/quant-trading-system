@@ -2,7 +2,7 @@
 
 # 🚀 量化交易系统
 
-**一个现代化、功能完整的量化交易研究平台**
+**一个基于 FastAPI + React 的现代量化交易研究与可视化分析平台**
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
@@ -10,9 +10,34 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
 
-[功能特性](#-功能特性) · [快速开始](#-快速开始) · [系统架构](#-系统架构) · [可用策略](#-可用策略) · [API 文档](#-api-文档) · [路线图](#-路线图)
+[界面预览](#-界面预览) · [功能特性](#-功能特性) · [快速开始](#-快速开始) · [部署说明](docs/DEPLOYMENT.md) · [API 文档](#-api-文档) · [路线图](#-路线图)
 
 </div>
+
+---
+
+## 👀 界面预览
+
+### 行业热度总览
+
+![行业热度总览](docs/screenshots/industry-ranking-overview.png)
+
+### 行业热力图交互
+
+![行业热力图交互](docs/screenshots/industry-heatmap-overview.png)
+
+### 龙头股详情分析
+
+![龙头股详情分析](docs/screenshots/leader-stock-detail.png)
+
+---
+
+## 🌟 项目亮点
+
+- **研究到展示一体化**：从策略回测、实时行情到行业热度分析，提供完整工作流
+- **数据可视化友好**：支持热力图、排行榜、详情弹窗等多种交易分析视图
+- **前后端分离架构**：FastAPI 后端 + React 前端，便于独立开发与部署
+- **可扩展策略框架**：内置 13 种策略，适合继续扩展和实验
 
 ---
 
