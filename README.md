@@ -10,9 +10,36 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
 
-[界面预览](#-界面预览) · [功能特性](#-功能特性) · [快速开始](#-快速开始) · [部署说明](docs/DEPLOYMENT.md) · [API 文档](#-api-文档) · [路线图](#-路线图)
+[本地体验](#-本地体验) · [界面预览](#-界面预览) · [功能特性](#-功能特性) · [快速开始](#-快速开始) · [部署说明](docs/DEPLOYMENT.md) · [API 文档](#-api-文档)
 
 </div>
+
+---
+
+## 🧭 本地体验
+
+> 当前不提供公开在线 Demo。请在本地同时启动后端和前端后体验完整功能。
+
+### 30 秒体验
+
+```bash
+git clone https://github.com/Leonard-Don/quant-trading-system.git
+cd quant-trading-system
+./scripts/start_system.sh
+```
+
+启动后可直接访问：
+
+- **前端首页**：http://localhost:3000
+- **行业热度页**：http://localhost:3000?view=industry
+- **实时行情页**：http://localhost:3000?view=realtime
+- **Swagger API 文档**：http://localhost:8000/docs
+
+### 适合 GitHub 访客的体验路径
+
+1. 打开行业热度页，先看热力图和排行榜
+2. 点击龙头股推荐或详情弹窗，查看多维指标分析
+3. 打开 Swagger UI，查看后端接口结构
 
 ---
 
@@ -82,16 +109,13 @@
 git clone https://github.com/Leonard-Don/quant-trading-system.git
 cd quant-trading-system
 
-# 2. 配置环境变量
-cp .env.example .env
-# 根据需要编辑 .env（默认配置开箱即用）
-
-# 3. 安装依赖并启动
+# 2. 安装依赖并启动
 ./scripts/start_system.sh
 ```
 
 启动后访问：
 - 前端界面：http://localhost:3000
+- 行业热度：http://localhost:3000?view=industry
 - API 文档：http://localhost:8000/docs
 
 ### 分步启动（开发调试）
