@@ -1,0 +1,147 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+.idea_modules/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pytest
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Logs
+logs/*.log
+*.log
+*.log.*
+
+# Cache (all runtime cache files)
+cache/
+*.cache
+.cache/
+
+# Metrics and Reports (keep directory structure)
+metrics/*.json
+metrics/*.csv
+reports/*.json
+reports/*.html
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Node.js / React
+frontend/node_modules/
+frontend/build/
+frontend/.pnp
+frontend/.pnp.js
+frontend/coverage/
+
+# npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+.#*
+
+# Test outputs
+test-results/
+test-reports/
+tests/e2e/node_modules/
+.playwright-cli/
+
+# Data
+data/
+
+# Output / Reports / Metrics (runtime generated)
+output/
+reports/
+metrics/
+profiles/
+backups/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Frontend environment
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# Secrets / credentials
+secrets/
+*.pem
+*.key
+*.cert
+
+# IDE
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+.directory
+.Trash-*

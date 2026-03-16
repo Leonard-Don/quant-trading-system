@@ -1,0 +1,48 @@
+{
+  "name": "quantitative-trading-frontend",
+  "version": "3.2.0",
+  "description": "量化交易系统前端",
+  "private": true,
+  "dependencies": {
+    "@ant-design/icons": "^5.1.4",
+    "@testing-library/jest-dom": "^5.16.4",
+    "@testing-library/react": "^13.3.0",
+    "@testing-library/user-event": "^13.5.0",
+    "antd": "^5.7.0",
+    "axios": "^1.4.0",
+    "jspdf": "^3.0.4",
+    "jspdf-autotable": "^5.0.2",
+    "lightweight-charts": "^5.1.0",
+    "lodash": "^4.17.21",
+    "moment": "^2.29.4",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-scripts": "5.0.1",
+    "recharts": "^2.7.2"
+  },
+  "scripts": {
+    "start": "react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject"
+  },
+  "eslintConfig": {
+    "extends": [
+      "react-app",
+      "react-app/jest"
+    ]
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
+  },
+  "proxy": "http://localhost:8000"
+}

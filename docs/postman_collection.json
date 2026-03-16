@@ -1,0 +1,1577 @@
+{
+  "info": {
+    "name": "量化交易系统API",
+    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.2.0\n    - **API版本**: v1\n    - **最后更新**: 2025-12-24\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
+    "schema": "https: //schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "获取市场数据",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/market-data/",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "market-data"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "搜索股票代码",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/market-data/search",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "market-data",
+            "search"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取所有可用策略",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/strategies/",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "strategies"
+          ]
+        }
+      }
+    },
+    {
+      "name": "运行策略回测",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "比较多个策略的性能",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/compare",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "compare"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取回测历史记录",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/history",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "history"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取回测历史统计",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/history/stats",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "history",
+            "stats"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取特定回测记录",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/history/{record_id}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "history",
+            "{record_id}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "删除回测记录",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/history/{record_id}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "history",
+            "{record_id}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "生成回测报告 PDF",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/report",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "report"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "生成回测报告 (Base64)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/report/base64",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "report",
+            "base64"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "系统状态检查",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/system/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "system",
+            "status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取性能指标概览",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/system/performance",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "system",
+            "performance"
+          ]
+        }
+      }
+    },
+    {
+      "name": "综合健康检查",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/system/health-check",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "system",
+            "health-check"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取详细性能指标",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/system/metrics",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "system",
+            "metrics"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取告警摘要",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/system/alerts/summary",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "system",
+            "alerts",
+            "summary"
+          ]
+        }
+      }
+    },
+    {
+      "name": "解决告警",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/system/alerts/{alert_index}/resolve",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "system",
+            "alerts",
+            "{alert_index}",
+            "resolve"
+          ]
+        }
+      }
+    },
+    {
+      "name": "依赖项连通性检查",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/system/dependencies",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "system",
+            "dependencies"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取实时报价",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/quote/{symbol}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "quote",
+            "{symbol}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "批量获取实时报价",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/quotes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "quotes"
+          ]
+        }
+      }
+    },
+    {
+      "name": "兼容层：确认订阅请求",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/subscribe",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "subscribe"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "兼容层：确认取消订阅请求",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/unsubscribe",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "unsubscribe"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "分析股票趋势",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/analyze",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "analyze"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "综合分析",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/comprehensive",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "comprehensive"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "分析总览",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/overview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "overview"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "基本面分析",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/fundamental",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "fundamental"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "K线数据",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/klines",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "klines"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "量价分析",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/volume-price",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "volume-price"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "市场情绪分析",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/sentiment",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "sentiment"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "形态识别",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/patterns",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "patterns"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "AI价格预测",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/prediction",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "prediction"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "多股票相关性分析",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/correlation",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "correlation"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "获取可用模型列表",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/models",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "models"
+          ]
+        }
+      }
+    },
+    {
+      "name": "多模型预测对比",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/prediction/compare",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "prediction",
+            "compare"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "LSTM 模型预测",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/prediction/lstm",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "prediction",
+            "lstm"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "训练所有模型",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/train/all",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "train",
+            "all"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "技术指标快照",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/technical-indicators",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "technical-indicators"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "历史情绪趋势",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/sentiment-history",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "sentiment-history"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "行业对比分析",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/industry-comparison",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "industry-comparison"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "风险评估增强",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/risk-metrics",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "risk-metrics"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "投资组合优化",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/optimization/optimize",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "optimization",
+            "optimize"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "获取投资组合状态",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/trade/portfolio",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "trade",
+            "portfolio"
+          ]
+        }
+      }
+    },
+    {
+      "name": "执行交易",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/trade/execute",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "trade",
+            "execute"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "获取交易历史",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/trade/history",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "trade",
+            "history"
+          ]
+        }
+      }
+    },
+    {
+      "name": "重置账户",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/trade/reset",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "trade",
+            "reset"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Hot Industries",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/industries/hot",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "industries",
+            "hot"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Industry Stocks",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/industries/{industry_name}/stocks",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "industries",
+            "{industry_name}",
+            "stocks"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Industry Heatmap",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/industries/heatmap",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "industries",
+            "heatmap"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Industry Trend",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/industries/{industry_name}/trend",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "industries",
+            "{industry_name}",
+            "trend"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Industry Clusters",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/industries/clusters",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "industries",
+            "clusters"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Industry Rotation",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/industries/rotation",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "industries",
+            "rotation"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Leader Stocks",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/leaders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "leaders"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Leader Detail",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/leaders/{symbol}/detail",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "leaders",
+            "{symbol}",
+            "detail"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "health"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取股票相关事件",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/events/summary",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "events",
+            "summary"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Root",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            ""
+          ]
+        }
+      }
+    },
+    {
+      "name": "基础健康检查",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        }
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http: //localhost: 8000",
+      "type": "string"
+    }
+  ]
+}
