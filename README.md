@@ -5,6 +5,8 @@
 **一个基于 FastAPI + React 的量化研究、宏观错误定价、资产定价研究与跨市场回测平台**  
 *An institutional-grade quantitative research framework featuring macro mispricing arbitrage, alternative data pipelines, and advanced asset pricing models.*
 
+**当前版本：`v3.4.0`**
+
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-18+-61DAFB?style=flat-square&logo=react)](https://reactjs.org)
@@ -42,6 +44,7 @@ cd quant-trading-system
 - **定价研究页**：http://localhost:3000?view=pricing
 - **上帝视角大屏**：http://localhost:3000?view=godsEye
 - **跨市场回测页**：http://localhost:3000?view=backtest&tab=cross-market
+- **研究工作台**：http://localhost:3000?view=workbench
 - **Swagger API 文档**：http://localhost:8000/docs
 
 ### 适合 GitHub 访客的体验路径
@@ -56,7 +59,7 @@ cd quant-trading-system
 
 ## 🎯 核心工作流
 
-这个项目当前最有代表性的三条工作流是：
+这个项目当前最有代表性的四条工作流是：
 
 1. **定价研究工作流**  
    用 `CAPM / Fama-French` 因子模型 + `DCF / 可比估值` 做统一分析，输出资产的公允价值区间、定价偏差和偏差驱动因素。
@@ -66,6 +69,9 @@ cd quant-trading-system
 
 3. **跨市场 long/short 工作流**  
    对多头篮子和空头篮子做跨市场回测，支持 `equal_weight` 和 `ols_hedge` 两种构造方式，并输出对齐诊断、换手率、成本拖累和 hedge ratio。
+
+4. **研究工作台工作流**  
+   把 GodEye、定价研究和跨市场回测中的研究线索保存成任务卡，在独立工作台中持续跟踪、更新状态并重新打开原始研究页。
 
 ---
 
@@ -91,6 +97,7 @@ cd quant-trading-system
 - **定价研究闭环**：支持因子模型、估值模型和定价偏差分析的统一入口
 - **宏观错误定价工作流**：已接入另类数据、宏观因子和上帝视角作战大屏
 - **跨市场组合回测**：支持 long/short 篮子、模板驱动配置和带诊断的回测结果
+- **研究工作台**：支持保存 research playbook、任务状态流转和从工作台重开研究页
 - **数据可视化友好**：支持热力图、排行榜、详情弹窗、诊断卡片等多种研究视图
 - **前后端分离架构**：FastAPI 后端 + React 前端，便于独立开发与部署
 
@@ -123,6 +130,7 @@ cd quant-trading-system
 - **另类数据管线** — 政策雷达、产业链信号、宏观高频信号统一纳管
 - **宏观因子库** — 官僚摩擦、技术稀释、基荷错配等错误定价因子
 - **GodEye Dashboard** — 面向研究与演示的宏观作战总览页
+- **Research Workbench** — 独立菜单页，用于保存、追踪与重开研究任务
 
 ### 💵 资产定价研究
 - **CAPM 分析** — 输出 Alpha、Beta、R² 和特质风险
@@ -163,6 +171,7 @@ cd quant-trading-system
 - 定价研究：http://localhost:3000?view=pricing
 - 上帝视角：http://localhost:3000?view=godsEye
 - 跨市场回测：http://localhost:3000?view=backtest&tab=cross-market
+- 研究工作台：http://localhost:3000?view=workbench
 - API 文档：http://localhost:8000/docs
 
 ### 分步启动（开发调试）
@@ -255,6 +264,10 @@ quant-trading-system/
 - `POST /pricing/valuation`：DCF + 可比估值分析
 - `POST /pricing/gap-analysis`：定价偏差综合分析
 - `GET /pricing/benchmark-factors`：近期市场因子快照
+- `GET /research-workbench/tasks`：获取研究工作台任务列表
+- `POST /research-workbench/tasks`：保存研究任务卡
+- `PUT /research-workbench/tasks/{task_id}`：更新任务状态与快照
+- `GET /research-workbench/stats`：获取研究工作台统计
 
 ---
 
@@ -272,6 +285,9 @@ python scripts/run_tests.py --e2e-industry
 
 # 跨市场与定价研究的定向测试
 python3 -m pytest tests/unit/test_cross_market_backtester.py tests/unit/test_cross_market_endpoint.py tests/unit/test_asset_pricing.py -q
+
+# 研究工作台定向测试
+python3 -m pytest tests/unit/test_research_workbench.py tests/unit/test_research_workbench_endpoint.py -q
 ```
 
 ---
@@ -289,6 +305,8 @@ python3 -m pytest tests/unit/test_cross_market_backtester.py tests/unit/test_cro
 - [x] 资产定价研究工作流（CAPM / FF3 / DCF / Gap Analysis）
 - [x] 跨市场 long/short 回测 MVP
 - [x] 跨市场回测真实度诊断（对齐 / turnover / cost drag / OLS hedge）
+- [x] 研究剧本（Pricing / Cross-Market）
+- [x] 研究工作台（任务持久化 / 状态流转 / 重开研究页）
 - [ ] 实盘交易接口对接
 - [ ] 多用户 / SaaS 版本
 - [ ] 移动端适配
