@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Col, Empty, Row, Statistic, Table, Tag, Typography } from 'antd';
+import { Button, Card, Col, Empty, Row, Statistic, Table, Tag, Typography } from 'antd';
 
 const { Text } = Typography;
 
@@ -9,7 +9,7 @@ const signalColor = {
   '-1': 'green',
 };
 
-function MacroFactorPanel({ model = {} }) {
+function MacroFactorPanel({ model = {}, onNavigate }) {
   const topFactors = model.topFactors || [];
   const factors = model.factors || [];
   const providerHealth = model.providerHealth || {};
@@ -52,6 +52,11 @@ function MacroFactorPanel({ model = {} }) {
                   <div style={{ marginTop: 8 }}>
                     <Text type="secondary">confidence {Number(factor.confidence || 0).toFixed(2)}</Text>
                   </div>
+                  {factor.action ? (
+                    <Button size="small" style={{ marginTop: 12 }} onClick={() => onNavigate?.(factor.action)}>
+                      {factor.action.label}
+                    </Button>
+                  ) : null}
                 </div>
               </Col>
             ))}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Empty, Space, Tag, Typography } from 'antd';
+import { Button, Card, Empty, Space, Tag, Typography } from 'antd';
 import {
   PolarAngleAxis,
   PolarGrid,
@@ -20,7 +20,7 @@ const signalColor = {
   '-1': 'green',
 };
 
-function RiskPremiumRadar({ data = [], macroScore = 0, confidence = 0, macroSignal = 0 }) {
+function RiskPremiumRadar({ data = [], macroScore = 0, confidence = 0, macroSignal = 0, primaryAction = null, onNavigate }) {
   return (
     <Card
       title="Risk Premium Radar"
@@ -54,7 +54,14 @@ function RiskPremiumRadar({ data = [], macroScore = 0, confidence = 0, macroSign
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
             <Text type="secondary">综合错价分数 {Number(macroScore || 0).toFixed(4)}</Text>
-            <Text type="secondary">因子数量 {data.length}</Text>
+            <Space>
+              <Text type="secondary">因子数量 {data.length}</Text>
+              {primaryAction ? (
+                <Button size="small" type="primary" onClick={() => onNavigate?.(primaryAction)}>
+                  {primaryAction.label}
+                </Button>
+              ) : null}
+            </Space>
           </div>
         </>
       ) : (
