@@ -1,8 +1,8 @@
 <div align="center">
 
-# 🚀 量化交易系统
+# 量化交易系统
 
-**一个基于 FastAPI + React 的量化研究、宏观错误定价分析与跨市场回测平台**
+**一个基于 FastAPI + React 的量化研究、宏观错误定价、资产定价研究与跨市场回测平台**
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
 
-[本地体验](#-本地体验) · [界面预览](#-界面预览) · [功能特性](#-功能特性) · [快速开始](#-快速开始) · [部署说明](docs/DEPLOYMENT.md) · [API 文档](#-api-文档)
+[本地体验](#-本地体验) · [核心工作流](#-核心工作流) · [功能特性](#-功能特性) · [快速开始](#-快速开始) · [部署说明](docs/DEPLOYMENT.md) · [API 文档](#-api-文档)
 
 </div>
 
@@ -35,6 +35,7 @@ cd quant-trading-system
 - **前端首页**：http://localhost:3000
 - **行业热度页**：http://localhost:3000?view=industry
 - **实时行情页**：http://localhost:3000?view=realtime
+- **定价研究页**：http://localhost:3000?view=pricing
 - **上帝视角大屏**：http://localhost:3000?view=godsEye
 - **跨市场回测页**：http://localhost:3000?view=backtest&tab=cross-market
 - **Swagger API 文档**：http://localhost:8000/docs
@@ -42,10 +43,25 @@ cd quant-trading-system
 ### 适合 GitHub 访客的体验路径
 
 1. 打开行业热度页，先看热力图和排行榜
-2. 点击龙头股推荐或详情弹窗，查看多维指标分析
+2. 打开定价研究页，输入 `AAPL` 或 `NVDA` 查看估值与定价偏差
 3. 打开上帝视角大屏，查看另类数据和宏观因子总览
 4. 打开跨市场回测页，加载模板并运行 long/short 组合
 5. 打开 Swagger UI，查看后端接口结构
+
+---
+
+## 🎯 核心工作流
+
+这个项目当前最有代表性的三条工作流是：
+
+1. **定价研究工作流**  
+   用 `CAPM / Fama-French` 因子模型 + `DCF / 可比估值` 做统一分析，输出资产的公允价值区间、定价偏差和偏差驱动因素。
+
+2. **宏观错误定价工作流**  
+   从政策雷达、产业链信号和宏观高频数据中提取宏观因子，在 `GodEye Dashboard` 中形成可视化总览。
+
+3. **跨市场 long/short 工作流**  
+   对多头篮子和空头篮子做跨市场回测，支持 `equal_weight` 和 `ols_hedge` 两种构造方式，并输出对齐诊断、换手率、成本拖累和 hedge ratio。
 
 ---
 
@@ -67,12 +83,12 @@ cd quant-trading-system
 
 ## 🌟 项目亮点
 
-- **研究到展示一体化**：从策略回测、实时行情到行业热度分析，提供完整工作流
-- **数据可视化友好**：支持热力图、排行榜、详情弹窗等多种交易分析视图
+- **研究主线更清晰**：从传统单市场量化工具，升级成“定价研究 + 宏观错误定价 + 跨市场回测”的统一研究平台
+- **定价研究闭环**：支持因子模型、估值模型和定价偏差分析的统一入口
 - **宏观错误定价工作流**：已接入另类数据、宏观因子和上帝视角作战大屏
-- **跨市场组合回测**：支持 long/short 篮子、模板驱动配置和诊断型回测结果
+- **跨市场组合回测**：支持 long/short 篮子、模板驱动配置和带诊断的回测结果
+- **数据可视化友好**：支持热力图、排行榜、详情弹窗、诊断卡片等多种研究视图
 - **前后端分离架构**：FastAPI 后端 + React 前端，便于独立开发与部署
-- **可扩展策略框架**：内置 13 种策略，适合继续扩展和实验
 
 ---
 
@@ -84,6 +100,7 @@ cd quant-trading-system
 - **实时报价** — 多平台数据聚合，4 平台行情整合
 - **历史数据查询** — 支持自定义周期历史行情回溯
 - **定价研究** — 提供资产定价、估值与定价偏差研究入口
+- **基准因子快照** — 支持查看近期 Fama-French 因子统计摘要
 
 ### 🧪 策略回测
 - **13 种内置策略** — 覆盖趋势、动量、均值回归等主流策略
@@ -102,6 +119,13 @@ cd quant-trading-system
 - **另类数据管线** — 政策雷达、产业链信号、宏观高频信号统一纳管
 - **宏观因子库** — 官僚摩擦、技术稀释、基荷错配等错误定价因子
 - **GodEye Dashboard** — 面向研究与演示的宏观作战总览页
+
+### 💵 资产定价研究
+- **CAPM 分析** — 输出 Alpha、Beta、R² 和特质风险
+- **Fama-French 三因子分析** — 输出市场、规模、价值因子暴露
+- **DCF 估值** — 使用两阶段现金流折现估计内在价值
+- **可比估值法** — 使用 P/E、Forward P/E、P/B 倍数构建公允价值参考
+- **Gap Analysis** — 统一输出市价、公允价值区间、定价偏差和偏差驱动因素
 
 ### 🤖 AI / ML 支持
 - **LSTM 价格预测**
@@ -132,6 +156,7 @@ cd quant-trading-system
 启动后访问：
 - 前端界面：http://localhost:3000
 - 行业热度：http://localhost:3000?view=industry
+- 定价研究：http://localhost:3000?view=pricing
 - 上帝视角：http://localhost:3000?view=godsEye
 - 跨市场回测：http://localhost:3000?view=backtest&tab=cross-market
 - API 文档：http://localhost:8000/docs
@@ -164,7 +189,7 @@ quant-trading-system/
 │       └── pages/        # 页面视图
 ├── src/              # 核心算法库
 │   ├── strategy/     # 单资产策略实现
-│   ├── analytics/    # 分析与因子模块
+│   ├── analytics/    # 分析、估值、因子与定价研究模块
 │   ├── data/         # 市场数据与另类数据
 │   ├── backtest/     # 单资产 / 跨市场回测引擎
 │   ├── trading/      # 交易与跨市场资产建模
@@ -222,6 +247,10 @@ quant-trading-system/
 - `GET /macro/overview`：宏观错误定价总览
 - `GET /cross-market/templates`：跨市场回测模板
 - `POST /cross-market/backtest`：跨市场 long/short 组合回测
+- `POST /pricing/factor-model`：资产 CAPM / FF3 因子分析
+- `POST /pricing/valuation`：DCF + 可比估值分析
+- `POST /pricing/gap-analysis`：定价偏差综合分析
+- `GET /pricing/benchmark-factors`：近期市场因子快照
 
 ---
 
@@ -236,6 +265,9 @@ python scripts/run_tests.py --integration
 
 # E2E 测试（需先启动前后端）
 python scripts/run_tests.py --e2e-industry
+
+# 跨市场与定价研究的定向测试
+python3 -m pytest tests/unit/test_cross_market_backtester.py tests/unit/test_cross_market_endpoint.py tests/unit/test_asset_pricing.py -q
 ```
 
 ---
@@ -250,6 +282,7 @@ python scripts/run_tests.py --e2e-industry
 - [x] 另类数据统一管线
 - [x] 宏观错误定价因子库
 - [x] GodEye 上帝视角大屏
+- [x] 资产定价研究工作流（CAPM / FF3 / DCF / Gap Analysis）
 - [x] 跨市场 long/short 回测 MVP
 - [x] 跨市场回测真实度诊断（对齐 / turnover / cost drag / OLS hedge）
 - [ ] 实盘交易接口对接
