@@ -2,7 +2,7 @@
 
 # 🚀 量化交易系统
 
-**一个基于 FastAPI + React 的现代量化交易研究与可视化分析平台**
+**一个基于 FastAPI + React 的量化研究、宏观错误定价分析与跨市场回测平台**
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
@@ -35,13 +35,17 @@ cd quant-trading-system
 - **前端首页**：http://localhost:3000
 - **行业热度页**：http://localhost:3000?view=industry
 - **实时行情页**：http://localhost:3000?view=realtime
+- **上帝视角大屏**：http://localhost:3000?view=godsEye
+- **跨市场回测页**：http://localhost:3000?view=backtest&tab=cross-market
 - **Swagger API 文档**：http://localhost:8000/docs
 
 ### 适合 GitHub 访客的体验路径
 
 1. 打开行业热度页，先看热力图和排行榜
 2. 点击龙头股推荐或详情弹窗，查看多维指标分析
-3. 打开 Swagger UI，查看后端接口结构
+3. 打开上帝视角大屏，查看另类数据和宏观因子总览
+4. 打开跨市场回测页，加载模板并运行 long/short 组合
+5. 打开 Swagger UI，查看后端接口结构
 
 ---
 
@@ -65,6 +69,8 @@ cd quant-trading-system
 
 - **研究到展示一体化**：从策略回测、实时行情到行业热度分析，提供完整工作流
 - **数据可视化友好**：支持热力图、排行榜、详情弹窗等多种交易分析视图
+- **宏观错误定价工作流**：已接入另类数据、宏观因子和上帝视角作战大屏
+- **跨市场组合回测**：支持 long/short 篮子、模板驱动配置和诊断型回测结果
 - **前后端分离架构**：FastAPI 后端 + React 前端，便于独立开发与部署
 - **可扩展策略框架**：内置 13 种策略，适合继续扩展和实验
 
@@ -77,17 +83,25 @@ cd quant-trading-system
 - **龙头股分析** — 多维度评分筛选各行业龙头标的
 - **实时报价** — 多平台数据聚合，4 平台行情整合
 - **历史数据查询** — 支持自定义周期历史行情回溯
+- **定价研究** — 提供资产定价、估值与定价偏差研究入口
 
 ### 🧪 策略回测
 - **13 种内置策略** — 覆盖趋势、动量、均值回归等主流策略
 - **LSTM 深度学习预测** — 基于神经网络的价格预测策略
 - **情绪分析策略** — 结合市场情绪的量化信号
 - **完整回测报告** — PDF/HTML 格式导出，含夏普率、最大回撤等指标
+- **跨市场回测** — 支持 US Stock / ETF / Commodity Futures 的 long/short 组合回测
+- **真实度诊断** — 输出数据对齐、换手、成本拖累、持仓周期和 hedge ratio 等指标
 
 ### 💼 组合管理
 - **投资组合优化** — Markowitz 均值方差优化
 - **配对交易** — 统计套利策略支持
 - **风险管理** — 仓位控制、止损止盈自动化
+
+### 🌍 宏观与另类数据
+- **另类数据管线** — 政策雷达、产业链信号、宏观高频信号统一纳管
+- **宏观因子库** — 官僚摩擦、技术稀释、基荷错配等错误定价因子
+- **GodEye Dashboard** — 面向研究与演示的宏观作战总览页
 
 ### 🤖 AI / ML 支持
 - **LSTM 价格预测**
@@ -118,6 +132,8 @@ cd quant-trading-system
 启动后访问：
 - 前端界面：http://localhost:3000
 - 行业热度：http://localhost:3000?view=industry
+- 上帝视角：http://localhost:3000?view=godsEye
+- 跨市场回测：http://localhost:3000?view=backtest&tab=cross-market
 - API 文档：http://localhost:8000/docs
 
 ### 分步启动（开发调试）
@@ -147,8 +163,11 @@ quant-trading-system/
 │       ├── components/   # 可复用组件
 │       └── pages/        # 页面视图
 ├── src/              # 核心算法库
-│   ├── strategies/   # 策略实现
-│   ├── analysis/     # 分析模块
+│   ├── strategy/     # 单资产策略实现
+│   ├── analytics/    # 分析与因子模块
+│   ├── data/         # 市场数据与另类数据
+│   ├── backtest/     # 单资产 / 跨市场回测引擎
+│   ├── trading/      # 交易与跨市场资产建模
 │   └── utils/        # 工具函数
 ├── scripts/          # 启动/管理脚本
 ├── tests/            # 单元/集成/E2E 测试
@@ -163,6 +182,7 @@ quant-trading-system/
 | 前端框架 | React 18 |
 | 数据获取 | yfinance、AKShare、BaoStock |
 | AI/ML | PyTorch (LSTM) + scikit-learn |
+| 可视化 | Ant Design + Recharts |
 | 测试 | pytest + Playwright |
 | 文档 | OpenAPI / Swagger |
 
@@ -196,6 +216,13 @@ quant-trading-system/
 - **ReDoc**：http://localhost:8000/redoc
 - **详细参考**：[docs/API_REFERENCE.md](docs/API_REFERENCE.md)
 
+### 近期新增接口
+
+- `GET /alt-data/snapshot`：另类数据作战快照
+- `GET /macro/overview`：宏观错误定价总览
+- `GET /cross-market/templates`：跨市场回测模板
+- `POST /cross-market/backtest`：跨市场 long/short 组合回测
+
 ---
 
 ## 🧪 运行测试
@@ -220,6 +247,11 @@ python scripts/run_tests.py --e2e-industry
 - [x] 行业热度 & 龙头股分析
 - [x] LSTM AI 策略
 - [x] 投资组合优化
+- [x] 另类数据统一管线
+- [x] 宏观错误定价因子库
+- [x] GodEye 上帝视角大屏
+- [x] 跨市场 long/short 回测 MVP
+- [x] 跨市场回测真实度诊断（对齐 / turnover / cost drag / OLS hedge）
 - [ ] 实盘交易接口对接
 - [ ] 多用户 / SaaS 版本
 - [ ] 移动端适配
