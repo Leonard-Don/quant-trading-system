@@ -483,4 +483,40 @@ export const runCrossMarketBacktest = async (payload) => {
   return response.data;
 };
 
+export const getResearchTasks = async (params = {}) => {
+  const search = new URLSearchParams();
+  if (params.limit) search.set('limit', String(params.limit));
+  if (params.type) search.set('type', params.type);
+  if (params.status) search.set('status', params.status);
+  if (params.source) search.set('source', params.source);
+  const query = search.toString();
+  const response = await api.get(`/research-workbench/tasks${query ? `?${query}` : ''}`);
+  return response.data;
+};
+
+export const createResearchTask = async (payload) => {
+  const response = await api.post('/research-workbench/tasks', payload);
+  return response.data;
+};
+
+export const getResearchTask = async (taskId) => {
+  const response = await api.get(`/research-workbench/tasks/${encodeURIComponent(taskId)}`);
+  return response.data;
+};
+
+export const updateResearchTask = async (taskId, payload) => {
+  const response = await api.put(`/research-workbench/tasks/${encodeURIComponent(taskId)}`, payload);
+  return response.data;
+};
+
+export const deleteResearchTask = async (taskId) => {
+  const response = await api.delete(`/research-workbench/tasks/${encodeURIComponent(taskId)}`);
+  return response.data;
+};
+
+export const getResearchTaskStats = async () => {
+  const response = await api.get('/research-workbench/stats');
+  return response.data;
+};
+
 export default api;

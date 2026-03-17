@@ -1,16 +1,16 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Card, Row, Col, Input, Button, Select, Spin, Statistic, Tag, Space,
-  Descriptions, Table, Alert, Typography, Tooltip, Divider, Empty
+  Descriptions, Table, Alert, Typography, Tooltip, Divider, Empty, message
 } from 'antd';
 import {
   SearchOutlined, FundOutlined, DollarOutlined, SwapOutlined,
   ArrowUpOutlined, ArrowDownOutlined, MinusOutlined,
   InfoCircleOutlined, ExperimentOutlined
 } from '@ant-design/icons';
-import { getGapAnalysis } from '../services/api';
+import { createResearchTask, getGapAnalysis } from '../services/api';
 import ResearchPlaybook from './research-playbook/ResearchPlaybook';
-import { buildPricingPlaybook } from './research-playbook/playbookViewModels';
+import { buildPricingPlaybook, buildPricingWorkbenchPayload } from './research-playbook/playbookViewModels';
 import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
 
 const { Title, Text, Paragraph } = Typography;
@@ -24,6 +24,7 @@ const PricingResearch = () => {
   const [symbol, setSymbol] = useState('');
   const [period, setPeriod] = useState('1y');
   const [loading, setLoading] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [researchContext, setResearchContext] = useState(readResearchContext());
@@ -81,6 +82,28 @@ const PricingResearch = () => {
     if (e.key === 'Enter') handleAnalyze();
   };
 
+  const handleSaveTask = async () => {
+    const payload = buildPricingWorkbenchPayload(
+      { ...mergedContext, period },
+      data,
+      playbook
+    );
+    if (!payload) {
+      message.error('请先输入标的后再保存到研究工作台');
+      return;
+    }
+
+    setSavingTask(true);
+    try {
+      const response = await createResearchTask(payload);
+      message.success(`已保存到研究工作台: ${response.data?.title || payload.title}`);
+    } catch (error) {
+      message.error(error.userMessage || error.message || '保存研究任务失败');
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
   return (
     <div>
       <Title level={4} style={{ marginBottom: 16 }}>
@@ -110,6 +133,8 @@ const PricingResearch = () => {
           <ResearchPlaybook
             playbook={playbook}
             onAction={(action) => navigateByResearchAction(action)}
+            onSave={handleSaveTask}
+            saving={savingTask}
           />
         </div>
       ) : null}
