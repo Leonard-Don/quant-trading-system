@@ -438,6 +438,11 @@ export const getAltDataSnapshot = async (refresh = false) => {
   return response.data;
 };
 
+export const getAltDataStatus = async () => {
+  const response = await api.get('/alt-data/status');
+  return response.data;
+};
+
 export const getAltSignals = async (params = {}) => {
   const search = new URLSearchParams();
   if (params.category) search.set('category', params.category);
@@ -445,6 +450,21 @@ export const getAltSignals = async (params = {}) => {
   if (params.refresh) search.set('refresh', 'true');
   const query = search.toString();
   const response = await api.get(`/alt-data/signals${query ? `?${query}` : ''}`);
+  return response.data;
+};
+
+export const refreshAltData = async (provider = 'all') => {
+  const response = await api.post(`/alt-data/refresh?provider=${encodeURIComponent(provider)}`);
+  return response.data;
+};
+
+export const getAltDataHistory = async (params = {}) => {
+  const search = new URLSearchParams();
+  if (params.category) search.set('category', params.category);
+  if (params.timeframe) search.set('timeframe', params.timeframe);
+  if (params.limit) search.set('limit', String(params.limit));
+  const query = search.toString();
+  const response = await api.get(`/alt-data/history${query ? `?${query}` : ''}`);
   return response.data;
 };
 
