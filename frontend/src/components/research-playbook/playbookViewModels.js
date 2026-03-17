@@ -47,6 +47,14 @@ const buildGodEyeAction = (note = '返回 GodEye 继续筛选宏观线索') => (
   note,
 });
 
+const buildHighlights = (playbook = {}, fallback = []) => {
+  const highlights = [
+    ...(playbook.warnings || []),
+    ...(fallback || []),
+  ].filter(Boolean);
+  return highlights.slice(0, 4);
+};
+
 const detectMacroCue = (texts = []) =>
   /政策|宏观|能源|电力|电网|地缘|供应|供给|库存|物流|利率|关税|算力|火电|核电/i.test(
     texts.map((item) => compactText(item)).join(' ')
@@ -407,3 +415,115 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
 };
 
 export { STATUS_LABELS };
+
+export const buildPricingWorkbenchPayload = (context = {}, pricingResult = null, playbook = null) => {
+  const symbol = String(context.symbol || pricingResult?.symbol || '').trim().toUpperCase();
+  if (!symbol) {
+    return null;
+  }
+
+  const gap = pricingResult?.gap_analysis || {};
+  const valuation = pricingResult?.valuation || {};
+  const implications = pricingResult?.implications || {};
+  const drivers = pricingResult?.deviation_drivers?.drivers || [];
+  const title = `[Pricing] ${symbol} mispricing review`;
+
+  return {
+    type: 'pricing',
+    title,
+    source: context.source || 'manual',
+    symbol,
+    template: '',
+    note: context.note || '',
+    context: {
+      view: 'pricing',
+      period: context.period || '1y',
+      source: context.source || 'manual',
+      stage: playbook?.stageLabel || (pricingResult ? '结果已生成' : '待分析'),
+      playbook_context: playbook?.context || [],
+    },
+    snapshot: {
+      headline: playbook?.headline || `${symbol} 定价研究任务`,
+      summary: playbook?.thesis || `${symbol} 的定价研究任务已保存。`,
+      highlights: buildHighlights(playbook, (implications.insights || []).slice(0, 2)),
+      payload: {
+        gap_analysis: gap,
+        fair_value: valuation?.fair_value || {},
+        implications,
+        drivers: drivers.slice(0, 3),
+      },
+    },
+  };
+};
+
+export const buildCrossMarketWorkbenchPayload = (
+  context = {},
+  template = null,
+  backtestResult = null,
+  assets = []
+) => {
+  const templateId = context.template || template?.id || '';
+  const taskLabel = template?.name || templateId || 'custom basket';
+  const title = `[CrossMarket] ${taskLabel} thesis`;
+  const safeAssets = (assets || []).map((asset) => ({
+    symbol: asset.symbol,
+    asset_class: asset.asset_class,
+    side: asset.side,
+    weight: asset.weight,
+  }));
+
+  if (!templateId && !safeAssets.length && !backtestResult) {
+    return null;
+  }
+
+  return {
+    type: 'cross_market',
+    title,
+    source: context.source || 'manual',
+    symbol: '',
+    template: templateId,
+    note: context.note || '',
+    context: {
+      view: 'backtest',
+      tab: 'cross-market',
+      source: context.source || 'manual',
+      stage: backtestResult ? '结果已生成' : '待运行',
+      construction_mode:
+        template?.construction_mode || backtestResult?.execution_diagnostics?.construction_mode || '',
+      template_name: template?.name || '',
+      assets: safeAssets,
+    },
+    snapshot: {
+      headline: `${taskLabel} 跨市场研究任务`,
+      summary: backtestResult
+        ? `${taskLabel} 已生成回测结果，可继续在工作台里跟踪。`
+        : `${taskLabel} 已保存为跨市场模板任务，等待进一步运行回测。`,
+      highlights: buildHighlights(
+        null,
+        backtestResult
+          ? [
+              `total return ${toSignedPercent(backtestResult.total_return || 0, 2)}`,
+              `sharpe ${Number(backtestResult.sharpe_ratio || 0).toFixed(2)}`,
+              `coverage ${toPercent(backtestResult.data_alignment?.tradable_day_ratio || 0, 1)}`,
+            ]
+          : [
+              template?.description || '',
+              template?.construction_mode ? `construction ${template.construction_mode}` : '',
+            ]
+      ),
+      payload: backtestResult
+        ? {
+            price_matrix_summary: backtestResult.price_matrix_summary || {},
+            data_alignment: backtestResult.data_alignment || {},
+            execution_diagnostics: backtestResult.execution_diagnostics || {},
+            total_return: backtestResult.total_return || 0,
+            sharpe_ratio: backtestResult.sharpe_ratio || 0,
+            leg_performance: backtestResult.leg_performance || {},
+          }
+        : {
+            template: template || {},
+            assets: safeAssets,
+          },
+    },
+  };
+};

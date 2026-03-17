@@ -14,6 +14,7 @@ from backend.app.api.v1.endpoints import (
     alt_data,
     macro,
     cross_market,
+    research_workbench,
 )
 
 api_router = APIRouter()
@@ -36,3 +37,8 @@ api_router.include_router(pricing.router, prefix="/pricing", tags=["Asset Pricin
 api_router.include_router(alt_data.router, prefix="/alt-data", tags=["Alternative Data"])
 api_router.include_router(macro.router, prefix="/macro", tags=["Macro Mispricing"])
 api_router.include_router(cross_market.router, prefix="/cross-market", tags=["Cross Market"])
+api_router.include_router(
+    research_workbench.router,
+    prefix="/research-workbench",
+    tags=["Research Workbench"],
+)

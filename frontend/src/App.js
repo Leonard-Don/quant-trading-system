@@ -9,7 +9,8 @@ import {
   BellOutlined,
   FireOutlined,
   FundOutlined,
-  RadarChartOutlined
+  RadarChartOutlined,
+  FolderOutlined,
 } from '@ant-design/icons';
 
 import ErrorBoundary from './components/ErrorBoundary';
@@ -29,6 +30,7 @@ const IndustryDashboard = lazy(() => import('./components/IndustryDashboard'));
 const BacktestDashboard = lazy(() => import('./components/BacktestDashboard'));
 const PricingResearch = lazy(() => import('./components/PricingResearch'));
 const GodEyeDashboard = lazy(() => import('./components/GodEyeDashboard'));
+const ResearchWorkbench = lazy(() => import('./components/ResearchWorkbench'));
 
 // 懒加载占位组件
 const LazyLoadFallback = () => (
@@ -47,7 +49,7 @@ const LazyLoadFallback = () => (
 const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
 const VIEW_QUERY_KEY = 'view';
-const VALID_VIEWS = new Set(['backtest', 'realtime', 'industry', 'alerts', 'pricing', 'godsEye']);
+const VALID_VIEWS = new Set(['backtest', 'realtime', 'industry', 'alerts', 'pricing', 'godsEye', 'workbench']);
 
 function App() {
   // Theme
@@ -167,6 +169,11 @@ function App() {
       key: 'godsEye',
       icon: <RadarChartOutlined />,
       label: '上帝视角',
+    },
+    {
+      key: 'workbench',
+      icon: <FolderOutlined />,
+      label: '研究工作台',
     }
   ];
 
@@ -186,6 +193,8 @@ function App() {
         return <Suspense fallback={<LazyLoadFallback />}><PricingResearch /></Suspense>;
       case 'godsEye':
         return <Suspense fallback={<LazyLoadFallback />}><GodEyeDashboard /></Suspense>;
+      case 'workbench':
+        return <Suspense fallback={<LazyLoadFallback />}><ResearchWorkbench /></Suspense>;
       case 'backtest':
       default:
         return (

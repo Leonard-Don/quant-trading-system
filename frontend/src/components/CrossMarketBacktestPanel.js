@@ -37,8 +37,11 @@ import {
 } from 'recharts';
 
 import ResearchPlaybook from './research-playbook/ResearchPlaybook';
-import { buildCrossMarketPlaybook } from './research-playbook/playbookViewModels';
-import { getCrossMarketTemplates, runCrossMarketBacktest } from '../services/api';
+import {
+  buildCrossMarketPlaybook,
+  buildCrossMarketWorkbenchPayload,
+} from './research-playbook/playbookViewModels';
+import { createResearchTask, getCrossMarketTemplates, runCrossMarketBacktest } from '../services/api';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
 import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
 
@@ -82,6 +85,7 @@ function CrossMarketBacktestPanel() {
   const [templates, setTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [running, setRunning] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
   const [assets, setAssets] = useState([
     createAsset('long', 0),
     createAsset('short', 0),
@@ -242,6 +246,29 @@ function CrossMarketBacktestPanel() {
     }
   };
 
+  const handleSaveTask = async () => {
+    const payload = buildCrossMarketWorkbenchPayload(
+      researchContext,
+      selectedTemplate,
+      results,
+      assets
+    );
+    if (!payload) {
+      message.error('请先载入模板或配置篮子后再保存到研究工作台');
+      return;
+    }
+
+    setSavingTask(true);
+    try {
+      const response = await createResearchTask(payload);
+      message.success(`已保存到研究工作台: ${response.data?.title || payload.title}`);
+    } catch (error) {
+      message.error(error.userMessage || error.message || '保存研究任务失败');
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
   const renderAssetSection = (title, sideAssets, side) => (
     <Card
       title={title}
@@ -347,6 +374,8 @@ function CrossMarketBacktestPanel() {
         <ResearchPlaybook
           playbook={playbook}
           onAction={(action) => navigateByResearchAction(action)}
+          onSave={handleSaveTask}
+          saving={savingTask}
         />
       ) : null}
 
