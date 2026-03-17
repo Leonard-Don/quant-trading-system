@@ -489,6 +489,7 @@ export const getResearchTasks = async (params = {}) => {
   if (params.type) search.set('type', params.type);
   if (params.status) search.set('status', params.status);
   if (params.source) search.set('source', params.source);
+  if (params.view) search.set('view', params.view);
   const query = search.toString();
   const response = await api.get(`/research-workbench/tasks${query ? `?${query}` : ''}`);
   return response.data;
@@ -528,6 +529,11 @@ export const deleteResearchTaskComment = async (taskId, commentId) => {
 
 export const addResearchTaskSnapshot = async (taskId, payload) => {
   const response = await api.post(`/research-workbench/tasks/${encodeURIComponent(taskId)}/snapshot`, payload);
+  return response.data;
+};
+
+export const reorderResearchBoard = async (payload) => {
+  const response = await api.post('/research-workbench/board/reorder', payload);
   return response.data;
 };
 

@@ -32,6 +32,7 @@ class ResearchWorkbenchStore:
         self.tasks: List[Dict[str, Any]] = []
         self._lock = threading.RLock()
         self._load_tasks()
+        self._backfill_board_orders()
 
         logger.info("ResearchWorkbenchStore initialized with %s tasks", len(self.tasks))
 
@@ -118,6 +119,7 @@ class ResearchWorkbenchStore:
         normalized["symbol"] = normalized.get("symbol", "")
         normalized["template"] = normalized.get("template", "")
         normalized["note"] = normalized.get("note", "")
+        normalized["board_order"] = int(normalized.get("board_order") or 0)
         normalized["context"] = normalized.get("context") or {}
         normalized["snapshot"] = self._normalize_snapshot(normalized.get("snapshot"))
         normalized["comments"] = [
@@ -132,6 +134,33 @@ class ResearchWorkbenchStore:
         normalized["created_at"] = normalized.get("created_at") or datetime.now().isoformat()
         normalized["updated_at"] = normalized.get("updated_at") or normalized["created_at"]
         return normalized
+
+    def _next_board_order(self, status: str) -> int:
+        same_status = [int(task.get("board_order") or 0) for task in self.tasks if task.get("status") == status]
+        return max(same_status, default=-1) + 1
+
+    def _resequence_status(self, status: str) -> None:
+        status_tasks = sorted(
+            [task for task in self.tasks if task.get("status") == status],
+            key=lambda item: (int(item.get("board_order") or 0), item.get("updated_at", "")),
+        )
+        for index, task in enumerate(status_tasks):
+            task["board_order"] = index
+
+    def _backfill_board_orders(self) -> None:
+        changed = False
+        for status in VALID_STATUSES:
+            status_tasks = sorted(
+                [task for task in self.tasks if task.get("status") == status],
+                key=lambda item: item.get("updated_at", ""),
+                reverse=True,
+            )
+            for index, task in enumerate(status_tasks):
+                if "board_order" not in task or task.get("board_order") is None:
+                    task["board_order"] = index
+                    changed = True
+        if changed:
+            self._persist()
 
     def _append_snapshot_history(
         self,
@@ -158,6 +187,11 @@ class ResearchWorkbenchStore:
             timestamp = self._now()
             task["created_at"] = timestamp
             task["updated_at"] = timestamp
+            task["board_order"] = (
+                int(payload.get("board_order"))
+                if payload.get("board_order") is not None
+                else self._next_board_order(task["status"])
+            )
             task["timeline"] = [
                 self._build_event(
                     "created",
@@ -193,6 +227,7 @@ class ResearchWorkbenchStore:
         task_type: Optional[str] = None,
         status: Optional[str] = None,
         source: Optional[str] = None,
+        view: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         with self._lock:
             filtered = list(self.tasks)
@@ -204,7 +239,16 @@ class ResearchWorkbenchStore:
             if source:
                 filtered = [task for task in filtered if task.get("source") == source]
 
-            filtered.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+            if view == "board":
+                filtered.sort(
+                    key=lambda item: (
+                        item.get("status", ""),
+                        int(item.get("board_order") or 0),
+                        item.get("updated_at", ""),
+                    )
+                )
+            else:
+                filtered.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
             return [dict(task) for task in filtered[:limit]]
 
     def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
@@ -243,9 +287,27 @@ class ResearchWorkbenchStore:
                 if "context" in updates and updates["context"] is not None and updates["context"] != task.get("context"):
                     metadata_changes.append("上下文")
 
-                for field in ["status", "title", "note", "context", "snapshot"]:
+                same_status_reordered = False
+                if (
+                    "board_order" in updates
+                    and updates["board_order"] is not None
+                    and int(updates["board_order"]) != int(task.get("board_order") or 0)
+                    and ("status" not in updates or updates.get("status") == task.get("status"))
+                ):
+                    same_status_reordered = True
+
+                for field in ["status", "title", "note", "context", "snapshot", "board_order"]:
                     if field in updates and updates[field] is not None:
                         merged[field] = updates[field]
+
+                if "status" in updates and updates["status"] is not None and updates["status"] != task.get("status"):
+                    destination_status = updates["status"]
+                    if destination_status == "archived":
+                        merged["board_order"] = int(task.get("board_order") or 0)
+                    elif updates.get("board_order") is None:
+                        merged["board_order"] = self._next_board_order(destination_status)
+                elif "board_order" not in updates or updates["board_order"] is None:
+                    merged["board_order"] = int(task.get("board_order") or 0)
 
                 if metadata_changes:
                     timeline_events.append(
@@ -270,10 +332,27 @@ class ResearchWorkbenchStore:
                         )
                     )
 
+                if same_status_reordered:
+                    timeline_events.append(
+                        self._build_event(
+                            "board_reordered",
+                            "任务顺序已调整",
+                            f"当前列内顺序调整为 {int(merged.get('board_order') or 0)}",
+                            {"board_order": int(merged.get("board_order") or 0)},
+                            created_at=now,
+                        )
+                    )
+
                 merged["timeline"] = timeline_events + list(task.get("timeline") or [])
                 merged["updated_at"] = now
                 merged = self._normalize_record(merged)
                 self.tasks[index] = merged
+                if task.get("status") != merged.get("status"):
+                    self._resequence_status(task.get("status", "new"))
+                    if merged.get("status") != "archived":
+                        self._resequence_status(merged.get("status", "new"))
+                else:
+                    self._resequence_status(merged.get("status", "new"))
                 self.tasks.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
                 self._persist()
                 return dict(merged)
@@ -387,6 +466,51 @@ class ResearchWorkbenchStore:
                 return dict(updated)
 
             return None
+
+    def reorder_board(self, items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        with self._lock:
+            by_id = {task.get("id"): task for task in self.tasks}
+            timestamp = self._now()
+
+            for item in items:
+                task = by_id.get(item.get("task_id"))
+                if not task:
+                    continue
+                next_status = item.get("status", task.get("status"))
+                next_order = int(item.get("board_order") or 0)
+                current_status = task.get("status")
+                current_order = int(task.get("board_order") or 0)
+
+                if next_status != current_status:
+                    task["timeline"] = [
+                        self._build_event(
+                            "status_changed",
+                            "任务状态已更新",
+                            f"{current_status} -> {next_status}",
+                            {"from": current_status, "to": next_status},
+                            created_at=timestamp,
+                        )
+                    ] + list(task.get("timeline") or [])
+                elif next_order != current_order:
+                    task["timeline"] = [
+                        self._build_event(
+                            "board_reordered",
+                            "任务顺序已调整",
+                            f"当前列内顺序调整为 {next_order}",
+                            {"board_order": next_order},
+                            created_at=timestamp,
+                        )
+                    ] + list(task.get("timeline") or [])
+
+                task["status"] = next_status
+                task["board_order"] = next_order
+                task["updated_at"] = timestamp
+
+            for status in VALID_STATUSES:
+                self._resequence_status(status)
+            self.tasks.sort(key=lambda item: item.get("updated_at", ""), reverse=True)
+            self._persist()
+            return [dict(task) for task in self.tasks]
 
     def get_timeline(self, task_id: str) -> Optional[List[Dict[str, Any]]]:
         with self._lock:

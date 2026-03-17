@@ -46,6 +46,7 @@ class ResearchTask(BaseModel):
     symbol: str = ""
     template: str = ""
     note: str = ""
+    board_order: int = 0
     context: Dict[str, Any] = Field(default_factory=dict)
     snapshot: ResearchTaskSnapshot = Field(default_factory=ResearchTaskSnapshot)
     comments: List[ResearchTaskComment] = Field(default_factory=list)
@@ -61,6 +62,7 @@ class ResearchTaskCreateRequest(BaseModel):
     symbol: str = ""
     template: str = ""
     note: str = ""
+    board_order: Optional[int] = None
     context: Dict[str, Any] = Field(default_factory=dict)
     snapshot: Optional[ResearchTaskSnapshot] = None
 
@@ -69,6 +71,7 @@ class ResearchTaskUpdateRequest(BaseModel):
     status: Optional[ResearchTaskStatus] = None
     title: Optional[str] = None
     note: Optional[str] = None
+    board_order: Optional[int] = None
     context: Optional[Dict[str, Any]] = None
     snapshot: Optional[ResearchTaskSnapshot] = None
 
@@ -80,6 +83,16 @@ class ResearchTaskCommentCreateRequest(BaseModel):
 
 class ResearchTaskSnapshotCreateRequest(BaseModel):
     snapshot: ResearchTaskSnapshot
+
+
+class ResearchTaskReorderItem(BaseModel):
+    task_id: str
+    status: ResearchTaskStatus
+    board_order: int = Field(ge=0)
+
+
+class ResearchWorkbenchReorderRequest(BaseModel):
+    items: List[ResearchTaskReorderItem] = Field(default_factory=list)
 
 
 class ResearchTaskListResponse(BaseModel):
