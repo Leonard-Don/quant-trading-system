@@ -36,9 +36,11 @@ import {
   YAxis,
 } from 'recharts';
 
+import ResearchPlaybook from './research-playbook/ResearchPlaybook';
+import { buildCrossMarketPlaybook } from './research-playbook/playbookViewModels';
 import { getCrossMarketTemplates, runCrossMarketBacktest } from '../services/api';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
-import { formatResearchSource, readResearchContext } from '../utils/researchContext';
+import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -95,6 +97,7 @@ function CrossMarketBacktestPanel() {
   });
   const [results, setResults] = useState(null);
   const [researchContext, setResearchContext] = useState(readResearchContext());
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const appliedTemplateRef = useRef('');
 
   useEffect(() => {
@@ -122,6 +125,25 @@ function CrossMarketBacktestPanel() {
 
   const longAssets = useMemo(() => normalizeAssets(assets, 'long'), [assets]);
   const shortAssets = useMemo(() => normalizeAssets(assets, 'short'), [assets]);
+  const selectedTemplate = useMemo(
+    () =>
+      templates.find((item) => item.id === selectedTemplateId)
+      || templates.find((item) => item.id === researchContext.template)
+      || null,
+    [templates, selectedTemplateId, researchContext.template]
+  );
+  const playbook = useMemo(
+    () =>
+      buildCrossMarketPlaybook(
+        {
+          ...researchContext,
+          template: researchContext.template || selectedTemplateId,
+        },
+        selectedTemplate,
+        results
+      ),
+    [researchContext, results, selectedTemplate, selectedTemplateId]
+  );
 
   const updateAsset = (key, field, value) => {
     setAssets((prev) =>
@@ -142,6 +164,7 @@ function CrossMarketBacktestPanel() {
     if (!template) {
       return;
     }
+    setSelectedTemplateId(template.id);
     setAssets(
       template.assets.map((asset, index) => ({
         key: `${asset.side}-${index}-${template.id}`,
@@ -311,12 +334,19 @@ function CrossMarketBacktestPanel() {
         <Alert
           type="info"
           showIcon
-          message={`已载入来自 ${formatResearchSource(researchContext.source)} 的跨市场模板`}
+          message={`已载入来自 ${formatResearchSource(researchContext.source)} 的跨市场模板 · ${playbook?.stageLabel || '待运行'}`}
           description={
             researchContext.note
               ? researchContext.note
-              : `模板 ${researchContext.template} 已自动预载，可继续编辑后再运行回测。`
+              : `模板 ${researchContext.template} 已自动预载，可继续编辑后再运行回测。当前剧本阶段为 ${playbook?.stageLabel || '待运行'}。`
           }
+        />
+      ) : null}
+
+      {playbook ? (
+        <ResearchPlaybook
+          playbook={playbook}
+          onAction={(action) => navigateByResearchAction(action)}
         />
       ) : null}
 
@@ -334,6 +364,7 @@ function CrossMarketBacktestPanel() {
               <Select
                 placeholder="载入演示模板"
                 loading={loadingTemplates}
+                value={selectedTemplateId || undefined}
                 options={templates.map((template) => ({
                   label: template.name,
                   value: template.id,
