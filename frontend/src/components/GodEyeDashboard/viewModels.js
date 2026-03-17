@@ -14,8 +14,8 @@ const SIGNAL_LABEL = {
 };
 
 const ACTION_MAP = {
-  pricing: { label: '去定价研究', target: 'pricing' },
-  cross_market: { label: '去跨市场回测', target: 'cross-market' },
+  pricing: { label: '打开定价剧本', target: 'pricing' },
+  cross_market: { label: '打开跨市场剧本', target: 'cross-market' },
   observe: { label: '继续观察', target: 'observe' },
 };
 

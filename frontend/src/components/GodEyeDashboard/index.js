@@ -220,10 +220,10 @@ function GodEyeDashboard() {
               </Paragraph>
               <Space wrap>
                 <Button type="primary" onClick={() => navigateTo('cross-market')}>
-                  前往跨市场回测
+                  打开跨市场剧本
                 </Button>
                 <Button onClick={() => navigateTo('pricing')}>
-                  前往定价研究
+                  打开定价剧本
                 </Button>
               </Space>
             </Space>

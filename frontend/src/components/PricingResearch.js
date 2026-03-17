@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   Card, Row, Col, Input, Button, Select, Spin, Statistic, Tag, Space,
   Descriptions, Table, Alert, Typography, Tooltip, Divider, Empty
@@ -9,7 +9,9 @@ import {
   InfoCircleOutlined, ExperimentOutlined
 } from '@ant-design/icons';
 import { getGapAnalysis } from '../services/api';
-import { formatResearchSource, readResearchContext } from '../utils/researchContext';
+import ResearchPlaybook from './research-playbook/ResearchPlaybook';
+import { buildPricingPlaybook } from './research-playbook/playbookViewModels';
+import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
 
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
@@ -26,6 +28,19 @@ const PricingResearch = () => {
   const [error, setError] = useState(null);
   const [researchContext, setResearchContext] = useState(readResearchContext());
   const autoLoadedContextRef = useRef('');
+
+  const mergedContext = useMemo(
+    () => ({
+      ...researchContext,
+      symbol: researchContext.symbol || symbol,
+    }),
+    [researchContext, symbol]
+  );
+
+  const playbook = useMemo(
+    () => buildPricingPlaybook(mergedContext, data),
+    [mergedContext, data]
+  );
 
   const handleAnalyze = useCallback(async (overrideSymbol = null) => {
     const targetSymbol = (overrideSymbol || symbol).trim().toUpperCase();
@@ -81,13 +96,22 @@ const PricingResearch = () => {
           style={{ marginBottom: 16 }}
           type="info"
           showIcon
-          message={`来自 ${formatResearchSource(researchContext.source)} 的定价研究建议`}
+          message={`来自 ${formatResearchSource(researchContext.source)} 的定价研究建议 · ${playbook?.stageLabel || '待分析'}`}
           description={
             researchContext.note
               ? `${researchContext.symbol} · ${researchContext.note}`
-              : `${researchContext.symbol} 已自动带入研究页`
+              : `${researchContext.symbol} 已自动带入研究页，当前剧本阶段为 ${playbook?.stageLabel || '待分析'}`
           }
         />
+      ) : null}
+
+      {playbook ? (
+        <div style={{ marginBottom: 16 }}>
+          <ResearchPlaybook
+            playbook={playbook}
+            onAction={(action) => navigateByResearchAction(action)}
+          />
+        </div>
       ) : null}
 
       {/* 搜索栏 */}

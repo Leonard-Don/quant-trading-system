@@ -112,9 +112,39 @@ export const buildCrossMarketLink = (templateId, source = 'godeye', note = '', c
     note,
   });
 
+export const buildGodEyeLink = (currentSearch = window.location.search) =>
+  buildAppUrl({
+    currentSearch,
+    view: 'godsEye',
+  });
+
 export const navigateToAppUrl = (url) => {
   window.history.pushState(null, '', url);
   window.dispatchEvent(new PopStateEvent('popstate'));
+};
+
+export const navigateByResearchAction = (action, currentSearch = window.location.search) => {
+  if (!action?.target || action.target === 'observe') {
+    return;
+  }
+
+  if (action.target === 'pricing') {
+    navigateToAppUrl(
+      buildPricingLink(action.symbol, action.source || 'playbook', action.note || '', currentSearch)
+    );
+    return;
+  }
+
+  if (action.target === 'cross-market') {
+    navigateToAppUrl(
+      buildCrossMarketLink(action.template, action.source || 'playbook', action.note || '', currentSearch)
+    );
+    return;
+  }
+
+  if (action.target === 'godsEye') {
+    navigateToAppUrl(buildGodEyeLink(currentSearch));
+  }
 };
 
 export const formatResearchSource = (source = '') => {
@@ -125,6 +155,8 @@ export const formatResearchSource = (source = '') => {
     factor_panel: 'Macro Factor Panel',
     risk_radar: 'Risk Premium Radar',
     cross_market_overview: 'Cross-Market Overview',
+    pricing_playbook: 'Pricing Playbook',
+    cross_market_playbook: 'Cross-Market Playbook',
   };
   return mapping[source] || source;
 };
