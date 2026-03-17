@@ -4,19 +4,14 @@ import {
   DashboardOutlined,
   BarChartOutlined,
   LineChartOutlined,
-  ExperimentOutlined,
-  StockOutlined,
   SunOutlined,
   MoonOutlined,
   BellOutlined,
-  DragOutlined,
-  FireOutlined
+  FireOutlined,
+  FundOutlined,
+  RadarChartOutlined
 } from '@ant-design/icons';
 
-// 直接导入核心组件
-import StrategyForm from './components/StrategyForm';
-import ResultsDisplay from './components/ResultsDisplay';
-import LoadingSpinner from './components/LoadingSpinner';
 import ErrorBoundary from './components/ErrorBoundary';
 import { getStrategies, runBacktest } from './services/api';
 import { useTheme } from './contexts/ThemeContext';
@@ -31,6 +26,8 @@ const RealTimePanel = lazy(() => import('./components/RealTimePanel'));
 const PriceAlerts = lazy(() => import('./components/PriceAlerts'));
 const IndustryDashboard = lazy(() => import('./components/IndustryDashboard'));
 const BacktestDashboard = lazy(() => import('./components/BacktestDashboard'));
+const PricingResearch = lazy(() => import('./components/PricingResearch'));
+const GodEyeDashboard = lazy(() => import('./components/GodEyeDashboard'));
 
 // 懒加载占位组件
 const LazyLoadFallback = () => (
@@ -49,7 +46,7 @@ const LazyLoadFallback = () => (
 const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
 const VIEW_QUERY_KEY = 'view';
-const VALID_VIEWS = new Set(['backtest', 'realtime', 'industry', 'alerts']);
+const VALID_VIEWS = new Set(['backtest', 'realtime', 'industry', 'alerts', 'pricing', 'godsEye']);
 
 function App() {
   // Theme
@@ -154,6 +151,16 @@ function App() {
       key: 'alerts',
       icon: <BellOutlined />,
       label: '价格提醒',
+    },
+    {
+      key: 'pricing',
+      icon: <FundOutlined />,
+      label: '定价研究',
+    },
+    {
+      key: 'godsEye',
+      icon: <RadarChartOutlined />,
+      label: '上帝视角',
     }
   ];
 
@@ -168,6 +175,11 @@ function App() {
 
       case 'alerts':
         return <Suspense fallback={<LazyLoadFallback />}><PriceAlerts /></Suspense>;
+
+      case 'pricing':
+        return <Suspense fallback={<LazyLoadFallback />}><PricingResearch /></Suspense>;
+      case 'godsEye':
+        return <Suspense fallback={<LazyLoadFallback />}><GodEyeDashboard /></Suspense>;
       case 'backtest':
       default:
         return (

@@ -1,9 +1,10 @@
 import React, { lazy, Suspense } from 'react';
 import { Tabs, Spin } from 'antd';
-import { BarChartOutlined, HistoryOutlined, ExperimentOutlined, PieChartOutlined } from '@ant-design/icons';
+import { BarChartOutlined, HistoryOutlined, ExperimentOutlined, PieChartOutlined, GlobalOutlined } from '@ant-design/icons';
 import StrategyForm from './StrategyForm';
 import ResultsDisplay from './ResultsDisplay';
 import LoadingSpinner from './LoadingSpinner';
+import CrossMarketBacktestPanel from './CrossMarketBacktestPanel';
 
 // Lazy load history component to keep initial bundle size small
 const BacktestHistory = lazy(() => import('./BacktestHistory'));
@@ -23,7 +24,16 @@ const LazyLoadFallback = () => (
     </div>
 );
 
+const TAB_QUERY_KEY = 'tab';
+const VALID_TABS = new Set(['new', 'history', 'comparison', 'portfolio', 'cross-market']);
+
 const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) => {
+    const initialTab = (() => {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get(TAB_QUERY_KEY);
+        return VALID_TABS.has(tab) ? tab : 'new';
+    })();
+
     const tabItems = [
         {
             key: 'new',
@@ -93,11 +103,35 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
                     <PortfolioOptimizer />
                 </Suspense>
             )
+        },
+        {
+            key: 'cross-market',
+            label: (
+                <span>
+                    <GlobalOutlined />
+                    跨市场回测
+                </span>
+            ),
+            children: <CrossMarketBacktestPanel />
         }
     ];
 
     return (
-        <Tabs defaultActiveKey="new" items={tabItems} />
+        <Tabs
+            defaultActiveKey={initialTab}
+            items={tabItems}
+            onChange={(key) => {
+                const params = new URLSearchParams(window.location.search);
+                if (key === 'new') {
+                    params.delete(TAB_QUERY_KEY);
+                } else {
+                    params.set(TAB_QUERY_KEY, key);
+                }
+                const nextQuery = params.toString();
+                const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash || ''}`;
+                window.history.replaceState(null, '', nextUrl);
+            }}
+        />
     );
 };
 

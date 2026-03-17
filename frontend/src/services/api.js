@@ -407,4 +407,60 @@ export const checkIndustryHealth = async () => {
   return response.data;
 };
 
+// ============ 资产定价研究 API ============
+
+// 因子模型分析（CAPM + Fama-French）
+export const getFactorModelAnalysis = async (symbol, period = '1y') => {
+  const response = await api.post('/pricing/factor-model', { symbol, period });
+  return response.data;
+};
+
+// 内在价值估值（DCF + 可比估值）
+export const getValuationAnalysis = async (symbol) => {
+  const response = await api.post('/pricing/valuation', { symbol });
+  return response.data;
+};
+
+// 定价差异分析（综合分析）
+export const getGapAnalysis = async (symbol, period = '1y') => {
+  const response = await api.post('/pricing/gap-analysis', { symbol, period });
+  return response.data;
+};
+
+// 获取市场因子数据快照
+export const getBenchmarkFactors = async () => {
+  const response = await api.get('/pricing/benchmark-factors');
+  return response.data;
+};
+
+export const getAltDataSnapshot = async (refresh = false) => {
+  const response = await api.get(`/alt-data/snapshot?refresh=${refresh}`);
+  return response.data;
+};
+
+export const getAltSignals = async (params = {}) => {
+  const search = new URLSearchParams();
+  if (params.category) search.set('category', params.category);
+  if (params.timeframe) search.set('timeframe', params.timeframe);
+  if (params.refresh) search.set('refresh', 'true');
+  const query = search.toString();
+  const response = await api.get(`/alt-data/signals${query ? `?${query}` : ''}`);
+  return response.data;
+};
+
+export const getMacroOverview = async (refresh = false) => {
+  const response = await api.get(`/macro/overview?refresh=${refresh}`);
+  return response.data;
+};
+
+export const getCrossMarketTemplates = async () => {
+  const response = await api.get('/cross-market/templates');
+  return response.data;
+};
+
+export const runCrossMarketBacktest = async (payload) => {
+  const response = await api.post('/cross-market/backtest', payload);
+  return response.data;
+};
+
 export default api;
