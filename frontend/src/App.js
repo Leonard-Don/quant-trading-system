@@ -237,7 +237,7 @@ function App() {
               color: 'var(--accent-primary)',
               fontWeight: 500,
               lineHeight: '1.4'
-            }}>v3.3.0</span>
+            }}>v3.4.0</span>
           </div>
           <Space size={16}>
             <Tooltip title={isDarkMode ? '切换到浅色主题' : '切换到深色主题'}>

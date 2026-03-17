@@ -116,9 +116,9 @@ app = FastAPI(
     - 🔌 **WebSocket支持**: 实时股票报价推送
 
     ### API版本
-    - **当前版本**: v3.2.0
+    - **当前版本**: v3.4.0
     - **API版本**: v1
-    - **最后更新**: 2025-12-24
+    - **最后更新**: 2026-03-17
 
     ### 认证
     当前版本无需认证，生产环境建议添加API密钥认证。
@@ -128,7 +128,7 @@ app = FastAPI(
     - 数据范围: 最多5年历史数据
     - 并发回测: 最多10个
     """,
-    version="3.2.0",
+    version="3.4.0",
     lifespan=lifespan,
     terms_of_service="https://example.com/terms/",
     contact={

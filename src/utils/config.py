@@ -76,7 +76,7 @@ API_PORT = int(os.getenv("API_PORT", "8000"))
 API_RELOAD = os.getenv("API_RELOAD", "True").lower() == "true"
 
 # 应用版本
-APP_VERSION = os.getenv("APP_VERSION", "3.3.0")
+APP_VERSION = os.getenv("APP_VERSION", "3.4.0")
 
 # 前端配置
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
