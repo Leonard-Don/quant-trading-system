@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an improvement for research, backtesting, or visualization workflows
+title: "[Feature] "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow or limitation are you trying to solve?
+      placeholder: As a user, I want ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the feature or UX you would like to see
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workaround or competing idea you already tried
+  - type: textarea
+    id: success_criteria
+    attributes:
+      label: Success criteria
+      description: How should we know this request is done?

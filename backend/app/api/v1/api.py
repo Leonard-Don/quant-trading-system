@@ -10,6 +10,10 @@ from backend.app.api.v1.endpoints import (
     trading,
     industry,
     events,
+    pricing,
+    alt_data,
+    macro,
+    cross_market,
 )
 
 api_router = APIRouter()
@@ -28,4 +32,7 @@ api_router.include_router(
 api_router.include_router(trading.router, prefix="/trade", tags=["Trading"])
 api_router.include_router(industry.router, prefix="/industry", tags=["Industry Analysis"])
 api_router.include_router(events.router, prefix="/events", tags=["Events"])
-
+api_router.include_router(pricing.router, prefix="/pricing", tags=["Asset Pricing Research"])
+api_router.include_router(alt_data.router, prefix="/alt-data", tags=["Alternative Data"])
+api_router.include_router(macro.router, prefix="/macro", tags=["Macro Mispricing"])
+api_router.include_router(cross_market.router, prefix="/cross-market", tags=["Cross Market"])
