@@ -2,13 +2,17 @@
 
 # 量化交易系统
 
-**一个基于 FastAPI + React 的量化研究、宏观错误定价、资产定价研究与跨市场回测平台**
+**一个基于 FastAPI + React 的量化研究、宏观错误定价、资产定价研究与跨市场回测平台**  
+*An institutional-grade quantitative research framework featuring macro mispricing arbitrage, alternative data pipelines, and advanced asset pricing models.*
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-18+-61DAFB?style=flat-square&logo=react)](https://reactjs.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](LICENSE)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](CONTRIBUTING.md)
+[![GitHub Stars](https://img.shields.io/github/stars/Leonard-Don/quant-trading-system?style=flat-square&color=yellow)](https://github.com/Leonard-Don/quant-trading-system/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/Leonard-Don/quant-trading-system?style=flat-square&color=orange)](https://github.com/Leonard-Don/quant-trading-system/network/members)
+[![GitHub Issues](https://img.shields.io/github/issues/Leonard-Don/quant-trading-system?style=flat-square&color=red)](https://github.com/Leonard-Don/quant-trading-system/issues)
+[![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen?style=flat-square)](LICENSE)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-blueviolet?style=flat-square)](CONTRIBUTING.md)
 
 [本地体验](#-本地体验) · [核心工作流](#-核心工作流) · [功能特性](#-功能特性) · [快速开始](#-快速开始) · [部署说明](docs/DEPLOYMENT.md) · [API 文档](#-api-文档)
 
