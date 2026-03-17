@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from backend.app.schemas.research_workbench import (
     ResearchTaskCommentCreateRequest,
     ResearchTaskCreateRequest,
+    ResearchWorkbenchReorderRequest,
     ResearchTaskSnapshotCreateRequest,
     ResearchTaskUpdateRequest,
 )
@@ -26,10 +27,11 @@ async def list_research_tasks(
     type: str | None = Query(default=None),
     status: str | None = Query(default=None),
     source: str | None = Query(default=None),
+    view: str | None = Query(default=None),
 ):
     try:
         workbench = _get_research_workbench()
-        tasks = workbench.list_tasks(limit=limit, task_type=type, status=status, source=source)
+        tasks = workbench.list_tasks(limit=limit, task_type=type, status=status, source=source, view=view)
         return {"success": True, "data": tasks, "total": len(tasks), "error": None}
     except Exception as exc:
         logger.error("Failed to list research tasks: %s", exc, exc_info=True)
@@ -97,6 +99,20 @@ async def add_research_task_snapshot(task_id: str, request: ResearchTaskSnapshot
     if not task:
         raise HTTPException(status_code=404, detail=f"Research task not found: {task_id}")
     return {"success": True, "data": task, "error": None}
+
+
+@router.post("/board/reorder", summary="批量更新研究工作台看板顺序")
+async def reorder_research_board(request: ResearchWorkbenchReorderRequest):
+    invalid_archived = next((item for item in request.items if item.status == "archived"), None)
+    if invalid_archived:
+        raise HTTPException(status_code=400, detail="Archived tasks cannot be reordered on the active board")
+
+    task_ids = {item.task_id for item in request.items}
+    if len(task_ids) != len(request.items):
+        raise HTTPException(status_code=400, detail="Duplicated task_id in reorder payload")
+
+    tasks = _get_research_workbench().reorder_board([item.model_dump() for item in request.items])
+    return {"success": True, "data": tasks, "error": None}
 
 
 @router.delete("/tasks/{task_id}", summary="删除研究工作台任务")

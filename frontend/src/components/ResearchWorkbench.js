@@ -22,6 +22,7 @@ import {
   DeleteOutlined,
   FolderOpenOutlined,
   HistoryOutlined,
+  InboxOutlined,
   RadarChartOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
@@ -34,21 +35,23 @@ import {
   getResearchTaskStats,
   getResearchTasks,
   getResearchTaskTimeline,
+  reorderResearchBoard,
   updateResearchTask,
 } from '../services/api';
 import { formatResearchSource, navigateByResearchAction } from '../utils/researchContext';
 
 const { Paragraph, Text, Title } = Typography;
-const { TextArea } = Input;
+const { TextArea, Search } = Input;
 
-const STATUS_OPTIONS = [
-  { label: '全部状态', value: '' },
-  { label: '新建', value: 'new' },
-  { label: '进行中', value: 'in_progress' },
-  { label: '阻塞', value: 'blocked' },
-  { label: '已完成', value: 'complete' },
-  { label: '已归档', value: 'archived' },
-];
+const MAIN_STATUSES = ['new', 'in_progress', 'blocked', 'complete'];
+
+const STATUS_LABEL = {
+  new: '新建',
+  in_progress: '进行中',
+  blocked: '阻塞',
+  complete: '已完成',
+  archived: '已归档',
+};
 
 const TYPE_OPTIONS = [
   { label: '全部类型', value: '' },
@@ -71,6 +74,7 @@ const TIMELINE_COLOR = {
   metadata_updated: 'purple',
   comment_added: 'cyan',
   comment_deleted: 'red',
+  board_reordered: 'gold',
 };
 
 const formatContextValue = (value) => {
@@ -102,7 +106,74 @@ const formatTimelineType = (value) => ({
   metadata_updated: '元信息',
   comment_added: '评论',
   comment_deleted: '删除',
+  board_reordered: '排序',
 }[value] || '事件');
+
+const sortByBoardOrder = (left, right) => {
+  const orderGap = Number(left.board_order || 0) - Number(right.board_order || 0);
+  if (orderGap !== 0) {
+    return orderGap;
+  }
+  return String(left.updated_at || '').localeCompare(String(right.updated_at || ''));
+};
+
+const normalizeBoardOrders = (tasks) => {
+  const cloned = tasks.map((task) => ({ ...task }));
+  MAIN_STATUSES.forEach((status) => {
+    const lane = cloned.filter((task) => task.status === status).sort(sortByBoardOrder);
+    lane.forEach((task, index) => {
+      task.board_order = index;
+    });
+  });
+  return cloned;
+};
+
+const moveBoardTask = (tasks, draggedTaskId, targetStatus, targetTaskId = null) => {
+  const normalized = normalizeBoardOrders(tasks);
+  const draggedTask = normalized.find((task) => task.id === draggedTaskId);
+  if (!draggedTask) {
+    return normalized;
+  }
+
+  const boardMap = Object.fromEntries(
+    MAIN_STATUSES.map((status) => [
+      status,
+      normalized.filter((task) => task.status === status).sort(sortByBoardOrder),
+    ])
+  );
+
+  const sourceStatus = draggedTask.status;
+  boardMap[sourceStatus] = boardMap[sourceStatus].filter((task) => task.id !== draggedTaskId);
+
+  const nextTask = { ...draggedTask, status: targetStatus };
+  const targetLane = [...boardMap[targetStatus]];
+  const insertIndex = targetTaskId
+    ? Math.max(targetLane.findIndex((task) => task.id === targetTaskId), 0)
+    : targetLane.length;
+  targetLane.splice(insertIndex, 0, nextTask);
+  boardMap[targetStatus] = targetLane;
+
+  MAIN_STATUSES.forEach((status) => {
+    boardMap[status].forEach((task, index) => {
+      task.board_order = index;
+    });
+  });
+
+  const archived = normalized.filter((task) => task.status === 'archived');
+  return [...MAIN_STATUSES.flatMap((status) => boardMap[status]), ...archived];
+};
+
+const buildReorderPayload = (tasks) =>
+  MAIN_STATUSES.flatMap((status) =>
+    tasks
+      .filter((task) => task.status === status)
+      .sort(sortByBoardOrder)
+      .map((task, index) => ({
+        task_id: task.id,
+        status,
+        board_order: index,
+      }))
+  );
 
 function ResearchWorkbench() {
   const [loading, setLoading] = useState(true);
@@ -110,7 +181,7 @@ function ResearchWorkbench() {
   const [saving, setSaving] = useState(false);
   const [tasks, setTasks] = useState([]);
   const [stats, setStats] = useState(null);
-  const [filters, setFilters] = useState({ type: '', status: '', source: '' });
+  const [filters, setFilters] = useState({ type: '', source: '', keyword: '' });
   const [selectedTaskId, setSelectedTaskId] = useState('');
   const [selectedTask, setSelectedTask] = useState(null);
   const [timeline, setTimeline] = useState([]);
@@ -118,6 +189,8 @@ function ResearchWorkbench() {
   const [noteDraft, setNoteDraft] = useState('');
   const [commentDraft, setCommentDraft] = useState('');
   const [showAllTimeline, setShowAllTimeline] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [dragState, setDragState] = useState(null);
 
   const sourceOptions = useMemo(() => {
     const uniqueSources = Array.from(new Set(tasks.map((task) => task.source).filter(Boolean)));
@@ -154,11 +227,11 @@ function ResearchWorkbench() {
     }
   }, []);
 
-  const loadWorkbench = useCallback(async (nextFilters = filters) => {
+  const loadWorkbench = useCallback(async () => {
     setLoading(true);
     try {
       const [taskResponse, statsResponse] = await Promise.all([
-        getResearchTasks({ limit: 100, ...nextFilters }),
+        getResearchTasks({ limit: 200, view: 'board' }),
         getResearchTaskStats(),
       ]);
       const nextTasks = taskResponse.data || [];
@@ -175,11 +248,11 @@ function ResearchWorkbench() {
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, []);
 
   useEffect(() => {
-    loadWorkbench(filters);
-  }, [filters, loadWorkbench]);
+    loadWorkbench();
+  }, [loadWorkbench]);
 
   useEffect(() => {
     loadTaskDetail(selectedTaskId);
@@ -198,22 +271,79 @@ function ResearchWorkbench() {
     setShowAllTimeline(false);
   }, [selectedTask]);
 
-  const handleFilterChange = (field, value) => {
-    const nextFilters = { ...filters, [field]: value };
-    setFilters(nextFilters);
-  };
-
   const refreshCurrentTask = useCallback(async () => {
-    await loadWorkbench(filters);
+    await loadWorkbench();
     await loadTaskDetail(selectedTaskId);
-  }, [filters, loadTaskDetail, loadWorkbench, selectedTaskId]);
+  }, [loadTaskDetail, loadWorkbench, selectedTaskId]);
+
+  const filteredTasks = useMemo(() => {
+    const keyword = filters.keyword.trim().toLowerCase();
+    return tasks.filter((task) => {
+      if (filters.type && task.type !== filters.type) {
+        return false;
+      }
+      if (filters.source && task.source !== filters.source) {
+        return false;
+      }
+      if (!keyword) {
+        return true;
+      }
+      const haystack = [
+        task.title,
+        task.symbol,
+        task.template,
+        task.note,
+        task.snapshot?.headline,
+        task.snapshot?.summary,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(keyword);
+    });
+  }, [filters, tasks]);
+
+  const boardColumns = useMemo(
+    () =>
+      MAIN_STATUSES.map((status) => ({
+        status,
+        title: STATUS_LABEL[status],
+        tasks: filteredTasks.filter((task) => task.status === status).sort(sortByBoardOrder),
+      })),
+    [filteredTasks]
+  );
+
+  const archivedTasks = useMemo(
+    () =>
+      filteredTasks
+        .filter((task) => task.status === 'archived')
+        .sort((left, right) => String(right.updated_at || '').localeCompare(String(left.updated_at || ''))),
+    [filteredTasks]
+  );
+
+  const timelineItems = useMemo(() => {
+    const visible = showAllTimeline ? timeline : timeline.slice(0, 8);
+    return visible.map((event) => ({
+      color: TIMELINE_COLOR[event.type] || 'blue',
+      dot: event.type === 'comment_added' ? <CommentOutlined /> : <ClockCircleOutlined />,
+      children: (
+        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+          <Space wrap>
+            <Text strong>{event.label}</Text>
+            <Tag color={TIMELINE_COLOR[event.type] || 'default'}>{formatTimelineType(event.type)}</Tag>
+            <Text type="secondary">{new Date(event.created_at).toLocaleString()}</Text>
+          </Space>
+          {event.detail ? <Text type="secondary">{event.detail}</Text> : null}
+        </Space>
+      ),
+    }));
+  }, [showAllTimeline, timeline]);
 
   const handleStatusUpdate = async (status) => {
     if (!selectedTask) return;
     setSaving(true);
     try {
       await updateResearchTask(selectedTask.id, { status });
-      message.success('任务状态已更新');
+      message.success(status === 'archived' ? '任务已归档' : '任务状态已更新');
       await refreshCurrentTask();
     } catch (error) {
       message.error(error.userMessage || error.message || '更新任务状态失败');
@@ -277,9 +407,22 @@ function ResearchWorkbench() {
     try {
       await deleteResearchTask(selectedTask.id);
       message.success('任务已删除');
-      await loadWorkbench(filters);
+      await loadWorkbench();
     } catch (error) {
       message.error(error.userMessage || error.message || '删除任务失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRestoreArchived = async (taskId) => {
+    setSaving(true);
+    try {
+      await updateResearchTask(taskId, { status: 'new' });
+      message.success('任务已恢复到新建列');
+      await refreshCurrentTask();
+    } catch (error) {
+      message.error(error.userMessage || error.message || '恢复任务失败');
     } finally {
       setSaving(false);
     }
@@ -313,6 +456,33 @@ function ResearchWorkbench() {
       source: 'research_workbench',
       note: '返回 GodEye 继续筛选研究线索',
     });
+  };
+
+  const commitBoardReorder = async (nextTasks, successMessage = '看板顺序已更新') => {
+    const previousTasks = tasks;
+    const normalizedTasks = normalizeBoardOrders(nextTasks);
+    setTasks(normalizedTasks);
+    try {
+      await reorderResearchBoard({ items: buildReorderPayload(normalizedTasks) });
+      await loadWorkbench();
+      if (selectedTaskId) {
+        await loadTaskDetail(selectedTaskId);
+      }
+      message.success(successMessage);
+    } catch (error) {
+      setTasks(previousTasks);
+      message.error(error.userMessage || error.message || '更新看板顺序失败');
+    } finally {
+      setDragState(null);
+    }
+  };
+
+  const handleDrop = async (targetStatus, targetTaskId = null) => {
+    if (!dragState?.taskId) {
+      return;
+    }
+    const nextTasks = moveBoardTask(tasks, dragState.taskId, targetStatus, targetTaskId);
+    await commitBoardReorder(nextTasks);
   };
 
   const renderSnapshot = (task) => {
@@ -417,36 +587,65 @@ function ResearchWorkbench() {
     );
   };
 
-  const timelineItems = useMemo(() => {
-    const visible = showAllTimeline ? timeline : timeline.slice(0, 8);
-    return visible.map((event) => ({
-      color: TIMELINE_COLOR[event.type] || 'blue',
-      dot: event.type === 'comment_added' ? <CommentOutlined /> : <ClockCircleOutlined />,
-      children: (
-        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+  const renderBoardCard = (task, status) => {
+    const isOverTarget = dragState?.overTaskId === task.id && dragState?.overStatus === status;
+    return (
+      <div
+        key={task.id}
+        draggable
+        onDragStart={() => setDragState({ taskId: task.id, sourceStatus: status, overTaskId: null, overStatus: null })}
+        onDragEnd={() => setDragState(null)}
+        onDragOver={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setDragState((current) => (current ? { ...current, overTaskId: task.id, overStatus: status } : current));
+        }}
+        onDrop={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          handleDrop(status, task.id);
+        }}
+        onClick={() => setSelectedTaskId(task.id)}
+        style={{
+          cursor: 'grab',
+          borderRadius: 12,
+          padding: 12,
+          marginBottom: 10,
+          background: selectedTaskId === task.id ? 'rgba(24,144,255,0.12)' : 'rgba(255,255,255,0.03)',
+          border: isOverTarget
+            ? '1px dashed rgba(24,144,255,0.7)'
+            : selectedTaskId === task.id
+              ? '1px solid rgba(24,144,255,0.45)'
+              : '1px solid rgba(255,255,255,0.08)',
+        }}
+      >
+        <Space direction="vertical" size={6} style={{ width: '100%' }}>
           <Space wrap>
-            <Text strong>{event.label}</Text>
-            <Tag color={TIMELINE_COLOR[event.type] || 'default'}>{formatTimelineType(event.type)}</Tag>
-            <Text type="secondary">{new Date(event.created_at).toLocaleString()}</Text>
+            <Text strong>{task.title}</Text>
+            <Tag color={task.type === 'pricing' ? 'blue' : 'purple'}>{task.type}</Tag>
           </Space>
-          {event.detail ? <Text type="secondary">{event.detail}</Text> : null}
+          <Text type="secondary">{task.snapshot?.headline || '暂无快照摘要'}</Text>
+          <Text type="secondary">
+            {task.symbol || task.template || '-'} · {formatResearchSource(task.source || 'manual')}
+          </Text>
+          <Text type="secondary">{new Date(task.updated_at).toLocaleString()}</Text>
         </Space>
-      ),
-    }));
-  }, [showAllTimeline, timeline]);
+      </div>
+    );
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card bordered={false}>
         <Space direction="vertical" size={6}>
           <Tag color="geekblue" style={{ width: 'fit-content', marginInlineEnd: 0 }}>
-            Research Workbench
+            Research Workbench V3
           </Tag>
           <Title level={4} style={{ margin: 0 }}>
             研究工作台
           </Title>
           <Paragraph style={{ marginBottom: 0 }}>
-            把 GodEye、定价研究和跨市场回测里的任务卡保存下来，在这里持续跟踪、更新状态，并查看研究如何一步步演进。
+            研究任务现在以多列看板形式推进。你可以直接拖拽任务跨列流转，同时继续保留评论、时间线和快照演进记录。
           </Paragraph>
         </Space>
       </Card>
@@ -475,87 +674,145 @@ function ResearchWorkbench() {
       </Row>
 
       <Row gutter={[16, 16]}>
-        <Col xs={24} xl={10}>
-          <Card
-            bordered={false}
-            title="任务列表"
-            extra={(
-              <Space wrap>
+        <Col xs={24} xl={16}>
+          <Space direction="vertical" size={16} style={{ width: '100%' }}>
+            <Card
+              bordered={false}
+              title="看板工具条"
+              extra={dragState?.taskId ? <Tag color="processing">拖拽中</Tag> : null}
+            >
+              <Space wrap style={{ width: '100%' }}>
                 <Select
-                  size="small"
                   value={filters.type}
                   options={TYPE_OPTIONS}
-                  onChange={(value) => handleFilterChange('type', value)}
-                  style={{ width: 140 }}
-                />
-                <Select
-                  size="small"
-                  value={filters.status}
-                  options={STATUS_OPTIONS}
-                  onChange={(value) => handleFilterChange('status', value)}
-                  style={{ width: 140 }}
-                />
-                <Select
-                  size="small"
-                  value={filters.source}
-                  options={sourceOptions}
-                  onChange={(value) => handleFilterChange('source', value)}
+                  onChange={(value) => setFilters((prev) => ({ ...prev, type: value }))}
                   style={{ width: 160 }}
                 />
+                <Select
+                  value={filters.source}
+                  options={sourceOptions}
+                  onChange={(value) => setFilters((prev) => ({ ...prev, source: value }))}
+                  style={{ width: 180 }}
+                />
+                <Search
+                  placeholder="搜索标题、symbol、template 或快照"
+                  allowClear
+                  value={filters.keyword}
+                  onChange={(event) => setFilters((prev) => ({ ...prev, keyword: event.target.value }))}
+                  style={{ width: 280 }}
+                />
               </Space>
-            )}
-            bodyStyle={{ minHeight: 560 }}
-          >
+            </Card>
+
             {loading ? (
-              <div style={{ minHeight: 240, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Spin />
-              </div>
+              <Card bordered={false}>
+                <div style={{ minHeight: 260, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Spin />
+                </div>
+              </Card>
             ) : (
-              <List
-                dataSource={tasks}
-                locale={{ emptyText: '暂无研究任务' }}
-                renderItem={(task) => (
-                  <List.Item
-                    onClick={() => setSelectedTaskId(task.id)}
-                    style={{
-                      cursor: 'pointer',
-                      padding: '12px 10px',
-                      borderRadius: 12,
-                      marginBottom: 8,
-                      border: task.id === selectedTaskId ? '1px solid rgba(24,144,255,0.45)' : '1px solid transparent',
-                      background: task.id === selectedTaskId ? 'rgba(24,144,255,0.08)' : 'transparent',
-                    }}
-                  >
-                    <List.Item.Meta
+              <Row gutter={[16, 16]}>
+                {boardColumns.map((column) => (
+                  <Col xs={24} md={12} xl={6} key={column.status}>
+                    <Card
+                      bordered={false}
                       title={(
                         <Space wrap>
-                          <Text strong>{task.title}</Text>
-                          <Tag color={task.type === 'pricing' ? 'blue' : 'purple'}>{task.type}</Tag>
-                          <Tag color={STATUS_COLOR[task.status] || 'default'}>{task.status}</Tag>
+                          <span>{column.title}</span>
+                          <Tag>{column.tasks.length}</Tag>
                         </Space>
                       )}
-                      description={(
-                        <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                          <Text type="secondary">{task.snapshot?.headline || '暂无摘要'}</Text>
-                          <Text type="secondary">
-                            {formatResearchSource(task.source || 'manual')} · {new Date(task.updated_at).toLocaleString()}
-                          </Text>
-                        </Space>
+                      bodyStyle={{ minHeight: 340 }}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setDragState((current) => (
+                          current ? { ...current, overTaskId: null, overStatus: column.status } : current
+                        ));
+                      }}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        handleDrop(column.status);
+                      }}
+                      style={{
+                        border:
+                          dragState?.overStatus === column.status && !dragState?.overTaskId
+                            ? '1px dashed rgba(24,144,255,0.6)'
+                            : undefined,
+                      }}
+                    >
+                      {column.tasks.length ? (
+                        column.tasks.map((task) => renderBoardCard(task, column.status))
+                      ) : (
+                        <Empty description={`${column.title}暂无任务`} image={Empty.PRESENTED_IMAGE_SIMPLE} />
                       )}
-                    />
-                  </List.Item>
-                )}
-              />
+                    </Card>
+                  </Col>
+                ))}
+              </Row>
             )}
-          </Card>
+
+            <Card
+              bordered={false}
+              title={(
+                <Space>
+                  <InboxOutlined />
+                  <span>Archived 收纳区</span>
+                  <Tag>{archivedTasks.length}</Tag>
+                </Space>
+              )}
+              extra={(
+                <Button type="link" onClick={() => setShowArchived((prev) => !prev)}>
+                  {showArchived ? '收起' : '展开'}
+                </Button>
+              )}
+            >
+              {showArchived ? (
+                archivedTasks.length ? (
+                  <List
+                    dataSource={archivedTasks}
+                    renderItem={(task) => (
+                      <List.Item
+                        actions={[
+                          <Button
+                            key="restore"
+                            size="small"
+                            onClick={() => handleRestoreArchived(task.id)}
+                            loading={saving}
+                          >
+                            恢复到新建
+                          </Button>,
+                        ]}
+                        onClick={() => setSelectedTaskId(task.id)}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <List.Item.Meta
+                          title={(
+                            <Space wrap>
+                              <Text strong>{task.title}</Text>
+                              <Tag color="default">archived</Tag>
+                            </Space>
+                          )}
+                          description={`${task.snapshot?.headline || '暂无摘要'} · ${new Date(task.updated_at).toLocaleString()}`}
+                        />
+                      </List.Item>
+                    )}
+                  />
+                ) : (
+                  <Empty description="当前没有归档任务" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                )
+              ) : (
+                <Text type="secondary">归档任务默认收起，避免占用主看板空间。</Text>
+              )}
+            </Card>
+          </Space>
         </Col>
 
-        <Col xs={24} xl={14}>
+        <Col xs={24} xl={8}>
           <Card
             bordered={false}
             title="任务详情"
             extra={selectedTask ? <Tag color={STATUS_COLOR[selectedTask.status] || 'default'}>{selectedTask.status}</Tag> : null}
-            bodyStyle={{ minHeight: 560 }}
+            bodyStyle={{ minHeight: 760 }}
           >
             {detailLoading ? (
               <div style={{ minHeight: 240, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -725,18 +982,29 @@ function ResearchWorkbench() {
 
                 <Card size="small" title="状态流转" bordered={false}>
                   <Space wrap>
-                    <Button onClick={() => handleStatusUpdate('in_progress')} loading={saving}>
-                      开始
-                    </Button>
-                    <Button onClick={() => handleStatusUpdate('blocked')} loading={saving}>
-                      阻塞
-                    </Button>
-                    <Button type="primary" onClick={() => handleStatusUpdate('complete')} loading={saving}>
-                      完成
-                    </Button>
-                    <Button onClick={() => handleStatusUpdate('archived')} loading={saving}>
-                      归档
-                    </Button>
+                    {selectedTask.status === 'archived' ? (
+                      <Button type="primary" onClick={() => handleRestoreArchived(selectedTask.id)} loading={saving}>
+                        恢复到新建
+                      </Button>
+                    ) : (
+                      <>
+                        <Button onClick={() => handleStatusUpdate('new')} loading={saving}>
+                          放回新建
+                        </Button>
+                        <Button onClick={() => handleStatusUpdate('in_progress')} loading={saving}>
+                          进行中
+                        </Button>
+                        <Button onClick={() => handleStatusUpdate('blocked')} loading={saving}>
+                          阻塞
+                        </Button>
+                        <Button type="primary" onClick={() => handleStatusUpdate('complete')} loading={saving}>
+                          完成
+                        </Button>
+                        <Button onClick={() => handleStatusUpdate('archived')} loading={saving}>
+                          归档
+                        </Button>
+                      </>
+                    )}
                   </Space>
                 </Card>
               </Space>

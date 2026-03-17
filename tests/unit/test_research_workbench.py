@@ -38,6 +38,8 @@ def test_research_workbench_store_create_update_and_filter(tmp_path):
     assert pricing_task["id"].startswith("rw_")
     assert cross_task["status"] == "new"
     assert len(store.list_tasks(task_type="pricing")) == 1
+    assert pricing_task["board_order"] == 0
+    assert cross_task["board_order"] == 1
     assert pricing_task["timeline"][0]["type"] == "snapshot_saved"
     assert pricing_task["timeline"][1]["type"] == "created"
     assert len(pricing_task["snapshot_history"]) == 1
@@ -84,6 +86,56 @@ def test_research_workbench_store_comment_snapshot_and_timeline(tmp_path):
 
     assert store.delete_comment(task["id"], comment["id"]) is True
     assert store.delete_comment(task["id"], comment["id"]) is False
+
+
+def test_research_workbench_store_backfills_board_order_and_reorders(tmp_path):
+    storage = tmp_path / "research_workbench"
+    storage.mkdir(parents=True, exist_ok=True)
+    (storage / "tasks.json").write_text(
+        json.dumps(
+            [
+                {
+                    "id": "rw_old_1",
+                    "type": "pricing",
+                    "title": "task 1",
+                    "status": "new",
+                    "updated_at": "2026-03-17T10:00:00",
+                    "created_at": "2026-03-17T10:00:00",
+                },
+                {
+                    "id": "rw_old_2",
+                    "type": "pricing",
+                    "title": "task 2",
+                    "status": "new",
+                    "updated_at": "2026-03-17T09:00:00",
+                    "created_at": "2026-03-17T09:00:00",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    store = ResearchWorkbenchStore(storage_path=storage)
+    board_tasks = store.list_tasks(view="board")
+    assert board_tasks[0]["board_order"] == 0
+    assert board_tasks[1]["board_order"] == 1
+
+    store.reorder_board(
+        [
+            {"task_id": "rw_old_1", "status": "in_progress", "board_order": 0},
+            {"task_id": "rw_old_2", "status": "new", "board_order": 0},
+        ]
+    )
+    moved = store.get_task("rw_old_1")
+    assert moved["status"] == "in_progress"
+    assert moved["board_order"] == 0
+    assert moved["timeline"][0]["type"] == "status_changed"
+
+    restored = store.update_task("rw_old_1", {"status": "archived"})
+    assert restored["status"] == "archived"
+    reopened = store.update_task("rw_old_1", {"status": "new"})
+    assert reopened["status"] == "new"
+    assert reopened["board_order"] == 1
 
 
 def test_research_workbench_store_delete(tmp_path):

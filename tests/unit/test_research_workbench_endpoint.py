@@ -41,6 +41,7 @@ def test_research_workbench_endpoint_create_and_list(monkeypatch, tmp_path):
     assert payload["success"] is True
     assert payload["total"] == 1
     assert payload["data"][0]["id"] == task_id
+    assert payload["data"][0]["board_order"] == 0
 
 
 def test_research_workbench_endpoint_update_and_stats(monkeypatch, tmp_path):
@@ -113,6 +114,51 @@ def test_research_workbench_endpoint_comment_timeline_and_snapshot(monkeypatch, 
     comment_id = comment_response.json()["data"]["id"]
     delete_response = client.delete(f"/research-workbench/tasks/{created['id']}/comments/{comment_id}")
     assert delete_response.status_code == 200
+
+
+def test_research_workbench_endpoint_reorder_board(monkeypatch, tmp_path):
+    client = _build_client(monkeypatch, tmp_path)
+    first = client.post(
+        "/research-workbench/tasks",
+        json={"type": "pricing", "title": "task 1", "symbol": "AAPL"},
+    ).json()["data"]
+    second = client.post(
+        "/research-workbench/tasks",
+        json={"type": "pricing", "title": "task 2", "symbol": "MSFT"},
+    ).json()["data"]
+
+    reorder_response = client.post(
+        "/research-workbench/board/reorder",
+        json={
+            "items": [
+                {"task_id": first["id"], "status": "in_progress", "board_order": 0},
+                {"task_id": second["id"], "status": "new", "board_order": 0},
+            ]
+        },
+    )
+    assert reorder_response.status_code == 200
+
+    board_response = client.get("/research-workbench/tasks?view=board")
+    assert board_response.status_code == 200
+    board_items = board_response.json()["data"]
+    moved = next(item for item in board_items if item["id"] == first["id"])
+    assert moved["status"] == "in_progress"
+    assert moved["board_order"] == 0
+
+
+def test_research_workbench_endpoint_reorder_archived_returns_400(monkeypatch, tmp_path):
+    client = _build_client(monkeypatch, tmp_path)
+    task = client.post(
+        "/research-workbench/tasks",
+        json={"type": "pricing", "title": "task", "symbol": "AAPL"},
+    ).json()["data"]
+
+    response = client.post(
+        "/research-workbench/board/reorder",
+        json={"items": [{"task_id": task["id"], "status": "archived", "board_order": 0}]},
+    )
+
+    assert response.status_code == 400
 
 
 def test_research_workbench_endpoint_delete_missing_comment_returns_404(monkeypatch, tmp_path):
