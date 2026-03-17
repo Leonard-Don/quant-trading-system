@@ -8,7 +8,7 @@ import {
   ArrowUpOutlined, ArrowDownOutlined, MinusOutlined,
   InfoCircleOutlined, ExperimentOutlined
 } from '@ant-design/icons';
-import { createResearchTask, getGapAnalysis } from '../services/api';
+import { addResearchTaskSnapshot, createResearchTask, getGapAnalysis } from '../services/api';
 import ResearchPlaybook from './research-playbook/ResearchPlaybook';
 import { buildPricingPlaybook, buildPricingWorkbenchPayload } from './research-playbook/playbookViewModels';
 import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
@@ -28,6 +28,7 @@ const PricingResearch = () => {
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [researchContext, setResearchContext] = useState(readResearchContext());
+  const [savedTaskId, setSavedTaskId] = useState('');
   const autoLoadedContextRef = useRef('');
 
   const mergedContext = useMemo(
@@ -96,9 +97,37 @@ const PricingResearch = () => {
     setSavingTask(true);
     try {
       const response = await createResearchTask(payload);
+      setSavedTaskId(response.data?.id || '');
       message.success(`已保存到研究工作台: ${response.data?.title || payload.title}`);
     } catch (error) {
       message.error(error.userMessage || error.message || '保存研究任务失败');
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
+  const handleUpdateSnapshot = async () => {
+    if (!savedTaskId) {
+      message.info('请先保存任务，再更新当前任务快照');
+      return;
+    }
+
+    const payload = buildPricingWorkbenchPayload(
+      { ...mergedContext, period },
+      data,
+      playbook
+    );
+    if (!payload?.snapshot) {
+      message.error('当前还没有可更新的研究快照');
+      return;
+    }
+
+    setSavingTask(true);
+    try {
+      await addResearchTaskSnapshot(savedTaskId, { snapshot: payload.snapshot });
+      message.success('当前任务快照已更新');
+    } catch (error) {
+      message.error(error.userMessage || error.message || '更新任务快照失败');
     } finally {
       setSavingTask(false);
     }
@@ -133,7 +162,8 @@ const PricingResearch = () => {
           <ResearchPlaybook
             playbook={playbook}
             onAction={(action) => navigateByResearchAction(action)}
-            onSave={handleSaveTask}
+            onSaveTask={handleSaveTask}
+            onUpdateSnapshot={data && savedTaskId ? handleUpdateSnapshot : null}
             saving={savingTask}
           />
         </div>

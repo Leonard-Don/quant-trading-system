@@ -41,7 +41,12 @@ import {
   buildCrossMarketPlaybook,
   buildCrossMarketWorkbenchPayload,
 } from './research-playbook/playbookViewModels';
-import { createResearchTask, getCrossMarketTemplates, runCrossMarketBacktest } from '../services/api';
+import {
+  addResearchTaskSnapshot,
+  createResearchTask,
+  getCrossMarketTemplates,
+  runCrossMarketBacktest,
+} from '../services/api';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
 import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
 
@@ -102,6 +107,7 @@ function CrossMarketBacktestPanel() {
   const [results, setResults] = useState(null);
   const [researchContext, setResearchContext] = useState(readResearchContext());
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [savedTaskId, setSavedTaskId] = useState('');
   const appliedTemplateRef = useRef('');
 
   useEffect(() => {
@@ -261,9 +267,38 @@ function CrossMarketBacktestPanel() {
     setSavingTask(true);
     try {
       const response = await createResearchTask(payload);
+      setSavedTaskId(response.data?.id || '');
       message.success(`已保存到研究工作台: ${response.data?.title || payload.title}`);
     } catch (error) {
       message.error(error.userMessage || error.message || '保存研究任务失败');
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
+  const handleUpdateSnapshot = async () => {
+    if (!savedTaskId) {
+      message.info('请先保存任务，再更新当前任务快照');
+      return;
+    }
+
+    const payload = buildCrossMarketWorkbenchPayload(
+      researchContext,
+      selectedTemplate,
+      results,
+      assets
+    );
+    if (!payload?.snapshot) {
+      message.error('当前还没有可更新的研究快照');
+      return;
+    }
+
+    setSavingTask(true);
+    try {
+      await addResearchTaskSnapshot(savedTaskId, { snapshot: payload.snapshot });
+      message.success('当前任务快照已更新');
+    } catch (error) {
+      message.error(error.userMessage || error.message || '更新任务快照失败');
     } finally {
       setSavingTask(false);
     }
@@ -374,7 +409,8 @@ function CrossMarketBacktestPanel() {
         <ResearchPlaybook
           playbook={playbook}
           onAction={(action) => navigateByResearchAction(action)}
-          onSave={handleSaveTask}
+          onSaveTask={handleSaveTask}
+          onUpdateSnapshot={savedTaskId && (results || selectedTemplate || assets.length) ? handleUpdateSnapshot : null}
           saving={savingTask}
         />
       ) : null}

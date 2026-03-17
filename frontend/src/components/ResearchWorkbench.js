@@ -12,20 +12,28 @@ import {
   Spin,
   Statistic,
   Tag,
+  Timeline,
   Typography,
   message,
 } from 'antd';
 import {
+  ClockCircleOutlined,
+  CommentOutlined,
   DeleteOutlined,
   FolderOpenOutlined,
+  HistoryOutlined,
   RadarChartOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
 
 import {
+  addResearchTaskComment,
   deleteResearchTask,
+  deleteResearchTaskComment,
+  getResearchTask,
   getResearchTaskStats,
   getResearchTasks,
+  getResearchTaskTimeline,
   updateResearchTask,
 } from '../services/api';
 import { formatResearchSource, navigateByResearchAction } from '../utils/researchContext';
@@ -56,6 +64,15 @@ const STATUS_COLOR = {
   archived: 'default',
 };
 
+const TIMELINE_COLOR = {
+  created: 'blue',
+  status_changed: 'orange',
+  snapshot_saved: 'green',
+  metadata_updated: 'purple',
+  comment_added: 'cyan',
+  comment_deleted: 'red',
+};
+
 const formatContextValue = (value) => {
   if (Array.isArray(value)) {
     return value
@@ -78,20 +95,29 @@ const formatContextValue = (value) => {
   return String(value);
 };
 
+const formatTimelineType = (value) => ({
+  created: '创建',
+  status_changed: '状态',
+  snapshot_saved: '快照',
+  metadata_updated: '元信息',
+  comment_added: '评论',
+  comment_deleted: '删除',
+}[value] || '事件');
+
 function ResearchWorkbench() {
   const [loading, setLoading] = useState(true);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tasks, setTasks] = useState([]);
   const [stats, setStats] = useState(null);
   const [filters, setFilters] = useState({ type: '', status: '', source: '' });
   const [selectedTaskId, setSelectedTaskId] = useState('');
+  const [selectedTask, setSelectedTask] = useState(null);
+  const [timeline, setTimeline] = useState([]);
   const [titleDraft, setTitleDraft] = useState('');
   const [noteDraft, setNoteDraft] = useState('');
-
-  const selectedTask = useMemo(
-    () => tasks.find((task) => task.id === selectedTaskId) || tasks[0] || null,
-    [tasks, selectedTaskId]
-  );
+  const [commentDraft, setCommentDraft] = useState('');
+  const [showAllTimeline, setShowAllTimeline] = useState(false);
 
   const sourceOptions = useMemo(() => {
     const uniqueSources = Array.from(new Set(tasks.map((task) => task.source).filter(Boolean)));
@@ -103,6 +129,30 @@ function ResearchWorkbench() {
       })),
     ];
   }, [tasks]);
+
+  const loadTaskDetail = useCallback(async (taskId) => {
+    if (!taskId) {
+      setSelectedTask(null);
+      setTimeline([]);
+      return;
+    }
+
+    setDetailLoading(true);
+    try {
+      const [taskResponse, timelineResponse] = await Promise.all([
+        getResearchTask(taskId),
+        getResearchTaskTimeline(taskId),
+      ]);
+      setSelectedTask(taskResponse.data || null);
+      setTimeline(timelineResponse.data || []);
+    } catch (error) {
+      message.error(error.userMessage || error.message || '加载任务详情失败');
+      setSelectedTask(null);
+      setTimeline([]);
+    } finally {
+      setDetailLoading(false);
+    }
+  }, []);
 
   const loadWorkbench = useCallback(async (nextFilters = filters) => {
     setLoading(true);
@@ -132,19 +182,31 @@ function ResearchWorkbench() {
   }, [filters, loadWorkbench]);
 
   useEffect(() => {
+    loadTaskDetail(selectedTaskId);
+  }, [loadTaskDetail, selectedTaskId]);
+
+  useEffect(() => {
     if (!selectedTask) {
       setTitleDraft('');
       setNoteDraft('');
+      setCommentDraft('');
+      setShowAllTimeline(false);
       return;
     }
     setTitleDraft(selectedTask.title || '');
     setNoteDraft(selectedTask.note || '');
+    setShowAllTimeline(false);
   }, [selectedTask]);
 
-  const handleFilterChange = async (field, value) => {
+  const handleFilterChange = (field, value) => {
     const nextFilters = { ...filters, [field]: value };
     setFilters(nextFilters);
   };
+
+  const refreshCurrentTask = useCallback(async () => {
+    await loadWorkbench(filters);
+    await loadTaskDetail(selectedTaskId);
+  }, [filters, loadTaskDetail, loadWorkbench, selectedTaskId]);
 
   const handleStatusUpdate = async (status) => {
     if (!selectedTask) return;
@@ -152,7 +214,7 @@ function ResearchWorkbench() {
     try {
       await updateResearchTask(selectedTask.id, { status });
       message.success('任务状态已更新');
-      await loadWorkbench(filters);
+      await refreshCurrentTask();
     } catch (error) {
       message.error(error.userMessage || error.message || '更新任务状态失败');
     } finally {
@@ -169,9 +231,41 @@ function ResearchWorkbench() {
         note: noteDraft,
       });
       message.success('任务信息已保存');
-      await loadWorkbench(filters);
+      await refreshCurrentTask();
     } catch (error) {
       message.error(error.userMessage || error.message || '保存任务信息失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddComment = async () => {
+    if (!selectedTask || !commentDraft.trim()) return;
+    setSaving(true);
+    try {
+      await addResearchTaskComment(selectedTask.id, {
+        body: commentDraft.trim(),
+        author: 'local',
+      });
+      setCommentDraft('');
+      message.success('评论已添加');
+      await refreshCurrentTask();
+    } catch (error) {
+      message.error(error.userMessage || error.message || '添加评论失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    if (!selectedTask) return;
+    setSaving(true);
+    try {
+      await deleteResearchTaskComment(selectedTask.id, commentId);
+      message.success('评论已删除');
+      await refreshCurrentTask();
+    } catch (error) {
+      message.error(error.userMessage || error.message || '删除评论失败');
     } finally {
       setSaving(false);
     }
@@ -228,6 +322,7 @@ function ResearchWorkbench() {
 
     const payload = task.snapshot.payload || {};
     if (task.type === 'pricing') {
+      const fairValue = payload.fair_value || payload.valuation?.fair_value || {};
       return (
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
           <Text strong>{task.snapshot.headline || 'Pricing Snapshot'}</Text>
@@ -235,6 +330,11 @@ function ResearchWorkbench() {
           {payload.gap_analysis?.fair_value_mid ? (
             <Text type="secondary">
               当前价 {payload.gap_analysis.current_price || '-'} / 公允价值 {payload.gap_analysis.fair_value_mid}
+            </Text>
+          ) : null}
+          {fairValue.mid ? (
+            <Text type="secondary">
+              综合公允价值区间 {fairValue.low || '-'} ~ {fairValue.high || '-'}
             </Text>
           ) : null}
           {payload.implications?.primary_view ? (
@@ -272,6 +372,69 @@ function ResearchWorkbench() {
     );
   };
 
+  const renderSnapshotHistory = (task) => {
+    const history = task?.snapshot_history || [];
+    if (!history.length) {
+      return <Empty description="暂无历史快照" image={Empty.PRESENTED_IMAGE_SIMPLE} />;
+    }
+
+    return (
+      <List
+        size="small"
+        dataSource={history}
+        renderItem={(item) => {
+          const payload = item.payload || {};
+          const savedAt = item.saved_at ? new Date(item.saved_at).toLocaleString() : '-';
+          const pricingValue = payload.fair_value?.mid || payload.gap_analysis?.fair_value_mid;
+          return (
+            <List.Item>
+              <List.Item.Meta
+                title={(
+                  <Space wrap>
+                    <Text strong>{item.headline || '研究快照'}</Text>
+                    <Tag>{savedAt}</Tag>
+                  </Space>
+                )}
+                description={(
+                  <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                    <Text type="secondary">{item.summary || '暂无摘要'}</Text>
+                    {task.type === 'pricing' ? (
+                      <Text type="secondary">
+                        Fair value {pricingValue || '-'} · {(payload.implications?.primary_view || '待判断')}
+                      </Text>
+                    ) : (
+                      <Text type="secondary">
+                        Return {(Number(payload.total_return || 0) * 100).toFixed(2)}% · Sharpe {Number(payload.sharpe_ratio || 0).toFixed(2)}
+                      </Text>
+                    )}
+                  </Space>
+                )}
+              />
+            </List.Item>
+          );
+        }}
+      />
+    );
+  };
+
+  const timelineItems = useMemo(() => {
+    const visible = showAllTimeline ? timeline : timeline.slice(0, 8);
+    return visible.map((event) => ({
+      color: TIMELINE_COLOR[event.type] || 'blue',
+      dot: event.type === 'comment_added' ? <CommentOutlined /> : <ClockCircleOutlined />,
+      children: (
+        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+          <Space wrap>
+            <Text strong>{event.label}</Text>
+            <Tag color={TIMELINE_COLOR[event.type] || 'default'}>{formatTimelineType(event.type)}</Tag>
+            <Text type="secondary">{new Date(event.created_at).toLocaleString()}</Text>
+          </Space>
+          {event.detail ? <Text type="secondary">{event.detail}</Text> : null}
+        </Space>
+      ),
+    }));
+  }, [showAllTimeline, timeline]);
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <Card bordered={false}>
@@ -283,7 +446,7 @@ function ResearchWorkbench() {
             研究工作台
           </Title>
           <Paragraph style={{ marginBottom: 0 }}>
-            把 GodEye、定价研究和跨市场回测里的任务卡保存下来，在这里持续跟踪、更新状态并重新打开原始研究页。
+            把 GodEye、定价研究和跨市场回测里的任务卡保存下来，在这里持续跟踪、更新状态，并查看研究如何一步步演进。
           </Paragraph>
         </Space>
       </Card>
@@ -359,8 +522,8 @@ function ResearchWorkbench() {
                       padding: '12px 10px',
                       borderRadius: 12,
                       marginBottom: 8,
-                      border: task.id === selectedTask?.id ? '1px solid rgba(24,144,255,0.45)' : '1px solid transparent',
-                      background: task.id === selectedTask?.id ? 'rgba(24,144,255,0.08)' : 'transparent',
+                      border: task.id === selectedTaskId ? '1px solid rgba(24,144,255,0.45)' : '1px solid transparent',
+                      background: task.id === selectedTaskId ? 'rgba(24,144,255,0.08)' : 'transparent',
                     }}
                   >
                     <List.Item.Meta
@@ -394,7 +557,11 @@ function ResearchWorkbench() {
             extra={selectedTask ? <Tag color={STATUS_COLOR[selectedTask.status] || 'default'}>{selectedTask.status}</Tag> : null}
             bodyStyle={{ minHeight: 560 }}
           >
-            {selectedTask ? (
+            {detailLoading ? (
+              <div style={{ minHeight: 240, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Spin />
+              </div>
+            ) : selectedTask ? (
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
                 <Space wrap>
                   <Button type="primary" icon={<FolderOpenOutlined />} onClick={handleOpenTask}>
@@ -460,8 +627,100 @@ function ResearchWorkbench() {
                   </Space>
                 </Card>
 
-                <Card size="small" title="快照摘要" bordered={false}>
+                <Card size="small" title="当前快照" bordered={false}>
                   {renderSnapshot(selectedTask)}
+                </Card>
+
+                <Card size="small" title="历史快照" bordered={false}>
+                  {renderSnapshotHistory(selectedTask)}
+                </Card>
+
+                <Card
+                  size="small"
+                  title={(
+                    <Space>
+                      <HistoryOutlined />
+                      <span>研究时间线</span>
+                    </Space>
+                  )}
+                  extra={
+                    timeline.length > 8 ? (
+                      <Button type="link" size="small" onClick={() => setShowAllTimeline((prev) => !prev)}>
+                        {showAllTimeline ? '收起' : '展开更多'}
+                      </Button>
+                    ) : null
+                  }
+                  bordered={false}
+                >
+                  {timeline.length ? (
+                    <Timeline items={timelineItems} />
+                  ) : (
+                    <Empty description="暂无时间线事件" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                  )}
+                </Card>
+
+                <Card
+                  size="small"
+                  title={(
+                    <Space>
+                      <CommentOutlined />
+                      <span>评论</span>
+                    </Space>
+                  )}
+                  bordered={false}
+                >
+                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                    <TextArea
+                      rows={3}
+                      value={commentDraft}
+                      onChange={(event) => setCommentDraft(event.target.value)}
+                      placeholder="记录这一步的判断、风险或下一步动作"
+                    />
+                    <Button
+                      type="primary"
+                      icon={<CommentOutlined />}
+                      onClick={handleAddComment}
+                      loading={saving}
+                      disabled={!commentDraft.trim()}
+                      style={{ alignSelf: 'flex-start' }}
+                    >
+                      添加评论
+                    </Button>
+
+                    {(selectedTask.comments || []).length ? (
+                      <List
+                        size="small"
+                        dataSource={selectedTask.comments}
+                        renderItem={(comment) => (
+                          <List.Item
+                            actions={[
+                              <Button
+                                key="delete"
+                                type="link"
+                                danger
+                                size="small"
+                                onClick={() => handleDeleteComment(comment.id)}
+                              >
+                                删除
+                              </Button>,
+                            ]}
+                          >
+                            <List.Item.Meta
+                              title={(
+                                <Space wrap>
+                                  <Text strong>{comment.author || 'local'}</Text>
+                                  <Text type="secondary">{new Date(comment.created_at).toLocaleString()}</Text>
+                                </Space>
+                              )}
+                              description={comment.body}
+                            />
+                          </List.Item>
+                        )}
+                      />
+                    ) : (
+                      <Empty description="暂无评论" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    )}
+                  </Space>
                 </Card>
 
                 <Card size="small" title="状态流转" bordered={false}>

@@ -509,6 +509,28 @@ export const updateResearchTask = async (taskId, payload) => {
   return response.data;
 };
 
+export const getResearchTaskTimeline = async (taskId) => {
+  const response = await api.get(`/research-workbench/tasks/${encodeURIComponent(taskId)}/timeline`);
+  return response.data;
+};
+
+export const addResearchTaskComment = async (taskId, payload) => {
+  const response = await api.post(`/research-workbench/tasks/${encodeURIComponent(taskId)}/comments`, payload);
+  return response.data;
+};
+
+export const deleteResearchTaskComment = async (taskId, commentId) => {
+  const response = await api.delete(
+    `/research-workbench/tasks/${encodeURIComponent(taskId)}/comments/${encodeURIComponent(commentId)}`
+  );
+  return response.data;
+};
+
+export const addResearchTaskSnapshot = async (taskId, payload) => {
+  const response = await api.post(`/research-workbench/tasks/${encodeURIComponent(taskId)}/snapshot`, payload);
+  return response.data;
+};
+
 export const deleteResearchTask = async (taskId) => {
   const response = await api.delete(`/research-workbench/tasks/${encodeURIComponent(taskId)}`);
   return response.data;

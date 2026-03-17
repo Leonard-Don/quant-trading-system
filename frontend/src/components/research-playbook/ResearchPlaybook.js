@@ -6,10 +6,21 @@ import ResearchTaskCard from './ResearchTaskCard';
 
 const { Text } = Typography;
 
-function ResearchPlaybook({ playbook, onAction, onSave, saveLabel = '保存到研究工作台', saving = false }) {
+function ResearchPlaybook({
+  playbook,
+  onAction,
+  onSave,
+  onSaveTask,
+  onUpdateSnapshot,
+  saveLabel = '保存到研究工作台',
+  updateLabel = '更新当前任务快照',
+  saving = false,
+}) {
   if (!playbook) {
     return null;
   }
+
+  const saveHandler = onSaveTask || onSave;
 
   return (
     <Card
@@ -17,9 +28,14 @@ function ResearchPlaybook({ playbook, onAction, onSave, saveLabel = '保存到�
       title={playbook.playbook_type === 'pricing' ? '定价研究剧本' : '跨市场研究剧本'}
       extra={(
         <Space>
-          {onSave ? (
-            <Button size="small" onClick={onSave} loading={saving}>
+          {saveHandler ? (
+            <Button size="small" onClick={saveHandler} loading={saving}>
               {saveLabel}
+            </Button>
+          ) : null}
+          {onUpdateSnapshot ? (
+            <Button size="small" onClick={onUpdateSnapshot} loading={saving}>
+              {updateLabel}
             </Button>
           ) : null}
           {playbook.stageLabel ? <Text type="secondary">{playbook.stageLabel}</Text> : null}
