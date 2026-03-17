@@ -70,6 +70,61 @@ def test_research_workbench_endpoint_update_and_stats(monkeypatch, tmp_path):
     stats = stats_response.json()["data"]
     assert stats["status_counts"]["blocked"] == 1
     assert stats["type_counts"]["cross_market"] == 1
+    assert stats["with_timeline"] == 1
+
+
+def test_research_workbench_endpoint_comment_timeline_and_snapshot(monkeypatch, tmp_path):
+    client = _build_client(monkeypatch, tmp_path)
+    created = client.post(
+        "/research-workbench/tasks",
+        json={
+            "type": "pricing",
+            "title": "[Pricing] MSFT mispricing review",
+            "symbol": "MSFT",
+        },
+    ).json()["data"]
+
+    comment_response = client.post(
+        f"/research-workbench/tasks/{created['id']}/comments",
+        json={"body": "track cloud capex assumptions", "author": "local"},
+    )
+    assert comment_response.status_code == 200
+    assert comment_response.json()["data"]["body"] == "track cloud capex assumptions"
+
+    snapshot_response = client.post(
+        f"/research-workbench/tasks/{created['id']}/snapshot",
+        json={
+            "snapshot": {
+                "headline": "MSFT snapshot",
+                "summary": "valuation refreshed",
+                "payload": {"gap_analysis": {"gap_pct": 0.05}},
+            }
+        },
+    )
+    assert snapshot_response.status_code == 200
+    assert snapshot_response.json()["data"]["snapshot"]["headline"] == "MSFT snapshot"
+
+    timeline_response = client.get(f"/research-workbench/tasks/{created['id']}/timeline")
+    assert timeline_response.status_code == 200
+    timeline = timeline_response.json()["data"]
+    assert timeline[0]["type"] == "snapshot_saved"
+    assert any(item["type"] == "comment_added" for item in timeline)
+
+    comment_id = comment_response.json()["data"]["id"]
+    delete_response = client.delete(f"/research-workbench/tasks/{created['id']}/comments/{comment_id}")
+    assert delete_response.status_code == 200
+
+
+def test_research_workbench_endpoint_delete_missing_comment_returns_404(monkeypatch, tmp_path):
+    client = _build_client(monkeypatch, tmp_path)
+    created = client.post(
+        "/research-workbench/tasks",
+        json={"type": "pricing", "title": "task", "symbol": "AAPL"},
+    ).json()["data"]
+
+    response = client.delete(f"/research-workbench/tasks/{created['id']}/comments/missing-comment")
+
+    assert response.status_code == 404
 
 
 def test_research_workbench_endpoint_delete_missing_returns_404(monkeypatch, tmp_path):

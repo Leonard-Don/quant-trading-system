@@ -16,6 +16,23 @@ class ResearchTaskSnapshot(BaseModel):
     summary: str = ""
     highlights: List[str] = Field(default_factory=list)
     payload: Dict[str, Any] = Field(default_factory=dict)
+    saved_at: str = ""
+
+
+class ResearchTaskComment(BaseModel):
+    id: str
+    created_at: str
+    author: str = "local"
+    body: str
+
+
+class ResearchTaskTimelineEvent(BaseModel):
+    id: str
+    created_at: str
+    type: str
+    label: str
+    detail: str = ""
+    meta: Dict[str, Any] = Field(default_factory=dict)
 
 
 class ResearchTask(BaseModel):
@@ -31,6 +48,9 @@ class ResearchTask(BaseModel):
     note: str = ""
     context: Dict[str, Any] = Field(default_factory=dict)
     snapshot: ResearchTaskSnapshot = Field(default_factory=ResearchTaskSnapshot)
+    comments: List[ResearchTaskComment] = Field(default_factory=list)
+    timeline: List[ResearchTaskTimelineEvent] = Field(default_factory=list)
+    snapshot_history: List[ResearchTaskSnapshot] = Field(default_factory=list)
 
 
 class ResearchTaskCreateRequest(BaseModel):
@@ -51,6 +71,15 @@ class ResearchTaskUpdateRequest(BaseModel):
     note: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
     snapshot: Optional[ResearchTaskSnapshot] = None
+
+
+class ResearchTaskCommentCreateRequest(BaseModel):
+    author: str = "local"
+    body: str = Field(min_length=1)
+
+
+class ResearchTaskSnapshotCreateRequest(BaseModel):
+    snapshot: ResearchTaskSnapshot
 
 
 class ResearchTaskListResponse(BaseModel):
