@@ -15,6 +15,7 @@ import {
 import ErrorBoundary from './components/ErrorBoundary';
 import { getStrategies, runBacktest } from './services/api';
 import { useTheme } from './contexts/ThemeContext';
+import { buildAppUrl, sanitizeParamsForView } from './utils/researchContext';
 
 // 懒加载非核心组件，减少初始包大小
 
@@ -77,13 +78,18 @@ function App() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (currentView === 'backtest') {
-      params.delete(VIEW_QUERY_KEY);
-    } else {
-      params.set(VIEW_QUERY_KEY, currentView);
-    }
-    const nextQuery = params.toString();
-    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash || ''}`;
+    sanitizeParamsForView(params, currentView);
+    const nextUrl = buildAppUrl({
+      currentSearch: `?${params.toString()}`,
+      view: currentView,
+      tab: currentView === 'backtest' ? params.get('tab') : undefined,
+      symbol: params.get('symbol'),
+      symbols: params.get('symbols'),
+      template: params.get('template'),
+      action: params.get('action'),
+      source: params.get('source'),
+      note: params.get('note'),
+    });
     window.history.replaceState(null, '', nextUrl);
   }, [currentView]);
 

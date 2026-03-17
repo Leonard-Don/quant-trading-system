@@ -33,7 +33,7 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
                 <Text style={{ color: 'rgba(245,248,252,0.78)', display: 'block', marginBottom: 14 }}>
                   {card.stance}
                 </Text>
-                <Button size="small" type="primary" onClick={() => onNavigate?.('cross-market')}>
+                <Button size="small" type="primary" onClick={() => onNavigate?.(card.action)}>
                   {card.action.label}
                 </Button>
               </div>

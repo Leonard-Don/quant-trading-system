@@ -5,6 +5,7 @@ import StrategyForm from './StrategyForm';
 import ResultsDisplay from './ResultsDisplay';
 import LoadingSpinner from './LoadingSpinner';
 import CrossMarketBacktestPanel from './CrossMarketBacktestPanel';
+import { buildAppUrl, sanitizeParamsForView } from '../utils/researchContext';
 
 // Lazy load history component to keep initial bundle size small
 const BacktestHistory = lazy(() => import('./BacktestHistory'));
@@ -127,8 +128,16 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
                 } else {
                     params.set(TAB_QUERY_KEY, key);
                 }
-                const nextQuery = params.toString();
-                const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash || ''}`;
+                sanitizeParamsForView(params, 'backtest');
+                const nextUrl = buildAppUrl({
+                    currentSearch: `?${params.toString()}`,
+                    view: 'backtest',
+                    tab: params.get(TAB_QUERY_KEY),
+                    template: params.get('template'),
+                    action: params.get('action'),
+                    source: params.get('source'),
+                    note: params.get('note'),
+                });
                 window.history.replaceState(null, '', nextUrl);
             }}
         />

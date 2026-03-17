@@ -24,7 +24,7 @@ function AlertHunterPanel({ alerts = [], onNavigate }) {
           <List.Item
             actions={[
               item.action?.target && item.action.target !== 'observe' ? (
-                <Button key="go" size="small" onClick={() => onNavigate?.(item.action.target)}>
+                <Button key="go" size="small" onClick={() => onNavigate?.(item.action)}>
                   {item.action.label}
                 </Button>
               ) : (

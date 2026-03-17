@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Card, Row, Col, Input, Button, Select, Spin, Statistic, Tag, Space,
-  Descriptions, Table, Progress, Alert, Typography, Tooltip, Divider, Empty
+  Descriptions, Table, Alert, Typography, Tooltip, Divider, Empty
 } from 'antd';
 import {
   SearchOutlined, FundOutlined, DollarOutlined, SwapOutlined,
@@ -9,6 +9,7 @@ import {
   InfoCircleOutlined, ExperimentOutlined
 } from '@ant-design/icons';
 import { getGapAnalysis } from '../services/api';
+import { formatResearchSource, readResearchContext } from '../utils/researchContext';
 
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
@@ -23,13 +24,16 @@ const PricingResearch = () => {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
+  const [researchContext, setResearchContext] = useState(readResearchContext());
+  const autoLoadedContextRef = useRef('');
 
-  const handleAnalyze = useCallback(async () => {
-    if (!symbol.trim()) return;
+  const handleAnalyze = useCallback(async (overrideSymbol = null) => {
+    const targetSymbol = (overrideSymbol || symbol).trim().toUpperCase();
+    if (!targetSymbol) return;
     setLoading(true);
     setError(null);
     try {
-      const result = await getGapAnalysis(symbol.trim().toUpperCase(), period);
+      const result = await getGapAnalysis(targetSymbol, period);
       setData(result);
     } catch (err) {
       setError(err.userMessage || err.message || '分析失败');
@@ -38,6 +42,25 @@ const PricingResearch = () => {
       setLoading(false);
     }
   }, [symbol, period]);
+
+  useEffect(() => {
+    const syncFromUrl = () => {
+      const nextContext = readResearchContext();
+      setResearchContext(nextContext);
+      if (nextContext.view === 'pricing' && nextContext.symbol) {
+        setSymbol(nextContext.symbol);
+        const contextKey = `${nextContext.symbol}:${nextContext.source}:${nextContext.note}`;
+        if (autoLoadedContextRef.current !== contextKey) {
+          autoLoadedContextRef.current = contextKey;
+          handleAnalyze(nextContext.symbol);
+        }
+      }
+    };
+
+    syncFromUrl();
+    window.addEventListener('popstate', syncFromUrl);
+    return () => window.removeEventListener('popstate', syncFromUrl);
+  }, [handleAnalyze]);
 
   const handleKeyPress = (e) => {
     if (e.key === 'Enter') handleAnalyze();
@@ -52,6 +75,20 @@ const PricingResearch = () => {
       <Paragraph type="secondary" style={{ marginBottom: 20 }}>
         打通一级市场估值逻辑（DCF / 可比估值）与二级市场因子定价（CAPM / Fama-French），识别定价偏差与驱动因素。
       </Paragraph>
+
+      {researchContext?.source && researchContext?.symbol ? (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="info"
+          showIcon
+          message={`来自 ${formatResearchSource(researchContext.source)} 的定价研究建议`}
+          description={
+            researchContext.note
+              ? `${researchContext.symbol} · ${researchContext.note}`
+              : `${researchContext.symbol} 已自动带入研究页`
+          }
+        />
+      ) : null}
 
       {/* 搜索栏 */}
       <Card size="small" style={{ marginBottom: 16 }}>

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Card, Empty, Tag, Timeline, Typography } from 'antd';
+import { Button, Card, Empty, Space, Tag, Timeline, Typography } from 'antd';
 
 const { Paragraph, Text } = Typography;
 
@@ -9,7 +9,7 @@ const directionColor = {
   neutral: 'default',
 };
 
-function PolicyTimelineBar({ items = [] }) {
+function PolicyTimelineBar({ items = [], onNavigate }) {
   const [activeKey, setActiveKey] = useState(null);
 
   const activeItem = useMemo(
@@ -69,6 +69,18 @@ function PolicyTimelineBar({ items = [] }) {
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 {activeItem.tags.length ? activeItem.tags.map((tag) => <Tag key={tag}>{tag}</Tag>) : <Text type="secondary">暂无产业标签</Text>}
               </div>
+              <Space wrap style={{ marginTop: 12 }}>
+                {activeItem.primaryAction ? (
+                  <Button size="small" type="primary" onClick={() => onNavigate?.(activeItem.primaryAction)}>
+                    {activeItem.primaryAction.label}
+                  </Button>
+                ) : null}
+                {activeItem.secondaryAction ? (
+                  <Button size="small" onClick={() => onNavigate?.(activeItem.secondaryAction)}>
+                    {activeItem.secondaryAction.label}
+                  </Button>
+                ) : null}
+              </Space>
             </div>
           ) : null}
         </div>

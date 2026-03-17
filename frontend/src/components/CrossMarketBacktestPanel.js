@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -38,6 +38,7 @@ import {
 
 import { getCrossMarketTemplates, runCrossMarketBacktest } from '../services/api';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
+import { formatResearchSource, readResearchContext } from '../utils/researchContext';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -93,6 +94,8 @@ function CrossMarketBacktestPanel() {
     end_date: '',
   });
   const [results, setResults] = useState(null);
+  const [researchContext, setResearchContext] = useState(readResearchContext());
+  const appliedTemplateRef = useRef('');
 
   useEffect(() => {
     const loadTemplates = async () => {
@@ -108,6 +111,13 @@ function CrossMarketBacktestPanel() {
     };
 
     loadTemplates();
+  }, []);
+
+  useEffect(() => {
+    const syncContext = () => setResearchContext(readResearchContext());
+    syncContext();
+    window.addEventListener('popstate', syncContext);
+    return () => window.removeEventListener('popstate', syncContext);
   }, []);
 
   const longAssets = useMemo(() => normalizeAssets(assets, 'long'), [assets]);
@@ -127,7 +137,7 @@ function CrossMarketBacktestPanel() {
     setAssets((prev) => [...prev, createAsset(side, prev.length)]);
   };
 
-  const applyTemplate = (templateId) => {
+  const applyTemplate = useCallback((templateId) => {
     const template = templates.find((item) => item.id === templateId);
     if (!template) {
       return;
@@ -148,7 +158,22 @@ function CrossMarketBacktestPanel() {
       construction_mode: template.construction_mode || DEFAULT_QUALITY.construction_mode,
     }));
     message.success(`已载入模板: ${template.name}`);
-  };
+  }, [templates]);
+
+  useEffect(() => {
+    if (!templates.length || !researchContext?.template) {
+      return;
+    }
+    if (appliedTemplateRef.current === researchContext.template) {
+      return;
+    }
+    const template = templates.find((item) => item.id === researchContext.template);
+    if (!template) {
+      return;
+    }
+    appliedTemplateRef.current = researchContext.template;
+    applyTemplate(researchContext.template);
+  }, [applyTemplate, researchContext, templates]);
 
   const handleRun = async () => {
     const payloadAssets = assets
@@ -281,6 +306,19 @@ function CrossMarketBacktestPanel() {
           </Paragraph>
         </Space>
       </Card>
+
+      {researchContext?.template ? (
+        <Alert
+          type="info"
+          showIcon
+          message={`已载入来自 ${formatResearchSource(researchContext.source)} 的跨市场模板`}
+          description={
+            researchContext.note
+              ? researchContext.note
+              : `模板 ${researchContext.template} 已自动预载，可继续编辑后再运行回测。`
+          }
+        />
+      ) : null}
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={16}>

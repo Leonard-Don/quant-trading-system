@@ -19,6 +19,48 @@ const ACTION_MAP = {
   observe: { label: '继续观察', target: 'observe' },
 };
 
+const COMPANY_SYMBOL_MAP = {
+  阿里巴巴: 'BABA',
+  腾讯: '0700.HK',
+  百度: 'BIDU',
+  英伟达: 'NVDA',
+  台积电: 'TSM',
+};
+
+const TAG_SYMBOL_MAP = {
+  AI算力: 'NVDA',
+  半导体: 'TSM',
+  电网: 'DUK',
+  核电: 'CEG',
+  风电: 'NEE',
+  光伏: 'FSLR',
+  储能: 'TSLA',
+  新能源汽车: 'TSLA',
+};
+
+const TAG_TEMPLATE_MAP = {
+  AI算力: 'energy_vs_ai_apps',
+  半导体: 'copper_vs_semis',
+  电网: 'utilities_vs_growth',
+  核电: 'energy_vs_ai_apps',
+  风电: 'utilities_vs_growth',
+  光伏: 'utilities_vs_growth',
+  储能: 'energy_vs_ai_apps',
+  新能源汽车: 'energy_vs_ai_apps',
+};
+
+const FACTOR_TEMPLATE_MAP = {
+  bureaucratic_friction: 'utilities_vs_growth',
+  tech_dilution: 'defensive_beta_hedge',
+  baseload_mismatch: 'energy_vs_ai_apps',
+};
+
+const FACTOR_SYMBOL_MAP = {
+  bureaucratic_friction: 'QQQ',
+  tech_dilution: 'NVDA',
+  baseload_mismatch: 'DUK',
+};
+
 const formatFactorName = (name = '') => {
   const mapping = {
     bureaucratic_friction: '官僚摩擦',
@@ -40,6 +82,26 @@ const scoreTone = (score) => {
 };
 
 export const getSignalLabel = (value) => SIGNAL_LABEL[value] || SIGNAL_LABEL[0];
+
+const buildPricingAction = (symbol, source, note) =>
+  symbol
+    ? {
+        ...ACTION_MAP.pricing,
+        symbol,
+        source,
+        note,
+      }
+    : null;
+
+const buildCrossMarketAction = (template, source, note) =>
+  template
+    ? {
+        ...ACTION_MAP.cross_market,
+        template,
+        source,
+        note,
+      }
+    : null;
 
 export const buildHeatmapModel = (snapshot = {}, history = {}) => {
   const supplyDimensions = snapshot?.signals?.supply_chain?.dimensions || {};
@@ -112,6 +174,20 @@ export const buildFactorPanelModel = (overview = {}, snapshot = {}) => {
   const factors = (overview?.factors || []).map((factor) => ({
     ...factor,
     displayName: formatFactorName(factor.name),
+    action:
+      factor.signal === 1
+        ? buildCrossMarketAction(
+            FACTOR_TEMPLATE_MAP[factor.name],
+            'factor_panel',
+            `${formatFactorName(factor.name)} 偏向正向扭曲，建议先看跨市场对冲模板`
+          )
+        : factor.signal === -1
+          ? buildPricingAction(
+              FACTOR_SYMBOL_MAP[factor.name],
+              'factor_panel',
+              `${formatFactorName(factor.name)} 偏向负向错价，建议先看单标的定价研究`
+            )
+          : null,
   }));
 
   const topFactors = [...factors]
@@ -123,6 +199,7 @@ export const buildFactorPanelModel = (overview = {}, snapshot = {}) => {
     factors,
     providerHealth: overview?.provider_health || snapshot?.provider_health || {},
     staleness: overview?.data_freshness || snapshot?.staleness || {},
+    primaryAction: topFactors[0]?.action || null,
   };
 };
 
@@ -131,6 +208,8 @@ export const buildTimelineModel = (policyHistory = {}) => {
   return records.map((item) => {
     const raw = item.raw_value || {};
     const shift = Number(raw.policy_shift || 0);
+    const tags = Object.keys(raw.industry_impact || {});
+    const primaryTag = tags.find((tag) => TAG_SYMBOL_MAP[tag] || TAG_TEMPLATE_MAP[tag]);
     return {
       key: item.record_id,
       title: raw.title || item.source,
@@ -138,10 +217,26 @@ export const buildTimelineModel = (policyHistory = {}) => {
       source: item.source,
       direction: shift > 0.15 ? 'stimulus' : shift < -0.15 ? 'tightening' : 'neutral',
       directionLabel: shift > 0.15 ? '偏刺激' : shift < -0.15 ? '偏收紧' : '中性',
-      tags: Object.keys(raw.industry_impact || {}),
+      tags,
       score: shift,
       confidence: Number(item.confidence || 0),
       details: raw.industry_impact || {},
+      primaryAction:
+        primaryTag && TAG_SYMBOL_MAP[primaryTag]
+          ? buildPricingAction(
+              TAG_SYMBOL_MAP[primaryTag],
+              'policy_timeline',
+              `${primaryTag} 受到政策影响，建议先做定价研究`
+            )
+          : null,
+      secondaryAction:
+        primaryTag && TAG_TEMPLATE_MAP[primaryTag]
+          ? buildCrossMarketAction(
+              TAG_TEMPLATE_MAP[primaryTag],
+              'policy_timeline',
+              `${primaryTag} 对应的宏观主题已映射到跨市场模板`
+            )
+          : null,
     };
   });
 };
@@ -163,12 +258,15 @@ export const buildHunterModel = ({ snapshot = {}, overview = {}, status = {} }) 
 
   const supplyAlerts = snapshot?.signals?.supply_chain?.alerts || [];
   supplyAlerts.forEach((item, index) => {
+    const symbol = COMPANY_SYMBOL_MAP[item.company] || null;
     alerts.push({
       key: `supply-${index}`,
       title: `${item.company || '未知公司'} 人才结构预警`,
       severity: 'high',
       description: item.message || `dilution ratio ${item.dilution_ratio || 0}`,
-      action: ACTION_MAP.cross_market,
+      action: symbol
+        ? buildPricingAction(symbol, 'alert_hunter', item.message || '人才结构预警')
+        : buildCrossMarketAction('defensive_beta_hedge', 'alert_hunter', item.message || '人才结构预警'),
     });
   });
 
@@ -180,7 +278,18 @@ export const buildHunterModel = ({ snapshot = {}, overview = {}, status = {} }) 
         title: `${formatFactorName(factor.name)} 出现偏移`,
         severity: Math.abs(Number(factor.z_score || 0)) > 1 ? 'high' : 'medium',
         description: `value=${Number(factor.value || 0).toFixed(3)} z=${Number(factor.z_score || 0).toFixed(3)}`,
-        action: factor.signal === 1 ? ACTION_MAP.cross_market : ACTION_MAP.pricing,
+        action:
+          factor.signal === 1
+            ? buildCrossMarketAction(
+                FACTOR_TEMPLATE_MAP[factor.name],
+                'alert_hunter',
+                `${formatFactorName(factor.name)} 提示适合先看跨市场模板`
+              )
+            : buildPricingAction(
+                FACTOR_SYMBOL_MAP[factor.name],
+                'alert_hunter',
+                `${formatFactorName(factor.name)} 提示适合先看单标的定价研究`
+              ),
       });
     });
 
@@ -202,7 +311,11 @@ export const buildCrossMarketCards = (payload = {}) => {
       longCount,
       shortCount,
       stance: longCount >= shortCount ? '偏防守/资源端' : '偏对冲/做空端',
-      action: ACTION_MAP.cross_market,
+      action: buildCrossMarketAction(
+        template.id,
+        'cross_market_overview',
+        `${template.name} 已从 GodEye 模板卡直达`
+      ),
     };
   });
 };

@@ -43,6 +43,11 @@ import {
   buildTimelineModel,
   getSignalLabel,
 } from './viewModels';
+import {
+  buildCrossMarketLink,
+  buildPricingLink,
+  navigateToAppUrl,
+} from '../../utils/researchContext';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -62,15 +67,38 @@ function GodEyeDashboard() {
   const [policyHistory, setPolicyHistory] = useState(null);
   const [crossMarketTemplates, setCrossMarketTemplates] = useState(null);
 
-  const navigateTo = (target) => {
-    let search = '?view=godsEye';
-    if (target === 'pricing') {
-      search = '?view=pricing';
-    } else if (target === 'cross-market') {
-      search = '?view=backtest&tab=cross-market';
+  const navigateTo = (actionOrTarget) => {
+    if (!actionOrTarget) return;
+
+    if (typeof actionOrTarget === 'string') {
+      if (actionOrTarget === 'pricing') {
+        navigateToAppUrl(buildPricingLink('', 'godeye', '来自 GodEye 的研究入口'));
+      } else if (actionOrTarget === 'cross-market') {
+        navigateToAppUrl(buildCrossMarketLink('', 'godeye', '来自 GodEye 的跨市场入口'));
+      }
+      return;
     }
-    window.history.pushState(null, '', `${window.location.pathname}${search}`);
-    window.dispatchEvent(new PopStateEvent('popstate'));
+
+    if (actionOrTarget.target === 'pricing') {
+      navigateToAppUrl(
+        buildPricingLink(
+          actionOrTarget.symbol,
+          actionOrTarget.source || 'godeye',
+          actionOrTarget.note || ''
+        )
+      );
+      return;
+    }
+
+    if (actionOrTarget.target === 'cross-market') {
+      navigateToAppUrl(
+        buildCrossMarketLink(
+          actionOrTarget.template,
+          actionOrTarget.source || 'godeye',
+          actionOrTarget.note || ''
+        )
+      );
+    }
   };
 
   const loadDashboard = async (refresh = false) => {
@@ -288,16 +316,18 @@ function GodEyeDashboard() {
             macroScore={overview?.macro_score}
             confidence={overview?.confidence}
             macroSignal={overview?.macro_signal}
+            primaryAction={factorPanelModel.primaryAction}
+            onNavigate={navigateTo}
           />
         </Col>
       </Row>
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={13}>
-          <MacroFactorPanel model={factorPanelModel} />
+          <MacroFactorPanel model={factorPanelModel} onNavigate={navigateTo} />
         </Col>
         <Col xs={24} xl={11}>
-          <PolicyTimelineBar items={timelineItems} />
+          <PolicyTimelineBar items={timelineItems} onNavigate={navigateTo} />
         </Col>
       </Row>
 
