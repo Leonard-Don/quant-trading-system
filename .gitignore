@@ -115,6 +115,11 @@ tests/e2e/node_modules/
 
 # Data
 data/
+!src/data/
+src/data/*
+!src/data/alternative/
+!src/data/alternative/**
+src/data/alternative/**/__pycache__/
 
 # Output / Reports / Metrics (runtime generated)
 output/

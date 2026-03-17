@@ -23,6 +23,11 @@ from src.middleware.rate_limiter import RateLimiter
 from src.middleware.request_id import RequestIDMiddleware
 from src.data.realtime_manager import realtime_manager
 from src.data.data_manager import DataManager
+from src.data.alternative import (
+    get_alt_data_manager,
+    start_alt_data_scheduler,
+    stop_alt_data_scheduler,
+)
 
 # 配置日志
 setup_logging()
@@ -82,6 +87,9 @@ async def lifespan(app: FastAPI):
     # 启动事件
     logger.info("Starting up RealTimeDataManager background task")
     asyncio.create_task(realtime_manager.start_real_time_updates())
+    get_alt_data_manager()
+    start_alt_data_scheduler()
+    asyncio.create_task(asyncio.to_thread(get_alt_data_manager().refresh_all, True))
     
     # 缓存预热（后台执行，不阻塞启动）
     asyncio.create_task(warm_up_cache())
@@ -90,6 +98,7 @@ async def lifespan(app: FastAPI):
     # 关闭事件
     logger.info("Stopping RealTimeDataManager")
     realtime_manager.stop_real_time_updates()
+    stop_alt_data_scheduler()
 
 
 # 创建FastAPI应用
