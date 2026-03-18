@@ -97,3 +97,29 @@ def test_history_repairs_corrupted_trailing_zero_snapshot(tmp_path):
 
     persisted = json.loads(history_file.read_text(encoding="utf-8"))
     assert persisted[0]["result"]["final_value"] == 1300.0
+
+
+def test_history_statistics_include_latest_record_metadata(tmp_path):
+    history = BacktestHistory(storage_path=tmp_path, max_records=10)
+
+    history.save(
+        {
+            "symbol": "AAPL",
+            "strategy": "buy_and_hold",
+            "performance_metrics": {
+                "total_return": 0.05,
+                "annualized_return": 0.06,
+                "sharpe_ratio": 1.0,
+                "max_drawdown": -0.03,
+                "win_rate": 1.0,
+                "num_trades": 1,
+                "final_value": 10500,
+            },
+        }
+    )
+
+    stats = history.get_statistics()
+
+    assert stats["total_records"] == 1
+    assert stats["strategy_count"] == 1
+    assert stats["latest_record_at"] is not None

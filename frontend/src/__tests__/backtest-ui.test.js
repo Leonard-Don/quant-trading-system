@@ -4,12 +4,19 @@ import '@testing-library/jest-dom';
 
 import ResultsDisplay from '../components/ResultsDisplay';
 import BacktestHistory from '../components/BacktestHistory';
-import { getBacktestHistory, getBacktestReport } from '../services/api';
+import {
+  getBacktestHistory,
+  getBacktestHistoryStats,
+  getBacktestRecord,
+  downloadBacktestReport,
+} from '../services/api';
 
 jest.mock('../services/api', () => ({
   getBacktestHistory: jest.fn(),
+  getBacktestHistoryStats: jest.fn(),
+  getBacktestRecord: jest.fn(),
   deleteBacktestRecord: jest.fn(),
-  getBacktestReport: jest.fn(),
+  downloadBacktestReport: jest.fn(),
 }));
 
 jest.mock('../components/PerformanceChart', () => () => <div>PerformanceChart</div>);
@@ -41,6 +48,9 @@ beforeAll(() => {
   if (!window.URL.createObjectURL) {
     window.URL.createObjectURL = jest.fn(() => 'blob:test');
   }
+  if (!window.URL.revokeObjectURL) {
+    window.URL.revokeObjectURL = jest.fn();
+  }
 });
 
 afterEach(() => {
@@ -49,8 +59,10 @@ afterEach(() => {
 
 describe('ResultsDisplay', () => {
   test('renders top-level metrics and normalizes compatibility trade fields', async () => {
+    const onOpenHistoryRecord = jest.fn();
     render(
       <ResultsDisplay
+        onOpenHistoryRecord={onOpenHistoryRecord}
         results={{
           symbol: 'AAPL',
           strategy: 'buy_and_hold',
@@ -63,6 +75,7 @@ describe('ResultsDisplay', () => {
           win_rate: 1,
           profit_factor: 2.5,
           net_profit: 1000,
+          history_record_id: 'bt_123',
           trades: [
             {
               date: '2024-01-01',
@@ -86,6 +99,8 @@ describe('ResultsDisplay', () => {
 
     expect(screen.getByText('最终价值')).toBeInTheDocument();
     expect(screen.getByText('$11,000.00')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /查看历史记录/ }));
+    expect(onOpenHistoryRecord).toHaveBeenCalledWith('bt_123');
 
     fireEvent.click(screen.getByRole('tab', { name: '交易记录' }));
 
@@ -97,6 +112,18 @@ describe('ResultsDisplay', () => {
 });
 
 describe('BacktestHistory', () => {
+  beforeEach(() => {
+    getBacktestHistoryStats.mockResolvedValue({
+      success: true,
+      data: {
+        total_records: 12,
+        avg_return: 0.08,
+        strategy_count: 3,
+        latest_record_at: '2024-01-02T00:00:00Z',
+      },
+    });
+  });
+
   test('builds a clean base64 pdf download link', async () => {
     getBacktestHistory.mockResolvedValue({
       success: true,
@@ -126,11 +153,44 @@ describe('BacktestHistory', () => {
         },
       ],
     });
-    getBacktestReport.mockResolvedValue({
+    downloadBacktestReport.mockResolvedValue({
+      blob: new Blob(['fake-pdf'], { type: 'application/pdf' }),
+      filename: 'report.pdf',
+      contentType: 'application/pdf',
+    });
+    getBacktestRecord.mockResolvedValue({
       success: true,
       data: {
-        pdf_base64: 'ZmFrZQ==',
-        filename: 'report.pdf',
+        id: 'rec-1',
+        symbol: 'AAPL',
+        strategy: 'buy_and_hold',
+        timestamp: '2024-01-02T00:00:00Z',
+        start_date: '2024-01-01',
+        end_date: '2024-01-06',
+        parameters: {},
+        metrics: {
+          total_return: 0.1,
+          annualized_return: 0.2,
+          sharpe_ratio: 1.5,
+          max_drawdown: -0.05,
+          num_trades: 1,
+        },
+        result: {
+          total_return: 0.1,
+          annualized_return: 0.2,
+          sharpe_ratio: 1.5,
+          max_drawdown: -0.05,
+          num_trades: 1,
+          trades: [
+            {
+              date: '2024-01-02',
+              action: 'buy',
+              quantity: 5,
+              price: 100,
+              value: 500,
+            },
+          ],
+        },
       },
     });
 
@@ -152,18 +212,63 @@ describe('BacktestHistory', () => {
     const appendChildSpy = jest.spyOn(document.body, 'appendChild').mockImplementation(() => anchor);
     const removeChildSpy = jest.spyOn(document.body, 'removeChild').mockImplementation(() => anchor);
 
-    const buttons = container.querySelectorAll('button');
-    fireEvent.click(buttons[2]);
+    try {
+      const buttons = container.querySelectorAll('button');
+      fireEvent.click(buttons[2]);
 
-    await waitFor(() => {
-      expect(getBacktestReport).toHaveBeenCalled();
-      expect(anchor.href).toBe('data:application/pdf;base64,ZmFrZQ==');
-      expect(anchor.download).toBe('report.pdf');
-      expect(anchor.click).toHaveBeenCalled();
+      await waitFor(() => {
+        expect(getBacktestRecord).toHaveBeenCalledWith('rec-1');
+        expect(downloadBacktestReport).toHaveBeenCalled();
+        expect(window.URL.createObjectURL).toHaveBeenCalled();
+        expect(anchor.download).toBe('report.pdf');
+        expect(anchor.click).toHaveBeenCalled();
+      });
+    } finally {
+      createElementSpy.mockRestore();
+      appendChildSpy.mockRestore();
+      removeChildSpy.mockRestore();
+    }
+  });
+
+  test('loads backend stats and opens highlighted history record from detail endpoint', async () => {
+    getBacktestHistory.mockResolvedValue({
+      success: true,
+      data: [],
+    });
+    getBacktestRecord.mockResolvedValue({
+      success: true,
+      data: {
+        id: 'rec-42',
+        symbol: 'TSLA',
+        strategy: 'macd',
+        timestamp: '2024-02-01T00:00:00Z',
+        start_date: '2024-01-01',
+        end_date: '2024-02-01',
+        parameters: { fast_period: 12 },
+        metrics: {
+          total_return: 0.12,
+          annualized_return: 0.2,
+          sharpe_ratio: 1.4,
+          max_drawdown: -0.06,
+          num_trades: 4,
+        },
+        result: {
+          total_return: 0.12,
+          annualized_return: 0.2,
+          sharpe_ratio: 1.4,
+          max_drawdown: -0.06,
+          num_trades: 4,
+        },
+      },
     });
 
-    createElementSpy.mockRestore();
-    appendChildSpy.mockRestore();
-    removeChildSpy.mockRestore();
+    render(<BacktestHistory highlightRecordId="rec-42" />);
+
+    await waitFor(() => {
+      expect(getBacktestHistoryStats).toHaveBeenCalled();
+      expect(getBacktestRecord).toHaveBeenCalledWith('rec-42');
+      expect(screen.getAllByText('12 条').length).toBeGreaterThan(0);
+      expect(screen.getByText('TSLA')).toBeInTheDocument();
+    });
   });
 });

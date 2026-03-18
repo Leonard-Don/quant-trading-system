@@ -240,7 +240,9 @@ class BacktestHistory:
                     "total_records": 0,
                     "strategies": {},
                     "symbols": {},
-                    "avg_return": 0
+                    "avg_return": 0,
+                    "strategy_count": 0,
+                    "latest_record_at": None,
                 }
             
             strategies = {}
@@ -260,6 +262,8 @@ class BacktestHistory:
                 "strategies": strategies,
                 "symbols": symbols,
                 "avg_return": total_return / len(self.history) if self.history else 0,
+                "strategy_count": len(strategies),
+                "latest_record_at": self.history[0].get("timestamp") if self.history else None,
                 "most_tested_symbol": max(symbols, key=symbols.get) if symbols else None,
                 "most_used_strategy": max(strategies, key=strategies.get) if strategies else None
             }

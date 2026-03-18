@@ -1,18 +1,40 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Spin, Alert, Typography, Row, Col, Statistic, Tag, Button, Select, Radio, Tooltip as AntTooltip, message, Space } from 'antd';
-import { RobotOutlined, ArrowUpOutlined, ArrowDownOutlined, ExperimentOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { Card, Spin, Alert, Typography, Row, Col, Statistic, Tag, Button, Tooltip as AntTooltip, message, Space } from 'antd';
+import { RobotOutlined, ArrowUpOutlined, ArrowDownOutlined, ExperimentOutlined, ReloadOutlined } from '@ant-design/icons';
 import { ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { predictPrice, predictWithLSTM, compareModelPredictions, trainAllModels } from '../services/api';
 
 const { Text, Paragraph } = Typography;
-const { Option } = Select;
+const AI_COLORS = {
+    primary: '#0f766e',
+    primarySoft: 'rgba(15, 118, 110, 0.14)',
+    secondary: '#2563eb',
+    secondarySoft: 'rgba(37, 99, 235, 0.12)',
+    positive: '#16a34a',
+    positiveSoft: 'rgba(22, 163, 74, 0.12)',
+    negative: '#dc2626',
+    negativeSoft: 'rgba(220, 38, 38, 0.12)',
+    neutral: '#ca8a04',
+    neutralSoft: 'rgba(202, 138, 4, 0.12)',
+    panel: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, white 6%) 0%, color-mix(in srgb, var(--bg-primary) 96%, white 4%) 100%)',
+};
+const MODEL_LABELS = {
+    random_forest: '随机森林',
+    lstm: 'LSTM',
+    compare: '模型对比',
+    consensus: '综合共识',
+};
+const predictionResultCache = new Map();
+const predictionRequestCache = new Map();
+
+const buildPredictionCacheKey = (symbol, modelType) => `${symbol || ''}:${modelType || ''}`;
 
 const AIPredictionPanel = ({ symbol }) => {
     const [loading, setLoading] = useState(false);
     const [training, setTraining] = useState(false);
     const [data, setData] = useState(null);
     const [error, setError] = useState(null);
-    const [modelType, setModelType] = useState('consensus'); // random_forest, lstm, compare, consensus
+    const [modelType] = useState('consensus'); // random_forest, lstm, compare, consensus
 
     useEffect(() => {
         if (symbol) {
@@ -21,20 +43,36 @@ const AIPredictionPanel = ({ symbol }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [symbol, modelType]);
 
-    const fetchPrediction = async () => {
+    const fetchPrediction = async (options = {}) => {
+        const { forceRefresh = false } = options;
+        const cacheKey = buildPredictionCacheKey(symbol, modelType);
         setLoading(true);
         setError(null);
         try {
-            let result;
-            if (modelType === 'random_forest') {
-                result = await predictPrice(symbol);
-            } else if (modelType === 'lstm') {
-                result = await predictWithLSTM(symbol);
-            } else if (modelType === 'compare' || modelType === 'consensus') {
-                result = await compareModelPredictions(symbol);
+            if (!forceRefresh && predictionResultCache.has(cacheKey)) {
+                setData(predictionResultCache.get(cacheKey));
+                return;
             }
+
+            let requestPromise = predictionRequestCache.get(cacheKey);
+            if (!requestPromise || forceRefresh) {
+                if (modelType === 'random_forest') {
+                    requestPromise = predictPrice(symbol);
+                } else if (modelType === 'lstm') {
+                    requestPromise = predictWithLSTM(symbol);
+                } else if (modelType === 'compare' || modelType === 'consensus') {
+                    requestPromise = compareModelPredictions(symbol);
+                }
+
+                predictionRequestCache.set(cacheKey, requestPromise);
+            }
+
+            const result = await requestPromise;
+            predictionResultCache.set(cacheKey, result);
+            predictionRequestCache.delete(cacheKey);
             setData(result);
         } catch (err) {
+            predictionRequestCache.delete(cacheKey);
             console.error("Prediction error:", err);
             setError("无法获取AI预测数据，请稍后重试");
         } finally {
@@ -46,8 +84,9 @@ const AIPredictionPanel = ({ symbol }) => {
         setTraining(true);
         try {
             await trainAllModels(symbol);
+            predictionResultCache.delete(buildPredictionCacheKey(symbol, modelType));
             message.success('模型训练完成！正在刷新预测...');
-            fetchPrediction();
+            fetchPrediction({ forceRefresh: true });
         } catch (err) {
             console.error("Training error:", err);
             message.error('模型训练失败: ' + (err.response?.data?.detail || err.message));
@@ -58,11 +97,11 @@ const AIPredictionPanel = ({ symbol }) => {
 
     if (loading && !data) {
         return (
-            <Card style={{ minHeight: 400, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+            <Card style={{ minHeight: 400, display: 'flex', justifyContent: 'center', alignItems: 'center', borderRadius: 22 }}>
                 <div style={{ textAlign: 'center' }}>
                     <Spin size="large" />
-                    <div style={{ marginTop: 12, color: '#8c8c8c' }}>
-                        {`AI (${modelType.toUpperCase()}) 正在分析并预测未来趋势...`}
+                    <div style={{ marginTop: 12, color: 'var(--text-secondary)' }}>
+                        {`AI ${MODEL_LABELS[modelType] || modelType} 正在分析并预测未来趋势...`}
                     </div>
                 </div>
             </Card>
@@ -161,10 +200,19 @@ const AIPredictionPanel = ({ symbol }) => {
     // --- Render Content ---
 
     const renderControls = () => (
-        <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-                <Tag color="cyan" style={{ marginRight: 8 }}>{symbol}</Tag>
-                <Tag color="blue" icon={<RobotOutlined />}>AI 综合预测 (Consensus)</Tag>
+        <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'grid', gap: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10, borderColor: 'transparent', background: AI_COLORS.primarySoft, color: AI_COLORS.primary, fontWeight: 700 }}>
+                        {symbol}
+                    </Tag>
+                    <Tag icon={<RobotOutlined />} style={{ margin: 0, borderRadius: 999, paddingInline: 10, borderColor: 'transparent', background: AI_COLORS.secondarySoft, color: AI_COLORS.secondary, fontWeight: 700 }}>
+                        AI 综合预测
+                    </Tag>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    等权融合 LSTM 与随机森林，输出未来 5 天的共识价格路径和区间判断。
+                </div>
             </div>
 
             <AntTooltip title="使用最新数据重新训练所有模型 (耗时较长)">
@@ -172,6 +220,7 @@ const AIPredictionPanel = ({ symbol }) => {
                     icon={training ? <Spin indicator={<ExperimentOutlined spin />} /> : <ExperimentOutlined />}
                     onClick={handleTrainModels}
                     loading={training}
+                    size="middle"
                 >
                     {training ? '训练中...' : '训练模型'}
                 </Button>
@@ -182,42 +231,50 @@ const AIPredictionPanel = ({ symbol }) => {
     const renderSummary = () => (
         <Row gutter={24} style={{ marginBottom: 24 }}>
             <Col span={6}>
-                <Statistic
-                    title={<span style={{ color: 'rgba(255,255,255,0.7)' }}>起始预测均价</span>}
-                    value={startPrice}
-                    precision={2}
-                    prefix="$"
-                    valueStyle={{ color: '#00f5d4', fontSize: 24 }}
-                />
+                <Card size="small" style={{ borderRadius: 18, background: AI_COLORS.primarySoft, borderColor: 'transparent' }}>
+                    <Statistic
+                        title={<span style={{ color: 'var(--text-secondary)' }}>起始预测均价</span>}
+                        value={startPrice}
+                        precision={2}
+                        prefix="$"
+                        valueStyle={{ color: AI_COLORS.primary, fontSize: 24 }}
+                    />
+                </Card>
             </Col>
             <Col span={6}>
-                <Statistic
-                    title={<span style={{ color: 'rgba(255,255,255,0.7)' }}>5日后预测均价</span>}
-                    value={endPrice}
-                    precision={2}
-                    prefix="$"
-                    valueStyle={{ color: isPositive ? '#00f5d4' : '#ff6b6b', fontSize: 24 }}
-                />
+                <Card size="small" style={{ borderRadius: 18, background: isPositive ? AI_COLORS.positiveSoft : AI_COLORS.negativeSoft, borderColor: 'transparent' }}>
+                    <Statistic
+                        title={<span style={{ color: 'var(--text-secondary)' }}>5日后预测均价</span>}
+                        value={endPrice}
+                        precision={2}
+                        prefix="$"
+                        valueStyle={{ color: isPositive ? AI_COLORS.positive : AI_COLORS.negative, fontSize: 24 }}
+                    />
+                </Card>
             </Col>
             <Col span={6}>
-                <Statistic
-                    title={<span style={{ color: 'rgba(255,255,255,0.7)' }}>预测涨跌幅</span>}
-                    value={percentChange}
-                    precision={2}
-                    valueStyle={{ color: isPositive ? '#00f5d4' : '#ff6b6b', fontSize: 24 }}
-                    prefix={isPositive ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                    suffix="%"
-                />
+                <Card size="small" style={{ borderRadius: 18, background: isPositive ? AI_COLORS.positiveSoft : AI_COLORS.negativeSoft, borderColor: 'transparent' }}>
+                    <Statistic
+                        title={<span style={{ color: 'var(--text-secondary)' }}>预测涨跌幅</span>}
+                        value={percentChange}
+                        precision={2}
+                        valueStyle={{ color: isPositive ? AI_COLORS.positive : AI_COLORS.negative, fontSize: 24 }}
+                        prefix={isPositive ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                        suffix="%"
+                    />
+                </Card>
             </Col>
             <Col span={6}>
-                <Statistic
-                    title={<span style={{ color: 'rgba(255,255,255,0.7)' }}>置信度/误差</span>}
-                    value={modelType === 'compare' ? data.comparison?.agreement_metrics?.mean_difference_percent : (data.metrics?.accuracy || 0.85) * 100}
-                    precision={2}
-                    prefix={modelType === 'compare' ? 'Diff ' : ''}
-                    suffix="%"
-                    valueStyle={{ color: '#b37feb', fontSize: 24 }}
-                />
+                <Card size="small" style={{ borderRadius: 18, background: AI_COLORS.secondarySoft, borderColor: 'transparent' }}>
+                    <Statistic
+                        title={<span style={{ color: 'var(--text-secondary)' }}>置信度/误差</span>}
+                        value={modelType === 'compare' ? data.comparison?.agreement_metrics?.mean_difference_percent : (data.metrics?.accuracy || 0.85) * 100}
+                        precision={2}
+                        prefix={modelType === 'compare' ? '差异 ' : ''}
+                        suffix="%"
+                        valueStyle={{ color: AI_COLORS.secondary, fontSize: 24 }}
+                    />
+                </Card>
             </Col>
         </Row>
     );
@@ -226,20 +283,26 @@ const AIPredictionPanel = ({ symbol }) => {
         <div style={{ height: 400 }}>
             <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={chartData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                    <XAxis dataKey="date" />
-                    <YAxis domain={['auto', 'auto']} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.22)" />
+                    <XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 12 }} axisLine={{ stroke: 'rgba(148, 163, 184, 0.24)' }} tickLine={false} />
+                    <YAxis domain={['auto', 'auto']} tick={{ fill: '#64748b', fontSize: 12 }} axisLine={{ stroke: 'rgba(148, 163, 184, 0.24)' }} tickLine={false} />
                     <Tooltip
-                        contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: 'none' }}
-                        itemStyle={{ color: '#fff' }}
+                        contentStyle={{
+                            backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                            border: '1px solid rgba(148, 163, 184, 0.2)',
+                            borderRadius: 16,
+                            boxShadow: '0 18px 34px rgba(15, 23, 42, 0.18)',
+                        }}
+                        itemStyle={{ color: '#f8fafc' }}
+                        labelStyle={{ color: '#cbd5e1' }}
                     />
-                    <Legend />
+                    <Legend wrapperStyle={{ paddingTop: 8 }} />
 
                     {modelType === 'compare' ? (
                         <>
-                            <Line type="monotone" dataKey="rf_price" name="Random Forest" stroke="#1890ff" strokeWidth={2} dot={{ r: 3 }} />
-                            <Line type="monotone" dataKey="lstm_price" name="LSTM" stroke="#eb2f96" strokeWidth={2} dot={{ r: 3 }} />
-                            <Area type="monotone" dataKey="rf_price" fill="#1890ff" stroke="none" fillOpacity={0.1} />
+                            <Line type="monotone" dataKey="rf_price" name="随机森林" stroke={AI_COLORS.secondary} strokeWidth={2.5} dot={{ r: 3 }} />
+                            <Line type="monotone" dataKey="lstm_price" name="LSTM" stroke={AI_COLORS.primary} strokeWidth={2.5} dot={{ r: 3 }} />
+                            <Area type="monotone" dataKey="rf_price" fill={AI_COLORS.secondary} stroke="none" fillOpacity={0.08} />
                         </>
                     ) : (
                         <>
@@ -247,16 +310,16 @@ const AIPredictionPanel = ({ symbol }) => {
                                 <Area
                                     type="monotone"
                                     dataKey="range"
-                                    stroke="#8884d8"
-                                    fill="#8884d8"
-                                    fillOpacity={0.2}
+                                    stroke={AI_COLORS.secondary}
+                                    fill={AI_COLORS.secondary}
+                                    fillOpacity={0.16}
                                     name="95% 置信区间"
                                 />
                             )}
                             <Line
                                 type="monotone"
                                 dataKey="price"
-                                stroke="#1890ff"
+                                stroke={isPositive ? AI_COLORS.positive : AI_COLORS.secondary}
                                 strokeWidth={3}
                                 dot={{ r: 4 }}
                                 name="预测价格"
@@ -274,14 +337,21 @@ const AIPredictionPanel = ({ symbol }) => {
                 <Col span={24}>
                     <Card
                         title={<><RobotOutlined /> AI 价格预测 (未来5天)</>}
-                        bordered={false}
+                        variant="borderless"
                         style={{
-                            boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
-                            background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
-                            borderRadius: 12
+                            boxShadow: '0 18px 42px rgba(15, 23, 42, 0.08)',
+                            background: AI_COLORS.panel,
+                            borderRadius: 22,
+                            border: '1px solid color-mix(in srgb, var(--border-color) 84%, white 16%)'
                         }}
-                        headStyle={{ color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.1)' }}
-                        extra={<Button type="text" icon={<ReloadOutlined style={{ color: 'white' }} />} onClick={fetchPrediction} />}
+                        styles={{
+                            header: {
+                                color: 'var(--text-primary)',
+                                borderBottom: '1px solid color-mix(in srgb, var(--border-color) 84%, white 16%)',
+                                minHeight: 56,
+                            }
+                        }}
+                        extra={<Button type="text" icon={<ReloadOutlined style={{ color: 'var(--text-secondary)' }} />} onClick={() => fetchPrediction({ forceRefresh: true })} />}
                     >
                         {renderControls()}
 
@@ -289,12 +359,16 @@ const AIPredictionPanel = ({ symbol }) => {
 
                         <Row gutter={16} style={{ marginBottom: 16 }}>
                             <Col span={24}>
-                                <Paragraph style={{ color: 'rgba(255,255,255,0.8)' }}>
-                                    <Text strong style={{ color: '#fee440' }}>模型说明：</Text>
-                                    {'等权融合 LSTM (50%) 和 Random Forest (50%) 的结果，提供最稳健的预测。'}
+                                <Paragraph style={{ color: 'var(--text-secondary)', marginBottom: 0 }}>
+                                    <Text strong style={{ color: AI_COLORS.primary }}>模型说明：</Text>
+                                    {'等权融合 LSTM (50%) 和随机森林 (50%) 的结果，提供更稳健的预测参考。'}
                                     <br />
                                     <Space style={{ marginTop: 8 }}>
-                                        <Tag color="purple">动态特征工程</Tag>
+                                        <Tag style={{ borderRadius: 999, background: AI_COLORS.secondarySoft, color: AI_COLORS.secondary, borderColor: 'transparent' }}>动态特征工程</Tag>
+                                        <Tag style={{ borderRadius: 999, background: AI_COLORS.primarySoft, color: AI_COLORS.primary, borderColor: 'transparent' }}>5日共识路径</Tag>
+                                        <Tag style={{ borderRadius: 999, background: AI_COLORS.neutralSoft, color: AI_COLORS.neutral, borderColor: 'transparent' }}>
+                                            终点均价 ${endPrice.toFixed(2)}
+                                        </Tag>
                                     </Space>
                                 </Paragraph>
                             </Col>
@@ -307,7 +381,7 @@ const AIPredictionPanel = ({ symbol }) => {
                             description="AI预测基于历史数据，不代表未来表现。LSTM 模型对参数敏感，训练需要较多数据。"
                             type="warning"
                             showIcon
-                            style={{ marginTop: 16 }}
+                            style={{ marginTop: 16, borderRadius: 18 }}
                         />
                     </Card>
                 </Col>

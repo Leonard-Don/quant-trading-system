@@ -238,7 +238,7 @@ function App() {
               color: 'var(--accent-primary)',
               fontWeight: 500,
               lineHeight: '1.4'
-            }}>v3.4.1</span>
+            }}>v3.5.0</span>
           </div>
           <Space size={16}>
             <Tooltip title={isDarkMode ? '切换到浅色主题' : '切换到深色主题'}>
@@ -252,7 +252,9 @@ function App() {
                 }}
               />
             </Tooltip>
-            <AlertCenter />
+            <Suspense fallback={null}>
+              <AlertCenter />
+            </Suspense>
           </Space>
         </Header>
         <Layout>

@@ -1,12 +1,13 @@
 {
   "name": "quantitative-trading-frontend",
-  "version": "3.4.1",
+  "version": "3.5.0",
   "description": "量化交易系统前端",
   "private": true,
   "dependencies": {
     "@ant-design/icons": "^5.1.4",
+    "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^5.16.4",
-    "@testing-library/react": "^13.3.0",
+    "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^13.5.0",
     "antd": "^5.7.0",
     "axios": "^1.4.0",

@@ -7,16 +7,24 @@ import {
     ReloadOutlined,
     EyeOutlined
 } from '@ant-design/icons';
-import { getBacktestHistory, deleteBacktestRecord, getBacktestReport } from '../services/api';
+import {
+    getBacktestHistory,
+    getBacktestHistoryStats,
+    getBacktestRecord,
+    deleteBacktestRecord,
+    downloadBacktestReport,
+} from '../services/api';
 import { formatPercentage } from '../utils/formatting';
 import { normalizeBacktestResult } from '../utils/backtest';
 import { useSafeMessageApi } from '../utils/messageApi';
 import { getStrategyName } from '../constants/strategies';
 
-const BacktestHistory = () => {
+const BacktestHistory = ({ highlightRecordId = '' }) => {
     const message = useSafeMessageApi();
     const [history, setHistory] = useState([]);
+    const [historyStats, setHistoryStats] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [detailLoading, setDetailLoading] = useState(false);
     const [downloadingId, setDownloadingId] = useState(null);
     const [detailVisible, setDetailVisible] = useState(false);
     const [selectedRecord, setSelectedRecord] = useState(null);
@@ -25,16 +33,62 @@ const BacktestHistory = () => {
     const fetchHistory = useCallback(async () => {
         setLoading(true);
         try {
-            const response = await getBacktestHistory(50);
-            if (response && response.success) {
-                setHistory(response.data);
+            const [historyResponse, statsResponse] = await Promise.all([
+                getBacktestHistory(50),
+                getBacktestHistoryStats().catch(() => null),
+            ]);
+
+            if (historyResponse && historyResponse.success) {
+                setHistory(historyResponse.data);
                 setLastUpdatedAt(new Date());
+            }
+            if (statsResponse && statsResponse.success) {
+                setHistoryStats(statsResponse.data);
             }
         } catch (error) {
             console.error('Failed to fetch history:', error);
             message.error('无法获取回测历史');
         } finally {
             setLoading(false);
+        }
+    }, [message]);
+
+    const clearHighlightQuery = useCallback(() => {
+        const params = new URLSearchParams(window.location.search);
+        if (!params.get('record')) {
+            return;
+        }
+        params.delete('record');
+        const query = params.toString();
+        window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`);
+    }, []);
+
+    const fetchRecordDetails = useCallback(async (recordId) => {
+        if (!recordId) {
+            return null;
+        }
+
+        setDetailLoading(true);
+        try {
+            const response = await getBacktestRecord(recordId);
+            if (response?.success && response.data) {
+                const record = response.data;
+                const normalizedResult = normalizeBacktestResult(
+                    record.result || { ...record.metrics, metrics: record.metrics }
+                );
+                return {
+                    ...record,
+                    result: normalizedResult,
+                    metrics: normalizedResult.metrics,
+                };
+            }
+            throw new Error(response?.error || '获取详情失败');
+        } catch (error) {
+            console.error('Failed to fetch backtest record:', error);
+            message.error(error.userMessage || error.message || '无法获取回测详情');
+            return null;
+        } finally {
+            setDetailLoading(false);
         }
     }, [message]);
 
@@ -55,13 +109,36 @@ const BacktestHistory = () => {
         })
     ), [history]);
 
+    useEffect(() => {
+        const openHighlightedRecord = async () => {
+            if (!highlightRecordId) {
+                return;
+            }
+            const existing = normalizedHistory.find((record) => record.id === highlightRecordId);
+            const record = existing || await fetchRecordDetails(highlightRecordId);
+            if (record) {
+                setSelectedRecord(record);
+                setDetailVisible(true);
+                clearHighlightQuery();
+            }
+        };
+
+        openHighlightedRecord();
+    }, [clearHighlightQuery, fetchRecordDetails, highlightRecordId, normalizedHistory]);
+
     const summaryItems = useMemo(() => {
-        const totalRecords = normalizedHistory.length;
-        const averageReturn = totalRecords
-            ? normalizedHistory.reduce((sum, record) => sum + Number(record.metrics?.total_return || 0), 0) / totalRecords
-            : 0;
-        const uniqueStrategies = new Set(normalizedHistory.map((record) => record.strategy)).size;
-        const mostRecent = normalizedHistory[0]?.timestamp;
+        const totalRecords = historyStats?.total_records ?? normalizedHistory.length;
+        const averageReturn = historyStats?.avg_return ?? (
+            normalizedHistory.length
+                ? normalizedHistory.reduce((sum, record) => sum + Number(record.metrics?.total_return || 0), 0) / normalizedHistory.length
+                : 0
+        );
+        const uniqueStrategies = historyStats?.strategy_count ?? (
+            historyStats?.strategies
+                ? Object.keys(historyStats.strategies).length
+                : new Set(normalizedHistory.map((record) => record.strategy)).size
+        );
+        const mostRecent = historyStats?.latest_record_at || normalizedHistory[0]?.timestamp;
 
         return [
             { label: '历史记录', value: `${totalRecords} 条` },
@@ -74,7 +151,7 @@ const BacktestHistory = () => {
                     : (lastUpdatedAt ? lastUpdatedAt.toLocaleString() : '尚未加载'),
             },
         ];
-    }, [lastUpdatedAt, normalizedHistory]);
+    }, [historyStats, lastUpdatedAt, normalizedHistory]);
 
     const handleDelete = async (id) => {
         try {
@@ -89,41 +166,49 @@ const BacktestHistory = () => {
         }
     };
 
-    const handleViewDetails = (record) => {
-        setSelectedRecord(record);
+    const handleViewDetails = async (record) => {
+        const detailedRecord = record?.result?.trades?.length
+            ? record
+            : await fetchRecordDetails(record.id);
+        if (!detailedRecord) {
+            return;
+        }
+        setSelectedRecord(detailedRecord);
         setDetailVisible(true);
     };
 
     const handleDownloadReport = async (record) => {
         setDownloadingId(record.id);
         try {
-            // Prepare data for report generation
-            // The backend expects the full result object to generate the report
-            // If the history record doesn't contain full details, we might need to fetch it first
-            // Assuming history record contains 'result' or we pass what we have
+            const detailedRecord = record?.result?.trades?.length
+                ? record
+                : await fetchRecordDetails(record.id);
+            if (!detailedRecord) {
+                return;
+            }
 
             const reportData = {
-                symbol: record.symbol,
-                strategy: record.strategy,
-                parameters: record.parameters,
+                symbol: detailedRecord.symbol,
+                strategy: detailedRecord.strategy,
+                parameters: detailedRecord.parameters,
                 backtest_result: normalizeBacktestResult(
-                    record.result || { ...record.metrics, metrics: record.metrics }
+                    detailedRecord.result || { ...detailedRecord.metrics, metrics: detailedRecord.metrics }
                 ),
-                start_date: record.start_date,
-                end_date: record.end_date,
+                start_date: detailedRecord.start_date,
+                end_date: detailedRecord.end_date,
             };
 
-            const response = await getBacktestReport(reportData);
+            const response = await downloadBacktestReport(reportData);
 
-            if (response && response.success && response.data) {
-                // Data is base64 encoded PDF
-                const pdfData = response.data.pdf_base64 || response.data;
+            if (response?.blob) {
                 const link = document.createElement('a');
-                link.href = `data:application/pdf;base64,${pdfData}`;
-                link.download = response.data.filename || `report_${record.symbol}_${record.strategy}_${new Date(record.timestamp).toISOString().split('T')[0]}.pdf`;
+                const objectUrl = URL.createObjectURL(response.blob);
+                link.href = objectUrl;
+                link.download = response.filename || `report_${detailedRecord.symbol}_${detailedRecord.strategy}_${new Date(detailedRecord.timestamp).toISOString().split('T')[0]}.pdf`;
                 document.body.appendChild(link);
                 link.click();
                 document.body.removeChild(link);
+                URL.revokeObjectURL(objectUrl);
                 message.success('报告已下载');
             } else {
                 message.error('生成报告失败');
@@ -203,7 +288,6 @@ const BacktestHistory = () => {
                             size="small"
                             onClick={() => handleDownloadReport(record)}
                             loading={downloadingId === record.id}
-                            disabled={!record.result} // Disable if no detailed result data
                         />
                     </Tooltip>
                     <Popconfirm
@@ -253,7 +337,7 @@ const BacktestHistory = () => {
                     <Button
                         icon={<ReloadOutlined />}
                         onClick={fetchHistory}
-                        loading={loading}
+                        loading={loading || detailLoading}
                         size="small"
                     >
                         刷新记录
@@ -284,7 +368,7 @@ const BacktestHistory = () => {
                 }
                 extra={
                     <Space wrap className="workspace-toolbar">
-                        <Tag color="blue">{normalizedHistory.length} 条记录</Tag>
+                        <Tag color="blue">{summaryItems[0]?.value || `${normalizedHistory.length} 条记录`}</Tag>
                         <Tag color="geekblue">可复盘</Tag>
                     </Space>
                 }
@@ -295,7 +379,7 @@ const BacktestHistory = () => {
                     dataSource={normalizedHistory}
                     columns={columns}
                     rowKey="id"
-                    loading={loading}
+                    loading={loading || detailLoading}
                     locale={{ emptyText: '暂无历史记录' }}
                     pagination={{
                         pageSize: 10,
@@ -328,7 +412,9 @@ const BacktestHistory = () => {
                 ]}
                 width={800}
             >
-                {selectedRecord && (
+                {detailLoading && !selectedRecord ? (
+                    <div style={{ padding: '24px 0', textAlign: 'center' }}>正在加载详情...</div>
+                ) : selectedRecord && (
                     <Space direction="vertical" style={{ width: '100%' }} size="middle">
                         <div className="workspace-section">
                             <div className="workspace-section__header">

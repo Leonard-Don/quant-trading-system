@@ -1,8 +1,9 @@
-
-from fastapi import APIRouter, HTTPException, Body
-from typing import Dict, List, Optional
+from fastapi import APIRouter, HTTPException
+from typing import Optional
 from pydantic import BaseModel
 
+from backend.app.services.trade_stream import build_trade_stream_payload, resolve_trade_portfolio
+from backend.app.websocket.trade_connection_manager import trade_ws_manager
 from src.trading.trade_manager import trade_manager
 from src.data.data_manager import DataManager
 
@@ -19,20 +20,9 @@ class TradeRequest(BaseModel):
 async def get_portfolio():
     """获取当前账户余额、持仓和总资产"""
     try:
-        # 获取持仓股票的最新价格
-        current_prices = {}
-        for symbol in trade_manager.positions.keys():
-            try:
-                # 尝试获取最新价格，这里简化处理，实际应复用RealTime逻辑
-                quote = data_manager.get_latest_price(symbol)
-                if quote and "price" in quote:
-                    current_prices[symbol] = quote["price"]
-            except Exception:
-                pass # 忽略价格获取失败，将使用持仓均价
-                
         return {
             "success": True, 
-            "data": trade_manager.get_portfolio_status(current_prices)
+            "data": resolve_trade_portfolio()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -56,6 +46,14 @@ async def execute_trade(trade_request: TradeRequest):
             quantity=trade_request.quantity,
             price=price
         )
+
+        await trade_ws_manager.broadcast({
+            "type": "trade_executed",
+            "data": {
+                **build_trade_stream_payload(),
+                "trade": trade_result,
+            },
+        })
         
         return {"success": True, "data": trade_result}
     except ValueError as e:
@@ -79,6 +77,13 @@ async def reset_account():
     """重置模拟账户"""
     try:
         trade_manager.reset_account()
+        await trade_ws_manager.broadcast({
+            "type": "account_reset",
+            "data": {
+                **build_trade_stream_payload(),
+                "message": "账户已重置",
+            },
+        })
         return {"success": True, "message": "账户已重置"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

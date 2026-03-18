@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
 import {
     Card,
     Input,
@@ -22,11 +22,9 @@ import {
 import {
     RiseOutlined,
     FallOutlined,
-    SafetyCertificateOutlined,
     WarningOutlined,
     RadarChartOutlined,
     BarChartOutlined,
-    StockOutlined,
     ThunderboltOutlined,
     RobotOutlined,
     SolutionOutlined,
@@ -35,7 +33,6 @@ import {
     FundOutlined,
     LineChartOutlined,
     BankOutlined,
-    BlockOutlined,
     CalendarOutlined,
     DollarCircleOutlined,
     NotificationOutlined,
@@ -54,9 +51,6 @@ import {
     CartesianGrid,
     Line,
     LineChart,
-    Area,
-    AreaChart,
-    Legend
 } from 'recharts';
 import {
     getAnalysisOverview,
@@ -73,13 +67,46 @@ import {
     getCorrelationAnalysis,
     getEventSummary
 } from '../services/api';
-import AIPredictionPanel from './AIPredictionPanel';
 import { MarketAnalysisSkeleton } from './SkeletonLoaders';
 
 import { Tooltip } from 'antd'; // Careful, we have RechartsTooltip imported as well. 
 
 const { Title, Text } = Typography;
 const { Search } = Input;
+const DEFAULT_VOLUME_TREND = {
+    trend: 'unknown',
+    direction: 'neutral',
+    volume_ratio: 0,
+    avg_volume_5d: 0,
+    avg_volume_20d: 0,
+    current_volume: 0
+};
+
+const normalizeVolumeTrend = (value) => {
+    if (!value) return { ...DEFAULT_VOLUME_TREND };
+    if (typeof value === 'string') {
+        return { ...DEFAULT_VOLUME_TREND, trend: value };
+    }
+    return { ...DEFAULT_VOLUME_TREND, ...value };
+};
+
+const DISPLAY_EMPTY = '--';
+const AIPredictionPanel = lazy(() => import('./AIPredictionPanel'));
+
+const formatDisplayNumber = (value, digits = 2, suffix = '') => {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return DISPLAY_EMPTY;
+    }
+    return `${Number(value).toFixed(digits)}${suffix}`;
+};
+
+const formatDisplayPercent = (value, digits = 2, valueIsRatio = false) => {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return DISPLAY_EMPTY;
+    }
+    const numericValue = valueIsRatio ? Number(value) * 100 : Number(value);
+    return `${numericValue.toFixed(digits)}%`;
+};
 
 const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
     const [symbol, setSymbol] = useState(propSymbol || 'AAPL');
@@ -135,6 +162,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
     const analysisKeyRef = useRef(buildAnalysisKey(symbol, interval));
     const prefetchHandleRef = useRef(null);
     const isInitializedRef = useRef(false); // 防止 StrictMode 双重执行
+    const previousPropSymbolRef = useRef(propSymbol || null);
 
     const cancelPrefetch = () => {
         if (!prefetchHandleRef.current) return;
@@ -146,16 +174,12 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
         prefetchHandleRef.current = null;
     };
 
-    const fetchTabIfNeeded = useCallback((tabKey, currentSymbol, currentInterval) => {
+    const fetchTabIfNeeded = (tabKey, currentSymbol, currentInterval) => {
         const targetSymbol = currentSymbol || symbol;
         const targetInterval = currentInterval || interval;
 
         if (tabKey === 'overview' && !overviewData && !loadingTab.overview) {
             fetchOverview(targetSymbol, targetInterval);
-            // 同时获取技术指标以在总览页面显示
-            if (!technicalData && !loadingTab.technical) {
-                fetchTechnicalIndicators(targetSymbol, targetInterval);
-            }
             // 同时获取事件数据
             if (!eventData && !loadingTab.events) {
                 fetchEvents(targetSymbol);
@@ -190,12 +214,13 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
         if (tabKey === 'correlation' && !correlationData && !loadingTab.correlation) {
             fetchCorrelation(targetSymbol);
         }
-    }, [symbol, interval, overviewData, technicalData, eventData, trendData, volumeData, sentimentData, sentimentHistoryData, patternData, fundamentalData, industryData, riskData, correlationData, loadingTab]);
+    };
 
     const schedulePrefetch = (localKey) => {
         if (localKey !== analysisKeyRef.current) return;
         cancelPrefetch();
-        const queue = ['trend', 'volume', 'sentiment', 'fundamental'];
+        const queue = embedMode ? [] : ['trend', 'volume', 'sentiment', 'fundamental'];
+        if (!queue.length) return;
 
         const runStep = (index) => {
             if (localKey !== analysisKeyRef.current) return;
@@ -234,6 +259,8 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
             setOverviewData(result);
             if (result.indicators) {
                 setTechnicalData(result.indicators);
+            } else if (!technicalData && !loadingTab.technical) {
+                fetchTechnicalIndicators(searchSymbol, selectedInterval);
             }
             schedulePrefetch(localKey);
         } catch (err) {
@@ -483,18 +510,24 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
         resetAll();
         setActiveTab('overview');
         fetchOverview(nextSymbol, nextInterval);
-        fetchTechnicalIndicators(nextSymbol, nextInterval); // 同时加载技术指标
     };
 
     useEffect(() => {
-        // 防止 StrictMode 双重执行
-        if (isInitializedRef.current && symbol === propSymbol) return; // Added propSymbol check to confirm re-init on prop change
-        isInitializedRef.current = true;
-
         const targetSymbol = propSymbol || symbol;
-        if (propSymbol) {
+        const incomingPropSymbol = propSymbol || null;
+        const shouldReinitialize = !isInitializedRef.current || incomingPropSymbol !== previousPropSymbolRef.current;
+
+        if (!targetSymbol || !shouldReinitialize) {
+            return;
+        }
+
+        isInitializedRef.current = true;
+        previousPropSymbolRef.current = incomingPropSymbol;
+
+        if (propSymbol && propSymbol !== symbol) {
             setSymbol(propSymbol);
         }
+
         beginAnalysis(targetSymbol, interval);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [propSymbol]);
@@ -538,7 +571,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                         </>
                     )}
                     strokeColor={color}
-                    width={180}
+                    size={180}
                 />
             </div>
         );
@@ -556,23 +589,6 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
             </Tag>
         );
     }, []);
-
-    const DEFAULT_VOLUME_TREND = {
-        trend: 'unknown',
-        direction: 'neutral',
-        volume_ratio: 0,
-        avg_volume_5d: 0,
-        avg_volume_20d: 0,
-        current_volume: 0
-    };
-
-    const normalizeVolumeTrend = (value) => {
-        if (!value) return { ...DEFAULT_VOLUME_TREND };
-        if (typeof value === 'string') {
-            return { ...DEFAULT_VOLUME_TREND, trend: value };
-        }
-        return { ...DEFAULT_VOLUME_TREND, ...value };
-    };
 
     const renderRadarChart = useCallback((scores) => {
         const chartData = [
@@ -701,7 +717,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
         return (
             <Row gutter={[16, 16]}>
                 <Col xs={24} md={8}>
-                    <Card bordered={false}>
+                    <Card variant="borderless">
                         <Popover
                             content={scoreExplanationContent}
                             title="评分详情 (点击查看)"
@@ -727,13 +743,13 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 </Col>
 
                 <Col xs={24} md={8}>
-                    <Card title="维度评分" bordered={false}>
+                    <Card title="维度评分" variant="borderless">
                         {renderRadarChart(overviewData.scores)}
                     </Card>
                 </Col>
 
                 <Col xs={24} md={8}>
-                    <Card title="关键信号" bordered={false}>
+                    <Card title="关键信号" variant="borderless">
                         <List
                             dataSource={overviewData.key_signals}
                             renderItem={item => (
@@ -754,7 +770,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 <Col span={24}>
                     <Card
                         title={<><FundOutlined /> 技术指标快照</>}
-                        bordered={false}
+                        variant="borderless"
                         extra={loadingTab.technical ? <Spin size="small" /> : null}
                     >
                         {loadingTab.technical && !technicalData ? (
@@ -762,7 +778,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                         ) : technicalData ? (
                             <Row gutter={16}>
                                 <Col xs={24} md={8}>
-                                    <Card size="small" bordered>
+                                    <Card size="small" variant="outlined">
                                         <Statistic
                                             title="RSI (14)"
                                             value={technicalData.rsi?.value}
@@ -774,7 +790,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                                     </Card>
                                 </Col>
                                 <Col xs={24} md={8}>
-                                    <Card size="small" bordered>
+                                    <Card size="small" variant="outlined">
                                         <Statistic
                                             title="MACD"
                                             value={technicalData.macd?.value ?? technicalData.macd?.histogram ?? 0}
@@ -786,7 +802,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                                     </Card>
                                 </Col>
                                 <Col xs={24} md={8}>
-                                    <Card size="small" bordered>
+                                    <Card size="small" variant="outlined">
                                         <Statistic
                                             title="布林带位置"
                                             value={technicalData.bollinger?.bandwidth}
@@ -884,7 +900,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                                 ].filter(Boolean)}
                                 renderItem={item => (
                                     <List.Item>
-                                        <Card size="small" bordered={false}>
+                                        <Card size="small" variant="borderless">
                                             <List.Item.Meta
                                                 avatar={item.icon}
                                                 title={item.title}
@@ -915,7 +931,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 </Col>
             </Row>
         );
-    }, [loadingTab.overview, loadingTab.technical, errorTab.overview, overviewData, technicalData, renderScoreGauge, renderRadarChart, renderRecommendation]);
+    }, [loadingTab.overview, loadingTab.technical, loadingTab.events, errorTab.overview, overviewData, technicalData, eventData, renderScoreGauge, renderRadarChart, renderRecommendation]);
 
     // 2. Trend Content
     const trendContent = useMemo(() => {
@@ -989,7 +1005,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                                     </Tooltip>
                                 </Space>
                             }
-                            bordered={false}
+                            variant="borderless"
                             className="analysis-card"
                         >
                             <Row gutter={24}>
@@ -1119,7 +1135,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 {/* 筹码分布 */}
                 {volume_analysis.vpvr_analysis && (
                     <Col xs={24} md={24}>
-                        <Card title="筹码分布 (VPVR)" bordered={false} className="analysis-card">
+                        <Card title="筹码分布 (VPVR)" variant="borderless" className="analysis-card">
                             <Row gutter={24}>
                                 <Col span={6}>
                                     <Statistic title="控制点 (POC)" value={volume_analysis.vpvr_analysis.poc} prefix="$" />
@@ -1167,7 +1183,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                                 percent={mfiValue}
                                 format={percent => `${percent}`}
                                 strokeColor={mfiColor}
-                                width={120}
+                                size={120}
                             />
                             <div style={{ marginTop: 10 }}>
                                 <Tag color={flowStatus === 'strong_inflow' ? 'red' : flowStatus.includes('outflow') ? 'green' : 'default'}>
@@ -1443,7 +1459,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
         return (
             <Row gutter={[16, 16]}>
                 <Col span={24}>
-                    <Card title="形态可视化" bordered={false}>
+                    <Card title="形态可视化" variant="borderless">
                         {klines && klines.length > 0 ? (
                             <div style={{ width: '100%', height: 400 }}>
                                 <ResponsiveContainer>
@@ -1592,7 +1608,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
         const { metrics, valuation, financial_health, growth, summary } = fundamental_analysis;
 
         const formatLargeNumber = (num) => {
-            if (!num) return 'N/A';
+            if (!num) return DISPLAY_EMPTY;
             if (num > 1e12) return (num / 1e12).toFixed(2) + '万亿';
             if (num > 1e8) return (num / 1e8).toFixed(2) + '亿';
             return num.toLocaleString();
@@ -1638,15 +1654,15 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
 
                 <Col xs={24} md={8}>
                     <Card title="估值指标" extra={renderScore(valuation)}>
-                        <Statistic title="市盈率 (PE)" value={metrics.pe_ratio?.toFixed(2)} suffix="x" />
+                        <Statistic title="市盈率 (PE)" value={formatDisplayNumber(metrics.pe_ratio)} suffix={metrics.pe_ratio !== null && metrics.pe_ratio !== undefined ? 'x' : ''} />
                         <div style={{ marginTop: 16 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <Text type="secondary">PEG:</Text>
-                                <Text>{metrics.peg_ratio?.toFixed(2)}</Text>
+                                <Text>{formatDisplayNumber(metrics.peg_ratio)}</Text>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
                                 <Text type="secondary">市净率 (PB):</Text>
-                                <Text>{metrics.price_to_book?.toFixed(2)}</Text>
+                                <Text>{formatDisplayNumber(metrics.price_to_book)}</Text>
                             </div>
                         </div>
                     </Card>
@@ -1654,15 +1670,15 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
 
                 <Col xs={24} md={8}>
                     <Card title="财务健康" extra={renderScore(financial_health)}>
-                        <Statistic title="流动比率" value={metrics.current_ratio?.toFixed(2)} />
+                        <Statistic title="流动比率" value={formatDisplayNumber(metrics.current_ratio)} />
                         <div style={{ marginTop: 16 }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <Text type="secondary">负债权益比:</Text>
-                                <Text>{metrics.debt_to_equity?.toFixed(2)}%</Text>
+                                <Text>{formatDisplayPercent(metrics.debt_to_equity)}</Text>
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 8 }}>
                                 <Text type="secondary">利润率:</Text>
-                                <Text>{(metrics.profit_margin * 100).toFixed(2)}%</Text>
+                                <Text>{formatDisplayPercent(metrics.profit_margin, 2, true)}</Text>
                             </div>
                         </div>
                     </Card>
@@ -1672,7 +1688,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                     <Card title="增长能力" extra={renderScore(growth)}>
                         <Statistic
                             title="营收增长"
-                            value={(metrics.revenue_growth * 100).toFixed(2)}
+                            value={metrics.revenue_growth !== null && metrics.revenue_growth !== undefined ? Number((metrics.revenue_growth * 100).toFixed(2)) : undefined}
                             precision={2}
                             valueStyle={{ color: metrics.revenue_growth > 0 ? '#3f8600' : '#cf1322' }}
                             prefix={metrics.revenue_growth > 0 ? <RiseOutlined /> : <FallOutlined />}
@@ -1682,7 +1698,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                             <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                                 <Text type="secondary">盈利增长:</Text>
                                 <Text type={metrics.earnings_growth > 0 ? 'success' : 'danger'}>
-                                    {(metrics.earnings_growth * 100).toFixed(2)}%
+                                    {formatDisplayPercent(metrics.earnings_growth, 2, true)}
                                 </Text>
                             </div>
                         </div>
@@ -1697,16 +1713,16 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                             </Col>
                             <Col span={8}>
                                 <div className="ant-statistic-title">所属板块</div>
-                                <div className="ant-statistic-content" style={{ fontSize: 20 }}>{metrics.sector || 'N/A'}</div>
+                                <div className="ant-statistic-content" style={{ fontSize: 20 }}>{metrics.sector || DISPLAY_EMPTY}</div>
                             </Col>
                             <Col span={8}>
                                 <div className="ant-statistic-title">行业</div>
-                                <div className="ant-statistic-content" style={{ fontSize: 20 }}>{metrics.industry || 'N/A'}</div>
+                                <div className="ant-statistic-content" style={{ fontSize: 20 }}>{metrics.industry || DISPLAY_EMPTY}</div>
                             </Col>
                             <Col span={8}>
                                 <div className="ant-statistic-title">分析师评级</div>
                                 <div className="ant-statistic-content" style={{ fontSize: 20 }}>
-                                    {metrics.analyst_rating ? translateRating(metrics.analyst_rating) : 'N/A'}
+                                    {metrics.analyst_rating ? translateRating(metrics.analyst_rating) : DISPLAY_EMPTY}
                                 </div>
                             </Col>
                             <Col span={8}>
@@ -1737,9 +1753,9 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
         const columns = [
             { title: '股票', dataIndex: 'symbol', key: 'symbol', render: (t, r) => <Text strong={r.symbol === target?.symbol}>{t}</Text> },
             { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
-            { title: 'PE', dataIndex: 'pe_ratio', key: 'pe_ratio', render: v => v?.toFixed(2) || 'N/A' },
-            { title: '营收增长', dataIndex: 'revenue_growth', key: 'revenue_growth', render: v => v !== undefined ? `${v.toFixed(2)}%` : 'N/A' },
-            { title: '利润率', dataIndex: 'profit_margin', key: 'profit_margin', render: v => v !== undefined ? `${v.toFixed(2)}%` : 'N/A' },
+            { title: 'PE', dataIndex: 'pe_ratio', key: 'pe_ratio', render: v => formatDisplayNumber(v) },
+            { title: '营收增长', dataIndex: 'revenue_growth', key: 'revenue_growth', render: v => formatDisplayPercent(v) },
+            { title: '利润率', dataIndex: 'profit_margin', key: 'profit_margin', render: v => formatDisplayPercent(v) },
         ];
 
         const tableData = target ? [target, ...(peers || [])] : (peers || []);
@@ -1748,8 +1764,8 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
             <Row gutter={[16, 16]}>
                 <Col span={24}>
                     <Alert
-                        message={`行业: ${industry || 'N/A'} | 板块: ${sector || 'N/A'}`}
-                        description={`${target?.symbol} 在同行业中 PE 排名第 ${target?.pe_rank || 'N/A'} 位，增长排名第 ${target?.growth_rank || 'N/A'} 位`}
+                        message={`行业: ${industry || DISPLAY_EMPTY} | 板块: ${sector || DISPLAY_EMPTY}`}
+                        description={`${target?.symbol || DISPLAY_EMPTY} 在同行业中 PE 排名第 ${target?.pe_rank || DISPLAY_EMPTY} 位，增长排名第 ${target?.growth_rank || DISPLAY_EMPTY} 位`}
                         type="info"
                         showIcon
                         icon={<BankOutlined />}
@@ -1757,9 +1773,9 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 </Col>
                 <Col xs={24} md={8}>
                     <Card title="行业均值">
-                        <Statistic title="平均 PE" value={industry_avg?.pe_ratio?.toFixed(2)} />
-                        <Statistic title="平均增长率" value={`${industry_avg?.revenue_growth?.toFixed(2)}%`} style={{ marginTop: 16 }} />
-                        <Statistic title="平均利润率" value={`${industry_avg?.profit_margin?.toFixed(2)}%`} style={{ marginTop: 16 }} />
+                        <Statistic title="平均 PE" value={formatDisplayNumber(industry_avg?.pe_ratio)} />
+                        <Statistic title="平均增长率" value={formatDisplayPercent(industry_avg?.revenue_growth)} style={{ marginTop: 16 }} />
+                        <Statistic title="平均利润率" value={formatDisplayPercent(industry_avg?.profit_margin)} style={{ marginTop: 16 }} />
                     </Card>
                 </Col>
                 <Col xs={24} md={16}>
@@ -1786,11 +1802,6 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
             return <Alert message="错误" description={errorTab.risk} type="error" showIcon />;
         }
         if (!riskData) return <Empty description="暂无风险评估数据" />;
-
-        const getRiskColor = (level) => {
-            const colors = { very_high: '#ff4d4f', high: '#fa8c16', medium: '#faad14', low: '#52c41a', very_low: '#1890ff' };
-            return colors[level] || '#faad14';
-        };
 
         const riskLevelText = { very_high: '极高', high: '高', medium: '中等', low: '低', very_low: '极低' };
 
@@ -1873,9 +1884,11 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 </Col>
                 <Col xs={24} md={12}>
                     <Card title="最大回撤区间">
-                        <Text>从 {riskData.max_drawdown_period?.start} 到 {riskData.max_drawdown_period?.end}</Text>
+                        <Text>
+                            从 {riskData.max_drawdown_period?.start || DISPLAY_EMPTY} 到 {riskData.max_drawdown_period?.end || DISPLAY_EMPTY}
+                        </Text>
                         <div style={{ marginTop: 8 }}>
-                            <Text type="secondary">分析数据点: {riskData.data_points} 个</Text>
+                            <Text type="secondary">分析数据点: {riskData.data_points ?? DISPLAY_EMPTY} 个</Text>
                         </div>
                     </Card>
                 </Col>
@@ -1970,7 +1983,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                         <Space>
                             <Tag color="#52c41a">强正相关 (≥0.7)</Tag>
                             <Tag color="#faad14">中等正相关 (0.4~0.7)</Tag>
-                            <Tag color="#d9d9d9">弱相关 (0~0.4)</Tag>
+                            <Tag color="#d9d9d9">弱相关 (0.0~0.4)</Tag>
                             <Tag color="#ffa39e">中等负相关 (-0.4~0)</Tag>
                             <Tag color="#ff4d4f">强负相关 (≤-0.4)</Tag>
                         </Space>
@@ -2069,16 +2082,50 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
         {
             key: 'prediction',
             label: <span><RobotOutlined />AI 预测</span>,
-            children: <AIPredictionPanel symbol={symbol} />
+            children: (
+                <Suspense fallback={<div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>}>
+                    <AIPredictionPanel symbol={symbol} />
+                </Suspense>
+            )
         }
     ];
 
     return (
-        <div>
-            <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                {!embedMode && <Title level={3}>全维市场分析</Title>}
+        <div className={embedMode ? 'market-analysis market-analysis--embed' : 'market-analysis'} style={{ maxWidth: '100%', overflow: 'hidden' }}>
+            <div
+                style={{
+                    marginBottom: embedMode ? 16 : 20,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: embedMode ? 'flex-start' : 'center',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                }}
+            >
+                {embedMode ? (
+                    <div className="market-analysis__embed-hero">
+                        <div className="market-analysis__embed-eyebrow">Analysis Workspace</div>
+                        <div className="market-analysis__embed-title-row">
+                            <div className="market-analysis__embed-title">{symbol} 全维分析</div>
+                            <Tag color="blue" style={{ borderRadius: 999, margin: 0, paddingInline: 10 }}>
+                                {interval === '1d' ? '日线' : interval === '1wk' ? '周线' : interval === '1mo' ? '月线' : '4小时'}
+                            </Tag>
+                        </div>
+                        <div className="market-analysis__embed-subtitle">
+                            保留趋势、量价、情绪、形态、风险、相关性和 AI 预测分析，适合在实时详情弹窗内快速切换。
+                        </div>
+                        <div className="market-analysis__embed-meta">
+                            <div className="market-analysis__embed-chip">当前标签 {tabItems.find(item => item.key === activeTab)?.key || 'overview'}</div>
+                            {overviewData?.summary?.score !== undefined && (
+                                <div className="market-analysis__embed-chip">综合评分 {overviewData.summary.score}</div>
+                            )}
+                        </div>
+                    </div>
+                ) : (
+                    <Title level={3}>全维市场分析</Title>
+                )}
 
-                <div style={{ display: 'flex', alignItems: 'center', marginLeft: 'auto' }}>
+                <div className={embedMode ? 'market-analysis__controls market-analysis__controls--embed' : 'market-analysis__controls'}>
                     {!embedMode && (
                         <Search
                             placeholder="输入股票代码 (如: AAPL)"
@@ -2086,12 +2133,12 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                             enterButton="分析"
                             size="large"
                             onSearch={handleSearch}
-                            style={{ width: 300, marginRight: 20 }}
+                            style={{ width: 300 }}
                             loading={!!loadingTab.overview}
                             defaultValue={symbol}
                         />
                     )}
-                    <Radio.Group value={interval} onChange={handleIntervalChange} buttonStyle="solid">
+                    <Radio.Group value={interval} onChange={handleIntervalChange} buttonStyle="solid" size={embedMode ? 'small' : 'middle'}>
                         <Radio.Button value="1d">日线</Radio.Button>
                         <Radio.Button value="1wk">周线</Radio.Button>
                         <Radio.Button value="1mo">月线</Radio.Button>
@@ -2100,12 +2147,190 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 </div>
             </div>
 
-            <Tabs
-                activeKey={activeTab}
-                onChange={handleTabChange}
-                type="card"
-                items={tabItems}
-            />
+            <div className={embedMode ? 'market-analysis__tabs-shell market-analysis__tabs-shell--embed' : 'market-analysis__tabs-shell'}>
+                <Tabs
+                    activeKey={activeTab}
+                    onChange={handleTabChange}
+                    type="card"
+                    size={embedMode ? 'small' : 'middle'}
+                    destroyOnHidden
+                    items={tabItems}
+                />
+            </div>
+
+            <style>{`
+                .market-analysis__controls {
+                    display: flex;
+                    align-items: center;
+                    margin-left: auto;
+                    gap: 12px;
+                    flex-wrap: wrap;
+                }
+
+                .market-analysis__embed-hero {
+                    display: grid;
+                    gap: 8px;
+                    padding: 16px 18px;
+                    border-radius: 20px;
+                    background: linear-gradient(135deg, rgba(14, 165, 233, 0.10), rgba(59, 130, 246, 0.05));
+                    border: 1px solid color-mix(in srgb, var(--accent-primary) 16%, var(--border-color) 84%);
+                    max-width: min(100%, 720px);
+                }
+
+                .market-analysis__embed-eyebrow {
+                    font-size: 11px;
+                    letter-spacing: 0.16em;
+                    text-transform: uppercase;
+                    font-weight: 700;
+                    color: var(--text-secondary);
+                }
+
+                .market-analysis__embed-title-row {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    flex-wrap: wrap;
+                }
+
+                .market-analysis__embed-title {
+                    font-size: 20px;
+                    font-weight: 800;
+                    color: var(--text-primary);
+                }
+
+                .market-analysis__embed-subtitle {
+                    font-size: 13px;
+                    line-height: 1.7;
+                    color: var(--text-secondary);
+                }
+
+                .market-analysis__embed-meta {
+                    display: flex;
+                    gap: 10px;
+                    flex-wrap: wrap;
+                }
+
+                .market-analysis__embed-chip {
+                    padding: 7px 12px;
+                    border-radius: 999px;
+                    font-size: 12px;
+                    color: var(--text-secondary);
+                    background: color-mix(in srgb, var(--bg-secondary) 86%, white 14%);
+                    border: 1px solid var(--border-color);
+                }
+
+                .market-analysis__tabs-shell--embed .ant-tabs-nav {
+                    margin-bottom: 18px;
+                }
+
+                .market-analysis__tabs-shell--embed .ant-tabs-tab {
+                    border-radius: 999px !important;
+                    padding-inline: 14px !important;
+                }
+
+                .market-analysis__tabs-shell--embed .ant-tabs-content-holder {
+                    padding-top: 2px;
+                }
+
+                .market-analysis--embed .ant-card,
+                .market-analysis--embed .analysis-card,
+                .market-analysis--embed .glass-card {
+                    border-radius: 22px;
+                    border: 1px solid color-mix(in srgb, var(--border-color) 82%, white 18%);
+                    box-shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+                    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 92%, white 8%) 0%, var(--bg-secondary) 100%);
+                }
+
+                .market-analysis--embed .ant-card-head {
+                    border-bottom: 1px solid color-mix(in srgb, var(--border-color) 84%, white 16%);
+                    min-height: 54px;
+                }
+
+                .market-analysis--embed .ant-card-head-title {
+                    font-weight: 700;
+                    color: var(--text-primary);
+                }
+
+                .market-analysis--embed .ant-card-body {
+                    padding: 18px;
+                }
+
+                .market-analysis--embed .ant-alert {
+                    border-radius: 18px;
+                    border: 1px solid color-mix(in srgb, var(--border-color) 82%, white 18%);
+                    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+                }
+
+                .market-analysis--embed .ant-statistic {
+                    padding: 14px 16px;
+                    border-radius: 18px;
+                    background: color-mix(in srgb, var(--bg-primary) 88%, white 12%);
+                    border: 1px solid color-mix(in srgb, var(--border-color) 84%, white 16%);
+                }
+
+                .market-analysis--embed .ant-statistic-title {
+                    color: var(--text-secondary);
+                    font-size: 12px;
+                }
+
+                .market-analysis--embed .ant-statistic-content {
+                    color: var(--text-primary);
+                }
+
+                .market-analysis--embed .ant-list-item {
+                    border-color: color-mix(in srgb, var(--border-color) 84%, white 16%) !important;
+                }
+
+                .market-analysis--embed .ant-tag {
+                    border-radius: 999px;
+                }
+
+                .market-analysis--embed .ant-table-wrapper {
+                    border-radius: 18px;
+                    overflow: hidden;
+                    border: 1px solid color-mix(in srgb, var(--border-color) 84%, white 16%);
+                    background: color-mix(in srgb, var(--bg-primary) 90%, white 10%);
+                }
+
+                .market-analysis--embed .ant-table-thead > tr > th {
+                    background: color-mix(in srgb, var(--bg-secondary) 84%, white 16%);
+                    color: var(--text-secondary);
+                    font-size: 12px;
+                    font-weight: 700;
+                }
+
+                .market-analysis--embed .ant-table-tbody > tr > td {
+                    background: transparent;
+                }
+
+                .market-analysis--embed .ant-empty {
+                    padding: 20px 0;
+                }
+
+                .market-analysis--embed .radar-chart-container {
+                    border-radius: 18px;
+                    background: color-mix(in srgb, var(--bg-primary) 88%, white 12%);
+                    border: 1px solid color-mix(in srgb, var(--border-color) 84%, white 16%);
+                    padding: 12px;
+                }
+
+                @media (max-width: 640px) {
+                    .market-analysis__controls--embed {
+                        width: 100%;
+                        margin-left: 0;
+                    }
+
+                    .market-analysis__controls--embed .ant-radio-group {
+                        width: 100%;
+                        display: grid;
+                        grid-template-columns: repeat(2, minmax(0, 1fr));
+                    }
+
+                    .market-analysis__controls--embed .ant-radio-button-wrapper {
+                        text-align: center;
+                    }
+                }
+            `}</style>
         </div>
     );
 };

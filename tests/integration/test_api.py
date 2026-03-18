@@ -2,6 +2,7 @@
 API集成测试
 """
 
+import base64
 import pytest
 import pandas as pd
 
@@ -250,8 +251,8 @@ class TestAPIIntegration:
             assert right in payload["data"]
             assert "metrics" in payload["data"][right]
 
-    def test_report_base64_replay_matches_provided_backtest_result(self, client, monkeypatch):
-        """报告接口在传结果和服务端补跑两种模式下应使用一致的核心指标。"""
+    def test_report_endpoints_share_generation_pipeline(self, client, monkeypatch):
+        """报告接口在传结果和服务端补跑两种模式下应使用一致的核心指标和 PDF 内容。"""
         from backend.app.api.v1.endpoints import backtest as backtest_endpoint
 
         monkeypatch.setattr(
@@ -262,11 +263,15 @@ class TestAPIIntegration:
 
         captured_results = []
 
-        def fake_get_report_base64(self, backtest_result, symbol, strategy, parameters=None):
+        def fake_generate_backtest_report(self, backtest_result, symbol, strategy, parameters=None):
             captured_results.append(backtest_result)
-            return "ZmFrZV9wZGY="
+            return b"fake_pdf"
 
-        monkeypatch.setattr(PDFGenerator, "get_report_base64", fake_get_report_base64)
+        monkeypatch.setattr(
+            PDFGenerator,
+            "generate_backtest_report",
+            fake_generate_backtest_report,
+        )
 
         payload = {
             "symbol": "AAPL",
@@ -283,26 +288,44 @@ class TestAPIIntegration:
         assert backtest_response.status_code == 200
         backtest_results = backtest_response.json()["data"]
 
-        provided_report = client.post(
+        provided_report_base64 = client.post(
             "/backtest/report/base64",
             json={
                 **payload,
                 "backtest_result": backtest_results,
             },
         )
-        replay_report = client.post("/backtest/report/base64", json=payload)
+        replay_report_base64 = client.post("/backtest/report/base64", json=payload)
+        provided_report_file = client.post(
+            "/backtest/report",
+            json={
+                **payload,
+                "backtest_result": backtest_results,
+            },
+        )
+        replay_report_file = client.post("/backtest/report", json=payload)
 
-        assert provided_report.status_code == 200
-        assert replay_report.status_code == 200
-        assert provided_report.json()["success"] is True
-        assert replay_report.json()["success"] is True
-        assert len(captured_results) == 2
+        assert provided_report_base64.status_code == 200
+        assert replay_report_base64.status_code == 200
+        assert provided_report_file.status_code == 200
+        assert replay_report_file.status_code == 200
+        assert provided_report_base64.json()["success"] is True
+        assert replay_report_base64.json()["success"] is True
+        assert provided_report_file.headers["content-type"] == "application/pdf"
+        assert replay_report_file.headers["content-type"] == "application/pdf"
+        assert "attachment; filename=" in provided_report_file.headers["content-disposition"]
+        assert len(captured_results) == 4
 
         for field in ["total_return", "annualized_return", "num_trades", "profit_factor"]:
             assert captured_results[0][field] == pytest.approx(captured_results[1][field])
             assert captured_results[0]["metrics"][field] == pytest.approx(
                 captured_results[1]["metrics"][field]
             )
+
+        assert base64.b64decode(provided_report_base64.json()["data"]["pdf_base64"]) == b"fake_pdf"
+        assert base64.b64decode(replay_report_base64.json()["data"]["pdf_base64"]) == b"fake_pdf"
+        assert provided_report_file.content == b"fake_pdf"
+        assert replay_report_file.content == b"fake_pdf"
 
     def test_error_handling(self, client):
         """测试错误处理"""

@@ -134,22 +134,45 @@ export const getBacktestHistory = async (limit = 20) => {
   return response.data;
 };
 
+export const getBacktestHistoryStats = async () => {
+  const response = await api.get('/backtest/history/stats');
+  return response.data;
+};
+
+export const getBacktestRecord = async (recordId) => {
+  const response = await api.get(`/backtest/history/${recordId}`);
+  return response.data;
+};
+
 export const deleteBacktestRecord = async (recordId) => {
   const response = await api.delete(`/backtest/history/${recordId}`);
   return response.data;
 };
 
-// 获取回测报告（Base64格式）
-export const getBacktestReport = async (data) => {
-  const response = await api.post('/backtest/report/base64', data);
-  return response.data;
+const parseFilenameFromDisposition = (contentDisposition) => {
+  if (!contentDisposition) {
+    return '';
+  }
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+
+  const asciiMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+  return asciiMatch?.[1] || '';
 };
 
+export const downloadBacktestReport = async (data) => {
+  const response = await api.post('/backtest/report', data, {
+    responseType: 'blob',
+  });
 
-
-export const searchSymbols = async (query) => {
-  const response = await api.get(`/symbols/search?query=${encodeURIComponent(query)}`);
-  return response.data;
+  return {
+    blob: response.data,
+    filename: parseFilenameFromDisposition(response.headers['content-disposition']),
+    contentType: response.headers['content-type'] || 'application/pdf',
+  };
 };
 
 export const compareStrategies = async (symbol, strategies, startDate, endDate, initialCapital = 100000) => {
@@ -241,6 +264,11 @@ export const optimizePortfolio = async (symbols, period = '1y', objective = 'max
 
 export const getPortfolio = async () => {
   const response = await api.get('/trade/portfolio');
+  return response.data;
+};
+
+export const getRealtimeQuote = async (symbol) => {
+  const response = await api.get(`/realtime/quote/${encodeURIComponent(symbol)}`);
   return response.data;
 };
 

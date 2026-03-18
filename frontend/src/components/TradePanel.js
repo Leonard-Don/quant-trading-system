@@ -22,9 +22,29 @@ import {
     ArrowUpOutlined,
     ArrowDownOutlined
 } from '@ant-design/icons';
-import { getPortfolio, executeTrade, getTradeHistory, resetAccount } from '../services/api';
+import { getPortfolio, executeTrade, getTradeHistory, getRealtimeQuote, resetAccount } from '../services/api';
+import tradeWebSocketService from '../services/tradeWebsocket';
 
 const { Text } = Typography;
+const formatCurrency = (value) => `$${Number(value || 0).toFixed(2)}`;
+const formatOptionalCurrency = (value) => (
+    value === null || value === undefined || Number.isNaN(Number(value))
+        ? '--'
+        : formatCurrency(value)
+);
+const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
+const formatTimestamp = (value) => {
+    if (!value) {
+        return '--';
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return '--';
+    }
+
+    return date.toLocaleTimeString();
+};
 
 const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
     const [portfolio, setPortfolio] = useState(null);
@@ -34,17 +54,71 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
     const [symbol, setSymbol] = useState(defaultSymbol || 'AAPL');
     const [quantity, setQuantity] = useState(100);
     const [price, setPrice] = useState(null); // Optional limit price
+    const [currentQuote, setCurrentQuote] = useState(null);
+    const [quoteLoading, setQuoteLoading] = useState(false);
 
     useEffect(() => {
-        if (visible) {
+        if (!visible) {
+            return undefined;
+        }
+
+        let snapshotReceived = false;
+        const applyTradeSnapshot = (event) => {
+            snapshotReceived = true;
+            const payload = event?.data || {};
+            if (payload.portfolio) {
+                setPortfolio(payload.portfolio);
+            }
+            if (Array.isArray(payload.history)) {
+                setHistory(payload.history);
+            }
+        };
+
+        const handleSocketError = () => {
+            if (!snapshotReceived) {
+                fetchPortfolio();
+                fetchHistory();
+            }
+        };
+
+        const removeSnapshotListener = tradeWebSocketService.addListener('trade_snapshot', applyTradeSnapshot);
+        const removeTradeListener = tradeWebSocketService.addListener('trade_executed', applyTradeSnapshot);
+        const removeResetListener = tradeWebSocketService.addListener('account_reset', applyTradeSnapshot);
+        const removeErrorListener = tradeWebSocketService.addListener('error', handleSocketError);
+
+        tradeWebSocketService.connect().catch(() => {
             fetchPortfolio();
             fetchHistory();
-            if (defaultSymbol) {
-                setSymbol(defaultSymbol);
-                fetchCurrentPrice(defaultSymbol);
+        });
+
+        const fallbackTimer = window.setTimeout(() => {
+            if (!snapshotReceived) {
+                fetchPortfolio();
+                fetchHistory();
             }
+        }, 1200);
+
+        return () => {
+            window.clearTimeout(fallbackTimer);
+            removeSnapshotListener();
+            removeTradeListener();
+            removeResetListener();
+            removeErrorListener();
+            tradeWebSocketService.disconnect();
+        };
+    }, [visible]);
+
+    useEffect(() => {
+        if (visible && defaultSymbol) {
+            setSymbol(defaultSymbol);
         }
     }, [visible, defaultSymbol]);
+
+    useEffect(() => {
+        if (visible && symbol) {
+            fetchCurrentPrice(symbol);
+        }
+    }, [visible, symbol]);
 
     // Fetch data
     const fetchPortfolio = async () => {
@@ -73,10 +147,22 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
     };
 
     const fetchCurrentPrice = async (sym) => {
-        // This assumes specific market data API or passed props. 
-        // Simplified: uses the price from initial props or fetches
-        // For now we just reset price to allow market order
-        setPrice(null);
+        if (!sym) {
+            setCurrentQuote(null);
+            return;
+        }
+
+        setQuoteLoading(true);
+        try {
+            const response = await getRealtimeQuote(sym);
+            if (response.success) {
+                setCurrentQuote(response.data || null);
+            }
+        } catch (error) {
+            setCurrentQuote(null);
+        } finally {
+            setQuoteLoading(false);
+        }
     };
 
     const handleTrade = async () => {
@@ -90,8 +176,10 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
             const response = await executeTrade(symbol, action, quantity, price);
             if (response.success) {
                 message.success(`交易成功: ${action} ${quantity} ${symbol}`);
-                fetchPortfolio();
-                fetchHistory();
+                if (!tradeWebSocketService.getStatus().isConnected) {
+                    fetchPortfolio();
+                    fetchHistory();
+                }
                 if (onSuccess) onSuccess();
                 // Optional: Close modal on success?
                 // onClose();
@@ -107,8 +195,10 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
         try {
             await resetAccount();
             message.success('账户已重置');
-            fetchPortfolio();
-            fetchHistory();
+            if (!tradeWebSocketService.getStatus().isConnected) {
+                fetchPortfolio();
+                fetchHistory();
+            }
         } catch (error) {
             message.error('重置失败');
         }
@@ -195,6 +285,8 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
         { key: 'SELL', label: '卖出' }
     ];
 
+    const activePosition = portfolio?.positions?.find((item) => item.symbol === symbol) || null;
+
     const portfolioTabItems = [
         {
             key: 'positions',
@@ -226,21 +318,105 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
 
     return (
         <Modal
-            title="模拟交易终端 (Paper Trading)"
+            title={
+                <div style={{ display: 'grid', gap: 6 }}>
+                    <div style={{ fontSize: 19, fontWeight: 800, color: 'var(--text-primary)' }}>
+                        模拟交易终端
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                        在实时行情工作台里直接完成纸面交易，快速验证买卖假设与仓位变化。
+                    </div>
+                </div>
+            }
             open={visible}
             onCancel={onClose}
             footer={null}
             width={1000}
             style={{ top: 20 }}
+            styles={{
+                body: {
+                    padding: 20,
+                    background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 94%, white 6%) 0%, var(--bg-primary) 100%)',
+                },
+            }}
         >
-            <Row gutter={[16, 16]}>
+            <div className="trade-panel-shell">
+                <Card
+                    className="trade-panel-hero"
+                    styles={{ body: { padding: 20 } }}
+                >
+                    <div className="trade-panel-hero__copy">
+                        <div className="trade-panel-hero__eyebrow">Paper Trading</div>
+                        <div className="trade-panel-hero__title">
+                            {symbol || 'AAPL'} {action === 'BUY' ? '买入计划' : '卖出计划'}
+                        </div>
+                        <div className="trade-panel-hero__subtitle">
+                            {action === 'BUY'
+                                ? '在不影响真实账户的前提下，快速测试进场节奏、下单数量和仓位分配。'
+                                : '从当前持仓直接切换为卖出流程，验证减仓与止盈思路。'}
+                        </div>
+                    </div>
+                    <div className="trade-panel-hero__chips">
+                        <div className="trade-panel-hero__chip">当前标的 {symbol || '--'}</div>
+                        <div className="trade-panel-hero__chip">订单类型 {price ? '限价单' : '市价单'}</div>
+                        <div className="trade-panel-hero__chip">默认数量 {quantity || 0}</div>
+                        <div className="trade-panel-hero__chip">
+                            参考市价 {quoteLoading ? '同步中' : formatOptionalCurrency(currentQuote?.price)}
+                        </div>
+                    </div>
+                </Card>
+
+                <Row gutter={[16, 16]}>
                 {/* Left: Order Entry */}
-                <Col span={8}>
-                    <Card title="下单" bordered={false} style={{ background: 'var(--bg-tertiary)' }}>
+                <Col xs={24} lg={8}>
+                    <Card
+                        title="下单面板"
+                        variant="borderless"
+                        className="trade-panel-card"
+                        style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 90%, white 10%) 0%, var(--bg-tertiary) 100%)' }}
+                    >
                         <Space direction="vertical" style={{ width: '100%' }} size="middle">
                             <div>
                                 <Text type="secondary">股票代码</Text>
-                                <div style={{ fontWeight: 'bold', fontSize: 16 }}>{symbol}</div>
+                                <div style={{ fontWeight: 'bold', fontSize: 18, color: 'var(--text-primary)' }}>{symbol}</div>
+                                <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                                    <Tag color={action === 'BUY' ? 'green' : 'volcano'} style={{ borderRadius: 999, paddingInline: 10 }}>
+                                        {action === 'BUY' ? '准备买入' : '准备卖出'}
+                                    </Tag>
+                                    {activePosition && (
+                                        <Tag color="blue" style={{ borderRadius: 999, paddingInline: 10 }}>
+                                            当前持仓 {activePosition.quantity}
+                                        </Tag>
+                                    )}
+                                    {currentQuote?.price && (
+                                        <Tag color={Number(currentQuote.change || 0) >= 0 ? 'green' : 'volcano'} style={{ borderRadius: 999, paddingInline: 10 }}>
+                                            最新 {formatOptionalCurrency(currentQuote.price)} / {formatPercent(currentQuote.change_percent)}
+                                        </Tag>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="trade-panel-quote-grid">
+                                <div className="trade-panel-quote-stat">
+                                    <div className="trade-panel-quote-stat__label">最新价</div>
+                                    <div className="trade-panel-quote-stat__value">{quoteLoading ? '同步中' : formatOptionalCurrency(currentQuote?.price)}</div>
+                                </div>
+                                <div className="trade-panel-quote-stat">
+                                    <div className="trade-panel-quote-stat__label">涨跌幅</div>
+                                    <div className="trade-panel-quote-stat__value">{formatPercent(currentQuote?.change_percent)}</div>
+                                </div>
+                                <div className="trade-panel-quote-stat">
+                                    <div className="trade-panel-quote-stat__label">日内区间</div>
+                                    <div className="trade-panel-quote-stat__value">
+                                        {currentQuote
+                                            ? `${formatOptionalCurrency(currentQuote.low)} - ${formatOptionalCurrency(currentQuote.high)}`
+                                            : '--'}
+                                    </div>
+                                </div>
+                                <div className="trade-panel-quote-stat">
+                                    <div className="trade-panel-quote-stat__label">更新时间</div>
+                                    <div className="trade-panel-quote-stat__value">{formatTimestamp(currentQuote?.timestamp)}</div>
+                                </div>
                             </div>
 
                             <Tabs activeKey={action} onChange={setAction} type="card" items={actionTabItems} />
@@ -265,6 +441,9 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
                                     onChange={setPrice}
                                     placeholder="市价 Market Price"
                                 />
+                                <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+                                    留空时以后端最新行情成交，当前参考价 {quoteLoading ? '同步中' : formatOptionalCurrency(currentQuote?.price)}
+                                </div>
                             </div>
 
                             <Button
@@ -274,7 +453,7 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
                                 loading={loading}
                                 danger={action === 'SELL'}
                                 onClick={handleTrade}
-                                style={{ marginTop: 10 }}
+                                style={{ marginTop: 10, height: 46, fontWeight: 700 }}
                             >
                                 {action === 'BUY' ? '买入 Buy' : '卖出 Sell'}
                             </Button>
@@ -283,52 +462,189 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
 
                     {/* Account Summary Mini */}
                     {portfolio && (
-                        <Card size="small" style={{ marginTop: 16 }}>
-                            <Statistic
-                                title="账户余额 (Cash)"
-                                value={portfolio.balance}
-                                precision={2}
-                                prefix="$"
-                            />
-                            <Statistic
-                                title="总资产 (Equity)"
-                                value={portfolio.total_equity}
-                                precision={2}
-                                prefix="$"
-                                style={{ marginTop: 10 }}
-                            />
+                        <Card size="small" className="trade-panel-card" style={{ marginTop: 16 }}>
+                            <div className="trade-panel-mini-grid">
+                                <div className="trade-panel-mini-stat">
+                                    <div className="trade-panel-mini-stat__label">账户余额</div>
+                                    <div className="trade-panel-mini-stat__value">{formatCurrency(portfolio.balance)}</div>
+                                </div>
+                                <div className="trade-panel-mini-stat">
+                                    <div className="trade-panel-mini-stat__label">总资产</div>
+                                    <div className="trade-panel-mini-stat__value">{formatCurrency(portfolio.total_equity)}</div>
+                                </div>
+                            </div>
                         </Card>
                     )}
                 </Col>
 
                 {/* Right: Portfolio & History */}
-                <Col span={16}>
+                <Col xs={24} lg={16}>
                     {portfolio && (
-                        <Row gutter={16} style={{ marginBottom: 16 }}>
-                            <Col span={8}>
-                                <Statistic
-                                    title="总盈亏 (P&L)"
-                                    value={portfolio.total_pnl}
-                                    precision={2}
-                                    valueStyle={{ color: portfolio.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}
-                                    prefix={portfolio.total_pnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                                    suffix={`(${portfolio.total_pnl_percent.toFixed(2)}%)`}
-                                />
+                        <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                            <Col xs={24} sm={12} xl={8}>
+                                <Card className="trade-panel-stat-card trade-panel-stat-card--pnl">
+                                    <Statistic
+                                        title="总盈亏 (P&L)"
+                                        value={portfolio.total_pnl}
+                                        precision={2}
+                                        valueStyle={{ color: portfolio.total_pnl >= 0 ? '#52c41a' : '#ff4d4f' }}
+                                        prefix={portfolio.total_pnl >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                                        suffix={`(${portfolio.total_pnl_percent.toFixed(2)}%)`}
+                                    />
+                                </Card>
                             </Col>
-                            <Col span={8}>
-                                <Statistic title="交易次数" value={portfolio.trade_count} prefix={<HistoryOutlined />} />
+                            <Col xs={24} sm={12} xl={8}>
+                                <Card className="trade-panel-stat-card">
+                                    <Statistic title="交易次数" value={portfolio.trade_count} prefix={<HistoryOutlined />} />
+                                </Card>
                             </Col>
-                            <Col span={8} style={{ textAlign: 'right' }}>
-                                <Popconfirm title="确定重置账户吗?" onConfirm={handleReset}>
-                                    <Button icon={<ReloadOutlined />}>重置账户</Button>
-                                </Popconfirm>
+                            <Col xs={24} sm={24} xl={8}>
+                                <Card className="trade-panel-stat-card trade-panel-stat-card--reset">
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                                        <div>
+                                            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>账户重置</div>
+                                            <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-secondary)' }}>
+                                                一键恢复到初始纸面账户状态
+                                            </div>
+                                        </div>
+                                        <Popconfirm title="确定重置账户吗?" onConfirm={handleReset}>
+                                            <Button icon={<ReloadOutlined />}>重置账户</Button>
+                                        </Popconfirm>
+                                    </div>
+                                </Card>
                             </Col>
                         </Row>
                     )}
 
-                    <Tabs defaultActiveKey="positions" items={portfolioTabItems} />
+                    <Card className="trade-panel-card">
+                        <Tabs defaultActiveKey="positions" items={portfolioTabItems} />
+                    </Card>
                 </Col>
-            </Row>
+                </Row>
+            </div>
+
+            <style>{`
+                .trade-panel-shell {
+                    display: grid;
+                    gap: 16px;
+                }
+
+                .trade-panel-hero,
+                .trade-panel-card,
+                .trade-panel-stat-card {
+                    border-radius: 24px;
+                    border: 1px solid var(--border-color);
+                    box-shadow: 0 14px 36px rgba(15, 23, 42, 0.07);
+                }
+
+                .trade-panel-hero {
+                    background:
+                        linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 14%, var(--bg-secondary) 86%) 0%, color-mix(in srgb, var(--accent-secondary) 12%, var(--bg-secondary) 88%) 100%);
+                }
+
+                .trade-panel-hero__eyebrow {
+                    font-size: 11px;
+                    letter-spacing: 0.16em;
+                    text-transform: uppercase;
+                    color: var(--text-secondary);
+                    font-weight: 700;
+                }
+
+                .trade-panel-hero__title {
+                    margin-top: 8px;
+                    font-size: 24px;
+                    font-weight: 800;
+                    color: var(--text-primary);
+                }
+
+                .trade-panel-hero__subtitle {
+                    margin-top: 10px;
+                    font-size: 13px;
+                    line-height: 1.7;
+                    color: var(--text-secondary);
+                }
+
+                .trade-panel-hero__chips {
+                    margin-top: 16px;
+                    display: flex;
+                    gap: 10px;
+                    flex-wrap: wrap;
+                }
+
+                .trade-panel-hero__chip {
+                    padding: 8px 12px;
+                    border-radius: 999px;
+                    background: color-mix(in srgb, var(--bg-secondary) 84%, white 16%);
+                    border: 1px solid color-mix(in srgb, var(--accent-primary) 14%, var(--border-color) 86%);
+                    font-size: 12px;
+                    color: var(--text-secondary);
+                }
+
+                .trade-panel-mini-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                    gap: 12px;
+                }
+
+                .trade-panel-mini-stat {
+                    padding: 14px;
+                    border-radius: 18px;
+                    background: color-mix(in srgb, var(--bg-primary) 88%, white 12%);
+                    border: 1px solid var(--border-color);
+                }
+
+                .trade-panel-mini-stat__label {
+                    font-size: 12px;
+                    color: var(--text-secondary);
+                }
+
+                .trade-panel-mini-stat__value {
+                    margin-top: 6px;
+                    font-size: 20px;
+                    font-weight: 800;
+                    color: var(--text-primary);
+                }
+
+                .trade-panel-stat-card--pnl {
+                    background: linear-gradient(135deg, rgba(34, 197, 94, 0.12), rgba(34, 197, 94, 0.03));
+                }
+
+                .trade-panel-stat-card--reset {
+                    background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(99, 102, 241, 0.03));
+                }
+
+                .trade-panel-quote-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                    gap: 10px;
+                }
+
+                .trade-panel-quote-stat {
+                    padding: 12px 14px;
+                    border-radius: 16px;
+                    background: color-mix(in srgb, var(--bg-primary) 88%, white 12%);
+                    border: 1px solid var(--border-color);
+                }
+
+                .trade-panel-quote-stat__label {
+                    font-size: 12px;
+                    color: var(--text-secondary);
+                }
+
+                .trade-panel-quote-stat__value {
+                    margin-top: 6px;
+                    font-size: 15px;
+                    font-weight: 700;
+                    color: var(--text-primary);
+                }
+
+                @media (max-width: 640px) {
+                    .trade-panel-quote-grid,
+                    .trade-panel-mini-grid {
+                        grid-template-columns: 1fr;
+                    }
+                }
+            `}</style>
         </Modal>
     );
 };

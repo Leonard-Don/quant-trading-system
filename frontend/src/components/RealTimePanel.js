@@ -1,8 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
 import {
   Card,
-  Row,
-  Col,
   Statistic,
   Tag,
   Input,
@@ -32,12 +30,24 @@ import {
   FundOutlined
 } from '@ant-design/icons';
 import api from '../services/api';
-import TradePanel from './TradePanel';
 import webSocketService from '../services/websocket';
 import { STOCK_DATABASE } from '../constants/stocks';
-import StockDetailModal from './StockDetailModal';
 
 const { Text } = Typography;
+const DEFAULT_PRICE_TEXT = '0.00';
+const EMPTY_NUMERIC_TEXT = '--';
+const CATEGORY_THEMES = {
+  index: { label: '指数', accent: '#0ea5e9', soft: 'rgba(14, 165, 233, 0.12)' },
+  us: { label: '美股', accent: '#22c55e', soft: 'rgba(34, 197, 94, 0.12)' },
+  cn: { label: 'A股', accent: '#f97316', soft: 'rgba(249, 115, 22, 0.12)' },
+  crypto: { label: '加密', accent: '#f59e0b', soft: 'rgba(245, 158, 11, 0.14)' },
+  bond: { label: '债券', accent: '#6366f1', soft: 'rgba(99, 102, 241, 0.12)' },
+  future: { label: '期货', accent: '#ef4444', soft: 'rgba(239, 68, 68, 0.12)' },
+  option: { label: '期权', accent: '#a855f7', soft: 'rgba(168, 85, 247, 0.12)' },
+  other: { label: '其他', accent: '#64748b', soft: 'rgba(100, 116, 139, 0.12)' },
+};
+const TradePanel = lazy(() => import('./TradePanel'));
+const RealtimeStockDetailModal = lazy(() => import('./RealtimeStockDetailModal'));
 
 const RealTimePanel = () => {
   const [messageApi, messageContextHolder] = message.useMessage();
@@ -76,6 +86,7 @@ const RealTimePanel = () => {
   const isInitializedRef = useRef(false);  // 追踪是否已初始化，防止StrictMode重复执行
   const shownMessagesRef = useRef(new Set());  // 追踪已显示的消息
   const previousSubscribedSymbolsRef = useRef(new Set());
+  const connectTimerRef = useRef(null);
 
   // 初始化WebSocket监听器
   useEffect(() => {
@@ -110,6 +121,7 @@ const RealTimePanel = () => {
       removeConnectionListener();
       removeQuoteListener();
       removeErrorListener();
+      webSocketService.disconnect({ resetSubscriptions: true });
     };
   }, [messageApi]);
 
@@ -117,14 +129,32 @@ const RealTimePanel = () => {
   // 管理自动更新和连接
   useEffect(() => {
     if (isAutoUpdate) {
-      webSocketService.connect().catch(err => {
-        console.error("Failed to connect WS:", err);
-        messageApi.error('无法建立实时数据连接');
-      });
+      if (connectTimerRef.current) {
+        clearTimeout(connectTimerRef.current);
+      }
+
+      // React StrictMode 下首轮 mount/unmount 会非常快，延迟一点再连可以避免假性 WS 警告。
+      connectTimerRef.current = setTimeout(() => {
+        webSocketService.connect().catch(err => {
+          console.error("Failed to connect WS:", err);
+          messageApi.error('无法建立实时数据连接');
+        });
+      }, 80);
     } else {
+      if (connectTimerRef.current) {
+        clearTimeout(connectTimerRef.current);
+        connectTimerRef.current = null;
+      }
       webSocketService.disconnect();
       setIsConnected(false);
     }
+
+    return () => {
+      if (connectTimerRef.current) {
+        clearTimeout(connectTimerRef.current);
+        connectTimerRef.current = null;
+      }
+    };
   }, [isAutoUpdate, messageApi]);
 
   // 监听订阅列表变化，只同步增量订阅
@@ -176,15 +206,23 @@ const RealTimePanel = () => {
     setIsAutoUpdate(checked);
   };
 
+  const getSymbolsByCategory = useCallback((category) => {
+    return subscribedSymbols.filter(symbol => {
+      const info = STOCK_DATABASE[symbol];
+      if (!info) return category === 'us';
+      return info.type === category;
+    });
+  }, [subscribedSymbols]);
+
   // 获取实时报价
-  const fetchQuotes = async () => {
-    if (!subscribedSymbols.length) return;
+  const fetchQuotes = useCallback(async (symbols = subscribedSymbols) => {
+    const targetSymbols = Array.isArray(symbols) ? symbols.filter(Boolean) : [symbols].filter(Boolean);
+    if (!targetSymbols.length) return;
 
     setLoading(true);
     try {
-      // 这里的 API 此时应该是支持批量获取的
       const response = await api.get('/realtime/quotes', {
-        params: { symbols: subscribedSymbols.join(',') }
+        params: { symbols: targetSymbols.join(',') }
       });
 
       if (response.data.success) {
@@ -195,23 +233,29 @@ const RealTimePanel = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [subscribedSymbols]);
 
   // 添加新股票
   const addSymbol = (symbol) => {
     if (!symbol) return;
-    const newSymbol = symbol.toUpperCase();
+    const newSymbol = symbol.trim().toUpperCase();
     if (subscribedSymbols.includes(newSymbol)) return;
 
     subscribeSymbol(newSymbol);
+    const nextCategory = STOCK_DATABASE[newSymbol]?.type;
+    if (nextCategory) {
+      setActiveTab(nextCategory);
+    }
+    fetchQuotes([newSymbol]);
     setSearchSymbol('');
+    setAutoCompleteOptions([]);
   };
 
   // 组件挂载时初始化
   useEffect(() => {
     if (isInitializedRef.current) return;
     isInitializedRef.current = true;
-    fetchQuotes();
+    fetchQuotes(getSymbolsByCategory(activeTab));
 
     // 如果已经连接，需要重新订阅（确保服务器端知道我们仍然订阅这些）
     return () => {
@@ -220,8 +264,15 @@ const RealTimePanel = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const formatPrice = (price) => {
-    if (price === undefined || price === null || isNaN(price)) return '0.00';
+  useEffect(() => {
+    const missingSymbols = getSymbolsByCategory(activeTab).filter(symbol => !quotes[symbol]);
+    if (missingSymbols.length > 0) {
+      fetchQuotes(missingSymbols);
+    }
+  }, [activeTab, fetchQuotes, getSymbolsByCategory, quotes]);
+
+  const formatPrice = (price, fallback = DEFAULT_PRICE_TEXT) => {
+    if (price === undefined || price === null || isNaN(price)) return fallback;
     return typeof price === 'number' ? price.toFixed(2) : parseFloat(price).toFixed(2);
   };
 
@@ -231,6 +282,10 @@ const RealTimePanel = () => {
   };
 
   const formatVolume = (volume) => {
+    if (volume === undefined || volume === null || Number.isNaN(Number(volume))) {
+      return EMPTY_NUMERIC_TEXT;
+    }
+
     if (volume >= 1000000) {
       return (volume / 1000000).toFixed(1) + 'M';
     } else if (volume >= 1000) {
@@ -249,6 +304,14 @@ const RealTimePanel = () => {
     setSelectedSymbol(null);
   }, []);
 
+  const getDisplayName = useCallback((symbol) => {
+    const info = STOCK_DATABASE[symbol];
+    if (info) {
+      return info.cn || info.en || symbol;
+    }
+    return symbol;
+  }, []);
+
   const handleShowDetail = useCallback((symbol) => {
     setDetailSymbol(symbol);
     setIsDetailModalVisible(true);
@@ -256,23 +319,8 @@ const RealTimePanel = () => {
 
   const handleCloseDetail = useCallback(() => {
     setIsDetailModalVisible(false);
-    // Don't clear detailSymbol here to prevent content flashing during close animation
-    // setDetailSymbol(null); 
-  }, []);
-
-  const handleAfterClose = useCallback(() => {
     setDetailSymbol(null);
   }, []);
-
-
-
-  const getDisplayName = (symbol) => {
-    const info = STOCK_DATABASE[symbol];
-    if (info) {
-      return info.cn || info.en || symbol;
-    }
-    return symbol;
-  };
 
   const findMatchingSymbols = (input) => {
     if (!input || input.trim() === '') return [];
@@ -301,6 +349,14 @@ const RealTimePanel = () => {
   };
 
   const [autoCompleteOptions, setAutoCompleteOptions] = useState([]);
+
+  const risingCount = Object.values(quotes).filter(q => q?.change > 0).length;
+  const fallingCount = Object.values(quotes).filter(q => q?.change < 0).length;
+  const currentTabSymbols = getSymbolsByCategory(activeTab);
+  const loadedQuotesCount = Object.values(quotes).filter(Boolean).length;
+  const spotlightSymbol = currentTabSymbols
+    .filter(symbol => quotes[symbol])
+    .sort((left, right) => Math.abs(Number(quotes[right]?.change_percent || 0)) - Math.abs(Number(quotes[left]?.change_percent || 0)))[0] || null;
 
   const handleSearch = (value) => {
     setSearchSymbol(value);
@@ -346,105 +402,145 @@ const RealTimePanel = () => {
     }
   };
 
+  const getCategoryTheme = (type) => CATEGORY_THEMES[type] || CATEGORY_THEMES.other;
+
+  const formatQuoteTime = (value) => {
+    if (!value) return '--';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '--';
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  };
+
   const renderQuoteCard = (symbol, quote) => {
-    const isPositive = quote.change >= 0;
+    const isPositive = Number(quote.change ?? 0) >= 0;
     const changeColor = isPositive ? 'var(--accent-success)' : 'var(--accent-danger)';
     const changeIcon = isPositive ? <ArrowUpOutlined /> : <ArrowDownOutlined />;
     const info = STOCK_DATABASE[symbol];
+    const categoryTheme = getCategoryTheme(info?.type);
     const isMarketIndex = info?.type === 'index';
 
     return (
       <Card
         key={symbol}
-        size="small"
+        className="realtime-quote-card"
         style={{
-          marginBottom: 8,
-          borderLeft: `4px solid ${changeColor}`,
-          backgroundColor: isMarketIndex ? 'rgba(56, 189, 248, 0.05)' : undefined
+          border: `1px solid color-mix(in srgb, ${categoryTheme.accent} 28%, var(--border-color) 72%)`,
+          background: `linear-gradient(180deg, ${categoryTheme.soft} 0%, color-mix(in srgb, var(--bg-secondary) 92%, white 8%) 100%)`,
+          boxShadow: '0 14px 34px rgba(15, 23, 42, 0.08)',
+          overflow: 'hidden',
         }}
-        styles={{ body: { padding: '12px' } }}
+        styles={{ body: { padding: 0 } }}
       >
-        <div style={{ cursor: 'pointer' }} onClick={() => handleShowDetail(symbol)}>
-          <Row align="middle" justify="space-between">
-            <Col span={8}>
-              <Space direction="vertical" size={0}>
-                <Space>
-                  {isMarketIndex && (
-                    <Tag color="geekblue" style={{ margin: 0 }}>指数</Tag>
-                  )}
-                  {info?.type === 'crypto' && (
-                    <Tag color="gold" style={{ margin: 0 }}>Crypto</Tag>
-                  )}
-                  <Text strong style={{ fontSize: '16px' }}>
-                    {getDisplayName(symbol)}
-                  </Text>
-                </Space>
-                <Text type="secondary" style={{ fontSize: '12px' }}>
-                  {symbol} {new Date(quote.timestamp).toLocaleTimeString()}
-                </Text>
-              </Space>
-            </Col>
-
-            <Col span={8} style={{ textAlign: 'center' }}>
-              <Space direction="vertical" size={0}>
-                <Text strong style={{ fontSize: '18px' }}>
-                  {formatPrice(quote.price)}
-                </Text>
-                <Space gutter={8}>
-                  <Text style={{ color: changeColor, fontSize: '14px' }}>
-                    {changeIcon} {formatPrice(Math.abs(quote.change))}
-                  </Text>
-                  <Text style={{ color: changeColor, fontSize: '14px' }}>
-                    ({formatPercent(quote.change_percent)})
-                  </Text>
-                </Space>
-                <Space gutter={8} style={{ fontSize: '12px', color: '#888', marginTop: 4 }}>
-                  <span>高: {formatPrice(quote.high)}</span>
-                  <span>低: {formatPrice(quote.low)}</span>
-                </Space>
-              </Space>
-            </Col>
-
-            <Col span={8} style={{ textAlign: 'right' }}>
-              <Space>
-                {!isMarketIndex && info?.type !== 'bond' && (
-                  <Button
-                    type="primary"
-                    size="small"
-                    onClick={(e) => { e.stopPropagation(); handleOpenTrade(symbol); }}
-                    icon={<DollarOutlined />}
-                    ghost
-                  >
-                    交易
-                  </Button>
-                )}
-                <Button
-                  type="text"
-                  size="small"
-                  danger
-                  onClick={(e) => { e.stopPropagation(); removeSymbol(symbol); }}
+        <div
+          className="realtime-quote-card__surface"
+          onClick={() => handleShowDetail(symbol)}
+          style={{ cursor: 'pointer', padding: 18 }}
+        >
+          <div className="realtime-quote-card__header">
+            <div>
+              <div className="realtime-quote-card__tags">
+                <Tag
+                  style={{
+                    margin: 0,
+                    borderRadius: 999,
+                    color: categoryTheme.accent,
+                    background: categoryTheme.soft,
+                    borderColor: 'transparent',
+                    fontWeight: 700,
+                  }}
                 >
-                  ×
-                </Button>
-              </Space>
-              <div style={{ marginTop: 4 }}>
-                <Text type="secondary" style={{ fontSize: '12px' }}>
-                  Vol: {formatVolume(quote.volume)}
+                  {categoryTheme.label}
+                </Tag>
+                <Tag
+                  style={{
+                    margin: 0,
+                    borderRadius: 999,
+                    borderColor: 'transparent',
+                    color: changeColor,
+                    background: isPositive ? 'rgba(34, 197, 94, 0.14)' : 'rgba(239, 68, 68, 0.14)',
+                    fontWeight: 700,
+                  }}
+                >
+                  {formatPercent(quote.change_percent)}
+                </Tag>
+              </div>
+              <div className="realtime-quote-card__name">
+                <Text strong style={{ fontSize: '17px', color: 'var(--text-primary)' }}>
+                  {getDisplayName(symbol)}
                 </Text>
               </div>
-            </Col>
-          </Row>
+              <Text type="secondary" style={{ fontSize: '12px' }}>
+                {symbol} · {formatQuoteTime(quote.timestamp)}
+              </Text>
+            </div>
+
+            <div className="realtime-quote-card__source">
+              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.72 }}>
+                Source
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>
+                {quote.source || '--'}
+              </div>
+            </div>
+          </div>
+
+          <div className="realtime-quote-card__price-row">
+            <div>
+              <div className="realtime-quote-card__price">{formatPrice(quote.price)}</div>
+              <div className="realtime-quote-card__delta" style={{ color: changeColor }}>
+                {changeIcon} {formatPrice(Math.abs(quote.change))} · {formatPercent(quote.change_percent)}
+              </div>
+            </div>
+            <div className="realtime-quote-card__focus">
+              <div className="realtime-quote-card__focus-label">点击卡片</div>
+              <div className="realtime-quote-card__focus-value">查看深度详情</div>
+            </div>
+          </div>
+
+          <div className="realtime-quote-card__metrics">
+            <div className="realtime-quote-card__metric">
+              <span>日内区间</span>
+              <strong>{formatPrice(quote.low, EMPTY_NUMERIC_TEXT)} - {formatPrice(quote.high, EMPTY_NUMERIC_TEXT)}</strong>
+            </div>
+            <div className="realtime-quote-card__metric">
+              <span>开盘 / 昨收</span>
+              <strong>{formatPrice(quote.open, EMPTY_NUMERIC_TEXT)} / {formatPrice(quote.previous_close, EMPTY_NUMERIC_TEXT)}</strong>
+            </div>
+            <div className="realtime-quote-card__metric">
+              <span>成交量</span>
+              <strong>{formatVolume(quote.volume)}</strong>
+            </div>
+          </div>
+
+          <div className="realtime-quote-card__footer">
+            <Text type="secondary" style={{ fontSize: '12px' }}>
+              {isMarketIndex ? '指数详情与分析面板联动' : '支持查看实时快照、分析与交易入口'}
+            </Text>
+            <Space>
+              {!isMarketIndex && info?.type !== 'bond' && (
+                <Button
+                  type="primary"
+                  size="small"
+                  onClick={(e) => { e.stopPropagation(); handleOpenTrade(symbol); }}
+                  icon={<DollarOutlined />}
+                >
+                  交易
+                </Button>
+              )}
+              <Button
+                type="text"
+                size="small"
+                danger
+                onClick={(e) => { e.stopPropagation(); removeSymbol(symbol); }}
+              >
+                ×
+              </Button>
+            </Space>
+          </div>
         </div>
       </Card>
     );
-  };
-
-  const getSymbolsByCategory = (category) => {
-    return subscribedSymbols.filter(symbol => {
-      const info = STOCK_DATABASE[symbol];
-      if (!info) return category === 'us'; // Default unknown to US stock
-      return info.type === category;
-    });
   };
 
   const renderTabItem = (key, label, icon) => {
@@ -453,15 +549,23 @@ const RealTimePanel = () => {
       key,
       label: <span>{icon} {label}</span>,
       children: symbols.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '40px' }}>
+        <div style={{ textAlign: 'center', padding: '56px 20px' }}>
           <Text type="secondary">暂无{label}数据，请添加</Text>
         </div>
       ) : (
-        <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
+        <div className="realtime-quote-grid">
           {symbols.map(symbol => {
             const quote = quotes[symbol];
             return quote ? renderQuoteCard(symbol, quote) : (
-              <Card key={symbol} loading style={{ marginBottom: 8 }} />
+              <Card
+                key={symbol}
+                loading
+                style={{
+                  minHeight: 220,
+                  borderRadius: 22,
+                  border: '1px solid var(--border-color)',
+                }}
+              />
             );
           })}
         </div>
@@ -480,98 +584,157 @@ const RealTimePanel = () => {
   ];
 
   return (
-    <div style={{ padding: '16px' }}>
+    <div className="realtime-panel-shell">
       {messageContextHolder}
-      {/* 控制面板 */}
-      <Card style={{ marginBottom: 16 }}>
-        <Row align="middle" justify="space-between">
-          <Col>
-            <Space>
-              <Badge status={isConnected ? "processing" : "error"} />
-              <Text strong style={{ fontSize: '18px' }}>实时行情数据</Text>
-              <Tag color={isConnected ? "success" : "error"}>
-                {isConnected ? "已连接" : "未连接"}
+      <Card
+        className="realtime-hero-card"
+        style={{
+          marginBottom: 18,
+          borderRadius: 28,
+          overflow: 'hidden',
+          border: '1px solid color-mix(in srgb, var(--accent-primary) 24%, var(--border-color) 76%)',
+          boxShadow: '0 24px 60px rgba(15, 23, 42, 0.10)',
+        }}
+        styles={{ body: { padding: 0 } }}
+      >
+        <div className="realtime-hero">
+          <div className="realtime-hero__copy">
+            <div className="realtime-hero__eyebrow">Realtime Radar</div>
+            <div className="realtime-hero__title-row">
+              <Space>
+                <Badge status={isConnected ? 'processing' : 'error'} />
+                <Text strong style={{ fontSize: '22px', color: 'var(--text-primary)' }}>实时行情数据</Text>
+              </Space>
+              <Tag
+                color={isConnected ? 'success' : 'error'}
+                style={{ margin: 0, borderRadius: 999, paddingInline: 12, fontWeight: 700 }}
+              >
+                {isConnected ? '已连接' : '未连接'}
               </Tag>
-            </Space>
-          </Col>
+            </div>
+            <div className="realtime-hero__subtitle">
+              把指数、美股、A股、加密、债券、期货和期权放进同一个实时工作台里，列表看盘，卡片直达深度详情。
+            </div>
+            <div className="realtime-hero__meta">
+              <div className="realtime-hero__chip">已加载 {loadedQuotesCount}/{subscribedSymbols.length} 个标的</div>
+              <div className="realtime-hero__chip">当前分组：{getCategoryLabel(activeTab)}</div>
+              {spotlightSymbol && (
+                <div className="realtime-hero__chip">
+                  焦点：{getDisplayName(spotlightSymbol)} {formatPercent(quotes[spotlightSymbol]?.change_percent)}
+                </div>
+              )}
+            </div>
+          </div>
 
-          <Col>
-            <Space>
-              <Text>自动更新</Text>
+          <div className="realtime-hero__actions">
+            <div className="realtime-hero__toggle">
+              <Text style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>自动更新</Text>
               <Switch
                 checked={isAutoUpdate}
                 onChange={toggleAutoUpdate}
                 checkedChildren={<PlayCircleOutlined />}
                 unCheckedChildren={<PauseCircleOutlined />}
               />
+            </div>
 
-              <Button
-                type="primary"
-                icon={<SyncOutlined spin={loading} />}
-                onClick={fetchQuotes}
-                loading={loading}
-              >
-                刷新
-              </Button>
-            </Space>
-          </Col>
-        </Row>
-      </Card>
-
-      {/* 添加股票 */}
-      <Card style={{ marginBottom: 16 }}>
-        <Space.Compact style={{ width: '100%' }}>
-          <AutoComplete
-            style={{ flex: 1 }}
-            options={autoCompleteOptions}
-            value={searchSymbol}
-            onChange={handleSearch}
-            onSelect={handleSelect}
-          >
-            <Input
-              placeholder="搜索... (支持指数、美股、A股、加密货币、债券等)"
-              prefix={<SearchOutlined />}
-              allowClear
+            <Button
+              type="primary"
+              icon={<SyncOutlined spin={loading} />}
+              onClick={fetchQuotes}
+              loading={loading}
               size="large"
-            />
-          </AutoComplete>
-          <Button type="primary" size="large" onClick={() => handleSearch(searchSymbol) && handleSelect(searchSymbol)}>
-            添加
-          </Button>
-        </Space.Compact>
+            >
+              刷新
+            </Button>
+          </div>
+        </div>
       </Card>
 
-      {/* 市场概览统计 */}
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}>
-          <Card size="small">
+      <div className="realtime-toolbar-grid">
+        <Card
+          className="realtime-search-card"
+          style={{
+            borderRadius: 24,
+            border: '1px solid var(--border-color)',
+            boxShadow: '0 14px 34px rgba(15, 23, 42, 0.06)',
+          }}
+        >
+          <div className="realtime-block-title">添加跟踪标的</div>
+          <div className="realtime-block-subtitle">支持按代码、英文名和中文名搜索，添加后会自动进入对应分组。</div>
+          <Space.Compact style={{ width: '100%', marginTop: 16 }}>
+            <AutoComplete
+              style={{ flex: 1 }}
+              options={autoCompleteOptions}
+              value={searchSymbol}
+              onChange={handleSearch}
+              onSelect={handleSelect}
+            >
+              <Input
+                placeholder="搜索... (支持指数、美股、A股、加密货币、债券等)"
+                prefix={<SearchOutlined />}
+                allowClear
+                size="large"
+                onPressEnter={() => addSymbol(searchSymbol)}
+              />
+            </AutoComplete>
+            <Button type="primary" size="large" onClick={() => addSymbol(searchSymbol)}>
+              添加
+            </Button>
+          </Space.Compact>
+        </Card>
+
+        <div className="realtime-stats-grid">
+          <Card className="realtime-stat-card realtime-stat-card--primary">
             <Statistic title="监控总数" value={subscribedSymbols.length} prefix={<RiseOutlined />} />
           </Card>
-        </Col>
-        <Col span={8}>
-          <Card size="small">
+          <Card className="realtime-stat-card realtime-stat-card--positive">
             <Statistic
               title="上涨"
-              value={Object.values(quotes).filter(q => q.change > 0).length}
+              value={risingCount}
               valueStyle={{ color: 'var(--accent-success)' }}
               prefix={<ArrowUpOutlined />}
             />
           </Card>
-        </Col>
-        <Col span={8}>
-          <Card size="small">
+          <Card className="realtime-stat-card realtime-stat-card--negative">
             <Statistic
               title="下跌"
-              value={Object.values(quotes).filter(q => q.change < 0).length}
+              value={fallingCount}
               valueStyle={{ color: 'var(--accent-danger)' }}
               prefix={<ArrowDownOutlined />}
             />
           </Card>
-        </Col>
-      </Row>
+          <Card className="realtime-stat-card realtime-stat-card--focus">
+            <Statistic
+              title="当前分组"
+              value={currentTabSymbols.length}
+              formatter={() => getCategoryLabel(activeTab)}
+              prefix={tabs.find(tab => tab.key === activeTab)?.icon}
+            />
+          </Card>
+        </div>
+      </div>
 
-      {/* 分类展示 */}
-      <div className="card-container">
+      <Card
+        className="realtime-board-card"
+        style={{
+          borderRadius: 28,
+          border: '1px solid var(--border-color)',
+          boxShadow: '0 18px 42px rgba(15, 23, 42, 0.07)',
+        }}
+      >
+        <div className="realtime-board-head">
+          <div>
+            <div className="realtime-block-title">多市场看盘面板</div>
+            <div className="realtime-block-subtitle">
+              选中不同市场后按卡片浏览，点开即可进入完整的实时快照与全维分析详情。
+            </div>
+          </div>
+          <div className="realtime-board-summary">
+            <span>当前 {getCategoryLabel(activeTab)}</span>
+            <strong>{currentTabSymbols.length}</strong>
+          </div>
+        </div>
+
         <Tabs
           type="card"
           activeKey={activeTab}
@@ -580,28 +743,342 @@ const RealTimePanel = () => {
           className="market-tabs"
           items={tabs.map(t => renderTabItem(t.key, t.label, t.icon))}
         />
-      </div>
+      </Card>
 
-      <TradePanel
-        visible={isTradeModalVisible}
-        defaultSymbol={selectedSymbol}
-        onClose={handleCloseTrade}
-        onSuccess={() => {
-          messageApi.success('交易已记录');
-        }}
-      />
+      <Suspense fallback={null}>
+        <TradePanel
+          visible={isTradeModalVisible}
+          defaultSymbol={selectedSymbol}
+          onClose={handleCloseTrade}
+          onSuccess={() => {
+            messageApi.success('交易已记录');
+          }}
+        />
+      </Suspense>
 
       {/* 详情模态框 */}
-      <StockDetailModal
-        visible={isDetailModalVisible}
-        symbol={detailSymbol}
-        onClose={handleCloseDetail}
-        afterClose={handleAfterClose}
-      />
+      <Suspense fallback={null}>
+        <RealtimeStockDetailModal
+          open={isDetailModalVisible}
+          onCancel={handleCloseDetail}
+          symbol={detailSymbol}
+          quote={detailSymbol ? quotes[detailSymbol] || null : null}
+        />
+      </Suspense>
 
       <style>{`
+        .realtime-panel-shell {
+          padding: 16px;
+          display: grid;
+          gap: 18px;
+          background:
+            radial-gradient(circle at top left, color-mix(in srgb, var(--accent-primary) 10%, transparent 90%), transparent 34%),
+            radial-gradient(circle at top right, color-mix(in srgb, var(--accent-secondary) 12%, transparent 88%), transparent 30%);
+        }
+
+        .realtime-hero {
+          display: grid;
+          grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.9fr);
+          gap: 24px;
+          padding: 28px;
+          background:
+            linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 14%, var(--bg-secondary) 86%) 0%, color-mix(in srgb, var(--accent-secondary) 12%, var(--bg-secondary) 88%) 100%);
+        }
+
+        .realtime-hero__eyebrow {
+          font-size: 11px;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: var(--text-secondary);
+          margin-bottom: 10px;
+          font-weight: 700;
+        }
+
+        .realtime-hero__title-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .realtime-hero__subtitle {
+          margin-top: 14px;
+          max-width: 720px;
+          color: var(--text-secondary);
+          line-height: 1.7;
+          font-size: 14px;
+        }
+
+        .realtime-hero__meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 10px;
+          margin-top: 18px;
+        }
+
+        .realtime-hero__chip {
+          padding: 8px 12px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--bg-secondary) 82%, white 18%);
+          border: 1px solid color-mix(in srgb, var(--accent-primary) 16%, var(--border-color) 84%);
+          font-size: 12px;
+          color: var(--text-secondary);
+        }
+
+        .realtime-hero__actions {
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          gap: 14px;
+          padding: 18px;
+          border-radius: 20px;
+          background: color-mix(in srgb, var(--bg-secondary) 88%, white 12%);
+          border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--border-color) 82%);
+        }
+
+        .realtime-hero__toggle {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .realtime-toolbar-grid {
+          display: grid;
+          grid-template-columns: minmax(320px, 1.25fr) minmax(0, 1fr);
+          gap: 18px;
+        }
+
+        .realtime-stats-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 14px;
+        }
+
+        .realtime-stat-card {
+          border-radius: 22px;
+          border: 1px solid var(--border-color);
+          box-shadow: 0 12px 26px rgba(15, 23, 42, 0.06);
+        }
+
+        .realtime-stat-card--primary {
+          background: linear-gradient(135deg, rgba(14, 165, 233, 0.14), rgba(56, 189, 248, 0.04));
+        }
+
+        .realtime-stat-card--positive {
+          background: linear-gradient(135deg, rgba(34, 197, 94, 0.14), rgba(34, 197, 94, 0.04));
+        }
+
+        .realtime-stat-card--negative {
+          background: linear-gradient(135deg, rgba(239, 68, 68, 0.14), rgba(239, 68, 68, 0.04));
+        }
+
+        .realtime-stat-card--focus {
+          background: linear-gradient(135deg, rgba(168, 85, 247, 0.14), rgba(168, 85, 247, 0.04));
+        }
+
+        .realtime-block-title {
+          font-size: 18px;
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+
+        .realtime-block-subtitle {
+          margin-top: 6px;
+          color: var(--text-secondary);
+          font-size: 13px;
+          line-height: 1.65;
+        }
+
+        .realtime-board-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 16px;
+          margin-bottom: 18px;
+          flex-wrap: wrap;
+        }
+
+        .realtime-board-summary {
+          display: inline-flex;
+          align-items: baseline;
+          gap: 10px;
+          padding: 10px 14px;
+          border-radius: 999px;
+          background: color-mix(in srgb, var(--bg-primary) 88%, white 12%);
+          border: 1px solid var(--border-color);
+          color: var(--text-secondary);
+        }
+
+        .realtime-board-summary strong {
+          font-size: 22px;
+          color: var(--text-primary);
+        }
+
         .market-tabs .ant-tabs-nav {
-          margin-bottom: 16px;
+          margin-bottom: 20px;
+        }
+
+        .market-tabs .ant-tabs-tab {
+          border-radius: 999px !important;
+          padding-inline: 16px !important;
+        }
+
+        .realtime-quote-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          gap: 16px;
+          align-items: stretch;
+        }
+
+        .realtime-quote-card__surface {
+          min-height: 100%;
+          display: grid;
+          gap: 16px;
+        }
+
+        .realtime-quote-card__header,
+        .realtime-quote-card__price-row,
+        .realtime-quote-card__footer {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .realtime-quote-card__tags {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 10px;
+          flex-wrap: wrap;
+        }
+
+        .realtime-quote-card__name {
+          margin-bottom: 4px;
+        }
+
+        .realtime-quote-card__source {
+          text-align: right;
+          min-width: 76px;
+          padding: 10px 12px;
+          border-radius: 16px;
+          background: color-mix(in srgb, var(--bg-secondary) 82%, white 18%);
+          border: 1px solid color-mix(in srgb, var(--border-color) 80%, white 20%);
+          color: var(--text-secondary);
+        }
+
+        .realtime-quote-card__price {
+          font-size: 32px;
+          line-height: 1;
+          font-weight: 800;
+          color: var(--text-primary);
+          letter-spacing: -0.03em;
+        }
+
+        .realtime-quote-card__delta {
+          margin-top: 8px;
+          font-size: 14px;
+          font-weight: 700;
+        }
+
+        .realtime-quote-card__focus {
+          min-width: 120px;
+          text-align: right;
+          padding: 10px 12px;
+          border-radius: 16px;
+          background: rgba(15, 23, 42, 0.04);
+        }
+
+        .realtime-quote-card__focus-label {
+          font-size: 11px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--text-secondary);
+        }
+
+        .realtime-quote-card__focus-value {
+          margin-top: 6px;
+          font-size: 13px;
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+
+        .realtime-quote-card__metrics {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .realtime-quote-card__metric {
+          padding: 12px;
+          border-radius: 16px;
+          background: rgba(255, 255, 255, 0.52);
+          border: 1px solid rgba(148, 163, 184, 0.16);
+          display: grid;
+          gap: 8px;
+        }
+
+        .realtime-quote-card__metric span {
+          font-size: 11px;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          color: var(--text-secondary);
+        }
+
+        .realtime-quote-card__metric strong {
+          font-size: 13px;
+          line-height: 1.45;
+          color: var(--text-primary);
+          word-break: break-word;
+        }
+
+        .realtime-quote-card__footer {
+          align-items: center;
+          padding-top: 4px;
+        }
+
+        @media (max-width: 1180px) {
+          .realtime-toolbar-grid,
+          .realtime-hero {
+            grid-template-columns: 1fr;
+          }
+        }
+
+        @media (max-width: 900px) {
+          .realtime-stats-grid,
+          .realtime-quote-card__metrics {
+            grid-template-columns: 1fr 1fr;
+          }
+        }
+
+        @media (max-width: 640px) {
+          .realtime-panel-shell {
+            padding: 12px;
+          }
+
+          .realtime-hero {
+            padding: 18px;
+          }
+
+          .realtime-quote-grid,
+          .realtime-stats-grid,
+          .realtime-quote-card__metrics {
+            grid-template-columns: 1fr;
+          }
+
+          .realtime-quote-card__header,
+          .realtime-quote-card__price-row,
+          .realtime-quote-card__footer {
+            flex-direction: column;
+            align-items: stretch;
+          }
+
+          .realtime-quote-card__source,
+          .realtime-quote-card__focus {
+            text-align: left;
+          }
         }
       `}</style>
     </div>
