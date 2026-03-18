@@ -112,6 +112,7 @@ test-results/
 test-reports/
 tests/e2e/node_modules/
 .playwright-cli/
+.agents/
 
 # Data
 data/

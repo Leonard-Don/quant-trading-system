@@ -13,6 +13,8 @@
 [![GitHub Stars](https://img.shields.io/github/stars/Leonard-Don/quant-trading-system?style=flat-square&color=yellow)](https://github.com/Leonard-Don/quant-trading-system/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/Leonard-Don/quant-trading-system?style=flat-square&color=orange)](https://github.com/Leonard-Don/quant-trading-system/network/members)
 [![GitHub Issues](https://img.shields.io/github/issues/Leonard-Don/quant-trading-system?style=flat-square&color=red)](https://github.com/Leonard-Don/quant-trading-system/issues)
+[![Latest Release](https://img.shields.io/github/v/release/Leonard-Don/quant-trading-system?style=flat-square)](https://github.com/Leonard-Don/quant-trading-system/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/Leonard-Don/quant-trading-system/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Leonard-Don/quant-trading-system/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-blueviolet?style=flat-square)](CONTRIBUTING.md)
 
