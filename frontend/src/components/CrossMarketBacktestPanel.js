@@ -15,7 +15,6 @@ import {
   Table,
   Tag,
   Typography,
-  message,
 } from 'antd';
 import {
   PlusOutlined,
@@ -48,15 +47,25 @@ import {
   runCrossMarketBacktest,
 } from '../services/api';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
+import { useSafeMessageApi } from '../utils/messageApi';
 import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
 
-const { Paragraph, Text, Title } = Typography;
+const { Paragraph, Text } = Typography;
 
 const ASSET_CLASS_OPTIONS = [
-  { value: 'US_STOCK', label: 'US Stock' },
-  { value: 'ETF', label: 'ETF' },
-  { value: 'COMMODITY_FUTURES', label: 'Commodity Futures' },
+  { value: 'US_STOCK', label: '美股' },
+  { value: 'ETF', label: 'ETF 基金' },
+  { value: 'COMMODITY_FUTURES', label: '商品期货' },
 ];
+
+const ASSET_CLASS_LABELS = Object.fromEntries(
+  ASSET_CLASS_OPTIONS.map((option) => [option.value, option.label])
+);
+
+const CONSTRUCTION_MODE_LABELS = {
+  equal_weight: '等权配置',
+  ols_hedge: '滚动 OLS 对冲',
+};
 
 const DEFAULT_PARAMETERS = {
   lookback: 20,
@@ -86,7 +95,24 @@ const normalizeAssets = (assets, side) =>
       symbol: (asset.symbol || '').trim().toUpperCase(),
     }));
 
+const formatConstructionMode = (value) => CONSTRUCTION_MODE_LABELS[value] || value || '未设置';
+
+const formatTradeAction = (value) => {
+  const action = String(value || '').toUpperCase();
+  if (!action) {
+    return '-';
+  }
+
+  return action
+    .replace('OPEN', '开仓')
+    .replace('CLOSE', '平仓')
+    .replace('LONG', '多头')
+    .replace('SHORT', '空头')
+    .replaceAll('_', ' ');
+};
+
 function CrossMarketBacktestPanel() {
+  const message = useSafeMessageApi();
   const [templates, setTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [running, setRunning] = useState(false);
@@ -124,7 +150,7 @@ function CrossMarketBacktestPanel() {
     };
 
     loadTemplates();
-  }, []);
+  }, [message]);
 
   useEffect(() => {
     const syncContext = () => setResearchContext(readResearchContext());
@@ -191,7 +217,7 @@ function CrossMarketBacktestPanel() {
       construction_mode: template.construction_mode || DEFAULT_QUALITY.construction_mode,
     }));
     message.success(`已载入模板: ${template.name}`);
-  }, [templates]);
+  }, [message, templates]);
 
   useEffect(() => {
     if (!templates.length || !researchContext?.template) {
@@ -312,7 +338,7 @@ function CrossMarketBacktestPanel() {
           新增
         </Button>
       }
-      bordered={false}
+      variant="borderless"
     >
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         {sideAssets.map((asset) => (
@@ -320,7 +346,7 @@ function CrossMarketBacktestPanel() {
             <Col xs={24} md={8}>
               <Input
                 value={asset.symbol}
-                placeholder="Symbol"
+                placeholder="资产代码"
                 onChange={(event) => updateAsset(asset.key, 'symbol', event.target.value)}
               />
             </Col>
@@ -337,7 +363,7 @@ function CrossMarketBacktestPanel() {
                 value={asset.weight}
                 min={0.01}
                 step={0.05}
-                placeholder="Weight"
+                placeholder="权重"
                 style={{ width: '100%' }}
                 onChange={(value) => updateAsset(asset.key, 'weight', value)}
               />
@@ -361,7 +387,7 @@ function CrossMarketBacktestPanel() {
     }
     return [
       {
-        title: 'Symbol',
+        title: '资产代码',
         dataIndex: 'symbol',
         key: 'symbol',
         fixed: 'left',
@@ -376,21 +402,42 @@ function CrossMarketBacktestPanel() {
   }, [results]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <Card bordered={false}>
-        <Space direction="vertical" size={6}>
+    <div className="workspace-tab-view" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="workspace-section workspace-section--accent">
+        <div className="workspace-section__header">
+          <div>
+            <div className="workspace-section__title">跨市场回测</div>
+            <div className="workspace-section__description">围绕模板、篮子构造、质量约束和研究联动完成跨资产策略实验，保持与主回测一致的工作台体验。</div>
+          </div>
+        </div>
+        <Space direction="vertical" size={10} style={{ width: '100%' }}>
           <Tag color="geekblue" style={{ width: 'fit-content', marginInlineEnd: 0 }}>
-            Cross-Market MVP
+            跨市场实验版
           </Tag>
-          <Title level={4} style={{ margin: 0 }}>
-            跨市场回测
-          </Title>
+          <div className="summary-strip summary-strip--compact">
+            <div className="summary-strip__item">
+              <span className="summary-strip__label">多头篮子</span>
+              <span className="summary-strip__value">{longAssets.length} 个资产</span>
+            </div>
+            <div className="summary-strip__item">
+              <span className="summary-strip__label">空头篮子</span>
+              <span className="summary-strip__value">{shortAssets.length} 个资产</span>
+            </div>
+            <div className="summary-strip__item">
+              <span className="summary-strip__label">构造模式</span>
+              <span className="summary-strip__value">{formatConstructionMode(quality.construction_mode)}</span>
+            </div>
+            <div className="summary-strip__item">
+              <span className="summary-strip__label">状态</span>
+              <span className="summary-strip__value">{running ? '运行中' : (results ? '结果已生成' : '待运行')}</span>
+            </div>
+          </div>
           <Paragraph style={{ marginBottom: 0 }}>
-            这一页专门用来演示跨资产长短腿组合。当前版本只支持 `USD` 计价、`1d`
-            频率和 `spread_zscore` 策略。
+            这一页专门用来演示跨资产长短腿组合。当前版本支持美元计价、日频数据，
+            并使用 `spread_zscore` 价差策略完成实验。
           </Paragraph>
         </Space>
-      </Card>
+      </div>
 
       {researchContext?.template ? (
         <Alert
@@ -424,7 +471,7 @@ function CrossMarketBacktestPanel() {
         </Col>
 
         <Col xs={24} xl={8}>
-          <Card title="参数与模板" bordered={false}>
+          <Card title="参数与模板" variant="borderless" className="workspace-panel">
             <Space direction="vertical" style={{ width: '100%' }} size={14}>
               <Select
                 placeholder="载入演示模板"
@@ -438,17 +485,17 @@ function CrossMarketBacktestPanel() {
               />
 
               <Form layout="vertical">
-                <Form.Item label="Construction Mode">
+                <Form.Item label="构造模式">
                   <Select
                     value={quality.construction_mode}
                     options={[
-                      { value: 'equal_weight', label: 'Equal Weight' },
-                      { value: 'ols_hedge', label: 'Rolling OLS Hedge' },
+                      { value: 'equal_weight', label: '等权配置' },
+                      { value: 'ols_hedge', label: '滚动 OLS 对冲' },
                     ]}
                     onChange={(value) => setQuality((prev) => ({ ...prev, construction_mode: value }))}
                   />
                 </Form.Item>
-                <Form.Item label="Lookback">
+                <Form.Item label="回看窗口">
                   <InputNumber
                     min={5}
                     value={parameters.lookback}
@@ -458,7 +505,7 @@ function CrossMarketBacktestPanel() {
                     }
                   />
                 </Form.Item>
-                <Form.Item label="Entry Threshold">
+                <Form.Item label="入场阈值">
                   <InputNumber
                     min={0.5}
                     step={0.1}
@@ -469,7 +516,7 @@ function CrossMarketBacktestPanel() {
                     }
                   />
                 </Form.Item>
-                <Form.Item label="Exit Threshold">
+                <Form.Item label="离场阈值">
                   <InputNumber
                     min={0.1}
                     step={0.1}
@@ -480,7 +527,7 @@ function CrossMarketBacktestPanel() {
                     }
                   />
                 </Form.Item>
-                <Form.Item label="Initial Capital">
+                <Form.Item label="初始资金">
                   <InputNumber
                     min={1000}
                     step={1000}
@@ -489,7 +536,7 @@ function CrossMarketBacktestPanel() {
                     onChange={(value) => setMeta((prev) => ({ ...prev, initial_capital: value || 100000 }))}
                   />
                 </Form.Item>
-                <Form.Item label="Min History Days">
+                <Form.Item label="最少历史天数">
                   <InputNumber
                     min={10}
                     step={5}
@@ -498,7 +545,7 @@ function CrossMarketBacktestPanel() {
                     onChange={(value) => setQuality((prev) => ({ ...prev, min_history_days: value || 60 }))}
                   />
                 </Form.Item>
-                <Form.Item label="Min Overlap Ratio">
+                <Form.Item label="最小重叠比例">
                   <InputNumber
                     min={0.1}
                     max={1}
@@ -508,7 +555,7 @@ function CrossMarketBacktestPanel() {
                     onChange={(value) => setQuality((prev) => ({ ...prev, min_overlap_ratio: value || 0.7 }))}
                   />
                 </Form.Item>
-                <Form.Item label="Commission (%)">
+                <Form.Item label="手续费 (%)">
                   <InputNumber
                     min={0}
                     step={0.01}
@@ -517,7 +564,7 @@ function CrossMarketBacktestPanel() {
                     onChange={(value) => setMeta((prev) => ({ ...prev, commission: value ?? 0.1 }))}
                   />
                 </Form.Item>
-                <Form.Item label="Slippage (%)">
+                <Form.Item label="滑点 (%)">
                   <InputNumber
                     min={0}
                     step={0.01}
@@ -526,14 +573,14 @@ function CrossMarketBacktestPanel() {
                     onChange={(value) => setMeta((prev) => ({ ...prev, slippage: value ?? 0.1 }))}
                   />
                 </Form.Item>
-                <Form.Item label="Start Date">
+                <Form.Item label="开始日期">
                   <Input
                     value={meta.start_date}
                     placeholder="YYYY-MM-DD"
                     onChange={(event) => setMeta((prev) => ({ ...prev, start_date: event.target.value }))}
                   />
                 </Form.Item>
-                <Form.Item label="End Date">
+                <Form.Item label="结束日期">
                   <Input
                     value={meta.end_date}
                     placeholder="YYYY-MM-DD"
@@ -556,7 +603,7 @@ function CrossMarketBacktestPanel() {
       </Row>
 
       {running && !results ? (
-        <Card bordered={false}>
+        <Card variant="borderless" className="workspace-panel">
           <div style={{ minHeight: 180, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Spin size="large" />
           </div>
@@ -583,7 +630,7 @@ function CrossMarketBacktestPanel() {
 
           <Row gutter={[16, 16]}>
             <Col xs={24} md={8}>
-              <Card bordered={false}>
+              <Card variant="borderless" className="workspace-panel">
                 <Statistic
                   title="总收益率"
                   value={results.total_return * 100}
@@ -594,7 +641,7 @@ function CrossMarketBacktestPanel() {
               </Card>
             </Col>
             <Col xs={24} md={8}>
-              <Card bordered={false}>
+              <Card variant="borderless" className="workspace-panel">
                 <Statistic
                   title="最终净值"
                   value={results.final_value}
@@ -604,9 +651,9 @@ function CrossMarketBacktestPanel() {
               </Card>
             </Col>
             <Col xs={24} md={8}>
-              <Card bordered={false}>
+              <Card variant="borderless" className="workspace-panel">
                 <Statistic
-                  title="Sharpe"
+                  title="夏普比率"
                   value={results.sharpe_ratio}
                   precision={2}
                 />
@@ -616,7 +663,7 @@ function CrossMarketBacktestPanel() {
 
           <Row gutter={[16, 16]}>
             <Col xs={24} xl={12}>
-              <Card title="数据对齐诊断" bordered={false}>
+              <Card title="数据对齐诊断" variant="borderless" className="workspace-panel">
                 <Row gutter={[16, 16]}>
                   <Col span={8}>
                     <Statistic
@@ -646,7 +693,7 @@ function CrossMarketBacktestPanel() {
                   pagination={false}
                   dataSource={results.data_alignment?.per_symbol || []}
                   columns={[
-                    { title: 'Symbol', dataIndex: 'symbol', key: 'symbol' },
+                    { title: '资产代码', dataIndex: 'symbol', key: 'symbol' },
                     { title: '原始行数', dataIndex: 'raw_rows', key: 'raw_rows' },
                     { title: '有效行数', dataIndex: 'valid_rows', key: 'valid_rows' },
                     {
@@ -660,18 +707,18 @@ function CrossMarketBacktestPanel() {
               </Card>
             </Col>
             <Col xs={24} xl={12}>
-              <Card title="执行诊断" bordered={false}>
+              <Card title="执行诊断" variant="borderless" className="workspace-panel">
                 <Row gutter={[16, 16]}>
                   <Col span={8}>
                     <Statistic
-                      title="Turnover"
+                      title="换手率"
                       value={results.execution_diagnostics?.turnover || 0}
                       precision={2}
                     />
                   </Col>
                   <Col span={8}>
                     <Statistic
-                      title="Cost Drag"
+                      title="成本拖累"
                       value={(results.execution_diagnostics?.cost_drag || 0) * 100}
                       precision={2}
                       suffix="%"
@@ -679,16 +726,16 @@ function CrossMarketBacktestPanel() {
                   </Col>
                   <Col span={8}>
                     <Statistic
-                      title="Avg Holding"
+                      title="平均持有期"
                       value={results.execution_diagnostics?.avg_holding_period || 0}
                       precision={1}
-                      suffix="d"
+                      suffix=" 天"
                     />
                   </Col>
                 </Row>
                 <div style={{ marginTop: 16 }}>
                   <Tag color="purple">
-                    {results.execution_diagnostics?.construction_mode || quality.construction_mode}
+                    {formatConstructionMode(results.execution_diagnostics?.construction_mode || quality.construction_mode)}
                   </Tag>
                   <Text type="secondary"> 当前对冲构造模式</Text>
                 </div>
@@ -698,37 +745,37 @@ function CrossMarketBacktestPanel() {
 
           <Row gutter={[16, 16]}>
             <Col xs={24} xl={14}>
-              <Card title="组合净值曲线" bordered={false}>
+              <Card title="组合净值曲线" variant="borderless" className="workspace-panel workspace-chart-card">
                 <div style={{ width: '100%', height: 320 }}>
-                  <ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height={320} minWidth={320} minHeight={320}>
                     <LineChart data={results.portfolio_curve}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="date" minTickGap={32} />
                       <YAxis />
                       <Tooltip />
                       <Legend />
-                      <Line type="monotone" dataKey="total" name="Portfolio" stroke="#1677ff" dot={false} />
+                      <Line type="monotone" dataKey="total" name="组合净值" stroke="#1677ff" dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
               </Card>
             </Col>
             <Col xs={24} xl={10}>
-              <Card title="长短腿累计收益" bordered={false}>
+              <Card title="长短腿累计收益" variant="borderless" className="workspace-panel workspace-chart-card">
                 <div style={{ width: '100%', height: 320 }}>
-                  <ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height={320} minWidth={320} minHeight={320}>
                     <BarChart
                       data={[
                         {
-                          leg: 'Long',
+                          leg: '多头',
                           value: (results.leg_performance.long.cumulative_return || 0) * 100,
                         },
                         {
-                          leg: 'Short',
+                          leg: '空头',
                           value: (results.leg_performance.short.cumulative_return || 0) * 100,
                         },
                         {
-                          leg: 'Spread',
+                          leg: '价差',
                           value: (results.leg_performance.spread.cumulative_return || 0) * 100,
                         },
                       ]}
@@ -747,9 +794,9 @@ function CrossMarketBacktestPanel() {
 
           <Row gutter={[16, 16]}>
             <Col xs={24} xl={results.hedge_ratio_series ? 14 : 24}>
-              <Card title="Spread / Z-Score" bordered={false}>
+              <Card title="价差与 Z 分数" variant="borderless" className="workspace-panel workspace-chart-card">
                 <div style={{ width: '100%', height: 320 }}>
-                  <ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height={320} minWidth={320} minHeight={320}>
                     <LineChart data={results.spread_series}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="date" minTickGap={32} />
@@ -766,9 +813,9 @@ function CrossMarketBacktestPanel() {
             </Col>
             {results.hedge_ratio_series ? (
               <Col xs={24} xl={10}>
-                <Card title="Hedge Ratio" bordered={false}>
+                <Card title="对冲比率" variant="borderless">
                   <div style={{ width: '100%', height: 320 }}>
-                    <ResponsiveContainer>
+                    <ResponsiveContainer width="100%" height={280} minWidth={320} minHeight={280}>
                       <LineChart data={results.hedge_ratio_series}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="date" minTickGap={32} />
@@ -786,22 +833,27 @@ function CrossMarketBacktestPanel() {
 
           <Row gutter={[16, 16]}>
             <Col xs={24} xl={12}>
-              <Card title="交易记录" bordered={false}>
+              <Card title="交易记录" variant="borderless">
                 <Table
                   size="small"
                   rowKey={(record, index) => `${record.date}-${index}`}
                   dataSource={results.trades || []}
-                  pagination={{ pageSize: 6 }}
+                  locale={{ emptyText: '暂无交易记录' }}
+                  pagination={{ pageSize: 6, showSizeChanger: false }}
                   columns={[
                     { title: '日期', dataIndex: 'date', key: 'date' },
                     {
                       title: '动作',
                       dataIndex: 'type',
                       key: 'type',
-                      render: (value) => <Tag color={String(value).includes('OPEN') ? 'blue' : 'orange'}>{value}</Tag>,
+                      render: (value) => (
+                        <Tag color={String(value).includes('OPEN') ? 'blue' : 'orange'}>
+                          {formatTradeAction(value)}
+                        </Tag>
+                      ),
                     },
                     {
-                      title: 'Spread',
+                      title: '价差',
                       dataIndex: 'spread',
                       key: 'spread',
                       render: (value) => Number(value).toFixed(4),
@@ -813,7 +865,7 @@ function CrossMarketBacktestPanel() {
                       render: (value) => Number(value).toFixed(3),
                     },
                     {
-                      title: 'PnL',
+                      title: '盈亏',
                       dataIndex: 'pnl',
                       key: 'pnl',
                       render: (value) => <span style={{ color: getValueColor(value) }}>{formatCurrency(Number(value || 0))}</span>,
@@ -829,10 +881,11 @@ function CrossMarketBacktestPanel() {
               </Card>
             </Col>
             <Col xs={24} xl={12}>
-              <Card title="资产相关性矩阵" bordered={false}>
+              <Card title="资产相关性矩阵" variant="borderless">
                 <Table
                   size="small"
                   scroll={{ x: true }}
+                  locale={{ emptyText: '暂无相关性数据' }}
                   pagination={false}
                   rowKey="symbol"
                   dataSource={results.correlation_matrix.rows || []}
@@ -842,13 +895,13 @@ function CrossMarketBacktestPanel() {
             </Col>
           </Row>
 
-          <Card title="资产篮子摘要" bordered={false}>
+          <Card title="资产篮子摘要" variant="borderless">
             <Row gutter={[16, 16]}>
               <Col xs={24} md={12}>
                 <Text strong>多头篮子</Text>
                 <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {results.leg_performance.long.assets.map((asset) => (
-                    <Tag key={`long-${asset.symbol}`}>{asset.symbol} · {asset.asset_class} · {formatPercentage(asset.weight)}</Tag>
+                    <Tag key={`long-${asset.symbol}`}>{asset.symbol} · {ASSET_CLASS_LABELS[asset.asset_class] || asset.asset_class} · {formatPercentage(asset.weight)}</Tag>
                   ))}
                 </div>
               </Col>
@@ -856,7 +909,7 @@ function CrossMarketBacktestPanel() {
                 <Text strong>空头篮子</Text>
                 <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {results.leg_performance.short.assets.map((asset) => (
-                    <Tag key={`short-${asset.symbol}`}>{asset.symbol} · {asset.asset_class} · {formatPercentage(asset.weight)}</Tag>
+                    <Tag key={`short-${asset.symbol}`}>{asset.symbol} · {ASSET_CLASS_LABELS[asset.asset_class] || asset.asset_class} · {formatPercentage(asset.weight)}</Tag>
                   ))}
                 </div>
               </Col>

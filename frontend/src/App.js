@@ -1,5 +1,5 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { Layout, Typography, message, Menu, Space, Button, Tooltip, Spin } from 'antd';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { App as AntdApp, Layout, Typography, Menu, Space, Button, Tooltip, Spin } from 'antd';
 import {
   DashboardOutlined,
   BarChartOutlined,
@@ -52,6 +52,7 @@ const VIEW_QUERY_KEY = 'view';
 const VALID_VIEWS = new Set(['backtest', 'realtime', 'industry', 'alerts', 'pricing', 'godsEye', 'workbench']);
 
 function App() {
+  const { message } = AntdApp.useApp();
   // Theme
   const { isDarkMode, toggleTheme } = useTheme();
   // ... (existing state)
@@ -60,9 +61,18 @@ function App() {
   const [results, setResults] = useState(null);
   const [currentView, setCurrentView] = useState('backtest');
 
+  const loadStrategies = useCallback(async () => {
+    try {
+      const data = await getStrategies();
+      setStrategies(data);
+    } catch (error) {
+      message.error('加载策略失败: ' + error.message);
+    }
+  }, [message]);
+
   useEffect(() => {
     loadStrategies();
-  }, []);
+  }, [loadStrategies]);
 
   useEffect(() => {
     const applyViewFromUrl = () => {
@@ -94,15 +104,6 @@ function App() {
     });
     window.history.replaceState(null, '', nextUrl);
   }, [currentView]);
-
-  const loadStrategies = async () => {
-    try {
-      const data = await getStrategies();
-      setStrategies(data);
-    } catch (error) {
-      message.error('加载策略失败: ' + error.message);
-    }
-  };
 
   const handleBacktest = async (formData) => {
     setLoading(true);
@@ -237,7 +238,7 @@ function App() {
               color: 'var(--accent-primary)',
               fontWeight: 500,
               lineHeight: '1.4'
-            }}>v3.4.0</span>
+            }}>v3.4.1</span>
           </div>
           <Space size={16}>
             <Tooltip title={isDarkMode ? '切换到浅色主题' : '切换到深色主题'}>

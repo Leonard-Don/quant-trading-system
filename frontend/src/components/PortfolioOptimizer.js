@@ -28,10 +28,19 @@ import {
 import { ExperimentOutlined, PieChartOutlined, DotChartOutlined } from '@ant-design/icons';
 import { optimizePortfolio } from '../services/api';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { Option } = Select;
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d', '#ffc658'];
+const PERIOD_LABELS = {
+    '3m': '近 3 个月',
+    '6m': '近 6 个月',
+    '1y': '近 1 年',
+};
+const OBJECTIVE_LABELS = {
+    max_sharpe: '最大夏普比率',
+    min_volatility: '最小波动率',
+};
 
 const PortfolioOptimizer = () => {
     const [selectedSymbols, setSelectedSymbols] = useState(['AAPL', 'MSFT', 'GOOGL', 'AMZN']);
@@ -99,12 +108,35 @@ const PortfolioOptimizer = () => {
     })) : [];
 
     return (
-        <div>
-            <div style={{ marginBottom: 20 }}>
-                <Text type="secondary">基于 Markowitz 均值-方差模型，计算最优资产配置比例</Text>
+        <div className="workspace-tab-view">
+            <div className="workspace-section workspace-section--accent">
+                <div className="workspace-section__header">
+                    <div>
+                        <div className="workspace-section__title">组合优化实验台</div>
+                        <div className="workspace-section__description">基于马科维茨均值方差框架，在统一工作台里查看输入、最优权重和有效前沿。</div>
+                    </div>
+                </div>
+                <div className="summary-strip summary-strip--compact">
+                    <div className="summary-strip__item">
+                        <span className="summary-strip__label">资产池</span>
+                        <span className="summary-strip__value">{selectedSymbols.length} 个</span>
+                    </div>
+                    <div className="summary-strip__item">
+                        <span className="summary-strip__label">周期</span>
+                        <span className="summary-strip__value">{PERIOD_LABELS[period] || period}</span>
+                    </div>
+                    <div className="summary-strip__item">
+                        <span className="summary-strip__label">目标</span>
+                        <span className="summary-strip__value">{OBJECTIVE_LABELS[objective] || objective}</span>
+                    </div>
+                    <div className="summary-strip__item">
+                        <span className="summary-strip__label">状态</span>
+                        <span className="summary-strip__value">{loading ? '计算中' : (result ? '结果已生成' : '待运行')}</span>
+                    </div>
+                </div>
             </div>
 
-            <Card style={{ marginBottom: 24 }}>
+            <Card className="workspace-panel" style={{ marginBottom: 24 }}>
                 <Space direction="vertical" size="large" style={{ width: '100%' }}>
                     <Row gutter={16}>
                         <Col span={12}>
@@ -131,10 +163,10 @@ const PortfolioOptimizer = () => {
                             </Select>
                         </Col>
                         <Col span={6}>
-                            <Text strong>优化对目标</Text>
+                            <Text strong>优化目标</Text>
                             <Select value={objective} onChange={setObjective} style={{ width: '100%', marginTop: 8 }}>
-                                <Option value="max_sharpe">最大夏普比率 (Max Sharpe)</Option>
-                                <Option value="min_volatility">最小波动率 (Min Volatility)</Option>
+                                <Option value="max_sharpe">最大夏普比率</Option>
+                                <Option value="min_volatility">最小波动率</Option>
                             </Select>
                         </Col>
                     </Row>
@@ -149,7 +181,7 @@ const PortfolioOptimizer = () => {
             {result && (
                 <Row gutter={[24, 24]}>
                     <Col span={8}>
-                        <Card title="最优组合指标" bordered={false}>
+                        <Card title="最优组合指标" variant="borderless" className="workspace-panel">
                             <Row gutter={[16, 24]}>
                                 <Col span={24}>
                                     <Statistic title="预期年化收益率" value={result.optimal_portfolio.return} suffix="%" valueStyle={{ color: '#3f8600' }} />
@@ -158,18 +190,18 @@ const PortfolioOptimizer = () => {
                                     <Statistic title="预期年化波动率" value={result.optimal_portfolio.volatility} suffix="%" />
                                 </Col>
                                 <Col span={24}>
-                                    <Statistic title="夏普比率 (Sharpe)" value={result.optimal_portfolio.sharpe_ratio} prefix={<ExperimentOutlined />} />
+                                    <Statistic title="夏普比率" value={result.optimal_portfolio.sharpe_ratio} prefix={<ExperimentOutlined />} />
                                 </Col>
                             </Row>
                         </Card>
                     </Col>
 
                     <Col span={16}>
-                        <Card title={<><PieChartOutlined /> 推荐仓位分配</>} bordered={false}>
+                        <Card title={<><PieChartOutlined /> 推荐仓位分配</>} variant="borderless" className="workspace-panel workspace-chart-card">
                             <Row>
                                 <Col span={12}>
                                     <div className="pie-chart-container" style={{ width: '100%', height: 300 }}>
-                                        <ResponsiveContainer>
+                                        <ResponsiveContainer width="100%" height={300} minWidth={320} minHeight={300}>
                                             <PieChart margin={{ top: 10, right: 10, left: 10, bottom: 30 }}>
                                                 <Pie
                                                     data={pieData}
@@ -206,9 +238,9 @@ const PortfolioOptimizer = () => {
                     </Col>
 
                     <Col span={24}>
-                        <Card title={<><DotChartOutlined /> 有效前沿 (Efficient Frontier)</>} bordered={false}>
+                        <Card title={<><DotChartOutlined /> 有效前沿</>} variant="borderless" className="workspace-panel workspace-chart-card">
                             <div style={{ height: 400 }}>
-                                <ResponsiveContainer>
+                                <ResponsiveContainer width="100%" height={400} minWidth={320} minHeight={400}>
                                     <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
                                         <CartesianGrid />
                                         <XAxis type="number" dataKey="volatility" name="波动率" unit="%" label={{ value: '风险 (波动率 %)', position: 'insideBottom', offset: -10 }} />

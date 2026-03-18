@@ -7,7 +7,19 @@ import pandas as pd
 import numpy as np
 
 from src.backtest.backtester import Backtester
-from src.strategy.strategies import MovingAverageCrossover
+from src.strategy.strategies import BuyAndHold, MovingAverageCrossover
+
+
+class DummyStrategy:
+    """用于精确控制买卖信号的测试策略"""
+
+    name = "DummyStrategy"
+
+    def __init__(self, signals):
+        self._signals = signals
+
+    def generate_signals(self, data):
+        return pd.Series(self._signals, index=data.index)
 
 
 class TestBacktester:
@@ -124,3 +136,95 @@ class TestBacktester:
         np.testing.assert_array_almost_equal(
             portfolio["total"].values, total_value.values, decimal=2
         )
+
+    def test_open_position_not_counted_as_completed_trade(self):
+        """未平仓头寸不应进入已完成交易统计"""
+        dates = pd.date_range("2024-01-01", periods=4, freq="D")
+        data = pd.DataFrame({"close": [100, 110, 120, 130]}, index=dates)
+        strategy = DummyStrategy([0, 1, 0, 0])
+
+        results = Backtester(initial_capital=1000, commission=0, slippage=0).run(
+            strategy, data
+        )
+
+        assert results["num_trades"] == 1
+        assert results["total_completed_trades"] == 0
+        assert results["has_open_position"] is True
+        assert results["win_rate"] == 0
+        assert results["max_consecutive_wins"] == 0
+        assert results["max_consecutive_losses"] == 0
+        assert results["net_profit"] == 180
+
+    def test_consecutive_stats_follow_completed_trade_order(self):
+        """连胜连败应按真实成交顺序统计，而不是按盈亏分组"""
+        dates = pd.date_range("2024-01-01", periods=7, freq="D")
+        data = pd.DataFrame(
+            {"close": [100, 100, 110, 120, 110, 100, 110]}, index=dates
+        )
+        strategy = DummyStrategy([0, 1, -1, 1, -1, 1, -1])
+
+        results = Backtester(initial_capital=10000, commission=0, slippage=0).run(
+            strategy, data
+        )
+
+        assert results["num_trades"] == 6
+        assert results["total_completed_trades"] == 3
+        assert results["win_rate"] == pytest.approx(2 / 3)
+        assert results["max_consecutive_wins"] == 1
+        assert results["max_consecutive_losses"] == 1
+        assert results["best_trade"] == 1000
+        assert results["worst_trade"] == -910
+
+    def test_buy_signal_on_first_bar_executes(self):
+        """首根K线买入信号应能成交，并正确更新首日组合状态"""
+        dates = pd.date_range("2024-01-01", periods=3, freq="D")
+        data = pd.DataFrame({"close": [100, 110, 120]}, index=dates)
+
+        results = Backtester(initial_capital=1000, commission=0, slippage=0).run(
+            DummyStrategy([1, 0, 0]), data
+        )
+
+        portfolio = results["portfolio"]
+        assert results["num_trades"] == 1
+        assert results["total_return"] == pytest.approx(0.2)
+        assert portfolio["cash"].iloc[0] == 0
+        assert portfolio["holdings"].iloc[0] == 1000
+        assert portfolio["total"].iloc[0] == 1000
+
+    def test_sell_signal_on_first_bar_without_position_does_not_trade(self):
+        """首根K线卖出信号在空仓时不应错误成交"""
+        dates = pd.date_range("2024-01-01", periods=3, freq="D")
+        data = pd.DataFrame({"close": [100, 90, 80]}, index=dates)
+
+        results = Backtester(initial_capital=1000, commission=0, slippage=0).run(
+            DummyStrategy([-1, 0, 0]), data
+        )
+
+        assert results["num_trades"] == 0
+        assert results["total_return"] == 0
+
+    def test_buy_and_hold_buys_on_first_bar(self):
+        """买入持有策略应在首日建仓并产生非零收益"""
+        dates = pd.date_range("2024-01-01", periods=4, freq="D")
+        data = pd.DataFrame({"close": [100, 105, 110, 120]}, index=dates)
+
+        results = Backtester(initial_capital=1000, commission=0, slippage=0).run(
+            BuyAndHold(), data
+        )
+
+        assert results["num_trades"] == 1
+        assert results["total_return"] == pytest.approx(0.2)
+        assert results["final_value"] == pytest.approx(1200)
+
+    def test_trailing_nan_price_bar_is_ignored(self):
+        """尾部未完成K线若价格缺失，不应把最终组合价值冲成0。"""
+        dates = pd.date_range("2024-01-01", periods=5, freq="D")
+        data = pd.DataFrame({"close": [100, 110, 120, 130, np.nan]}, index=dates)
+
+        results = Backtester(initial_capital=1000, commission=0, slippage=0).run(
+            BuyAndHold(), data
+        )
+
+        assert results["num_trades"] == 1
+        assert results["final_value"] == pytest.approx(1300)
+        assert results["total_return"] == pytest.approx(0.3)

@@ -3,6 +3,8 @@
  * 支持 CSV、Excel、JSON 格式导出
  */
 
+import { normalizeBacktestResult } from './backtest';
+
 /**
  * 将数据导出为 CSV 格式
  * @param {Array} data - 数据数组
@@ -146,39 +148,42 @@ const escapeHtml = (text) => {
 export const formatBacktestForExport = (backtestResult) => {
     if (!backtestResult) return { metrics: [], trades: [], dailyData: [] };
 
+    const normalized = normalizeBacktestResult(backtestResult);
+    const summary = normalized.metrics || normalized.performance_metrics || normalized;
+    const tradeRecords = normalized.trades || [];
+    const portfolioHistory = normalized.portfolio_history || normalized.portfolio || [];
+
     // 格式化指标
-    const metrics = [];
-    if (backtestResult.metrics) {
-        const m = backtestResult.metrics;
-        metrics.push(
-            { metric: '总收益率', value: `${(m.total_return * 100).toFixed(2)}%` },
-            { metric: '年化收益率', value: `${(m.annualized_return * 100).toFixed(2)}%` },
-            { metric: '夏普比率', value: m.sharpe_ratio?.toFixed(3) || 'N/A' },
-            { metric: '最大回撤', value: `${(m.max_drawdown * 100).toFixed(2)}%` },
-            { metric: '胜率', value: `${(m.win_rate * 100).toFixed(2)}%` },
-            { metric: '交易次数', value: m.total_trades || 0 },
-            { metric: '初始资金', value: `$${m.initial_capital?.toLocaleString() || 'N/A'}` },
-            { metric: '最终资金', value: `$${m.final_value?.toLocaleString() || 'N/A'}` }
-        );
-    }
+    const metrics = [
+        { metric: '总收益率', value: `${((summary.total_return || 0) * 100).toFixed(2)}%` },
+        { metric: '年化收益率', value: `${((summary.annualized_return || 0) * 100).toFixed(2)}%` },
+        { metric: '夏普比率', value: summary.sharpe_ratio?.toFixed(3) || 'N/A' },
+        { metric: '最大回撤', value: `${((summary.max_drawdown || 0) * 100).toFixed(2)}%` },
+        { metric: '胜率', value: `${((summary.win_rate || 0) * 100).toFixed(2)}%` },
+        { metric: '交易次数', value: summary.num_trades ?? summary.total_trades ?? 0 },
+        { metric: '初始资金', value: `$${summary.initial_capital?.toLocaleString() || 'N/A'}` },
+        { metric: '最终资金', value: `$${summary.final_value?.toLocaleString() || 'N/A'}` }
+    ];
 
     // 格式化交易记录
-    const trades = backtestResult.trades?.map(trade => ({
-        date: trade.date,
-        action: trade.action === 'buy' ? '买入' : '卖出',
-        price: trade.price?.toFixed(2),
-        quantity: trade.quantity,
-        value: trade.value?.toFixed(2),
-        commission: trade.commission?.toFixed(2)
-    })) || [];
+    const trades = tradeRecords.map(trade => {
+        return {
+            date: trade.date,
+            action: trade.type === 'BUY' ? '买入' : '卖出',
+            price: trade.price?.toFixed?.(2) || trade.price,
+            quantity: trade.quantity ?? trade.shares ?? 0,
+            value: trade.value?.toFixed?.(2) || trade.value,
+            commission: trade.commission?.toFixed?.(2) || trade.commission
+        };
+    });
 
     // 格式化每日数据
-    const dailyData = backtestResult.portfolio_history?.map(item => ({
+    const dailyData = portfolioHistory.map(item => ({
         date: item.date,
-        portfolio_value: item.total?.toFixed(2),
-        price: item.price?.toFixed(2),
+        portfolio_value: item.total?.toFixed?.(2) || item.total,
+        price: item.price?.toFixed?.(2) || item.price,
         signal: item.signal
-    })) || [];
+    }));
 
     return { metrics, trades, dailyData };
 };

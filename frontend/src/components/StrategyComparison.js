@@ -9,13 +9,12 @@ import {
     Col,
     Space,
     Typography,
-    message,
     Alert,
     Progress,
     Tag,
-    Divider
+    Input
 } from 'antd';
-import { BarChartOutlined, DownloadOutlined, TrophyOutlined, StarOutlined } from '@ant-design/icons';
+import { BarChartOutlined, DownloadOutlined, TrophyOutlined } from '@ant-design/icons';
 import {
     BarChart,
     Bar,
@@ -33,15 +32,21 @@ import {
     Cell
 } from 'recharts';
 import moment from 'moment';
-import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
 import { compareStrategies } from '../services/api';
 import { getStrategyName } from '../constants/strategies';
+import { normalizeBacktestResult } from '../utils/backtest';
+import { useSafeMessageApi } from '../utils/messageApi';
+import {
+    buildStrategyComparisonReportHtml,
+    openStrategyComparisonPrintWindow,
+} from '../utils/strategyComparisonReport';
 
 const { Text } = Typography;
 const { RangePicker } = DatePicker;
+const DATE_FORMAT = 'YYYY-MM-DD';
 
 const StrategyComparison = ({ strategies }) => {
+    const message = useSafeMessageApi();
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState(null);
     const [params, setParams] = useState({
@@ -51,6 +56,11 @@ const StrategyComparison = ({ strategies }) => {
     });
 
     const handleCompare = async () => {
+        if (!params.symbol.trim()) {
+            message.warning('请输入要比较的标的代码');
+            return;
+        }
+
         if (params.selectedStrategies.length < 2) {
             message.warning('请至少选择两个策略进行对比');
             return;
@@ -63,8 +73,8 @@ const StrategyComparison = ({ strategies }) => {
             const response = await compareStrategies(
                 params.symbol,
                 params.selectedStrategies,
-                params.dateRange[0].toISOString(),
-                params.dateRange[1].toISOString()
+                params.dateRange[0]?.format(DATE_FORMAT),
+                params.dateRange[1]?.format(DATE_FORMAT)
             );
 
             if (response.success) {
@@ -81,7 +91,7 @@ const StrategyComparison = ({ strategies }) => {
         }
     };
 
-    // 导出对比报告为PDF
+    // 导出对比报告为 PDF（通过浏览器打印，确保中文稳定渲染）
     const exportComparisonReport = () => {
         if (!results || dataSource.length === 0) {
             message.warning('请先进行策略对比');
@@ -89,59 +99,20 @@ const StrategyComparison = ({ strategies }) => {
         }
 
         try {
-            const doc = new jsPDF();
-            const pageWidth = doc.internal.pageSize.getWidth();
-            // Need a font that supports Chinese, usually addFont is needed. 
-            // Assuming standard font for now or that backend PDF handles it better.
-            // frontend jsPDF with default fonts won't support Chinese characters well.
-            // However, sticking to the existing logic but using localized names where possible if font supported.
-            // Warning: jsPDF default fonts do not support Chinese. 
-            // We'll use pinyin or English for PDF if no custom font is loaded, OR keep it as is assuming user has a solution or valid font.
-            // For this refactor, I will use the localized name variables but keep in mind font limitation.
-
-            // 标题
-            doc.setFontSize(20);
-            doc.setTextColor(33, 33, 33);
-            doc.text('Strategy Comparison Report', pageWidth / 2, 20, { align: 'center' }); // Keep English for safety if no font
-
-            // 对比信息
-            doc.setFontSize(11);
-            doc.setTextColor(100);
-            doc.text(`Symbol: ${params.symbol}`, 14, 35);
-            doc.text(`Range: ${params.dateRange[0].format('YYYY-MM-DD')} ~ ${params.dateRange[1].format('YYYY-MM-DD')}`, 14, 42);
-            doc.text(`Generated: ${new Date().toLocaleString()}`, 14, 49);
-
-            // 对比结果表格
-            const tableData = dataSource.map(d => [
-                d.strategyName, // Use localized name
-                `${(d.total_return * 100).toFixed(2)}%`,
-                `${(d.annualized_return * 100).toFixed(2)}%`,
-                `${(d.max_drawdown * 100).toFixed(2)}%`,
-                d.sharpe_ratio.toFixed(2),
-                d.num_trades
-            ]);
-
-            doc.autoTable({
-                startY: 55,
-                head: [['Strategy', 'Total Return', 'Annualized', 'Max Drawdown', 'Sharpe', 'Trades']],
-                body: tableData,
-                theme: 'striped',
-                headStyles: { fillColor: [102, 126, 234], textColor: 255 },
-                styles: { fontSize: 10, cellPadding: 4 },
-                columnStyles: {
-                    0: { fontStyle: 'bold' },
-                    1: { halign: 'right' },
-                    2: { halign: 'right' },
-                    3: { halign: 'right' },
-                    4: { halign: 'right' },
-                    5: { halign: 'right' }
-                }
+            const reportHtml = buildStrategyComparisonReportHtml({
+                symbol: params.symbol,
+                startDate: params.dateRange[0]?.format(DATE_FORMAT),
+                endDate: params.dateRange[1]?.format(DATE_FORMAT),
+                generatedAt: new Date().toLocaleString(),
+                rankedData,
+                dataSource,
             });
-
-            // ... (Skipping complex best strategy text for brevity/safety of PDF generation) ...
-
-            doc.save(`strategy_comparison_${params.symbol}_${new Date().toISOString().split('T')[0]}.pdf`);
-            message.success('对比报告已导出');
+            const opened = openStrategyComparisonPrintWindow(reportHtml);
+            if (!opened) {
+                message.error('无法打开打印窗口，请检查浏览器弹窗设置');
+                return;
+            }
+            message.success('已打开打印窗口，可直接另存为 PDF');
         } catch (error) {
             message.error('导出失败: ' + error.message);
         }
@@ -200,14 +171,21 @@ const StrategyComparison = ({ strategies }) => {
     ];
 
     // 转换数据用于表格和图表
-    const dataSource = results
-        ? Object.entries(results).map(([name, metrics]) => ({
-            key: name,
-            strategy: name,
-            strategyName: getStrategyName(name), // Add localized name
-            ...metrics
-        }))
-        : [];
+    const dataSource = useMemo(() => (
+        results
+            ? Object.entries(results).map(([name, metrics]) => {
+            const normalized = normalizeBacktestResult(metrics);
+            return {
+                key: name,
+                strategy: name,
+                strategyName: getStrategyName(name),
+                ...normalized,
+                scores: normalized.scores || metrics.scores,
+                rank: normalized.rank || metrics.rank,
+            };
+        })
+            : []
+    ), [results]);
 
     // 直接使用后端返回的排名数据
     const rankedData = useMemo(() => {
@@ -232,13 +210,43 @@ const StrategyComparison = ({ strategies }) => {
     }));
 
     return (
-        <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                <Typography.Title level={3}>策略性能对比</Typography.Title>
+        <div className="workspace-tab-view">
+            <div className="workspace-section workspace-section--accent">
+                <div className="workspace-section__header">
+                    <div>
+                        <div className="workspace-section__title">策略性能对比</div>
+                        <div className="workspace-section__description">在同一标的与时间区间内横向比较多种策略，把收益、风控和综合评分放进统一视图。</div>
+                    </div>
+                </div>
+                <div className="summary-strip summary-strip--compact">
+                    <div className="summary-strip__item">
+                        <span className="summary-strip__label">标的</span>
+                        <span className="summary-strip__value">{params.symbol}</span>
+                    </div>
+                    <div className="summary-strip__item">
+                        <span className="summary-strip__label">已选策略</span>
+                        <span className="summary-strip__value">{params.selectedStrategies.length} 个</span>
+                    </div>
+                    <div className="summary-strip__item">
+                        <span className="summary-strip__label">区间</span>
+                        <span className="summary-strip__value">{`${params.dateRange[0].format('YYYY-MM-DD')} ~ ${params.dateRange[1].format('YYYY-MM-DD')}`}</span>
+                    </div>
+                    <div className="summary-strip__item">
+                        <span className="summary-strip__label">状态</span>
+                        <span className="summary-strip__value">{loading ? '分析中' : (results ? '结果已生成' : '待运行')}</span>
+                    </div>
+                </div>
             </div>
 
-            <Card style={{ marginBottom: 20 }}>
+            <Card className="workspace-panel" style={{ marginBottom: 20 }}>
                 <Space size="large" wrap>
+                    <div style={{ width: 180 }}>
+                        <Input
+                            value={params.symbol}
+                            placeholder="输入标的代码"
+                            onChange={(event) => setParams((prev) => ({ ...prev, symbol: event.target.value.trim().toUpperCase() }))}
+                        />
+                    </div>
                     <div style={{ width: 300 }}>
                         <Select
                             mode="multiple"
@@ -254,6 +262,8 @@ const StrategyComparison = ({ strategies }) => {
                     </div>
                     <RangePicker
                         value={params.dateRange}
+                        placeholder={['开始日期', '结束日期']}
+                        separator="至"
                         onChange={(dates) => setParams(prev => ({ ...prev, dateRange: dates }))}
                     />
                     <Button
@@ -281,13 +291,13 @@ const StrategyComparison = ({ strategies }) => {
                     {/* 综合评分排名卡片 */}
                     <Col span={24}>
                         <Card
+                            className="workspace-panel workspace-panel--emphasis"
                             title={
                                 <Space>
                                     <TrophyOutlined style={{ color: '#ffd700' }} />
                                     <span>策略综合评分排名</span>
                                 </Space>
                             }
-                            style={{ background: 'linear-gradient(135deg, #0f0c29 0%, #302b63 100%)', border: 'none' }}
                         >
                             <Row gutter={16}>
                                 {rankedData.slice(0, 4).map((item) => {
@@ -331,7 +341,7 @@ const StrategyComparison = ({ strategies }) => {
                     </Col>
 
                     <Col span={24}>
-                        <Card title="对比结果概览">
+                        <Card title="对比结果概览" className="workspace-panel">
                             <Table
                                 dataSource={dataSource}
                                 columns={columns}
@@ -343,9 +353,9 @@ const StrategyComparison = ({ strategies }) => {
 
                     {/* 雷达图 - 多维度对比 */}
                     <Col span={12}>
-                        <Card title="多维度性能雷达图" style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}>
+                        <Card title="多维度性能雷达图" className="workspace-chart-card workspace-panel">
                             <div className="radar-chart-container">
-                                <ResponsiveContainer width="100%" height={380}>
+                                <ResponsiveContainer width="100%" height={380} minWidth={320} minHeight={380}>
                                     <RadarChart
                                         cx="50%"
                                         cy="50%"
@@ -385,8 +395,8 @@ const StrategyComparison = ({ strategies }) => {
 
                     {/* 增强柱状图 */}
                     <Col span={12}>
-                        <Card title="收益与风险对比" style={{ background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', border: 'none' }}>
-                            <ResponsiveContainer width="100%" height={380}>
+                        <Card title="收益与风险对比" className="workspace-chart-card workspace-panel">
+                            <ResponsiveContainer width="100%" height={380} minWidth={320} minHeight={380}>
                                 <BarChart data={chartData} margin={{ top: 20, right: 30, left: 30, bottom: 20 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                                     <XAxis dataKey="name" tick={{ fill: '#fff', fontSize: 11 }} />
@@ -413,8 +423,8 @@ const StrategyComparison = ({ strategies }) => {
 
                     {/* 夏普比率对比 */}
                     <Col span={24}>
-                        <Card title="风险调整收益对比 (夏普比率)" style={{ background: 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)', border: 'none' }}>
-                            <ResponsiveContainer width="100%" height={250}>
+                        <Card title="风险调整收益对比 (夏普比率)" className="workspace-chart-card workspace-panel">
+                            <ResponsiveContainer width="100%" height={250} minWidth={320} minHeight={250}>
                                 <BarChart
                                     data={dataSource.map(d => ({ name: d.strategyName, '夏普比率': d.sharpe_ratio, '年化收益': (d.annualized_return * 100).toFixed(2) }))}
                                     layout="vertical"

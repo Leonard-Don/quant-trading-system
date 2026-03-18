@@ -22,7 +22,7 @@ from .strategy.advanced_strategies import (
 from .backtest.backtester import Backtester
 from .analytics.dashboard import PerformanceAnalyzer
 
-__version__ = "3.0.0"
+__version__ = "3.4.1"
 
 __all__ = [
     "DataManager",

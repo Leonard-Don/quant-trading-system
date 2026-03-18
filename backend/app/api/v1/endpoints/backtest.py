@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException
 import asyncio
 from datetime import datetime
 import logging
+from typing import Any, Dict, Optional, Tuple
+
 from backend.app.schemas.backtest import BacktestRequest, BacktestResponse
 from src.backtest.history import backtest_history
 from src.data.data_manager import DataManager
@@ -26,7 +28,10 @@ from src.utils.performance import timing_decorator
 from src.utils.data_validation import (
     validate_and_fix_backtest_results,
     ensure_json_serializable,
+    normalize_backtest_results,
 )
+from fastapi.responses import Response
+from pydantic import BaseModel
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -46,6 +51,199 @@ STRATEGIES = {
     "atr_trailing_stop": ATRTrailingStop,
 }
 
+
+def _parse_iso_datetime(value: Optional[str], field_name: str) -> Optional[datetime]:
+    """Parse ISO datetime strings used by the backtest API."""
+    if not value:
+        return None
+
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid {field_name}: {value}",
+        ) from exc
+
+
+def _resolve_date_range(
+    start_date: Optional[str], end_date: Optional[str]
+) -> Tuple[Optional[datetime], Optional[datetime]]:
+    start_dt = _parse_iso_datetime(start_date, "start_date")
+    end_dt = _parse_iso_datetime(end_date, "end_date")
+
+    if start_dt and end_dt and start_dt >= end_dt:
+        raise HTTPException(status_code=400, detail="Start date must be before end date")
+
+    return start_dt, end_dt
+
+
+def _fetch_backtest_data(
+    symbol: str, start_date: Optional[str], end_date: Optional[str]
+):
+    start_dt, end_dt = _resolve_date_range(start_date, end_date)
+    logger.info(f"Fetching data for {symbol} from {start_dt} to {end_dt}")
+    data = data_manager.get_historical_data(
+        symbol=symbol, start_date=start_dt, end_date=end_dt
+    )
+    if data.empty:
+        logger.warning(f"No data found for symbol {symbol}")
+        raise HTTPException(status_code=404, detail=f"No data found for symbol {symbol}")
+    logger.info(f"Retrieved {len(data)} data points")
+    return data
+
+
+def _create_strategy_instance(strategy_name: str, cleaned_params: Dict[str, Any]):
+    strategy_class = STRATEGIES[strategy_name]
+
+    try:
+        if strategy_name == "moving_average":
+            return strategy_class(
+                fast_period=cleaned_params["fast_period"],
+                slow_period=cleaned_params["slow_period"],
+            )
+        if strategy_name == "rsi":
+            return strategy_class(
+                period=cleaned_params["period"],
+                oversold=cleaned_params["oversold"],
+                overbought=cleaned_params["overbought"],
+            )
+        if strategy_name == "bollinger_bands":
+            return strategy_class(
+                period=cleaned_params["period"], num_std=cleaned_params["num_std"]
+            )
+        if strategy_name == "macd":
+            return strategy_class(
+                fast_period=cleaned_params["fast_period"],
+                slow_period=cleaned_params["slow_period"],
+                signal_period=cleaned_params["signal_period"],
+            )
+        if strategy_name == "mean_reversion":
+            return strategy_class(
+                lookback_period=cleaned_params["lookback_period"],
+                entry_threshold=cleaned_params["entry_threshold"],
+            )
+        if strategy_name == "vwap":
+            return strategy_class(period=cleaned_params["period"])
+        if strategy_name == "momentum":
+            return strategy_class(
+                fast_window=cleaned_params["fast_window"],
+                slow_window=cleaned_params["slow_window"],
+            )
+        if strategy_name == "stochastic":
+            return strategy_class(
+                k_period=cleaned_params["k_period"],
+                d_period=cleaned_params["d_period"],
+                oversold=cleaned_params["oversold"],
+                overbought=cleaned_params["overbought"],
+            )
+        if strategy_name == "atr_trailing_stop":
+            return strategy_class(
+                atr_period=cleaned_params["atr_period"],
+                atr_multiplier=cleaned_params["atr_multiplier"],
+            )
+        return strategy_class()
+    except (ValueError, TypeError) as exc:
+        logger.error(f"Failed to create strategy instance: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Strategy creation failed: {str(exc)}"
+        ) from exc
+
+
+def run_backtest_pipeline(
+    *,
+    symbol: str,
+    strategy_name: str,
+    parameters: Optional[Dict[str, Any]] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    initial_capital: float = 10000,
+    commission: float = 0.001,
+    slippage: float = 0.001,
+    data=None,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """Run the normalized backtest execution pipeline used by all endpoints."""
+    logger.info(f"Starting backtest for {symbol} with strategy {strategy_name}")
+
+    if strategy_name not in STRATEGIES:
+        logger.warning(f"Unknown strategy requested: {strategy_name}")
+        raise HTTPException(status_code=400, detail=f"Unknown strategy: {strategy_name}")
+
+    if initial_capital <= 0:
+        raise HTTPException(status_code=400, detail="Initial capital must be positive")
+
+    _resolve_date_range(start_date, end_date)
+
+    if data is None:
+        data = _fetch_backtest_data(symbol, start_date, end_date)
+
+    is_valid, error_msg, cleaned_params = StrategyValidator.validate_strategy_params(
+        strategy_name, parameters or {}
+    )
+    if not is_valid:
+        logger.warning(f"Invalid strategy parameters: {error_msg}")
+        raise HTTPException(status_code=400, detail=error_msg)
+
+    strategy = _create_strategy_instance(strategy_name, cleaned_params)
+    logger.info(f"Running backtest with strategy: {strategy.name}")
+
+    backtester = Backtester(
+        initial_capital=initial_capital,
+        commission=commission,
+        slippage=slippage,
+    )
+    results = backtester.run(strategy, data)
+    results = validate_and_fix_backtest_results(results)
+
+    analyzer = PerformanceAnalyzer(results)
+    results.update(analyzer.calculate_metrics())
+    results.update(
+        {
+            "symbol": symbol,
+            "strategy": strategy_name,
+            "start_date": start_date,
+            "end_date": end_date,
+            "commission": commission,
+            "slippage": slippage,
+            "parameters": cleaned_params,
+        }
+    )
+    results = normalize_backtest_results(results)
+    results = ensure_json_serializable(results)
+    return results, cleaned_params
+
+
+def _build_comparison_entry(results: Dict[str, Any]) -> Dict[str, Any]:
+    comparison_entry = {
+        "symbol": results.get("symbol"),
+        "strategy": results.get("strategy"),
+        "total_return": results.get("total_return", 0),
+        "annualized_return": results.get("annualized_return", 0),
+        "sharpe_ratio": results.get("sharpe_ratio", 0),
+        "max_drawdown": results.get("max_drawdown", 0),
+        "num_trades": results.get("num_trades", 0),
+        "total_trades": results.get("total_trades", results.get("num_trades", 0)),
+        "win_rate": results.get("win_rate", 0),
+        "profit_factor": results.get("profit_factor", 0),
+        "final_value": results.get("final_value", 0),
+    }
+    normalized = normalize_backtest_results(comparison_entry)
+    normalized["metrics"] = {
+        key: normalized.get(key)
+        for key in [
+            "total_return",
+            "annualized_return",
+            "sharpe_ratio",
+            "max_drawdown",
+            "num_trades",
+            "total_trades",
+            "win_rate",
+            "profit_factor",
+            "final_value",
+        ]
+    }
+    return normalized
+
 @router.post(
     "/",
     response_model=BacktestResponse,
@@ -61,144 +259,16 @@ def run_backtest(request: BacktestRequest):
     )
 
     try:
-        # 验证策略
-        if request.strategy not in STRATEGIES:
-            logger.warning(f"Unknown strategy requested: {request.strategy}")
-            raise HTTPException(
-                status_code=400, detail=f"Unknown strategy: {request.strategy}"
-            )
-
-        # 验证参数
-        if request.initial_capital <= 0:
-            raise HTTPException(
-                status_code=400, detail="Initial capital must be positive"
-            )
-
-        # 解析日期
-        start_date = None
-        end_date = None
-
-        if request.start_date:
-            start_date = datetime.fromisoformat(
-                request.start_date.replace("Z", "+00:00")
-            )
-        if request.end_date:
-            end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
-
-        # 验证日期范围
-        if start_date and end_date and start_date >= end_date:
-            raise HTTPException(
-                status_code=400, detail="Start date must be before end date"
-            )
-
-        logger.info(
-            f"Fetching data for {request.symbol} from {start_date} to {end_date}"
-        )
-
-        # 获取数据
-        data = data_manager.get_historical_data(
-            symbol=request.symbol, start_date=start_date, end_date=end_date
-        )
-
-        if data.empty:
-            logger.warning(f"No data found for symbol {request.symbol}")
-            raise HTTPException(
-                status_code=404, detail=f"No data found for symbol {request.symbol}"
-            )
-
-        logger.info(f"Retrieved {len(data)} data points")
-
-        # 验证策略参数
-        (
-            is_valid,
-            error_msg,
-            cleaned_params,
-        ) = StrategyValidator.validate_strategy_params(
-            request.strategy, request.parameters
-        )
-        if not is_valid:
-            logger.warning(f"Invalid strategy parameters: {error_msg}")
-            raise HTTPException(status_code=400, detail=error_msg)
-
-        # 创建策略实例
-        strategy_class = STRATEGIES[request.strategy]
-
-        try:
-            # 使用验证和清理后的参数创建策略
-            if request.strategy == "moving_average":
-                strategy = strategy_class(
-                    fast_period=cleaned_params["fast_period"],
-                    slow_period=cleaned_params["slow_period"],
-                )
-            elif request.strategy == "rsi":
-                strategy = strategy_class(
-                    period=cleaned_params["period"],
-                    oversold=cleaned_params["oversold"],
-                    overbought=cleaned_params["overbought"],
-                )
-            elif request.strategy == "bollinger_bands":
-                strategy = strategy_class(
-                    period=cleaned_params["period"], num_std=cleaned_params["num_std"]
-                )
-            elif request.strategy == "macd":
-                strategy = strategy_class(
-                    fast=cleaned_params["fast_period"],
-                    slow=cleaned_params["slow_period"],
-                    signal=cleaned_params["signal_period"],
-                )
-            elif request.strategy == "mean_reversion":
-                strategy = strategy_class(
-                    lookback=cleaned_params["lookback_period"],
-                    z_threshold=cleaned_params["entry_threshold"],
-                )
-            elif request.strategy == "vwap":
-                strategy = strategy_class(window=cleaned_params["period"])
-            elif request.strategy == "momentum":
-                strategy = strategy_class(
-                    fast_window=cleaned_params["fast_window"],
-                    slow_window=cleaned_params["slow_window"],
-                )
-            elif request.strategy == "stochastic":
-                strategy = strategy_class(
-                    k_period=cleaned_params["k_period"],
-                    d_period=cleaned_params["d_period"],
-                    oversold=cleaned_params["oversold"],
-                    overbought=cleaned_params["overbought"],
-                )
-            elif request.strategy == "atr_trailing_stop":
-                strategy = strategy_class(
-                    atr_period=cleaned_params["atr_period"],
-                    atr_multiplier=cleaned_params["atr_multiplier"],
-                )
-            else:  # buy_and_hold 或其他无参数策略
-                strategy = strategy_class()
-        except (ValueError, TypeError) as e:
-            logger.error(f"Failed to create strategy instance: {e}")
-            raise HTTPException(
-                status_code=500, detail=f"Strategy creation failed: {str(e)}"
-            )
-
-        logger.info(f"Running backtest with strategy: {strategy.name}")
-
-        # 运行回测
-        backtester = Backtester(
+        results, cleaned_params = run_backtest_pipeline(
+            symbol=request.symbol,
+            strategy_name=request.strategy,
+            parameters=request.parameters,
+            start_date=request.start_date,
+            end_date=request.end_date,
             initial_capital=request.initial_capital,
             commission=request.commission,
             slippage=request.slippage,
         )
-
-        results = backtester.run(strategy, data)
-
-        # 验证和修复数据结构
-        results = validate_and_fix_backtest_results(results)
-
-        # 计算额外的分析指标
-        analyzer = PerformanceAnalyzer(results)
-        metrics = analyzer.calculate_metrics()
-        results.update(metrics)
-
-        # 确保所有数据都可以JSON序列化
-        results = ensure_json_serializable(results)
 
         total_return = results.get("total_return", 0)
         logger.info(
@@ -214,7 +284,8 @@ def run_backtest(request: BacktestRequest):
                 "end_date": request.end_date,
                 "parameters": cleaned_params,
                 "metrics": results,
-                "performance_metrics": results
+                "performance_metrics": results,
+                "result": results,
             })
             results["history_record_id"] = record_id
         except Exception as e:
@@ -247,45 +318,27 @@ async def compare_strategies(
         strategy_list = strategies.split(",")
         results = {}
 
-        # 获取数据
-        start_dt = (
-            datetime.fromisoformat(start_date.replace("Z", "+00:00"))
-            if start_date
-            else None
-        )
-        end_dt = (
-            datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-            if end_date
-            else None
-        )
-
-        data = data_manager.get_historical_data(symbol, start_dt, end_dt)
-        if data.empty:
-            raise HTTPException(
-                status_code=404, detail=f"No data found for symbol {symbol}"
-            )
+        data = _fetch_backtest_data(symbol, start_date, end_date)
 
         # 定义单个策略回测函数
         def _run_single_strategy(name):
-            if name.strip() not in STRATEGIES:
+            strategy_name = name.strip()
+            if strategy_name not in STRATEGIES:
                 return None
-            
-            strategy_class = STRATEGIES[name.strip()]
-            strategy_instance = strategy_class()
-            
-            # 使用传入的初始资金
-            local_backtester = Backtester(initial_capital=initial_capital)
-            res = local_backtester.run(strategy_instance, data)
-            
+
+            res, _ = run_backtest_pipeline(
+                symbol=symbol,
+                strategy_name=strategy_name,
+                parameters={},
+                start_date=start_date,
+                end_date=end_date,
+                initial_capital=initial_capital,
+                data=data,
+            )
+
             return {
-                "name": name.strip(),
-                "metrics": {
-                    "total_return": res.get("total_return", 0),
-                    "annualized_return": res.get("annualized_return", 0),
-                    "sharpe_ratio": res.get("sharpe_ratio", 0),
-                    "max_drawdown": res.get("max_drawdown", 0),
-                    "num_trades": res.get("num_trades", 0),
-                }
+                "name": strategy_name,
+                "metrics": _build_comparison_entry(res),
             }
 
         # 并发执行所有策略
@@ -352,6 +405,10 @@ async def compare_strategies(
         for idx, item in enumerate(scored_results):
             metrics = item["metrics"]
             metrics["rank"] = idx + 1
+            metrics["metrics"] = {
+                **metrics.get("metrics", {}),
+                "rank": idx + 1,
+            }
             final_data[item["name"]] = metrics
 
         return {"success": True, "data": final_data}
@@ -379,11 +436,11 @@ async def get_backtest_history(
     """
     try:
         history = backtest_history.get_history(limit=limit, symbol=symbol, strategy=strategy)
-        return {
+        return ensure_json_serializable({
             "success": True,
             "data": history,
             "total": len(history)
-        }
+        })
     except Exception as e:
         logger.error(f"Error fetching backtest history: {e}")
         return {"success": False, "error": str(e)}
@@ -394,7 +451,7 @@ async def get_backtest_stats():
     """获取回测历史统计信息"""
     try:
         stats = backtest_history.get_statistics()
-        return {"success": True, "data": stats}
+        return ensure_json_serializable({"success": True, "data": stats})
     except Exception as e:
         logger.error(f"Error fetching backtest stats: {e}")
         return {"success": False, "error": str(e)}
@@ -406,7 +463,7 @@ async def get_backtest_record(record_id: str):
     record = backtest_history.get_by_id(record_id)
     if not record:
         raise HTTPException(status_code=404, detail="Record not found")
-    return {"success": True, "data": record}
+    return ensure_json_serializable({"success": True, "data": record})
 
 
 @router.delete("/history/{record_id}", summary="删除回测记录")
@@ -417,19 +474,17 @@ async def delete_backtest_record(record_id: str):
         raise HTTPException(status_code=404, detail="Record not found")
     return {"success": True, "message": "Record deleted"}
 
-
-# ==================== PDF 报告生成 ====================
-
-from fastapi.responses import Response
-from pydantic import BaseModel
-from typing import Optional, Dict, Any
-
 class ReportRequest(BaseModel):
     """报告生成请求"""
     symbol: str
     strategy: str
     backtest_result: Optional[Dict[str, Any]] = None
     parameters: Optional[Dict[str, Any]] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    initial_capital: float = 10000
+    commission: float = 0.001
+    slippage: float = 0.001
 
 
 @router.post("/report", summary="生成回测报告 PDF")
@@ -447,28 +502,20 @@ async def generate_report(request: ReportRequest):
         
         # 如果没有提供回测结果，先运行回测
         if not backtest_result:
-            # 获取数据
-            data = data_manager.get_historical_data(symbol=request.symbol)
-            if data.empty:
-                raise HTTPException(
-                    status_code=404, 
-                    detail=f"No data found for symbol {request.symbol}"
-                )
-            
-            # 创建策略
-            if request.strategy not in STRATEGIES:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Unknown strategy: {request.strategy}"
-                )
-            
-            strategy_class = STRATEGIES[request.strategy]
-            strategy = strategy_class()
-            
-            # 运行回测
-            backtester = Backtester(initial_capital=100000)
-            backtest_result = backtester.run(strategy, data)
-            backtest_result = validate_and_fix_backtest_results(backtest_result)
+            backtest_result, _ = run_backtest_pipeline(
+                symbol=request.symbol,
+                strategy_name=request.strategy,
+                parameters=request.parameters,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                initial_capital=request.initial_capital,
+                commission=request.commission,
+                slippage=request.slippage,
+            )
+        else:
+            backtest_result = ensure_json_serializable(
+                normalize_backtest_results(backtest_result)
+            )
         
         # 生成 PDF
         pdf_content = pdf_generator.generate_backtest_report(
@@ -508,25 +555,20 @@ async def generate_report_base64(request: ReportRequest):
         backtest_result = request.backtest_result
         
         if not backtest_result:
-            data = data_manager.get_historical_data(symbol=request.symbol)
-            if data.empty:
-                raise HTTPException(
-                    status_code=404, 
-                    detail=f"No data found for symbol {request.symbol}"
-                )
-            
-            if request.strategy not in STRATEGIES:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Unknown strategy: {request.strategy}"
-                )
-            
-            strategy_class = STRATEGIES[request.strategy]
-            strategy = strategy_class()
-            
-            backtester = Backtester(initial_capital=100000)
-            backtest_result = backtester.run(strategy, data)
-            backtest_result = validate_and_fix_backtest_results(backtest_result)
+            backtest_result, _ = run_backtest_pipeline(
+                symbol=request.symbol,
+                strategy_name=request.strategy,
+                parameters=request.parameters,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                initial_capital=request.initial_capital,
+                commission=request.commission,
+                slippage=request.slippage,
+            )
+        else:
+            backtest_result = ensure_json_serializable(
+                normalize_backtest_results(backtest_result)
+            )
         
         # 生成 Base64 编码的 PDF
         pdf_base64 = pdf_generator.get_report_base64(
