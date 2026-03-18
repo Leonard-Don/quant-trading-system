@@ -121,8 +121,16 @@ echo "📋 日志文件:"
 echo "   - 后端日志: logs/backend.log"
 echo "   - 前端日志: logs/frontend.log"
 echo ""
-echo "🛑 停止系统: 按 Ctrl+C 或运行 ./stop_system.sh"
+echo "🛑 停止系统: 按 Ctrl+C 或运行 ./scripts/stop_system.sh"
 echo "=================================="
+
+# 自动打开浏览器 (如果可能)
+echo "🌐 正在尝试打开浏览器..."
+if command -v open &> /dev/null; then
+    open http://localhost:3000
+elif command -v xdg-open &> /dev/null; then
+    xdg-open http://localhost:3000
+fi
 
 # 保存PID到文件
 echo $BACKEND_PID > logs/backend.pid
