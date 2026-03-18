@@ -127,4 +127,6 @@ export const LanguageSwitcher = ({ style }) => {
     );
 };
 
-export default { I18nProvider, useI18n, LanguageSwitcher };
+const i18nExports = { I18nProvider, useI18n, LanguageSwitcher };
+
+export default i18nExports;

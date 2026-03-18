@@ -8,6 +8,8 @@ from datetime import datetime
 from typing import Dict, Any, List, Optional
 import logging
 
+from src.utils.data_validation import normalize_backtest_results
+
 logger = logging.getLogger(__name__)
 
 # 尝试导入 PDF 库
@@ -38,13 +40,35 @@ class PDFGenerator:
         self.styles = None
         if REPORTLAB_AVAILABLE:
             self._setup_styles()
+
+    def _resolve_metrics(self, backtest_result: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolve a normalized metric dictionary from supported result shapes."""
+        normalized = normalize_backtest_results(backtest_result)
+        metrics = normalized.get("metrics", {})
+
+        if not metrics and "performance_metrics" in normalized:
+            metrics = normalized.get("performance_metrics", {})
+        elif not metrics:
+            metrics = normalized
+
+        return metrics
+
+    def _resolve_trades(self, backtest_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Resolve normalized trades for table rendering."""
+        normalized = normalize_backtest_results(backtest_result)
+        trades = normalized.get("trades", [])
+        return trades if isinstance(trades, list) else []
     
     def _setup_styles(self):
         """设置样式"""
         self.styles = getSampleStyleSheet()
+
+        def add_style_if_missing(style):
+            if style.name not in self.styles.byName:
+                self.styles.add(style)
         
         # 标题样式
-        self.styles.add(ParagraphStyle(
+        add_style_if_missing(ParagraphStyle(
             name='ReportTitle',
             parent=self.styles['Heading1'],
             fontSize=24,
@@ -54,7 +78,7 @@ class PDFGenerator:
         ))
         
         # 小节标题
-        self.styles.add(ParagraphStyle(
+        add_style_if_missing(ParagraphStyle(
             name='SectionTitle',
             parent=self.styles['Heading2'],
             fontSize=14,
@@ -64,7 +88,7 @@ class PDFGenerator:
         ))
         
         # 正文
-        self.styles.add(ParagraphStyle(
+        add_style_if_missing(ParagraphStyle(
             name='BodyText',
             parent=self.styles['Normal'],
             fontSize=10,
@@ -72,7 +96,7 @@ class PDFGenerator:
         ))
         
         # 指标值
-        self.styles.add(ParagraphStyle(
+        add_style_if_missing(ParagraphStyle(
             name='MetricValue',
             parent=self.styles['Normal'],
             fontSize=12,
@@ -102,6 +126,8 @@ class PDFGenerator:
             return self._generate_fallback_report(backtest_result, symbol, strategy)
         
         try:
+            metrics = self._resolve_metrics(backtest_result)
+            trades = self._resolve_trades(backtest_result)
             buffer = io.BytesIO()
             doc = SimpleDocTemplate(
                 buffer,
@@ -147,13 +173,6 @@ class PDFGenerator:
             
             # 核心指标
             story.append(Paragraph("核心指标", self.styles['SectionTitle']))
-            metrics = backtest_result.get('metrics', {})
-            
-            # 获取正确的指标（兼容不同的结果结构）
-            if not metrics and 'performance_metrics' in backtest_result:
-                metrics = backtest_result.get('performance_metrics', {})
-            elif not metrics:
-                metrics = backtest_result
                 
             metrics_data = [
                 ['指标', '数值'],
@@ -162,7 +181,7 @@ class PDFGenerator:
                 ['夏普比率', f"{metrics.get('sharpe_ratio', 0):.3f}"],
                 ['最大回撤', f"{metrics.get('max_drawdown', 0) * 100:.2f}%"],
                 ['胜率', f"{metrics.get('win_rate', 0) * 100:.2f}%"],
-                ['总交易次数', str(metrics.get('total_trades', 0))],
+                ['总交易次数', str(metrics.get('num_trades', metrics.get('total_trades', 0)))],
                 ['初始资金', f"${metrics.get('initial_capital', 0):,.2f}"],
                 ['最终价值', f"${metrics.get('final_value', 0):,.2f}"]
             ]
@@ -208,7 +227,6 @@ class PDFGenerator:
                 story.append(Spacer(1, 20))
             
             # 交易统计
-            trades = backtest_result.get('trades', [])
             if trades:
                 story.append(Paragraph("最近交易记录 (最多10条)", self.styles['SectionTitle']))
                 
@@ -220,7 +238,7 @@ class PDFGenerator:
                         str(trade.get('date', 'N/A'))[:10],
                         '买入' if trade.get('action') == 'buy' else '卖出',
                         f"${trade.get('price', 0):.2f}",
-                        str(trade.get('quantity', 0)),
+                        str(trade.get('quantity', trade.get('shares', 0))),
                         f"${trade.get('value', 0):,.2f}"
                     ])
                 
@@ -267,11 +285,7 @@ class PDFGenerator:
         strategy: str
     ) -> bytes:
         """生成简单文本报告作为后备"""
-        metrics = backtest_result.get('metrics', {})
-        if not metrics and 'performance_metrics' in backtest_result:
-            metrics = backtest_result.get('performance_metrics', {})
-        elif not metrics:
-            metrics = backtest_result
+        metrics = self._resolve_metrics(backtest_result)
             
         report = f"""
 ========================================
@@ -291,7 +305,7 @@ class PDFGenerator:
 夏普比率: {metrics.get('sharpe_ratio', 0):.3f}
 最大回撤: {metrics.get('max_drawdown', 0) * 100:.2f}%
 胜率: {metrics.get('win_rate', 0) * 100:.2f}%
-总交易次数: {metrics.get('total_trades', 0)}
+总交易次数: {metrics.get('num_trades', metrics.get('total_trades', 0))}
 初始资金: ${metrics.get('initial_capital', 0):,.2f}
 最终价值: ${metrics.get('final_value', 0):,.2f}
 

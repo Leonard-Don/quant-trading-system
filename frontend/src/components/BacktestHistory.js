@@ -1,30 +1,34 @@
-import React, { useState, useEffect } from 'react';
-import { Card, Table, Button, Tag, Space, message, Popconfirm, Tooltip, Modal, Descriptions } from 'antd';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { Card, Table, Button, Tag, Space, Popconfirm, Tooltip, Modal, Descriptions } from 'antd';
 import {
     HistoryOutlined,
     FilePdfOutlined,
     DeleteOutlined,
     ReloadOutlined,
-    DownloadOutlined,
     EyeOutlined
 } from '@ant-design/icons';
 import { getBacktestHistory, deleteBacktestRecord, getBacktestReport } from '../services/api';
 import { formatPercentage } from '../utils/formatting';
+import { normalizeBacktestResult } from '../utils/backtest';
+import { useSafeMessageApi } from '../utils/messageApi';
 import { getStrategyName } from '../constants/strategies';
 
 const BacktestHistory = () => {
+    const message = useSafeMessageApi();
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(false);
     const [downloadingId, setDownloadingId] = useState(null);
     const [detailVisible, setDetailVisible] = useState(false);
     const [selectedRecord, setSelectedRecord] = useState(null);
+    const [lastUpdatedAt, setLastUpdatedAt] = useState(null);
 
-    const fetchHistory = async () => {
+    const fetchHistory = useCallback(async () => {
         setLoading(true);
         try {
             const response = await getBacktestHistory(50);
             if (response && response.success) {
                 setHistory(response.data);
+                setLastUpdatedAt(new Date());
             }
         } catch (error) {
             console.error('Failed to fetch history:', error);
@@ -32,11 +36,45 @@ const BacktestHistory = () => {
         } finally {
             setLoading(false);
         }
-    };
+    }, [message]);
 
     useEffect(() => {
         fetchHistory();
-    }, []);
+    }, [fetchHistory]);
+
+    const normalizedHistory = useMemo(() => (
+        history.map((record) => {
+            const normalizedResult = normalizeBacktestResult(
+                record.result || { ...record.metrics, metrics: record.metrics }
+            );
+            return {
+                ...record,
+                result: normalizedResult,
+                metrics: normalizedResult.metrics,
+            };
+        })
+    ), [history]);
+
+    const summaryItems = useMemo(() => {
+        const totalRecords = normalizedHistory.length;
+        const averageReturn = totalRecords
+            ? normalizedHistory.reduce((sum, record) => sum + Number(record.metrics?.total_return || 0), 0) / totalRecords
+            : 0;
+        const uniqueStrategies = new Set(normalizedHistory.map((record) => record.strategy)).size;
+        const mostRecent = normalizedHistory[0]?.timestamp;
+
+        return [
+            { label: '历史记录', value: `${totalRecords} 条` },
+            { label: '平均收益', value: formatPercentage(averageReturn) },
+            { label: '策略覆盖', value: `${uniqueStrategies} 种` },
+            {
+                label: '最近更新',
+                value: mostRecent
+                    ? new Date(mostRecent).toLocaleString()
+                    : (lastUpdatedAt ? lastUpdatedAt.toLocaleString() : '尚未加载'),
+            },
+        ];
+    }, [lastUpdatedAt, normalizedHistory]);
 
     const handleDelete = async (id) => {
         try {
@@ -68,7 +106,11 @@ const BacktestHistory = () => {
                 symbol: record.symbol,
                 strategy: record.strategy,
                 parameters: record.parameters,
-                backtest_result: record.result || {} // Ensure we have result data
+                backtest_result: normalizeBacktestResult(
+                    record.result || { ...record.metrics, metrics: record.metrics }
+                ),
+                start_date: record.start_date,
+                end_date: record.end_date,
             };
 
             const response = await getBacktestReport(reportData);
@@ -77,7 +119,7 @@ const BacktestHistory = () => {
                 // Data is base64 encoded PDF
                 const pdfData = response.data.pdf_base64 || response.data;
                 const link = document.createElement('a');
-                link.href = `data: application / pdf; base64, ${pdfData} `;
+                link.href = `data:application/pdf;base64,${pdfData}`;
                 link.download = response.data.filename || `report_${record.symbol}_${record.strategy}_${new Date(record.timestamp).toISOString().split('T')[0]}.pdf`;
                 document.body.appendChild(link);
                 link.click();
@@ -194,40 +236,72 @@ const BacktestHistory = () => {
                 <Descriptions.Item label="最大回撤">{formatPercentage(metrics.max_drawdown)}</Descriptions.Item>
                 <Descriptions.Item label="交易次数">{metrics.total_trades || metrics.num_trades}</Descriptions.Item>
                 <Descriptions.Item label="胜率">{formatPercentage(metrics.win_rate)}</Descriptions.Item>
-                <Descriptions.Item label="Sortino比率">{metrics.sortino_ratio?.toFixed(2) || '-'}</Descriptions.Item>
+                <Descriptions.Item label="索提诺比率">{metrics.sortino_ratio?.toFixed(2) || '-'}</Descriptions.Item>
                 <Descriptions.Item label="波动率">{formatPercentage(metrics.volatility)}</Descriptions.Item>
             </Descriptions>
         );
     };
 
     return (
-        <>
-            <Card
-                title={
-                    <Space>
-                        <HistoryOutlined />
-                        <span>回测历史</span>
-                    </Space>
-                }
-                extra={
+        <div className="workspace-tab-view">
+            <div className="workspace-section workspace-section--accent">
+                <div className="workspace-section__header">
+                    <div>
+                        <div className="workspace-section__title">历史记录与复盘</div>
+                        <div className="workspace-section__description">把历史回测、报告下载和详情查看收敛到同一条工作流里，方便回顾实验结果。</div>
+                    </div>
                     <Button
                         icon={<ReloadOutlined />}
                         onClick={fetchHistory}
                         loading={loading}
                         size="small"
                     >
-                        刷新
+                        刷新记录
                     </Button>
+                </div>
+                <div className="summary-strip summary-strip--compact">
+                    {summaryItems.map((item) => (
+                        <div key={item.label} className="summary-strip__item">
+                            <span className="summary-strip__label">{item.label}</span>
+                            <span className="summary-strip__value">{item.value}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            <Card
+                className="workspace-panel"
+                title={
+                    <div className="workspace-title">
+                        <div className="workspace-title__icon">
+                            <HistoryOutlined />
+                        </div>
+                        <div>
+                            <div className="workspace-title__text">回测历史</div>
+                            <div className="workspace-title__hint">查看列表、打开详情、删除记录或生成报告。</div>
+                        </div>
+                    </div>
+                }
+                extra={
+                    <Space wrap className="workspace-toolbar">
+                        <Tag color="blue">{normalizedHistory.length} 条记录</Tag>
+                        <Tag color="geekblue">可复盘</Tag>
+                    </Space>
                 }
                 style={{ marginTop: 16 }}
                 styles={{ body: { padding: 0 } }}
             >
                 <Table
-                    dataSource={history}
+                    dataSource={normalizedHistory}
                     columns={columns}
                     rowKey="id"
                     loading={loading}
-                    pagination={{ pageSize: 10 }}
+                    locale={{ emptyText: '暂无历史记录' }}
+                    pagination={{
+                        pageSize: 10,
+                        showSizeChanger: false,
+                        showTotal: (total) => `共 ${total} 条记录`,
+                    }}
                     size="small"
                 />
             </Card>
@@ -256,29 +330,49 @@ const BacktestHistory = () => {
             >
                 {selectedRecord && (
                     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-                        <Descriptions bordered size="small" column={2}>
-                            <Descriptions.Item label="策略">{getStrategyName(selectedRecord.strategy)}</Descriptions.Item>
-                            <Descriptions.Item label="股票">{selectedRecord.symbol}</Descriptions.Item>
-                            <Descriptions.Item label="开始日期">{selectedRecord.start_date}</Descriptions.Item>
-                            <Descriptions.Item label="结束日期">{selectedRecord.end_date}</Descriptions.Item>
-                            <Descriptions.Item label="记录时间">{new Date(selectedRecord.timestamp).toLocaleString()}</Descriptions.Item>
-                        </Descriptions>
+                        <div className="workspace-section">
+                            <div className="workspace-section__header">
+                                <div>
+                                    <div className="workspace-section__title">基本信息</div>
+                                    <div className="workspace-section__description">快速确认标的、策略、时间区间和记录生成时间。</div>
+                                </div>
+                            </div>
+                            <Descriptions bordered size="small" column={2}>
+                                <Descriptions.Item label="策略">{getStrategyName(selectedRecord.strategy)}</Descriptions.Item>
+                                <Descriptions.Item label="股票">{selectedRecord.symbol}</Descriptions.Item>
+                                <Descriptions.Item label="开始日期">{selectedRecord.start_date}</Descriptions.Item>
+                                <Descriptions.Item label="结束日期">{selectedRecord.end_date}</Descriptions.Item>
+                                <Descriptions.Item label="记录时间">{new Date(selectedRecord.timestamp).toLocaleString()}</Descriptions.Item>
+                            </Descriptions>
+                        </div>
 
-                        <Card title="策略参数" size="small">
+                        <div className="workspace-section">
+                            <div className="workspace-section__header">
+                                <div>
+                                    <div className="workspace-section__title">策略参数</div>
+                                    <div className="workspace-section__description">记录当时的参数快照，方便后续复现实验配置。</div>
+                                </div>
+                            </div>
                             <Descriptions bordered size="small" column={2}>
                                 {Object.entries(selectedRecord.parameters || {}).map(([key, value]) => (
                                     <Descriptions.Item key={key} label={key}>{String(value)}</Descriptions.Item>
                                 ))}
                             </Descriptions>
-                        </Card>
+                        </div>
 
-                        <Card title="性能指标" size="small">
+                        <div className="workspace-section">
+                            <div className="workspace-section__header">
+                                <div>
+                                    <div className="workspace-section__title">性能指标</div>
+                                    <div className="workspace-section__description">回放收益、风险和交易统计的核心结论。</div>
+                                </div>
+                            </div>
                             {renderMetrics(selectedRecord.metrics)}
-                        </Card>
+                        </div>
                     </Space>
                 )}
             </Modal>
-        </>
+        </div>
     );
 };
 

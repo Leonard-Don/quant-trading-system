@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 import pandas as pd
 import numpy as np
@@ -27,48 +27,50 @@ def mock_market_data():
     return data
 
 @patch("backend.app.api.v1.endpoints.backtest.data_manager")
-@patch("backend.app.api.v1.endpoints.backtest.Backtester")
-def test_compare_strategies(mock_backtester_class, mock_data_manager, mock_market_data):
+@patch("backend.app.api.v1.endpoints.backtest.run_backtest_pipeline")
+def test_compare_strategies(mock_run_backtest_pipeline, mock_data_manager, mock_market_data):
     # Setup mocks
     mock_data_manager.get_historical_data.return_value = mock_market_data
-    
-    # Mock Backtester instance and run method
-    mock_instance = MagicMock()
-    mock_backtester_class.return_value = mock_instance
-    
-    # Define side effect to return different results for different strategies
-    def run_side_effect(strategy, data):
-        # Identify strategy by class name or some property if possible, 
-        # but here we can just return random valid metrics since we mock the result
-        # For more checking, we can inspect strategy.__class__.__name__
-        
-        strat_name = strategy.__class__.__name__
-        if strat_name == 'MovingAverageCrossover':
-            return {
+
+    def pipeline_side_effect(**kwargs):
+        strat_name = kwargs["strategy_name"]
+        if strat_name == 'moving_average':
+            return ({
                 "total_return": 0.5, # 50%
                 "annualized_return": 0.5,
                 "sharpe_ratio": 2.0,
                 "max_drawdown": -0.1,
-                "num_trades": 10
-            }
-        elif strat_name == 'RSIStrategy':
-            return {
+                "num_trades": 10,
+                "total_trades": 10,
+                "profit_factor": 1.8,
+                "win_rate": 0.6,
+                "final_value": 75000,
+            }, {})
+        elif strat_name == 'rsi':
+            return ({
                 "total_return": 0.2, # 20%
                 "annualized_return": 0.2,
                 "sharpe_ratio": 1.0,
                 "max_drawdown": -0.2,
-                "num_trades": 5
-            }
-        else:
-             return {
+                "num_trades": 5,
+                "total_trades": 5,
+                "profit_factor": 1.2,
+                "win_rate": 0.5,
+                "final_value": 60000,
+            }, {})
+        return ({
                 "total_return": 0.1, 
                 "annualized_return": 0.1,
                 "sharpe_ratio": 0.5,
                 "max_drawdown": -0.3,
-                "num_trades": 2
-            }
+                "num_trades": 2,
+                "total_trades": 2,
+                "profit_factor": 1.0,
+                "win_rate": 0.4,
+                "final_value": 55000,
+            }, {})
 
-    mock_instance.run.side_effect = run_side_effect
+    mock_run_backtest_pipeline.side_effect = pipeline_side_effect
 
     # Call API
     response = client.get(

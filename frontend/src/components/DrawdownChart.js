@@ -1,84 +1,120 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
-    AreaChart,
-    Area,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    ResponsiveContainer,
-    ReferenceLine
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from 'recharts';
-import moment from 'moment';
+
+import { buildDrawdownSeries, formatChartCurrency, formatChartPercent } from '../utils/backtestCharts';
+
+const DrawdownTooltip = ({ active, payload }) => {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+
+  const point = payload[0]?.payload;
+
+  return (
+    <div className="backtest-chart-tooltip">
+      <div className="backtest-chart-tooltip__title">{point?.dateLongLabel}</div>
+      <div className="backtest-chart-tooltip__list">
+        <div className="backtest-chart-tooltip__row">
+          <span className="backtest-chart-tooltip__label">
+            <span className="backtest-chart-tooltip__dot" style={{ background: '#ef4444' }} />
+            回撤深度
+          </span>
+          <span className="backtest-chart-tooltip__value">{formatChartPercent(point?.drawdown || 0, 2)}</span>
+        </div>
+        <div className="backtest-chart-tooltip__row">
+          <span className="backtest-chart-tooltip__label">
+            <span className="backtest-chart-tooltip__dot" style={{ background: '#38bdf8' }} />
+            当日净值
+          </span>
+          <span className="backtest-chart-tooltip__value">{formatChartCurrency(point?.total || 0)}</span>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const DrawdownChart = ({ data }) => {
-    if (!data || data.length === 0) return null;
+  const { series, stats } = useMemo(() => buildDrawdownSeries(data), [data]);
 
-    // Process data to calculate drawdown series if not readily available
-    // Assuming 'data' contains { date, total } or { date, drawdown }
-    // If only total value is provided, we calculate drawdown here
+  if (series.length === 0 || !stats) {
+    return <div className="backtest-chart-empty">暂无足够数据生成回撤曲线。</div>;
+  }
 
-    const chartData = data.map(item => ({
-        date: item.date,
-        drawdown: item.drawdown !== undefined ? item.drawdown : 0, // Should be passed from backend or calculated
-        value: item.total
-    }));
+  const summary = [
+    { label: '最大回撤', value: formatChartPercent(stats.maxDrawdown, 2) },
+    { label: '当前回撤', value: formatChartPercent(stats.currentDrawdown, 2) },
+    { label: '水下天数', value: `${stats.underwaterDays} 天` },
+    { label: '最长恢复期', value: `${stats.longestUnderwaterStreak} 天` },
+  ];
 
-    // If drawdown is not pre-calculated in the passed data, we can calculate it
-    // But backend usually provides 'metrics', not timeseries of drawdown.
-    // We can calculate it from the 'total' value series.
-    let runningMax = -Infinity;
-    const processedData = data.map(item => {
-        const val = parseFloat(item.total);
-        if (val > runningMax) runningMax = val;
-        const dd = (val - runningMax) / runningMax;
-        return {
-            date: new Date(item.date).getTime(), // Timestamp for XAxis
-            drawdown: dd * 100, // Convert to percentage
-            value: val
-        };
-    });
+  return (
+    <div className="backtest-chart-stack">
+      <div className="summary-strip summary-strip--compact">
+        {summary.map((item) => (
+          <div key={item.label} className="summary-strip__item">
+            <span className="summary-strip__label">{item.label}</span>
+            <span className="summary-strip__value">{item.value}</span>
+          </div>
+        ))}
+      </div>
 
-    return (
-        <div style={{ width: '100%', height: 300 }}>
-            <ResponsiveContainer>
-                <AreaChart data={processedData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                    <defs>
-                        <linearGradient id="colorDrawdown" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
-                            <stop offset="95%" stopColor="#ef4444" stopOpacity={0.1} />
-                        </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                    <XAxis
-                        dataKey="date"
-                        tickFormatter={(tick) => moment(tick).format('MM-DD')}
-                        type="number"
-                        domain={['dataMin', 'dataMax']}
-                        tick={{ fontSize: 11 }}
-                    />
-                    <YAxis
-                        unit="%"
-                        tick={{ fontSize: 11 }}
-                        tickFormatter={(val) => val.toFixed(1)}
-                    />
-                    <Tooltip
-                        labelFormatter={(label) => moment(label).format('YYYY-MM-DD')}
-                        formatter={(value) => [value.toFixed(2) + '%', '回撤']}
-                        contentStyle={{ borderRadius: 8, border: 'none', boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
-                    />
-                    <Area
-                        type="monotone"
-                        dataKey="drawdown"
-                        stroke="#ef4444"
-                        fillOpacity={1}
-                        fill="url(#colorDrawdown)"
-                    />
-                    <ReferenceLine y={0} stroke="#666" strokeDasharray="3 3" />
-                </AreaChart>
-            </ResponsiveContainer>
+      <div className="backtest-chart-shell">
+        <div className="backtest-chart-shell__header">
+          <div>
+            <div className="backtest-chart-shell__title">回撤深度曲线</div>
+            <div className="backtest-chart-shell__subtitle">
+              追踪组合从历史峰值回落的幅度，快速识别最痛苦的回撤区间。
+            </div>
+          </div>
         </div>
-    );
+        <div className="backtest-chart-canvas">
+          <ResponsiveContainer width="100%" height={320}>
+            <AreaChart data={series} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="drawdownGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#ef4444" stopOpacity={0.65} />
+                  <stop offset="100%" stopColor="#ef4444" stopOpacity={0.04} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="rgba(148, 163, 184, 0.12)" strokeDasharray="4 4" vertical={false} />
+              <XAxis
+                dataKey="dateLabel"
+                tick={{ fill: 'rgba(148, 163, 184, 0.85)', fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+                minTickGap={24}
+              />
+              <YAxis
+                tick={{ fill: 'rgba(148, 163, 184, 0.85)', fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(value) => `${value.toFixed(0)}%`}
+              />
+              <Tooltip content={<DrawdownTooltip />} />
+              <Area
+                type="monotone"
+                dataKey="drawdown"
+                stroke="#ef4444"
+                strokeWidth={2.2}
+                fill="url(#drawdownGradient)"
+                fillOpacity={1}
+                dot={false}
+                activeDot={{ r: 4, stroke: '#fff', strokeWidth: 1.2 }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </div>
+  );
 };
 
 export default DrawdownChart;

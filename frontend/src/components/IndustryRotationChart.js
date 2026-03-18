@@ -12,8 +12,6 @@ import {
 } from 'antd';
 import {
     SwapOutlined,
-    DeleteOutlined,
-    PlusOutlined,
     ReloadOutlined
 } from '@ant-design/icons';
 import {

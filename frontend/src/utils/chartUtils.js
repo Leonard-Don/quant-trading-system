@@ -10,8 +10,8 @@
  * @returns {string} 格式化后的价格字符串
  */
 export const formatPrice = (value, currency = 'USD') => {
-  if (value === null || value === undefined || isNaN(value)) return 'N/A';
-  return new Intl.NumberFormat('en-US', {
+  if (value === null || value === undefined || isNaN(value)) return '暂无';
+  return new Intl.NumberFormat('zh-CN', {
     style: 'currency',
     currency: currency,
     minimumFractionDigits: 2,
@@ -25,7 +25,7 @@ export const formatPrice = (value, currency = 'USD') => {
  * @returns {string} 格式化后的成交量字符串
  */
 export const formatVolume = (value) => {
-  if (value === null || value === undefined || isNaN(value)) return 'N/A';
+  if (value === null || value === undefined || isNaN(value)) return '暂无';
   if (value >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
   if (value >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
   if (value >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
@@ -39,7 +39,7 @@ export const formatVolume = (value) => {
  * @returns {string} 格式化后的百分比字符串
  */
 export const formatPercent = (value, digits = 2) => {
-  if (value === null || value === undefined || isNaN(value)) return 'N/A';
+  if (value === null || value === undefined || isNaN(value)) return '暂无';
   const sign = value >= 0 ? '+' : '';
   return `${sign}${(value * 100).toFixed(digits)}%`;
 };
@@ -51,7 +51,7 @@ export const formatPercent = (value, digits = 2) => {
  * @returns {string} 格式化后的百分比字符串
  */
 export const formatPercentNoSign = (value, digits = 2) => {
-  if (value === null || value === undefined || isNaN(value)) return 'N/A';
+  if (value === null || value === undefined || isNaN(value)) return '暂无';
   return `${(value * 100).toFixed(digits)}%`;
 };
 
@@ -63,7 +63,7 @@ export const formatPercentNoSign = (value, digits = 2) => {
  */
 export const formatDate = (date, format = 'short') => {
   const d = new Date(date);
-  if (isNaN(d.getTime())) return 'N/A';
+  if (isNaN(d.getTime())) return '暂无';
   
   switch (format) {
     case 'short':
@@ -89,8 +89,8 @@ export const formatDate = (date, format = 'short') => {
  * @returns {string} 格式化后的数值字符串
  */
 export const formatNumber = (value, digits = 0) => {
-  if (value === null || value === undefined || isNaN(value)) return 'N/A';
-  return new Intl.NumberFormat('en-US', {
+  if (value === null || value === undefined || isNaN(value)) return '暂无';
+  return new Intl.NumberFormat('zh-CN', {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits
   }).format(value);

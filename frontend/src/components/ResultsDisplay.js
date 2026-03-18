@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Card,
   Row,
@@ -7,7 +7,6 @@ import {
   Table,
   Tabs,
   Button,
-  message,
   Space,
   Tag,
   Dropdown
@@ -25,11 +24,12 @@ import {
   ThunderboltOutlined,
   RiseOutlined,
   FallOutlined,
-  NumberOutlined,
   TransactionOutlined
 } from '@ant-design/icons';
 import { getBacktestReport } from '../services/api';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
+import { normalizeBacktestResult } from '../utils/backtest';
+import { useSafeMessageApi } from '../utils/messageApi';
 import PerformanceChart from './PerformanceChart';
 import DrawdownChart from './DrawdownChart';
 import MonthlyHeatmap from './MonthlyHeatmap';
@@ -37,24 +37,82 @@ import RiskRadar from './RiskRadar';
 import ReturnHistogram from './ReturnHistogram';
 
 const ResultsDisplay = ({ results }) => {
+  const message = useSafeMessageApi();
   const [activeTab, setActiveTab] = useState('overview');
+  const normalizedResults = useMemo(() => normalizeBacktestResult(results), [results]);
+  const trades = normalizedResults.trades || [];
+  const portfolioHistory = normalizedResults.portfolio_history || normalizedResults.portfolio || [];
+  const primaryMetrics = [
+    {
+      key: 'total_return',
+      title: '总收益率',
+      value: normalizedResults.total_return * 100,
+      suffix: '%',
+      precision: 2,
+      color: getValueColor(normalizedResults.total_return),
+      icon: <DollarOutlined style={{ fontSize: '16px' }} />,
+    },
+    {
+      key: 'annualized_return',
+      title: '年化收益率',
+      value: normalizedResults.annualized_return * 100,
+      suffix: '%',
+      precision: 2,
+      color: getValueColor(normalizedResults.annualized_return),
+      icon: <LineChartOutlined style={{ fontSize: '16px' }} />,
+    },
+    {
+      key: 'max_drawdown',
+      title: '最大回撤',
+      value: Math.abs(normalizedResults.max_drawdown) * 100,
+      suffix: '%',
+      precision: 2,
+      color: 'var(--accent-danger)',
+      icon: <FallOutlined style={{ fontSize: '16px' }} />,
+    },
+    {
+      key: 'sharpe_ratio',
+      title: '夏普比率',
+      value: normalizedResults.sharpe_ratio,
+      precision: 2,
+      color: getValueColor(normalizedResults.sharpe_ratio),
+      icon: <BarChartOutlined style={{ fontSize: '16px' }} />,
+    },
+    {
+      key: 'final_value',
+      title: '最终价值',
+      value: normalizedResults.final_value,
+      precision: 2,
+      color: getValueColor(normalizedResults.total_return),
+      icon: <DollarOutlined style={{ fontSize: '16px' }} />,
+      formatter: (value) => formatCurrency(Number(value || 0)),
+    },
+  ];
+  const diagnosticMetrics = [
+    { label: '交易次数', value: `${normalizedResults.num_trades || 0} 笔` },
+    { label: '胜率', value: formatPercentage(normalizedResults.win_rate || 0) },
+    { label: '盈亏比', value: normalizedResults.profit_factor?.toFixed(2) || '不适用' },
+    { label: '完成交易', value: `${normalizedResults.total_completed_trades || 0} 组` },
+    { label: '持仓状态', value: normalizedResults.has_open_position ? '仍有未平仓' : '已全部平仓' },
+    { label: '净利润', value: formatCurrency(normalizedResults.net_profit || 0) },
+  ];
 
   const copyResults = () => {
     const text = `
 回测结果摘要
 ====================
-总收益率: ${formatPercentage(results.total_return)}
-年化收益率: ${formatPercentage(results.annualized_return)}
-夏普比率: ${results.sharpe_ratio?.toFixed(2) || 'N/A'}
-最大回撤: ${formatPercentage(Math.abs(results.max_drawdown))}
-交易次数: ${results.num_trades || 0}
-胜率: ${formatPercentage(results.win_rate)}
-盈亏比: ${results.profit_factor?.toFixed(2) || 'N/A'}
-最佳交易: ${results.best_trade?.toFixed(2) || 'N/A'}
-最差交易: ${results.worst_trade?.toFixed(2) || 'N/A'}
-净利润: ${results.net_profit?.toFixed(2) || 'N/A'}
-最大连续盈利: ${results.max_consecutive_wins || 0}
-最大连续亏损: ${results.max_consecutive_losses || 0}
+总收益率: ${formatPercentage(normalizedResults.total_return)}
+年化收益率: ${formatPercentage(normalizedResults.annualized_return)}
+夏普比率: ${normalizedResults.sharpe_ratio?.toFixed(2) || '不适用'}
+最大回撤: ${formatPercentage(Math.abs(normalizedResults.max_drawdown))}
+交易次数: ${normalizedResults.num_trades || 0}
+胜率: ${formatPercentage(normalizedResults.win_rate)}
+盈亏比: ${normalizedResults.profit_factor?.toFixed(2) || '不适用'}
+最佳交易: ${normalizedResults.best_trade?.toFixed(2) || '不适用'}
+最差交易: ${normalizedResults.worst_trade?.toFixed(2) || '不适用'}
+净利润: ${normalizedResults.net_profit?.toFixed(2) || '不适用'}
+最大连续盈利: ${normalizedResults.max_consecutive_wins || 0}
+最大连续亏损: ${normalizedResults.max_consecutive_losses || 0}
 ====================
 生成时间: ${new Date().toLocaleString()}
     `;
@@ -72,23 +130,22 @@ const ResultsDisplay = ({ results }) => {
       // 构建汇总数据
       let csvContent = '回测结果汇总\n';
       csvContent += '指标,数值\n';
-      csvContent += `总收益率,${(results.total_return * 100).toFixed(2)}%\n`;
-      csvContent += `年化收益率,${(results.annualized_return * 100).toFixed(2)}%\n`;
-      csvContent += `夏普比率,${results.sharpe_ratio?.toFixed(2) || 'N/A'}\n`;
-      csvContent += `最大回撤,${(Math.abs(results.max_drawdown) * 100).toFixed(2)}%\n`;
-      csvContent += `交易次数,${results.num_trades || 0}\n`;
-      csvContent += `胜率,${(results.win_rate * 100).toFixed(2)}%\n`;
-      csvContent += `盈亏比,${results.profit_factor?.toFixed(2) || 'N/A'}\n`;
-      csvContent += `最终价值,$${results.final_value?.toFixed(2) || 'N/A'}\n`;
+      csvContent += `总收益率,${(normalizedResults.total_return * 100).toFixed(2)}%\n`;
+      csvContent += `年化收益率,${(normalizedResults.annualized_return * 100).toFixed(2)}%\n`;
+      csvContent += `夏普比率,${normalizedResults.sharpe_ratio?.toFixed(2) || '不适用'}\n`;
+      csvContent += `最大回撤,${(Math.abs(normalizedResults.max_drawdown) * 100).toFixed(2)}%\n`;
+      csvContent += `交易次数,${normalizedResults.num_trades || 0}\n`;
+      csvContent += `胜率,${(normalizedResults.win_rate * 100).toFixed(2)}%\n`;
+      csvContent += `盈亏比,${normalizedResults.profit_factor?.toFixed(2) || '不适用'}\n`;
+      csvContent += `最终价值,$${normalizedResults.final_value?.toFixed(2) || '不适用'}\n`;
       csvContent += '\n';
 
       // 构建交易记录
-      if (results.trades && results.trades.length > 0) {
+      if (trades.length > 0) {
         csvContent += '交易记录\n';
         csvContent += '日期,类型,价格,数量,金额,盈亏\n';
-        results.trades.forEach(trade => {
-          const amount = trade.type === 'BUY' ? trade.cost : trade.revenue;
-          csvContent += `${new Date(trade.date).toLocaleDateString()},${trade.type === 'BUY' ? '买入' : '卖出'},${trade.price?.toFixed(2)},${trade.shares},${amount?.toFixed(2)},${trade.pnl?.toFixed(2) || '-'}\n`;
+        trades.forEach((trade) => {
+          csvContent += `${new Date(trade.date).toLocaleDateString()},${trade.type === 'BUY' ? '买入' : '卖出'},${trade.price?.toFixed(2)},${trade.quantity},${trade.value?.toFixed(2)},${trade.pnl?.toFixed(2) || '-'}\n`;
         });
       }
 
@@ -117,35 +174,34 @@ const ResultsDisplay = ({ results }) => {
           <tr><th colspan="2" style="background:#f0f0f0;">生成时间: ${new Date().toLocaleString()}</th></tr>
           <tr><td colspan="2"></td></tr>
           <tr style="background:#e6f7ff;"><th>指标</th><th>数值</th></tr>
-          <tr><td>总收益率</td><td style="color:${results.total_return >= 0 ? 'green' : 'red'};">${(results.total_return * 100).toFixed(2)}%</td></tr>
-          <tr><td>年化收益率</td><td style="color:${results.annualized_return >= 0 ? 'green' : 'red'};">${(results.annualized_return * 100).toFixed(2)}%</td></tr>
-          <tr><td>夏普比率</td><td>${results.sharpe_ratio?.toFixed(2) || 'N/A'}</td></tr>
-          <tr><td>最大回撤</td><td style="color:red;">${(Math.abs(results.max_drawdown) * 100).toFixed(2)}%</td></tr>
-          <tr><td>交易次数</td><td>${results.num_trades || 0}</td></tr>
-          <tr><td>胜率</td><td>${(results.win_rate * 100).toFixed(2)}%</td></tr>
-          <tr><td>盈亏比</td><td>${results.profit_factor?.toFixed(2) || 'N/A'}</td></tr>
-          <tr><td>最终价值</td><td>$${results.final_value?.toFixed(2) || 'N/A'}</td></tr>
+          <tr><td>总收益率</td><td style="color:${normalizedResults.total_return >= 0 ? 'green' : 'red'};">${(normalizedResults.total_return * 100).toFixed(2)}%</td></tr>
+          <tr><td>年化收益率</td><td style="color:${normalizedResults.annualized_return >= 0 ? 'green' : 'red'};">${(normalizedResults.annualized_return * 100).toFixed(2)}%</td></tr>
+          <tr><td>夏普比率</td><td>${normalizedResults.sharpe_ratio?.toFixed(2) || '不适用'}</td></tr>
+          <tr><td>最大回撤</td><td style="color:red;">${(Math.abs(normalizedResults.max_drawdown) * 100).toFixed(2)}%</td></tr>
+          <tr><td>交易次数</td><td>${normalizedResults.num_trades || 0}</td></tr>
+          <tr><td>胜率</td><td>${(normalizedResults.win_rate * 100).toFixed(2)}%</td></tr>
+          <tr><td>盈亏比</td><td>${normalizedResults.profit_factor?.toFixed(2) || '不适用'}</td></tr>
+          <tr><td>最终价值</td><td>$${normalizedResults.final_value?.toFixed(2) || '不适用'}</td></tr>
         </table>
       `;
 
       // 添加交易记录表
-      if (results.trades && results.trades.length > 0) {
+      if (trades.length > 0) {
         htmlContent += `
           <br/>
           <table border="1">
             <tr><th colspan="6" style="background:#1890ff;color:white;">交易记录</th></tr>
             <tr style="background:#e6f7ff;"><th>日期</th><th>类型</th><th>价格</th><th>数量</th><th>金额</th><th>盈亏</th></tr>
         `;
-        results.trades.forEach(trade => {
-          const amount = trade.type === 'BUY' ? trade.cost : trade.revenue;
+        trades.forEach((trade) => {
           const pnlColor = trade.pnl > 0 ? 'green' : (trade.pnl < 0 ? 'red' : 'black');
           htmlContent += `
             <tr>
               <td>${new Date(trade.date).toLocaleDateString()}</td>
               <td style="color:${trade.type === 'BUY' ? 'green' : 'red'};">${trade.type === 'BUY' ? '买入' : '卖出'}</td>
               <td>$${trade.price?.toFixed(2)}</td>
-              <td>${trade.shares}</td>
-              <td>$${amount?.toFixed(2)}</td>
+              <td>${trade.quantity}</td>
+              <td>$${trade.value?.toFixed(2)}</td>
               <td style="color:${pnlColor};">${trade.pnl ? '$' + trade.pnl.toFixed(2) : '-'}</td>
             </tr>
           `;
@@ -173,10 +229,15 @@ const ResultsDisplay = ({ results }) => {
       message.loading({ content: '正在生成PDF报告...', key: 'pdf_export' });
 
       const response = await getBacktestReport({
-        symbol: results.symbol || 'UNKNOWN',
-        strategy: results.strategy || 'unknown',
-        backtest_result: results,
-        parameters: results.parameters
+        symbol: normalizedResults.symbol || 'UNKNOWN',
+        strategy: normalizedResults.strategy || 'unknown',
+        backtest_result: normalizedResults,
+        parameters: normalizedResults.parameters,
+        start_date: normalizedResults.start_date,
+        end_date: normalizedResults.end_date,
+        initial_capital: normalizedResults.initial_capital,
+        commission: normalizedResults.commission,
+        slippage: normalizedResults.slippage,
       });
 
       if (response.success && response.data?.pdf_base64) {
@@ -254,17 +315,14 @@ const ResultsDisplay = ({ results }) => {
     },
     {
       title: '数量',
-      dataIndex: 'shares',
-      key: 'shares'
+      dataIndex: 'quantity',
+      key: 'quantity'
     },
     {
       title: '金额',
-      dataIndex: 'cost',
-      key: 'cost',
-      render: (cost, record) => {
-        const amount = record.type === 'BUY' ? cost : record.revenue;
-        return formatCurrency(amount);
-      }
+      dataIndex: 'value',
+      key: 'value',
+      render: (value) => formatCurrency(value)
     },
     {
       title: '盈亏',
@@ -283,98 +341,72 @@ const ResultsDisplay = ({ results }) => {
       key: 'overview',
       label: '概览',
       children: (
-        <>
-          {/* 第一行：财务核心指标 */}
+        <div className="workspace-analysis-stack">
           <Row gutter={[16, 16]}>
-            <Col span={8}>
-              <Card className="metric-card" size="small">
-                <Statistic
-                  title="总收益率"
-                  value={results.total_return * 100}
-                  precision={2}
-                  suffix="%"
-                  valueStyle={{
-                    color: getValueColor(results.total_return),
-                    fontSize: '20px'
-                  }}
-                  prefix={<DollarOutlined style={{ fontSize: '16px' }} />}
-                />
-              </Card>
+            <Col xs={24} xl={16}>
+              <div className="workspace-section workspace-section--accent">
+                <div className="workspace-section__header">
+                  <div>
+                    <div className="workspace-section__title">首屏结论</div>
+                    <div className="workspace-section__description">先看收益、风险和最终价值，再决定是否继续深入图表与交易诊断。</div>
+                  </div>
+                </div>
+                <Row gutter={[16, 16]}>
+                  {primaryMetrics.map((metric) => (
+                    <Col xs={24} sm={12} lg={8} key={metric.key}>
+                      <Card className="metric-card workspace-kpi-card" size="small">
+                        <Statistic
+                          title={metric.title}
+                          value={metric.value}
+                          precision={metric.precision}
+                          suffix={metric.suffix}
+                          formatter={metric.formatter}
+                          valueStyle={{ color: metric.color, fontSize: '20px' }}
+                          prefix={metric.icon}
+                        />
+                      </Card>
+                    </Col>
+                  ))}
+                </Row>
+              </div>
             </Col>
-
-            <Col span={8}>
-              <Card className="metric-card" size="small">
-                <Statistic
-                  title="年化收益率"
-                  value={results.annualized_return * 100}
-                  precision={2}
-                  suffix="%"
-                  valueStyle={{
-                    color: getValueColor(results.annualized_return),
-                    fontSize: '20px'
-                  }}
-                  prefix={<LineChartOutlined style={{ fontSize: '16px' }} />}
-                />
-              </Card>
-            </Col>
-
-            <Col span={8}>
-              <Card className="metric-card" size="small">
-                <Statistic
-                  title="最终价值"
-                  value={results.final_value}
-                  precision={2}
-                  valueStyle={{ color: getValueColor(results.total_return), fontSize: '20px' }}
-                  prefix={<DollarOutlined style={{ fontSize: '16px' }} />}
-                />
-              </Card>
+            <Col xs={24} xl={8}>
+              <div className="workspace-section">
+                <div className="workspace-section__header">
+                  <div>
+                    <div className="workspace-section__title">次级诊断</div>
+                    <div className="workspace-section__description">补充交易效率、持仓状态和完成交易数，帮助快速判断结果质量。</div>
+                  </div>
+                </div>
+                <div className="summary-strip summary-strip--stack">
+                  {diagnosticMetrics.map((item) => (
+                    <div key={item.label} className="summary-strip__item">
+                      <span className="summary-strip__label">{item.label}</span>
+                      <span className="summary-strip__value">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </Col>
           </Row>
 
-          {/* 第二行：风险控制指标 */}
-          <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-            <Col span={6}>
-              <Card className="metric-card" size="small">
+          <Row gutter={[16, 16]}>
+            <Col xs={24} md={8}>
+              <Card className="metric-card workspace-kpi-card" size="small">
                 <Statistic
-                  title="夏普比率"
-                  value={results.sharpe_ratio}
+                  title="索提诺比率"
+                  value={normalizedResults.sortino_ratio}
                   precision={2}
-                  valueStyle={{ color: getValueColor(results.sharpe_ratio), fontSize: '18px' }}
-                  prefix={<BarChartOutlined style={{ fontSize: '14px' }} />}
-                />
-              </Card>
-            </Col>
-
-            <Col span={6}>
-              <Card className="metric-card" size="small">
-                <Statistic
-                  title="Sortino比率"
-                  value={results.sortino_ratio}
-                  precision={2}
-                  valueStyle={{ color: getValueColor(results.sortino_ratio), fontSize: '18px' }}
+                  valueStyle={{ color: getValueColor(normalizedResults.sortino_ratio), fontSize: '18px' }}
                   prefix={<RiseOutlined style={{ fontSize: '14px' }} />}
                 />
               </Card>
             </Col>
-
-            <Col span={6}>
-              <Card className="metric-card" size="small">
+            <Col xs={24} md={8}>
+              <Card className="metric-card workspace-kpi-card" size="small">
                 <Statistic
-                  title="最大回撤"
-                  value={Math.abs(results.max_drawdown) * 100}
-                  precision={2}
-                  suffix="%"
-                  valueStyle={{ color: 'var(--accent-danger)', fontSize: '18px' }}
-                  prefix={<FallOutlined style={{ fontSize: '14px' }} />}
-                />
-              </Card>
-            </Col>
-
-            <Col span={6}>
-              <Card className="metric-card" size="small">
-                <Statistic
-                  title="VaR (95%)"
-                  value={Math.abs(results.var_95 || 0) * 100}
+                  title="在险价值 (95%)"
+                  value={Math.abs(normalizedResults.var_95 || 0) * 100}
                   precision={2}
                   suffix="%"
                   valueStyle={{ color: 'var(--accent-warning)', fontSize: '18px' }}
@@ -382,76 +414,58 @@ const ResultsDisplay = ({ results }) => {
                 />
               </Card>
             </Col>
-          </Row>
-
-          {/* 第三行：交易统计指标 */}
-          <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-            <Col span={6}>
-              <Card className="metric-card" size="small">
+            <Col xs={24} md={8}>
+              <Card className="metric-card workspace-kpi-card" size="small">
                 <Statistic
-                  title="交易次数"
-                  value={results.num_trades || 0}
-                  valueStyle={{ color: 'var(--accent-primary)', fontSize: '18px' }}
-                  prefix={<NumberOutlined style={{ fontSize: '14px' }} />}
-                />
-              </Card>
-            </Col>
-
-            <Col span={6}>
-              <Card className="metric-card" size="small">
-                <Statistic
-                  title="胜率"
-                  value={results.win_rate * 100}
+                  title="平均单笔收益"
+                  value={normalizedResults.avg_trade}
                   precision={2}
-                  suffix="%"
-                  valueStyle={{ color: getValueColor(results.win_rate - 0.5), fontSize: '18px' }}
-                />
-              </Card>
-            </Col>
-
-            <Col span={6}>
-              <Card className="metric-card" size="small">
-                <Statistic
-                  title="盈亏比"
-                  value={results.profit_factor}
-                  precision={2}
-                  valueStyle={{ color: getValueColor(results.profit_factor - 1), fontSize: '18px' }}
-                />
-              </Card>
-            </Col>
-
-            <Col span={6}>
-              <Card className="metric-card" size="small">
-                <Statistic
-                  title="平均交易"
-                  value={results.avg_trade}
-                  precision={2}
-                  valueStyle={{ color: getValueColor(results.avg_trade), fontSize: '18px' }}
+                  valueStyle={{ color: getValueColor(normalizedResults.avg_trade), fontSize: '18px' }}
                   prefix={<TransactionOutlined style={{ fontSize: '14px' }} />}
                 />
               </Card>
             </Col>
           </Row>
-        </>
+        </div>
       )
     },
     {
       key: 'charts',
       label: '图表分析',
       children: (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <PerformanceChart data={results.portfolio} />
+        <div className="workspace-analysis-stack">
+          <div className="workspace-section">
+            <div className="workspace-section__header">
+              <div>
+                <div className="workspace-section__title">组合净值与主曲线</div>
+                <div className="workspace-section__description">把组合总资产变化放在最前面，先确认回测曲线是否符合预期。</div>
+              </div>
+            </div>
+            <PerformanceChart data={portfolioHistory} />
+          </div>
 
           <Row gutter={16}>
-            <Col span={12}>
-              <Card type="inner" title="回撤分析" size="small">
-                <DrawdownChart data={results.portfolio} />
-              </Card>
+            <Col xs={24} xl={12}>
+              <div className="workspace-section workspace-chart-card">
+                <div className="workspace-section__header">
+                  <div>
+                    <div className="workspace-section__title">回撤分析</div>
+                    <div className="workspace-section__description">把最大回撤、当前水位和恢复时间放进同一张回撤曲线里。</div>
+                  </div>
+                </div>
+                <DrawdownChart data={portfolioHistory} />
+              </div>
             </Col>
-            <Col span={12}>
-              <Card type="inner" title="风险雷达" size="small">
+            <Col xs={24} xl={12}>
+              <div className="workspace-section workspace-chart-card">
+                <div className="workspace-section__header">
+                  <div>
+                    <div className="workspace-section__title">风险雷达</div>
+                    <div className="workspace-section__description">把收益、胜率、回撤和稳定性压缩成一张更易扫读的画像。</div>
+                  </div>
+                </div>
                 <RiskRadar metrics={results} />
-              </Card>
+              </div>
             </Col>
           </Row>
         </div>
@@ -462,15 +476,27 @@ const ResultsDisplay = ({ results }) => {
       label: '收益分析',
       children: (
         <Row gutter={16}>
-          <Col span={12}>
-            <Card type="inner" title="收益分布" size="small">
-              <ReturnHistogram data={results.portfolio} />
-            </Card>
+          <Col xs={24} xl={12}>
+            <div className="workspace-section workspace-chart-card">
+              <div className="workspace-section__header">
+                <div>
+                  <div className="workspace-section__title">收益分布</div>
+                  <div className="workspace-section__description">观察收益分布的偏态、密度和尾部风险，不只盯着均值。</div>
+                </div>
+              </div>
+              <ReturnHistogram data={portfolioHistory} />
+            </div>
           </Col>
-          <Col span={12}>
-            <Card type="inner" title="月度热力图" size="small">
-              <MonthlyHeatmap data={results.portfolio} />
-            </Card>
+          <Col xs={24} xl={12}>
+            <div className="workspace-section workspace-chart-card">
+              <div className="workspace-section__header">
+                <div>
+                  <div className="workspace-section__title">月度热力图</div>
+                  <div className="workspace-section__description">按月汇总组合表现，快速识别强势月份、承压月份和年度节奏。</div>
+                </div>
+              </div>
+              <MonthlyHeatmap data={portfolioHistory} />
+            </div>
           </Col>
         </Row>
       )
@@ -479,32 +505,41 @@ const ResultsDisplay = ({ results }) => {
       key: 'trades',
       label: '交易记录',
       children: (
-        <Table
-          columns={tradesColumns}
-          dataSource={results.trades || []}
-          rowKey={(record, index) => index}
-          pagination={{
-            pageSize: 10,
-            showSizeChanger: true,
-            showQuickJumper: true,
-            showTotal: (total) => `共 ${total} 条记录`
-          }}
-        />
+        <Card className="workspace-chart-card" size="small" title="成交明细">
+          <Table
+            columns={tradesColumns}
+            dataSource={trades}
+            rowKey={(record) => `${record.date}-${record.type}-${record.quantity}-${record.price}`}
+            locale={{ emptyText: '暂无成交记录' }}
+            pagination={{
+              pageSize: 10,
+              showSizeChanger: false,
+              showQuickJumper: true,
+              showTotal: (total) => `共 ${total} 条记录`
+            }}
+          />
+        </Card>
       )
     }
   ];
 
   return (
-    <div className="results-container" style={{ marginTop: '16px' }}>
+    <div className="results-container backtest-results" style={{ marginTop: '16px' }}>
       <Card
+        className="workspace-panel workspace-panel--result"
         title={
-          <Space>
-            <TrophyOutlined />
-            <span style={{ fontSize: '16px' }}>回测结果</span>
-          </Space>
+          <div className="workspace-title">
+            <div className="workspace-title__icon workspace-title__icon--accent">
+              <TrophyOutlined />
+            </div>
+            <div>
+              <div className="workspace-title__text">回测结果</div>
+              <div className="workspace-title__hint">结果已进入分析工作区，先看结论条，再深入图表、收益分析和成交明细。</div>
+            </div>
+          </div>
         }
         extra={
-          <Space>
+          <Space wrap className="workspace-toolbar">
             <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
               <Button icon={<DownloadOutlined />} size="small">
                 导出报告
@@ -521,6 +556,20 @@ const ResultsDisplay = ({ results }) => {
         }
         size="small"
       >
+        <div className="summary-strip summary-strip--compact">
+          <div className="summary-strip__item">
+            <span className="summary-strip__label">策略</span>
+            <span className="summary-strip__value">{normalizedResults.strategy || '当前回测'}</span>
+          </div>
+          <div className="summary-strip__item">
+            <span className="summary-strip__label">标的</span>
+            <span className="summary-strip__value">{normalizedResults.symbol || '未提供'}</span>
+          </div>
+          <div className="summary-strip__item">
+            <span className="summary-strip__label">状态</span>
+            <span className="summary-strip__value">{Number(normalizedResults.total_return || 0) >= 0 ? '收益为正' : '收益承压'}</span>
+          </div>
+        </div>
         <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
       </Card>
     </div>

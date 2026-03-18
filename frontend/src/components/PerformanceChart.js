@@ -1,33 +1,112 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
+  Area,
+  Brush,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
   Line,
+  ResponsiveContainer,
+  Scatter,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  ComposedChart,
-  ReferenceLine,
-  Brush,
-  Area
 } from 'recharts';
+import { Button, Dropdown, Segmented, Space, Tag } from 'antd';
 import {
-  LineChartOutlined,
-  BarChartOutlined,
-  PieChartOutlined,
-  DotChartOutlined,
-  RiseOutlined,
+  CheckOutlined,
   FallOutlined,
-  ThunderboltOutlined,
+  RiseOutlined,
   SettingOutlined,
-  CheckOutlined
+  ThunderboltOutlined,
 } from '@ant-design/icons';
-import { Card, Row, Col, Space, Typography, Statistic, Dropdown, Button, Segmented } from 'antd';
-import TimeRangeSelector from './common/TimeRangeSelector';
-import { calculateSMA, calculateEMA, calculateBollinger } from '../utils/indicators';
 
-const { Text } = Typography;
+import TimeRangeSelector from './common/TimeRangeSelector';
+import {
+  buildPerformanceChartData,
+  formatChartCurrency,
+  formatChartPercent,
+} from '../utils/backtestCharts';
+
+const palette = {
+  portfolio: '#38bdf8',
+  price: '#a78bfa',
+  sma20: '#f59e0b',
+  sma50: '#14b8a6',
+  ema12: '#f97316',
+  ema26: '#22c55e',
+  bollinger: '#fb7185',
+  buy: '#10b981',
+  sell: '#ef4444',
+  axis: 'rgba(148, 163, 184, 0.85)',
+  grid: 'rgba(148, 163, 184, 0.12)',
+};
+
+const buildAxisDomain = (values = []) => {
+  const finiteValues = values.filter((value) => Number.isFinite(value));
+  if (finiteValues.length === 0) {
+    return [0, 1];
+  }
+
+  const min = Math.min(...finiteValues);
+  const max = Math.max(...finiteValues);
+  const spread = max - min;
+  const padding = spread === 0
+    ? Math.max(Math.abs(max) * 0.04, 1)
+    : Math.max(spread * 0.14, Math.abs(max) * 0.01, 1);
+
+  return [min - padding, max + padding];
+};
+
+const SignalMarker = ({ cx, cy, payload }) => {
+  if (!Number.isFinite(cx) || !Number.isFinite(cy) || !payload) {
+    return null;
+  }
+
+  const isBuy = payload.signal === 1;
+  const size = 7;
+  const path = isBuy
+    ? `M ${cx} ${cy - size} L ${cx + size} ${cy + size} L ${cx - size} ${cy + size} Z`
+    : `M ${cx} ${cy + size} L ${cx + size} ${cy - size} L ${cx - size} ${cy - size} Z`;
+
+  return (
+    <g>
+      <path d={path} fill={isBuy ? palette.buy : palette.sell} stroke="rgba(15,23,42,0.9)" strokeWidth={1.2} />
+      <circle cx={cx} cy={cy} r={2.5} fill="#fff" opacity={0.9} />
+    </g>
+  );
+};
+
+const PerformanceTooltip = ({ active, payload, label }) => {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+
+  const point = payload[0]?.payload;
+  const signalLabel = point?.signal === 1 ? '买入信号' : point?.signal === -1 ? '卖出信号' : null;
+
+  return (
+    <div className="backtest-chart-tooltip">
+      <div className="backtest-chart-tooltip__title">{point?.dateLongLabel || label}</div>
+      <div className="backtest-chart-tooltip__list">
+        {payload
+          .filter((entry) => entry.value !== null && entry.value !== undefined)
+          .map((entry) => (
+            <div key={entry.dataKey} className="backtest-chart-tooltip__row">
+              <span className="backtest-chart-tooltip__label">
+                <span className="backtest-chart-tooltip__dot" style={{ background: entry.color }} />
+                {entry.name}
+              </span>
+              <span className="backtest-chart-tooltip__value">
+                {entry.dataKey === 'portfolio_value' ? formatChartCurrency(entry.value) : Number(entry.value).toFixed(2)}
+              </span>
+            </div>
+          ))}
+      </div>
+      {signalLabel ? <Tag color={point.signal === 1 ? 'success' : 'error'}>{signalLabel}</Tag> : null}
+    </div>
+  );
+};
 
 const PerformanceChart = ({ data }) => {
   const [showSignals, setShowSignals] = useState(true);
@@ -38,459 +117,269 @@ const PerformanceChart = ({ data }) => {
   const [chartType, setChartType] = useState('area');
   const [timeRange, setTimeRange] = useState('max');
 
-  // 处理数据格式并计算技术指标
-  const chartData = useMemo(() => {
-    const safeData = data || [];
-    if (safeData.length === 0) return [];
+  const chartData = useMemo(() => buildPerformanceChartData(data, timeRange), [data, timeRange]);
+  const hasPriceSeries = useMemo(
+    () => chartData.some((item) => item.price !== null && !Number.isNaN(item.price)),
+    [chartData]
+  );
+  const buySignals = useMemo(() => chartData.filter((item) => item.signal === 1), [chartData]);
+  const sellSignals = useMemo(() => chartData.filter((item) => item.signal === -1), [chartData]);
+  const portfolioDomain = useMemo(
+    () => buildAxisDomain(chartData.map((item) => item.portfolio_value)),
+    [chartData]
+  );
+  const priceDomain = useMemo(
+    () => buildAxisDomain(chartData.map((item) => item.price)),
+    [chartData]
+  );
 
-    // 时间范围过滤 - 适配 TimeRangeSelector 的值
-    let days = Infinity;
-    switch (timeRange) {
-      case '5d': days = 5; break;
-      case '1mo': days = 30; break;
-      case '3mo': days = 90; break;
-      case '6mo': days = 180; break;
-      case '1y': days = 365; break;
-      case 'max': days = Infinity; break;
-      default: days = Infinity;
+  const chartSummary = useMemo(() => {
+    if (chartData.length === 0) {
+      return [];
     }
 
-    // 兼容旧值（如果有）
-    if (timeRange === '1W') days = 7;
-    if (timeRange === '1M') days = 30;
+    const firstPoint = chartData[0];
+    const lastPoint = chartData[chartData.length - 1];
+    const delta = firstPoint.portfolio_value > 0
+      ? ((lastPoint.portfolio_value / firstPoint.portfolio_value) - 1) * 100
+      : 0;
 
-    const cutoffDate = days !== Infinity
-      ? new Date(Date.now() - days * 24 * 60 * 60 * 1000)
-      : null;
+    return [
+      {
+        label: '最新净值',
+        value: formatChartCurrency(lastPoint.portfolio_value),
+      },
+      {
+        label: '区间变化',
+        value: formatChartPercent(delta, 2),
+      },
+      {
+        label: '信号数',
+        value: `${buySignals.length + sellSignals.length} 个`,
+      },
+      {
+        label: '观察窗口',
+        value: `${chartData.length} 个交易日`,
+      },
+    ];
+  }, [buySignals.length, chartData, sellSignals.length]);
 
-    const filteredData = cutoffDate
-      ? safeData.filter(item => new Date(item.date) >= cutoffDate)
-      : safeData;
+  const menuItems = [
+    {
+      key: 'price',
+      label: '显示价格叠层',
+      icon: showPrice && hasPriceSeries ? <CheckOutlined /> : null,
+      disabled: !hasPriceSeries,
+      onClick: () => setShowPrice((value) => !value),
+    },
+    {
+      key: 'sma',
+      label: '显示 SMA',
+      icon: showSMA && hasPriceSeries ? <CheckOutlined /> : null,
+      disabled: !hasPriceSeries,
+      onClick: () => setShowSMA((value) => !value),
+    },
+    {
+      key: 'ema',
+      label: '显示 EMA',
+      icon: showEMA && hasPriceSeries ? <CheckOutlined /> : null,
+      disabled: !hasPriceSeries,
+      onClick: () => setShowEMA((value) => !value),
+    },
+    {
+      key: 'bollinger',
+      label: '显示布林带',
+      icon: showBollinger && hasPriceSeries ? <CheckOutlined /> : null,
+      disabled: !hasPriceSeries,
+      onClick: () => setShowBollinger((value) => !value),
+    },
+    {
+      type: 'divider',
+    },
+    {
+      key: 'signals',
+      label: '显示交易信号',
+      icon: showSignals ? <CheckOutlined /> : null,
+      onClick: () => setShowSignals((value) => !value),
+    },
+  ];
 
-    const processed = filteredData.map((item, index) => ({
-      date: item.date ? new Date(item.date).toLocaleDateString() : 'Unknown',
-      fullDate: item.date,
-      portfolio_value: item.total != null ? item.total : 0,
-      price: item.price != null ? item.price : 0,
-      signal: item.signal || 0,
-      returns: (item.returns || 0) * 100,
-      volume: item.volume || Math.random() * 1000000,
-      index: index
-    }));
-
-    // 提取价格序列
-    const prices = processed.map(item => item.price);
-
-    // 计算指标
-    const sma20 = calculateSMA(prices, 20);
-    const sma50 = calculateSMA(prices, 50);
-    const ema12 = calculateEMA(prices, 12);
-    const ema26 = calculateEMA(prices, 26);
-    const bb = calculateBollinger(prices, 20);
-
-    // 将指标合并回数据对象
-    processed.forEach((item, index) => {
-      item.sma20 = sma20[index];
-      item.sma50 = sma50[index];
-      item.ema12 = ema12[index];
-      item.ema26 = ema26[index];
-      item.bbUpper = bb.upper[index];
-      item.bbMiddle = bb.middle[index];
-      item.bbLower = bb.lower[index];
-    });
-
-    return processed;
-  }, [data, timeRange]);
-
-  // 交易信号统计
-  const signalStats = useMemo(() => {
-    const buySignals = chartData.filter(item => item.signal === 1).length;
-    const sellSignals = chartData.filter(item => item.signal === -1).length;
-    return { buy: buySignals, sell: sellSignals, total: buySignals + sellSignals };
-  }, [chartData]);
-
-  // 早期返回检查（在所有hooks之后）
   if (chartData.length === 0) {
-    return <div style={{ padding: 20, textAlign: 'center', color: '#999' }}>暂无图表数据</div>;
+    return <div className="backtest-chart-empty">暂无可用于绘制净值曲线的组合历史数据。</div>;
   }
 
-  // 增强版自定义Tooltip
-  const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      return (
-        <div style={{
-          backgroundColor: 'rgba(255, 255, 255, 0.98)',
-          padding: '14px 18px',
-          border: '1px solid #e8e8e8',
-          borderRadius: '10px',
-          boxShadow: '0 6px 16px rgba(0,0,0,0.12)',
-          backdropFilter: 'blur(8px)',
-          minWidth: '180px'
-        }}>
-          <Text strong style={{ fontSize: '13px', display: 'block', marginBottom: '10px', color: '#1890ff' }}>
-            📅 {label}
-          </Text>
-          {payload.map((entry, index) => (
-            <div key={index} style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              margin: '6px 0',
-              padding: '4px 0',
-              borderBottom: index < payload.length - 1 ? '1px solid #f0f0f0' : 'none'
-            }}>
-              <span style={{
-                display: 'flex',
-                alignItems: 'center',
-                color: '#666',
-                fontSize: '12px'
-              }}>
-                <span style={{
-                  width: '12px',
-                  height: '12px',
-                  borderRadius: '3px',
-                  backgroundColor: entry.color,
-                  marginRight: '10px',
-                  display: 'inline-block',
-                  boxShadow: `0 0 4px ${entry.color}40`
-                }} />
-                {entry.name}
-              </span>
-              <Text strong style={{
-                color: entry.value >= 0 ? '#52c41a' : '#ff4d4f',
-                marginLeft: '16px',
-                fontSize: '13px'
-              }}>
-                {(entry.value != null ? entry.value : 0).toFixed(2)}
-                {entry.name.includes('回撤') || entry.name.includes('收益') || entry.name.includes('%') ? '%' : ''}
-              </Text>
-            </div>
-          ))}
-        </div>
-      );
-    }
-    return null;
-  };
-
-  // 信号点数据
-  const signalData = chartData.filter(item => item.signal !== 0);
-
-  const commonProps = {
-    data: chartData,
-    margin: { top: 10, right: 30, left: 0, bottom: 0 }
-  };
-
   return (
-    <div>
-      {/* 信号统计 */}
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
-          <Card size="small" style={{ background: 'linear-gradient(135deg, #52c41a20, #52c41a05)' }}>
-            <Statistic
-              title={<span style={{ color: '#52c41a' }}><RiseOutlined /> 买入信号</span>}
-              value={signalStats.buy}
-              valueStyle={{ color: '#52c41a', fontSize: '24px' }}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small" style={{ background: 'linear-gradient(135deg, #ff4d4f20, #ff4d4f05)' }}>
-            <Statistic
-              title={<span style={{ color: '#ff4d4f' }}><FallOutlined /> 卖出信号</span>}
-              value={signalStats.sell}
-              valueStyle={{ color: '#ff4d4f', fontSize: '24px' }}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small" style={{ background: 'linear-gradient(135deg, #1890ff20, #1890ff05)' }}>
-            <Statistic
-              title={<span style={{ color: '#1890ff' }}><ThunderboltOutlined /> 总交易次数</span>}
-              value={signalStats.total}
-              valueStyle={{ color: '#1890ff', fontSize: '24px' }}
-            />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small" style={{ background: 'linear-gradient(135deg, #722ed120, #722ed105)' }}>
-            <Statistic
-              title="数据天数"
-              value={chartData.length}
-              suffix="天"
-              valueStyle={{ fontSize: '24px' }}
-            />
-          </Card>
-        </Col>
-      </Row>
+    <div className="backtest-chart-stack">
+      <div className="summary-strip summary-strip--compact">
+        {chartSummary.map((item) => (
+          <div key={item.label} className="summary-strip__item">
+            <span className="summary-strip__label">{item.label}</span>
+            <span className="summary-strip__value">{item.value}</span>
+          </div>
+        ))}
+      </div>
 
-      {/* 主图表 */}
-      <Card
-        title={
-          <Space>
-            <span>📈 组合价值走势</span>
+      <div className="backtest-chart-shell">
+        <div className="backtest-chart-shell__header">
+          <div>
+            <div className="backtest-chart-shell__title">组合净值主曲线</div>
+            <div className="backtest-chart-shell__subtitle">
+              用更清晰的双轴视图查看组合净值、标的价格以及交易信号落点。
+            </div>
+          </div>
+          <Space wrap size="small">
+            <TimeRangeSelector value={timeRange} onChange={setTimeRange} size="small" />
             <Segmented
               size="small"
               options={[
-                { label: '区域图', value: 'area' },
-                { label: '折线图', value: 'line' }
+                { label: '面积', value: 'area' },
+                { label: '折线', value: 'line' },
               ]}
               value={chartType}
               onChange={setChartType}
             />
-          </Space>
-        }
-        extra={
-          <Space size="small">
-            {/* 统一的时间范围选择器 */}
-            <TimeRangeSelector
-              value={timeRange}
-              onChange={setTimeRange}
-              size="small"
-            />
-            <span style={{ color: '#d9d9d9' }}>|</span>
-
-            {/* 合并后的图表设置菜单 */}
-            <Dropdown
-              trigger={['click']}
-              menu={{
-                items: [
-                  {
-                    key: 'price',
-                    label: '显示价格',
-                    icon: showPrice ? <CheckOutlined /> : null,
-                    onClick: () => setShowPrice(!showPrice)
-                  },
-                  {
-                    key: 'sma',
-                    label: '显示 SMA',
-                    icon: showSMA ? <CheckOutlined /> : null,
-                    onClick: () => setShowSMA(!showSMA)
-                  },
-                  {
-                    key: 'ema',
-                    label: '显示 EMA',
-                    icon: showEMA ? <CheckOutlined /> : null,
-                    onClick: () => setShowEMA(!showEMA)
-                  },
-                  {
-                    key: 'bollinger',
-                    label: '显示布林带',
-                    icon: showBollinger ? <CheckOutlined /> : null,
-                    onClick: () => setShowBollinger(!showBollinger)
-                  },
-                  { type: 'divider' },
-                  {
-                    key: 'signals',
-                    label: '显示交易信号',
-                    icon: showSignals ? <CheckOutlined /> : null,
-                    onClick: () => setShowSignals(!showSignals)
-                  }
-                ]
-              }}
-            >
-              <Button icon={<SettingOutlined />} size="small">
-                图表设置
-              </Button>
+            <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+              <Button size="small" icon={<SettingOutlined />}>叠层设置</Button>
             </Dropdown>
           </Space>
-        }
-        style={{ marginBottom: 16 }}
-      >
-        <ResponsiveContainer width="100%" height={450}>
-          <ComposedChart {...commonProps}>
-            <defs>
-              <linearGradient id="portfolioGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#1890ff" stopOpacity={0.4} />
-                <stop offset="95%" stopColor="#1890ff" stopOpacity={0.05} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-            <XAxis
-              dataKey="date"
-              tick={{ fontSize: 10, fill: '#666' }}
-              tickLine={{ stroke: '#e8e8e8' }}
-              axisLine={{ stroke: '#e8e8e8' }}
-              interval="preserveStartEnd"
-            />
-            <YAxis
-              yAxisId="left"
-              tick={{ fontSize: 11, fill: '#666' }}
-              tickLine={{ stroke: '#e8e8e8' }}
-              axisLine={{ stroke: '#e8e8e8' }}
-              tickFormatter={(value) => `$${(value / 1000).toFixed(0)}k`}
-            />
-            <YAxis
-              yAxisId="right"
-              orientation="right"
-              tick={{ fontSize: 11, fill: '#666' }}
-              tickLine={{ stroke: '#e8e8e8' }}
-              axisLine={{ stroke: '#e8e8e8' }}
-              tickFormatter={(value) => `$${value.toFixed(0)}`}
-            />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend
-              wrapperStyle={{ paddingTop: '15px' }}
-              formatter={(value) => <Text style={{ fontSize: '12px' }}>{value}</Text>}
-            />
+        </div>
 
-            {/* 组合价值 */}
-            {chartType === 'area' ? (
-              <Area
+        <div className="backtest-chart-shell__badges">
+          <span className="backtest-chart-badge">
+            <RiseOutlined /> 买入 {buySignals.length}
+          </span>
+          <span className="backtest-chart-badge backtest-chart-badge--danger">
+            <FallOutlined /> 卖出 {sellSignals.length}
+          </span>
+          <span className="backtest-chart-badge backtest-chart-badge--accent">
+            <ThunderboltOutlined /> {hasPriceSeries ? '含标的价格叠层' : '仅展示组合净值'}
+          </span>
+        </div>
+
+        <div className="backtest-chart-canvas">
+          <ResponsiveContainer width="100%" height={440}>
+            <ComposedChart data={chartData} margin={{ top: 12, right: 24, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="portfolioAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={palette.portfolio} stopOpacity={0.4} />
+                  <stop offset="70%" stopColor={palette.portfolio} stopOpacity={0.12} />
+                  <stop offset="100%" stopColor={palette.portfolio} stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke={palette.grid} strokeDasharray="4 4" vertical={false} />
+              <XAxis
+                dataKey="dateLabel"
+                minTickGap={24}
+                tick={{ fill: palette.axis, fontSize: 11 }}
+                tickLine={false}
+                axisLine={{ stroke: palette.grid }}
+              />
+              <YAxis
                 yAxisId="left"
-                type="monotone"
-                dataKey="portfolio_value"
-                stroke="#1890ff"
-                strokeWidth={2}
-                fill="url(#portfolioGradient)"
-                name="组合价值"
+                width={78}
+                domain={portfolioDomain}
+                tick={{ fill: palette.axis, fontSize: 11 }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(value) => formatChartCurrency(value)}
               />
-            ) : (
-              <Line
-                yAxisId="left"
-                type="monotone"
-                dataKey="portfolio_value"
-                stroke="#1890ff"
-                strokeWidth={2}
-                dot={false}
-                name="组合价值"
+              {showPrice && hasPriceSeries ? (
+                <YAxis
+                  yAxisId="right"
+                  orientation="right"
+                  width={68}
+                  domain={priceDomain}
+                  tick={{ fill: palette.axis, fontSize: 11 }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(value) => `${Number(value).toFixed(0)}`}
+                />
+              ) : null}
+              <Tooltip content={<PerformanceTooltip />} />
+              <Legend wrapperStyle={{ paddingTop: 18 }} iconType="circle" />
+
+              {chartType === 'area' ? (
+                <Area
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="portfolio_value"
+                  name="组合净值"
+                  stroke={palette.portfolio}
+                  strokeWidth={2.6}
+                  fill="url(#portfolioAreaGradient)"
+                  fillOpacity={1}
+                  dot={false}
+                  activeDot={{ r: 4, stroke: '#fff', strokeWidth: 1.5 }}
+                />
+              ) : (
+                <Line
+                  yAxisId="left"
+                  type="monotone"
+                  dataKey="portfolio_value"
+                  name="组合净值"
+                  stroke={palette.portfolio}
+                  strokeWidth={2.6}
+                  dot={false}
+                  activeDot={{ r: 4, stroke: '#fff', strokeWidth: 1.5 }}
+                />
+              )}
+
+              {showPrice && hasPriceSeries ? (
+                <Line
+                  yAxisId="right"
+                  type="monotone"
+                  dataKey="price"
+                  name="标的价格"
+                  stroke={palette.price}
+                  strokeWidth={1.7}
+                  dot={false}
+                />
+              ) : null}
+
+              {showSMA && hasPriceSeries ? (
+                <>
+                  <Line yAxisId="right" type="monotone" dataKey="sma20" name="SMA20" stroke={palette.sma20} strokeWidth={1.2} dot={false} strokeDasharray="4 4" />
+                  <Line yAxisId="right" type="monotone" dataKey="sma50" name="SMA50" stroke={palette.sma50} strokeWidth={1.2} dot={false} strokeDasharray="6 6" />
+                </>
+              ) : null}
+
+              {showEMA && hasPriceSeries ? (
+                <>
+                  <Line yAxisId="right" type="monotone" dataKey="ema12" name="EMA12" stroke={palette.ema12} strokeWidth={1.2} dot={false} />
+                  <Line yAxisId="right" type="monotone" dataKey="ema26" name="EMA26" stroke={palette.ema26} strokeWidth={1.2} dot={false} />
+                </>
+              ) : null}
+
+              {showBollinger && hasPriceSeries ? (
+                <>
+                  <Line yAxisId="right" type="monotone" dataKey="bbUpper" name="布林上轨" stroke={palette.bollinger} strokeWidth={1} dot={false} strokeDasharray="3 3" />
+                  <Line yAxisId="right" type="monotone" dataKey="bbMiddle" name="布林中轨" stroke="#c084fc" strokeWidth={1} dot={false} />
+                  <Line yAxisId="right" type="monotone" dataKey="bbLower" name="布林下轨" stroke={palette.bollinger} strokeWidth={1} dot={false} strokeDasharray="3 3" />
+                </>
+              ) : null}
+
+              {showSignals ? (
+                <Scatter
+                  yAxisId="left"
+                  name="交易信号"
+                  data={chartData.filter((item) => item.signal !== 0)}
+                  dataKey="portfolio_value"
+                  shape={(props) => <SignalMarker {...props} />}
+                />
+              ) : null}
+
+              <Brush
+                dataKey="dateLabel"
+                height={28}
+                stroke="rgba(56,189,248,0.45)"
+                travellerWidth={10}
+                fill="rgba(15,23,42,0.35)"
+                tickFormatter={() => ''}
               />
-            )}
-
-            {/* 股票价格 */}
-            {showPrice && (
-              <Line
-                yAxisId="right"
-                type="monotone"
-                dataKey="price"
-                stroke="#722ed1"
-                strokeWidth={1.5}
-                dot={false}
-                name="股票价格"
-              />
-            )}
-
-            {/* SMA指标 */}
-            {showSMA && (
-              <>
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="sma20"
-                  stroke="#faad14"
-                  strokeWidth={1}
-                  dot={false}
-                  name="SMA20"
-                  strokeDasharray="3 3"
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="sma50"
-                  stroke="#13c2c2"
-                  strokeWidth={1}
-                  dot={false}
-                  name="SMA50"
-                  strokeDasharray="5 5"
-                />
-              </>
-            )}
-
-            {/* EMA指标 */}
-            {showEMA && (
-              <>
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="ema12"
-                  stroke="#eb2f96"
-                  strokeWidth={1}
-                  dot={false}
-                  name="EMA12"
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="ema26"
-                  stroke="#52c41a"
-                  strokeWidth={1}
-                  dot={false}
-                  name="EMA26"
-                />
-              </>
-            )}
-
-            {/* 布林带 */}
-            {showBollinger && (
-              <>
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="bbUpper"
-                  stroke="#ff7875"
-                  strokeWidth={1}
-                  dot={false}
-                  name="布林上轨"
-                  strokeDasharray="2 2"
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="bbMiddle"
-                  stroke="#69c0ff"
-                  strokeWidth={1}
-                  dot={false}
-                  name="布林中轨"
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="bbLower"
-                  stroke="#ff7875"
-                  strokeWidth={1}
-                  dot={false}
-                  name="布林下轨"
-                  strokeDasharray="2 2"
-                />
-              </>
-            )}
-
-            {/* 买入信号 */}
-            {showSignals && signalData.filter(item => item.signal === 1).map((item, index) => (
-              <ReferenceLine
-                key={`buy-${index}`}
-                yAxisId="left"
-                x={item.date}
-                stroke="#52c41a"
-                strokeWidth={2}
-                strokeDasharray="3 3"
-                label={{ value: '▲', position: 'top', fill: '#52c41a', fontSize: 12 }}
-              />
-            ))}
-
-            {/* 卖出信号 */}
-            {showSignals && signalData.filter(item => item.signal === -1).map((item, index) => (
-              <ReferenceLine
-                key={`sell-${index}`}
-                yAxisId="left"
-                x={item.date}
-                stroke="#ff4d4f"
-                strokeWidth={2}
-                strokeDasharray="3 3"
-                label={{ value: '▼', position: 'bottom', fill: '#ff4d4f', fontSize: 12 }}
-              />
-            ))}
-
-            {/* 缩放滑块 */}
-            <Brush
-              dataKey="date"
-              height={35}
-              stroke="#1890ff"
-              fill="#fafafa"
-              tickFormatter={() => ''}
-            />
-          </ComposedChart>
-        </ResponsiveContainer>
-      </Card>
+            </ComposedChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
     </div>
   );
 };

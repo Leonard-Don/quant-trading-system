@@ -203,6 +203,64 @@ class StrategyValidator:
                 description="慢速窗口",
             ),
         ],
+        "stochastic": [
+            ParameterRule(
+                name="k_period",
+                type=int,
+                default=14,
+                min_value=5,
+                max_value=50,
+                required=True,
+                description="K 线周期",
+            ),
+            ParameterRule(
+                name="d_period",
+                type=int,
+                default=3,
+                min_value=2,
+                max_value=20,
+                required=True,
+                description="D 线周期",
+            ),
+            ParameterRule(
+                name="oversold",
+                type=float,
+                default=20,
+                min_value=0,
+                max_value=50,
+                required=True,
+                description="超卖阈值",
+            ),
+            ParameterRule(
+                name="overbought",
+                type=float,
+                default=80,
+                min_value=50,
+                max_value=100,
+                required=True,
+                description="超买阈值",
+            ),
+        ],
+        "atr_trailing_stop": [
+            ParameterRule(
+                name="atr_period",
+                type=int,
+                default=14,
+                min_value=5,
+                max_value=50,
+                required=True,
+                description="ATR 周期",
+            ),
+            ParameterRule(
+                name="atr_multiplier",
+                type=float,
+                default=2.0,
+                min_value=0.5,
+                max_value=10.0,
+                required=True,
+                description="ATR 倍数",
+            ),
+        ],
     }
 
     @classmethod
@@ -288,6 +346,10 @@ class StrategyValidator:
         elif strategy_name == "momentum":
             if params["fast_window"] >= params["slow_window"]:
                 return "快速窗口必须小于慢速窗口"
+
+        elif strategy_name == "stochastic":
+            if params["oversold"] >= params["overbought"]:
+                return "超卖阈值必须小于超买阈值"
 
         return None
 

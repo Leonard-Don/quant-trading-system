@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from datetime import datetime
 import logging
 from backend.app.core.config import config
+from src.utils.performance import performance_metrics, performance_monitor
 
 from src.strategy.strategies import (
     MovingAverageCrossover,
@@ -261,4 +262,3 @@ async def check_dependencies():
         "dependencies": dependencies,
         "version": config["app_version"]
     }
-

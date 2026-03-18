@@ -4,7 +4,7 @@ Backtest engine for testing trading strategies
 
 import pandas as pd
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, List
 import logging
 from .metrics import (
     calculate_annualized_return,
@@ -59,6 +59,11 @@ class Backtester:
             logger.error("No data provided for backtest")
             return {}
 
+        data = self._prepare_market_data(data)
+        if data.empty:
+            logger.error("No valid price data remaining after cleaning")
+            return {}
+
         # Generate signals
         signals = strategy.generate_signals(data)
 
@@ -67,9 +72,9 @@ class Backtester:
         portfolio["price"] = data["close"].astype(float)
         portfolio["signal"] = signals.astype(int)
         portfolio["position"] = 0.0
-        portfolio["cash"] = float(self.initial_capital)
+        portfolio["cash"] = 0.0
         portfolio["holdings"] = 0.0
-        portfolio["total"] = float(self.initial_capital)
+        portfolio["total"] = 0.0
         portfolio["returns"] = 0.0
 
         # Track trades
@@ -79,9 +84,6 @@ class Backtester:
         buy_price = 0  # Track buy price for PnL calculation
 
         for i in range(len(portfolio)):
-            if i == 0:
-                continue
-
             price = portfolio["price"].iloc[i]
             signal = portfolio["signal"].iloc[i]
 
@@ -89,7 +91,8 @@ class Backtester:
             if signal == 1 and current_position == 0:  # Buy
                 # Calculate position size
                 position_value = current_cash * position_size
-                shares = int(position_value / price)
+                execution_multiplier = (1 + self.slippage) * (1 + self.commission)
+                shares = int(position_value / (price * execution_multiplier))
 
                 if shares > 0:
                     cost = shares * price * (1 + self.slippage)
@@ -141,7 +144,7 @@ class Backtester:
                 current_position = 0
                 buy_price = 0
 
-            # Update portfolio using .loc to avoid pandas warnings
+            # Update portfolio after processing each bar, including the first bar.
             portfolio.loc[portfolio.index[i], "position"] = current_position
             portfolio.loc[portfolio.index[i], "cash"] = float(current_cash)
             portfolio.loc[portfolio.index[i], "holdings"] = float(
@@ -161,6 +164,28 @@ class Backtester:
 
         self.results = results
         return results
+
+    def _prepare_market_data(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Drop incomplete bars so NaN market data cannot zero out the portfolio."""
+        cleaned = data.copy()
+
+        if "close" not in cleaned.columns:
+            logger.error("Backtest data is missing required 'close' column")
+            return pd.DataFrame()
+
+        numeric_cols = [col for col in ["open", "high", "low", "close", "volume"] if col in cleaned.columns]
+        for col in numeric_cols:
+            cleaned[col] = pd.to_numeric(cleaned[col], errors="coerce")
+
+        before = len(cleaned)
+        cleaned = cleaned[np.isfinite(cleaned["close"])]
+        cleaned = cleaned[cleaned["close"] > 0]
+        dropped = before - len(cleaned)
+
+        if dropped > 0:
+            logger.info("Dropped %s incomplete market bars before backtest execution", dropped)
+
+        return cleaned
 
     def _calculate_metrics(
         self, portfolio: pd.DataFrame, trades: list
@@ -189,76 +214,60 @@ class Backtester:
         buy_trades = [t for t in trades if t["type"] == "BUY"]
         sell_trades = [t for t in trades if t["type"] == "SELL"]
 
-        # Calculate trade-based metrics
-        trade_returns = []
-        winning_trades = []
-        losing_trades = []
+        # Calculate trade-based metrics from completed BUY -> SELL pairs only
+        completed_trade_pnls: List[float] = []
+        completed_trade_returns: List[float] = []
         has_open_position = False
 
-        # Calculate individual trade returns
         i = 0
         while i < len(trades):
             if trades[i]["type"] == "BUY":
-                # 检查是否有对应的卖出
                 if i + 1 < len(trades) and trades[i + 1]["type"] == "SELL":
                     buy_trade = trades[i]
                     sell_trade = trades[i + 1]
 
-                    trade_return = (
-                        sell_trade["price"] - buy_trade["price"]
-                    ) / buy_trade["price"]
-                    # Changed from "quantity" to "shares" to match trade record structure
-                    trade_pnl = (sell_trade["price"] - buy_trade["price"]) * buy_trade[
-                        "shares"
-                    ]
+                    entry_value = buy_trade.get("cost") or (
+                        buy_trade["price"] * buy_trade["shares"]
+                    )
+                    trade_pnl = sell_trade.get("pnl")
+                    if trade_pnl is None:
+                        exit_value = sell_trade.get("revenue") or (
+                            sell_trade["price"] * sell_trade["shares"]
+                        )
+                        trade_pnl = exit_value - entry_value
 
-                    trade_returns.append(trade_return)
+                    trade_return = trade_pnl / entry_value if entry_value else 0.0
 
-                    if trade_pnl > 0:
-                        winning_trades.append(trade_pnl)
-                    else:
-                        losing_trades.append(trade_pnl)
+                    completed_trade_pnls.append(float(trade_pnl))
+                    completed_trade_returns.append(float(trade_return))
 
-                    i += 2  # 处理下一对交易
+                    i += 2
                 else:
-                    # 未平仓头寸: 使用最后的市场价格计算
                     has_open_position = True
                     buy_trade = trades[i]
-                    # 获取最后一个价格，使用买入价格作为当前价格（简化处理）
-                    current_price = buy_trade["price"]
-
-                    trade_return = (current_price - buy_trade["price"]) / buy_trade[
-                        "price"
-                    ]
-                    trade_pnl = (current_price - buy_trade["price"]) * buy_trade[
+                    current_price = float(portfolio["price"].iloc[-1])
+                    unrealized_pnl = (current_price - buy_trade["price"]) * buy_trade[
                         "shares"
                     ]
 
-                    trade_returns.append(trade_return)
-
-                    if trade_pnl > 0:
-                        winning_trades.append(trade_pnl)
-                    else:
-                        losing_trades.append(trade_pnl)
-
                     logger.info(
-                        "检测到未平仓头寸: 买入价格=%.2f, 当前价格=%.2f, 盈亏=%.2f",
+                        "检测到未平仓头寸: 买入价格=%.2f, 当前价格=%.2f, 未实现盈亏=%.2f",
                         buy_trade["price"],
                         current_price,
-                        trade_pnl,
+                        unrealized_pnl,
                     )
                     i += 1
             else:
-                # 跳过无效的交易记录
                 logger.warning(f"发现非BUY起始的交易: {trades[i]}")
                 i += 1
 
-        # Calculate win rate
-        total_completed_trades = len(winning_trades) + len(losing_trades)
+        winning_trades = [pnl for pnl in completed_trade_pnls if pnl > 0]
+        losing_trades = [pnl for pnl in completed_trade_pnls if pnl < 0]
+
+        # Calculate win rate based on completed trades only
+        total_completed_trades = len(completed_trade_pnls)
         win_rate = (
-            len(winning_trades) / total_completed_trades
-            if total_completed_trades > 0
-            else 0
+            len(winning_trades) / total_completed_trades if total_completed_trades > 0 else 0
         )
 
         # Calculate profit factor (gross profit / gross loss)
@@ -272,14 +281,10 @@ class Backtester:
 
         # Calculate best and worst trades
         best_trade = (
-            max(winning_trades + losing_trades)
-            if (winning_trades + losing_trades)
-            else 0
+            max(completed_trade_pnls) if completed_trade_pnls else 0
         )
         worst_trade = (
-            min(winning_trades + losing_trades)
-            if (winning_trades + losing_trades)
-            else 0
+            min(completed_trade_pnls) if completed_trade_pnls else 0
         )
 
         # Calculate net profit
@@ -291,20 +296,23 @@ class Backtester:
         max_consecutive_wins = 0
         max_consecutive_losses = 0
 
-        for trade_pnl in winning_trades + losing_trades:
+        for trade_pnl in completed_trade_pnls:
             if trade_pnl > 0:
                 consecutive_wins += 1
                 consecutive_losses = 0
                 max_consecutive_wins = max(max_consecutive_wins, consecutive_wins)
-            else:
+            elif trade_pnl < 0:
                 consecutive_losses += 1
                 consecutive_wins = 0
                 max_consecutive_losses = max(max_consecutive_losses, consecutive_losses)
+            else:
+                consecutive_wins = 0
+                consecutive_losses = 0
 
         # Calculate average trade
         avg_trade = (
-            sum(winning_trades + losing_trades) / len(winning_trades + losing_trades)
-            if (winning_trades + losing_trades)
+            sum(completed_trade_pnls) / len(completed_trade_pnls)
+            if completed_trade_pnls
             else 0
         )
 
