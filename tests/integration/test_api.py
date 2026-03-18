@@ -81,8 +81,14 @@ class TestAPIIntegration:
         assert "metrics" in data
         assert "timestamp" in data
 
-    def test_backtest_endpoint(self, client):
+    def test_backtest_endpoint(self, client, monkeypatch):
         """测试回测端点"""
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+        monkeypatch.setattr(
+            backtest_endpoint.data_manager,
+            "get_historical_data",
+            lambda *args, **kwargs: build_mock_backtest_data(),
+        )
         payload = {
             "symbol": "AAPL",
             "strategy": "moving_average",
@@ -117,8 +123,14 @@ class TestAPIIntegration:
             assert results["metrics"]["total_return"] == results["total_return"]
             assert results["metrics"]["num_trades"] == results["num_trades"]
 
-    def test_buy_and_hold_endpoint_has_non_zero_return(self, client):
+    def test_buy_and_hold_endpoint_has_non_zero_return(self, client, monkeypatch):
         """买入持有策略应在真实接口路径上返回非零收益并带镜像指标"""
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+        monkeypatch.setattr(
+            backtest_endpoint.data_manager,
+            "get_historical_data",
+            lambda *args, **kwargs: build_mock_backtest_data(),
+        )
         payload = {
             "symbol": "AAPL",
             "strategy": "buy_and_hold",
