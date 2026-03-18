@@ -6,6 +6,8 @@ import asyncio
 import logging
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from backend.app.websocket.connection_manager import manager
+from backend.app.websocket.trade_connection_manager import trade_ws_manager
+from backend.app.services.trade_stream import build_trade_stream_payload
 from src.data.realtime_manager import realtime_manager
 
 router = APIRouter()
@@ -96,17 +98,39 @@ async def websocket_trades(websocket: WebSocket):
     """
     WebSocket端点用于实时交易通知
     """
-    await manager.connect(websocket)
+    await trade_ws_manager.connect(websocket)
     
     try:
+        await trade_ws_manager.send_personal_message(websocket, {
+            "type": "connected",
+            "channel": "trades",
+        })
+        await trade_ws_manager.send_personal_message(websocket, {
+            "type": "trade_snapshot",
+            "data": build_trade_stream_payload(),
+        })
+
         while True:
             data = await websocket.receive_json()
-            # 处理交易相关消息
-            await manager.send_personal_message(websocket, {
-                "type": "ack",
-                "message": "Trade notification channel connected"
-            })
+            action = str(data.get("action", "")).lower()
+
+            if action == "ping":
+                await trade_ws_manager.send_personal_message(websocket, {
+                    "type": "pong",
+                })
+            elif action == "snapshot":
+                await trade_ws_manager.send_personal_message(websocket, {
+                    "type": "trade_snapshot",
+                    "data": build_trade_stream_payload(),
+                })
+            else:
+                await trade_ws_manager.send_personal_message(websocket, {
+                    "type": "error",
+                    "message": f"Unknown action: {action}",
+                })
     except WebSocketDisconnect:
         logger.info("Trade WebSocket client disconnected")
+    except Exception as e:
+        logger.error(f"Trade WebSocket error: {e}")
     finally:
-        manager.disconnect(websocket)
+        trade_ws_manager.disconnect(websocket)

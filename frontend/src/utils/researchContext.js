@@ -16,6 +16,7 @@ export const readResearchContext = (search = window.location.search) => {
     action: params.get('action') || '',
     source: params.get('source') || '',
     note: params.get('note') || '',
+    record: params.get('record') || '',
   };
 };
 
@@ -30,6 +31,7 @@ const setParam = (params, key, value) => {
 export const sanitizeParamsForView = (params, view) => {
   if (view === 'pricing') {
     params.delete(TAB_QUERY_KEY);
+    params.delete('record');
     RESEARCH_KEYS.forEach((key) => {
       if (!PRICING_KEYS.includes(key)) params.delete(key);
     });
@@ -38,6 +40,9 @@ export const sanitizeParamsForView = (params, view) => {
 
   if (view === 'backtest') {
     const activeTab = params.get(TAB_QUERY_KEY) || 'new';
+    if (activeTab !== 'history') {
+      params.delete('record');
+    }
     if (activeTab === 'cross-market') {
       RESEARCH_KEYS.forEach((key) => {
         if (!CROSS_MARKET_KEYS.includes(key)) params.delete(key);
@@ -49,6 +54,7 @@ export const sanitizeParamsForView = (params, view) => {
   }
 
   params.delete(TAB_QUERY_KEY);
+  params.delete('record');
   RESEARCH_KEYS.forEach((key) => params.delete(key));
   return params;
 };
@@ -64,6 +70,7 @@ export const buildAppUrl = ({
   action = undefined,
   source = undefined,
   note = undefined,
+  record = undefined,
 } = {}) => {
   const params = new URLSearchParams(currentSearch);
   if (view === 'backtest') {
@@ -84,6 +91,7 @@ export const buildAppUrl = ({
   setParam(params, 'action', action);
   setParam(params, 'source', source);
   setParam(params, 'note', note);
+  setParam(params, 'record', record);
 
   sanitizeParamsForView(params, view);
 

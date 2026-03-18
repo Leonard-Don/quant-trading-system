@@ -118,7 +118,8 @@ class WebSocketService {
     /**
      * 断开连接
      */
-    disconnect() {
+    disconnect(options = {}) {
+        const { resetSubscriptions = false } = options;
         this.manuallyDisconnected = true;
         this.connectPromise = null;
         if (this.reconnectTimer) {
@@ -130,6 +131,10 @@ class WebSocketService {
             this.ws = null;
         }
         this.isConnected = false;
+
+        if (resetSubscriptions) {
+            this.subscriptions.clear();
+        }
     }
 
     /**

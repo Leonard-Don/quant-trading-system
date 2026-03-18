@@ -26,6 +26,7 @@ const LazyLoadFallback = () => (
 );
 
 const TAB_QUERY_KEY = 'tab';
+const RECORD_QUERY_KEY = 'record';
 const VALID_TABS = new Set(['new', 'history', 'comparison', 'portfolio', 'cross-market']);
 const TAB_META = {
     new: {
@@ -62,6 +63,10 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
         return VALID_TABS.has(tab) ? tab : 'new';
     })();
     const [activeTab, setActiveTab] = useState(initialTab);
+    const highlightRecordId = (() => {
+        const params = new URLSearchParams(window.location.search);
+        return params.get(RECORD_QUERY_KEY) || '';
+    })();
     const activeMeta = TAB_META[activeTab] || TAB_META.new;
     const heroStats = useMemo(() => {
         const items = [
@@ -84,6 +89,39 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
         }
         return items;
     }, [activeMeta.label, activeTab, loading, results, strategies.length]);
+
+    const setBacktestTab = (key, extraParams = {}) => {
+        setActiveTab(key);
+        const params = new URLSearchParams(window.location.search);
+        if (key === 'new') {
+            params.delete(TAB_QUERY_KEY);
+        } else {
+            params.set(TAB_QUERY_KEY, key);
+        }
+        Object.entries(extraParams).forEach(([paramKey, value]) => {
+            if (value === undefined || value === null || value === '') {
+                params.delete(paramKey);
+            } else {
+                params.set(paramKey, value);
+            }
+        });
+        sanitizeParamsForView(params, 'backtest');
+        const nextUrl = buildAppUrl({
+            currentSearch: `?${params.toString()}`,
+            view: 'backtest',
+            tab: params.get(TAB_QUERY_KEY),
+            record: params.get(RECORD_QUERY_KEY),
+            template: params.get('template'),
+            action: params.get('action'),
+            source: params.get('source'),
+            note: params.get('note'),
+        });
+        window.history.replaceState(null, '', nextUrl);
+    };
+
+    const handleOpenHistoryRecord = (recordId) => {
+        setBacktestTab('history', { [RECORD_QUERY_KEY]: recordId });
+    };
 
     const tabItems = [
         {
@@ -111,7 +149,12 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
                         </div>
                     )}
 
-                    {results && <ResultsDisplay results={results} />}
+                    {results && (
+                        <ResultsDisplay
+                            results={results}
+                            onOpenHistoryRecord={handleOpenHistoryRecord}
+                        />
+                    )}
                 </div>
             )
         },
@@ -125,7 +168,7 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
             ),
             children: (
                 <Suspense fallback={<LazyLoadFallback />}>
-                    <BacktestHistory />
+                    <BacktestHistory highlightRecordId={highlightRecordId} />
                 </Suspense>
             )
         },
@@ -207,26 +250,7 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
                     className="backtest-workspace-tabs"
                     activeKey={activeTab}
                     items={tabItems}
-                    onChange={(key) => {
-                        setActiveTab(key);
-                        const params = new URLSearchParams(window.location.search);
-                        if (key === 'new') {
-                            params.delete(TAB_QUERY_KEY);
-                        } else {
-                            params.set(TAB_QUERY_KEY, key);
-                        }
-                        sanitizeParamsForView(params, 'backtest');
-                        const nextUrl = buildAppUrl({
-                            currentSearch: `?${params.toString()}`,
-                            view: 'backtest',
-                            tab: params.get(TAB_QUERY_KEY),
-                            template: params.get('template'),
-                            action: params.get('action'),
-                            source: params.get('source'),
-                            note: params.get('note'),
-                        });
-                        window.history.replaceState(null, '', nextUrl);
-                    }}
+                    onChange={(key) => setBacktestTab(key, { [RECORD_QUERY_KEY]: '' })}
                 />
             </div>
         </div>

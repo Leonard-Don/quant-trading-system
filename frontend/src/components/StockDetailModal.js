@@ -160,6 +160,25 @@ const renderDetailSection = (title, subtitle, accentColor, children) => (
     </div>
 );
 
+const formatMetricNumber = (value, digits = 2, fallback = '-') => {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return fallback;
+    }
+    return Number(value).toFixed(digits);
+};
+
+const formatMetricVolume = (value) => {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+        return '-';
+    }
+
+    const volume = Number(value);
+    if (volume >= 1e9) return `${(volume / 1e9).toFixed(2)}B`;
+    if (volume >= 1e6) return `${(volume / 1e6).toFixed(2)}M`;
+    if (volume >= 1e3) return `${(volume / 1e3).toFixed(2)}K`;
+    return `${volume}`;
+};
+
 const StockDetailModal = ({
     open,
     onCancel,
@@ -252,6 +271,61 @@ const StockDetailModal = ({
                         </div>
                     </div>
                 </div>
+
+                {detailData.raw_data && (
+                    renderDetailSection('实时快照', '当前报价与盘口摘要', '#fa8c16', (
+                        <Row gutter={[12, 12]}>
+                            <Col span={6}>
+                                {renderDetailMetric('最新价', formatMetricNumber(detailData.raw_data.current_price))}
+                            </Col>
+                            <Col span={6}>
+                                {renderDetailMetric(
+                                    '昨收',
+                                    formatMetricNumber(detailData.raw_data.previous_close),
+                                    {
+                                        subtle: detailData.raw_data.change != null
+                                            ? `${detailData.raw_data.change >= 0 ? '+' : ''}${formatMetricNumber(detailData.raw_data.change)}`
+                                            : undefined,
+                                    }
+                                )}
+                            </Col>
+                            <Col span={6}>
+                                {renderDetailMetric(
+                                    '日内区间',
+                                    detailData.raw_data.high != null || detailData.raw_data.low != null
+                                        ? `${formatMetricNumber(detailData.raw_data.low)} - ${formatMetricNumber(detailData.raw_data.high)}`
+                                        : '-',
+                                )}
+                            </Col>
+                            <Col span={6}>
+                                {renderDetailMetric('成交量', formatMetricVolume(detailData.raw_data.volume))}
+                            </Col>
+                            <Col span={6}>
+                                {renderDetailMetric('开盘价', formatMetricNumber(detailData.raw_data.open))}
+                            </Col>
+                            <Col span={6}>
+                                {renderDetailMetric(
+                                    '买一 / 卖一',
+                                    detailData.raw_data.bid != null || detailData.raw_data.ask != null
+                                        ? `${formatMetricNumber(detailData.raw_data.bid)} / ${formatMetricNumber(detailData.raw_data.ask)}`
+                                        : '-',
+                                )}
+                            </Col>
+                            <Col span={6}>
+                                {renderDetailMetric('数据源', detailData.raw_data.source || '-')}
+                            </Col>
+                            <Col span={6}>
+                                {renderDetailMetric(
+                                    '更新时间',
+                                    detailData.raw_data.updated_at
+                                        ? new Date(detailData.raw_data.updated_at).toLocaleString()
+                                        : '-',
+                                    { fontSize: 15 }
+                                )}
+                            </Col>
+                        </Row>
+                    ))
+                )}
 
                 {detailData.raw_data && Object.keys(detailData.raw_data).length > 0 && (
                     renderDetailSection('财务基本面', '真实基础面数据，不随榜单类型漂移', '#1890ff', (

@@ -1,3 +1,4 @@
+import base64
 from fastapi import APIRouter, HTTPException
 import asyncio
 from datetime import datetime
@@ -487,6 +488,41 @@ class ReportRequest(BaseModel):
     slippage: float = 0.001
 
 
+def _build_report_pdf(request: ReportRequest) -> Tuple[bytes, str]:
+    """Generate report bytes and filename through a single shared path."""
+    from src.reporting import pdf_generator
+
+    backtest_result = request.backtest_result
+
+    if not backtest_result:
+        backtest_result, _ = run_backtest_pipeline(
+            symbol=request.symbol,
+            strategy_name=request.strategy,
+            parameters=request.parameters,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            initial_capital=request.initial_capital,
+            commission=request.commission,
+            slippage=request.slippage,
+        )
+    else:
+        backtest_result = ensure_json_serializable(
+            normalize_backtest_results(backtest_result)
+        )
+
+    pdf_content = pdf_generator.generate_backtest_report(
+        backtest_result=backtest_result,
+        symbol=request.symbol,
+        strategy=request.strategy,
+        parameters=request.parameters,
+    )
+    filename = (
+        f"backtest_report_{request.symbol}_{request.strategy}_"
+        f"{datetime.now().strftime('%Y%m%d')}.pdf"
+    )
+    return pdf_content, filename
+
+
 @router.post("/report", summary="生成回测报告 PDF")
 async def generate_report(request: ReportRequest):
     """
@@ -496,38 +532,8 @@ async def generate_report(request: ReportRequest):
     否则会先运行回测再生成报告。
     """
     try:
-        from src.reporting import pdf_generator
-        
-        backtest_result = request.backtest_result
-        
-        # 如果没有提供回测结果，先运行回测
-        if not backtest_result:
-            backtest_result, _ = run_backtest_pipeline(
-                symbol=request.symbol,
-                strategy_name=request.strategy,
-                parameters=request.parameters,
-                start_date=request.start_date,
-                end_date=request.end_date,
-                initial_capital=request.initial_capital,
-                commission=request.commission,
-                slippage=request.slippage,
-            )
-        else:
-            backtest_result = ensure_json_serializable(
-                normalize_backtest_results(backtest_result)
-            )
-        
-        # 生成 PDF
-        pdf_content = pdf_generator.generate_backtest_report(
-            backtest_result=backtest_result,
-            symbol=request.symbol,
-            strategy=request.strategy,
-            parameters=request.parameters
-        )
-        
-        # 返回 PDF 文件
-        filename = f"backtest_report_{request.symbol}_{request.strategy}_{datetime.now().strftime('%Y%m%d')}.pdf"
-        
+        pdf_content, filename = _build_report_pdf(request)
+
         return Response(
             content=pdf_content,
             media_type="application/pdf",
@@ -550,39 +556,14 @@ async def generate_report_base64(request: ReportRequest):
     适用于前端直接下载
     """
     try:
-        from src.reporting import pdf_generator
-        
-        backtest_result = request.backtest_result
-        
-        if not backtest_result:
-            backtest_result, _ = run_backtest_pipeline(
-                symbol=request.symbol,
-                strategy_name=request.strategy,
-                parameters=request.parameters,
-                start_date=request.start_date,
-                end_date=request.end_date,
-                initial_capital=request.initial_capital,
-                commission=request.commission,
-                slippage=request.slippage,
-            )
-        else:
-            backtest_result = ensure_json_serializable(
-                normalize_backtest_results(backtest_result)
-            )
-        
-        # 生成 Base64 编码的 PDF
-        pdf_base64 = pdf_generator.get_report_base64(
-            backtest_result=backtest_result,
-            symbol=request.symbol,
-            strategy=request.strategy,
-            parameters=request.parameters
-        )
-        
+        pdf_content, filename = _build_report_pdf(request)
+        pdf_base64 = base64.b64encode(pdf_content).decode("utf-8")
+
         return {
             "success": True,
             "data": {
                 "pdf_base64": pdf_base64,
-                "filename": f"backtest_report_{request.symbol}_{request.strategy}_{datetime.now().strftime('%Y%m%d')}.pdf",
+                "filename": filename,
                 "content_type": "application/pdf"
             }
         }

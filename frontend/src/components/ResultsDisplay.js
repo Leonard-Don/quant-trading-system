@@ -24,9 +24,10 @@ import {
   ThunderboltOutlined,
   RiseOutlined,
   FallOutlined,
-  TransactionOutlined
+  TransactionOutlined,
+  ClockCircleOutlined
 } from '@ant-design/icons';
-import { getBacktestReport } from '../services/api';
+import { downloadBacktestReport } from '../services/api';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
 import { normalizeBacktestResult } from '../utils/backtest';
 import { useSafeMessageApi } from '../utils/messageApi';
@@ -36,7 +37,7 @@ import MonthlyHeatmap from './MonthlyHeatmap';
 import RiskRadar from './RiskRadar';
 import ReturnHistogram from './ReturnHistogram';
 
-const ResultsDisplay = ({ results }) => {
+const ResultsDisplay = ({ results, onOpenHistoryRecord }) => {
   const message = useSafeMessageApi();
   const [activeTab, setActiveTab] = useState('overview');
   const normalizedResults = useMemo(() => normalizeBacktestResult(results), [results]);
@@ -91,10 +92,46 @@ const ResultsDisplay = ({ results }) => {
   const diagnosticMetrics = [
     { label: '交易次数', value: `${normalizedResults.num_trades || 0} 笔` },
     { label: '胜率', value: formatPercentage(normalizedResults.win_rate || 0) },
+    { label: '亏损率', value: formatPercentage(normalizedResults.loss_rate || 0) },
     { label: '盈亏比', value: normalizedResults.profit_factor?.toFixed(2) || '不适用' },
     { label: '完成交易', value: `${normalizedResults.total_completed_trades || 0} 组` },
     { label: '持仓状态', value: normalizedResults.has_open_position ? '仍有未平仓' : '已全部平仓' },
     { label: '净利润', value: formatCurrency(normalizedResults.net_profit || 0) },
+  ];
+  const extendedMetrics = [
+    {
+      key: 'avg_win',
+      title: '平均盈利',
+      value: normalizedResults.avg_win || 0,
+      formatter: (value) => formatCurrency(Number(value || 0)),
+      color: 'var(--accent-success)',
+      icon: <RiseOutlined style={{ fontSize: '14px' }} />,
+    },
+    {
+      key: 'avg_loss',
+      title: '平均亏损',
+      value: normalizedResults.avg_loss || 0,
+      formatter: (value) => formatCurrency(Number(value || 0)),
+      color: 'var(--accent-danger)',
+      icon: <FallOutlined style={{ fontSize: '14px' }} />,
+    },
+    {
+      key: 'avg_holding_days',
+      title: '平均持仓天数',
+      value: normalizedResults.avg_holding_days || 0,
+      precision: 1,
+      suffix: '天',
+      color: 'var(--accent-primary)',
+      icon: <ClockCircleOutlined style={{ fontSize: '14px' }} />,
+    },
+    {
+      key: 'total_profit',
+      title: '累计盈利',
+      value: normalizedResults.total_profit || 0,
+      formatter: (value) => formatCurrency(Number(value || 0)),
+      color: 'var(--accent-success)',
+      icon: <ThunderboltOutlined style={{ fontSize: '14px' }} />,
+    },
   ];
 
   const copyResults = () => {
@@ -228,7 +265,7 @@ const ResultsDisplay = ({ results }) => {
     try {
       message.loading({ content: '正在生成PDF报告...', key: 'pdf_export' });
 
-      const response = await getBacktestReport({
+      const response = await downloadBacktestReport({
         symbol: normalizedResults.symbol || 'UNKNOWN',
         strategy: normalizedResults.strategy || 'unknown',
         backtest_result: normalizedResults,
@@ -240,24 +277,17 @@ const ResultsDisplay = ({ results }) => {
         slippage: normalizedResults.slippage,
       });
 
-      if (response.success && response.data?.pdf_base64) {
-        // Convert Base64 directly to download
-        const byteCharacters = atob(response.data.pdf_base64);
-        const byteNumbers = new Array(byteCharacters.length);
-        for (let i = 0; i < byteCharacters.length; i++) {
-          byteNumbers[i] = byteCharacters.charCodeAt(i);
-        }
-        const byteArray = new Uint8Array(byteNumbers);
-        const blob = new Blob([byteArray], { type: 'application/pdf' });
-
+      if (response?.blob) {
         const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = response.data.filename || `backtest_report_${new Date().toISOString().split('T')[0]}.pdf`;
+        const objectUrl = URL.createObjectURL(response.blob);
+        link.href = objectUrl;
+        link.download = response.filename || `backtest_report_${new Date().toISOString().split('T')[0]}.pdf`;
         link.click();
+        URL.revokeObjectURL(objectUrl);
 
         message.success({ content: 'PDF报告已下载', key: 'pdf_export' });
       } else {
-        throw new Error(response.error || '生成报告失败');
+        throw new Error('生成报告失败');
       }
 
     } catch (error) {
@@ -426,6 +456,24 @@ const ResultsDisplay = ({ results }) => {
               </Card>
             </Col>
           </Row>
+
+          <Row gutter={[16, 16]}>
+            {extendedMetrics.map((metric) => (
+              <Col xs={24} sm={12} xl={6} key={metric.key}>
+                <Card className="metric-card workspace-kpi-card" size="small">
+                  <Statistic
+                    title={metric.title}
+                    value={metric.value}
+                    precision={metric.precision}
+                    suffix={metric.suffix}
+                    formatter={metric.formatter}
+                    valueStyle={{ color: metric.color, fontSize: '18px' }}
+                    prefix={metric.icon}
+                  />
+                </Card>
+              </Col>
+            ))}
+          </Row>
         </div>
       )
     },
@@ -540,6 +588,15 @@ const ResultsDisplay = ({ results }) => {
         }
         extra={
           <Space wrap className="workspace-toolbar">
+            {normalizedResults.history_record_id ? (
+              <Button
+                icon={<FileTextOutlined />}
+                onClick={() => onOpenHistoryRecord?.(normalizedResults.history_record_id)}
+                size="small"
+              >
+                查看历史记录
+              </Button>
+            ) : null}
             <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
               <Button icon={<DownloadOutlined />} size="small">
                 导出报告
