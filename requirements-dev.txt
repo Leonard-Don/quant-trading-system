@@ -24,6 +24,7 @@ sqlalchemy>=2.0.0
 pytest-xdist>=3.3.0  # Parallel testing
 pytest-timeout>=2.1.0  # Test timeouts
 coverage>=7.0.0
+httpx>=0.23.0
 
 # Performance profiling
 py-spy>=0.3.14
