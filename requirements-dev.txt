@@ -30,4 +30,3 @@ py-spy>=0.3.14
 memory-profiler>=0.61.0
 
 # API documentation
-redoc>=2.1.0
