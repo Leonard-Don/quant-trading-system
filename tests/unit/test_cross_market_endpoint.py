@@ -60,6 +60,9 @@ def test_cross_market_endpoint_success(monkeypatch):
     payload = response.json()
     assert payload["success"] is True
     assert "spread_series" in payload["data"]
+    assert "asset_universe" in payload["data"]
+    assert "hedge_portfolio" in payload["data"]
+    assert "asset_contributions" in payload["data"]
 
 
 def test_cross_market_endpoint_requires_both_sides(monkeypatch):

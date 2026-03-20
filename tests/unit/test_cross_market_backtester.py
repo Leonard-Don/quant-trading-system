@@ -47,6 +47,10 @@ def test_asset_universe_normalizes_weights_by_side():
     assert round(sum(asset.weight for asset in short_assets), 6) == 1.0
     assert short_assets[0].weight == 0.75
     assert short_assets[1].weight == 0.25
+    summary = universe.summary()
+    assert summary["asset_count"] == 4
+    assert summary["by_side"]["long"] == 2
+    assert summary["by_asset_class"]["ETF"] == 3
 
 
 def test_asset_universe_requires_both_sides():
@@ -116,8 +120,14 @@ def test_cross_market_backtester_returns_expected_sections():
     assert "correlation_matrix" in results
     assert "data_alignment" in results
     assert "execution_diagnostics" in results
+    assert "asset_universe" in results
+    assert "hedge_portfolio" in results
+    assert "asset_contributions" in results
     assert results["price_matrix_summary"]["asset_count"] == 2
     assert len(results["portfolio_curve"]) == 12
+    assert results["asset_universe"]["by_side"]["long"] == 1
+    assert "XLU" in results["asset_contributions"]
+    assert results["hedge_portfolio"]["gross_exposure"] > 0
 
 
 def test_cross_market_backtester_uses_tradable_mask():
@@ -182,3 +192,4 @@ def test_cross_market_backtester_returns_hedge_ratio_series_for_ols_mode():
     assert "hedge_ratio_series" in results
     assert len(results["hedge_ratio_series"]) == results["price_matrix_summary"]["row_count"]
     assert results["execution_diagnostics"]["construction_mode"] == "ols_hedge"
+    assert results["hedge_portfolio"]["hedge_ratio"]["average"] > 0
