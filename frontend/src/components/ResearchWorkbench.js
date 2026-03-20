@@ -39,6 +39,7 @@ import {
   updateResearchTask,
 } from '../services/api';
 import { formatResearchSource, navigateByResearchAction } from '../utils/researchContext';
+import SnapshotComparePanel from './research-workbench/SnapshotComparePanel';
 
 const { Paragraph, Text, Title } = Typography;
 const { TextArea, Search } = Input;
@@ -891,6 +892,8 @@ function ResearchWorkbench() {
                 <Card size="small" title="历史快照" bordered={false}>
                   {renderSnapshotHistory(selectedTask)}
                 </Card>
+
+                <SnapshotComparePanel task={selectedTask} />
 
                 <Card
                   size="small"
