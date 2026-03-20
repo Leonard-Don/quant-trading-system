@@ -117,5 +117,32 @@ class AssetUniverse:
             return list(self.assets)
         return [asset for asset in self.assets if asset.side == side]
 
+    def symbols(self) -> List[str]:
+        return [asset.symbol for asset in self.assets]
+
+    def summary(self) -> Dict[str, object]:
+        by_side = {
+            side.value: len(self.get_assets(side))
+            for side in AssetSide
+        }
+        by_class: Dict[str, int] = {}
+        for asset in self.assets:
+            by_class[asset.asset_class.value] = by_class.get(asset.asset_class.value, 0) + 1
+
+        return {
+            "asset_count": len(self.assets),
+            "symbols": self.symbols(),
+            "by_side": by_side,
+            "by_asset_class": by_class,
+            "currencies": sorted({asset.currency for asset in self.assets}),
+            "legs": {
+                side.value: {
+                    "symbols": [asset.symbol for asset in self.get_assets(side)],
+                    "weight_sum": round(sum(asset.weight for asset in self.get_assets(side)), 6),
+                }
+                for side in AssetSide
+            },
+        }
+
     def as_dicts(self) -> List[Dict[str, object]]:
         return [asset.to_dict() for asset in self.assets]

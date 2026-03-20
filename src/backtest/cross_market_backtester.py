@@ -20,6 +20,7 @@ from src.trading.cross_market import (
     AssetSide,
     AssetUniverse,
     CrossMarketStrategy,
+    HedgePortfolioBuilder,
     SpreadZScoreStrategy,
 )
 
@@ -92,6 +93,7 @@ class CrossMarketBacktester:
         results["strategy"] = strategy_name
         results["parameters"] = parameters or {}
         results["asset_specs"] = universe.as_dicts()
+        results["asset_universe"] = universe.summary()
         results["price_matrix_summary"] = {
             "asset_count": len(price_matrix.columns),
             "row_count": len(price_matrix),
@@ -185,12 +187,13 @@ class CrossMarketBacktester:
         data_alignment: Dict[str, Any],
         construction_mode: str,
     ) -> Dict[str, Any]:
-        long_assets = universe.get_assets(AssetSide.LONG)
-        short_assets = universe.get_assets(AssetSide.SHORT)
         returns = price_matrix.pct_change().fillna(0.0)
-
-        long_leg_returns = sum(returns[asset.symbol] * asset.weight for asset in long_assets)
-        short_leg_returns = sum(returns[asset.symbol] * asset.weight for asset in short_assets)
+        hedge_portfolio = HedgePortfolioBuilder(universe.get_assets())
+        long_assets = hedge_portfolio.long_leg.assets
+        short_assets = hedge_portfolio.short_leg.assets
+        leg_returns = hedge_portfolio.build_leg_returns(returns)
+        long_leg_returns = leg_returns["long"]
+        short_leg_returns = leg_returns["short"]
         spread_return = long_leg_returns - short_leg_returns
 
         positions = signal_frame["position"].shift(1).fillna(0.0)
@@ -232,6 +235,8 @@ class CrossMarketBacktester:
                 "cumulative_return": float((1 + spread_return).cumprod().iloc[-1] - 1),
             },
         }
+        asset_contributions = hedge_portfolio.build_asset_contributions(returns)
+        hedge_summary = hedge_portfolio.summarize_exposures(signal_frame.get("hedge_ratio"))
 
         spread_series = signal_frame.copy()
         spread_series["date"] = spread_series.index.strftime("%Y-%m-%d")
@@ -276,6 +281,8 @@ class CrossMarketBacktester:
             },
             "data_alignment": data_alignment["data_alignment"],
             "execution_diagnostics": execution_diagnostics,
+            "hedge_portfolio": hedge_summary,
+            "asset_contributions": asset_contributions,
         }
         if construction_mode == "ols_hedge":
             results["hedge_ratio_series"] = _dataframe_to_records(
