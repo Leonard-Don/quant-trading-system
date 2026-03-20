@@ -3,3 +3,9 @@ contact_links:
   - name: Contribution guide
     url: https://github.com/Leonard-Don/quant-trading-system/blob/main/CONTRIBUTING.md
     about: Please review the contribution guide before opening feature or bug tickets.
+  - name: Security policy
+    url: https://github.com/Leonard-Don/quant-trading-system/blob/main/SECURITY.md
+    about: Please use the security policy for vulnerability disclosure instead of opening a public issue.
+  - name: Latest release
+    url: https://github.com/Leonard-Don/quant-trading-system/releases/latest
+    about: Check the latest release notes before opening regressions or usage questions.
