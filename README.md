@@ -18,7 +18,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-blueviolet?style=flat-square)](CONTRIBUTING.md)
 
-[本地体验](#-本地体验) · [核心工作流](#-核心工作流) · [功能特性](#-功能特性) · [快速开始](#-快速开始) · [部署说明](docs/DEPLOYMENT.md) · [API 文档](#-api-文档)
+[本地体验](#-本地体验) · [v3.5.0 更新](#-v350-重点更新) · [核心工作流](#-核心工作流) · [功能特性](#-功能特性) · [快速开始](#-快速开始) · [部署说明](docs/DEPLOYMENT.md) · [API 文档](#-api-文档) · [GitHub 协作](#-github-协作)
 
 </div>
 
@@ -52,10 +52,30 @@ cd quant-trading-system
 ### 适合 GitHub 访客的体验路径
 
 1. 打开行业热度页，先看热力图和排行榜
-2. 打开定价研究页，输入 `AAPL` 或 `NVDA` 查看估值与定价偏差
-3. 打开上帝视角大屏，查看另类数据和宏观因子总览
-4. 打开跨市场回测页，加载模板并运行 long/short 组合
-5. 打开 Swagger UI，查看后端接口结构
+2. 打开实时行情页，点击指数或美股卡片进入深度详情
+3. 打开定价研究页，输入 `AAPL` 或 `NVDA` 查看估值与定价偏差
+4. 打开上帝视角大屏，查看另类数据和宏观因子总览
+5. 打开跨市场回测页，加载模板并运行 long/short 组合
+6. 打开 Swagger UI，查看后端接口结构
+
+---
+
+## 🚀 v3.5.0 重点更新
+
+- **实时行情深度详情回归**：重建了“实时快照 + 全维分析”链路，恢复总览、趋势、量价、情绪、形态、风险、相关性与 AI 预测联动。
+- **交易推送链路补齐**：补通 `/ws/trades`，交易弹窗现在会直接消费账户快照、交易广播和单条实时 quote。
+- **前端加载速度优化**：实时详情和交易弹窗改为懒加载，分析预取和重复请求明显收敛。
+- **回测结果契约稳定化**：历史、导出、报告和前端展示已统一到兼容字段口径。
+
+---
+
+## 🤝 GitHub 协作
+
+- **最新发布**：[v3.5.0](https://github.com/Leonard-Don/quant-trading-system/releases/tag/v3.5.0)
+- **CI 状态**：[GitHub Actions](https://github.com/Leonard-Don/quant-trading-system/actions/workflows/ci.yml)
+- **提问与反馈**：[Issues](https://github.com/Leonard-Don/quant-trading-system/issues)
+- **贡献入口**：[CONTRIBUTING.md](CONTRIBUTING.md)
+- **安全披露**：[SECURITY.md](SECURITY.md)
 
 ---
 
