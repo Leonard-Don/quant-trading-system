@@ -99,6 +99,10 @@ cd quant-trading-system
 
 ## 👀 界面预览
 
+### 实时行情深度详情
+
+![实时行情深度详情](docs/screenshots/realtime-deep-detail.png)
+
 ### 行业热度总览
 
 ![行业热度总览](docs/screenshots/industry-ranking-overview.png)
