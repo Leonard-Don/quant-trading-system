@@ -401,6 +401,52 @@ function CrossMarketBacktestPanel() {
     ];
   }, [results]);
 
+  const contributionColumns = useMemo(
+    () => [
+      {
+        title: '资产',
+        dataIndex: 'symbol',
+        key: 'symbol',
+      },
+      {
+        title: '方向',
+        dataIndex: 'side',
+        key: 'side',
+        render: (value) => <Tag color={value === 'long' ? 'green' : 'volcano'}>{value === 'long' ? '多头' : '空头'}</Tag>,
+      },
+      {
+        title: '类别',
+        dataIndex: 'asset_class',
+        key: 'asset_class',
+        render: (value) => ASSET_CLASS_LABELS[value] || value,
+      },
+      {
+        title: '权重',
+        dataIndex: 'weight',
+        key: 'weight',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '累计贡献',
+        dataIndex: 'cumulative_return',
+        key: 'cumulative_return',
+        render: (value) => <span style={{ color: getValueColor(value) }}>{formatPercentage(Number(value || 0))}</span>,
+      },
+      {
+        title: '波动率',
+        dataIndex: 'volatility',
+        key: 'volatility',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+    ],
+    []
+  );
+
+  const assetContributionRows = useMemo(
+    () => Object.values(results?.asset_contributions || {}),
+    [results]
+  );
+
   return (
     <div className="workspace-tab-view" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div className="workspace-section workspace-section--accent">
@@ -744,6 +790,80 @@ function CrossMarketBacktestPanel() {
           </Row>
 
           <Row gutter={[16, 16]}>
+            <Col xs={24} xl={12}>
+              <Card title="资产宇宙摘要" variant="borderless" className="workspace-panel">
+                <Row gutter={[16, 16]}>
+                  <Col span={8}>
+                    <Statistic
+                      title="资产数量"
+                      value={results.asset_universe?.asset_count || 0}
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic
+                      title="多头数量"
+                      value={results.asset_universe?.by_side?.long || 0}
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic
+                      title="空头数量"
+                      value={results.asset_universe?.by_side?.short || 0}
+                    />
+                  </Col>
+                </Row>
+                <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {Object.entries(results.asset_universe?.by_asset_class || {}).map(([key, value]) => (
+                    <Tag key={key}>{ASSET_CLASS_LABELS[key] || key} · {value}</Tag>
+                  ))}
+                  {(results.asset_universe?.currencies || []).map((currency) => (
+                    <Tag color="blue" key={currency}>{currency}</Tag>
+                  ))}
+                </div>
+              </Card>
+            </Col>
+            <Col xs={24} xl={12}>
+              <Card title="对冲组合画像" variant="borderless" className="workspace-panel">
+                <Row gutter={[16, 16]}>
+                  <Col span={8}>
+                    <Statistic
+                      title="Gross Exposure"
+                      value={(results.hedge_portfolio?.gross_exposure || 0) * 100}
+                      precision={2}
+                      suffix="%"
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic
+                      title="Net Exposure"
+                      value={(results.hedge_portfolio?.net_exposure || 0) * 100}
+                      precision={2}
+                      suffix="%"
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic
+                      title="平均对冲比"
+                      value={results.hedge_portfolio?.hedge_ratio?.average || 0}
+                      precision={2}
+                    />
+                  </Col>
+                </Row>
+                <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <Text type="secondary">
+                    多头权重 {formatPercentage(results.hedge_portfolio?.long_weight || 0)} ·
+                    空头权重 {formatPercentage(results.hedge_portfolio?.short_weight || 0)} ·
+                    有效空头 {formatPercentage(results.hedge_portfolio?.effective_short_weight || 0)}
+                  </Text>
+                  <Text type="secondary">
+                    Hedge Ratio 区间 {Number(results.hedge_portfolio?.hedge_ratio?.min || 0).toFixed(2)} ~ {Number(results.hedge_portfolio?.hedge_ratio?.max || 0).toFixed(2)}
+                  </Text>
+                </div>
+              </Card>
+            </Col>
+          </Row>
+
+          <Row gutter={[16, 16]}>
             <Col xs={24} xl={14}>
               <Card title="组合净值曲线" variant="borderless" className="workspace-panel workspace-chart-card">
                 <div style={{ width: '100%', height: 320 }}>
@@ -894,6 +1014,17 @@ function CrossMarketBacktestPanel() {
               </Card>
             </Col>
           </Row>
+
+          <Card title="资产贡献度" variant="borderless">
+            <Table
+              size="small"
+              rowKey="symbol"
+              pagination={false}
+              locale={{ emptyText: '暂无贡献度数据' }}
+              dataSource={assetContributionRows}
+              columns={contributionColumns}
+            />
+          </Card>
 
           <Card title="资产篮子摘要" variant="borderless">
             <Row gutter={[16, 16]}>
