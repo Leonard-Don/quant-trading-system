@@ -11,10 +11,29 @@ class WebSocketService {
         this.maxReconnectAttempts = 5;
         this.reconnectDelay = 3000;
         this.reconnectTimer = null;
+        this.heartbeatIntervalMs = 15000;
+        this.heartbeatTimer = null;
         this.listeners = new Map();
         this.subscriptions = new Set();
         this.isConnected = false;
         this.manuallyDisconnected = false;
+        this.lastErrorReason = null;
+    }
+
+    startHeartbeat() {
+        this.stopHeartbeat();
+        this.heartbeatTimer = setInterval(() => {
+            if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.sendMessage({ action: 'ping' });
+            }
+        }, this.heartbeatIntervalMs);
+    }
+
+    stopHeartbeat() {
+        if (this.heartbeatTimer) {
+            clearInterval(this.heartbeatTimer);
+            this.heartbeatTimer = null;
+        }
     }
 
     /**
@@ -46,14 +65,36 @@ class WebSocketService {
                 console.log('Connecting to WebSocket:', url);
                 this.ws = new WebSocket(url);
                 const socket = this.ws;
+                let settled = false;
+
+                const rejectIfPending = (error) => {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    this.connectPromise = null;
+                    reject(error);
+                };
+
+                const resolveIfPending = () => {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    this.connectPromise = null;
+                    resolve();
+                };
 
                 this.ws.onopen = () => {
                     if (this.ws !== socket) {
                         return;
                     }
                     console.log('WebSocket connected');
+                    const recovered = this.reconnectAttempts > 0 || Boolean(this.lastErrorReason);
                     this.isConnected = true;
                     this.reconnectAttempts = 0;
+                    this.lastErrorReason = null;
+                    this.startHeartbeat();
                     if (this.reconnectTimer) {
                         clearTimeout(this.reconnectTimer);
                         this.reconnectTimer = null;
@@ -64,9 +105,13 @@ class WebSocketService {
                         this.sendMessage({ action: 'subscribe', symbols: Array.from(this.subscriptions) });
                     }
 
-                    this.notifyListeners('connection', { status: 'connected' });
-                    this.connectPromise = null;
-                    resolve();
+                    this.notifyListeners('connection', {
+                        status: 'connected',
+                        reconnectAttempts: 0,
+                        recovered,
+                        lastError: null,
+                    });
+                    resolveIfPending();
                 };
 
                 this.ws.onmessage = (event) => {
@@ -86,7 +131,12 @@ class WebSocketService {
                         return;
                     }
                     console.error('WebSocket error:', error);
-                    this.notifyListeners('error', { error });
+                    const reason = error?.message || 'WebSocket connection failed';
+                    this.lastErrorReason = reason;
+                    this.notifyListeners('error', { error, reason });
+                    if (!this.isConnected) {
+                        rejectIfPending(new Error('WebSocket connection failed'));
+                    }
                 };
 
                 this.ws.onclose = (event) => {
@@ -94,16 +144,36 @@ class WebSocketService {
                         return;
                     }
                     console.log('WebSocket closed:', event.code, event.reason);
+                    const wasConnected = this.isConnected;
+                    const closeReason = event?.reason || (event?.code ? `WebSocket closed (${event.code})` : 'WebSocket closed');
                     this.isConnected = false;
                     this.connectPromise = null;
+                    this.stopHeartbeat();
                     this.ws = null;
-                    this.notifyListeners('connection', { status: 'disconnected' });
+                    this.lastErrorReason = this.lastErrorReason || closeReason;
+
+                    if (!wasConnected && !this.manuallyDisconnected) {
+                        const reasonSuffix = event?.reason ? `: ${event.reason}` : '';
+                        rejectIfPending(new Error(`WebSocket connection failed${reasonSuffix}`));
+                    }
 
                     // 尝试重连
                     if (!this.manuallyDisconnected && this.reconnectAttempts < this.maxReconnectAttempts) {
                         this.reconnectAttempts++;
                         console.log(`Reconnecting... attempt ${this.reconnectAttempts}`);
+                        this.notifyListeners('connection', {
+                            status: 'reconnecting',
+                            reconnectAttempts: this.reconnectAttempts,
+                            lastError: this.lastErrorReason,
+                            nextRetryInMs: this.reconnectDelay,
+                        });
                         this.reconnectTimer = setTimeout(() => this.connect(), this.reconnectDelay);
+                    } else {
+                        this.notifyListeners('connection', {
+                            status: 'disconnected',
+                            reconnectAttempts: this.reconnectAttempts,
+                            lastError: this.lastErrorReason,
+                        });
                     }
                 };
 
@@ -126,11 +196,13 @@ class WebSocketService {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
         }
+        this.stopHeartbeat();
         if (this.ws) {
             this.ws.close();
             this.ws = null;
         }
         this.isConnected = false;
+        this.lastErrorReason = null;
 
         if (resetSubscriptions) {
             this.subscriptions.clear();
@@ -207,7 +279,8 @@ class WebSocketService {
                 break;
             case 'error':
                 console.error('WebSocket error message:', data.message);
-                this.notifyListeners('error', data);
+                this.lastErrorReason = data.message || this.lastErrorReason;
+                this.notifyListeners('error', { ...data, reason: data.message || this.lastErrorReason });
                 break;
             default:
                 console.log('Unknown message type:', data.type);
@@ -270,7 +343,8 @@ class WebSocketService {
         return {
             isConnected: this.isConnected,
             subscriptions: Array.from(this.subscriptions),
-            reconnectAttempts: this.reconnectAttempts
+            reconnectAttempts: this.reconnectAttempts,
+            lastErrorReason: this.lastErrorReason
         };
     }
 }

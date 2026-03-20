@@ -15,7 +15,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 # 添加src目录到路径
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
-from backend.app.core.config import config, setup_logging
+from backend.app.core.config import APP_VERSION, config, setup_logging
 from backend.app.api.v1.api import api_router
 from backend.app.websocket.routes import router as websocket_router
 from backend.app.core.error_handler import register_exception_handlers
@@ -104,7 +104,7 @@ async def lifespan(app: FastAPI):
 # 创建FastAPI应用
 app = FastAPI(
     title="量化交易系统API",
-    description="""
+    description=f"""
     ## 专业的量化交易策略回测系统
 
     ### 功能特性
@@ -116,9 +116,9 @@ app = FastAPI(
     - 🔌 **WebSocket支持**: 实时股票报价推送
 
     ### API版本
-    - **当前版本**: v3.4.1
+    - **当前版本**: v{APP_VERSION}
     - **API版本**: v1
-    - **最后更新**: 2026-03-18
+    - **最后更新**: 2026-03-20
 
     ### 认证
     当前版本无需认证，生产环境建议添加API密钥认证。
@@ -128,7 +128,7 @@ app = FastAPI(
     - 数据范围: 最多5年历史数据
     - 并发回测: 最多10个
     """,
-    version="3.4.1",
+    version=APP_VERSION,
     lifespan=lifespan,
     terms_of_service="https://example.com/terms/",
     contact={
@@ -208,4 +208,10 @@ async def health_check():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    uvicorn.run(
+        "backend.main:app",
+        host=config["api_host"],
+        port=config["api_port"],
+        reload=config["api_reload"],
+    )

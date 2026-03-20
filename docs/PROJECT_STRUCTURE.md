@@ -30,6 +30,7 @@ PythonProject/                          # 项目根目录
 │   │   └── 📁 providers/               # 多数据源适配
 │   ├── 📁 reporting/                   # 报告导出与生成
 │   ├── 📁 security/                    # 安全与输入校验
+│   ├── 📁 settings/                    # 按域拆分的配置模块
 │   ├── 📁 strategy/                    # 交易策略
 │   ├── 📁 trading/                     # 交易执行与管理
 │   └── 📁 utils/                       # 通用工具
@@ -58,6 +59,7 @@ PythonProject/                          # 项目根目录
 ├── 📁 metrics/                         # 性能指标
 ├── requirements.txt                    # Python 依赖
 ├── requirements-dev.txt                # 开发依赖
+├── VERSION                             # 统一版本源
 ├── .env.example                        # 配置模板
 ├── .env                                # 本地配置
 ├── .gitignore                          # Git 忽略文件
@@ -96,9 +98,18 @@ PythonProject/                          # 项目根目录
 #### 5. 交易执行 (`src/trading/`)
 - **trade_manager.py**: 交易执行与管理
 
-#### 6. 工具层 (`src/utils/`)
+#### 6. 配置层 (`src/settings/`)
+- **base.py**: 项目根目录、`.env` 加载、版本与日志基础配置
+- **data.py**: 数据缓存与回看窗口
+- **trading.py**: 交易、策略默认参数与回测配置
+- **api.py**: 后端监听、前端地址与通信配置
+- **performance.py**: 缓存 TTL、并发与监控阈值
+- **gui.py**: 本地桌面窗口与紧凑模式
+
+#### 7. 工具层 (`src/utils/`)
 - **cache.py**: 缓存管理
-- **config.py**: 配置管理
+- **config.py**: 配置兼容层，聚合 `src/settings/`
+- **version.py**: 统一版本读取
 - **error_handler.py**: 错误处理
 - **performance.py**: 性能监控
 - **validators.py**: 数据验证
@@ -120,7 +131,6 @@ PythonProject/                          # 项目根目录
 ### 1. 环境准备
 ```bash
 # 安装 Python 依赖
-pip install -r requirements.txt
 pip install -r requirements-dev.txt
 
 # 安装前端依赖
@@ -197,4 +207,4 @@ cd frontend && npm start
 
 ---
 
-*项目结构说明最后更新: 2026年2月5日*
+*项目结构说明最后更新: 2026年3月20日*

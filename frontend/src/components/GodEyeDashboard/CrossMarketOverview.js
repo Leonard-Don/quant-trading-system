@@ -25,11 +25,26 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
                 }}
               >
                 <Space wrap style={{ marginBottom: 10 }}>
+                  <Tag color={card.recommendationTone || 'blue'}>{card.recommendationTier || '候选模板'}</Tag>
                   <Tag color="geekblue">{card.construction_mode}</Tag>
                   <Tag color="gold">{card.longCount}L / {card.shortCount}S</Tag>
+                  <Tag color="cyan">score {Number(card.recommendationScore || 0).toFixed(2)}</Tag>
                 </Space>
                 <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>{card.name}</div>
+                <Text style={{ color: 'rgba(125, 213, 255, 0.92)', display: 'block', marginBottom: 8 }}>
+                  {card.theme || 'Macro theme'}
+                </Text>
                 <Paragraph style={{ color: 'rgba(245,248,252,0.82)', minHeight: 48 }}>{card.description}</Paragraph>
+                <Paragraph style={{ color: 'rgba(245,248,252,0.72)', minHeight: 52, marginBottom: 10 }}>
+                  {card.driverHeadline}
+                </Paragraph>
+                <Space wrap size={[6, 6]} style={{ display: 'flex', marginBottom: 12 }}>
+                  {(card.matchedDrivers || []).map((driver) => (
+                    <Tag key={driver.key} color={driver.type === 'factor' ? 'purple' : driver.type === 'alert' ? 'red' : 'blue'}>
+                      {driver.label}
+                    </Tag>
+                  ))}
+                </Space>
                 <Text style={{ color: 'rgba(245,248,252,0.78)', display: 'block', marginBottom: 14 }}>
                   {card.stance}
                 </Text>

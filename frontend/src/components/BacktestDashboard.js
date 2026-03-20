@@ -1,16 +1,17 @@
-import React, { lazy, Suspense, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Tabs, Spin, Space, Tag, Typography } from 'antd';
-import { BarChartOutlined, HistoryOutlined, ExperimentOutlined, PieChartOutlined, GlobalOutlined } from '@ant-design/icons';
+import { BarChartOutlined, HistoryOutlined, ExperimentOutlined, PieChartOutlined, GlobalOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import StrategyForm from './StrategyForm';
 import ResultsDisplay from './ResultsDisplay';
 import LoadingSpinner from './LoadingSpinner';
 import CrossMarketBacktestPanel from './CrossMarketBacktestPanel';
-import { buildAppUrl, sanitizeParamsForView } from '../utils/researchContext';
+import { buildAppUrl, navigateToAppUrl, sanitizeParamsForView } from '../utils/researchContext';
 
 // Lazy load history component to keep initial bundle size small
 const BacktestHistory = lazy(() => import('./BacktestHistory'));
 const StrategyComparison = lazy(() => import('./StrategyComparison'));
 const PortfolioOptimizer = lazy(() => import('./PortfolioOptimizer'));
+const AdvancedBacktestLab = lazy(() => import('./AdvancedBacktestLab'));
 
 const LazyLoadFallback = () => (
     <div style={{
@@ -27,7 +28,7 @@ const LazyLoadFallback = () => (
 
 const TAB_QUERY_KEY = 'tab';
 const RECORD_QUERY_KEY = 'record';
-const VALID_TABS = new Set(['new', 'history', 'comparison', 'portfolio', 'cross-market']);
+const VALID_TABS = new Set(['new', 'history', 'comparison', 'portfolio', 'cross-market', 'advanced']);
 const TAB_META = {
     new: {
         title: '策略回测工作台',
@@ -54,19 +55,35 @@ const TAB_META = {
         description: '围绕模板、篮子构造、质量约束和联动研究任务，完成跨资产回测与诊断。',
         label: '跨市场',
     },
+    advanced: {
+        title: '高级实验台',
+        description: '把批量回测和 Walk-Forward 接进统一工作流，方便在正式回测之外继续做系统性验证。',
+        label: '高级实验',
+    },
+};
+
+const readBacktestLocationState = (search = window.location.search) => {
+    const params = new URLSearchParams(search);
+    const tab = params.get(TAB_QUERY_KEY);
+    return {
+        activeTab: VALID_TABS.has(tab) ? tab : 'new',
+        highlightRecordId: params.get(RECORD_QUERY_KEY) || '',
+    };
 };
 
 const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) => {
-    const initialTab = (() => {
-        const params = new URLSearchParams(window.location.search);
-        const tab = params.get(TAB_QUERY_KEY);
-        return VALID_TABS.has(tab) ? tab : 'new';
-    })();
-    const [activeTab, setActiveTab] = useState(initialTab);
-    const highlightRecordId = (() => {
-        const params = new URLSearchParams(window.location.search);
-        return params.get(RECORD_QUERY_KEY) || '';
-    })();
+    const [locationState, setLocationState] = useState(() => readBacktestLocationState());
+    const { activeTab, highlightRecordId } = locationState;
+
+    useEffect(() => {
+        const syncLocationState = () => {
+            setLocationState(readBacktestLocationState());
+        };
+
+        window.addEventListener('popstate', syncLocationState);
+        return () => window.removeEventListener('popstate', syncLocationState);
+    }, []);
+
     const activeMeta = TAB_META[activeTab] || TAB_META.new;
     const heroStats = useMemo(() => {
         const items = [
@@ -91,7 +108,6 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
     }, [activeMeta.label, activeTab, loading, results, strategies.length]);
 
     const setBacktestTab = (key, extraParams = {}) => {
-        setActiveTab(key);
         const params = new URLSearchParams(window.location.search);
         if (key === 'new') {
             params.delete(TAB_QUERY_KEY);
@@ -111,12 +127,14 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
             view: 'backtest',
             tab: params.get(TAB_QUERY_KEY),
             record: params.get(RECORD_QUERY_KEY),
+            historySymbol: params.get('history_symbol'),
+            historyStrategy: params.get('history_strategy'),
             template: params.get('template'),
             action: params.get('action'),
             source: params.get('source'),
             note: params.get('note'),
         });
-        window.history.replaceState(null, '', nextUrl);
+        navigateToAppUrl(nextUrl);
     };
 
     const handleOpenHistoryRecord = (recordId) => {
@@ -209,6 +227,20 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
                 </span>
             ),
             children: <CrossMarketBacktestPanel />
+        },
+        {
+            key: 'advanced',
+            label: (
+                <span>
+                    <DeploymentUnitOutlined />
+                    高级实验
+                </span>
+            ),
+            children: (
+                <Suspense fallback={<LazyLoadFallback />}>
+                    <AdvancedBacktestLab strategies={strategies} />
+                </Suspense>
+            )
         }
     ];
 

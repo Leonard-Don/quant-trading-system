@@ -26,6 +26,7 @@ import {
   getAltDataStatus,
   getCrossMarketTemplates,
   getMacroOverview,
+  getResearchTasks,
   refreshAltData,
 } from '../../services/api';
 import AlertHunterPanel from './AlertHunterPanel';
@@ -66,6 +67,7 @@ function GodEyeDashboard() {
   const [historyPayload, setHistoryPayload] = useState(null);
   const [policyHistory, setPolicyHistory] = useState(null);
   const [crossMarketTemplates, setCrossMarketTemplates] = useState(null);
+  const [researchTasks, setResearchTasks] = useState([]);
 
   const navigateTo = (actionOrTarget) => {
     if (!actionOrTarget) return;
@@ -115,6 +117,7 @@ function GodEyeDashboard() {
         historyData,
         policyData,
         templateData,
+        researchTaskData,
       ] = await Promise.all([
         getMacroOverview(refresh),
         getAltDataSnapshot(refresh),
@@ -122,6 +125,7 @@ function GodEyeDashboard() {
         getAltDataHistory({ limit: 120 }),
         getAltDataHistory({ category: 'policy', limit: 16 }),
         getCrossMarketTemplates(),
+        getResearchTasks({ limit: 40, type: 'cross_market' }),
       ]);
 
       setOverview(macroData);
@@ -130,6 +134,7 @@ function GodEyeDashboard() {
       setHistoryPayload(historyData);
       setPolicyHistory(policyData);
       setCrossMarketTemplates(templateData);
+      setResearchTasks(researchTaskData?.data || []);
     } catch (error) {
       message.error(error.userMessage || error.message || '加载作战大屏失败');
     } finally {
@@ -156,12 +161,12 @@ function GodEyeDashboard() {
     [policyHistory]
   );
   const hunterAlerts = useMemo(
-    () => buildHunterModel({ snapshot, overview, status }),
-    [snapshot, overview, status]
+    () => buildHunterModel({ snapshot, overview, status, researchTasks }),
+    [snapshot, overview, status, researchTasks]
   );
   const crossMarketCards = useMemo(
-    () => buildCrossMarketCards(crossMarketTemplates),
-    [crossMarketTemplates]
+    () => buildCrossMarketCards(crossMarketTemplates, overview, snapshot),
+    [crossMarketTemplates, overview, snapshot]
   );
 
   if (loading && !overview) {

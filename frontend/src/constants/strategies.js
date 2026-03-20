@@ -10,6 +10,7 @@ export const STRATEGY_NAMES = {
     'stochastic': '随机指标策略',
     'atr_trailing_stop': 'ATR移动止损',
     'buy_and_hold': '买入持有',
+    'batch_backtest': '批量回测实验',
     'combined': '组合策略',
     // Fallback
     'unknown': '未知策略'
@@ -32,6 +33,16 @@ export const STRATEGY_PARAMETER_LABELS = {
     d_period: 'D 线周期',
     atr_period: 'ATR 周期',
     atr_multiplier: 'ATR 倍数',
+    ranking_metric: '排名指标',
+    top_n: '保留前 N 名',
+    initial_capital: '初始资金',
+    commission: '手续费 (%)',
+    slippage: '滑点 (%)',
+    train_period: '训练窗口',
+    test_period: '测试窗口',
+    step_size: '滚动步长',
+    strategies: '策略列表',
+    strategy_parameters: '策略参数版本',
 };
 
 export const getStrategyName = (key) => {

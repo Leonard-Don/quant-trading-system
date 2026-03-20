@@ -129,13 +129,35 @@ export const runBacktest = async (params) => {
   return response.data;
 };
 
-export const getBacktestHistory = async (limit = 20) => {
-  const response = await api.get(`/backtest/history?limit=${limit}`);
+export const getBacktestHistory = async (limit = 20, filters = {}, offset = 0) => {
+  const params = new URLSearchParams({ limit: String(limit) });
+  params.set('offset', String(offset));
+  if (filters.symbol) {
+    params.set('symbol', filters.symbol);
+  }
+  if (filters.strategy) {
+    params.set('strategy', filters.strategy);
+  }
+  if (filters.recordType) {
+    params.set('record_type', filters.recordType);
+  }
+  const response = await api.get(`/backtest/history?${params.toString()}`);
   return response.data;
 };
 
-export const getBacktestHistoryStats = async () => {
-  const response = await api.get('/backtest/history/stats');
+export const getBacktestHistoryStats = async (filters = {}) => {
+  const params = new URLSearchParams();
+  if (filters.symbol) {
+    params.set('symbol', filters.symbol);
+  }
+  if (filters.strategy) {
+    params.set('strategy', filters.strategy);
+  }
+  if (filters.recordType) {
+    params.set('record_type', filters.recordType);
+  }
+  const query = params.toString();
+  const response = await api.get(`/backtest/history/stats${query ? `?${query}` : ''}`);
   return response.data;
 };
 
@@ -146,6 +168,11 @@ export const getBacktestRecord = async (recordId) => {
 
 export const deleteBacktestRecord = async (recordId) => {
   const response = await api.delete(`/backtest/history/${recordId}`);
+  return response.data;
+};
+
+export const saveAdvancedHistoryRecord = async (payload) => {
+  const response = await api.post('/backtest/history/advanced', payload);
   return response.data;
 };
 
@@ -175,16 +202,38 @@ export const downloadBacktestReport = async (data) => {
   };
 };
 
-export const compareStrategies = async (symbol, strategies, startDate, endDate, initialCapital = 100000) => {
-  const params = new URLSearchParams({
-    symbol,
-    strategies: strategies.join(','),
-    ...(startDate && { start_date: startDate }),
-    ...(endDate && { end_date: endDate }),
-    initial_capital: initialCapital
-  });
+export const compareStrategies = async (
+  symbolOrPayload,
+  strategies,
+  startDate,
+  endDate,
+  initialCapital = 10000,
+  commission = 0.001,
+  slippage = 0.001,
+) => {
+  const payload = typeof symbolOrPayload === 'object' && symbolOrPayload !== null
+    ? symbolOrPayload
+    : {
+        symbol: symbolOrPayload,
+        strategies,
+        ...(startDate && { start_date: startDate }),
+        ...(endDate && { end_date: endDate }),
+        initial_capital: initialCapital,
+        commission,
+        slippage,
+      };
 
-  const response = await api.get(`/backtest/compare?${params}`);
+  const response = await api.post('/backtest/compare', payload);
+  return response.data;
+};
+
+export const runBatchBacktest = async (payload) => {
+  const response = await api.post('/backtest/batch', payload);
+  return response.data;
+};
+
+export const runWalkForwardBacktest = async (payload) => {
+  const response = await api.post('/backtest/walk-forward', payload);
   return response.data;
 };
 
@@ -269,6 +318,16 @@ export const getPortfolio = async () => {
 
 export const getRealtimeQuote = async (symbol) => {
   const response = await api.get(`/realtime/quote/${encodeURIComponent(symbol)}`);
+  return response.data;
+};
+
+export const getRealtimePreferences = async () => {
+  const response = await api.get('/realtime/preferences');
+  return response.data;
+};
+
+export const updateRealtimePreferences = async (payload) => {
+  const response = await api.put('/realtime/preferences', payload);
   return response.data;
 };
 

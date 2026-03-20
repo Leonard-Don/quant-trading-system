@@ -68,9 +68,18 @@ def run_industry_e2e_tests():
     return subprocess.run(cmd, cwd=project_root / "tests" / "e2e").returncode
 
 
+def can_run_industry_e2e() -> bool:
+    """检查行业 E2E 是否满足运行前置条件。"""
+    return (
+        shutil.which("node") is not None
+        and _check_local_service("http://localhost:3000")
+        and _check_local_service("http://localhost:8000/health")
+    )
+
+
 def run_all_tests():
     """运行所有测试"""
-    print("🎯 运行完整测试套件...")
+    print("🎯 运行默认测试套件（unit + integration + system）...")
 
     results = {}
 
@@ -83,8 +92,12 @@ def run_all_tests():
     # 系统测试
     results["system"] = run_system_tests()
 
-    # E2E 回归（仅在本地服务已启动时建议执行，默认纳入总入口）
-    results["industry_e2e"] = run_industry_e2e_tests()
+    # E2E 回归只在本地服务已就绪时纳入默认入口，避免新环境首跑即失败。
+    if can_run_industry_e2e():
+        results["industry_e2e"] = run_industry_e2e_tests()
+    else:
+        print("⏭️  跳过行业热度 E2E：未检测到本地前后端服务或 Node.js 环境")
+        results["industry_e2e"] = None
 
     # 汇总结果
     print("\n" + "=" * 50)
@@ -92,12 +105,20 @@ def run_all_tests():
 
     all_passed = True
     for test_type, result in results.items():
-        status = "✅ 通过" if result == 0 else "❌ 失败"
+        if result is None:
+            status = "⏭️  跳过"
+        else:
+            status = "✅ 通过" if result == 0 else "❌ 失败"
         print(f"   {test_type.capitalize()}: {status}")
-        if result != 0:
+        if result not in (0, None):
             all_passed = False
 
-    print("\n🎉 所有测试通过！" if all_passed else "\n⚠️ 部分测试失败")
+    if all_passed:
+        print("\n🎉 默认测试套件通过")
+        if results.get("industry_e2e") is None:
+            print("💡 如需浏览器回归，请先启动前后端后运行: python scripts/run_tests.py --e2e-industry")
+    else:
+        print("\n⚠️ 部分测试失败")
     return 0 if all_passed else 1
 
 
@@ -117,7 +138,10 @@ def install_test_dependencies():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="运行测试套件")
+    parser = argparse.ArgumentParser(
+        description="运行测试套件",
+        epilog="默认运行 unit / integration / system；E2E 需使用 --e2e-industry 或提前启动本地前后端。",
+    )
     parser.add_argument("--unit", action="store_true", help="只运行单元测试")
     parser.add_argument("--integration", action="store_true", help="只运行集成测试")
     parser.add_argument("--system", action="store_true", help="只运行系统测试")

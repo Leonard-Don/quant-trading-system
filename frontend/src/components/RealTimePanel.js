@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useCallback, lazy, Suspense } from 'react';
 import {
   Card,
   Statistic,
@@ -29,13 +29,24 @@ import {
   BarChartOutlined,
   FundOutlined
 } from '@ant-design/icons';
-import api from '../services/api';
-import webSocketService from '../services/websocket';
 import { STOCK_DATABASE } from '../constants/stocks';
+import { useRealtimeFeed } from '../hooks/useRealtimeFeed';
+import { useRealtimePreferences } from '../hooks/useRealtimePreferences';
 
 const { Text } = Typography;
-const DEFAULT_PRICE_TEXT = '0.00';
+const DEFAULT_PRICE_TEXT = '--';
 const EMPTY_NUMERIC_TEXT = '--';
+const QUOTE_FRESH_MS = 45 * 1000;
+const QUOTE_DELAYED_MS = 3 * 60 * 1000;
+const DEFAULT_SUBSCRIBED_SYMBOLS = [
+  '^GSPC', '^DJI', '^IXIC', '^RUT', '000001.SS', '^HSI',
+  'AAPL', 'NVDA', 'TSLA', 'MSFT', 'GOOGL', 'AMZN', 'META', 'BABA',
+  '600519.SS', '601398.SS', '300750.SZ', '000858.SZ',
+  'BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'DOGE-USD',
+  '^TNX', '^TYX', 'TLT',
+  'GC=F', 'CL=F', 'SI=F',
+  'SPY', 'QQQ', 'UVXY'
+];
 const CATEGORY_THEMES = {
   index: { label: '指数', accent: '#0ea5e9', soft: 'rgba(14, 165, 233, 0.12)' },
   us: { label: '美股', accent: '#22c55e', soft: 'rgba(34, 197, 94, 0.12)' },
@@ -49,31 +60,36 @@ const CATEGORY_THEMES = {
 const TradePanel = lazy(() => import('./TradePanel'));
 const RealtimeStockDetailModal = lazy(() => import('./RealtimeStockDetailModal'));
 
+const hasNumericValue = (value) => value !== undefined && value !== null && !Number.isNaN(Number(value));
+
+const inferSymbolCategory = (symbol) => {
+  const type = STOCK_DATABASE[symbol]?.type;
+  if (type) {
+    return type;
+  }
+
+  if (/^\d{6}\.(SS|SZ|BJ)$/i.test(symbol)) {
+    return 'cn';
+  }
+
+  if (/^-?[A-Z0-9]+-USD$/i.test(symbol)) {
+    return 'crypto';
+  }
+
+  if (/=F$/i.test(symbol)) {
+    return 'future';
+  }
+
+  if (symbol.startsWith('^')) {
+    return /^(?:\^TNX|\^TYX|\^FVX|\^IRX)$/i.test(symbol) ? 'bond' : 'index';
+  }
+
+  return 'us';
+};
+
 const RealTimePanel = () => {
   const [messageApi, messageContextHolder] = message.useMessage();
-  const [quotes, setQuotes] = useState({});
-  // 默认订阅初始列表
-  const [subscribedSymbols, setSubscribedSymbols] = useState([
-    // 指数
-    '^GSPC', '^DJI', '^IXIC', '^RUT', '000001.SS', '^HSI',
-    // 美股
-    'AAPL', 'NVDA', 'TSLA', 'MSFT', 'GOOGL', 'AMZN', 'META', 'BABA',
-    // A股
-    '600519.SS', '601398.SS', '300750.SZ', '000858.SZ',
-    // 加密
-    'BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'DOGE-USD',
-    // 债券
-    '^TNX', '^TYX', 'TLT',
-    // 期货
-    'GC=F', 'CL=F', 'SI=F',
-    // 期权
-    'SPY', 'QQQ', 'UVXY'
-  ]);
-  const [isConnected, setIsConnected] = useState(false);
-  const [isAutoUpdate, setIsAutoUpdate] = useState(true);
-  const [loading, setLoading] = useState(false);
   const [searchSymbol, setSearchSymbol] = useState('');
-  const [activeTab, setActiveTab] = useState('index');
 
   // Trade Modal State
   const [isTradeModalVisible, setIsTradeModalVisible] = useState(false);
@@ -82,158 +98,64 @@ const RealTimePanel = () => {
   // Detail Modal State
   const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
   const [detailSymbol, setDetailSymbol] = useState(null);
+  const [autoCompleteOptions, setAutoCompleteOptions] = useState([]);
 
-  const isInitializedRef = useRef(false);  // 追踪是否已初始化，防止StrictMode重复执行
-  const shownMessagesRef = useRef(new Set());  // 追踪已显示的消息
-  const previousSubscribedSymbolsRef = useRef(new Set());
-  const connectTimerRef = useRef(null);
-
-  // 初始化WebSocket监听器
-  useEffect(() => {
-    // 注册连接状态监听
-    const removeConnectionListener = webSocketService.addListener('connection', (data) => {
-      setIsConnected(data.status === 'connected');
-      if (data.status === 'connected') {
-        setLoading(false);
-        if (!shownMessagesRef.current.has('connected')) {
-          shownMessagesRef.current.add('connected');
-          messageApi.success('实时数据连接已建立');
-        }
-      }
-    });
-
-    // 注册实时报价监听
-    const removeQuoteListener = webSocketService.addListener('quote', (data) => {
-      const { symbol, data: quoteData } = data;
-      setQuotes(prev => ({
-        ...prev,
-        [symbol]: quoteData
-      }));
-    });
-
-    // 注册错误监听
-    const removeErrorListener = webSocketService.addListener('error', (data) => {
-      console.error('WebSocket Error:', data.error);
-      setIsConnected(false);
-    });
-
-    return () => {
-      removeConnectionListener();
-      removeQuoteListener();
-      removeErrorListener();
-      webSocketService.disconnect({ resetSubscriptions: true });
-    };
-  }, [messageApi]);
-
-
-  // 管理自动更新和连接
-  useEffect(() => {
-    if (isAutoUpdate) {
-      if (connectTimerRef.current) {
-        clearTimeout(connectTimerRef.current);
-      }
-
-      // React StrictMode 下首轮 mount/unmount 会非常快，延迟一点再连可以避免假性 WS 警告。
-      connectTimerRef.current = setTimeout(() => {
-        webSocketService.connect().catch(err => {
-          console.error("Failed to connect WS:", err);
-          messageApi.error('无法建立实时数据连接');
-        });
-      }, 80);
-    } else {
-      if (connectTimerRef.current) {
-        clearTimeout(connectTimerRef.current);
-        connectTimerRef.current = null;
-      }
-      webSocketService.disconnect();
-      setIsConnected(false);
-    }
-
-    return () => {
-      if (connectTimerRef.current) {
-        clearTimeout(connectTimerRef.current);
-        connectTimerRef.current = null;
-      }
-    };
-  }, [isAutoUpdate, messageApi]);
-
-  // 监听订阅列表变化，只同步增量订阅
-  useEffect(() => {
-    const previousSymbols = previousSubscribedSymbolsRef.current;
-    const nextSymbols = new Set(subscribedSymbols);
-
-    const addedSymbols = subscribedSymbols.filter(symbol => !previousSymbols.has(symbol));
-    const removedSymbols = Array.from(previousSymbols).filter(symbol => !nextSymbols.has(symbol));
-
-    if (addedSymbols.length > 0) {
-      webSocketService.subscribe(addedSymbols);
-    }
-
-    if (removedSymbols.length > 0) {
-      webSocketService.unsubscribe(removedSymbols);
-    }
-
-    previousSubscribedSymbolsRef.current = nextSymbols;
-  }, [subscribedSymbols]);
-
-
-  // 订阅股票
-  const subscribeSymbol = (symbol) => {
-    if (!subscribedSymbols.includes(symbol)) {
-      const newSymbols = [...subscribedSymbols, symbol];
-      setSubscribedSymbols(newSymbols);
-
-        const msgKey = `subscribed_${symbol}`;
-      if (!shownMessagesRef.current.has(msgKey)) {
-        shownMessagesRef.current.add(msgKey);
-        messageApi.success(`已订阅 ${symbol} 的实时数据`);
-      }
-    }
-  };
-
-  // 移除股票
-  const removeSymbol = (symbol) => {
-    setSubscribedSymbols(prev => prev.filter(s => s !== symbol));
-    setQuotes(prev => {
-      const next = { ...prev };
-      delete next[symbol];
-      return next;
-    });
-  };
-
-  // 切换自动更新
-  const toggleAutoUpdate = (checked) => {
-    setIsAutoUpdate(checked);
-  };
+  const {
+    activeTab,
+    setActiveTab,
+    setSubscribedSymbols,
+    subscribedSymbols,
+  } = useRealtimePreferences({
+    defaultSymbols: DEFAULT_SUBSCRIBED_SYMBOLS,
+  });
 
   const getSymbolsByCategory = useCallback((category) => {
     return subscribedSymbols.filter(symbol => {
-      const info = STOCK_DATABASE[symbol];
-      if (!info) return category === 'us';
-      return info.type === category;
+      return inferSymbolCategory(symbol) === category;
     });
   }, [subscribedSymbols]);
 
-  // 获取实时报价
-  const fetchQuotes = useCallback(async (symbols = subscribedSymbols) => {
-    const targetSymbols = Array.isArray(symbols) ? symbols.filter(Boolean) : [symbols].filter(Boolean);
-    if (!targetSymbols.length) return;
+  const {
+    clearMissingQuoteRequests,
+    fetchQuotes,
+    freshnessNow,
+    hasEverConnected,
+    hasExperiencedFallback,
+    isAutoUpdate,
+    isConnected,
+    lastConnectionIssue,
+    lastMarketUpdateAt,
+    loading,
+    quotes,
+    reconnectAttempts,
+    refreshCurrentTab,
+    removeQuote,
+    setIsAutoUpdate,
+  } = useRealtimeFeed({
+    activeTab,
+    messageApi,
+    resolveSymbolsByCategory: getSymbolsByCategory,
+    subscribedSymbols,
+  });
 
-    setLoading(true);
-    try {
-      const response = await api.get('/realtime/quotes', {
-        params: { symbols: targetSymbols.join(',') }
-      });
-
-      if (response.data.success) {
-        setQuotes(prev => ({ ...prev, ...response.data.data }));
-      }
-    } catch (error) {
-      console.error('获取初始数据失败:', error);
-    } finally {
-      setLoading(false);
+  const subscribeSymbol = useCallback((symbol) => {
+    if (subscribedSymbols.includes(symbol)) {
+      return false;
     }
-  }, [subscribedSymbols]);
+
+    setSubscribedSymbols(prev => [...prev, symbol]);
+    messageApi.success(`已订阅 ${symbol} 的实时数据`);
+    return true;
+  }, [messageApi, setSubscribedSymbols, subscribedSymbols]);
+
+  const removeSymbol = useCallback((symbol) => {
+    setSubscribedSymbols(prev => prev.filter(s => s !== symbol));
+    removeQuote(symbol);
+  }, [removeQuote, setSubscribedSymbols]);
+
+  const toggleAutoUpdate = useCallback((checked) => {
+    setIsAutoUpdate(checked);
+  }, [setIsAutoUpdate]);
 
   // 添加新股票
   const addSymbol = (symbol) => {
@@ -241,43 +163,27 @@ const RealTimePanel = () => {
     const newSymbol = symbol.trim().toUpperCase();
     if (subscribedSymbols.includes(newSymbol)) return;
 
-    subscribeSymbol(newSymbol);
-    const nextCategory = STOCK_DATABASE[newSymbol]?.type;
+    const added = subscribeSymbol(newSymbol);
+    if (!added) {
+      return;
+    }
+    const nextCategory = inferSymbolCategory(newSymbol);
     if (nextCategory) {
       setActiveTab(nextCategory);
     }
+    clearMissingQuoteRequests([newSymbol]);
     fetchQuotes([newSymbol]);
     setSearchSymbol('');
     setAutoCompleteOptions([]);
   };
 
-  // 组件挂载时初始化
-  useEffect(() => {
-    if (isInitializedRef.current) return;
-    isInitializedRef.current = true;
-    fetchQuotes(getSymbolsByCategory(activeTab));
-
-    // 如果已经连接，需要重新订阅（确保服务器端知道我们仍然订阅这些）
-    return () => {
-      // 保持连接，只清理组件内的监听器
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const missingSymbols = getSymbolsByCategory(activeTab).filter(symbol => !quotes[symbol]);
-    if (missingSymbols.length > 0) {
-      fetchQuotes(missingSymbols);
-    }
-  }, [activeTab, fetchQuotes, getSymbolsByCategory, quotes]);
-
   const formatPrice = (price, fallback = DEFAULT_PRICE_TEXT) => {
-    if (price === undefined || price === null || isNaN(price)) return fallback;
+    if (!hasNumericValue(price)) return fallback;
     return typeof price === 'number' ? price.toFixed(2) : parseFloat(price).toFixed(2);
   };
 
-  const formatPercent = (percent) => {
-    if (percent === undefined || percent === null || isNaN(percent)) return '0.00%';
+  const formatPercent = (percent, fallback = EMPTY_NUMERIC_TEXT) => {
+    if (!hasNumericValue(percent)) return fallback;
     return typeof percent === 'number' ? percent.toFixed(2) + '%' : parseFloat(percent).toFixed(2) + '%';
   };
 
@@ -348,11 +254,10 @@ const RealTimePanel = () => {
     return results.sort((a, b) => a.priority - b.priority).slice(0, 10);
   };
 
-  const [autoCompleteOptions, setAutoCompleteOptions] = useState([]);
-
   const risingCount = Object.values(quotes).filter(q => q?.change > 0).length;
   const fallingCount = Object.values(quotes).filter(q => q?.change < 0).length;
   const currentTabSymbols = getSymbolsByCategory(activeTab);
+  const currentTabQuotes = currentTabSymbols.map(symbol => quotes[symbol]).filter(Boolean);
   const loadedQuotesCount = Object.values(quotes).filter(Boolean).length;
   const spotlightSymbol = currentTabSymbols
     .filter(symbol => quotes[symbol])
@@ -412,13 +317,131 @@ const RealTimePanel = () => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
+  const getQuoteFreshness = useCallback((quote) => {
+    if (!quote?._clientReceivedAt) {
+      return {
+        state: 'pending',
+        label: '待补数',
+        tone: {
+          color: '#64748b',
+          background: 'rgba(100, 116, 139, 0.12)',
+        },
+      };
+    }
+
+    const ageMs = Math.max(0, freshnessNow - quote._clientReceivedAt);
+    if (ageMs <= QUOTE_FRESH_MS) {
+      return {
+        state: 'fresh',
+        label: '刚刚更新',
+        tone: {
+          color: '#15803d',
+          background: 'rgba(34, 197, 94, 0.14)',
+        },
+      };
+    }
+
+    if (ageMs <= QUOTE_DELAYED_MS) {
+      return {
+        state: 'aging',
+        label: `${Math.max(1, Math.floor(ageMs / 1000))} 秒前更新`,
+        tone: {
+          color: '#b45309',
+          background: 'rgba(245, 158, 11, 0.16)',
+        },
+      };
+    }
+
+    return {
+      state: 'delayed',
+      label: `延迟 ${Math.max(1, Math.floor(ageMs / 60000))} 分钟`,
+      tone: {
+        color: '#b91c1c',
+        background: 'rgba(239, 68, 68, 0.14)',
+      },
+    };
+  }, [freshnessNow]);
+
+  const freshnessSummary = currentTabQuotes.reduce((summary, quote) => {
+    const freshness = getQuoteFreshness(quote);
+    if (freshness.state === 'fresh') summary.fresh += 1;
+    else if (freshness.state === 'aging') summary.aging += 1;
+    else if (freshness.state === 'delayed') summary.delayed += 1;
+    else summary.pending += 1;
+    return summary;
+  }, { fresh: 0, aging: 0, delayed: 0, pending: 0 });
+  const transportModeLabel = !isAutoUpdate
+    ? '手动刷新'
+    : isConnected
+      ? 'WebSocket 实时'
+      : reconnectAttempts > 0
+        ? '重连中 / REST 补数'
+        : '连接中 / REST 补数';
+  const lastMarketUpdateLabel = lastMarketUpdateAt ? formatQuoteTime(lastMarketUpdateAt) : '--';
+  const transportBanner = !isAutoUpdate
+    ? {
+        tone: 'manual',
+        title: '自动更新已关闭',
+        description: '当前只会在你手动点击刷新时拉取最新行情，适合临时暂停实时更新。',
+      }
+    : isConnected
+      ? {
+          tone: 'healthy',
+          title: hasExperiencedFallback ? '实时推送已恢复' : '实时推送正常',
+          description: hasExperiencedFallback
+            ? 'WebSocket 已重新接管实时更新，列表会继续自动推进。'
+            : '当前由 WebSocket 持续推送最新行情，REST 只在首屏和补数时兜底。',
+        }
+      : reconnectAttempts > 0
+        ? {
+            tone: 'fallback',
+            title: '正在重连实时推送',
+            description: `当前已切到 REST 补数，第 ${reconnectAttempts} 次重连进行中。${lastConnectionIssue ? ` 最近异常：${lastConnectionIssue}` : ''}`,
+          }
+      : {
+          tone: 'fallback',
+          title: hasEverConnected ? '已降级到 REST 补数' : '正在建立实时连接',
+          description: hasEverConnected
+            ? `实时推送暂时不可用，页面会先用 REST 补数维持更新，连接恢复后会自动切回实时模式。${lastConnectionIssue ? ` 最近异常：${lastConnectionIssue}` : ''}`
+            : '在 WebSocket 建立前，页面会先通过 REST 拉取当前分组行情，避免首屏空白。',
+        };
+  const transportBannerStyle = transportBanner.tone === 'healthy'
+    ? {
+        color: '#166534',
+        background: 'rgba(34, 197, 94, 0.14)',
+        borderColor: 'rgba(34, 197, 94, 0.24)',
+      }
+    : transportBanner.tone === 'manual'
+      ? {
+          color: '#1d4ed8',
+          background: 'rgba(59, 130, 246, 0.12)',
+          borderColor: 'rgba(59, 130, 246, 0.2)',
+        }
+      : {
+          color: '#b45309',
+          background: 'rgba(245, 158, 11, 0.14)',
+          borderColor: 'rgba(245, 158, 11, 0.26)',
+        };
+
   const renderQuoteCard = (symbol, quote) => {
-    const isPositive = Number(quote.change ?? 0) >= 0;
-    const changeColor = isPositive ? 'var(--accent-success)' : 'var(--accent-danger)';
-    const changeIcon = isPositive ? <ArrowUpOutlined /> : <ArrowDownOutlined />;
-    const info = STOCK_DATABASE[symbol];
-    const categoryTheme = getCategoryTheme(info?.type);
-    const isMarketIndex = info?.type === 'index';
+    const hasChange = hasNumericValue(quote.change);
+    const isPositive = hasChange ? Number(quote.change) >= 0 : null;
+    const changeColor = isPositive === null
+      ? 'var(--text-secondary)'
+      : isPositive
+        ? 'var(--accent-success)'
+        : 'var(--accent-danger)';
+    const changeIcon = isPositive === null ? null : (isPositive ? <ArrowUpOutlined /> : <ArrowDownOutlined />);
+    const categoryType = inferSymbolCategory(symbol);
+    const categoryTheme = getCategoryTheme(categoryType);
+    const isMarketIndex = categoryType === 'index';
+    const changePercentText = formatPercent(quote.change_percent);
+    const changeTagBackground = isPositive === null
+      ? 'rgba(100, 116, 139, 0.12)'
+      : isPositive
+        ? 'rgba(34, 197, 94, 0.14)'
+        : 'rgba(239, 68, 68, 0.14)';
+    const freshness = getQuoteFreshness(quote);
 
     return (
       <Card
@@ -458,11 +481,23 @@ const RealTimePanel = () => {
                     borderRadius: 999,
                     borderColor: 'transparent',
                     color: changeColor,
-                    background: isPositive ? 'rgba(34, 197, 94, 0.14)' : 'rgba(239, 68, 68, 0.14)',
+                    background: changeTagBackground,
                     fontWeight: 700,
                   }}
                 >
-                  {formatPercent(quote.change_percent)}
+                  {changePercentText}
+                </Tag>
+                <Tag
+                  style={{
+                    margin: 0,
+                    borderRadius: 999,
+                    borderColor: 'transparent',
+                    color: freshness.tone.color,
+                    background: freshness.tone.background,
+                    fontWeight: 700,
+                  }}
+                >
+                  {freshness.label}
                 </Tag>
               </div>
               <div className="realtime-quote-card__name">
@@ -489,7 +524,8 @@ const RealTimePanel = () => {
             <div>
               <div className="realtime-quote-card__price">{formatPrice(quote.price)}</div>
               <div className="realtime-quote-card__delta" style={{ color: changeColor }}>
-                {changeIcon} {formatPrice(Math.abs(quote.change))} · {formatPercent(quote.change_percent)}
+                {changeIcon ? <>{changeIcon} </> : null}
+                {hasChange ? formatPrice(Math.abs(Number(quote.change))) : EMPTY_NUMERIC_TEXT} · {changePercentText}
               </div>
             </div>
             <div className="realtime-quote-card__focus">
@@ -518,7 +554,7 @@ const RealTimePanel = () => {
               {isMarketIndex ? '指数详情与分析面板联动' : '支持查看实时快照、分析与交易入口'}
             </Text>
             <Space>
-              {!isMarketIndex && info?.type !== 'bond' && (
+              {!isMarketIndex && categoryType !== 'bond' && (
                 <Button
                   type="primary"
                   size="small"
@@ -618,11 +654,36 @@ const RealTimePanel = () => {
             <div className="realtime-hero__meta">
               <div className="realtime-hero__chip">已加载 {loadedQuotesCount}/{subscribedSymbols.length} 个标的</div>
               <div className="realtime-hero__chip">当前分组：{getCategoryLabel(activeTab)}</div>
+              <div className="realtime-hero__chip">链路模式：{transportModeLabel}</div>
+              <div className="realtime-hero__chip">最近成功刷新：{lastMarketUpdateLabel}</div>
+              {reconnectAttempts > 0 && (
+                <div className="realtime-hero__chip">重连次数：{reconnectAttempts}</div>
+              )}
+              <div className="realtime-hero__chip">新鲜 {freshnessSummary.fresh}/{currentTabSymbols.length}</div>
+              {freshnessSummary.aging > 0 && (
+                <div className="realtime-hero__chip">变旧 {freshnessSummary.aging}</div>
+              )}
+              {freshnessSummary.delayed > 0 && (
+                <div className="realtime-hero__chip">延迟 {freshnessSummary.delayed}</div>
+              )}
               {spotlightSymbol && (
                 <div className="realtime-hero__chip">
                   焦点：{getDisplayName(spotlightSymbol)} {formatPercent(quotes[spotlightSymbol]?.change_percent)}
                 </div>
               )}
+            </div>
+            <div
+              style={{
+                marginTop: 16,
+                padding: '12px 14px',
+                borderRadius: 16,
+                border: `1px solid ${transportBannerStyle.borderColor}`,
+                background: transportBannerStyle.background,
+                color: transportBannerStyle.color,
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{transportBanner.title}</div>
+              <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.6 }}>{transportBanner.description}</div>
             </div>
           </div>
 
@@ -640,7 +701,7 @@ const RealTimePanel = () => {
             <Button
               type="primary"
               icon={<SyncOutlined spin={loading} />}
-              onClick={fetchQuotes}
+              onClick={refreshCurrentTab}
               loading={loading}
               size="large"
             >

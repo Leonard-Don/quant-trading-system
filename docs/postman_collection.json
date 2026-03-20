@@ -1,8 +1,8 @@
 {
   "info": {
     "name": "量化交易系统API",
-    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.2.0\n    - **API版本**: v1\n    - **最后更新**: 2025-12-24\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
-    "schema": "https: //schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.6.0\n    - **API版本**: v1\n    - **最后更新**: 2026-03-20\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
     {
@@ -82,6 +82,70 @@
       }
     },
     {
+      "name": "批量运行多个回测任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/batch",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "batch"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "运行 Walk-Forward 分析",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/walk-forward",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "walk-forward"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "运行策略回测",
       "request": {
         "method": "POST",
@@ -99,6 +163,38 @@
           ],
           "path": [
             "backtest"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "比较多个策略的性能",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/compare",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "compare"
           ]
         },
         "body": {
@@ -503,6 +599,61 @@
             "realtime",
             "quotes"
           ]
+        }
+      }
+    },
+    {
+      "name": "获取实时行情偏好配置",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/preferences",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "preferences"
+          ]
+        }
+      }
+    },
+    {
+      "name": "更新实时行情偏好配置",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/preferences",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "preferences"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
         }
       }
     },
@@ -1523,6 +1674,652 @@
       }
     },
     {
+      "name": "Factor Model Analysis",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/pricing/factor-model",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "pricing",
+            "factor-model"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Valuation Analysis",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/pricing/valuation",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "pricing",
+            "valuation"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Gap Analysis",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/pricing/gap-analysis",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "pricing",
+            "gap-analysis"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Get Benchmark Factors",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/pricing/benchmark-factors",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "pricing",
+            "benchmark-factors"
+          ]
+        }
+      }
+    },
+    {
+      "name": "另类数据作战快照",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/alt-data/snapshot",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "alt-data",
+            "snapshot"
+          ]
+        }
+      }
+    },
+    {
+      "name": "另类数据统一信号",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/alt-data/signals",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "alt-data",
+            "signals"
+          ]
+        }
+      }
+    },
+    {
+      "name": "另类数据提供器状态",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/alt-data/providers",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "alt-data",
+            "providers"
+          ]
+        }
+      }
+    },
+    {
+      "name": "另类数据治理状态",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/alt-data/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "alt-data",
+            "status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "手动刷新另类数据",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/alt-data/refresh",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "alt-data",
+            "refresh"
+          ]
+        }
+      }
+    },
+    {
+      "name": "另类数据历史记录",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/alt-data/history",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "alt-data",
+            "history"
+          ]
+        }
+      }
+    },
+    {
+      "name": "宏观错误定价总览",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/macro/overview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "macro",
+            "overview"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get cross-market demo templates",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/cross-market/templates",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "cross-market",
+            "templates"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Run cross-market backtest",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/cross-market/backtest",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "cross-market",
+            "backtest"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "获取研究工作台任务",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/research-workbench/tasks",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "research-workbench",
+            "tasks"
+          ]
+        }
+      }
+    },
+    {
+      "name": "创建研究工作台任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/research-workbench/tasks",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "research-workbench",
+            "tasks"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "获取研究工作台任务详情",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/research-workbench/tasks/{task_id}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "research-workbench",
+            "tasks",
+            "{task_id}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "更新研究工作台任务",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/research-workbench/tasks/{task_id}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "research-workbench",
+            "tasks",
+            "{task_id}"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "删除研究工作台任务",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/research-workbench/tasks/{task_id}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "research-workbench",
+            "tasks",
+            "{task_id}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取研究任务时间线",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/research-workbench/tasks/{task_id}/timeline",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "research-workbench",
+            "tasks",
+            "{task_id}",
+            "timeline"
+          ]
+        }
+      }
+    },
+    {
+      "name": "为研究任务添加评论",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/research-workbench/tasks/{task_id}/comments",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "research-workbench",
+            "tasks",
+            "{task_id}",
+            "comments"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "删除研究任务评论",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/research-workbench/tasks/{task_id}/comments/{comment_id}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "research-workbench",
+            "tasks",
+            "{task_id}",
+            "comments",
+            "{comment_id}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "追加研究任务快照",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/research-workbench/tasks/{task_id}/snapshot",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "research-workbench",
+            "tasks",
+            "{task_id}",
+            "snapshot"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "批量更新研究工作台看板顺序",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/research-workbench/board/reorder",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "research-workbench",
+            "board",
+            "reorder"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "获取研究工作台统计",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/research-workbench/stats",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "research-workbench",
+            "stats"
+          ]
+        }
+      }
+    },
+    {
       "name": "Root",
       "request": {
         "method": "GET",
@@ -1570,7 +2367,7 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http: //localhost: 8000",
+      "value": "http://localhost:8000",
       "type": "string"
     }
   ]

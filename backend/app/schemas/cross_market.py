@@ -22,8 +22,32 @@ class CrossMarketAsset(BaseModel):
         return value
 
 
+class CrossMarketTemplateAsset(CrossMarketAsset):
+    pass
+
+
+class CrossMarketTemplateContext(BaseModel):
+    template_id: Optional[str] = None
+    template_name: Optional[str] = None
+    theme: Optional[str] = None
+    allocation_mode: Optional[str] = None
+    bias_summary: Optional[str] = None
+    bias_strength: Optional[float] = None
+    bias_highlights: List[str] = Field(default_factory=list)
+    bias_actions: List[Dict[str, Any]] = Field(default_factory=list)
+    signal_attribution: List[Dict[str, Any]] = Field(default_factory=list)
+    driver_summary: List[Dict[str, Any]] = Field(default_factory=list)
+    dominant_drivers: List[Dict[str, Any]] = Field(default_factory=list)
+    core_legs: List[Dict[str, Any]] = Field(default_factory=list)
+    support_legs: List[Dict[str, Any]] = Field(default_factory=list)
+    theme_core: Optional[str] = None
+    theme_support: Optional[str] = None
+    base_assets: List[CrossMarketTemplateAsset] = Field(default_factory=list)
+
+
 class CrossMarketBacktestRequest(BaseModel):
     assets: List[CrossMarketAsset]
+    template_context: Optional[CrossMarketTemplateContext] = None
     strategy: str = "spread_zscore"
     construction_mode: str = "equal_weight"
     parameters: Dict[str, Any] = Field(

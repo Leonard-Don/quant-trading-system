@@ -48,8 +48,9 @@ const buildGodEyeAction = (note = '返回 GodEye 继续筛选宏观线索') => (
 });
 
 const buildHighlights = (playbook = {}, fallback = []) => {
+  const safePlaybook = playbook || {};
   const highlights = [
-    ...(playbook.warnings || []),
+    ...(safePlaybook.warnings || []),
     ...(fallback || []),
   ].filter(Boolean);
   return highlights.slice(0, 4);
@@ -276,18 +277,22 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
       context: [
         templateName ? `模板 ${templateName}` : null,
         template?.construction_mode ? `构造 ${template.construction_mode}` : null,
+        template?.theme ? `主题 ${template.theme}` : null,
+        template?.recommendationTier ? `推荐 ${template.recommendationTier}` : null,
         longCount || shortCount ? `${longCount}L / ${shortCount}S` : null,
         `阶段 ${stageLabel}`,
         source ? `来源 ${formatResearchSource(source)}` : null,
       ].filter(Boolean),
-      warnings: template ? [] : ['当前 URL 中的 template 未命中现有模板，请重新选择。'],
+      warnings: template
+        ? (template?.driverHeadline ? [`当前推荐依据：${template.driverHeadline}`] : [])
+        : ['当前 URL 中的 template 未命中现有模板，请重新选择。'],
       next_actions: [returnToGodEye].filter(Boolean),
       tasks: [
         {
           id: 'cross-template',
           title: '模板假设确认',
           description: template
-            ? `${template.description || '已载入模板'}；当前结构为 ${longCount} 个多头、${shortCount} 个空头。`
+            ? `${template.description || '已载入模板'}；当前结构为 ${longCount} 个多头、${shortCount} 个空头。${template.driverHeadline ? ` 推荐理由：${template.driverHeadline}。` : ''}`
             : '等待模板命中后再确认叙事和篮子结构。',
           status: template ? 'complete' : 'warning',
           cta: null,
@@ -351,6 +356,15 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
   if (Number(execution.turnover || 0) > 8) {
     warnings.push('换手率偏高，说明当前阈值或 lookback 可能过于激进。');
   }
+  if (execution.concentration_level === 'high') {
+    warnings.push(`执行集中度偏高，${execution.concentration_reason || '建议分散 provider 或 venue 暴露。'}`);
+  }
+  if (Number(execution.lot_efficiency || 1) < 0.97) {
+    warnings.push(`最小交易单位效率仅 ${toPercent(execution.lot_efficiency || 0, 2)}，当前篮子可能存在较明显的 sizing 偏差。`);
+  }
+  if (execution.stress_test_flag === 'high') {
+    warnings.push(`资金放大压力测试提示高集中，${execution.stress_test_reason || '继续放大资金前应先拆分批次或分散 venue。'}`);
+  }
 
   const thesis = weakResult
     ? `${templateName} 当前结果偏弱，总收益 ${toSignedPercent(totalReturn, 2)}，Sharpe ${sharpe.toFixed(2)}。更适合先做诊断，再决定是否继续扩展。`
@@ -367,17 +381,24 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
       template?.construction_mode || execution.construction_mode
         ? `构造 ${template?.construction_mode || execution.construction_mode}`
         : null,
+      template?.theme ? `主题 ${template.theme}` : null,
+      template?.recommendationTier ? `推荐 ${template.recommendationTier}` : null,
+      template?.biasSummary ? `偏置 ${template.biasSummary}` : null,
       coverage ? `覆盖率 ${toPercent(coverage, 1)}` : null,
       `${longLeg.assets?.length || 0}L / ${shortLeg.assets?.length || 0}S`,
     ].filter(Boolean),
-    warnings,
+    warnings: [
+      ...(template?.driverHeadline ? [`当前推荐依据：${template.driverHeadline}`] : []),
+      ...(template?.biasSummary ? [`当前权重偏置：${template.biasSummary}`] : []),
+      ...warnings,
+    ],
     next_actions: [pricingAction, returnToGodEye].filter(Boolean),
     tasks: [
       {
         id: 'cross-template',
         title: '模板假设确认',
         description: template
-          ? `${template.description || '已载入模板'}；当前采用 ${template.construction_mode || execution.construction_mode} 构造模式。`
+          ? `${template.description || '已载入模板'}；当前采用 ${template.construction_mode || execution.construction_mode} 构造模式。${template.driverHeadline ? ` 推荐理由：${template.driverHeadline}。` : ''}`
           : `当前篮子包含 ${longLeg.assets?.length || 0} 个多头、${shortLeg.assets?.length || 0} 个空头。`,
         status: 'complete',
         cta: null,
@@ -392,9 +413,13 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
       {
         id: 'cross-execution',
         title: '执行质量检查',
-        description: `Turnover ${Number(execution.turnover || 0).toFixed(2)}，Cost Drag ${toPercent(execution.cost_drag || 0, 2)}，平均持有 ${Number(execution.avg_holding_period || 0).toFixed(1)} 天。`,
+        description: `Turnover ${Number(execution.turnover || 0).toFixed(2)}，Cost Drag ${toPercent(execution.cost_drag || 0, 2)}，平均持有 ${Number(execution.avg_holding_period || 0).toFixed(1)} 天，Lot 效率 ${toPercent(execution.lot_efficiency || 0, 2)}，建议调仓 ${execution.suggested_rebalance || 'biweekly'}，压力测试 ${execution.stress_test_flag || 'balanced'}。`,
         status:
-          Number(execution.cost_drag || 0) > 0.02 || Number(execution.turnover || 0) > 8
+          Number(execution.cost_drag || 0) > 0.02
+          || Number(execution.turnover || 0) > 8
+          || execution.concentration_level === 'high'
+          || execution.stress_test_flag === 'high'
+          || Number(execution.lot_efficiency || 1) < 0.97
             ? 'warning'
             : 'complete',
         cta: null,
@@ -491,6 +516,21 @@ export const buildCrossMarketWorkbenchPayload = (
       construction_mode:
         template?.construction_mode || backtestResult?.execution_diagnostics?.construction_mode || '',
       template_name: template?.name || '',
+      theme: template?.theme || '',
+      allocation_mode: template?.biasSummary ? 'macro_bias' : 'template_base',
+      bias_summary: template?.biasSummary || '',
+      bias_strength: template?.biasStrength || 0,
+      bias_highlights: template?.biasHighlights || [],
+      bias_actions: template?.biasActions || [],
+      driver_summary: template?.driverSummary || [],
+      dominant_drivers: template?.dominantDrivers || [],
+      core_legs: template?.coreLegs || [],
+      support_legs: template?.supportLegs || [],
+      theme_core: template?.themeCore || '',
+      theme_support: template?.themeSupport || '',
+      recommendation_tier: template?.recommendationTier || '',
+      recommendation_score: template?.recommendationScore || null,
+      recommendation_reason: template?.driverHeadline || '',
       assets: safeAssets,
     },
     snapshot: {
@@ -502,26 +542,65 @@ export const buildCrossMarketWorkbenchPayload = (
         null,
         backtestResult
           ? [
+              template?.recommendationTier ? `recommendation ${template.recommendationTier}` : '',
               `total return ${toSignedPercent(backtestResult.total_return || 0, 2)}`,
               `sharpe ${Number(backtestResult.sharpe_ratio || 0).toFixed(2)}`,
               `coverage ${toPercent(backtestResult.data_alignment?.tradable_day_ratio || 0, 1)}`,
             ]
           : [
+              template?.recommendationTier ? `recommendation ${template.recommendationTier}` : '',
+              template?.driverHeadline || '',
               template?.description || '',
               template?.construction_mode ? `construction ${template.construction_mode}` : '',
             ]
       ),
       payload: backtestResult
         ? {
+            template_meta: {
+              theme: template?.theme || '',
+              allocation_mode: template?.biasSummary ? 'macro_bias' : 'template_base',
+              bias_summary: template?.biasSummary || '',
+              bias_strength: template?.biasStrength || 0,
+              bias_highlights: template?.biasHighlights || [],
+              bias_actions: template?.biasActions || [],
+              driver_summary: template?.driverSummary || [],
+              dominant_drivers: template?.dominantDrivers || [],
+              core_legs: template?.coreLegs || [],
+              support_legs: template?.supportLegs || [],
+              theme_core: template?.themeCore || '',
+              theme_support: template?.themeSupport || '',
+              recommendation_tier: template?.recommendationTier || '',
+              recommendation_score: template?.recommendationScore || null,
+              recommendation_reason: template?.driverHeadline || '',
+            },
             price_matrix_summary: backtestResult.price_matrix_summary || {},
             data_alignment: backtestResult.data_alignment || {},
             execution_diagnostics: backtestResult.execution_diagnostics || {},
+            execution_plan: backtestResult.execution_plan || {},
+            allocation_overlay: backtestResult.allocation_overlay || {},
             total_return: backtestResult.total_return || 0,
             sharpe_ratio: backtestResult.sharpe_ratio || 0,
             leg_performance: backtestResult.leg_performance || {},
           }
         : {
             template: template || {},
+            template_meta: {
+              theme: template?.theme || '',
+              allocation_mode: template?.biasSummary ? 'macro_bias' : 'template_base',
+              bias_summary: template?.biasSummary || '',
+              bias_strength: template?.biasStrength || 0,
+              bias_highlights: template?.biasHighlights || [],
+              bias_actions: template?.biasActions || [],
+              driver_summary: template?.driverSummary || [],
+              dominant_drivers: template?.dominantDrivers || [],
+              core_legs: template?.coreLegs || [],
+              support_legs: template?.supportLegs || [],
+              theme_core: template?.themeCore || '',
+              theme_support: template?.themeSupport || '',
+              recommendation_tier: template?.recommendationTier || '',
+              recommendation_score: template?.recommendationScore || null,
+              recommendation_reason: template?.driverHeadline || '',
+            },
             assets: safeAssets,
           },
     },

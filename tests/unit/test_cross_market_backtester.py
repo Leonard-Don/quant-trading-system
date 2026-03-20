@@ -28,6 +28,21 @@ class DummyDataManager:
     def get_historical_data(self, symbol, start_date=None, end_date=None, interval="1d", period=None):
         return self.frames.get(symbol, pd.DataFrame()).copy()
 
+    def get_cross_market_historical_data(
+        self,
+        symbol,
+        asset_class,
+        start_date=None,
+        end_date=None,
+        interval="1d",
+    ):
+        return {
+            "data": self.frames.get(symbol, pd.DataFrame()).copy(),
+            "provider": f"mock_{str(asset_class).lower()}",
+            "asset_class": asset_class,
+            "symbol": symbol,
+        }
+
 
 def test_asset_universe_normalizes_weights_by_side():
     universe = AssetUniverse(
@@ -51,6 +66,9 @@ def test_asset_universe_normalizes_weights_by_side():
     assert summary["asset_count"] == 4
     assert summary["by_side"]["long"] == 2
     assert summary["by_asset_class"]["ETF"] == 3
+    assert summary["execution_channels"]["cash_equity"] == 4
+    assert long_assets[0].market == "USA"
+    assert long_assets[0].preferred_provider == "us_stock"
 
 
 def test_asset_universe_requires_both_sides():
@@ -109,6 +127,17 @@ def test_cross_market_backtester_returns_expected_sections():
             {"symbol": "XLU", "asset_class": "ETF", "side": "long"},
             {"symbol": "QQQ", "asset_class": "ETF", "side": "short"},
         ],
+        template_context={
+            "template_id": "utilities_vs_growth",
+            "template_name": "US utilities vs NASDAQ growth",
+            "allocation_mode": "macro_bias",
+            "bias_summary": "多头增配 XLU，空头增配 QQQ",
+            "bias_strength": 6.5,
+            "base_assets": [
+                {"symbol": "XLU", "asset_class": "ETF", "side": "long", "weight": 0.45},
+                {"symbol": "QQQ", "asset_class": "ETF", "side": "short", "weight": 0.55},
+            ],
+        },
         strategy_name="spread_zscore",
         parameters={"lookback": 5, "entry_threshold": 1.0, "exit_threshold": 0.2},
         min_history_days=10,
@@ -123,11 +152,33 @@ def test_cross_market_backtester_returns_expected_sections():
     assert "asset_universe" in results
     assert "hedge_portfolio" in results
     assert "asset_contributions" in results
+    assert "execution_plan" in results
     assert results["price_matrix_summary"]["asset_count"] == 2
     assert len(results["portfolio_curve"]) == 12
     assert results["asset_universe"]["by_side"]["long"] == 1
     assert "XLU" in results["asset_contributions"]
     assert results["hedge_portfolio"]["gross_exposure"] > 0
+    assert results["data_alignment"]["per_symbol"][0]["provider"].startswith("mock_")
+    assert results["execution_plan"]["route_count"] == 2
+    assert results["execution_diagnostics"]["route_count"] == 2
+    assert results["execution_plan"]["initial_capital"] == 100000
+    assert all(route["target_notional"] > 0 for route in results["execution_plan"]["routes"])
+    assert round(sum(route["capital_fraction"] for route in results["execution_plan"]["routes"]), 6) == 1.0
+    assert results["execution_diagnostics"]["batch_count"] == len(results["execution_plan"]["batches"])
+    assert results["execution_diagnostics"]["provider_count"] == len(results["execution_plan"]["by_provider"])
+    assert results["execution_diagnostics"]["concentration_level"] in {"balanced", "moderate", "high"}
+    assert results["execution_plan"]["provider_allocation"][0]["target_notional"] > 0
+    assert results["execution_plan"]["largest_batch"]["target_notional"] > 0
+    assert results["execution_plan"]["routes"][0]["rounded_quantity"] >= 1
+    assert results["execution_plan"]["routes"][0]["reference_price"] > 0
+    assert results["execution_plan"]["sizing_summary"]["lot_efficiency"] > 0
+    assert results["execution_diagnostics"]["suggested_rebalance"] in {"weekly", "biweekly", "monthly"}
+    assert len(results["execution_plan"]["execution_stress"]["scenarios"]) == 4
+    assert results["execution_plan"]["execution_stress"]["worst_case"]["largest_batch_notional"] > 0
+    assert results["execution_diagnostics"]["stress_test_flag"] in {"balanced", "moderate", "high"}
+    assert results["allocation_overlay"]["allocation_mode"] == "macro_bias"
+    assert results["allocation_overlay"]["rows"][0]["effective_weight"] >= 0
+    assert results["allocation_overlay"]["max_delta_weight"] >= 0
 
 
 def test_cross_market_backtester_uses_tradable_mask():
@@ -193,3 +244,30 @@ def test_cross_market_backtester_returns_hedge_ratio_series_for_ols_mode():
     assert len(results["hedge_ratio_series"]) == results["price_matrix_summary"]["row_count"]
     assert results["execution_diagnostics"]["construction_mode"] == "ols_hedge"
     assert results["hedge_portfolio"]["hedge_ratio"]["average"] > 0
+
+
+def test_cross_market_backtester_uses_asset_class_aware_fetch_metadata():
+    frames = {
+        "HG=F": _price_frame([100, 102, 103, 101, 105, 110, 108, 107, 109, 111, 114, 116]),
+        "SOXX": _price_frame([100, 99, 101, 103, 102, 101, 100, 98, 97, 96, 95, 94]),
+    }
+    backtester = CrossMarketBacktester(data_manager=DummyDataManager(frames))
+
+    results = backtester.run(
+        assets=[
+            {"symbol": "HG=F", "asset_class": "COMMODITY_FUTURES", "side": "long"},
+            {"symbol": "SOXX", "asset_class": "ETF", "side": "short"},
+        ],
+        strategy_name="spread_zscore",
+        parameters={"lookback": 5, "entry_threshold": 1.0, "exit_threshold": 0.2},
+        min_history_days=10,
+    )
+
+    symbol_rows = {item["symbol"]: item for item in results["data_alignment"]["per_symbol"]}
+    assert symbol_rows["HG=F"]["asset_class"] == "COMMODITY_FUTURES"
+    assert symbol_rows["HG=F"]["provider"] == "mock_commodity_futures"
+    assert symbol_rows["SOXX"]["provider"] == "mock_etf"
+    assert results["execution_plan"]["batches"][0]["preferred_provider"] in {"commodity", "us_stock"}
+    assert any(batch["target_notional"] > 0 for batch in results["execution_plan"]["batches"])
+    assert results["execution_plan"]["venue_allocation"][0]["target_notional"] > 0
+    assert all(route["capacity_band"] in {"light", "moderate", "heavy"} for route in results["execution_plan"]["routes"])

@@ -123,3 +123,184 @@ def test_history_statistics_include_latest_record_metadata(tmp_path):
     assert stats["total_records"] == 1
     assert stats["strategy_count"] == 1
     assert stats["latest_record_at"] is not None
+
+
+def test_history_statistics_support_symbol_and_strategy_filters(tmp_path):
+    history = BacktestHistory(storage_path=tmp_path, max_records=10)
+
+    history.save(
+        {
+            "symbol": "AAPL",
+            "strategy": "buy_and_hold",
+            "performance_metrics": {
+                "total_return": 0.05,
+                "num_trades": 1,
+                "final_value": 10500,
+            },
+        }
+    )
+    history.save(
+        {
+            "symbol": "MSFT",
+            "strategy": "macd",
+            "performance_metrics": {
+                "total_return": 0.12,
+                "num_trades": 4,
+                "final_value": 11200,
+            },
+        }
+    )
+
+    symbol_stats = history.get_statistics(symbol="MSFT")
+    strategy_stats = history.get_statistics(strategy="buy_and_hold")
+
+    assert symbol_stats["total_records"] == 1
+    assert symbol_stats["avg_return"] == 0.12
+    assert symbol_stats["most_tested_symbol"] == "MSFT"
+
+    assert strategy_stats["total_records"] == 1
+    assert strategy_stats["most_used_strategy"] == "buy_and_hold"
+
+
+def test_history_supports_offset_pagination(tmp_path):
+    history = BacktestHistory(storage_path=tmp_path, max_records=10)
+
+    for index in range(3):
+        history.save(
+            {
+                "symbol": "AAPL",
+                "strategy": "buy_and_hold",
+                "performance_metrics": {
+                    "total_return": 0.01 * index,
+                    "num_trades": index + 1,
+                    "final_value": 10000 + index,
+                },
+            }
+        )
+
+    page = history.get_history(limit=1, offset=1)
+
+    assert len(page) == 1
+    assert page[0]["metrics"]["num_trades"] == 2
+
+
+def test_history_persists_extended_metrics_summary(tmp_path):
+    history = BacktestHistory(storage_path=tmp_path, max_records=10)
+
+    record_id = history.save(
+        {
+            "symbol": "AAPL",
+            "strategy": "moving_average",
+            "performance_metrics": {
+                "total_return": 0.1,
+                "annualized_return": 0.12,
+                "sharpe_ratio": 1.5,
+                "max_drawdown": 0.08,
+                "win_rate": 0.6,
+                "num_trades": 4,
+                "final_value": 11000,
+                "avg_win": 300,
+                "avg_loss": -120,
+                "total_profit": 900,
+                "total_loss": -240,
+                "loss_rate": 0.25,
+                "avg_holding_days": 6.5,
+                "total_completed_trades": 2,
+                "has_open_position": True,
+            },
+        }
+    )
+
+    saved = history.get_by_id(record_id)
+
+    assert saved is not None
+    assert saved["metrics"]["avg_win"] == 300
+    assert saved["metrics"]["avg_loss"] == -120
+    assert saved["metrics"]["total_profit"] == 900
+    assert saved["metrics"]["total_loss"] == -240
+    assert saved["metrics"]["loss_rate"] == 0.25
+    assert saved["metrics"]["avg_holding_days"] == 6.5
+    assert saved["metrics"]["total_completed_trades"] == 2
+    assert saved["metrics"]["has_open_position"] is True
+
+
+def test_history_persists_advanced_experiment_records_without_backtest_normalization(tmp_path):
+    history = BacktestHistory(storage_path=tmp_path, max_records=10)
+
+    record_id = history.save(
+        {
+            "record_type": "batch_backtest",
+            "title": "批量回测 · AAPL",
+            "symbol": "AAPL",
+            "strategy": "batch_backtest",
+            "start_date": "2025-01-01",
+            "end_date": "2025-12-31",
+            "parameters": {"ranking_metric": "sharpe_ratio"},
+            "metrics": {
+                "total_return": 0.11,
+                "sharpe_ratio": 1.3,
+                "total_tasks": 3,
+                "successful": 2,
+            },
+            "result": {
+                "summary": {
+                    "total_tasks": 3,
+                    "successful": 2,
+                    "average_return": 0.11,
+                    "average_sharpe": 1.3,
+                },
+                "results": [
+                    {"task_id": "task_1", "strategy": "moving_average", "success": True, "metrics": {"total_return": 0.12}},
+                ],
+            },
+        }
+    )
+
+    saved = history.get_by_id(record_id)
+
+    assert saved is not None
+    assert saved["record_type"] == "batch_backtest"
+    assert saved["title"] == "批量回测 · AAPL"
+    assert saved["metrics"]["total_tasks"] == 3
+    assert saved["result"]["summary"]["successful"] == 2
+
+
+def test_history_statistics_support_record_type_filter(tmp_path):
+    history = BacktestHistory(storage_path=tmp_path, max_records=10)
+
+    history.save(
+        {
+            "symbol": "AAPL",
+            "strategy": "buy_and_hold",
+            "performance_metrics": {
+                "total_return": 0.05,
+                "num_trades": 1,
+                "final_value": 10500,
+            },
+        }
+    )
+    history.save(
+        {
+            "record_type": "batch_backtest",
+            "title": "批量回测 · AAPL",
+            "symbol": "AAPL",
+            "strategy": "batch_backtest",
+            "metrics": {
+                "total_return": 0.12,
+                "total_tasks": 2,
+            },
+            "result": {
+                "summary": {
+                    "total_tasks": 2,
+                },
+            },
+        }
+    )
+
+    stats = history.get_statistics(record_type="batch_backtest")
+    records = history.get_history(limit=10, record_type="batch_backtest")
+
+    assert stats["total_records"] == 1
+    assert stats["record_types"]["batch_backtest"] == 1
+    assert len(records) == 1
+    assert records[0]["record_type"] == "batch_backtest"

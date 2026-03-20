@@ -117,4 +117,18 @@ describe('RealtimeStockDetailModal', () => {
     expect(mockMarketAnalysisUnmountSpy).toHaveBeenCalledWith('AAPL');
     expect(mockMarketAnalysisMountSpy).toHaveBeenNthCalledWith(2, 'BTC-USD');
   });
+
+  test('infers category label for symbols outside stock database', () => {
+    render(
+      <RealtimeStockDetailModal
+        open
+        symbol="GC=F"
+        quote={{ symbol: 'GC=F', price: 3012.4, change: 18.2, change_percent: 0.61 }}
+        onCancel={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('期货')).toBeInTheDocument();
+    expect(screen.getByTestId('market-analysis')).toHaveTextContent('analysis:GC=F:embed');
+  });
 });

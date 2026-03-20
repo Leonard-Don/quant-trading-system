@@ -24,7 +24,7 @@ function ResearchPlaybook({
 
   return (
     <Card
-      bordered={false}
+      variant="borderless"
       title={playbook.playbook_type === 'pricing' ? '定价研究剧本' : '跨市场研究剧本'}
       extra={(
         <Space>
@@ -41,7 +41,7 @@ function ResearchPlaybook({
           {playbook.stageLabel ? <Text type="secondary">{playbook.stageLabel}</Text> : null}
         </Space>
       )}
-      bodyStyle={{ display: 'flex', flexDirection: 'column', gap: 16 }}
+      styles={{ body: { display: 'flex', flexDirection: 'column', gap: 16 } }}
     >
       <ResearchSummaryBanner
         title={playbook.playbook_type}

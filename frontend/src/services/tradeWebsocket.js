@@ -9,6 +9,24 @@ class TradeWebSocketService {
     this.maxReconnectAttempts = 3;
     this.reconnectDelay = 2000;
     this.reconnectTimer = null;
+    this.heartbeatIntervalMs = 15000;
+    this.heartbeatTimer = null;
+  }
+
+  startHeartbeat() {
+    this.stopHeartbeat();
+    this.heartbeatTimer = setInterval(() => {
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.sendMessage({ action: 'ping' });
+      }
+    }, this.heartbeatIntervalMs);
+  }
+
+  stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   getWebSocketUrl() {
@@ -30,6 +48,25 @@ class TradeWebSocketService {
       try {
         const socket = new WebSocket(this.getWebSocketUrl());
         this.ws = socket;
+        let settled = false;
+
+        const rejectIfPending = (error) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          this.connectPromise = null;
+          reject(error);
+        };
+
+        const resolveIfPending = () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          this.connectPromise = null;
+          resolve();
+        };
 
         socket.onopen = () => {
           if (this.ws !== socket) {
@@ -38,13 +75,13 @@ class TradeWebSocketService {
 
           this.isConnected = true;
           this.reconnectAttempts = 0;
+          this.startHeartbeat();
           if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
           }
           this.notifyListeners('connection', { status: 'connected' });
-          this.connectPromise = null;
-          resolve();
+          resolveIfPending();
         };
 
         socket.onmessage = (event) => {
@@ -66,17 +103,27 @@ class TradeWebSocketService {
           }
 
           this.notifyListeners('error', { error });
+          if (!this.isConnected) {
+            rejectIfPending(new Error('Trade WebSocket connection failed'));
+          }
         };
 
-        socket.onclose = () => {
+        socket.onclose = (event) => {
           if (this.ws !== socket) {
             return;
           }
 
+          const wasConnected = this.isConnected;
           this.ws = null;
           this.isConnected = false;
           this.connectPromise = null;
+          this.stopHeartbeat();
           this.notifyListeners('connection', { status: 'disconnected' });
+
+          if (!wasConnected && !this.manuallyDisconnected) {
+            const closeReason = event?.reason ? `: ${event.reason}` : '';
+            rejectIfPending(new Error(`Trade WebSocket connection failed${closeReason}`));
+          }
 
           if (!this.manuallyDisconnected && this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts += 1;
@@ -100,6 +147,7 @@ class TradeWebSocketService {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.stopHeartbeat();
 
     if (this.ws) {
       this.ws.close();

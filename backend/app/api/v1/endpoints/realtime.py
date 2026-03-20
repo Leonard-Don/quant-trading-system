@@ -1,8 +1,9 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from backend.app.services.realtime_preferences import realtime_preferences_store
 from src.data.realtime_manager import realtime_manager
 
 
@@ -14,6 +15,11 @@ class SubscriptionRequest(BaseModel):
 
     symbol: Optional[str] = None
     symbols: List[str] = Field(default_factory=list)
+
+
+class RealtimePreferencesRequest(BaseModel):
+    symbols: List[str] = Field(default_factory=list)
+    active_tab: str = "index"
 
 
 def _normalize_request_symbols(payload: SubscriptionRequest) -> List[str]:
@@ -36,7 +42,7 @@ def _compat_subscription_response(action: str, symbols: List[str]) -> dict:
 @router.get("/quote/{symbol}", summary="获取实时报价")
 async def get_quote(symbol: str):
     """获取股票的统一实时报价信息。"""
-    data = realtime_manager.get_quote_dict(symbol, use_cache=False)
+    data = realtime_manager.get_quote_dict(symbol, use_cache=True)
     if not data:
         raise HTTPException(status_code=404, detail=f"No realtime quote available for {symbol}")
     return {"success": True, "data": data}
@@ -51,8 +57,25 @@ async def get_quotes(symbols: str):
     if not symbol_list:
         return {"success": True, "data": {}}
 
-    results = realtime_manager.get_quotes_dict(symbol_list, use_cache=False)
+    results = realtime_manager.get_quotes_dict(symbol_list, use_cache=True)
     return {"success": True, "data": results}
+
+
+def _resolve_realtime_profile(request: Request) -> str:
+    return request.headers.get("X-Realtime-Profile", "default")
+
+
+@router.get("/preferences", summary="获取实时行情偏好配置")
+async def get_preferences(request: Request):
+    profile_id = _resolve_realtime_profile(request)
+    return {"success": True, "data": realtime_preferences_store.get_preferences(profile_id=profile_id)}
+
+
+@router.put("/preferences", summary="更新实时行情偏好配置")
+async def update_preferences(payload: RealtimePreferencesRequest, request: Request):
+    profile_id = _resolve_realtime_profile(request)
+    data = realtime_preferences_store.update_preferences(payload.model_dump(), profile_id=profile_id)
+    return {"success": True, "data": data}
 
 
 @router.post("/subscribe", summary="兼容层：确认订阅请求", deprecated=True)

@@ -17,6 +17,8 @@ export const readResearchContext = (search = window.location.search) => {
     source: params.get('source') || '',
     note: params.get('note') || '',
     record: params.get('record') || '',
+    historySymbol: params.get('history_symbol') || '',
+    historyStrategy: params.get('history_strategy') || '',
   };
 };
 
@@ -32,6 +34,8 @@ export const sanitizeParamsForView = (params, view) => {
   if (view === 'pricing') {
     params.delete(TAB_QUERY_KEY);
     params.delete('record');
+    params.delete('history_symbol');
+    params.delete('history_strategy');
     RESEARCH_KEYS.forEach((key) => {
       if (!PRICING_KEYS.includes(key)) params.delete(key);
     });
@@ -42,6 +46,8 @@ export const sanitizeParamsForView = (params, view) => {
     const activeTab = params.get(TAB_QUERY_KEY) || 'new';
     if (activeTab !== 'history') {
       params.delete('record');
+      params.delete('history_symbol');
+      params.delete('history_strategy');
     }
     if (activeTab === 'cross-market') {
       RESEARCH_KEYS.forEach((key) => {
@@ -55,6 +61,8 @@ export const sanitizeParamsForView = (params, view) => {
 
   params.delete(TAB_QUERY_KEY);
   params.delete('record');
+  params.delete('history_symbol');
+  params.delete('history_strategy');
   RESEARCH_KEYS.forEach((key) => params.delete(key));
   return params;
 };
@@ -71,6 +79,8 @@ export const buildAppUrl = ({
   source = undefined,
   note = undefined,
   record = undefined,
+  historySymbol = undefined,
+  historyStrategy = undefined,
 } = {}) => {
   const params = new URLSearchParams(currentSearch);
   if (view === 'backtest') {
@@ -92,6 +102,8 @@ export const buildAppUrl = ({
   setParam(params, 'source', source);
   setParam(params, 'note', note);
   setParam(params, 'record', record);
+  setParam(params, 'history_symbol', historySymbol);
+  setParam(params, 'history_strategy', historyStrategy);
 
   sanitizeParamsForView(params, view);
 
@@ -163,6 +175,7 @@ export const formatResearchSource = (source = '') => {
     factor_panel: 'Macro Factor Panel',
     risk_radar: 'Risk Premium Radar',
     cross_market_overview: 'Cross-Market Overview',
+    cross_market_panel: 'Cross-Market Panel',
     pricing_playbook: 'Pricing Playbook',
     cross_market_playbook: 'Cross-Market Playbook',
   };

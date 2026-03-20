@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     Card,
     Row,
@@ -32,7 +32,11 @@ const formatOptionalCurrency = (value) => (
         ? '--'
         : formatCurrency(value)
 );
-const formatPercent = (value) => `${Number(value || 0).toFixed(2)}%`;
+const formatPercent = (value) => (
+    value === null || value === undefined || Number.isNaN(Number(value))
+        ? '--'
+        : `${Number(value).toFixed(2)}%`
+);
 const formatTimestamp = (value) => {
     if (!value) {
         return '--';
@@ -56,6 +60,7 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
     const [price, setPrice] = useState(null); // Optional limit price
     const [currentQuote, setCurrentQuote] = useState(null);
     const [quoteLoading, setQuoteLoading] = useState(false);
+    const currentQuoteRequestRef = useRef(0);
 
     useEffect(() => {
         if (!visible) {
@@ -109,10 +114,22 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
     }, [visible]);
 
     useEffect(() => {
-        if (visible && defaultSymbol) {
-            setSymbol(defaultSymbol);
+        if (visible) {
+            setSymbol(defaultSymbol || 'AAPL');
+            setAction('BUY');
+            setQuantity(100);
+            setPrice(null);
+            setCurrentQuote(null);
         }
     }, [visible, defaultSymbol]);
+
+    useEffect(() => {
+        if (!visible) {
+            currentQuoteRequestRef.current += 1;
+            setCurrentQuote(null);
+            setQuoteLoading(false);
+        }
+    }, [visible]);
 
     useEffect(() => {
         if (visible && symbol) {
@@ -148,20 +165,31 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
 
     const fetchCurrentPrice = async (sym) => {
         if (!sym) {
+            currentQuoteRequestRef.current += 1;
             setCurrentQuote(null);
             return;
         }
 
+        const requestId = currentQuoteRequestRef.current + 1;
+        currentQuoteRequestRef.current = requestId;
+        setCurrentQuote(null);
         setQuoteLoading(true);
         try {
             const response = await getRealtimeQuote(sym);
+            if (currentQuoteRequestRef.current !== requestId) {
+                return;
+            }
             if (response.success) {
                 setCurrentQuote(response.data || null);
             }
         } catch (error) {
-            setCurrentQuote(null);
+            if (currentQuoteRequestRef.current === requestId) {
+                setCurrentQuote(null);
+            }
         } finally {
-            setQuoteLoading(false);
+            if (currentQuoteRequestRef.current === requestId) {
+                setQuoteLoading(false);
+            }
         }
     };
 

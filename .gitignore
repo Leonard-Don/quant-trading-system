@@ -129,6 +129,11 @@ metrics/
 profiles/
 backups/
 
+# ML model artifacts (keep directories, ignore generated weights/scalers)
+src/analytics/model_data/*.joblib
+src/analytics/saved_models/**/*.keras
+src/analytics/saved_models/**/*.pkl
+
 # Database files
 *.db
 *.sqlite

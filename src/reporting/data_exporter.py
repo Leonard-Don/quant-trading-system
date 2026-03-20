@@ -17,6 +17,7 @@ from io import BytesIO
 import csv
 
 from src.utils.config import PROJECT_ROOT
+from src.utils.data_validation import normalize_backtest_results
 
 logger = logging.getLogger(__name__)
 
@@ -79,15 +80,85 @@ class DataExporter:
             self.logger.error(f"生成回测报告失败: {e}")
             raise
 
+    def _normalize_results(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        return normalize_backtest_results(results or {})
+
+    def _extract_portfolio_points(self, results: Dict[str, Any]) -> List[Dict[str, Any]]:
+        normalized = self._normalize_results(results)
+        portfolio_history = normalized.get("portfolio_history") or normalized.get("portfolio") or []
+
+        if not portfolio_history and isinstance(normalized.get("portfolio_value"), list):
+            portfolio_history = [
+                {"date": None, "total": value}
+                for value in normalized.get("portfolio_value", [])
+            ]
+
+        if isinstance(portfolio_history, pd.DataFrame):
+            portfolio_history = portfolio_history.reset_index().to_dict("records")
+
+        points = []
+        for index, point in enumerate(portfolio_history if isinstance(portfolio_history, list) else []):
+            if isinstance(point, (int, float)):
+                total = float(point)
+                date_value = None
+            else:
+                total = point.get("total", point.get("portfolio_value"))
+                date_value = point.get("date") or point.get("Date") or point.get("index") or point.get("timestamp")
+
+            try:
+                total_value = float(total)
+            except (TypeError, ValueError):
+                continue
+
+            if not np.isfinite(total_value) or total_value <= 0:
+                continue
+
+            points.append({
+                "date": date_value,
+                "total": total_value,
+                "signal": 0 if isinstance(point, (int, float)) else point.get("signal", 0),
+                "returns": None if isinstance(point, (int, float)) else point.get("returns"),
+            })
+
+        return points
+
+    def _extract_portfolio_values(self, results: Dict[str, Any]) -> List[float]:
+        return [point["total"] for point in self._extract_portfolio_points(results)]
+
+    def _extract_portfolio_dates(self, results: Dict[str, Any], count: int) -> pd.DatetimeIndex:
+        points = self._extract_portfolio_points(results)
+        parsed_dates = pd.to_datetime([point.get("date") for point in points], errors="coerce")
+        if len(parsed_dates) == count and parsed_dates.notna().all():
+            return pd.DatetimeIndex(parsed_dates)
+        return pd.date_range(start="2023-01-01", periods=count, freq="D")
+
+    def _extract_return_series(self, results: Dict[str, Any]) -> pd.Series:
+        points = self._extract_portfolio_points(results)
+        explicit_returns = pd.Series(
+            [point.get("returns") for point in points], dtype="float64"
+        ).dropna()
+
+        if not explicit_returns.empty:
+            return explicit_returns
+
+        portfolio_values = pd.Series([point["total"] for point in points], dtype="float64")
+        return portfolio_values.pct_change().dropna()
+
+    def _extract_trade_records(self, results: Dict[str, Any]) -> List[Dict[str, Any]]:
+        normalized = self._normalize_results(results)
+        trades = normalized.get("trades")
+        return trades if isinstance(trades, list) else []
+
     def _generate_summary(self, results: Dict[str, Any]) -> Dict[str, Any]:
         """生成报告摘要"""
         try:
-            portfolio_value = results.get("portfolio_value", [])
+            normalized = self._normalize_results(results)
+            portfolio_value = self._extract_portfolio_values(normalized)
             if not portfolio_value:
                 return {"error": "No portfolio data available"}
 
-            initial_value = portfolio_value[0]
-            final_value = portfolio_value[-1]
+            initial_value = normalized.get("initial_capital", portfolio_value[0])
+            final_value = normalized.get("final_value", portfolio_value[-1])
             total_return = ((final_value - initial_value) / initial_value) * 100
 
             return {
@@ -106,34 +177,24 @@ class DataExporter:
     def _extract_performance_metrics(self, results: Dict[str, Any]) -> Dict[str, Any]:
         """提取性能指标"""
         try:
-            metrics = {}
+            normalized = self._normalize_results(results)
+            metrics = {
+                key: round(value, 4)
+                for key, value in normalized.get("metrics", {}).items()
+                if isinstance(value, (int, float))
+            }
 
-            # 从结果中提取各种指标
-            for key, value in results.items():
-                if (
-                    key.endswith("_ratio")
-                    or key.endswith("_return")
-                    or key.endswith("_drawdown")
-                ):
-                    if isinstance(value, (int, float)):
-                        metrics[key] = round(value, 4)
-
-            # 计算额外指标
-            portfolio_value = results.get("portfolio_value", [])
-            if portfolio_value:
-                returns = pd.Series(portfolio_value).pct_change().dropna()
-
-                metrics.update(
-                    {
-                        "volatility": round(returns.std() * np.sqrt(252), 4),
-                        "skewness": round(returns.skew(), 4),
-                        "kurtosis": round(returns.kurtosis(), 4),
-                        "positive_days": int((returns > 0).sum()),
-                        "negative_days": int((returns < 0).sum()),
-                        "max_daily_gain": round(returns.max() * 100, 2),
-                        "max_daily_loss": round(returns.min() * 100, 2),
-                    }
-                )
+            returns = self._extract_return_series(normalized)
+            if not returns.empty:
+                metrics.update({
+                    "volatility": round(returns.std() * np.sqrt(252), 4),
+                    "skewness": round(returns.skew(), 4),
+                    "kurtosis": round(returns.kurtosis(), 4),
+                    "positive_days": int((returns > 0).sum()),
+                    "negative_days": int((returns < 0).sum()),
+                    "max_daily_gain": round(returns.max() * 100, 2),
+                    "max_daily_loss": round(returns.min() * 100, 2),
+                })
 
             return metrics
 
@@ -144,11 +205,9 @@ class DataExporter:
     def _calculate_risk_metrics(self, results: Dict[str, Any]) -> Dict[str, Any]:
         """计算风险指标"""
         try:
-            portfolio_value = results.get("portfolio_value", [])
-            if not portfolio_value:
+            returns = self._extract_return_series(results)
+            if returns.empty:
                 return {"error": "No portfolio data available"}
-
-            returns = pd.Series(portfolio_value).pct_change().dropna()
 
             # VaR计算
             var_95 = np.percentile(returns, 5) * 100
@@ -216,48 +275,58 @@ class DataExporter:
     def _analyze_trades(self, results: Dict[str, Any]) -> Dict[str, Any]:
         """分析交易记录"""
         try:
-            signals = results.get("signals", [])
+            trades = self._extract_trade_records(results)
+            if trades:
+                buy_trades = [trade for trade in trades if str(trade.get("type")).upper() == "BUY"]
+                sell_trades = [trade for trade in trades if str(trade.get("type")).upper() == "SELL"]
+
+                completed_positions = []
+                open_trade = None
+                for trade in trades:
+                    trade_type = str(trade.get("type")).upper()
+                    if trade_type == "BUY" and open_trade is None:
+                        open_trade = trade
+                    elif trade_type == "SELL" and open_trade is not None:
+                        completed_positions.append((open_trade, trade))
+                        open_trade = None
+
+                durations = []
+                for entry_trade, exit_trade in completed_positions:
+                    entry_date = pd.to_datetime(entry_trade.get("date"), errors="coerce")
+                    exit_date = pd.to_datetime(exit_trade.get("date"), errors="coerce")
+                    if pd.notna(entry_date) and pd.notna(exit_date):
+                        durations.append(max((exit_date - entry_date).days, 0))
+
+                avg_holding_period = np.mean(durations) if durations else 0
+                max_holding_period = max(durations) if durations else 0
+                min_holding_period = min(durations) if durations else 0
+
+                return {
+                    "total_trades": len(completed_positions),
+                    "buy_signals": int(len(buy_trades)),
+                    "sell_signals": int(len(sell_trades)),
+                    "avg_holding_period": round(avg_holding_period, 1),
+                    "max_holding_period": max_holding_period,
+                    "min_holding_period": min_holding_period,
+                    "trade_frequency": round(len(completed_positions) / len(trades) * 100, 2) if trades else 0,
+                }
+
+            signals = [point.get("signal", 0) for point in self._extract_portfolio_points(results)]
             if not signals:
                 return {"error": "No trading signals available"}
 
-            # 转换为pandas Series
             signals_series = pd.Series(signals)
-
             buy_signals = (signals_series == 1).sum()
             sell_signals = (signals_series == -1).sum()
 
-            # 计算持仓时间
-            positions = []
-            current_position = None
-
-            for i, signal in enumerate(signals):
-                if signal == 1 and current_position is None:  # 开仓
-                    current_position = {"entry": i, "type": "long"}
-                elif signal == -1 and current_position is not None:  # 平仓
-                    current_position["exit"] = i
-                    current_position["duration"] = i - current_position["entry"]
-                    positions.append(current_position)
-                    current_position = None
-
-            # 统计分析
-            if positions:
-                durations = [pos["duration"] for pos in positions]
-                avg_holding_period = np.mean(durations)
-                max_holding_period = max(durations)
-                min_holding_period = min(durations)
-            else:
-                avg_holding_period = max_holding_period = min_holding_period = 0
-
             return {
-                "total_trades": len(positions),
+                "total_trades": int(min(buy_signals, sell_signals)),
                 "buy_signals": int(buy_signals),
                 "sell_signals": int(sell_signals),
-                "avg_holding_period": round(avg_holding_period, 1),
-                "max_holding_period": max_holding_period,
-                "min_holding_period": min_holding_period,
-                "trade_frequency": round(len(positions) / len(signals) * 100, 2)
-                if signals
-                else 0,
+                "avg_holding_period": 0,
+                "max_holding_period": 0,
+                "min_holding_period": 0,
+                "trade_frequency": round((buy_signals + sell_signals) / len(signals) * 100, 2) if signals else 0,
             }
 
         except Exception as e:
@@ -270,25 +339,33 @@ class DataExporter:
         """生成图表"""
         try:
             charts = {}
+            portfolio_value = self._extract_portfolio_values(results)
 
             # 生成组合价值图
-            if "portfolio_value" in results:
+            if portfolio_value:
+                portfolio_dates = self._extract_portfolio_dates(results, len(portfolio_value))
                 charts["portfolio_value"] = self._create_portfolio_chart(
-                    results["portfolio_value"], symbol, strategy
+                    portfolio_value,
+                    symbol,
+                    strategy,
+                    portfolio_dates,
                 )
 
             # 生成回撤图
-            if "portfolio_value" in results:
+            if portfolio_value:
                 charts["drawdown"] = self._create_drawdown_chart(
-                    results["portfolio_value"], symbol, strategy
+                    portfolio_value,
+                    symbol,
+                    strategy,
+                    portfolio_dates[1:] if len(portfolio_dates) > 1 else portfolio_dates,
                 )
 
             # 生成收益分布图
-            if "portfolio_value" in results:
+            if portfolio_value:
                 charts[
                     "returns_distribution"
                 ] = self._create_returns_distribution_chart(
-                    results["portfolio_value"], symbol, strategy
+                    portfolio_value, symbol, strategy
                 )
 
             return charts
@@ -298,13 +375,13 @@ class DataExporter:
             return {"error": str(e)}
 
     def _create_portfolio_chart(
-        self, portfolio_value: List[float], symbol: str, strategy: str
+        self, portfolio_value: List[float], symbol: str, strategy: str, dates: Optional[pd.DatetimeIndex] = None
     ) -> str:
         """创建组合价值图表"""
         try:
             fig, ax = plt.subplots(figsize=(12, 6))
 
-            dates = pd.date_range(
+            dates = dates if dates is not None else pd.date_range(
                 start="2023-01-01", periods=len(portfolio_value), freq="D"
             )
             ax.plot(dates, portfolio_value, linewidth=2, color="#1f77b4")
@@ -347,7 +424,7 @@ class DataExporter:
             return ""
 
     def _create_drawdown_chart(
-        self, portfolio_value: List[float], symbol: str, strategy: str
+        self, portfolio_value: List[float], symbol: str, strategy: str, dates: Optional[pd.DatetimeIndex] = None
     ) -> str:
         """创建回撤图表"""
         try:
@@ -359,7 +436,7 @@ class DataExporter:
             running_max = cumulative.cummax()
             drawdown = (cumulative - running_max) / running_max * 100
 
-            dates = pd.date_range(start="2023-01-01", periods=len(drawdown), freq="D")
+            dates = dates if dates is not None else pd.date_range(start="2023-01-01", periods=len(drawdown), freq="D")
             ax.fill_between(dates, drawdown, 0, color="red", alpha=0.3)
             ax.plot(dates, drawdown, color="red", linewidth=1)
 
@@ -447,20 +524,15 @@ class DataExporter:
         """导出数据到CSV"""
         try:
             csv_path = self.output_dir / f"{filename}.csv"
+            portfolio_points = self._extract_portfolio_points(data)
 
             # 处理不同类型的数据
-            if "portfolio_value" in data:
+            if portfolio_points:
                 df = pd.DataFrame(
                     {
-                        "Date": pd.date_range(
-                            start="2023-01-01",
-                            periods=len(data["portfolio_value"]),
-                            freq="D",
-                        ),
-                        "Portfolio_Value": data["portfolio_value"],
-                        "Signals": data.get(
-                            "signals", [0] * len(data["portfolio_value"])
-                        ),
+                        "Date": [point.get("date") for point in portfolio_points],
+                        "Portfolio_Value": [point.get("total") for point in portfolio_points],
+                        "Signals": [point.get("signal", 0) for point in portfolio_points],
                     }
                 )
                 df.to_csv(csv_path, index=False, encoding="utf-8-sig")
@@ -490,21 +562,16 @@ class DataExporter:
         """导出数据到Excel"""
         try:
             excel_path = self.output_dir / f"{filename}.xlsx"
+            portfolio_points = self._extract_portfolio_points(data)
 
             with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
                 # 组合价值数据
-                if "portfolio_value" in data:
+                if portfolio_points:
                     df = pd.DataFrame(
                         {
-                            "Date": pd.date_range(
-                                start="2023-01-01",
-                                periods=len(data["portfolio_value"]),
-                                freq="D",
-                            ),
-                            "Portfolio_Value": data["portfolio_value"],
-                            "Signals": data.get(
-                                "signals", [0] * len(data["portfolio_value"])
-                            ),
+                            "Date": [point.get("date") for point in portfolio_points],
+                            "Portfolio_Value": [point.get("total") for point in portfolio_points],
+                            "Signals": [point.get("signal", 0) for point in portfolio_points],
                         }
                     )
                     df.to_excel(writer, sheet_name="Portfolio_Data", index=False)

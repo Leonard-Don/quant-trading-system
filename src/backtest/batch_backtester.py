@@ -13,6 +13,10 @@ from datetime import datetime
 import logging
 import json
 
+from src.utils.data_validation import normalize_backtest_results
+from src.utils.data_validation import validate_and_fix_backtest_results
+from src.analytics.dashboard import PerformanceAnalyzer
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,6 +30,8 @@ class BacktestTask:
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     initial_capital: float = 100000
+    commission: float = 0.001
+    slippage: float = 0.001
 
 
 @dataclass
@@ -171,9 +177,14 @@ class BatchBacktester:
             
             # 创建回测器并执行
             backtester = backtester_factory(
-                initial_capital=task.initial_capital
+                initial_capital=task.initial_capital,
+                commission=task.commission,
+                slippage=task.slippage,
             )
             result = backtester.run(strategy, data)
+            result = validate_and_fix_backtest_results(result)
+            result.update(PerformanceAnalyzer(result).calculate_metrics())
+            normalized_result = normalize_backtest_results(result)
             
             execution_time = time.time() - start_time
             
@@ -182,7 +193,7 @@ class BatchBacktester:
                 symbol=task.symbol,
                 strategy_name=task.strategy_name,
                 parameters=task.parameters,
-                metrics=result.get('metrics', {}),
+                metrics=normalized_result.get('metrics', normalized_result),
                 success=True,
                 execution_time=execution_time
             )
@@ -429,12 +440,15 @@ class WalkForwardAnalyzer:
                 
                 # 在测试集上评估
                 test_result = backtester.run(strategy, window['test'])
+                test_result = validate_and_fix_backtest_results(test_result)
+                test_result.update(PerformanceAnalyzer(test_result).calculate_metrics())
+                normalized_result = normalize_backtest_results(test_result)
                 
                 results.append({
                     'window_id': window['window_id'],
                     'test_start': str(window['test_start']),
                     'test_end': str(window['test_end']),
-                    'metrics': test_result.get('metrics', {})
+                    'metrics': normalized_result.get('metrics', normalized_result)
                 })
             except Exception as e:
                 logger.error(f"Window {window['window_id']} 分析失败: {e}")

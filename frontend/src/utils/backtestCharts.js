@@ -129,9 +129,9 @@ export const buildDrawdownSeries = (data = []) => {
       }
 
       return {
-        dateValue: parsedDate.valueOf(),
-        dateLabel: parsedDate.format('MM/DD'),
-        dateLongLabel: parsedDate.format('YYYY-MM-DD'),
+        dateValue: parsedDate ? parsedDate.valueOf() : index,
+        dateLabel: parsedDate ? parsedDate.format('MM/DD') : `#${index + 1}`,
+        dateLongLabel: parsedDate ? parsedDate.format('YYYY-MM-DD') : `第 ${index + 1} 个交易点`,
         total,
         drawdown,
       };

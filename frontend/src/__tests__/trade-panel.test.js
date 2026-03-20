@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 import TradePanel from '../components/TradePanel';
@@ -13,6 +13,15 @@ import {
 } from '../services/api';
 
 const mockListeners = new Map();
+const createDeferred = () => {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
 
 jest.mock('../services/api', () => ({
   getPortfolio: jest.fn(),
@@ -74,9 +83,11 @@ jest.mock('antd', () => {
     const currentKey = activeKey || defaultActiveKey || items[0]?.key;
     return (
       <div>
-        <button type="button" onClick={() => onChange?.(items[0]?.key)}>
-          tabs
-        </button>
+        {items.map((item) => (
+          <button key={item.key} type="button" onClick={() => onChange?.(item.key)}>
+            {item.label}
+          </button>
+        ))}
         {items.find((item) => item.key === currentKey)?.children}
       </div>
     );
@@ -151,13 +162,15 @@ describe('TradePanel', () => {
   });
 
   test('loads single-symbol realtime quote for the active symbol', async () => {
-    render(
-      <TradePanel
-        visible
-        defaultSymbol="^GSPC"
-        onClose={jest.fn()}
-      />
-    );
+    await act(async () => {
+      render(
+        <TradePanel
+          visible
+          defaultSymbol="^GSPC"
+          onClose={jest.fn()}
+        />
+      );
+    });
 
     await waitFor(() => {
       expect(getRealtimeQuote).toHaveBeenCalledWith('^GSPC');
@@ -167,13 +180,15 @@ describe('TradePanel', () => {
   });
 
   test('hydrates portfolio and history from the trade websocket snapshot', async () => {
-    render(
-      <TradePanel
-        visible
-        defaultSymbol="AAPL"
-        onClose={jest.fn()}
-      />
-    );
+    await act(async () => {
+      render(
+        <TradePanel
+          visible
+          defaultSymbol="AAPL"
+          onClose={jest.fn()}
+        />
+      );
+    });
 
     await act(async () => {
       mockListeners.get('trade_snapshot')?.({
@@ -215,5 +230,132 @@ describe('TradePanel', () => {
       expect(screen.getByText('交易次数')).toBeInTheDocument();
       expect(screen.getAllByTestId('table')[0]).toHaveTextContent('AAPL');
     });
+  });
+
+  test('resets order state when reopening for another symbol', async () => {
+    let rerender;
+    await act(async () => {
+      ({ rerender } = render(
+        <TradePanel
+          visible
+          defaultSymbol="AAPL"
+          onClose={jest.fn()}
+        />
+      ));
+    });
+
+    await waitFor(() => {
+      expect(getRealtimeQuote).toHaveBeenCalledWith('AAPL');
+    });
+
+    const quantityInput = screen.getByLabelText('input-number');
+    const priceInput = screen.getByLabelText('市价 Market Price');
+    fireEvent.change(quantityInput, { target: { value: '25' } });
+    fireEvent.change(priceInput, { target: { value: '101.5' } });
+    await act(async () => {
+      screen.getByRole('button', { name: '卖出' }).click();
+    });
+
+    await act(async () => {
+      rerender(
+        <TradePanel
+          visible={false}
+          defaultSymbol="AAPL"
+          onClose={jest.fn()}
+        />
+      );
+    });
+
+    await act(async () => {
+      rerender(
+        <TradePanel
+          visible
+          defaultSymbol="MSFT"
+          onClose={jest.fn()}
+        />
+      );
+    });
+
+    expect(screen.getByText('MSFT 买入计划')).toBeInTheDocument();
+    expect(screen.getByText('准备买入')).toBeInTheDocument();
+    expect(screen.queryByText('准备卖出')).not.toBeInTheDocument();
+
+    const resetQuantityInput = screen.getByLabelText('input-number');
+    const resetPriceInput = screen.getByLabelText('市价 Market Price');
+    expect(resetQuantityInput).toHaveValue('100');
+    expect(resetPriceInput).toHaveValue('');
+  });
+
+  test('ignores stale realtime quote responses when switching symbols quickly', async () => {
+    const aaplRequest = createDeferred();
+    const msftRequest = createDeferred();
+
+    getRealtimeQuote
+      .mockReset()
+      .mockImplementation((symbol) => {
+        if (symbol === 'AAPL') {
+          return aaplRequest.promise;
+        }
+        if (symbol === 'MSFT') {
+          return msftRequest.promise;
+        }
+        return Promise.resolve({ success: true, data: null });
+      });
+
+    let rerender;
+    await act(async () => {
+      ({ rerender } = render(
+        <TradePanel
+          visible
+          defaultSymbol="AAPL"
+          onClose={jest.fn()}
+        />
+      ));
+    });
+
+    await act(async () => {
+      rerender(
+        <TradePanel
+          visible
+          defaultSymbol="MSFT"
+          onClose={jest.fn()}
+        />
+      );
+    });
+
+    await act(async () => {
+      msftRequest.resolve({
+        success: true,
+        data: {
+          symbol: 'MSFT',
+          price: 412.34,
+          change_percent: 1.23,
+          high: 415,
+          low: 408,
+          timestamp: '2026-03-18T10:00:00',
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('参考市价 $412.34')).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      aaplRequest.resolve({
+        success: true,
+        data: {
+          symbol: 'AAPL',
+          price: 999.99,
+          change_percent: 9.99,
+          high: 1005,
+          low: 995,
+          timestamp: '2026-03-18T09:30:00',
+        },
+      });
+    });
+
+    expect(screen.queryByText('参考市价 $999.99')).not.toBeInTheDocument();
+    expect(screen.getByText('参考市价 $412.34')).toBeInTheDocument();
   });
 });

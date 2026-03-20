@@ -5,7 +5,7 @@
 **一个基于 FastAPI + React 的量化研究、宏观错误定价、资产定价研究与跨市场回测平台**  
 *An institutional-grade quantitative research framework featuring macro mispricing arbitrage, alternative data pipelines, and advanced asset pricing models.*
 
-**当前版本：`v3.5.0`**
+**当前版本：见 [`VERSION`](VERSION)**
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
@@ -18,7 +18,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen?style=flat-square)](LICENSE)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-blueviolet?style=flat-square)](CONTRIBUTING.md)
 
-[本地体验](#-本地体验) · [v3.5.0 更新](#-v350-重点更新) · [核心工作流](#-核心工作流) · [功能特性](#-功能特性) · [快速开始](#-快速开始) · [部署说明](docs/DEPLOYMENT.md) · [API 文档](#-api-文档) · [GitHub 协作](#-github-协作)
+[本地体验](#-本地体验) · [最新更新](#-最新更新) · [核心工作流](#-核心工作流) · [功能特性](#-功能特性) · [快速开始](#-快速开始) · [推荐阅读路径](#-推荐阅读路径) · [部署说明](docs/DEPLOYMENT.md) · [API 文档](#-api-文档) · [GitHub 协作](#-github-协作)
 
 </div>
 
@@ -60,7 +60,7 @@ cd quant-trading-system
 
 ---
 
-## 🚀 v3.5.0 重点更新
+## 🚀 最新更新
 
 - **实时行情深度详情回归**：重建了“实时快照 + 全维分析”链路，恢复总览、趋势、量价、情绪、形态、风险、相关性与 AI 预测联动。
 - **交易推送链路补齐**：补通 `/ws/trades`，交易弹窗现在会直接消费账户快照、交易广播和单条实时 quote。
@@ -71,7 +71,7 @@ cd quant-trading-system
 
 ## 🤝 GitHub 协作
 
-- **最新发布**：[v3.5.0](https://github.com/Leonard-Don/quant-trading-system/releases/tag/v3.5.0)
+- **最新发布**：[Releases](https://github.com/Leonard-Don/quant-trading-system/releases/latest)
 - **CI 状态**：[GitHub Actions](https://github.com/Leonard-Don/quant-trading-system/actions/workflows/ci.yml)
 - **提问与反馈**：[Issues](https://github.com/Leonard-Don/quant-trading-system/issues)
 - **贡献入口**：[CONTRIBUTING.md](CONTRIBUTING.md)
@@ -203,8 +203,8 @@ cd quant-trading-system
 ### 分步启动（开发调试）
 
 ```bash
-# 安装 Python 依赖
-pip install -r requirements.txt
+# 开发环境安装 Python 依赖
+pip install -r requirements-dev.txt
 
 # 启动后端
 python scripts/start_backend.py
@@ -212,6 +212,43 @@ python scripts/start_backend.py
 # 新终端：安装并启动前端
 cd frontend && npm install && npm start
 ```
+
+### 生产启动（推荐）
+
+```bash
+# 最小运行依赖
+pip install -r requirements.txt
+
+# 前端构建
+cd frontend && npm install && npm run build
+cd ..
+
+# 使用根目录 .env 或 shell 环境变量控制 API_HOST / API_PORT / API_RELOAD
+API_RELOAD=false python backend/main.py
+```
+
+### 环境变量说明
+
+- 后端会自动读取项目根目录 `.env`
+- shell 环境变量会覆盖 `.env` 中的同名值
+- 常用后端变量：`API_HOST`、`API_PORT`、`API_RELOAD`、`DATA_CACHE_SIZE`、`CACHE_TTL`
+- 常用前端变量：`REACT_APP_API_URL`、`REACT_APP_API_TIMEOUT`
+
+### 依赖说明
+
+- `requirements.txt`：运行时依赖，适合部署和最小安装
+- `requirements-dev.txt`：开发、测试、代码质量工具，包含 `requirements.txt`
+
+---
+
+## 🧭 推荐阅读路径
+
+1. 后端入口：[`backend/main.py`](backend/main.py)
+2. 后端配置入口：[`backend/app/core/config.py`](backend/app/core/config.py) -> [`src/utils/config.py`](src/utils/config.py) -> [`src/settings/`](src/settings)
+3. 前端入口：[`frontend/src/App.js`](frontend/src/App.js)
+4. 核心业务模块：[`src/analytics/`](src/analytics/)、[`src/backtest/`](src/backtest/)、[`src/trading/`](src/trading/)
+5. 测试入口：[`scripts/run_tests.py`](scripts/run_tests.py)
+6. 部署与测试文档：[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)、[`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md)
 
 ---
 
@@ -252,7 +289,9 @@ quant-trading-system/
 
 ---
 
-## 📈 可用策略
+## 📈 内置策略能力
+
+策略列表是研究平台的一部分能力，不是这个项目的唯一卖点。更核心的体验仍然是“研究线索生成 -> 定价/宏观分析 -> 回测验证 -> 工作台沉淀”的闭环。
 
 | 策略 ID | 策略名称 | 类型 |
 |---------|---------|------|
@@ -300,6 +339,9 @@ quant-trading-system/
 ## 🧪 运行测试
 
 ```bash
+# 默认运行 unit / integration / system
+python scripts/run_tests.py
+
 # 单元测试
 python scripts/run_tests.py --unit
 
@@ -315,6 +357,12 @@ python3 -m pytest tests/unit/test_cross_market_backtester.py tests/unit/test_cro
 # 研究工作台定向测试
 python3 -m pytest tests/unit/test_research_workbench.py tests/unit/test_research_workbench_endpoint.py -q
 ```
+
+更多测试分层和前置条件见 [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md)。
+
+---
+
+**文档更新时间**：2026-03-20
 
 ---
 

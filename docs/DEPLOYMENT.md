@@ -3,9 +3,10 @@
 ## 开发环境
 
 ```bash
-pip install -r requirements.txt
+# Python 开发依赖
 pip install -r requirements-dev.txt
 
+# 前端依赖
 cd frontend && npm install
 
 # 一键启动
@@ -17,21 +18,36 @@ cd frontend && npm install
 - 后端: `http://localhost:8000`
 - OpenAPI: `http://localhost:8000/docs`
 
+## 配置来源
+
+- 运行时配置入口是 `backend/app/core/config.py`
+- `src/utils/config.py` 现在是兼容层
+- 实际配置定义按域拆分在 `src/settings/`（`api.py`、`data.py`、`trading.py`、`performance.py`、`gui.py`）
+- 后端启动时会自动读取项目根目录 `.env`
+- shell 环境变量会覆盖 `.env` 中的同名值
+
 ## 生产环境（建议）
 
 ### 1. 基础要求
-- Python 3.8+
+- Python 3.9+
 - Node.js 16+
+- npm 8+
 - 反向代理（Nginx/Traefik 等）
 
 ### 2. 后端启动
 
-建议使用进程管理器启动：
+建议先安装最小运行依赖：
+
 ```bash
-python backend/main.py
+pip install -r requirements.txt
 ```
 
-或通过 Uvicorn：
+推荐生产启动方式：
+```bash
+API_RELOAD=false python backend/main.py
+```
+
+如需由外部进程管理器直接托管 Uvicorn，可使用：
 ```bash
 uvicorn backend.main:app --host 0.0.0.0 --port 8000
 ```
@@ -46,16 +62,25 @@ npm run build
 
 ### 4. 环境变量
 
-后端主要配置在 `src/utils/config.py`，可通过环境变量覆盖：
+后端主要配置通过 `src/settings/` 读取，可通过项目根目录 `.env` 或环境变量覆盖：
 - `API_HOST`（默认 `127.0.0.1`）
 - `API_PORT`（默认 `8000`）
 - `API_RELOAD`（默认 `True`）
 - `DATA_CACHE_SIZE`（默认 `100`）
 - `CACHE_TTL`（默认 `3600`）
 
-前端通过 `.env` 设置：
+前端通过 `frontend/.env*` 或构建环境变量设置：
 - `REACT_APP_API_URL`（默认 `http://localhost:8000`）
 - `REACT_APP_API_TIMEOUT`
+
+## 前后端通信方式
+
+- 开发环境：`frontend/package.json` 里保留了 `proxy=http://localhost:8000`
+- 前端请求默认读取 `REACT_APP_API_URL`，未设置时回退到 `http://localhost:8000`
+- WebSocket 会基于同一个 `REACT_APP_API_URL` 自动推导 `ws://` 或 `wss://`
+- 生产环境推荐二选一：
+  - 同域反向代理，前端静态资源和 API 由同一域名提供
+  - 显式设置 `REACT_APP_API_URL=https://your-domain.com/api`
 
 ### 5. 反向代理示例
 
@@ -81,6 +106,15 @@ server {
 }
 ```
 
+## Docker 支持
+
+当前仓库未提供官方 `Dockerfile` 或 `docker-compose.yml`，因此目前推荐使用原生 Python + Node.js + 反向代理部署。如果后续需要容器化，建议先固定：
+
+- 后端启动命令
+- 前端构建产物目录
+- `.env` 注入方式
+- 反向代理路径前缀
+
 ---
 
-**最后更新**: 2026-02-05
+**最后更新**: 2026-03-20
