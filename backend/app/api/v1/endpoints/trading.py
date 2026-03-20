@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from backend.app.services.trade_stream import build_trade_stream_payload, resolve_trade_portfolio
 from backend.app.websocket.trade_connection_manager import trade_ws_manager
+from src.data.realtime_manager import realtime_manager
 from src.trading.trade_manager import trade_manager
 from src.data.data_manager import DataManager
 
@@ -33,12 +34,19 @@ async def execute_trade(trade_request: TradeRequest):
     try:
         price = trade_request.price
         
-        # 如果未提供价格，获取当前市场价格
+        # 如果未提供价格，优先复用实时缓存中的最新价，保持与前端实时参考价一致。
         if price is None:
-            quote = data_manager.get_latest_price(trade_request.symbol)
-            if not quote or "price" not in quote:
+            realtime_quote = realtime_manager.get_quote_dict(trade_request.symbol, use_cache=True) or {}
+            if "price" in realtime_quote and realtime_quote["price"] is not None:
+                price = realtime_quote["price"]
+
+            if price is None:
+                quote = data_manager.get_latest_price(trade_request.symbol)
+                if quote and "price" in quote:
+                    price = quote["price"]
+
+            if price is None:
                 raise HTTPException(status_code=400, detail=f"无法获取 {trade_request.symbol} 的最新价格")
-            price = quote["price"]
 
         trade_result = trade_manager.execute_trade(
             symbol=trade_request.symbol,

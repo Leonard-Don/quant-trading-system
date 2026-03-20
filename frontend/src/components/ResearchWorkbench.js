@@ -524,9 +524,72 @@ function ResearchWorkbench() {
       <Space direction="vertical" size={8} style={{ width: '100%' }}>
         <Text strong>{task.snapshot.headline || 'Cross-Market Snapshot'}</Text>
         <Paragraph style={{ marginBottom: 0 }}>{task.snapshot.summary}</Paragraph>
+        {payload.template_meta?.theme ? (
+          <Text type="secondary">主题 {payload.template_meta.theme}</Text>
+        ) : null}
+        {payload.template_meta?.allocation_mode ? (
+          <Text type="secondary">
+            配置模式 {payload.template_meta.allocation_mode === 'macro_bias' ? '宏观偏置' : '模板原始权重'}
+          </Text>
+        ) : null}
+        {payload.template_meta?.bias_summary ? (
+          <Text type="secondary">权重偏置 {payload.template_meta.bias_summary}</Text>
+        ) : null}
+        {payload.template_meta?.bias_actions?.length ? (
+          <Text type="secondary">
+            建议动作 {(payload.template_meta.bias_actions || []).map((item) => `${item.action === 'increase' ? '增配' : '减配'} ${item.symbol}`).join('，')}
+          </Text>
+        ) : null}
+        {payload.template_meta?.driver_summary?.length ? (
+          <Text type="secondary">
+            驱动分解 {(payload.template_meta.driver_summary || []).slice(0, 3).map((item) => `${item.label} ${Number(item.value || 0).toFixed(2)}`).join('，')}
+          </Text>
+        ) : null}
+        {payload.template_meta?.theme_core ? (
+          <Text type="secondary">核心腿 {payload.template_meta.theme_core}</Text>
+        ) : null}
+        {payload.template_meta?.theme_support ? (
+          <Text type="secondary">辅助腿 {payload.template_meta.theme_support}</Text>
+        ) : null}
+        {payload.allocation_overlay?.max_delta_weight ? (
+          <Text type="secondary">
+            最大权重偏移 {(Number(payload.allocation_overlay.max_delta_weight || 0) * 100).toFixed(2)}pp
+          </Text>
+        ) : null}
+        {payload.template_meta?.recommendation_tier ? (
+          <Tag color="gold">{payload.template_meta.recommendation_tier}</Tag>
+        ) : null}
+        {payload.template_meta?.recommendation_reason ? (
+          <Text type="secondary">推荐依据 {payload.template_meta.recommendation_reason}</Text>
+        ) : null}
         {payload.total_return !== undefined ? (
           <Text type="secondary">
             总收益 {(Number(payload.total_return || 0) * 100).toFixed(2)}% / Sharpe {Number(payload.sharpe_ratio || 0).toFixed(2)}
+          </Text>
+        ) : null}
+        {payload.execution_plan?.batches?.length ? (
+          <Text type="secondary">
+            执行批次 {payload.execution_plan.batches.length} / 路由 {payload.execution_plan.route_count || 0}
+            {payload.execution_plan.initial_capital ? ` / 计划资金 ${Number(payload.execution_plan.initial_capital).toLocaleString()}` : ''}
+          </Text>
+        ) : null}
+        {payload.execution_diagnostics?.concentration_level ? (
+          <Text type="secondary">
+            执行集中度 {payload.execution_diagnostics.concentration_level}
+            {payload.execution_diagnostics.concentration_reason ? ` · ${payload.execution_diagnostics.concentration_reason}` : ''}
+          </Text>
+        ) : null}
+        {payload.execution_diagnostics?.suggested_rebalance ? (
+          <Text type="secondary">
+            建议调仓 {payload.execution_diagnostics.suggested_rebalance}
+            {payload.execution_diagnostics.lot_efficiency !== undefined
+              ? ` · Lot 效率 ${(Number(payload.execution_diagnostics.lot_efficiency || 0) * 100).toFixed(2)}%`
+              : ''}
+          </Text>
+        ) : null}
+        {payload.execution_plan?.execution_stress?.worst_case ? (
+          <Text type="secondary">
+            压力测试 {payload.execution_plan.execution_stress.worst_case.label} · {payload.execution_plan.execution_stress.worst_case.concentration_level}
           </Text>
         ) : null}
         {payload.data_alignment?.tradable_day_ratio !== undefined ? (
@@ -557,6 +620,7 @@ function ResearchWorkbench() {
           const payload = item.payload || {};
           const savedAt = item.saved_at ? new Date(item.saved_at).toLocaleString() : '-';
           const pricingValue = payload.fair_value?.mid || payload.gap_analysis?.fair_value_mid;
+          const templateMeta = payload.template_meta || {};
           return (
             <List.Item>
               <List.Item.Meta
@@ -574,9 +638,69 @@ function ResearchWorkbench() {
                         Fair value {pricingValue || '-'} · {(payload.implications?.primary_view || '待判断')}
                       </Text>
                     ) : (
-                      <Text type="secondary">
-                        Return {(Number(payload.total_return || 0) * 100).toFixed(2)}% · Sharpe {Number(payload.sharpe_ratio || 0).toFixed(2)}
-                      </Text>
+                      <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                        <Text type="secondary">
+                          Return {(Number(payload.total_return || 0) * 100).toFixed(2)}% · Sharpe {Number(payload.sharpe_ratio || 0).toFixed(2)}
+                        </Text>
+                        {payload.execution_plan?.batches?.length ? (
+                          <Text type="secondary">
+                            执行批次 {payload.execution_plan.batches.length} · 路由 {payload.execution_plan.route_count || 0}
+                            {payload.execution_plan.initial_capital ? ` · 资金 ${Number(payload.execution_plan.initial_capital).toLocaleString()}` : ''}
+                          </Text>
+                        ) : null}
+                        {payload.execution_diagnostics?.concentration_level ? (
+                          <Text type="secondary">
+                            集中度 {payload.execution_diagnostics.concentration_level}
+                          </Text>
+                        ) : null}
+                        {payload.execution_diagnostics?.suggested_rebalance ? (
+                          <Text type="secondary">
+                            调仓 {payload.execution_diagnostics.suggested_rebalance}
+                            {payload.execution_diagnostics.lot_efficiency !== undefined
+                              ? ` · Lot ${(Number(payload.execution_diagnostics.lot_efficiency || 0) * 100).toFixed(1)}%`
+                              : ''}
+                          </Text>
+                        ) : null}
+                        {payload.execution_plan?.execution_stress?.worst_case ? (
+                          <Text type="secondary">
+                            压测 {payload.execution_plan.execution_stress.worst_case.label} · {payload.execution_plan.execution_stress.worst_case.concentration_level}
+                          </Text>
+                        ) : null}
+                        {templateMeta.recommendation_tier ? (
+                          <Text type="secondary">
+                            推荐 {templateMeta.recommendation_tier}
+                            {templateMeta.theme ? ` · ${templateMeta.theme}` : ''}
+                          </Text>
+                        ) : null}
+                        {templateMeta.bias_summary ? (
+                          <Text type="secondary">
+                            偏置 {templateMeta.bias_summary}
+                          </Text>
+                        ) : null}
+                        {templateMeta.bias_actions?.length ? (
+                          <Text type="secondary">
+                            动作 {(templateMeta.bias_actions || []).slice(0, 3).map((item) => `${item.action === 'increase' ? '增配' : '减配'} ${item.symbol}`).join('，')}
+                          </Text>
+                        ) : null}
+                        {templateMeta.driver_summary?.length ? (
+                          <Text type="secondary">
+                            分解 {(templateMeta.driver_summary || []).slice(0, 2).map((item) => `${item.label} ${Number(item.value || 0).toFixed(2)}`).join('，')}
+                          </Text>
+                        ) : null}
+                        {templateMeta.theme_core ? (
+                          <Text type="secondary">
+                            核心腿 {templateMeta.theme_core}
+                          </Text>
+                        ) : null}
+                        {payload.allocation_overlay?.max_delta_weight ? (
+                          <Text type="secondary">
+                            最大偏移 {(Number(payload.allocation_overlay.max_delta_weight || 0) * 100).toFixed(2)}pp
+                          </Text>
+                        ) : null}
+                        {templateMeta.recommendation_reason ? (
+                          <Text type="secondary">{templateMeta.recommendation_reason}</Text>
+                        ) : null}
+                      </Space>
                     )}
                   </Space>
                 )}
@@ -590,6 +714,8 @@ function ResearchWorkbench() {
 
   const renderBoardCard = (task, status) => {
     const isOverTarget = dragState?.overTaskId === task.id && dragState?.overStatus === status;
+    const templateMeta = task.snapshot?.payload?.template_meta || {};
+    const executionPlan = task.snapshot?.payload?.execution_plan || {};
     return (
       <div
         key={task.id}
@@ -624,11 +750,50 @@ function ResearchWorkbench() {
           <Space wrap>
             <Text strong>{task.title}</Text>
             <Tag color={task.type === 'pricing' ? 'blue' : 'purple'}>{task.type}</Tag>
+            {templateMeta.recommendation_tier ? <Tag color="gold">{templateMeta.recommendation_tier}</Tag> : null}
           </Space>
           <Text type="secondary">{task.snapshot?.headline || '暂无快照摘要'}</Text>
+          {templateMeta.theme ? <Text type="secondary">{templateMeta.theme}</Text> : null}
+          {templateMeta.bias_summary ? <Text type="secondary">{templateMeta.bias_summary}</Text> : null}
+          {templateMeta.bias_actions?.length ? (
+            <Text type="secondary">
+              {(templateMeta.bias_actions || []).slice(0, 2).map((item) => `${item.action === 'increase' ? '增配' : '减配'} ${item.symbol}`).join('，')}
+            </Text>
+          ) : null}
+          {templateMeta.driver_summary?.length ? (
+            <Text type="secondary">
+              {(templateMeta.driver_summary || []).slice(0, 2).map((item) => `${item.label} ${Number(item.value || 0).toFixed(2)}`).join('，')}
+            </Text>
+          ) : null}
+          {templateMeta.theme_core ? <Text type="secondary">{templateMeta.theme_core}</Text> : null}
+          {task.snapshot?.payload?.allocation_overlay?.max_delta_weight ? (
+            <Text type="secondary">
+              最大偏移 {(Number(task.snapshot.payload.allocation_overlay.max_delta_weight || 0) * 100).toFixed(2)}pp
+            </Text>
+          ) : null}
           <Text type="secondary">
             {task.symbol || task.template || '-'} · {formatResearchSource(task.source || 'manual')}
           </Text>
+          {executionPlan.route_count ? (
+            <Text type="secondary">
+              路由 {executionPlan.route_count} · 批次 {(executionPlan.batches || []).length}
+            </Text>
+          ) : null}
+          {task.snapshot?.payload?.execution_diagnostics?.concentration_level ? (
+            <Text type="secondary">
+              集中度 {task.snapshot.payload.execution_diagnostics.concentration_level}
+            </Text>
+          ) : null}
+          {task.snapshot?.payload?.execution_diagnostics?.suggested_rebalance ? (
+            <Text type="secondary">
+              调仓 {task.snapshot.payload.execution_diagnostics.suggested_rebalance}
+            </Text>
+          ) : null}
+          {task.snapshot?.payload?.execution_plan?.execution_stress?.worst_case ? (
+            <Text type="secondary">
+              压测 {task.snapshot.payload.execution_plan.execution_stress.worst_case.label}
+            </Text>
+          ) : null}
           <Text type="secondary">{new Date(task.updated_at).toLocaleString()}</Text>
         </Space>
       </div>

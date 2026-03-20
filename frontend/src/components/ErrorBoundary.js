@@ -48,7 +48,7 @@ class ErrorBoundary extends React.Component {
               <summary>错误详情（开发模式）</summary>
               {this.state.error && this.state.error.toString()}
               <br />
-              {this.state.errorInfo.componentStack}
+              {this.state.errorInfo?.componentStack || '组件堆栈不可用'}
             </details>
           )}
         </Card>

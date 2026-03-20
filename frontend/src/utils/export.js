@@ -188,6 +188,59 @@ export const formatBacktestForExport = (backtestResult) => {
     return { metrics, trades, dailyData };
 };
 
+export const formatBatchExperimentForExport = (batchResult) => {
+    if (!batchResult) return { summary: [], rankedResults: [], allResults: [] };
+
+    const summary = [
+        { metric: '总任务数', value: batchResult.summary?.total_tasks ?? 0 },
+        { metric: '成功任务数', value: batchResult.summary?.successful ?? 0 },
+        { metric: '平均收益率', value: `${((batchResult.summary?.average_return || 0) * 100).toFixed(2)}%` },
+        { metric: '平均夏普比率', value: Number(batchResult.summary?.average_sharpe || 0).toFixed(2) },
+        { metric: '排名指标', value: batchResult.summary?.ranking_metric || '-' },
+    ];
+
+    const mapResult = (item) => ({
+        task_id: item.task_id,
+        strategy: item.strategy,
+        symbol: item.symbol,
+        total_return: `${((item.metrics?.total_return || item.total_return || 0) * 100).toFixed(2)}%`,
+        sharpe_ratio: Number(item.metrics?.sharpe_ratio || item.sharpe_ratio || 0).toFixed(2),
+        max_drawdown: `${((item.metrics?.max_drawdown || item.max_drawdown || 0) * 100).toFixed(2)}%`,
+        final_value: Number(item.metrics?.final_value || item.final_value || 0).toFixed(2),
+        success: item.success === false ? '失败' : '成功',
+        error: item.error || '',
+    });
+
+    return {
+        summary,
+        rankedResults: (batchResult.ranked_results || []).map(mapResult),
+        allResults: (batchResult.results || []).map(mapResult),
+    };
+};
+
+export const formatWalkForwardForExport = (walkResult) => {
+    if (!walkResult) return { summary: [], windows: [] };
+
+    const summary = [
+        { metric: '滚动窗口数', value: walkResult.n_windows ?? 0 },
+        { metric: '平均收益率', value: `${((walkResult.aggregate_metrics?.average_return || 0) * 100).toFixed(2)}%` },
+        { metric: '收益波动', value: `${((walkResult.aggregate_metrics?.return_std || 0) * 100).toFixed(2)}%` },
+        { metric: '平均夏普比率', value: Number(walkResult.aggregate_metrics?.average_sharpe || 0).toFixed(2) },
+        { metric: '正收益窗口', value: walkResult.aggregate_metrics?.positive_windows ?? 0 },
+        { metric: '负收益窗口', value: walkResult.aggregate_metrics?.negative_windows ?? 0 },
+    ];
+
+    const windows = (walkResult.window_results || []).map((item) => ({
+        window: `窗口 ${Number(item.window_id || 0) + 1}`,
+        test_range: `${item.test_start} ~ ${item.test_end}`,
+        total_return: `${(((item.metrics?.total_return ?? item.total_return) || 0) * 100).toFixed(2)}%`,
+        sharpe_ratio: Number(item.metrics?.sharpe_ratio || item.sharpe_ratio || 0).toFixed(2),
+        max_drawdown: `${(((item.metrics?.max_drawdown ?? item.max_drawdown) || 0) * 100).toFixed(2)}%`,
+    }));
+
+    return { summary, windows };
+};
+
 /**
  * 导出回测报告
  * @param {Object} backtestResult - 回测结果
@@ -221,10 +274,14 @@ export const exportBacktestReport = (backtestResult, symbol, strategy, format = 
     }
 };
 
-export default {
+const exportUtils = {
     exportToCSV,
     exportToJSON,
     exportToExcel,
     exportBacktestReport,
-    formatBacktestForExport
+    formatBacktestForExport,
+    formatBatchExperimentForExport,
+    formatWalkForwardForExport
 };
+
+export default exportUtils;

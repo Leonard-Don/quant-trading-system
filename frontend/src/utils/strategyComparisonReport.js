@@ -1,3 +1,5 @@
+import { getStrategyParameterLabel } from '../constants/strategies';
+
 const escapeHtml = (value) => String(value ?? '')
   .replaceAll('&', '&amp;')
   .replaceAll('<', '&lt;')
@@ -7,11 +9,25 @@ const escapeHtml = (value) => String(value ?? '')
 
 const formatPercent = (value) => `${(Number(value || 0) * 100).toFixed(2)}%`;
 
+const formatParameterSummary = (parameters = {}) => {
+  const entries = Object.entries(parameters || {});
+  if (entries.length === 0) {
+    return '默认参数';
+  }
+
+  return entries
+    .map(([key, value]) => `${getStrategyParameterLabel(key, key)}：${value}`)
+    .join('，');
+};
+
 export const buildStrategyComparisonReportHtml = ({
   symbol,
   startDate,
   endDate,
   generatedAt,
+  initialCapital,
+  commission,
+  slippage,
   rankedData = [],
   dataSource = [],
 }) => {
@@ -26,6 +42,7 @@ export const buildStrategyComparisonReportHtml = ({
       <td>${formatPercent(item.max_drawdown)}</td>
       <td>${Number(item.sharpe_ratio || 0).toFixed(2)}</td>
       <td>${Number(item.num_trades || 0)}</td>
+      <td>${escapeHtml(formatParameterSummary(item.parameters))}</td>
     </tr>
   `).join('');
 
@@ -184,6 +201,10 @@ export const buildStrategyComparisonReportHtml = ({
         </div>
       </div>
 
+      <div class="summary">
+        实验设置：初始资金 ${escapeHtml(initialCapital ?? '') || '-'}，手续费 ${escapeHtml(commission ?? '') || '-'}，滑点 ${escapeHtml(slippage ?? '') || '-'}。
+      </div>
+
       <div class="section-title">综合排名</div>
       <div class="rank-grid">${rankCards || '<div class="rank-card">暂无排名数据</div>'}</div>
 
@@ -197,6 +218,7 @@ export const buildStrategyComparisonReportHtml = ({
             <th>最大回撤</th>
             <th>夏普比率</th>
             <th>交易次数</th>
+            <th>参数版本</th>
           </tr>
         </thead>
         <tbody>

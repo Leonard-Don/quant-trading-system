@@ -37,8 +37,17 @@ async def get_cross_market_templates():
                 "id": "utilities_vs_growth",
                 "name": "US utilities vs NASDAQ growth",
                 "description": "Defensive regulated utilities against growth-heavy tech beta.",
+                "theme": "Policy-fragile defensives vs growth beta",
+                "narrative": (
+                    "When bureaucratic friction rises and physical grid demand keeps building, "
+                    "regulated utilities can absorb capital while long-duration growth beta rerates lower."
+                ),
                 "strategy": "spread_zscore",
                 "construction_mode": "equal_weight",
+                "linked_factors": ["bureaucratic_friction", "baseload_mismatch"],
+                "linked_dimensions": ["project_pipeline", "logistics"],
+                "linked_tags": ["电网", "风电", "光伏"],
+                "preferred_signal": "positive",
                 "parameters": {"lookback": 20, "entry_threshold": 1.5, "exit_threshold": 0.5},
                 "assets": [
                     {"symbol": "XLU", "asset_class": "ETF", "side": "long", "weight": 0.5},
@@ -51,8 +60,17 @@ async def get_cross_market_templates():
                 "id": "copper_vs_semis",
                 "name": "Copper futures vs semis ETF",
                 "description": "Commodity tightness against semiconductor beta.",
+                "theme": "Physical bottlenecks vs semiconductor beta",
+                "narrative": (
+                    "When copper inventories tighten and trade frictions rise, upstream physical scarcity can "
+                    "outperform semiconductor beta that already embeds optimistic AI demand."
+                ),
                 "strategy": "spread_zscore",
                 "construction_mode": "equal_weight",
+                "linked_factors": ["baseload_mismatch"],
+                "linked_dimensions": ["inventory", "trade", "logistics"],
+                "linked_tags": ["半导体", "AI算力"],
+                "preferred_signal": "positive",
                 "parameters": {"lookback": 30, "entry_threshold": 1.6, "exit_threshold": 0.6},
                 "assets": [
                     {"symbol": "HG=F", "asset_class": "COMMODITY_FUTURES", "side": "long", "weight": 1.0},
@@ -63,8 +81,17 @@ async def get_cross_market_templates():
                 "id": "energy_vs_ai_apps",
                 "name": "Energy infrastructure vs AI application ETF",
                 "description": "Physical energy backbone against application-layer AI enthusiasm.",
+                "theme": "Baseload scarcity vs AI application enthusiasm",
+                "narrative": (
+                    "When power bottlenecks and baseload mismatch worsen, the physical energy backbone can "
+                    "outperform application-layer AI names whose demand assumptions are too smooth."
+                ),
                 "strategy": "spread_zscore",
                 "construction_mode": "equal_weight",
+                "linked_factors": ["baseload_mismatch", "tech_dilution"],
+                "linked_dimensions": ["investment_activity", "project_pipeline", "inventory"],
+                "linked_tags": ["AI算力", "核电", "电网", "风电", "光伏"],
+                "preferred_signal": "positive",
                 "parameters": {"lookback": 25, "entry_threshold": 1.4, "exit_threshold": 0.5},
                 "assets": [
                     {"symbol": "XLE", "asset_class": "ETF", "side": "long", "weight": 0.5},
@@ -77,8 +104,17 @@ async def get_cross_market_templates():
                 "id": "defensive_beta_hedge",
                 "name": "Defensive beta hedge (OLS)",
                 "description": "Low-beta utility basket hedged against broad tech beta with rolling OLS.",
+                "theme": "Talent dilution and defensive beta hedge",
+                "narrative": (
+                    "When tech leadership quality deteriorates or the market starts punishing weak execution, "
+                    "a low-beta utility basket hedged against broad tech beta becomes a cleaner defensive expression."
+                ),
                 "strategy": "spread_zscore",
                 "construction_mode": "ols_hedge",
+                "linked_factors": ["bureaucratic_friction", "tech_dilution"],
+                "linked_dimensions": ["talent_structure", "logistics"],
+                "linked_tags": ["AI算力", "电网"],
+                "preferred_signal": "mixed",
                 "parameters": {"lookback": 30, "entry_threshold": 1.4, "exit_threshold": 0.5},
                 "assets": [
                     {"symbol": "XLU", "asset_class": "ETF", "side": "long", "weight": 0.6},
@@ -113,6 +149,7 @@ async def run_cross_market_backtest(request: CrossMarketBacktestRequest):
         )
         results = backtester.run(
             assets=[asset.model_dump() for asset in request.assets],
+            template_context=request.template_context.model_dump() if request.template_context else None,
             strategy_name=request.strategy,
             parameters=request.parameters,
             start_date=start_date,

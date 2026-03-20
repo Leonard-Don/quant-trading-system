@@ -1,5 +1,11 @@
 # 更新日志
 
+## v3.6.0 (2026-03-20)
+- 打通 GodEye、跨市场模板推荐与研究工作台，新增“主导叙事切换”预警与直达跨市场剧本入口
+- 将宏观因子与另类数据正式映射为跨市场模板的动态权重偏置，回测结果开始区分模板原始权重与信号驱动后的有效权重
+- 升级跨市场执行研究层，补齐 execution plan、集中度、lot efficiency、rebalance cadence 与 stress test 诊断
+- 强化研究工作台的快照解释与版本对比，支持比较 recommendation、allocation mode、bias、dominant driver、theme core/support 等主题变化
+
 ## v3.5.0 (2026-03-18)
 - 重建实时行情深度详情，恢复实时快照、多维分析与 AI 预测联动
 - 优化实时行情与分析页前端加载速度，补齐懒加载、请求去重与测试回归
@@ -31,9 +37,10 @@
 - 基础性能与缓存优化
 
 ## 说明
-- 版本号以 `src/utils/config.py` 中 `APP_VERSION` 为准
+- 版本号以项目根目录 `VERSION` 文件为准
+- 可运行 `python scripts/sync_version.py` 同步前端元数据
 - 文档更新时间与代码版本可能不同步，以代码为准
 
 ---
 
-**最后更新**: 2026-03-18
+**最后更新**: 2026-03-20

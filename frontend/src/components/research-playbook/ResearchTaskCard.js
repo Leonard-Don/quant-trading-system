@@ -16,10 +16,10 @@ function ResearchTaskCard({ task, onAction }) {
   return (
     <Card
       size="small"
-      bordered={false}
+      variant="borderless"
       style={{ height: '100%' }}
       extra={<Tag color={STATUS_COLORS[task.status] || 'default'}>{STATUS_LABELS[task.status] || task.status}</Tag>}
-      bodyStyle={{ display: 'flex', flexDirection: 'column', gap: 10, minHeight: 180 }}
+      styles={{ body: { display: 'flex', flexDirection: 'column', gap: 10, minHeight: 180 } }}
     >
       <Text strong>{task.title}</Text>
       <Paragraph style={{ marginBottom: 0, flex: 1 }}>

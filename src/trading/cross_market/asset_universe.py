@@ -25,6 +25,12 @@ class AssetSpec:
     side: AssetSide
     weight: float
     currency: str = "USD"
+    market: str = "USA"
+    venue: str = "US_EQUITY"
+    execution_channel: str = "cash_equity"
+    settlement: str = "T+1"
+    lot_size: int = 1
+    preferred_provider: str = "yahoo"
 
     def to_dict(self) -> Dict[str, object]:
         return {
@@ -33,6 +39,12 @@ class AssetSpec:
             "side": self.side.value,
             "weight": round(float(self.weight), 6),
             "currency": self.currency,
+            "market": self.market,
+            "venue": self.venue,
+            "execution_channel": self.execution_channel,
+            "settlement": self.settlement,
+            "lot_size": self.lot_size,
+            "preferred_provider": self.preferred_provider,
         }
 
 
@@ -40,6 +52,33 @@ class AssetUniverse:
     """Validate and normalize cross-market asset baskets."""
 
     SUPPORTED_CURRENCY = "USD"
+
+    ASSET_CLASS_META = {
+        AssetClass.US_STOCK: {
+            "market": "USA",
+            "venue": "US_EQUITY",
+            "execution_channel": "cash_equity",
+            "settlement": "T+1",
+            "lot_size": 1,
+            "preferred_provider": "us_stock",
+        },
+        AssetClass.ETF: {
+            "market": "USA",
+            "venue": "US_ETF",
+            "execution_channel": "cash_equity",
+            "settlement": "T+1",
+            "lot_size": 1,
+            "preferred_provider": "us_stock",
+        },
+        AssetClass.COMMODITY_FUTURES: {
+            "market": "GLOBAL",
+            "venue": "COMEX_CME",
+            "execution_channel": "futures",
+            "settlement": "margin",
+            "lot_size": 1,
+            "preferred_provider": "commodity",
+        },
+    }
 
     def __init__(self, assets: Iterable[Dict[str, object]]):
         self.assets = self._build_specs(list(assets))
@@ -107,6 +146,7 @@ class AssetUniverse:
                         side=item["side"],
                         weight=normalized_weight,
                         currency=self.SUPPORTED_CURRENCY,
+                        **self.ASSET_CLASS_META[item["asset_class"]],
                     )
                 )
 
@@ -135,6 +175,15 @@ class AssetUniverse:
             "by_side": by_side,
             "by_asset_class": by_class,
             "currencies": sorted({asset.currency for asset in self.assets}),
+            "markets": sorted({asset.market for asset in self.assets}),
+            "execution_channels": {
+                channel: len([asset for asset in self.assets if asset.execution_channel == channel])
+                for channel in sorted({asset.execution_channel for asset in self.assets})
+            },
+            "providers": {
+                provider: len([asset for asset in self.assets if asset.preferred_provider == provider])
+                for provider in sorted({asset.preferred_provider for asset in self.assets})
+            },
             "legs": {
                 side.value: {
                     "symbols": [asset.symbol for asset in self.get_assets(side)],

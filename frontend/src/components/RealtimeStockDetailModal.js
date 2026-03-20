@@ -20,7 +20,22 @@ const getDisplayName = (symbol) => {
 };
 
 const getCategoryLabel = (symbol) => {
-    const type = STOCK_DATABASE[symbol]?.type;
+    const knownType = STOCK_DATABASE[symbol]?.type;
+    let type = knownType;
+
+    if (!type) {
+        if (/^\d{6}\.(SS|SZ|BJ)$/i.test(symbol)) {
+            type = 'cn';
+        } else if (/^-?[A-Z0-9]+-USD$/i.test(symbol)) {
+            type = 'crypto';
+        } else if (/=F$/i.test(symbol)) {
+            type = 'future';
+        } else if (symbol?.startsWith('^')) {
+            type = /^(?:\^TNX|\^TYX|\^FVX|\^IRX)$/i.test(symbol) ? 'bond' : 'index';
+        } else {
+            type = 'us';
+        }
+    }
 
     switch (type) {
         case 'index':
@@ -121,8 +136,13 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, onCancel }) => {
     const displaySymbol = symbol || quote?.symbol || '--';
     const displayName = getDisplayName(displaySymbol);
     const categoryLabel = getCategoryLabel(displaySymbol);
-    const isPositive = Number(quote?.change ?? 0) >= 0;
-    const changeColor = isPositive ? '#cf1322' : '#389e0d';
+    const hasChange = quote?.change !== null && quote?.change !== undefined && !Number.isNaN(Number(quote.change));
+    const isPositive = hasChange ? Number(quote.change) >= 0 : null;
+    const changeColor = isPositive === null
+        ? 'var(--text-secondary)'
+        : isPositive
+            ? 'var(--accent-success)'
+            : 'var(--accent-danger)';
     const spreadValue = formatSpread(quote?.bid, quote?.ask);
     const rangePercent = formatRangePercent(quote?.low, quote?.high, quote?.previous_close);
 

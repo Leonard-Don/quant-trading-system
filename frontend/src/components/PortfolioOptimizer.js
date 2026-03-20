@@ -9,7 +9,8 @@ import {
     Table,
     Space,
     Alert,
-    Statistic
+    Statistic,
+    InputNumber
 } from 'antd';
 import {
     PieChart,
@@ -46,6 +47,7 @@ const PortfolioOptimizer = () => {
     const [selectedSymbols, setSelectedSymbols] = useState(['AAPL', 'MSFT', 'GOOGL', 'AMZN']);
     const [period, setPeriod] = useState('1y');
     const [objective, setObjective] = useState('max_sharpe');
+    const [allocationCapital, setAllocationCapital] = useState(10000);
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState(null);
     const [error, setError] = useState(null);
@@ -95,9 +97,9 @@ const PortfolioOptimizer = () => {
             sorter: (a, b) => a.weight - b.weight
         },
         {
-            title: '金额分配 (假设10万)',
+            title: `金额分配 (按 $${allocationCapital.toLocaleString()})`,
             key: 'amount',
-            render: (_, record) => `¥ ${(record.weight * 100000).toLocaleString()}`
+            render: (_, record) => `$${(record.weight * allocationCapital).toLocaleString()}`
         }
     ];
 
@@ -128,6 +130,10 @@ const PortfolioOptimizer = () => {
                     <div className="summary-strip__item">
                         <span className="summary-strip__label">目标</span>
                         <span className="summary-strip__value">{OBJECTIVE_LABELS[objective] || objective}</span>
+                    </div>
+                    <div className="summary-strip__item">
+                        <span className="summary-strip__label">参考资金</span>
+                        <span className="summary-strip__value">{`$${allocationCapital.toLocaleString()}`}</span>
                     </div>
                     <div className="summary-strip__item">
                         <span className="summary-strip__label">状态</span>
@@ -168,6 +174,17 @@ const PortfolioOptimizer = () => {
                                 <Option value="max_sharpe">最大夏普比率</Option>
                                 <Option value="min_volatility">最小波动率</Option>
                             </Select>
+                        </Col>
+                        <Col span={6}>
+                            <Text strong>参考资金</Text>
+                            <InputNumber
+                                value={allocationCapital}
+                                min={1000}
+                                step={1000}
+                                precision={0}
+                                style={{ width: '100%', marginTop: 8 }}
+                                onChange={(value) => setAllocationCapital(value || 10000)}
+                            />
                         </Col>
                     </Row>
                     <Button type="primary" size="large" onClick={handleOptimize} loading={loading} block>

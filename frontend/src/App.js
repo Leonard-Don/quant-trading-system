@@ -16,6 +16,7 @@ import {
 import ErrorBoundary from './components/ErrorBoundary';
 import { getStrategies, runBacktest } from './services/api';
 import { useTheme } from './contexts/ThemeContext';
+import { APP_VERSION } from './generated/version';
 import { buildAppUrl, sanitizeParamsForView } from './utils/researchContext';
 
 // 懒加载非核心组件，减少初始包大小
@@ -238,7 +239,7 @@ function App() {
               color: 'var(--accent-primary)',
               fontWeight: 500,
               lineHeight: '1.4'
-            }}>v3.5.0</span>
+            }}>{`v${APP_VERSION}`}</span>
           </div>
           <Space size={16}>
             <Tooltip title={isDarkMode ? '切换到浅色主题' : '切换到深色主题'}>

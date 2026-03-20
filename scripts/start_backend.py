@@ -11,7 +11,15 @@ import os
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
+from src.utils.config import get_config
+
+config = get_config()
+
 if __name__ == "__main__":
     uvicorn.run(
-        "backend.main:app", host="0.0.0.0", port=8000, reload=True, log_level="info"
+        "backend.main:app",
+        host=config["api_host"],
+        port=config["api_port"],
+        reload=config["api_reload"],
+        log_level="info",
     )

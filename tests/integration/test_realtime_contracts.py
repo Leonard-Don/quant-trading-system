@@ -47,7 +47,7 @@ def client():
 
 
 def test_realtime_quote_endpoint_returns_unified_shape(client):
-    with patch.object(realtime_manager, "get_quote_dict", return_value=FAKE_QUOTE):
+    with patch.object(realtime_manager, "get_quote_dict", return_value=FAKE_QUOTE) as get_quote_dict:
         response = client.get("/realtime/quote/AAPL")
 
     assert response.status_code == 200
@@ -56,17 +56,19 @@ def test_realtime_quote_endpoint_returns_unified_shape(client):
     assert payload["data"]["symbol"] == "AAPL"
     assert payload["data"]["previous_close"] == FAKE_QUOTE["previous_close"]
     assert payload["data"]["source"] == "test"
+    get_quote_dict.assert_called_once_with("AAPL", use_cache=True)
 
 
 def test_realtime_quotes_endpoint_returns_mapping(client):
     quotes = {"AAPL": FAKE_QUOTE, "MSFT": {**FAKE_QUOTE, "symbol": "MSFT"}}
-    with patch.object(realtime_manager, "get_quotes_dict", return_value=quotes):
+    with patch.object(realtime_manager, "get_quotes_dict", return_value=quotes) as get_quotes_dict:
         response = client.get("/realtime/quotes?symbols=AAPL,MSFT")
 
     assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
     assert sorted(payload["data"].keys()) == ["AAPL", "MSFT"]
+    get_quotes_dict.assert_called_once_with(["AAPL", "MSFT"], use_cache=True)
 
 
 def test_realtime_compat_subscription_endpoints(client):

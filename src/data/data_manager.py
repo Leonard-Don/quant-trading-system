@@ -174,6 +174,76 @@ class DataManager:
             # Return empty DataFrame with proper structure
             return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
 
+    def get_cross_market_historical_data(
+        self,
+        symbol: str,
+        asset_class: str,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        interval: str = "1d",
+    ) -> Dict[str, Any]:
+        """
+        Fetch cross-market data with asset-class aware provider routing.
+
+        Returns:
+            {
+                "data": DataFrame,
+                "provider": str,
+                "asset_class": str,
+                "symbol": str
+            }
+        """
+        normalized_asset_class = str(asset_class or "").strip().upper()
+        cache_key = f"cross_market::{symbol}::{normalized_asset_class}::{start_date}::{end_date}::{interval}"
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        provider_name = ""
+        data = pd.DataFrame()
+
+        try:
+            if self.provider_factory:
+                data, provider_name = self.provider_factory.get_cross_market_historical_data(
+                    symbol=symbol,
+                    asset_class=normalized_asset_class,
+                    start_date=start_date,
+                    end_date=end_date,
+                    interval=interval,
+                )
+
+            if data.empty:
+                data = self.get_historical_data(
+                    symbol=symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                    interval=interval,
+                )
+                provider_name = provider_name or "yahoo_legacy"
+        except Exception as exc:
+            logger.warning(
+                "Asset-class aware fetch failed for %s (%s), falling back to legacy path: %s",
+                symbol,
+                normalized_asset_class,
+                exc,
+            )
+            data = self.get_historical_data(
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                interval=interval,
+            )
+            provider_name = provider_name or "yahoo_legacy"
+
+        result = {
+            "data": data,
+            "provider": provider_name or "unknown",
+            "asset_class": normalized_asset_class,
+            "symbol": symbol,
+        }
+        self.cache.set(cache_key, result)
+        return result
+
     def get_multiple_stocks(
         self,
         symbols: List[str],

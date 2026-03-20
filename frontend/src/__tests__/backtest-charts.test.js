@@ -44,6 +44,18 @@ describe('backtest chart helpers', () => {
     expect(stats.underwaterDays).toBe(2);
   });
 
+  test('builds drawdown stats even when legacy points do not include parsable dates', () => {
+    const { series, stats } = buildDrawdownSeries([
+      { total: 10000 },
+      { total: 12000 },
+      { total: 9000 },
+    ]);
+
+    expect(series).toHaveLength(3);
+    expect(series[0].dateLongLabel).toContain('第 1 个交易点');
+    expect(stats.maxDrawdown).toBeCloseTo(-25, 5);
+  });
+
   test('normalizes radar scores into a stable 0-100 range', () => {
     const radarData = buildRiskRadarData({
       total_return: 0.2,

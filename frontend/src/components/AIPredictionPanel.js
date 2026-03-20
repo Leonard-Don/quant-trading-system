@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, Spin, Alert, Typography, Row, Col, Statistic, Tag, Button, Tooltip as AntTooltip, message, Space } from 'antd';
 import { RobotOutlined, ArrowUpOutlined, ArrowDownOutlined, ExperimentOutlined, ReloadOutlined } from '@ant-design/icons';
 import { ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -28,6 +28,8 @@ const predictionResultCache = new Map();
 const predictionRequestCache = new Map();
 
 const buildPredictionCacheKey = (symbol, modelType) => `${symbol || ''}:${modelType || ''}`;
+const hasNumericValue = (value) => value !== null && value !== undefined && !Number.isNaN(Number(value));
+const getPricePoint = (prices = [], index) => hasNumericValue(prices?.[index]) ? Number(prices[index]) : null;
 
 const AIPredictionPanel = ({ symbol }) => {
     const [loading, setLoading] = useState(false);
@@ -35,22 +37,38 @@ const AIPredictionPanel = ({ symbol }) => {
     const [data, setData] = useState(null);
     const [error, setError] = useState(null);
     const [modelType] = useState('consensus'); // random_forest, lstm, compare, consensus
+    const requestSequenceRef = useRef(0);
+    const isMountedRef = useRef(true);
+
+    useEffect(() => () => {
+        isMountedRef.current = false;
+        requestSequenceRef.current += 1;
+    }, []);
 
     useEffect(() => {
         if (symbol) {
-            fetchPrediction();
+            requestSequenceRef.current += 1;
+            setData(null);
+            setError(null);
+            fetchPrediction({ requestId: requestSequenceRef.current });
+        } else {
+            requestSequenceRef.current += 1;
+            setData(null);
+            setError(null);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [symbol, modelType]);
 
     const fetchPrediction = async (options = {}) => {
-        const { forceRefresh = false } = options;
+        const { forceRefresh = false, requestId = requestSequenceRef.current } = options;
         const cacheKey = buildPredictionCacheKey(symbol, modelType);
         setLoading(true);
         setError(null);
         try {
             if (!forceRefresh && predictionResultCache.has(cacheKey)) {
-                setData(predictionResultCache.get(cacheKey));
+                if (isMountedRef.current && requestSequenceRef.current === requestId) {
+                    setData(predictionResultCache.get(cacheKey));
+                }
                 return;
             }
 
@@ -70,13 +88,19 @@ const AIPredictionPanel = ({ symbol }) => {
             const result = await requestPromise;
             predictionResultCache.set(cacheKey, result);
             predictionRequestCache.delete(cacheKey);
-            setData(result);
+            if (isMountedRef.current && requestSequenceRef.current === requestId) {
+                setData(result);
+            }
         } catch (err) {
             predictionRequestCache.delete(cacheKey);
             console.error("Prediction error:", err);
-            setError("无法获取AI预测数据，请稍后重试");
+            if (isMountedRef.current && requestSequenceRef.current === requestId) {
+                setError("无法获取AI预测数据，请稍后重试");
+            }
         } finally {
-            setLoading(false);
+            if (isMountedRef.current && requestSequenceRef.current === requestId) {
+                setLoading(false);
+            }
         }
     };
 
@@ -86,7 +110,8 @@ const AIPredictionPanel = ({ symbol }) => {
             await trainAllModels(symbol);
             predictionResultCache.delete(buildPredictionCacheKey(symbol, modelType));
             message.success('模型训练完成！正在刷新预测...');
-            fetchPrediction({ forceRefresh: true });
+            requestSequenceRef.current += 1;
+            fetchPrediction({ forceRefresh: true, requestId: requestSequenceRef.current });
         } catch (err) {
             console.error("Training error:", err);
             message.error('模型训练失败: ' + (err.response?.data?.detail || err.message));
@@ -119,6 +144,26 @@ const AIPredictionPanel = ({ symbol }) => {
 
     if (!data) return null;
 
+    const randomForestPrediction = data.predictions?.random_forest || null;
+    const lstmPrediction = data.predictions?.lstm || null;
+    const randomForestAvailable = randomForestPrediction?.status === 'success'
+        && Array.isArray(randomForestPrediction.predicted_prices)
+        && randomForestPrediction.predicted_prices.length > 0;
+    const lstmAvailable = lstmPrediction?.status === 'success'
+        && Array.isArray(lstmPrediction.predicted_prices)
+        && lstmPrediction.predicted_prices.length > 0;
+    const availableModelNames = [
+        randomForestAvailable ? MODEL_LABELS.random_forest : null,
+        lstmAvailable ? MODEL_LABELS.lstm : null,
+    ].filter(Boolean);
+    const unavailableModelNames = [
+        randomForestAvailable ? null : MODEL_LABELS.random_forest,
+        lstmAvailable ? null : MODEL_LABELS.lstm,
+    ].filter(Boolean);
+    const hasAnyPrediction = randomForestAvailable || lstmAvailable || (
+        Array.isArray(data.predicted_prices) && data.predicted_prices.some((value) => hasNumericValue(value))
+    );
+
     // --- Data Formatting Helpers ---
 
     const formatChartData = () => {
@@ -128,74 +173,84 @@ const AIPredictionPanel = ({ symbol }) => {
             const item = { date: new Date(date).toLocaleDateString() };
 
             if (modelType === 'compare') {
-                // Fix: Access data via data.predictions object
-                const rfPred = data.predictions?.random_forest || {};
-                const lstmPred = data.predictions?.lstm || {};
+                item.rf_price = getPricePoint(randomForestPrediction?.predicted_prices, index);
+                item.lstm_price = getPricePoint(lstmPrediction?.predicted_prices, index);
 
-                item.rf_price = rfPred.predicted_prices?.[index] || 0;
-                item.lstm_price = lstmPred.predicted_prices?.[index] || 0;
-                // 计算平均值作为参考
-                item.avg_price = (item.rf_price + item.lstm_price) / 2;
+                if (item.rf_price !== null && item.lstm_price !== null) {
+                    item.avg_price = (item.rf_price + item.lstm_price) / 2;
+                } else if (item.rf_price !== null || item.lstm_price !== null) {
+                    item.avg_price = item.rf_price ?? item.lstm_price;
+                }
             } else if (modelType === 'consensus') {
-                // Consensus Logic: 50% LSTM + 50% RF (equal weight)
-                const rfPred = data.predictions?.random_forest || {};
-                const lstmPred = data.predictions?.lstm || {};
+                const rfPrice = getPricePoint(randomForestPrediction?.predicted_prices, index);
+                const lstmPrice = getPricePoint(lstmPrediction?.predicted_prices, index);
 
-                const rfPrice = rfPred.predicted_prices?.[index] || 0;
-                const lstmPrice = lstmPred.predicted_prices?.[index] || 0;
-
-                if (rfPrice && lstmPrice) {
+                if (rfPrice !== null && lstmPrice !== null) {
                     item.price = (lstmPrice * 0.5) + (rfPrice * 0.5);
 
-                    // Synthetic confidence interval for consensus
-                    // Use wider interval if models disagree
                     const disagreement = Math.abs(rfPrice - lstmPrice);
-                    const baseInterval = (rfPred.confidence_intervals?.[index]?.upper - rfPred.confidence_intervals?.[index]?.lower) || 0;
+                    const lower = randomForestPrediction?.confidence_intervals?.[index]?.lower;
+                    const upper = randomForestPrediction?.confidence_intervals?.[index]?.upper;
+                    const baseInterval = hasNumericValue(lower) && hasNumericValue(upper)
+                        ? Number(upper) - Number(lower)
+                        : 0;
                     const intervalHalf = (baseInterval / 2) + (disagreement * 0.5);
 
                     item.range = [item.price - intervalHalf, item.price + intervalHalf];
+                } else if (rfPrice !== null || lstmPrice !== null) {
+                    item.price = rfPrice ?? lstmPrice;
+                    const fallbackPrediction = rfPrice !== null ? randomForestPrediction : lstmPrediction;
+                    const fallbackInterval = fallbackPrediction?.confidence_intervals?.[index];
+                    if (hasNumericValue(fallbackInterval?.lower) && hasNumericValue(fallbackInterval?.upper)) {
+                        item.range = [Number(fallbackInterval.lower), Number(fallbackInterval.upper)];
+                    }
                 } else {
-                    item.price = lstmPrice || rfPrice || 0;
+                    item.price = null;
                 }
             } else {
-                item.price = data.predicted_prices[index];
-                if (data.confidence_intervals) {
-                    item.range = [data.confidence_intervals[index].lower, data.confidence_intervals[index].upper];
+                item.price = getPricePoint(data.predicted_prices, index);
+                if (hasNumericValue(data.confidence_intervals?.[index]?.lower) && hasNumericValue(data.confidence_intervals?.[index]?.upper)) {
+                    item.range = [Number(data.confidence_intervals[index].lower), Number(data.confidence_intervals[index].upper)];
                 }
             }
             return item;
+        }).filter((item) => {
+            if (modelType === 'compare') {
+                return item.rf_price !== null || item.lstm_price !== null || item.avg_price !== null;
+            }
+            return item.price !== null;
         });
     };
 
     const chartData = formatChartData();
-    let startPrice = 0, endPrice = 0, priceChange = 0, percentChange = 0;
+    let startPrice = null, endPrice = null, priceChange = null, percentChange = null;
 
-    // Calculate metrics based on model type
     if (modelType === 'compare' || modelType === 'consensus') {
-        const rfPred = data.predictions?.random_forest || {};
-        const lstmPred = data.predictions?.lstm || {};
+        const projectedPrices = chartData
+            .map((item) => modelType === 'compare' ? item.avg_price : item.price)
+            .filter((value) => value !== null);
 
-        // Use average for summary metrics in comparison mode
-        const rfStart = rfPred.predicted_prices?.[0] || 0;
-        const rfEnd = rfPred.predicted_prices?.slice(-1)[0] || 0;
-        const lstmStart = lstmPred.predicted_prices?.[0] || 0;
-        const lstmEnd = lstmPred.predicted_prices?.slice(-1)[0] || 0;
-
-        if (modelType === 'consensus') {
-            startPrice = (lstmStart * 0.5) + (rfStart * 0.5);
-            endPrice = (lstmEnd * 0.5) + (rfEnd * 0.5);
-        } else {
-            startPrice = (rfStart + lstmStart) / 2;
-            endPrice = (rfEnd + lstmEnd) / 2;
+        if (projectedPrices.length > 0) {
+            startPrice = projectedPrices[0];
+            endPrice = projectedPrices[projectedPrices.length - 1];
         }
     } else {
-        startPrice = chartData[0]?.price || 0;
-        endPrice = chartData[chartData.length - 1]?.price || 0;
+        startPrice = chartData[0]?.price ?? null;
+        endPrice = chartData[chartData.length - 1]?.price ?? null;
     }
 
-    priceChange = endPrice - startPrice;
-    percentChange = startPrice > 0 ? (priceChange / startPrice) * 100 : 0;
-    const isPositive = priceChange >= 0;
+    if (hasNumericValue(startPrice) && hasNumericValue(endPrice)) {
+        priceChange = endPrice - startPrice;
+        percentChange = startPrice > 0 ? (priceChange / startPrice) * 100 : 0;
+    }
+    const isPositive = hasNumericValue(priceChange) ? priceChange >= 0 : true;
+    const agreementMetric = modelType === 'compare'
+        ? data.comparison?.agreement_metrics?.mean_difference_percent
+        : data.metrics?.accuracy;
+    const agreementValue = hasNumericValue(agreementMetric)
+        ? (modelType === 'compare' ? Number(agreementMetric) : Number(agreementMetric) * 100)
+        : null;
+    const hasPartialPrediction = modelType === 'consensus' && availableModelNames.length === 1;
 
     // --- Render Content ---
 
@@ -212,6 +267,18 @@ const AIPredictionPanel = ({ symbol }) => {
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                     等权融合 LSTM 与随机森林，输出未来 5 天的共识价格路径和区间判断。
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {availableModelNames.map((label) => (
+                        <Tag key={label} style={{ margin: 0, borderRadius: 999, paddingInline: 10, borderColor: 'transparent', background: AI_COLORS.positiveSoft, color: AI_COLORS.positive, fontWeight: 700 }}>
+                            已接入 {label}
+                        </Tag>
+                    ))}
+                    {unavailableModelNames.map((label) => (
+                        <Tag key={label} style={{ margin: 0, borderRadius: 999, paddingInline: 10, borderColor: 'transparent', background: AI_COLORS.neutralSoft, color: AI_COLORS.neutral, fontWeight: 700 }}>
+                            暂不可用 {label}
+                        </Tag>
+                    ))}
                 </div>
             </div>
 
@@ -235,8 +302,8 @@ const AIPredictionPanel = ({ symbol }) => {
                     <Statistic
                         title={<span style={{ color: 'var(--text-secondary)' }}>起始预测均价</span>}
                         value={startPrice}
-                        precision={2}
-                        prefix="$"
+                        formatter={() => hasNumericValue(startPrice) ? Number(startPrice).toFixed(2) : '--'}
+                        prefix={hasNumericValue(startPrice) ? '$' : ''}
                         valueStyle={{ color: AI_COLORS.primary, fontSize: 24 }}
                     />
                 </Card>
@@ -246,8 +313,8 @@ const AIPredictionPanel = ({ symbol }) => {
                     <Statistic
                         title={<span style={{ color: 'var(--text-secondary)' }}>5日后预测均价</span>}
                         value={endPrice}
-                        precision={2}
-                        prefix="$"
+                        formatter={() => hasNumericValue(endPrice) ? Number(endPrice).toFixed(2) : '--'}
+                        prefix={hasNumericValue(endPrice) ? '$' : ''}
                         valueStyle={{ color: isPositive ? AI_COLORS.positive : AI_COLORS.negative, fontSize: 24 }}
                     />
                 </Card>
@@ -257,10 +324,10 @@ const AIPredictionPanel = ({ symbol }) => {
                     <Statistic
                         title={<span style={{ color: 'var(--text-secondary)' }}>预测涨跌幅</span>}
                         value={percentChange}
-                        precision={2}
+                        formatter={() => hasNumericValue(percentChange) ? Number(percentChange).toFixed(2) : '--'}
                         valueStyle={{ color: isPositive ? AI_COLORS.positive : AI_COLORS.negative, fontSize: 24 }}
-                        prefix={isPositive ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                        suffix="%"
+                        prefix={hasNumericValue(percentChange) ? (isPositive ? <ArrowUpOutlined /> : <ArrowDownOutlined />) : ''}
+                        suffix={hasNumericValue(percentChange) ? '%' : ''}
                     />
                 </Card>
             </Col>
@@ -268,10 +335,10 @@ const AIPredictionPanel = ({ symbol }) => {
                 <Card size="small" style={{ borderRadius: 18, background: AI_COLORS.secondarySoft, borderColor: 'transparent' }}>
                     <Statistic
                         title={<span style={{ color: 'var(--text-secondary)' }}>置信度/误差</span>}
-                        value={modelType === 'compare' ? data.comparison?.agreement_metrics?.mean_difference_percent : (data.metrics?.accuracy || 0.85) * 100}
-                        precision={2}
-                        prefix={modelType === 'compare' ? '差异 ' : ''}
-                        suffix="%"
+                        value={agreementValue}
+                        formatter={() => hasNumericValue(agreementValue) ? Number(agreementValue).toFixed(2) : '--'}
+                        prefix={hasNumericValue(agreementValue) && modelType === 'compare' ? '差异 ' : ''}
+                        suffix={hasNumericValue(agreementValue) ? '%' : ''}
                         valueStyle={{ color: AI_COLORS.secondary, fontSize: 24 }}
                     />
                 </Card>
@@ -355,6 +422,26 @@ const AIPredictionPanel = ({ symbol }) => {
                     >
                         {renderControls()}
 
+                        {!hasAnyPrediction && (
+                            <Alert
+                                message="暂无可用预测结果"
+                                description="当前没有可展示的模型输出，请稍后重试或重新训练模型。"
+                                type="warning"
+                                showIcon
+                                style={{ marginBottom: 16, borderRadius: 18 }}
+                            />
+                        )}
+
+                        {hasPartialPrediction && (
+                            <Alert
+                                message={`当前仅使用${availableModelNames[0]}结果`}
+                                description={`综合共识模式下，${unavailableModelNames.join('、')} 当前不可用，因此页面会回退为单模型结果，不再伪造 0 值预测。`}
+                                type="info"
+                                showIcon
+                                style={{ marginBottom: 16, borderRadius: 18 }}
+                            />
+                        )}
+
                         {renderSummary()}
 
                         <Row gutter={16} style={{ marginBottom: 16 }}>
@@ -367,7 +454,7 @@ const AIPredictionPanel = ({ symbol }) => {
                                         <Tag style={{ borderRadius: 999, background: AI_COLORS.secondarySoft, color: AI_COLORS.secondary, borderColor: 'transparent' }}>动态特征工程</Tag>
                                         <Tag style={{ borderRadius: 999, background: AI_COLORS.primarySoft, color: AI_COLORS.primary, borderColor: 'transparent' }}>5日共识路径</Tag>
                                         <Tag style={{ borderRadius: 999, background: AI_COLORS.neutralSoft, color: AI_COLORS.neutral, borderColor: 'transparent' }}>
-                                            终点均价 ${endPrice.toFixed(2)}
+                                            终点均价 {hasNumericValue(endPrice) ? `$${Number(endPrice).toFixed(2)}` : '--'}
                                         </Tag>
                                     </Space>
                                 </Paragraph>

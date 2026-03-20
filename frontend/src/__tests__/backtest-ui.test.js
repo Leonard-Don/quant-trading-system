@@ -55,6 +55,7 @@ beforeAll(() => {
 
 afterEach(() => {
   jest.clearAllMocks();
+  window.history.replaceState(null, '', '/');
 });
 
 describe('ResultsDisplay', () => {
@@ -124,9 +125,10 @@ describe('BacktestHistory', () => {
     });
   });
 
-  test('builds a clean base64 pdf download link', async () => {
+  test('downloads report through blob response', async () => {
     getBacktestHistory.mockResolvedValue({
       success: true,
+      total: 1,
       data: [
         {
           id: 'rec-1',
@@ -213,8 +215,8 @@ describe('BacktestHistory', () => {
     const removeChildSpy = jest.spyOn(document.body, 'removeChild').mockImplementation(() => anchor);
 
     try {
-      const buttons = container.querySelectorAll('button');
-      fireEvent.click(buttons[2]);
+      const downloadButton = container.querySelector('tbody button.ant-btn-primary');
+      fireEvent.click(downloadButton);
 
       await waitFor(() => {
         expect(getBacktestRecord).toHaveBeenCalledWith('rec-1');
@@ -251,6 +253,16 @@ describe('BacktestHistory', () => {
           sharpe_ratio: 1.4,
           max_drawdown: -0.06,
           num_trades: 4,
+          final_value: 11200,
+          net_profit: 1200,
+          avg_win: 300,
+          avg_loss: -120,
+          total_profit: 900,
+          total_loss: -240,
+          loss_rate: 0.25,
+          avg_holding_days: 6.5,
+          total_completed_trades: 2,
+          has_open_position: false,
         },
         result: {
           total_return: 0.12,
@@ -258,6 +270,38 @@ describe('BacktestHistory', () => {
           sharpe_ratio: 1.4,
           max_drawdown: -0.06,
           num_trades: 4,
+          portfolio_history: [
+            {
+              date: '2024-01-08',
+              total: 10000,
+              returns: 0,
+              signal: 1,
+            },
+            {
+              date: '2024-01-18',
+              total: 11200,
+              returns: 0.12,
+              signal: -1,
+            },
+          ],
+          trades: [
+            {
+              date: '2024-01-08',
+              type: 'BUY',
+              quantity: 5,
+              price: 200,
+              value: 1000,
+              pnl: 0,
+            },
+            {
+              date: '2024-01-18',
+              type: 'SELL',
+              quantity: 5,
+              price: 240,
+              value: 1200,
+              pnl: 200,
+            },
+          ],
         },
       },
     });
@@ -269,6 +313,224 @@ describe('BacktestHistory', () => {
       expect(getBacktestRecord).toHaveBeenCalledWith('rec-42');
       expect(screen.getAllByText('12 条').length).toBeGreaterThan(0);
       expect(screen.getByText('TSLA')).toBeInTheDocument();
+      expect(screen.getByText('扩展诊断')).toBeInTheDocument();
+      expect(screen.getByText('交易明细')).toBeInTheDocument();
+      expect(screen.getByText('组合净值回放')).toBeInTheDocument();
+      expect(screen.getByText('PerformanceChart')).toBeInTheDocument();
+      expect(screen.getByText('$1,200.00')).toBeInTheDocument();
+      expect(screen.getByText('平均盈利')).toBeInTheDocument();
+      expect(screen.getByText('卖出')).toBeInTheDocument();
+    });
+  });
+
+  test('restores and submits history filters through backend queries', async () => {
+    window.history.replaceState(null, '', '/?tab=history&history_symbol=MSFT&history_strategy=macd&history_record_type=walk_forward');
+
+    getBacktestHistory.mockResolvedValue({
+      success: true,
+      data: [],
+    });
+
+    render(<BacktestHistory />);
+
+    await waitFor(() => {
+      expect(getBacktestHistory).toHaveBeenCalledWith(10, {
+        symbol: 'MSFT',
+        strategy: 'macd',
+        recordType: 'walk_forward',
+      }, 0);
+      expect(getBacktestHistoryStats).toHaveBeenCalledWith({
+        symbol: 'MSFT',
+        strategy: 'macd',
+        recordType: 'walk_forward',
+      });
+    });
+
+    const resetButton = screen.getByLabelText('clear').closest('button');
+    fireEvent.click(resetButton);
+
+    await waitFor(() => {
+      expect(getBacktestHistory).toHaveBeenLastCalledWith(10, {
+        symbol: undefined,
+        strategy: undefined,
+        recordType: undefined,
+      }, 0);
+    });
+  });
+
+  test('opens list record details with extended metrics from normalized result payload', async () => {
+    getBacktestHistory.mockResolvedValue({
+      success: true,
+      total: 1,
+      data: [
+        {
+          id: 'rec-99',
+          symbol: 'AAPL',
+          strategy: 'moving_average',
+          timestamp: '2024-03-01T00:00:00Z',
+          start_date: '2024-01-01',
+          end_date: '2024-03-01',
+          parameters: {},
+          metrics: {
+            total_return: 0.1,
+            annualized_return: 0.12,
+            sharpe_ratio: 1.3,
+            max_drawdown: -0.05,
+            num_trades: 4,
+          },
+          result: {
+            total_return: 0.1,
+            annualized_return: 0.12,
+            sharpe_ratio: 1.3,
+            max_drawdown: -0.05,
+            num_trades: 4,
+            avg_win: 300,
+            avg_loss: -120,
+            total_profit: 900,
+            total_loss: -240,
+            loss_rate: 0.25,
+            avg_holding_days: 6.5,
+            total_completed_trades: 2,
+            has_open_position: false,
+            trades: [
+              {
+                date: '2024-02-01',
+                type: 'SELL',
+                quantity: 5,
+                price: 240,
+                value: 1200,
+                pnl: 200,
+              },
+            ],
+            portfolio_history: [
+              {
+                date: '2024-02-01',
+                total: 11200,
+                returns: 0.12,
+                signal: -1,
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    render(<BacktestHistory />);
+
+    await waitFor(() => {
+      expect(screen.getByText('AAPL')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText('eye'));
+
+    await waitFor(() => {
+      expect(screen.getByText('平均盈利')).toBeInTheDocument();
+      expect(screen.getByText('$300.00')).toBeInTheDocument();
+      expect(screen.getByText('$900.00')).toBeInTheDocument();
+      expect(screen.getByText('6.5 天')).toBeInTheDocument();
+      expect(screen.getByText('已全部平仓')).toBeInTheDocument();
+    });
+  });
+
+  test('renders advanced batch experiment details without backtest-only sections', async () => {
+    getBacktestHistory.mockResolvedValue({
+      success: true,
+      total: 1,
+      data: [
+        {
+          id: 'advanced-1',
+          record_type: 'batch_backtest',
+          title: '批量回测 · AAPL',
+          symbol: 'AAPL',
+          strategy: 'batch_backtest',
+          timestamp: '2024-03-01T00:00:00Z',
+          start_date: '2024-01-01',
+          end_date: '2024-03-01',
+          parameters: {
+            ranking_metric: 'sharpe_ratio',
+          },
+          metrics: {
+            total_return: 0.08,
+            sharpe_ratio: 1.1,
+            total_tasks: 2,
+            successful: 2,
+          },
+          result: {
+            summary: {
+              total_tasks: 2,
+              successful: 2,
+            },
+            results: [
+              {
+                task_id: 'task_1',
+                strategy: 'moving_average',
+                success: true,
+                metrics: {
+                  total_return: 0.1,
+                  sharpe_ratio: 1.2,
+                },
+              },
+            ],
+          },
+        },
+      ],
+    });
+    getBacktestRecord.mockResolvedValue({
+      success: true,
+      data: {
+        id: 'advanced-1',
+        record_type: 'batch_backtest',
+        title: '批量回测 · AAPL',
+        symbol: 'AAPL',
+        strategy: 'batch_backtest',
+        timestamp: '2024-03-01T00:00:00Z',
+        start_date: '2024-01-01',
+        end_date: '2024-03-01',
+        parameters: {
+          ranking_metric: 'sharpe_ratio',
+        },
+        metrics: {
+          total_return: 0.08,
+          sharpe_ratio: 1.1,
+          total_tasks: 2,
+          successful: 2,
+        },
+        result: {
+          summary: {
+            total_tasks: 2,
+            successful: 2,
+          },
+          results: [
+            {
+              task_id: 'task_1',
+              strategy: 'moving_average',
+              success: true,
+              metrics: {
+                total_return: 0.1,
+                sharpe_ratio: 1.2,
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    render(<BacktestHistory />);
+
+    await waitFor(() => {
+      expect(screen.getByText('AAPL')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByLabelText('eye'));
+
+    await waitFor(() => {
+      expect(screen.getByText('实验摘要')).toBeInTheDocument();
+      expect(screen.getByText('总任务数')).toBeInTheDocument();
+      expect(screen.getByText('成功率')).toBeInTheDocument();
+      expect(screen.getByText('批量结果明细')).toBeInTheDocument();
+      expect(screen.getAllByText('批量回测').length).toBeGreaterThan(0);
+      expect(screen.queryByText('组合净值回放')).not.toBeInTheDocument();
+      expect(screen.queryByText('交易明细')).not.toBeInTheDocument();
     });
   });
 });

@@ -2,6 +2,8 @@
 量化交易系统 - 前后端分离版本
 """
 
+from .utils.version import APP_VERSION as __version__
+
 from .data.data_manager import DataManager
 from .strategy.strategies import (
     BaseStrategy,
@@ -21,8 +23,6 @@ from .strategy.advanced_strategies import (
 )
 from .backtest.backtester import Backtester
 from .analytics.dashboard import PerformanceAnalyzer
-
-__version__ = "3.5.0"
 
 __all__ = [
     "DataManager",

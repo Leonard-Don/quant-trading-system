@@ -109,6 +109,14 @@ jest.mock('antd', () => {
         placeholder={placeholder}
       />
     ),
+    InputNumber: ({ value, onChange, placeholder, ...props }) => (
+      <input
+        aria-label={props['aria-label'] || placeholder}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        placeholder={placeholder}
+      />
+    ),
     Table,
     Row: ({ children }) => <div>{children}</div>,
     Col: ({ children }) => <div>{children}</div>,
@@ -188,7 +196,13 @@ describe('StrategyComparison', () => {
       <StrategyComparison
         strategies={[
           { name: 'buy_and_hold' },
-          { name: 'moving_average' },
+          {
+            name: 'moving_average',
+            parameters: {
+              fast_period: { default: 5, min: 1, max: 50 },
+              slow_period: { default: 20, min: 2, max: 200 },
+            },
+          },
         ]}
       />
     );
@@ -196,10 +210,39 @@ describe('StrategyComparison', () => {
     fireEvent.change(screen.getByLabelText('strategy-select'), {
       target: { value: 'buy_and_hold,moving_average' },
     });
+    await waitFor(() => {
+      expect(screen.getByLabelText('移动平均策略-fast_period')).toBeInTheDocument();
+    });
+    fireEvent.change(screen.getByLabelText('初始资金'), {
+      target: { value: '25000' },
+    });
+    fireEvent.change(screen.getByLabelText('手续费'), {
+      target: { value: '0.2' },
+    });
+    fireEvent.change(screen.getByLabelText('滑点'), {
+      target: { value: '0.15' },
+    });
+    fireEvent.change(screen.getByLabelText('移动平均策略-fast_period'), {
+      target: { value: '8' },
+    });
+    fireEvent.change(screen.getByLabelText('移动平均策略-slow_period'), {
+      target: { value: '21' },
+    });
     fireEvent.click(screen.getByRole('button', { name: '开始对比' }));
 
     await waitFor(() => {
-      expect(compareStrategies).toHaveBeenCalled();
+      expect(compareStrategies).toHaveBeenCalledWith({
+        symbol: 'AAPL',
+        start_date: expect.any(String),
+        end_date: expect.any(String),
+        initial_capital: 25000,
+        commission: 0.002,
+        slippage: 0.0015,
+        strategy_configs: [
+          { name: 'buy_and_hold', parameters: {} },
+          { name: 'moving_average', parameters: { fast_period: 8, slow_period: 21 } },
+        ],
+      });
       expect(screen.getAllByText('买入持有').length).toBeGreaterThan(0);
       expect(screen.getAllByText('移动平均策略').length).toBeGreaterThan(0);
     });

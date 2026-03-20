@@ -16,6 +16,43 @@ from src.utils.data_validation import ensure_json_serializable, normalize_backte
 
 logger = logging.getLogger(__name__)
 
+SUMMARY_METRIC_FIELDS = [
+    "total_return",
+    "annualized_return",
+    "sharpe_ratio",
+    "max_drawdown",
+    "win_rate",
+    "num_trades",
+    "total_trades",
+    "final_value",
+    "sortino_ratio",
+    "volatility",
+    "var_95",
+    "calmar_ratio",
+    "net_profit",
+    "profit_factor",
+    "avg_win",
+    "avg_loss",
+    "total_profit",
+    "total_loss",
+    "loss_rate",
+    "avg_holding_days",
+    "total_completed_trades",
+    "has_open_position",
+    "total_tasks",
+    "successful",
+    "average_return",
+    "average_sharpe",
+    "ranking_metric",
+    "n_windows",
+    "return_std",
+    "positive_windows",
+    "negative_windows",
+    "train_period",
+    "test_period",
+    "step_size",
+]
+
 
 class BacktestHistory:
     """回测历史管理器"""
@@ -42,6 +79,28 @@ class BacktestHistory:
         
         logger.info(f"BacktestHistory initialized with {len(self.history)} records")
 
+    @staticmethod
+    def _build_summary_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
+        summary = {}
+
+        for field in SUMMARY_METRIC_FIELDS:
+            if field == "total_trades":
+                summary[field] = metrics.get("total_trades", metrics.get("num_trades", 0))
+            elif field == "has_open_position":
+                summary[field] = bool(metrics.get(field, False))
+            else:
+                summary[field] = metrics.get(field, 0)
+
+        return ensure_json_serializable(summary)
+
+    @staticmethod
+    def _merge_metric_sources(result: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            **(result.get("performance_metrics") or {}),
+            **(result.get("metrics") or {}),
+            **result,
+        }
+
     def _load_history(self):
         """从文件加载历史记录"""
         try:
@@ -53,30 +112,28 @@ class BacktestHistory:
                     changed = False
                     for record in records:
                         normalized_record = dict(record)
+                        normalized_record.setdefault("record_type", "backtest")
+                        normalized_record.setdefault("title", "")
                         original_result = record.get("result")
                         if isinstance(original_result, dict):
-                            normalized_result = ensure_json_serializable(
-                                normalize_backtest_results(original_result)
-                            )
+                            if normalized_record.get("record_type") == "backtest":
+                                normalized_result = ensure_json_serializable(
+                                    normalize_backtest_results(original_result)
+                                )
+                            else:
+                                normalized_result = ensure_json_serializable(original_result)
                             if normalized_result != original_result:
                                 changed = True
                             normalized_record["result"] = normalized_result
 
-                            metrics = normalized_result.get("metrics", normalized_result)
-                            normalized_record["metrics"] = ensure_json_serializable({
-                                "total_return": metrics.get("total_return", 0),
-                                "annualized_return": metrics.get("annualized_return", 0),
-                                "sharpe_ratio": metrics.get("sharpe_ratio", 0),
-                                "max_drawdown": metrics.get("max_drawdown", 0),
-                                "win_rate": metrics.get("win_rate", 0),
-                                "num_trades": metrics.get("num_trades", 0),
-                                "total_trades": metrics.get("total_trades", metrics.get("num_trades", 0)),
-                                "final_value": metrics.get("final_value", 0),
-                                "sortino_ratio": metrics.get("sortino_ratio", 0),
-                                "volatility": metrics.get("volatility", 0),
-                                "var_95": metrics.get("var_95", 0),
-                                "calmar_ratio": metrics.get("calmar_ratio", 0),
-                            })
+                            if normalized_record.get("record_type") == "backtest":
+                                metrics = self._merge_metric_sources(normalized_result)
+                            else:
+                                metrics = {
+                                    **self._merge_metric_sources(normalized_result),
+                                    **(normalized_record.get("metrics") or {}),
+                                }
+                            normalized_record["metrics"] = self._build_summary_metrics(metrics)
                             if normalized_record.get("metrics") != record.get("metrics"):
                                 changed = True
 
@@ -113,38 +170,27 @@ class BacktestHistory:
             记录ID
         """
         with self._lock:
-            result = ensure_json_serializable(normalize_backtest_results(result))
+            record_type = result.get("record_type", "backtest")
+            if record_type == "backtest":
+                result = ensure_json_serializable(normalize_backtest_results(result))
+            else:
+                result = ensure_json_serializable(result)
             record_id = self._generate_id(result)
             
             # 提取关键信息
-            metrics = (
-                result.get("metrics")
-                or result.get("performance_metrics")
-                or result
-            )
+            metrics = self._merge_metric_sources(result)
             
             record = {
                 "id": record_id,
                 "timestamp": datetime.now().isoformat(),
+                "record_type": record_type,
+                "title": result.get("title", ""),
                 "symbol": result.get("symbol", "Unknown"),
                 "strategy": result.get("strategy", "Unknown"),
                 "start_date": result.get("start_date", ""),
                 "end_date": result.get("end_date", ""),
                 "parameters": result.get("parameters", {}),
-                "metrics": ensure_json_serializable({
-                    "total_return": metrics.get("total_return", 0),
-                    "annualized_return": metrics.get("annualized_return", 0),
-                    "sharpe_ratio": metrics.get("sharpe_ratio", 0),
-                    "max_drawdown": metrics.get("max_drawdown", 0),
-                    "win_rate": metrics.get("win_rate", 0),
-                    "num_trades": metrics.get("num_trades", 0),
-                    "total_trades": metrics.get("total_trades", metrics.get("num_trades", 0)),
-                    "final_value": metrics.get("final_value", 0),
-                    "sortino_ratio": metrics.get("sortino_ratio", 0),
-                    "volatility": metrics.get("volatility", 0),
-                    "var_95": metrics.get("var_95", 0),
-                    "calmar_ratio": metrics.get("calmar_ratio", 0)
-                }),
+                "metrics": self._build_summary_metrics(metrics),
                 "result": result.get("result") or result.get("backtest_result") or result,
             }
             
@@ -161,7 +207,38 @@ class BacktestHistory:
             logger.info(f"Saved backtest record: {record_id}")
             return record_id
 
-    def get_history(self, limit: int = 20, symbol: str = None, strategy: str = None) -> List[Dict]:
+    def _filter_history(self, symbol: str = None, strategy: str = None, record_type: str = None) -> List[Dict]:
+        """Return filtered history records without pagination."""
+        filtered = self.history
+
+        if symbol:
+            filtered = [
+                record for record in filtered
+                if record.get("symbol", "").upper() == symbol.upper()
+            ]
+
+        if strategy:
+            filtered = [
+                record for record in filtered
+                if record.get("strategy", "").lower() == strategy.lower()
+            ]
+
+        if record_type:
+            filtered = [
+                record for record in filtered
+                if record.get("record_type", "backtest").lower() == record_type.lower()
+            ]
+
+        return filtered
+
+    def get_history(
+        self,
+        limit: int = 20,
+        symbol: str = None,
+        strategy: str = None,
+        record_type: str = None,
+        offset: int = 0,
+    ) -> List[Dict]:
         """
         获取历史记录
         
@@ -174,15 +251,10 @@ class BacktestHistory:
             历史记录列表
         """
         with self._lock:
-            filtered = self.history
-            
-            if symbol:
-                filtered = [r for r in filtered if r.get("symbol", "").upper() == symbol.upper()]
-            
-            if strategy:
-                filtered = [r for r in filtered if r.get("strategy", "").lower() == strategy.lower()]
-            
-            return filtered[:limit]
+            filtered = self._filter_history(symbol=symbol, strategy=strategy, record_type=record_type)
+            start = max(offset, 0)
+            end = start + limit if limit is not None else None
+            return filtered[start:end]
 
     def get_by_id(self, record_id: str) -> Optional[Dict]:
         """
@@ -227,7 +299,7 @@ class BacktestHistory:
             self._persist()
             logger.info("Cleared all backtest history")
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self, symbol: str = None, strategy: str = None, record_type: str = None) -> Dict[str, Any]:
         """
         获取历史统计信息
         
@@ -235,11 +307,14 @@ class BacktestHistory:
             统计信息字典
         """
         with self._lock:
-            if not self.history:
+            filtered_history = self._filter_history(symbol=symbol, strategy=strategy, record_type=record_type)
+
+            if not filtered_history:
                 return {
                     "total_records": 0,
                     "strategies": {},
                     "symbols": {},
+                    "record_types": {},
                     "avg_return": 0,
                     "strategy_count": 0,
                     "latest_record_at": None,
@@ -247,23 +322,27 @@ class BacktestHistory:
             
             strategies = {}
             symbols = {}
+            record_types = {}
             total_return = 0
             
-            for record in self.history:
+            for record in filtered_history:
                 strategy = record.get("strategy", "Unknown")
                 symbol = record.get("symbol", "Unknown")
+                record_type = record.get("record_type", "backtest")
                 
                 strategies[strategy] = strategies.get(strategy, 0) + 1
                 symbols[symbol] = symbols.get(symbol, 0) + 1
                 total_return += record.get("metrics", {}).get("total_return", 0)
+                record_types[record_type] = record_types.get(record_type, 0) + 1
             
             return {
-                "total_records": len(self.history),
+                "total_records": len(filtered_history),
                 "strategies": strategies,
                 "symbols": symbols,
-                "avg_return": total_return / len(self.history) if self.history else 0,
+                "record_types": record_types,
+                "avg_return": total_return / len(filtered_history) if filtered_history else 0,
                 "strategy_count": len(strategies),
-                "latest_record_at": self.history[0].get("timestamp") if self.history else None,
+                "latest_record_at": filtered_history[0].get("timestamp") if filtered_history else None,
                 "most_tested_symbol": max(symbols, key=symbols.get) if symbols else None,
                 "most_used_strategy": max(strategies, key=strategies.get) if strategies else None
             }

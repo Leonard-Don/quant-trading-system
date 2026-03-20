@@ -25,9 +25,9 @@ from backend.main import app  # noqa: E402
 from src.reporting.pdf_generator import PDFGenerator  # noqa: E402
 
 
-def build_mock_backtest_data():
-    dates = pd.date_range("2024-01-01", periods=6, freq="D")
-    close = [100, 102, 104, 106, 108, 110]
+def build_mock_backtest_data(periods=6):
+    dates = pd.date_range("2024-01-01", periods=periods, freq="D")
+    close = [100 + (index * 2) for index in range(periods)]
     return pd.DataFrame(
         {
             "open": close,
@@ -184,6 +184,8 @@ class TestAPIIntegration:
                 "start_date": "2024-01-01",
                 "end_date": "2024-01-06",
                 "initial_capital": 10000,
+                "commission": 0.001,
+                "slippage": 0.001,
             },
         )
 
@@ -200,6 +202,117 @@ class TestAPIIntegration:
         assert compare_results["annualized_return"] == pytest.approx(backtest_results["annualized_return"])
         assert compare_results["num_trades"] == backtest_results["num_trades"]
         assert compare_results["profit_factor"] == backtest_results["profit_factor"]
+
+    def test_batch_backtest_endpoint_returns_summary_and_ranked_results(self, client, monkeypatch):
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
+        monkeypatch.setattr(
+            backtest_endpoint.data_manager,
+            "get_historical_data",
+            lambda *args, **kwargs: build_mock_backtest_data(periods=20),
+        )
+
+        response = client.post(
+            "/backtest/batch",
+            json={
+                "tasks": [
+                    {
+                        "task_id": "batch-1",
+                        "symbol": "AAPL",
+                        "strategy": "buy_and_hold",
+                        "parameters": {},
+                        "start_date": "2024-01-01",
+                        "end_date": "2024-01-20",
+                    },
+                    {
+                        "task_id": "batch-2",
+                        "symbol": "AAPL",
+                        "strategy": "moving_average",
+                        "parameters": {"fast_period": 10, "slow_period": 20},
+                        "start_date": "2024-01-01",
+                        "end_date": "2024-01-20",
+                    },
+                ],
+                "ranking_metric": "total_return",
+                "top_n": 1,
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["data"]["summary"]["total_tasks"] == 2
+        assert len(payload["data"]["results"]) == 2
+        assert len(payload["data"]["ranked_results"]) == 1
+        successful_results = [item for item in payload["data"]["results"] if item["success"]]
+        assert len(successful_results) == 2
+        assert successful_results[0]["metrics"]["total_trades"] == successful_results[0]["metrics"]["num_trades"]
+
+    def test_walk_forward_endpoint_returns_window_aggregate_metrics(self, client, monkeypatch):
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
+        monkeypatch.setattr(
+            backtest_endpoint.data_manager,
+            "get_historical_data",
+            lambda *args, **kwargs: build_mock_backtest_data(periods=40),
+        )
+
+        response = client.post(
+            "/backtest/walk-forward",
+            json={
+                "symbol": "AAPL",
+                "strategy": "buy_and_hold",
+                "parameters": {},
+                "start_date": "2024-01-01",
+                "end_date": "2024-02-09",
+                "train_period": 10,
+                "test_period": 5,
+                "step_size": 5,
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["data"]["n_windows"] > 0
+        assert payload["data"]["aggregate_metrics"]["average_return"] is not None
+        assert len(payload["data"]["window_results"]) == payload["data"]["n_windows"]
+
+    def test_advanced_history_endpoint_saves_batch_experiment_record(self, client):
+        response = client.post(
+            "/backtest/history/advanced",
+            json={
+                "record_type": "batch_backtest",
+                "title": "批量回测 · AAPL",
+                "symbol": "AAPL",
+                "strategy": "batch_backtest",
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "parameters": {
+                    "ranking_metric": "sharpe_ratio",
+                },
+                "metrics": {
+                    "total_return": 0.08,
+                    "sharpe_ratio": 1.1,
+                    "total_tasks": 2,
+                    "successful": 2,
+                },
+                "result": {
+                    "summary": {
+                        "total_tasks": 2,
+                        "successful": 2,
+                        "average_return": 0.08,
+                        "average_sharpe": 1.1,
+                    },
+                    "results": [],
+                },
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["data"]["record_id"]
 
     def test_compare_endpoint_supports_macd_strategy(self, client, monkeypatch):
         """策略对比接口应能正常实例化 MACD 策略。"""
@@ -219,6 +332,8 @@ class TestAPIIntegration:
                 "start_date": "2024-01-01",
                 "end_date": "2024-01-06",
                 "initial_capital": 10000,
+                "commission": 0.001,
+                "slippage": 0.001,
             },
         )
 
@@ -254,6 +369,8 @@ class TestAPIIntegration:
                     "start_date": "2024-01-01",
                     "end_date": "2024-01-06",
                     "initial_capital": 10000,
+                    "commission": 0.001,
+                    "slippage": 0.001,
                 },
             )
 

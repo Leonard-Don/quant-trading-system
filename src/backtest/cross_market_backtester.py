@@ -20,6 +20,7 @@ from src.trading.cross_market import (
     AssetSide,
     AssetUniverse,
     CrossMarketStrategy,
+    ExecutionRouter,
     HedgePortfolioBuilder,
     SpreadZScoreStrategy,
 )
@@ -48,6 +49,7 @@ class CrossMarketBacktester:
         self,
         assets: List[Dict[str, object]],
         strategy_name: str,
+        template_context: Optional[Dict[str, Any]] = None,
         parameters: Optional[Dict[str, Any]] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
@@ -94,6 +96,12 @@ class CrossMarketBacktester:
         results["parameters"] = parameters or {}
         results["asset_specs"] = universe.as_dicts()
         results["asset_universe"] = universe.summary()
+        if template_context:
+            results["template_context"] = template_context
+            results["allocation_overlay"] = self._build_allocation_overlay(
+                template_context=template_context,
+                effective_assets=universe.as_dicts(),
+            )
         results["price_matrix_summary"] = {
             "asset_count": len(price_matrix.columns),
             "row_count": len(price_matrix),
@@ -102,6 +110,61 @@ class CrossMarketBacktester:
             "end_date": price_matrix.index[-1].strftime("%Y-%m-%d"),
         }
         return results
+
+    @staticmethod
+    def _build_allocation_overlay(
+        *,
+        template_context: Dict[str, Any],
+        effective_assets: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        base_assets = template_context.get("base_assets") or []
+        base_lookup = {
+            (str(asset.get("symbol", "")).upper(), str(asset.get("side", "")).lower()): asset
+            for asset in base_assets
+        }
+        rows: List[Dict[str, Any]] = []
+        for asset in effective_assets:
+            key = (str(asset.get("symbol", "")).upper(), str(asset.get("side", "")).lower())
+            base_asset = base_lookup.get(key, {})
+            base_weight = float(base_asset.get("weight") or 0.0)
+            effective_weight = float(asset.get("weight") or 0.0)
+            delta_weight = effective_weight - base_weight
+            rows.append(
+                {
+                    "symbol": asset.get("symbol"),
+                    "side": asset.get("side"),
+                    "asset_class": asset.get("asset_class"),
+                    "base_weight": round(base_weight, 6),
+                    "effective_weight": round(effective_weight, 6),
+                    "delta_weight": round(delta_weight, 6),
+                }
+            )
+
+        rows.sort(key=lambda item: (item["side"], -abs(item["delta_weight"]), item["symbol"]))
+        max_delta = max((abs(item["delta_weight"]) for item in rows), default=0.0)
+        shifted_assets = [item["symbol"] for item in rows if abs(item["delta_weight"]) >= 0.02]
+
+        return {
+            "template_id": template_context.get("template_id") or "",
+            "template_name": template_context.get("template_name") or "",
+            "theme": template_context.get("theme") or "",
+            "allocation_mode": template_context.get("allocation_mode") or "template_base",
+            "bias_summary": template_context.get("bias_summary") or "",
+            "bias_strength": float(template_context.get("bias_strength") or 0.0),
+            "bias_highlights": template_context.get("bias_highlights") or [],
+            "bias_actions": template_context.get("bias_actions") or [],
+            "signal_attribution": template_context.get("signal_attribution") or [],
+            "driver_summary": template_context.get("driver_summary") or [],
+            "dominant_drivers": template_context.get("dominant_drivers") or [],
+            "core_legs": template_context.get("core_legs") or [],
+            "support_legs": template_context.get("support_legs") or [],
+            "theme_core": template_context.get("theme_core") or "",
+            "theme_support": template_context.get("theme_support") or "",
+            "max_delta_weight": round(max_delta, 6),
+            "shifted_asset_count": len(shifted_assets),
+            "shifted_assets": shifted_assets,
+            "rows": rows,
+        }
 
     def _build_price_matrix(
         self,
@@ -114,12 +177,27 @@ class CrossMarketBacktester:
         series_map: Dict[str, pd.Series] = {}
         symbol_alignment: List[Dict[str, Any]] = []
         for asset in universe.get_assets():
-            data = self.data_manager.get_historical_data(
-                symbol=asset.symbol,
-                start_date=start_date,
-                end_date=end_date,
-                interval="1d",
-            )
+            provider_name = "legacy"
+            if hasattr(self.data_manager, "get_cross_market_historical_data"):
+                result = self.data_manager.get_cross_market_historical_data(
+                    symbol=asset.symbol,
+                    asset_class=asset.asset_class.value,
+                    start_date=start_date,
+                    end_date=end_date,
+                    interval="1d",
+                )
+                if isinstance(result, dict):
+                    data = result.get("data", pd.DataFrame())
+                    provider_name = result.get("provider") or provider_name
+                else:
+                    data = result
+            else:
+                data = self.data_manager.get_historical_data(
+                    symbol=asset.symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                    interval="1d",
+                )
             if data.empty or "close" not in data.columns:
                 raise ValueError(f"No daily close data found for {asset.symbol}")
             series = self._normalize_daily_close(data["close"], asset.symbol)
@@ -129,6 +207,8 @@ class CrossMarketBacktester:
             symbol_alignment.append(
                 {
                     "symbol": asset.symbol,
+                    "asset_class": asset.asset_class.value,
+                    "provider": provider_name,
                     "raw_rows": int(len(data)),
                     "valid_rows": int(len(series)),
                     "first_date": series.index[0].strftime("%Y-%m-%d") if len(series) else None,
@@ -237,6 +317,13 @@ class CrossMarketBacktester:
         }
         asset_contributions = hedge_portfolio.build_asset_contributions(returns)
         hedge_summary = hedge_portfolio.summarize_exposures(signal_frame.get("hedge_ratio"))
+        execution_router = ExecutionRouter(
+            universe.get_assets(),
+            initial_capital=self.initial_capital,
+            avg_hedge_ratio=hedge_summary["hedge_ratio"]["average"],
+            latest_prices={symbol: float(price) for symbol, price in price_matrix.iloc[-1].items()},
+        )
+        execution_plan = execution_router.build_plan()
 
         spread_series = signal_frame.copy()
         spread_series["date"] = spread_series.index.strftime("%Y-%m-%d")
@@ -248,6 +335,29 @@ class CrossMarketBacktester:
             "turnover": float(turnover.sum()),
             "cost_drag": float(transaction_cost.sum()),
             "avg_holding_period": round(avg_holding_period, 2),
+            "route_count": execution_plan["route_count"],
+            "batch_count": len(execution_plan.get("batches", [])),
+            "provider_count": len(execution_plan.get("by_provider", {})),
+            "venue_count": len(execution_plan.get("venue_allocation", [])),
+            "max_route_fraction": float(execution_plan.get("max_route_fraction", 0.0)),
+            "max_batch_fraction": float(execution_plan.get("max_batch_fraction", 0.0)),
+            "concentration_level": execution_plan.get("concentration", {}).get("level", "balanced"),
+            "concentration_reason": execution_plan.get("concentration", {}).get("reason", ""),
+            "lot_efficiency": float(execution_plan.get("sizing_summary", {}).get("lot_efficiency", 1.0)),
+            "residual_notional": float(execution_plan.get("sizing_summary", {}).get("total_residual_notional", 0.0)),
+            "suggested_rebalance": self._suggest_rebalance_cadence(
+                turnover=float(turnover.sum()),
+                avg_holding_period=avg_holding_period,
+                construction_mode=construction_mode,
+            ),
+            "stress_test_flag": execution_plan.get("execution_stress", {}).get("worst_case", {}).get(
+                "concentration_level",
+                "balanced",
+            ),
+            "stress_test_reason": execution_plan.get("execution_stress", {}).get("worst_case", {}).get(
+                "concentration_reason",
+                "",
+            ),
         }
 
         results = {
@@ -281,6 +391,7 @@ class CrossMarketBacktester:
             },
             "data_alignment": data_alignment["data_alignment"],
             "execution_diagnostics": execution_diagnostics,
+            "execution_plan": execution_plan,
             "hedge_portfolio": hedge_summary,
             "asset_contributions": asset_contributions,
         }
@@ -341,6 +452,19 @@ class CrossMarketBacktester:
             previous_position = current_position
 
         return trades
+
+    @staticmethod
+    def _suggest_rebalance_cadence(
+        *,
+        turnover: float,
+        avg_holding_period: float,
+        construction_mode: str,
+    ) -> str:
+        if turnover >= 10 or avg_holding_period and avg_holding_period < 5:
+            return "weekly"
+        if construction_mode == "ols_hedge" or turnover >= 5 or avg_holding_period and avg_holding_period < 12:
+            return "biweekly"
+        return "monthly"
 
     @staticmethod
     def _normalize_daily_close(close_series: pd.Series, symbol: str) -> pd.Series:

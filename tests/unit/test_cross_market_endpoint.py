@@ -26,6 +26,21 @@ class DummyDataManager:
     def get_historical_data(self, symbol, start_date=None, end_date=None, interval="1d", period=None):
         return self.frames.get(symbol, pd.DataFrame()).copy()
 
+    def get_cross_market_historical_data(
+        self,
+        symbol,
+        asset_class,
+        start_date=None,
+        end_date=None,
+        interval="1d",
+    ):
+        return {
+            "data": self.frames.get(symbol, pd.DataFrame()).copy(),
+            "provider": f"mock_{str(asset_class).lower()}",
+            "asset_class": asset_class,
+            "symbol": symbol,
+        }
+
 
 def _build_client(monkeypatch, frames):
     app = FastAPI()
@@ -50,6 +65,17 @@ def test_cross_market_endpoint_success(monkeypatch):
                 {"symbol": "XLU", "asset_class": "ETF", "side": "long"},
                 {"symbol": "QQQ", "asset_class": "ETF", "side": "short"},
             ],
+            "template_context": {
+                "template_id": "utilities_vs_growth",
+                "template_name": "US utilities vs NASDAQ growth",
+                "allocation_mode": "macro_bias",
+                "bias_summary": "多头增配 XLU，空头增配 QQQ",
+                "bias_strength": 6.5,
+                "base_assets": [
+                    {"symbol": "XLU", "asset_class": "ETF", "side": "long", "weight": 0.45},
+                    {"symbol": "QQQ", "asset_class": "ETF", "side": "short", "weight": 0.55},
+                ],
+            },
             "strategy": "spread_zscore",
             "parameters": {"lookback": 5, "entry_threshold": 1.0, "exit_threshold": 0.2},
             "min_history_days": 10,
@@ -63,6 +89,16 @@ def test_cross_market_endpoint_success(monkeypatch):
     assert "asset_universe" in payload["data"]
     assert "hedge_portfolio" in payload["data"]
     assert "asset_contributions" in payload["data"]
+    assert "execution_plan" in payload["data"]
+    assert payload["data"]["data_alignment"]["per_symbol"][0]["provider"].startswith("mock_")
+    assert payload["data"]["execution_diagnostics"]["route_count"] == 2
+    assert payload["data"]["execution_plan"]["routes"][0]["target_notional"] > 0
+    assert payload["data"]["execution_diagnostics"]["concentration_level"] in {"balanced", "moderate", "high"}
+    assert "provider_allocation" in payload["data"]["execution_plan"]
+    assert payload["data"]["execution_plan"]["routes"][0]["rounded_quantity"] >= 1
+    assert payload["data"]["execution_diagnostics"]["suggested_rebalance"] in {"weekly", "biweekly", "monthly"}
+    assert len(payload["data"]["execution_plan"]["execution_stress"]["scenarios"]) == 4
+    assert payload["data"]["allocation_overlay"]["allocation_mode"] == "macro_bias"
 
 
 def test_cross_market_endpoint_requires_both_sides(monkeypatch):
@@ -196,3 +232,19 @@ def test_cross_market_endpoint_rejects_low_overlap_ratio(monkeypatch):
 
     assert response.status_code == 400
     assert "overlap ratio" in response.json()["detail"].lower()
+
+
+def test_cross_market_templates_include_macro_linkage_metadata(monkeypatch):
+    client = _build_client(monkeypatch, {})
+
+    response = client.get("/cross-market/templates")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["templates"]) >= 4
+    first = payload["templates"][0]
+    assert "theme" in first
+    assert "narrative" in first
+    assert "linked_factors" in first
+    assert "linked_dimensions" in first
+    assert isinstance(first["linked_factors"], list)

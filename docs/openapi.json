@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "量化交易系统API",
-    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.5.0\n    - **API版本**: v1\n    - **最后更新**: 2026-03-18\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
+    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.6.0\n    - **API版本**: v1\n    - **最后更新**: 2026-03-20\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
     "termsOfService": "https://example.com/terms/",
     "contact": {
       "name": "量化交易系统支持",
@@ -13,7 +13,7 @@
       "name": "MIT License",
       "url": "https://opensource.org/licenses/MIT"
     },
-    "version": "3.5.0"
+    "version": "3.6.0"
   },
   "paths": {
     "/market-data/": {
@@ -123,6 +123,84 @@
         }
       }
     },
+    "/backtest/batch": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "批量运行多个回测任务",
+        "operationId": "run_batch_backtest_backtest_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchBacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/walk-forward": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "运行 Walk-Forward 分析",
+        "operationId": "run_walk_forward_backtest_backtest_walk_forward_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WalkForwardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/backtest/": {
       "post": {
         "tags": [
@@ -166,6 +244,43 @@
       }
     },
     "/backtest/compare": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "比较多个策略的性能",
+        "operationId": "compare_strategies_post_backtest_compare_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompareRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
       "get": {
         "tags": [
           "Backtest"
@@ -216,8 +331,28 @@
             "required": false,
             "schema": {
               "type": "number",
-              "default": 100000.0,
+              "default": 10000.0,
               "title": "Initial Capital"
+            }
+          },
+          {
+            "name": "commission",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.001,
+              "title": "Commission"
+            }
+          },
+          {
+            "name": "slippage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 0.001,
+              "title": "Slippage"
             }
           }
         ],
@@ -260,6 +395,16 @@
               "type": "integer",
               "default": 20,
               "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Offset"
             }
           },
           {
@@ -311,12 +456,42 @@
         "summary": "获取回测历史统计",
         "description": "获取回测历史统计信息",
         "operationId": "get_backtest_stats_backtest_history_stats_get",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Symbol"
+            }
+          },
+          {
+            "name": "strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Strategy"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -726,6 +901,62 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/realtime/preferences": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "获取实时行情偏好配置",
+        "operationId": "get_preferences_realtime_preferences_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "更新实时行情偏好配置",
+        "operationId": "update_preferences_realtime_preferences_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RealtimePreferencesRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2282,6 +2513,1020 @@
         }
       }
     },
+    "/pricing/factor-model": {
+      "post": {
+        "tags": [
+          "Asset Pricing Research"
+        ],
+        "summary": "Factor Model Analysis",
+        "description": "因子模型分析（CAPM + Fama-French 三因子）\n\n返回 Alpha、Beta、因子暴露度、R² 等指标",
+        "operationId": "factor_model_analysis_pricing_factor_model_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PricingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pricing/valuation": {
+      "post": {
+        "tags": [
+          "Asset Pricing Research"
+        ],
+        "summary": "Valuation Analysis",
+        "description": "内在价值估值分析（DCF + 可比估值法）\n\n返回 DCF 估值、可比估值、公允价值区间",
+        "operationId": "valuation_analysis_pricing_valuation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValuationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pricing/gap-analysis": {
+      "post": {
+        "tags": [
+          "Asset Pricing Research"
+        ],
+        "summary": "Gap Analysis",
+        "description": "定价差异分析（核心端点）\n\n整合因子模型和估值模型，分析市价 vs 内在价值的偏差及驱动因素",
+        "operationId": "gap_analysis_pricing_gap_analysis_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PricingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pricing/benchmark-factors": {
+      "get": {
+        "tags": [
+          "Asset Pricing Research"
+        ],
+        "summary": "Get Benchmark Factors",
+        "description": "获取当前市场因子数据快照\n\n返回最新的 Fama-French 三因子和市场指标",
+        "operationId": "get_benchmark_factors_pricing_benchmark_factors_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alt-data/snapshot": {
+      "get": {
+        "tags": [
+          "Alternative Data"
+        ],
+        "summary": "另类数据作战快照",
+        "operationId": "get_alt_data_snapshot_alt_data_snapshot_get",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alt-data/signals": {
+      "get": {
+        "tags": [
+          "Alternative Data"
+        ],
+        "summary": "另类数据统一信号",
+        "operationId": "get_alt_signals_alt_data_signals_get",
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "name": "timeframe",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "7d",
+              "title": "Timeframe"
+            }
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alt-data/providers": {
+      "get": {
+        "tags": [
+          "Alternative Data"
+        ],
+        "summary": "另类数据提供器状态",
+        "operationId": "get_alt_providers_alt_data_providers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alt-data/status": {
+      "get": {
+        "tags": [
+          "Alternative Data"
+        ],
+        "summary": "另类数据治理状态",
+        "operationId": "get_alt_data_status_alt_data_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alt-data/refresh": {
+      "post": {
+        "tags": [
+          "Alternative Data"
+        ],
+        "summary": "手动刷新另类数据",
+        "operationId": "refresh_alt_data_alt_data_refresh_post",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "all",
+              "title": "Provider"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/alt-data/history": {
+      "get": {
+        "tags": [
+          "Alternative Data"
+        ],
+        "summary": "另类数据历史记录",
+        "operationId": "get_alt_data_history_alt_data_history_get",
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "name": "timeframe",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "30d",
+              "title": "Timeframe"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/macro/overview": {
+      "get": {
+        "tags": [
+          "Macro Mispricing"
+        ],
+        "summary": "宏观错误定价总览",
+        "operationId": "get_macro_overview_macro_overview_get",
+        "parameters": [
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cross-market/templates": {
+      "get": {
+        "tags": [
+          "Cross Market"
+        ],
+        "summary": "Get cross-market demo templates",
+        "operationId": "get_cross_market_templates_cross_market_templates_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cross-market/backtest": {
+      "post": {
+        "tags": [
+          "Cross Market"
+        ],
+        "summary": "Run cross-market backtest",
+        "operationId": "run_cross_market_backtest_cross_market_backtest_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CrossMarketBacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CrossMarketBacktestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/research-workbench/tasks": {
+      "get": {
+        "tags": [
+          "Research Workbench"
+        ],
+        "summary": "获取研究工作台任务",
+        "operationId": "list_research_tasks_research_workbench_tasks_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "View"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Research Workbench"
+        ],
+        "summary": "创建研究工作台任务",
+        "operationId": "create_research_task_research_workbench_tasks_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchTaskCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/research-workbench/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "Research Workbench"
+        ],
+        "summary": "获取研究工作台任务详情",
+        "operationId": "get_research_task_research_workbench_tasks__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Research Workbench"
+        ],
+        "summary": "更新研究工作台任务",
+        "operationId": "update_research_task_research_workbench_tasks__task_id__put",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchTaskUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Research Workbench"
+        ],
+        "summary": "删除研究工作台任务",
+        "operationId": "delete_research_task_research_workbench_tasks__task_id__delete",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/research-workbench/tasks/{task_id}/timeline": {
+      "get": {
+        "tags": [
+          "Research Workbench"
+        ],
+        "summary": "获取研究任务时间线",
+        "operationId": "get_research_task_timeline_research_workbench_tasks__task_id__timeline_get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/research-workbench/tasks/{task_id}/comments": {
+      "post": {
+        "tags": [
+          "Research Workbench"
+        ],
+        "summary": "为研究任务添加评论",
+        "operationId": "add_research_task_comment_research_workbench_tasks__task_id__comments_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchTaskCommentCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/research-workbench/tasks/{task_id}/comments/{comment_id}": {
+      "delete": {
+        "tags": [
+          "Research Workbench"
+        ],
+        "summary": "删除研究任务评论",
+        "operationId": "delete_research_task_comment_research_workbench_tasks__task_id__comments__comment_id__delete",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "comment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Comment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/research-workbench/tasks/{task_id}/snapshot": {
+      "post": {
+        "tags": [
+          "Research Workbench"
+        ],
+        "summary": "追加研究任务快照",
+        "operationId": "add_research_task_snapshot_research_workbench_tasks__task_id__snapshot_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchTaskSnapshotCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/research-workbench/board/reorder": {
+      "post": {
+        "tags": [
+          "Research Workbench"
+        ],
+        "summary": "批量更新研究工作台看板顺序",
+        "operationId": "reorder_research_board_research_workbench_board_reorder_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchWorkbenchReorderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/research-workbench/stats": {
+      "get": {
+        "tags": [
+          "Research Workbench"
+        ],
+        "summary": "获取研究工作台统计",
+        "operationId": "get_research_task_stats_research_workbench_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "summary": "Root",
@@ -2417,6 +3662,119 @@
         ],
         "title": "BacktestResponse"
       },
+      "BatchBacktestRequest": {
+        "properties": {
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/BatchBacktestTaskRequest"
+            },
+            "type": "array",
+            "title": "Tasks"
+          },
+          "ranking_metric": {
+            "type": "string",
+            "title": "Ranking Metric",
+            "default": "sharpe_ratio"
+          },
+          "ascending": {
+            "type": "boolean",
+            "title": "Ascending",
+            "default": false
+          },
+          "top_n": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Top N"
+          },
+          "max_workers": {
+            "type": "integer",
+            "title": "Max Workers",
+            "default": 4
+          }
+        },
+        "type": "object",
+        "required": [
+          "tasks"
+        ],
+        "title": "BatchBacktestRequest"
+      },
+      "BatchBacktestTaskRequest": {
+        "properties": {
+          "task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Id"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters",
+            "default": {}
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 10000
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "strategy"
+        ],
+        "title": "BatchBacktestTaskRequest"
+      },
       "Body_optimize_portfolio_optimization_optimize_post": {
         "properties": {
           "symbols": {
@@ -2483,6 +3841,102 @@
         "title": "ClusterResponse",
         "description": "聚类分析响应"
       },
+      "CompareRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "strategies": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategies"
+          },
+          "strategy_configs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CompareStrategyConfig"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Configs"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 10000.0
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "CompareRequest"
+      },
+      "CompareStrategyConfig": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters",
+            "default": {}
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CompareStrategyConfig"
+      },
       "CorrelationRequest": {
         "properties": {
           "symbols": {
@@ -2503,6 +3957,303 @@
           "symbols"
         ],
         "title": "CorrelationRequest"
+      },
+      "CrossMarketAsset": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol",
+            "description": "Ticker symbol, e.g. XLU"
+          },
+          "asset_class": {
+            "type": "string",
+            "title": "Asset Class"
+          },
+          "side": {
+            "type": "string",
+            "title": "Side"
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "asset_class",
+          "side"
+        ],
+        "title": "CrossMarketAsset"
+      },
+      "CrossMarketBacktestRequest": {
+        "properties": {
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/CrossMarketAsset"
+            },
+            "type": "array",
+            "title": "Assets"
+          },
+          "template_context": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CrossMarketTemplateContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy",
+            "default": "spread_zscore"
+          },
+          "construction_mode": {
+            "type": "string",
+            "title": "Construction Mode",
+            "default": "equal_weight"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters"
+          },
+          "min_history_days": {
+            "type": "integer",
+            "title": "Min History Days",
+            "default": 60
+          },
+          "min_overlap_ratio": {
+            "type": "number",
+            "title": "Min Overlap Ratio",
+            "default": 0.7
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Initial Capital",
+            "default": 100000
+          },
+          "commission": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Slippage",
+            "default": 0.001
+          }
+        },
+        "type": "object",
+        "required": [
+          "assets"
+        ],
+        "title": "CrossMarketBacktestRequest"
+      },
+      "CrossMarketBacktestResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "title": "CrossMarketBacktestResponse"
+      },
+      "CrossMarketTemplateAsset": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol",
+            "description": "Ticker symbol, e.g. XLU"
+          },
+          "asset_class": {
+            "type": "string",
+            "title": "Asset Class"
+          },
+          "side": {
+            "type": "string",
+            "title": "Side"
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "asset_class",
+          "side"
+        ],
+        "title": "CrossMarketTemplateAsset"
+      },
+      "CrossMarketTemplateContext": {
+        "properties": {
+          "template_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Id"
+          },
+          "template_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Name"
+          },
+          "theme": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Theme"
+          },
+          "allocation_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allocation Mode"
+          },
+          "bias_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias Summary"
+          },
+          "bias_strength": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias Strength"
+          },
+          "bias_highlights": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Bias Highlights"
+          },
+          "bias_actions": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Bias Actions"
+          },
+          "signal_attribution": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Signal Attribution"
+          },
+          "base_assets": {
+            "items": {
+              "$ref": "#/components/schemas/CrossMarketTemplateAsset"
+            },
+            "type": "array",
+            "title": "Base Assets"
+          }
+        },
+        "type": "object",
+        "title": "CrossMarketTemplateContext"
       },
       "EventRequest": {
         "properties": {
@@ -3190,6 +4941,44 @@
         ],
         "title": "MarketDataRequest"
       },
+      "PricingRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol",
+            "description": "股票代码，如 AAPL"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period",
+            "description": "分析周期: 6mo, 1y, 2y, 3y, 5y",
+            "default": "1y"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "PricingRequest"
+      },
+      "RealtimePreferencesRequest": {
+        "properties": {
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Symbols"
+          },
+          "active_tab": {
+            "type": "string",
+            "title": "Active Tab",
+            "default": "index"
+          }
+        },
+        "type": "object",
+        "title": "RealtimePreferencesRequest"
+      },
       "ReportRequest": {
         "properties": {
           "symbol": {
@@ -3221,6 +5010,43 @@
               }
             ],
             "title": "Parameters"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 10000
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
           }
         },
         "type": "object",
@@ -3230,6 +5056,270 @@
         ],
         "title": "ReportRequest",
         "description": "报告生成请求"
+      },
+      "ResearchTaskCommentCreateRequest": {
+        "properties": {
+          "author": {
+            "type": "string",
+            "title": "Author",
+            "default": "local"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Body"
+          }
+        },
+        "type": "object",
+        "required": [
+          "body"
+        ],
+        "title": "ResearchTaskCommentCreateRequest"
+      },
+      "ResearchTaskCreateRequest": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "pricing",
+              "cross_market"
+            ],
+            "title": "Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "in_progress",
+              "blocked",
+              "complete",
+              "archived"
+            ],
+            "title": "Status",
+            "default": "new"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "default": ""
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol",
+            "default": ""
+          },
+          "template": {
+            "type": "string",
+            "title": "Template",
+            "default": ""
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "board_order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Board Order"
+          },
+          "context": {
+            "type": "object",
+            "title": "Context"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchTaskSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "type",
+          "title"
+        ],
+        "title": "ResearchTaskCreateRequest"
+      },
+      "ResearchTaskReorderItem": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "in_progress",
+              "blocked",
+              "complete",
+              "archived"
+            ],
+            "title": "Status"
+          },
+          "board_order": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Board Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "status",
+          "board_order"
+        ],
+        "title": "ResearchTaskReorderItem"
+      },
+      "ResearchTaskSnapshot": {
+        "properties": {
+          "headline": {
+            "type": "string",
+            "title": "Headline",
+            "default": ""
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          },
+          "highlights": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Highlights"
+          },
+          "payload": {
+            "type": "object",
+            "title": "Payload"
+          },
+          "saved_at": {
+            "type": "string",
+            "title": "Saved At",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ResearchTaskSnapshot"
+      },
+      "ResearchTaskSnapshotCreateRequest": {
+        "properties": {
+          "snapshot": {
+            "$ref": "#/components/schemas/ResearchTaskSnapshot"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot"
+        ],
+        "title": "ResearchTaskSnapshotCreateRequest"
+      },
+      "ResearchTaskUpdateRequest": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "new",
+                  "in_progress",
+                  "blocked",
+                  "complete",
+                  "archived"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "board_order": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Board Order"
+          },
+          "context": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Context"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchTaskSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "ResearchTaskUpdateRequest"
+      },
+      "ResearchWorkbenchReorderRequest": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchTaskReorderItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "title": "ResearchWorkbenchReorderRequest"
       },
       "StockResponse": {
         "properties": {
@@ -3595,6 +5685,95 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "ValuationRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol",
+            "description": "股票代码"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "ValuationRequest"
+      },
+      "WalkForwardRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters",
+            "default": {}
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 10000
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
+          },
+          "train_period": {
+            "type": "integer",
+            "title": "Train Period",
+            "default": 252
+          },
+          "test_period": {
+            "type": "integer",
+            "title": "Test Period",
+            "default": 63
+          },
+          "step_size": {
+            "type": "integer",
+            "title": "Step Size",
+            "default": 21
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "strategy"
+        ],
+        "title": "WalkForwardRequest"
       }
     }
   }

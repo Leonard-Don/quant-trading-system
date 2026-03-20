@@ -1,3 +1,5 @@
+import { buildCrossMarketCards as buildScoredCrossMarketCards } from '../../utils/crossMarketRecommendations';
+
 const DIMENSION_META = {
   investment_activity: { label: '投资活跃度', group: 'Supply Chain' },
   project_pipeline: { label: '项目管线', group: 'Supply Chain' },
@@ -61,6 +63,13 @@ const FACTOR_SYMBOL_MAP = {
   baseload_mismatch: 'DUK',
 };
 
+const formatTemplateName = (templateId = '') =>
+  templateId
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+
 const formatFactorName = (name = '') => {
   const mapping = {
     bureaucratic_friction: '官僚摩擦',
@@ -102,6 +111,99 @@ const buildCrossMarketAction = (template, source, note) =>
         note,
       }
     : null;
+
+const extractTemplateMeta = (task = {}) =>
+  task?.snapshot?.payload?.template_meta
+  || task?.snapshot_history?.[0]?.payload?.template_meta
+  || {};
+
+const extractTemplateIdentity = (task = {}, meta = {}) =>
+  task.template || meta.template_id || '';
+
+const extractDominantDriver = (meta = {}) => meta?.dominant_drivers?.[0] || null;
+
+const formatDriverLabel = (driver = {}) =>
+  driver?.label || formatFactorName(driver?.key || '');
+
+const buildNarrativeShiftAlerts = (tasks = []) => {
+  const grouped = tasks.reduce((accumulator, task) => {
+    if (task?.type !== 'cross_market' || task?.status === 'archived') {
+      return accumulator;
+    }
+
+    const meta = extractTemplateMeta(task);
+    const templateId = extractTemplateIdentity(task, meta);
+    if (!templateId) {
+      return accumulator;
+    }
+
+    if (!accumulator[templateId]) {
+      accumulator[templateId] = [];
+    }
+    accumulator[templateId].push(task);
+    return accumulator;
+  }, {});
+
+  return Object.entries(grouped)
+    .map(([templateId, templateTasks]) => {
+      const orderedTasks = [...templateTasks].sort((left, right) =>
+        String(right.updated_at || '').localeCompare(String(left.updated_at || ''))
+      );
+      const latestTask = orderedTasks[0];
+      const latestMeta = extractTemplateMeta(latestTask);
+      const latestDriver = extractDominantDriver(latestMeta);
+
+      let previousMeta = latestTask?.snapshot_history?.[1]?.payload?.template_meta || null;
+      if (!previousMeta && orderedTasks[1]) {
+        previousMeta = extractTemplateMeta(orderedTasks[1]);
+      }
+
+      const previousDriver = extractDominantDriver(previousMeta || {});
+      const driverSwitched =
+        previousDriver?.key && latestDriver?.key && previousDriver.key !== latestDriver.key;
+      const themeCoreChanged =
+        previousMeta?.theme_core
+        && latestMeta?.theme_core
+        && previousMeta.theme_core !== latestMeta.theme_core;
+      const supportChanged =
+        previousMeta?.theme_support
+        && latestMeta?.theme_support
+        && previousMeta.theme_support !== latestMeta.theme_support;
+
+      if (!driverSwitched && !themeCoreChanged && !supportChanged) {
+        return null;
+      }
+
+      const currentDriverLabel = formatDriverLabel(latestDriver || {});
+      const previousDriverLabel = formatDriverLabel(previousDriver || {});
+      const templateName = latestTask?.title || latestMeta?.template_name || formatTemplateName(templateId);
+
+      const details = [];
+      if (driverSwitched) {
+        details.push(`主导驱动从 ${previousDriverLabel} 切换到 ${currentDriverLabel}`);
+      }
+      if (themeCoreChanged) {
+        details.push(`核心腿从 ${previousMeta.theme_core} 调整为 ${latestMeta.theme_core}`);
+      }
+      if (supportChanged) {
+        details.push(`辅助腿从 ${previousMeta.theme_support} 变为 ${latestMeta.theme_support}`);
+      }
+
+      return {
+        key: `narrative-shift-${templateId}`,
+        title: `${templateName} 主导叙事切换`,
+        severity: driverSwitched ? 'high' : 'medium',
+        description: details.join('；'),
+        action: buildCrossMarketAction(
+          templateId,
+          'alert_hunter',
+          `${templateName} 最近研究快照出现叙事切换，建议重新打开跨市场剧本复核。`
+        ),
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 3);
+};
 
 export const buildHeatmapModel = (snapshot = {}, history = {}) => {
   const supplyDimensions = snapshot?.signals?.supply_chain?.dimensions || {};
@@ -241,7 +343,7 @@ export const buildTimelineModel = (policyHistory = {}) => {
   });
 };
 
-export const buildHunterModel = ({ snapshot = {}, overview = {}, status = {} }) => {
+export const buildHunterModel = ({ snapshot = {}, overview = {}, status = {}, researchTasks = [] }) => {
   const alerts = [];
   const refreshStatus = snapshot?.refresh_status || status?.refresh_status || {};
   Object.entries(refreshStatus).forEach(([name, info]) => {
@@ -293,6 +395,8 @@ export const buildHunterModel = ({ snapshot = {}, overview = {}, status = {} }) 
       });
     });
 
+  alerts.push(...buildNarrativeShiftAlerts(researchTasks));
+
   alerts.sort((a, b) => {
     const priority = { high: 0, medium: 1, low: 2 };
     return priority[a.severity] - priority[b.severity];
@@ -301,21 +405,7 @@ export const buildHunterModel = ({ snapshot = {}, overview = {}, status = {} }) 
   return alerts.slice(0, 8);
 };
 
-export const buildCrossMarketCards = (payload = {}) => {
-  const templates = payload?.templates || [];
-  return templates.map((template) => {
-    const longCount = template.assets.filter((asset) => asset.side === 'long').length;
-    const shortCount = template.assets.filter((asset) => asset.side === 'short').length;
-    return {
-      ...template,
-      longCount,
-      shortCount,
-      stance: longCount >= shortCount ? '偏防守/资源端' : '偏对冲/做空端',
-      action: buildCrossMarketAction(
-        template.id,
-        'cross_market_overview',
-        `${template.name} 已从 GodEye 模板卡直达`
-      ),
-    };
-  });
-};
+export const buildCrossMarketCards = (payload = {}, overview = {}, snapshot = {}) =>
+  buildScoredCrossMarketCards(payload, overview, snapshot, (templateId, note) =>
+    buildCrossMarketAction(templateId, 'cross_market_overview', note)
+  );

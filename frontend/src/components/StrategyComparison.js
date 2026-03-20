@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
     Card,
     Select,
@@ -12,7 +12,8 @@ import {
     Alert,
     Progress,
     Tag,
-    Input
+    Input,
+    InputNumber,
 } from 'antd';
 import { BarChartOutlined, DownloadOutlined, TrophyOutlined } from '@ant-design/icons';
 import {
@@ -33,7 +34,7 @@ import {
 } from 'recharts';
 import moment from 'moment';
 import { compareStrategies } from '../services/api';
-import { getStrategyName } from '../constants/strategies';
+import { getStrategyName, getStrategyParameterLabel } from '../constants/strategies';
 import { normalizeBacktestResult } from '../utils/backtest';
 import { useSafeMessageApi } from '../utils/messageApi';
 import {
@@ -49,11 +50,46 @@ const StrategyComparison = ({ strategies }) => {
     const message = useSafeMessageApi();
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState(null);
+    const [strategyParameters, setStrategyParameters] = useState({});
     const [params, setParams] = useState({
         symbol: 'AAPL',
         selectedStrategies: [],
-        dateRange: [moment().subtract(1, 'year'), moment()]
+        dateRange: [moment().subtract(1, 'year'), moment()],
+        initialCapital: 10000,
+        commission: 0.1,
+        slippage: 0.1,
     });
+
+    const strategyDefinitions = useMemo(() => (
+        Object.fromEntries(strategies.map((strategy) => [strategy.name, strategy]))
+    ), [strategies]);
+
+    useEffect(() => {
+        setStrategyParameters((previous) => {
+            const next = {};
+            params.selectedStrategies.forEach((strategyName) => {
+                const strategy = strategyDefinitions[strategyName];
+                const defaults = Object.fromEntries(
+                    Object.entries(strategy?.parameters || {}).map(([key, config]) => [key, config.default])
+                );
+                next[strategyName] = {
+                    ...defaults,
+                    ...(previous[strategyName] || {}),
+                };
+            });
+            return next;
+        });
+    }, [params.selectedStrategies, strategyDefinitions]);
+
+    const updateStrategyParameter = (strategyName, parameterKey, value) => {
+        setStrategyParameters((previous) => ({
+            ...previous,
+            [strategyName]: {
+                ...(previous[strategyName] || {}),
+                [parameterKey]: value,
+            },
+        }));
+    };
 
     const handleCompare = async () => {
         if (!params.symbol.trim()) {
@@ -70,12 +106,18 @@ const StrategyComparison = ({ strategies }) => {
         setResults(null);
 
         try {
-            const response = await compareStrategies(
-                params.symbol,
-                params.selectedStrategies,
-                params.dateRange[0]?.format(DATE_FORMAT),
-                params.dateRange[1]?.format(DATE_FORMAT)
-            );
+            const response = await compareStrategies({
+                symbol: params.symbol,
+                start_date: params.dateRange[0]?.format(DATE_FORMAT),
+                end_date: params.dateRange[1]?.format(DATE_FORMAT),
+                initial_capital: params.initialCapital,
+                commission: (params.commission ?? 0) / 100,
+                slippage: (params.slippage ?? 0) / 100,
+                strategy_configs: params.selectedStrategies.map((strategyName) => ({
+                    name: strategyName,
+                    parameters: strategyParameters[strategyName] || {},
+                })),
+            });
 
             if (response.success) {
                 setResults(response.data);
@@ -91,6 +133,59 @@ const StrategyComparison = ({ strategies }) => {
         }
     };
 
+    const renderStrategyParameterPanels = () => {
+        if (params.selectedStrategies.length === 0) {
+            return null;
+        }
+
+        return (
+            <Card className="workspace-panel" style={{ marginBottom: 20 }} title="策略参数版本">
+                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                    {params.selectedStrategies.map((strategyName) => {
+                        const strategy = strategyDefinitions[strategyName];
+                        const parameterEntries = Object.entries(strategy?.parameters || {});
+
+                        return (
+                            <Card
+                                key={strategyName}
+                                size="small"
+                                title={getStrategyName(strategyName)}
+                                className="workspace-panel workspace-panel--subtle"
+                            >
+                                {parameterEntries.length === 0 ? (
+                                    <Alert
+                                        message="该策略当前没有可调参数，将按默认规则参与对比。"
+                                        type="info"
+                                        showIcon
+                                    />
+                                ) : (
+                                    <Row gutter={[16, 16]}>
+                                        {parameterEntries.map(([parameterKey, parameterConfig]) => (
+                                            <Col key={`${strategyName}-${parameterKey}`} xs={24} md={12} lg={8}>
+                                                <div className="workspace-field-label">
+                                                    {getStrategyParameterLabel(parameterKey, parameterConfig.description)}
+                                                </div>
+                                                <InputNumber
+                                                    aria-label={`${getStrategyName(strategyName)}-${parameterKey}`}
+                                                    value={strategyParameters[strategyName]?.[parameterKey] ?? parameterConfig.default}
+                                                    min={parameterConfig.min}
+                                                    max={parameterConfig.max}
+                                                    step={parameterConfig.step || 0.01}
+                                                    style={{ width: '100%' }}
+                                                    onChange={(value) => updateStrategyParameter(strategyName, parameterKey, value)}
+                                                />
+                                            </Col>
+                                        ))}
+                                    </Row>
+                                )}
+                            </Card>
+                        );
+                    })}
+                </Space>
+            </Card>
+        );
+    };
+
     // 导出对比报告为 PDF（通过浏览器打印，确保中文稳定渲染）
     const exportComparisonReport = () => {
         if (!results || dataSource.length === 0) {
@@ -104,6 +199,9 @@ const StrategyComparison = ({ strategies }) => {
                 startDate: params.dateRange[0]?.format(DATE_FORMAT),
                 endDate: params.dateRange[1]?.format(DATE_FORMAT),
                 generatedAt: new Date().toLocaleString(),
+                initialCapital: `$${Number(params.initialCapital || 0).toLocaleString()}`,
+                commission: `${params.commission}%`,
+                slippage: `${params.slippage}%`,
                 rankedData,
                 dataSource,
             });
@@ -232,6 +330,14 @@ const StrategyComparison = ({ strategies }) => {
                         <span className="summary-strip__value">{`${params.dateRange[0].format('YYYY-MM-DD')} ~ ${params.dateRange[1].format('YYYY-MM-DD')}`}</span>
                     </div>
                     <div className="summary-strip__item">
+                        <span className="summary-strip__label">初始资金</span>
+                        <span className="summary-strip__value">{`$${Number(params.initialCapital || 0).toLocaleString()}`}</span>
+                    </div>
+                    <div className="summary-strip__item">
+                        <span className="summary-strip__label">成本设置</span>
+                        <span className="summary-strip__value">{`${params.commission}% / ${params.slippage}%`}</span>
+                    </div>
+                    <div className="summary-strip__item">
                         <span className="summary-strip__label">状态</span>
                         <span className="summary-strip__value">{loading ? '分析中' : (results ? '结果已生成' : '待运行')}</span>
                     </div>
@@ -266,6 +372,35 @@ const StrategyComparison = ({ strategies }) => {
                         separator="至"
                         onChange={(dates) => setParams(prev => ({ ...prev, dateRange: dates }))}
                     />
+                    <InputNumber
+                        value={params.initialCapital}
+                        min={1000}
+                        step={1000}
+                        precision={0}
+                        placeholder="初始资金"
+                        style={{ width: 160 }}
+                        onChange={(value) => setParams((prev) => ({ ...prev, initialCapital: value ?? 10000 }))}
+                    />
+                    <InputNumber
+                        value={params.commission}
+                        min={0}
+                        step={0.01}
+                        precision={2}
+                        placeholder="手续费"
+                        style={{ width: 110 }}
+                        onChange={(value) => setParams((prev) => ({ ...prev, commission: value ?? 0 }))}
+                    />
+                    <Text type="secondary">%</Text>
+                    <InputNumber
+                        value={params.slippage}
+                        min={0}
+                        step={0.01}
+                        precision={2}
+                        placeholder="滑点"
+                        style={{ width: 110 }}
+                        onChange={(value) => setParams((prev) => ({ ...prev, slippage: value ?? 0 }))}
+                    />
+                    <Text type="secondary">%</Text>
                     <Button
                         type="primary"
                         icon={<BarChartOutlined />}
@@ -285,6 +420,8 @@ const StrategyComparison = ({ strategies }) => {
                     )}
                 </Space>
             </Card>
+
+            {renderStrategyParameterPanels()}
 
             {results && (
                 <Row gutter={[16, 16]}>

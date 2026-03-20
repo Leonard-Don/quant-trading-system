@@ -43,11 +43,18 @@ import {
 import {
   addResearchTaskSnapshot,
   createResearchTask,
+  getAltDataSnapshot,
   getCrossMarketTemplates,
+  getMacroOverview,
   runCrossMarketBacktest,
 } from '../services/api';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
 import { useSafeMessageApi } from '../utils/messageApi';
+import {
+  buildCrossMarketCards,
+  CROSS_MARKET_DIMENSION_LABELS,
+  CROSS_MARKET_FACTOR_LABELS,
+} from '../utils/crossMarketRecommendations';
 import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
 
 const { Paragraph, Text } = Typography;
@@ -111,6 +118,70 @@ const formatTradeAction = (value) => {
     .replaceAll('_', ' ');
 };
 
+const formatExecutionChannel = (value = '') => {
+  const mapping = {
+    cash_equity: '现货股票',
+    futures: '期货通道',
+  };
+  return mapping[value] || value || '-';
+};
+
+const formatVenue = (value = '') => {
+  const mapping = {
+    US_EQUITY: '美股主板',
+    US_ETF: '美股 ETF',
+    COMEX_CME: 'CME / COMEX',
+  };
+  return mapping[value] || value || '-';
+};
+
+const getConcentrationMeta = (level = '') => {
+  const mapping = {
+    high: { color: 'red', label: '高集中' },
+    moderate: { color: 'orange', label: '中等集中' },
+    balanced: { color: 'green', label: '相对均衡' },
+  };
+  return mapping[level] || { color: 'default', label: level || '未评估' };
+};
+
+const getCapacityMeta = (band = '') => {
+  const mapping = {
+    light: { color: 'green', label: '轻量' },
+    moderate: { color: 'orange', label: '中等' },
+    heavy: { color: 'red', label: '偏重' },
+  };
+  return mapping[band] || { color: 'default', label: band || '-' };
+};
+
+const buildTemplateContextPayload = (template, appliedBiasMeta) => {
+  if (!template?.id) {
+    return undefined;
+  }
+  return {
+    template_id: template.id,
+    template_name: template.name || '',
+    theme: template.theme || '',
+    allocation_mode: appliedBiasMeta ? 'macro_bias' : 'template_base',
+    bias_summary: appliedBiasMeta?.summary || '',
+    bias_strength: appliedBiasMeta?.strength || 0,
+    bias_highlights: appliedBiasMeta?.highlights || [],
+    bias_actions: template.biasActions || [],
+    signal_attribution: template.signalAttribution || [],
+    driver_summary: template.driverSummary || [],
+    dominant_drivers: template.dominantDrivers || [],
+    core_legs: template.coreLegs || [],
+    support_legs: template.supportLegs || [],
+    theme_core: template.themeCore || '',
+    theme_support: template.themeSupport || '',
+    base_assets: (template.assets || []).map((asset) => ({
+      symbol: asset.symbol,
+      asset_class: asset.asset_class,
+      side: asset.side,
+      weight: asset.weight,
+    })),
+  };
+};
+
 function CrossMarketBacktestPanel() {
   const message = useSafeMessageApi();
   const [templates, setTemplates] = useState([]);
@@ -134,14 +205,24 @@ function CrossMarketBacktestPanel() {
   const [researchContext, setResearchContext] = useState(readResearchContext());
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [savedTaskId, setSavedTaskId] = useState('');
+  const [appliedBiasMeta, setAppliedBiasMeta] = useState(null);
+  const [macroOverview, setMacroOverview] = useState(null);
+  const [altSnapshot, setAltSnapshot] = useState(null);
   const appliedTemplateRef = useRef('');
+  const autoRecommendedRef = useRef('');
 
   useEffect(() => {
     const loadTemplates = async () => {
       setLoadingTemplates(true);
       try {
-        const response = await getCrossMarketTemplates();
-        setTemplates(response.templates || []);
+        const [templateResponse, macroResponse, snapshotResponse] = await Promise.all([
+          getCrossMarketTemplates(),
+          getMacroOverview(),
+          getAltDataSnapshot(),
+        ]);
+        setTemplates(templateResponse.templates || []);
+        setMacroOverview(macroResponse);
+        setAltSnapshot(snapshotResponse);
       } catch (error) {
         message.error(error.userMessage || error.message || '加载模板失败');
       } finally {
@@ -161,13 +242,50 @@ function CrossMarketBacktestPanel() {
 
   const longAssets = useMemo(() => normalizeAssets(assets, 'long'), [assets]);
   const shortAssets = useMemo(() => normalizeAssets(assets, 'short'), [assets]);
+  const recommendedTemplates = useMemo(
+    () =>
+      buildCrossMarketCards(
+        { templates },
+        macroOverview || {},
+        altSnapshot || {},
+        (templateId, note) => ({
+          label: '载入推荐模板',
+          target: 'cross-market',
+          template: templateId,
+          source: 'cross_market_panel',
+          note,
+        })
+      ),
+    [altSnapshot, macroOverview, templates]
+  );
   const selectedTemplate = useMemo(
     () =>
-      templates.find((item) => item.id === selectedTemplateId)
+      recommendedTemplates.find((item) => item.id === selectedTemplateId)
+      || recommendedTemplates.find((item) => item.id === researchContext.template)
+      || templates.find((item) => item.id === selectedTemplateId)
       || templates.find((item) => item.id === researchContext.template)
       || null,
-    [templates, selectedTemplateId, researchContext.template]
+    [recommendedTemplates, templates, selectedTemplateId, researchContext.template]
   );
+  const effectiveTemplate = useMemo(() => {
+    if (!selectedTemplate) {
+      return null;
+    }
+    if (!appliedBiasMeta) {
+      return {
+        ...selectedTemplate,
+        biasSummary: '',
+        biasStrength: 0,
+        biasHighlights: [],
+      };
+    }
+    return {
+      ...selectedTemplate,
+      biasSummary: appliedBiasMeta.summary || selectedTemplate.biasSummary || '',
+      biasStrength: appliedBiasMeta.strength || selectedTemplate.biasStrength || 0,
+      biasHighlights: appliedBiasMeta.highlights || selectedTemplate.biasHighlights || [],
+    };
+  }, [appliedBiasMeta, selectedTemplate]);
   const playbook = useMemo(
     () =>
       buildCrossMarketPlaybook(
@@ -175,10 +293,10 @@ function CrossMarketBacktestPanel() {
           ...researchContext,
           template: researchContext.template || selectedTemplateId,
         },
-        selectedTemplate,
+        effectiveTemplate,
         results
       ),
-    [researchContext, results, selectedTemplate, selectedTemplateId]
+    [effectiveTemplate, researchContext, results, selectedTemplateId]
   );
 
   const updateAsset = (key, field, value) => {
@@ -195,17 +313,30 @@ function CrossMarketBacktestPanel() {
     setAssets((prev) => [...prev, createAsset(side, prev.length)]);
   };
 
-  const applyTemplate = useCallback((templateId) => {
-    const template = templates.find((item) => item.id === templateId);
+  const applyTemplate = useCallback((templateOrId, options = {}) => {
+    const { useBias = false, silent = false } = options;
+    const template = typeof templateOrId === 'string'
+      ? (recommendedTemplates.find((item) => item.id === templateOrId) || templates.find((item) => item.id === templateOrId))
+      : templateOrId;
     if (!template) {
       return;
     }
     setSelectedTemplateId(template.id);
     setAssets(
-      template.assets.map((asset, index) => ({
+      (useBias && template.adjustedAssets ? template.adjustedAssets : template.assets).map((asset, index) => ({
         key: `${asset.side}-${index}-${template.id}`,
         ...asset,
       }))
+    );
+    setAppliedBiasMeta(
+      useBias
+        ? {
+            mode: 'macro_bias',
+            summary: template.biasSummary || '',
+            strength: template.biasStrength || 0,
+            highlights: template.biasHighlights || [],
+          }
+        : null
     );
     setParameters({
       lookback: template.parameters?.lookback ?? DEFAULT_PARAMETERS.lookback,
@@ -216,8 +347,10 @@ function CrossMarketBacktestPanel() {
       ...prev,
       construction_mode: template.construction_mode || DEFAULT_QUALITY.construction_mode,
     }));
-    message.success(`已载入模板: ${template.name}`);
-  }, [message, templates]);
+    if (!silent) {
+      message.success(`已载入模板: ${template.name}${useBias ? '（含宏观权重偏置）' : ''}`);
+    }
+  }, [message, recommendedTemplates, templates]);
 
   useEffect(() => {
     if (!templates.length || !researchContext?.template) {
@@ -231,8 +364,21 @@ function CrossMarketBacktestPanel() {
       return;
     }
     appliedTemplateRef.current = researchContext.template;
-    applyTemplate(researchContext.template);
+    applyTemplate(researchContext.template, { useBias: false });
   }, [applyTemplate, researchContext, templates]);
+
+  useEffect(() => {
+    if (researchContext?.template || selectedTemplateId || !recommendedTemplates.length) {
+      return;
+    }
+    const topRecommendation = recommendedTemplates[0];
+    if (!topRecommendation || autoRecommendedRef.current === topRecommendation.id) {
+      return;
+    }
+    autoRecommendedRef.current = topRecommendation.id;
+    applyTemplate(topRecommendation, { useBias: true, silent: true });
+    message.info(`已自动载入当前最优宏观模板: ${topRecommendation.name}`);
+  }, [applyTemplate, message, recommendedTemplates, researchContext, selectedTemplateId]);
 
   const handleRun = async () => {
     const payloadAssets = assets
@@ -254,6 +400,7 @@ function CrossMarketBacktestPanel() {
     try {
       const response = await runCrossMarketBacktest({
         assets: payloadAssets,
+        template_context: buildTemplateContextPayload(selectedTemplate, appliedBiasMeta),
         strategy: 'spread_zscore',
         construction_mode: quality.construction_mode,
         parameters,
@@ -281,7 +428,7 @@ function CrossMarketBacktestPanel() {
   const handleSaveTask = async () => {
     const payload = buildCrossMarketWorkbenchPayload(
       researchContext,
-      selectedTemplate,
+      effectiveTemplate,
       results,
       assets
     );
@@ -310,7 +457,7 @@ function CrossMarketBacktestPanel() {
 
     const payload = buildCrossMarketWorkbenchPayload(
       researchContext,
-      selectedTemplate,
+      effectiveTemplate,
       results,
       assets
     );
@@ -446,6 +593,287 @@ function CrossMarketBacktestPanel() {
     () => Object.values(results?.asset_contributions || {}),
     [results]
   );
+  const executionBatchColumns = useMemo(
+    () => [
+      {
+        title: '执行通道',
+        dataIndex: 'execution_channel',
+        key: 'execution_channel',
+        render: (value) => formatExecutionChannel(value),
+      },
+      {
+        title: 'Venue',
+        dataIndex: 'venue',
+        key: 'venue',
+        render: (value) => formatVenue(value),
+      },
+      {
+        title: 'Provider',
+        dataIndex: 'preferred_provider',
+        key: 'preferred_provider',
+        render: (value) => <Tag color="blue">{value || '-'}</Tag>,
+      },
+      {
+        title: '订单数',
+        dataIndex: 'order_count',
+        key: 'order_count',
+      },
+      {
+        title: 'Gross Weight',
+        dataIndex: 'gross_weight',
+        key: 'gross_weight',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '目标资金',
+        dataIndex: 'target_notional',
+        key: 'target_notional',
+        render: (value) => formatCurrency(Number(value || 0)),
+      },
+      {
+        title: '预计成交',
+        dataIndex: 'estimated_fill_notional',
+        key: 'estimated_fill_notional',
+        render: (value) => formatCurrency(Number(value || 0)),
+      },
+      {
+        title: '容量',
+        dataIndex: 'capacity_band',
+        key: 'capacity_band',
+        render: (value) => {
+          const meta = getCapacityMeta(value);
+          return <Tag color={meta.color}>{meta.label}</Tag>;
+        },
+      },
+      {
+        title: 'Symbols',
+        dataIndex: 'symbols',
+        key: 'symbols',
+        render: (value) => (value || []).join(', '),
+      },
+    ],
+    []
+  );
+  const executionRouteColumns = useMemo(
+    () => [
+      {
+        title: '资产',
+        dataIndex: 'symbol',
+        key: 'symbol',
+      },
+      {
+        title: '方向',
+        dataIndex: 'side',
+        key: 'side',
+        render: (value) => <Tag color={value === 'long' ? 'green' : 'volcano'}>{value === 'long' ? '多头' : '空头'}</Tag>,
+      },
+      {
+        title: '类别',
+        dataIndex: 'asset_class',
+        key: 'asset_class',
+        render: (value) => ASSET_CLASS_LABELS[value] || value,
+      },
+      {
+        title: '执行通道',
+        dataIndex: 'execution_channel',
+        key: 'execution_channel',
+        render: (value) => formatExecutionChannel(value),
+      },
+      {
+        title: 'Venue',
+        dataIndex: 'venue',
+        key: 'venue',
+        render: (value) => formatVenue(value),
+      },
+      {
+        title: 'Provider',
+        dataIndex: 'preferred_provider',
+        key: 'preferred_provider',
+      },
+      {
+        title: '资金占比',
+        dataIndex: 'capital_fraction',
+        key: 'capital_fraction',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '参考价',
+        dataIndex: 'reference_price',
+        key: 'reference_price',
+        render: (value) => formatCurrency(Number(value || 0)),
+      },
+      {
+        title: '目标数量',
+        dataIndex: 'target_quantity',
+        key: 'target_quantity',
+        render: (value) => Number(value || 0).toFixed(2),
+      },
+      {
+        title: '下单数量',
+        dataIndex: 'rounded_quantity',
+        key: 'rounded_quantity',
+      },
+      {
+        title: '目标资金',
+        dataIndex: 'target_notional',
+        key: 'target_notional',
+        render: (value) => formatCurrency(Number(value || 0)),
+      },
+      {
+        title: '最小单位损耗',
+        dataIndex: 'residual_fraction',
+        key: 'residual_fraction',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '容量',
+        dataIndex: 'capacity_band',
+        key: 'capacity_band',
+        render: (value) => {
+          const meta = getCapacityMeta(value);
+          return <Tag color={meta.color}>{meta.label}</Tag>;
+        },
+      },
+    ],
+    []
+  );
+  const providerAllocationColumns = useMemo(
+    () => [
+      {
+        title: 'Provider',
+        dataIndex: 'key',
+        key: 'key',
+        render: (value) => <Tag color="blue">{value || '-'}</Tag>,
+      },
+      {
+        title: '路由数',
+        dataIndex: 'route_count',
+        key: 'route_count',
+      },
+      {
+        title: '资金占比',
+        dataIndex: 'capital_fraction',
+        key: 'capital_fraction',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '目标资金',
+        dataIndex: 'target_notional',
+        key: 'target_notional',
+        render: (value) => formatCurrency(Number(value || 0)),
+      },
+    ],
+    []
+  );
+  const venueAllocationColumns = useMemo(
+    () => [
+      {
+        title: 'Venue',
+        dataIndex: 'key',
+        key: 'key',
+        render: (value) => formatVenue(value),
+      },
+      {
+        title: '路由数',
+        dataIndex: 'route_count',
+        key: 'route_count',
+      },
+      {
+        title: '资金占比',
+        dataIndex: 'capital_fraction',
+        key: 'capital_fraction',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '目标资金',
+        dataIndex: 'target_notional',
+        key: 'target_notional',
+        render: (value) => formatCurrency(Number(value || 0)),
+      },
+    ],
+    []
+  );
+  const stressScenarioColumns = useMemo(
+    () => [
+      {
+        title: '资金放大',
+        dataIndex: 'label',
+        key: 'label',
+      },
+      {
+        title: '批次数',
+        dataIndex: 'batch_count',
+        key: 'batch_count',
+      },
+      {
+        title: '集中度',
+        dataIndex: 'concentration_level',
+        key: 'concentration_level',
+        render: (value) => {
+          const meta = getConcentrationMeta(value);
+          return <Tag color={meta.color}>{meta.label}</Tag>;
+        },
+      },
+      {
+        title: '最大批次',
+        dataIndex: 'largest_batch_notional',
+        key: 'largest_batch_notional',
+        render: (value) => formatCurrency(Number(value || 0)),
+      },
+      {
+        title: 'Lot 效率',
+        dataIndex: 'lot_efficiency',
+        key: 'lot_efficiency',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '残余资金',
+        dataIndex: 'total_residual_notional',
+        key: 'total_residual_notional',
+        render: (value) => formatCurrency(Number(value || 0)),
+      },
+    ],
+    []
+  );
+  const allocationOverlayColumns = useMemo(
+    () => [
+      {
+        title: '资产',
+        dataIndex: 'symbol',
+        key: 'symbol',
+      },
+      {
+        title: '方向',
+        dataIndex: 'side',
+        key: 'side',
+        render: (value) => <Tag color={value === 'long' ? 'green' : 'volcano'}>{value === 'long' ? '多头' : '空头'}</Tag>,
+      },
+      {
+        title: '原始权重',
+        dataIndex: 'base_weight',
+        key: 'base_weight',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '有效权重',
+        dataIndex: 'effective_weight',
+        key: 'effective_weight',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '偏移',
+        dataIndex: 'delta_weight',
+        key: 'delta_weight',
+        render: (value) => {
+          const numeric = Number(value || 0);
+          return <span style={{ color: getValueColor(numeric) }}>{numeric > 0 ? '+' : ''}{(numeric * 100).toFixed(2)}pp</span>;
+        },
+      },
+    ],
+    []
+  );
+  const concentrationMeta = getConcentrationMeta(results?.execution_diagnostics?.concentration_level);
+  const stressMeta = getConcentrationMeta(results?.execution_diagnostics?.stress_test_flag);
 
   return (
     <div className="workspace-tab-view" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -508,6 +936,89 @@ function CrossMarketBacktestPanel() {
         />
       ) : null}
 
+      {selectedTemplate ? (
+        <Alert
+          type="info"
+          showIcon
+          message={`当前模板主题：${selectedTemplate.theme || selectedTemplate.name}${selectedTemplate.recommendationTier ? ` · ${selectedTemplate.recommendationTier}` : ''}`}
+          description={(
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              <Text>{selectedTemplate.narrative || selectedTemplate.description}</Text>
+              {selectedTemplate.driverHeadline ? (
+                <Text type="secondary">{selectedTemplate.driverHeadline}</Text>
+              ) : null}
+              <Space wrap size={[6, 6]}>
+                {(selectedTemplate.linked_factors || []).map((factor) => (
+                  <Tag key={factor} color="purple">
+                    因子: {CROSS_MARKET_FACTOR_LABELS[factor] || factor}
+                  </Tag>
+                ))}
+                {(selectedTemplate.linked_dimensions || []).map((dimension) => (
+                  <Tag key={dimension} color="blue">
+                    维度: {CROSS_MARKET_DIMENSION_LABELS[dimension] || dimension}
+                  </Tag>
+                ))}
+              </Space>
+            </Space>
+          )}
+        />
+      ) : null}
+
+      {appliedBiasMeta ? (
+        <Alert
+          type="success"
+          showIcon
+          message={`宏观权重偏置已启用 · 强度 ${Number(appliedBiasMeta.strength || 0).toFixed(1)}pp`}
+          description={(
+            <Space direction="vertical" size={6} style={{ width: '100%' }}>
+              <Text>{appliedBiasMeta.summary}</Text>
+              <Space wrap size={[6, 6]}>
+                {(appliedBiasMeta.highlights || []).map((item) => (
+                  <Tag key={item} color="green">{item}</Tag>
+                ))}
+              </Space>
+            </Space>
+          )}
+        />
+      ) : null}
+
+      {effectiveTemplate?.biasActions?.length ? (
+        <Card title="建议增减仓名单" variant="borderless">
+          <Space wrap size={[8, 8]}>
+            {effectiveTemplate.biasActions.map((item) => (
+              <Tag key={`${item.side}-${item.symbol}`} color={item.action === 'increase' ? 'green' : 'orange'}>
+                {item.action === 'increase' ? '增配' : '减配'} {item.symbol} {item.delta > 0 ? '+' : ''}{(Number(item.delta || 0) * 100).toFixed(1)}pp
+              </Tag>
+            ))}
+          </Space>
+        </Card>
+      ) : null}
+
+      {effectiveTemplate?.dominantDrivers?.length ? (
+        <Card title="主题结论" variant="borderless">
+          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            <Text>{effectiveTemplate.themeCore || '暂无主题核心腿'}</Text>
+            <Text type="secondary">辅助腿：{effectiveTemplate.themeSupport || '无'}</Text>
+            <Space wrap size={[6, 6]}>
+              {effectiveTemplate.dominantDrivers.map((item) => (
+                <Tag key={item.key} color="purple">
+                  主导驱动 {item.label} {Number(item.value || 0).toFixed(2)}
+                </Tag>
+              ))}
+            </Space>
+          </Space>
+        </Card>
+      ) : null}
+
+      {!researchContext?.template && recommendedTemplates[0] ? (
+        <Alert
+          type="success"
+          showIcon
+          message={`当前首选模板：${recommendedTemplates[0].name}`}
+          description={`${recommendedTemplates[0].driverHeadline}。${recommendedTemplates[0].biasSummary || '该模板会作为默认起点，你也可以在右侧改成其他模板。'}`}
+        />
+      ) : null}
+
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={16}>
           <Space direction="vertical" style={{ width: '100%' }} size={16}>
@@ -519,6 +1030,49 @@ function CrossMarketBacktestPanel() {
         <Col xs={24} xl={8}>
           <Card title="参数与模板" variant="borderless" className="workspace-panel">
             <Space direction="vertical" style={{ width: '100%' }} size={14}>
+              <Card size="small" className="workspace-panel workspace-panel--subtle" title="宏观推荐模板">
+                <Space direction="vertical" style={{ width: '100%' }} size={10}>
+                  {recommendedTemplates.slice(0, 3).map((template) => (
+                    <div
+                      key={template.id}
+                      style={{
+                        padding: 12,
+                        borderRadius: 12,
+                        border: selectedTemplate?.id === template.id ? '1px solid rgba(45, 183, 245, 0.65)' : '1px solid rgba(148, 163, 184, 0.16)',
+                        background: selectedTemplate?.id === template.id ? 'rgba(24, 144, 255, 0.08)' : 'rgba(15, 23, 42, 0.24)',
+                      }}
+                    >
+                      <Space wrap size={[6, 6]} style={{ marginBottom: 8 }}>
+                        <Tag color={template.recommendationTone}>{template.recommendationTier}</Tag>
+                        <Tag color="cyan">score {Number(template.recommendationScore || 0).toFixed(2)}</Tag>
+                      </Space>
+                      <div style={{ fontWeight: 600, marginBottom: 6 }}>{template.name}</div>
+                      <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                        {template.driverHeadline}
+                      </Text>
+                      {template.biasSummary ? (
+                        <Text style={{ display: 'block', marginBottom: 8 }}>
+                          {template.biasSummary}
+                        </Text>
+                      ) : null}
+                      <Space wrap size={[6, 6]} style={{ marginBottom: 10 }}>
+                        {(template.matchedDrivers || []).slice(0, 3).map((driver) => (
+                          <Tag key={driver.key} color={driver.type === 'factor' ? 'purple' : driver.type === 'alert' ? 'red' : 'blue'}>
+                            {driver.label}
+                          </Tag>
+                        ))}
+                        {template.biasStrength ? (
+                          <Tag color="green">bias {Number(template.biasStrength).toFixed(1)}pp</Tag>
+                        ) : null}
+                      </Space>
+                      <Button size="small" type={selectedTemplate?.id === template.id ? 'default' : 'primary'} onClick={() => applyTemplate(template, { useBias: true })}>
+                        {selectedTemplate?.id === template.id ? '当前已载入' : '载入推荐模板'}
+                      </Button>
+                    </div>
+                  ))}
+                </Space>
+              </Card>
+
               <Select
                 placeholder="载入演示模板"
                 loading={loadingTemplates}
@@ -527,7 +1081,7 @@ function CrossMarketBacktestPanel() {
                   label: template.name,
                   value: template.id,
                 }))}
-                onChange={applyTemplate}
+                onChange={(value) => applyTemplate(value, { useBias: false })}
               />
 
               <Form layout="vertical">
@@ -740,6 +1294,18 @@ function CrossMarketBacktestPanel() {
                   dataSource={results.data_alignment?.per_symbol || []}
                   columns={[
                     { title: '资产代码', dataIndex: 'symbol', key: 'symbol' },
+                    {
+                      title: '类别',
+                      dataIndex: 'asset_class',
+                      key: 'asset_class',
+                      render: (value) => ASSET_CLASS_LABELS[value] || value,
+                    },
+                    {
+                      title: 'Provider',
+                      dataIndex: 'provider',
+                      key: 'provider',
+                      render: (value) => <Tag color="blue">{value || '-'}</Tag>,
+                    },
                     { title: '原始行数', dataIndex: 'raw_rows', key: 'raw_rows' },
                     { title: '有效行数', dataIndex: 'valid_rows', key: 'valid_rows' },
                     {
@@ -779,12 +1345,98 @@ function CrossMarketBacktestPanel() {
                     />
                   </Col>
                 </Row>
+                <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
+                  <Col span={8}>
+                    <Statistic
+                      title="执行路由数"
+                      value={results.execution_diagnostics?.route_count || results.execution_plan?.route_count || 0}
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic
+                      title="批次数"
+                      value={(results.execution_plan?.batches || []).length}
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic
+                      title="Provider 数"
+                      value={Object.keys(results.execution_plan?.by_provider || {}).length}
+                    />
+                  </Col>
+                </Row>
+                <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
+                  <Col span={12}>
+                    <Statistic
+                      title="计划资金"
+                      value={results.execution_plan?.initial_capital || meta.initial_capital}
+                      formatter={(value) => formatCurrency(Number(value || 0))}
+                    />
+                  </Col>
+                  <Col span={12}>
+                    <Statistic
+                      title="平均对冲比"
+                      value={results.execution_plan?.avg_hedge_ratio || results.hedge_portfolio?.hedge_ratio?.average || 0}
+                      precision={2}
+                    />
+                  </Col>
+                </Row>
+                <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
+                  <Col span={12}>
+                    <Statistic
+                      title="Lot 效率"
+                      value={(results.execution_diagnostics?.lot_efficiency || results.execution_plan?.sizing_summary?.lot_efficiency || 0) * 100}
+                      precision={2}
+                      suffix="%"
+                    />
+                  </Col>
+                  <Col span={12}>
+                    <Statistic
+                      title="残余资金"
+                      value={results.execution_diagnostics?.residual_notional || results.execution_plan?.sizing_summary?.total_residual_notional || 0}
+                      formatter={(value) => formatCurrency(Number(value || 0))}
+                    />
+                  </Col>
+                </Row>
                 <div style={{ marginTop: 16 }}>
                   <Tag color="purple">
                     {formatConstructionMode(results.execution_diagnostics?.construction_mode || quality.construction_mode)}
                   </Tag>
+                  <Tag color={concentrationMeta.color}>
+                    {concentrationMeta.label}
+                  </Tag>
+                  {results.execution_diagnostics?.suggested_rebalance ? (
+                    <Tag color="geekblue">建议调仓 {results.execution_diagnostics.suggested_rebalance}</Tag>
+                  ) : null}
                   <Text type="secondary"> 当前对冲构造模式</Text>
                 </div>
+                {results.execution_diagnostics?.concentration_reason ? (
+                  <Alert
+                    style={{ marginTop: 16 }}
+                    type={results.execution_diagnostics?.concentration_level === 'high' ? 'warning' : 'info'}
+                    showIcon
+                    message="执行集中度提示"
+                    description={results.execution_diagnostics.concentration_reason}
+                  />
+                ) : null}
+                {Number(results.execution_diagnostics?.residual_notional || 0) > 0 ? (
+                  <Alert
+                    style={{ marginTop: 16 }}
+                    type="info"
+                    showIcon
+                    message="最小交易单位提示"
+                    description={`按最新价格和 lot size 换算后，预计有 ${formatCurrency(Number(results.execution_diagnostics?.residual_notional || 0))} 的名义金额无法精确贴合目标权重。`}
+                  />
+                ) : null}
+                {results.execution_diagnostics?.stress_test_flag ? (
+                  <Alert
+                    style={{ marginTop: 16 }}
+                    type={results.execution_diagnostics.stress_test_flag === 'high' ? 'warning' : 'info'}
+                    showIcon
+                    message={`压力测试最坏情景：${stressMeta.label}`}
+                    description={results.execution_diagnostics.stress_test_reason || '已根据资金放大情景评估路由拥挤度。'}
+                  />
+                ) : null}
               </Card>
             </Col>
           </Row>
@@ -815,6 +1467,12 @@ function CrossMarketBacktestPanel() {
                 <div style={{ marginTop: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {Object.entries(results.asset_universe?.by_asset_class || {}).map(([key, value]) => (
                     <Tag key={key}>{ASSET_CLASS_LABELS[key] || key} · {value}</Tag>
+                  ))}
+                  {Object.entries(results.asset_universe?.execution_channels || {}).map(([key, value]) => (
+                    <Tag color="cyan" key={key}>{formatExecutionChannel(key)} · {value}</Tag>
+                  ))}
+                  {Object.entries(results.asset_universe?.providers || {}).map(([key, value]) => (
+                    <Tag color="blue" key={key}>{key} · {value}</Tag>
                   ))}
                   {(results.asset_universe?.currencies || []).map((currency) => (
                     <Tag color="blue" key={currency}>{currency}</Tag>
@@ -859,6 +1517,75 @@ function CrossMarketBacktestPanel() {
                     Hedge Ratio 区间 {Number(results.hedge_portfolio?.hedge_ratio?.min || 0).toFixed(2)} ~ {Number(results.hedge_portfolio?.hedge_ratio?.max || 0).toFixed(2)}
                   </Text>
                 </div>
+              </Card>
+            </Col>
+          </Row>
+
+          <Row gutter={[16, 16]}>
+            <Col xs={24} xl={12}>
+              <Card title="执行批次计划" variant="borderless">
+                <Table
+                  size="small"
+                  rowKey="route_key"
+                  pagination={false}
+                  dataSource={results.execution_plan?.batches || []}
+                  locale={{ emptyText: '暂无执行批次' }}
+                  columns={executionBatchColumns}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} xl={12}>
+              <Card title="逐资产执行路由" variant="borderless">
+                <Table
+                  size="small"
+                  rowKey={(record) => `${record.symbol}-${record.side}`}
+                  pagination={{ pageSize: 6, showSizeChanger: false }}
+                  dataSource={results.execution_plan?.routes || []}
+                  locale={{ emptyText: '暂无执行路由' }}
+                  columns={executionRouteColumns}
+                />
+              </Card>
+            </Col>
+          </Row>
+
+          <Row gutter={[16, 16]}>
+            <Col xs={24} xl={12}>
+              <Card title="Provider 资金分布" variant="borderless">
+                <Table
+                  size="small"
+                  rowKey="key"
+                  pagination={false}
+                  dataSource={results.execution_plan?.provider_allocation || []}
+                  locale={{ emptyText: '暂无 Provider 分布' }}
+                  columns={providerAllocationColumns}
+                />
+              </Card>
+            </Col>
+            <Col xs={24} xl={12}>
+              <Card title="Venue 资金分布" variant="borderless">
+                <Table
+                  size="small"
+                  rowKey="key"
+                  pagination={false}
+                  dataSource={results.execution_plan?.venue_allocation || []}
+                  locale={{ emptyText: '暂无 Venue 分布' }}
+                  columns={venueAllocationColumns}
+                />
+              </Card>
+            </Col>
+          </Row>
+
+          <Row gutter={[16, 16]}>
+            <Col xs={24}>
+              <Card title="执行压力测试" variant="borderless">
+                <Table
+                  size="small"
+                  rowKey="label"
+                  pagination={false}
+                  dataSource={results.execution_plan?.execution_stress?.scenarios || []}
+                  locale={{ emptyText: '暂无压力测试结果' }}
+                  columns={stressScenarioColumns}
+                />
               </Card>
             </Col>
           </Row>
@@ -956,7 +1683,13 @@ function CrossMarketBacktestPanel() {
               <Card title="交易记录" variant="borderless">
                 <Table
                   size="small"
-                  rowKey={(record, index) => `${record.date}-${index}`}
+                  rowKey={(record) => [
+                    record.date,
+                    record.type || record.action,
+                    record.symbol,
+                    record.price,
+                    record.quantity ?? record.value,
+                  ].filter(Boolean).join('-')}
                   dataSource={results.trades || []}
                   locale={{ emptyText: '暂无交易记录' }}
                   pagination={{ pageSize: 6, showSizeChanger: false }}
@@ -1046,6 +1779,111 @@ function CrossMarketBacktestPanel() {
               </Col>
             </Row>
           </Card>
+
+          {results.allocation_overlay ? (
+            <Card title="权重偏置对照" variant="borderless">
+              <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                <Space wrap size={[8, 8]}>
+                  <Tag color={results.allocation_overlay.allocation_mode === 'macro_bias' ? 'green' : 'default'}>
+                    {results.allocation_overlay.allocation_mode === 'macro_bias' ? '宏观偏置' : '模板原始权重'}
+                  </Tag>
+                  {results.allocation_overlay.theme ? <Tag color="blue">{results.allocation_overlay.theme}</Tag> : null}
+                  {results.allocation_overlay.bias_strength ? <Tag color="green">bias {Number(results.allocation_overlay.bias_strength).toFixed(1)}pp</Tag> : null}
+                </Space>
+                {results.allocation_overlay.bias_summary ? (
+                  <Text>{results.allocation_overlay.bias_summary}</Text>
+                ) : null}
+                {results.allocation_overlay.bias_highlights?.length ? (
+                  <Space wrap size={[6, 6]}>
+                    {results.allocation_overlay.bias_highlights.map((item) => (
+                      <Tag key={item} color="green">{item}</Tag>
+                    ))}
+                  </Space>
+                ) : null}
+                {results.allocation_overlay.bias_actions?.length ? (
+                  <Space wrap size={[6, 6]}>
+                    {results.allocation_overlay.bias_actions.map((item) => (
+                      <Tag key={`${item.side}-${item.symbol}`} color={item.action === 'increase' ? 'green' : 'orange'}>
+                        {item.action === 'increase' ? '增配' : '减配'} {item.symbol}
+                      </Tag>
+                    ))}
+                  </Space>
+                ) : null}
+                {results.allocation_overlay.driver_summary?.length ? (
+                  <Space wrap size={[6, 6]}>
+                    {results.allocation_overlay.driver_summary.map((item) => (
+                      <Tag key={item.key} color="purple">
+                        {item.label} {Number(item.value || 0).toFixed(2)}
+                      </Tag>
+                    ))}
+                  </Space>
+                ) : null}
+                {results.allocation_overlay.dominant_drivers?.length ? (
+                  <Space wrap size={[6, 6]}>
+                    {results.allocation_overlay.dominant_drivers.map((item) => (
+                      <Tag key={`dominant-${item.key}`} color="magenta">
+                        主导 {item.label}
+                      </Tag>
+                    ))}
+                  </Space>
+                ) : null}
+                {results.allocation_overlay.theme_core ? (
+                  <Text type="secondary">核心腿：{results.allocation_overlay.theme_core}</Text>
+                ) : null}
+                {results.allocation_overlay.theme_support ? (
+                  <Text type="secondary">辅助腿：{results.allocation_overlay.theme_support}</Text>
+                ) : null}
+                <Text type="secondary">
+                  偏移资产 {results.allocation_overlay.shifted_asset_count || 0} 个 · 最大偏移 {(Number(results.allocation_overlay.max_delta_weight || 0) * 100).toFixed(2)}pp
+                </Text>
+                <Table
+                  size="small"
+                  rowKey={(record) => `${record.symbol}-${record.side}`}
+                  pagination={false}
+                  locale={{ emptyText: '暂无权重偏置对照' }}
+                  dataSource={results.allocation_overlay.rows || []}
+                  columns={allocationOverlayColumns}
+                />
+                {results.allocation_overlay.signal_attribution?.length ? (
+                  <Table
+                    size="small"
+                    rowKey={(record) => `${record.side}-${record.symbol}`}
+                    pagination={false}
+                    locale={{ emptyText: '暂无归因说明' }}
+                    dataSource={results.allocation_overlay.signal_attribution}
+                    columns={[
+                      { title: '资产', dataIndex: 'symbol', key: 'symbol' },
+                      {
+                        title: '方向',
+                        dataIndex: 'side',
+                        key: 'side',
+                        render: (value) => <Tag color={value === 'long' ? 'green' : 'volcano'}>{value === 'long' ? '多头' : '空头'}</Tag>,
+                      },
+                      {
+                        title: '权重乘数',
+                        dataIndex: 'multiplier',
+                        key: 'multiplier',
+                        render: (value) => Number(value || 0).toFixed(2),
+                      },
+                      {
+                        title: '归因',
+                        dataIndex: 'reasons',
+                        key: 'reasons',
+                        render: (value) => (value || []).join('；') || '无显著偏置',
+                      },
+                      {
+                        title: '分解',
+                        dataIndex: 'breakdown',
+                        key: 'breakdown',
+                        render: (value) => (value || []).map((item) => `${item.label} ${Number(item.value || 0).toFixed(2)}`).join('；') || '无',
+                      },
+                    ]}
+                    style={{ marginTop: 12 }}
+                  />
+                ) : null}
+              </Space>
+            </Card>
+          ) : null}
         </div>
       ) : null}
     </div>
