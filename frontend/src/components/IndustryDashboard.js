@@ -25,7 +25,8 @@ import {
     ReloadOutlined,
     RiseOutlined,
     FundOutlined,
-    StarFilled
+    StarFilled,
+    CrownOutlined
 } from '@ant-design/icons';
 import {
     ScatterChart,
@@ -117,12 +118,73 @@ const TEXT_PRIMARY = 'var(--text-primary)';
 const TEXT_SECONDARY = 'var(--text-secondary)';
 const INDUSTRY_STOCK_FULL_POLL_ATTEMPTS = 30;
 const INDUSTRY_STOCK_FULL_POLL_INTERVAL_MS = 900;
+const INDUSTRY_ALERT_RECENCY_OPTIONS = [
+    { value: '15', label: '近15分钟新增' },
+    { value: '30', label: '近30分钟新增' },
+    { value: 'session', label: '本次会话' },
+];
+const MAX_HEATMAP_REPLAY_SNAPSHOTS = 10;
+
+const formatIndustryAlertMoneyFlow = (value) => {
+    const numericValue = Number(value || 0);
+    if (!numericValue) return '0';
+    const yi = numericValue / 1e8;
+    if (Math.abs(yi) >= 1) return `${yi >= 0 ? '+' : ''}${yi.toFixed(1)}亿`;
+    const wan = numericValue / 1e4;
+    return `${wan >= 0 ? '+' : ''}${wan.toFixed(0)}万`;
+};
+
+const getIndustryScoreTone = (score) => {
+    const numericScore = Number(score || 0);
+    if (numericScore >= 70) return '#52c41a';
+    if (numericScore >= 50) return '#faad14';
+    return '#ff4d4f';
+};
+
+const formatIndustryAlertSeenLabel = (timestamp) => {
+    if (!timestamp) return '刚刚出现';
+    const diffMs = Math.max(0, Date.now() - timestamp);
+    const diffMinutes = Math.floor(diffMs / 60000);
+    if (diffMinutes < 1) return '刚刚出现';
+    if (diffMinutes < 60) return `${diffMinutes} 分钟前出现`;
+    const diffHours = Math.floor(diffMinutes / 60);
+    return `${diffHours} 小时前出现`;
+};
+
+const buildHeatmapReplaySnapshotId = (updateTime, timeframe, sequence = 0) => (
+    `${updateTime || Date.now()}::${timeframe || 'na'}::${sequence}`
+);
+
+const formatReplaySnapshotTime = (value) => {
+    if (!value) return '未知时间';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '未知时间';
+    return date.toLocaleTimeString('zh-CN', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+    });
+};
 
 const getIndustryStockScoreStage = (stocks = []) => {
     if (!Array.isArray(stocks) || stocks.length === 0) return null;
     if (stocks.some((stock) => stock?.scoreStage === 'full')) return 'full';
     if (stocks.some((stock) => stock?.scoreStage === 'quick')) return 'quick';
     return stocks.some((stock) => Number(stock?.total_score || 0) > 0) ? 'full' : 'quick';
+};
+
+const hasDisplayReadyIndustryStockDetails = (stocks = []) => {
+    if (!Array.isArray(stocks) || stocks.length === 0) return false;
+
+    const meaningfulRows = stocks.filter((stock) => {
+        const hasScore = Number(stock?.total_score || 0) > 0;
+        const hasDetail = [stock?.market_cap, stock?.pe_ratio, stock?.change_pct]
+            .some((value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value)));
+        return hasScore && hasDetail;
+    });
+
+    return meaningfulRows.length >= Math.max(3, Math.ceil(stocks.length * 0.5));
 };
 
 const waitForAbortableDelay = (signal, timeoutMs) => (
@@ -251,6 +313,7 @@ const IndustryDashboard = () => {
     const [loadingStocks, setLoadingStocks] = useState(false);
     const [stocksRefining, setStocksRefining] = useState(false);
     const [stocksScoreStage, setStocksScoreStage] = useState(null);
+    const [stocksDisplayReady, setStocksDisplayReady] = useState(false);
     const [clusters, setClusters] = useState(null);
     const [loadingClusters, setLoadingClusters] = useState(false);
     const [clusterError, setClusterError] = useState(null);
@@ -264,13 +327,22 @@ const IndustryDashboard = () => {
     const [comparisonIndustries, setComparisonIndustries] = useState([]); // 对比行业
     const [detailVisible, setDetailVisible] = useState(false); // 详情弹窗状态
     const [heatmapSummary, setHeatmapSummary] = useState(null); // 热力图摘要数据
+    const [heatmapIndustries, setHeatmapIndustries] = useState([]); // 热力图原始行业快照
     const [stockDetailVisible, setStockDetailVisible] = useState(false); // 龙头股详情弹窗
     const [stockDetailSymbol, setStockDetailSymbol] = useState(null);
     const [stockDetailData, setStockDetailData] = useState(null);
     const [stockDetailLoading, setStockDetailLoading] = useState(false);
     const [stockDetailError, setStockDetailError] = useState(null);
+    const [shouldRenderLeaderPanel, setShouldRenderLeaderPanel] = useState(false);
+    const [industryAlertRule, setIndustryAlertRule] = useState('all');
+    const [industryAlertRecency, setIndustryAlertRecency] = useState('15');
+    const [industryAlertHistory, setIndustryAlertHistory] = useState({});
+    const [heatmapReplaySnapshots, setHeatmapReplaySnapshots] = useState([]);
+    const [selectedReplaySnapshotId, setSelectedReplaySnapshotId] = useState(null);
+    const [latestLiveHeatmapData, setLatestLiveHeatmapData] = useState(null);
     const hotRequestIdRef = useRef(0);
     const rankingPrefetchedRef = useRef(false);
+    const clusterPrefetchedRef = useRef(false);
     const hotInFlightQueryKeyRef = useRef(null);
     const hotLoadedQueryKeyRef = useRef(null);
     const clusterAutoAttemptedRef = useRef(false);
@@ -445,10 +517,10 @@ const IndustryDashboard = () => {
         });
     }, [activeTab, marketCapFilter, heatmapViewState, rankType, sortBy, lookbackDays, volatilityFilter, rankingMarketCapFilter]);
 
-    // 接收热力图数据摘要（供市场摘要横幅）
-    const handleHeatmapDataLoad = useCallback((data) => {
+    const applyHeatmapSnapshot = useCallback((data) => {
         if (!data?.industries?.length) return;
         const industries = data.industries;
+        setHeatmapIndustries(industries);
         const total = industries.length;
         const upCount = industries.filter(i => i.value > 0).length;
         const downCount = industries.filter(i => i.value < 0).length;
@@ -529,6 +601,61 @@ const IndustryDashboard = () => {
         });
     }, []);
 
+    const activeReplaySnapshot = useMemo(
+        () => heatmapReplaySnapshots.find((item) => item.id === selectedReplaySnapshotId) || null,
+        [heatmapReplaySnapshots, selectedReplaySnapshotId]
+    );
+    const latestReplaySnapshot = heatmapReplaySnapshots[0] || null;
+
+    // 接收热力图数据摘要（供市场摘要横幅 + 会话内历史回放）
+    const handleHeatmapDataLoad = useCallback((data) => {
+        if (!data?.industries?.length) return;
+        setLatestLiveHeatmapData(data);
+        setHeatmapReplaySnapshots((current) => {
+            const existingIndex = current.findIndex(
+                (item) => item.updateTime === data.update_time && item.timeframe === heatmapViewState.timeframe
+            );
+            const snapshot = {
+                id: buildHeatmapReplaySnapshotId(data.update_time, heatmapViewState.timeframe, existingIndex >= 0 ? existingIndex : current.length),
+                updateTime: data.update_time || new Date().toISOString(),
+                capturedAt: new Date().toISOString(),
+                timeframe: heatmapViewState.timeframe,
+                sizeMetric: heatmapViewState.sizeMetric,
+                colorMetric: heatmapViewState.colorMetric,
+                displayCount: heatmapViewState.displayCount,
+                searchTerm: heatmapViewState.searchTerm,
+                marketCapFilter,
+                data,
+            };
+
+            const next = existingIndex >= 0
+                ? current.map((item, index) => (index === existingIndex ? { ...item, ...snapshot, id: item.id } : item))
+                : [snapshot, ...current].slice(0, MAX_HEATMAP_REPLAY_SNAPSHOTS);
+            return next;
+        });
+
+        if (!selectedReplaySnapshotId) {
+            applyHeatmapSnapshot(data);
+        }
+    }, [applyHeatmapSnapshot, heatmapViewState, marketCapFilter, selectedReplaySnapshotId]);
+
+    useEffect(() => {
+        if (activeReplaySnapshot?.data) {
+            applyHeatmapSnapshot(activeReplaySnapshot.data);
+            return;
+        }
+        if (latestLiveHeatmapData?.industries?.length) {
+            applyHeatmapSnapshot(latestLiveHeatmapData);
+        }
+    }, [activeReplaySnapshot, applyHeatmapSnapshot, latestLiveHeatmapData]);
+
+    useEffect(() => {
+        if (!activeReplaySnapshot) return;
+        if (heatmapViewState.timeframe !== activeReplaySnapshot.timeframe) {
+            setSelectedReplaySnapshotId(null);
+        }
+    }, [activeReplaySnapshot, heatmapViewState.timeframe]);
+
     // 加载热门行业
     const loadHotIndustries = useCallback(async (
         topN = 15,
@@ -583,13 +710,51 @@ const IndustryDashboard = () => {
         }
     }, [activeTab, rankType, sortBy, lookbackDays, buildHotQueryKey]);
 
-    // 首次进入行业页时后台预拉取一次排行榜，减少首屏空窗
+    // 首次进入行业页时，等热力图首屏稳定后再空闲预取排行榜，避免冷启动阶段抢占带宽
     useEffect(() => {
         if (activeTab === 'ranking') return;
         if (rankingPrefetchedRef.current) return;
-        rankingPrefetchedRef.current = true;
-        loadHotIndustries(50, 'gainers', 'total_score', lookbackDays, true);
-    }, [activeTab, lookbackDays, loadHotIndustries]);
+        if (!heatmapIndustries.length) return undefined;
+
+        let timeoutId = null;
+        let idleId = null;
+        const schedulePrefetch = () => {
+            if (rankingPrefetchedRef.current) return;
+            rankingPrefetchedRef.current = true;
+            loadHotIndustries(50, 'gainers', 'total_score', lookbackDays, true);
+        };
+
+        if (typeof window.requestIdleCallback === 'function') {
+            idleId = window.requestIdleCallback(schedulePrefetch, { timeout: 2500 });
+        } else {
+            timeoutId = window.setTimeout(schedulePrefetch, 1400);
+        }
+
+        return () => {
+            if (idleId != null && typeof window.cancelIdleCallback === 'function') {
+                window.cancelIdleCallback(idleId);
+            }
+            if (timeoutId != null) {
+                window.clearTimeout(timeoutId);
+            }
+        };
+    }, [activeTab, lookbackDays, loadHotIndustries, heatmapIndustries.length]);
+
+    // 右侧龙头股面板延后挂载，让热力图优先完成冷启动渲染
+    useEffect(() => {
+        if (shouldRenderLeaderPanel) return undefined;
+        if (activeTab === 'ranking' || heatmapIndustries.length > 0) {
+            const timeoutId = window.setTimeout(() => {
+                setShouldRenderLeaderPanel(true);
+            }, 180);
+            return () => window.clearTimeout(timeoutId);
+        }
+
+        const fallbackId = window.setTimeout(() => {
+            setShouldRenderLeaderPanel(true);
+        }, 1600);
+        return () => window.clearTimeout(fallbackId);
+    }, [activeTab, heatmapIndustries.length, shouldRenderLeaderPanel]);
 
     // 加载行业成分股
     const loadIndustryStocks = useCallback(async (industryName) => {
@@ -607,6 +772,7 @@ const IndustryDashboard = () => {
             setLoadingStocks(true);
             setStocksRefining(false);
             setStocksScoreStage(null);
+            setStocksDisplayReady(false);
             setIndustryStocks([]);
             setSelectedIndustry(industryName);
             const quickResult = await getIndustryStocks(industryName, 20, {
@@ -624,6 +790,7 @@ const IndustryDashboard = () => {
             setLoadingStocks(false);
             const quickStage = getIndustryStockScoreStage(quickRows);
             setStocksScoreStage(quickStage);
+            setStocksDisplayReady(quickStage === 'full' || hasDisplayReadyIndustryStockDetails(quickRows));
 
             if (quickRows.length === 0 || quickStage !== 'quick') {
                 setStocksRefining(false);
@@ -649,6 +816,7 @@ const IndustryDashboard = () => {
                 }
                 const refinedStage = getIndustryStockScoreStage(refinedRows);
                 setStocksScoreStage(refinedStage);
+                setStocksDisplayReady(refinedStage === 'full' || (attempt >= 1 && hasDisplayReadyIndustryStockDetails(refinedRows)));
                 if (refinedStage === 'full') {
                     setStocksRefining(false);
                     return;
@@ -714,6 +882,36 @@ const IndustryDashboard = () => {
             }
         }
     }, []);
+
+    // 聚类分析耗时更久，首屏稳定后空闲预取一次，避免首次切页等待过长
+    useEffect(() => {
+        if (activeTab === 'clusters') return;
+        if (clusterPrefetchedRef.current) return;
+        if (!heatmapIndustries.length) return undefined;
+
+        let timeoutId = null;
+        let idleId = null;
+        const schedulePrefetch = () => {
+            if (clusterPrefetchedRef.current) return;
+            clusterPrefetchedRef.current = true;
+            loadClusters(true);
+        };
+
+        if (typeof window.requestIdleCallback === 'function') {
+            idleId = window.requestIdleCallback(schedulePrefetch, { timeout: 4200 });
+        } else {
+            timeoutId = window.setTimeout(schedulePrefetch, 2200);
+        }
+
+        return () => {
+            if (idleId != null && typeof window.cancelIdleCallback === 'function') {
+                window.cancelIdleCallback(idleId);
+            }
+            if (timeoutId != null) {
+                window.clearTimeout(timeoutId);
+            }
+        };
+    }, [activeTab, loadClusters, heatmapIndustries.length]);
 
     // 当切换到排名或聚类标签时自动加载数据
     useEffect(() => {
@@ -845,6 +1043,375 @@ const IndustryDashboard = () => {
             return matchesVolatility && matchesSource;
         });
     }, [hotIndustries, volatilityFilter, rankingMarketCapFilter]);
+
+    const selectedIndustrySnapshot = useMemo(() => {
+        if (!selectedIndustry) return null;
+
+        const rankingCandidates = [...(hotIndustries || []), ...(filteredHotIndustries || [])];
+        const rankingSnapshot = rankingCandidates.find((item) => item?.industry_name === selectedIndustry) || null;
+        const heatmapSnapshot = (heatmapIndustries || []).find((item) => item?.name === selectedIndustry) || null;
+
+        if (!rankingSnapshot && !heatmapSnapshot) {
+            return null;
+        }
+
+        return {
+            industry_name: selectedIndustry,
+            score: rankingSnapshot?.score
+                ?? rankingSnapshot?.total_score
+                ?? heatmapSnapshot?.total_score
+                ?? null,
+            change_pct: rankingSnapshot?.change_pct
+                ?? heatmapSnapshot?.value
+                ?? null,
+            money_flow: rankingSnapshot?.money_flow
+                ?? heatmapSnapshot?.moneyFlow
+                ?? null,
+            industryVolatility: rankingSnapshot?.industryVolatility
+                ?? heatmapSnapshot?.industryVolatility
+                ?? null,
+            industryVolatilitySource: rankingSnapshot?.industryVolatilitySource
+                ?? heatmapSnapshot?.industryVolatilitySource
+                ?? 'unavailable',
+            total_market_cap: rankingSnapshot?.total_market_cap
+                ?? heatmapSnapshot?.size
+                ?? null,
+            stock_count: rankingSnapshot?.stock_count
+                ?? heatmapSnapshot?.stockCount
+                ?? null,
+            marketCapSource: rankingSnapshot?.marketCapSource
+                ?? heatmapSnapshot?.marketCapSource
+                ?? 'unknown',
+            leadingStock: heatmapSnapshot?.leadingStock || null,
+            leadingStockChange: heatmapSnapshot?.leadingStockChange ?? null,
+            turnoverRate: heatmapSnapshot?.turnoverRate ?? null,
+            pe_ttm: heatmapSnapshot?.pe_ttm ?? null,
+            pb: heatmapSnapshot?.pb ?? null,
+        };
+    }, [selectedIndustry, hotIndustries, filteredHotIndustries, heatmapIndustries]);
+
+    const selectedIndustryVolatilityMeta = useMemo(
+        () => getIndustryVolatilityMeta(
+            selectedIndustrySnapshot?.industryVolatility,
+            selectedIndustrySnapshot?.industryVolatilitySource
+        ),
+        [selectedIndustrySnapshot, getIndustryVolatilityMeta]
+    );
+
+    const selectedIndustryLeadStock = useMemo(
+        () => (industryStocks || []).find((item) => item?.name || item?.symbol) || (
+            selectedIndustrySnapshot?.leadingStock
+                ? {
+                    name: selectedIndustrySnapshot.leadingStock,
+                    total_score: 0,
+                    change_pct: selectedIndustrySnapshot.leadingStockChange,
+                }
+                : null
+        ),
+        [industryStocks, selectedIndustrySnapshot]
+    );
+
+    const selectedIndustryFocusNarrative = useMemo(() => {
+        if (!selectedIndustry) {
+            return '';
+        }
+        if (!selectedIndustrySnapshot) {
+            return `${selectedIndustry} 已进入研究焦点，可以继续查看行业详情和龙头股联动。`;
+        }
+
+        const score = Number(selectedIndustrySnapshot.score || 0);
+        const change = Number(selectedIndustrySnapshot.change_pct || 0);
+        const moneyFlow = Number(selectedIndustrySnapshot.money_flow || 0);
+        const volatility = Number(selectedIndustrySnapshot.industryVolatility || 0);
+
+        if (score >= 80 && change > 0 && moneyFlow > 0) {
+            return `${selectedIndustry} 当前处于强势共振区间，热度、涨幅和资金方向比较一致。`;
+        }
+        if (score >= 70 && moneyFlow > 0) {
+            return `${selectedIndustry} 目前偏强，资金仍在净流入，适合继续顺着龙头和轮动看。`;
+        }
+        if (change < 0 && moneyFlow < 0) {
+            return `${selectedIndustry} 当前偏弱，价格和资金都在承压，更适合先看风险释放是否结束。`;
+        }
+        if (volatility >= 4) {
+            return `${selectedIndustry} 现在波动偏高，适合重点盯节奏和龙头分化，而不是只看静态排名。`;
+        }
+        return `${selectedIndustry} 目前处于观察区，适合结合行业详情、龙头表现和轮动位置一起判断。`;
+    }, [selectedIndustry, selectedIndustrySnapshot]);
+
+    const selectedIndustryReasons = useMemo(() => {
+        if (!selectedIndustrySnapshot) return [];
+
+        const reasons = [];
+        const score = Number(selectedIndustrySnapshot.score || 0);
+        const change = Number(selectedIndustrySnapshot.change_pct || 0);
+        const moneyFlow = Number(selectedIndustrySnapshot.money_flow || 0);
+        const stockCount = Number(selectedIndustrySnapshot.stock_count || 0);
+        const marketCap = Number(selectedIndustrySnapshot.total_market_cap || 0);
+        const volatility = Number(selectedIndustrySnapshot.industryVolatility || 0);
+
+        if (score >= 80) {
+            reasons.push(`综合得分 ${score.toFixed(1)}，已经属于当前榜单里的高热度行业。`);
+        } else if (score >= 65) {
+            reasons.push(`综合得分 ${score.toFixed(1)}，仍处在值得持续跟踪的活跃区间。`);
+        }
+
+        if (moneyFlow > 0) {
+            reasons.push(`主力资金净流入 ${(moneyFlow / 1e8).toFixed(1)} 亿，短线关注度还在。`);
+        } else if (moneyFlow < 0) {
+            reasons.push(`主力资金净流出 ${Math.abs(moneyFlow / 1e8).toFixed(1)} 亿，需要留意承接是否变弱。`);
+        }
+
+        if (change >= 3) {
+            reasons.push(`近阶段涨幅 ${change.toFixed(2)}%，价格表现已经明显跑出来了。`);
+        } else if (change <= -3) {
+            reasons.push(`近阶段回撤 ${Math.abs(change).toFixed(2)}%，更适合结合风险释放视角去看。`);
+        }
+
+        if (volatility >= 4) {
+            reasons.push(`区间波动率 ${volatility.toFixed(1)}%，行业内部可能已经开始分化。`);
+        }
+
+        if (marketCap > 0 && stockCount > 0) {
+            reasons.push(`板块总市值约 ${(marketCap / 1e8).toFixed(0)} 亿，覆盖 ${stockCount} 只成分股，具备板块代表性。`);
+        }
+
+        if (selectedIndustryLeadStock?.name || selectedIndustryLeadStock?.symbol) {
+            const leadName = selectedIndustryLeadStock.name || selectedIndustryLeadStock.symbol;
+            const leadScore = Number(selectedIndustryLeadStock.total_score || 0);
+            reasons.push(
+                leadScore > 0
+                    ? `龙头候选 ${leadName} 当前得分 ${leadScore.toFixed(1)}，可以直接往个股层继续下钻。`
+                    : `龙头候选 ${leadName} 已经可见，适合继续看个股承接和扩散。`
+            );
+        }
+
+        return reasons.slice(0, 3);
+    }, [selectedIndustrySnapshot, selectedIndustryLeadStock]);
+
+    const focusIndustrySuggestions = useMemo(() => {
+        const merged = [
+            ...(heatmapSummary?.topInflow || []),
+            ...(heatmapSummary?.topTurnover || []),
+            ...(heatmapSummary?.topOutflow || []),
+        ];
+        const seen = new Set();
+        return merged
+            .map((item) => item?.name)
+            .filter((name) => {
+                if (!name || seen.has(name)) return false;
+                seen.add(name);
+                return true;
+            })
+            .slice(0, 5);
+    }, [heatmapSummary]);
+
+    const industryAlertSnapshots = useMemo(() => {
+        const snapshots = new Map();
+
+        (heatmapIndustries || []).forEach((item) => {
+            if (!item?.name) return;
+            snapshots.set(item.name, {
+                industry_name: item.name,
+                score: item.total_score ?? null,
+                change_pct: item.value ?? null,
+                money_flow: item.moneyFlow ?? null,
+                industryVolatility: item.industryVolatility ?? null,
+                turnoverRate: item.turnoverRate ?? null,
+                stock_count: item.stockCount ?? null,
+                marketCapSource: item.marketCapSource ?? 'unknown',
+            });
+        });
+
+        (hotIndustries || []).forEach((item) => {
+            if (!item?.industry_name) return;
+            const current = snapshots.get(item.industry_name) || { industry_name: item.industry_name };
+            snapshots.set(item.industry_name, {
+                ...current,
+                score: item.score ?? current.score ?? null,
+                change_pct: item.change_pct ?? current.change_pct ?? null,
+                money_flow: item.money_flow ?? current.money_flow ?? null,
+                industryVolatility: item.industryVolatility ?? current.industryVolatility ?? null,
+                stock_count: item.stock_count ?? current.stock_count ?? null,
+                marketCapSource: item.marketCapSource ?? current.marketCapSource ?? 'unknown',
+            });
+        });
+
+        return Array.from(snapshots.values());
+    }, [heatmapIndustries, hotIndustries]);
+
+    const rawIndustryAlerts = useMemo(() => {
+        const bestByIndustry = new Map();
+        const upsertAlert = (alert) => {
+            if (!alert?.industry_name) return;
+            const existing = bestByIndustry.get(alert.industry_name);
+            if (!existing || alert.priority > existing.priority) {
+                bestByIndustry.set(alert.industry_name, alert);
+            }
+        };
+
+        industryAlertSnapshots.forEach((item) => {
+            const name = item.industry_name;
+            const score = Number(item.score || 0);
+            const change = Number(item.change_pct || 0);
+            const moneyFlow = Number(item.money_flow || 0);
+            const volatility = Number(item.industryVolatility || 0);
+            const turnoverRate = Number(item.turnoverRate || 0);
+
+            if (score >= 80 && change >= 2 && moneyFlow > 0) {
+                upsertAlert({
+                    industry_name: name,
+                    kind: 'resonance',
+                    title: '强势共振',
+                    color: 'red',
+                    accent: '#ff7875',
+                    summary: `综合得分 ${score.toFixed(1)}，涨幅 ${change.toFixed(2)}%，资金 ${formatIndustryAlertMoneyFlow(moneyFlow)}。`,
+                    reason: '热度、价格和资金都在同向增强，适合先看龙头承接。',
+                    priority: 120 + score + change + Math.min(moneyFlow / 1e8, 20),
+                });
+                return;
+            }
+
+            if (moneyFlow >= 8e8 && change >= 0.5) {
+                upsertAlert({
+                    industry_name: name,
+                    kind: 'capital_inflow',
+                    title: '资金突入',
+                    color: 'volcano',
+                    accent: '#ff9c6e',
+                    summary: `主力净流入 ${formatIndustryAlertMoneyFlow(moneyFlow)}，价格同步转强。`,
+                    reason: '短线关注度在升温，适合顺着热点扩散继续看。',
+                    priority: 100 + Math.min(moneyFlow / 1e8, 24) + change,
+                });
+            }
+
+            if (moneyFlow <= -8e8 && change <= -1) {
+                upsertAlert({
+                    industry_name: name,
+                    kind: 'risk_release',
+                    title: '风险释放',
+                    color: 'green',
+                    accent: '#95de64',
+                    summary: `主力净流出 ${formatIndustryAlertMoneyFlow(moneyFlow)}，价格承压 ${Math.abs(change).toFixed(2)}%。`,
+                    reason: '更适合先看承接与止跌信号，而不是直接追击。',
+                    priority: 98 + Math.min(Math.abs(moneyFlow) / 1e8, 24) + Math.abs(change),
+                });
+            }
+
+            if (volatility >= 4.5 && Math.abs(change) >= 2) {
+                upsertAlert({
+                    industry_name: name,
+                    kind: 'high_volatility',
+                    title: '高波动博弈',
+                    color: 'gold',
+                    accent: '#ffd666',
+                    summary: `波动率 ${volatility.toFixed(1)}%，价格振幅已经明显放大。`,
+                    reason: '更适合盯节奏和分化，不适合只看静态排行。',
+                    priority: 92 + volatility + Math.abs(change),
+                });
+            }
+
+            if (turnoverRate >= 3.5 && Math.abs(change) >= 1) {
+                upsertAlert({
+                    industry_name: name,
+                    kind: 'rotation_heatup',
+                    title: '轮动升温',
+                    color: 'blue',
+                    accent: '#69c0ff',
+                    summary: `换手率 ${turnoverRate.toFixed(1)}%，板块活跃度在抬升。`,
+                    reason: '适合直接加入轮动对比，看是不是新一轮资金切换。',
+                    priority: 88 + turnoverRate + Math.abs(change),
+                });
+            }
+        });
+
+        return Array.from(bestByIndustry.values())
+            .sort((a, b) => b.priority - a.priority)
+            .slice(0, 6);
+    }, [industryAlertSnapshots]);
+
+    useEffect(() => {
+        if (rawIndustryAlerts.length === 0) return;
+
+        const seenAt = Date.now();
+        setIndustryAlertHistory((current) => {
+            const next = { ...current };
+            let changed = false;
+
+            rawIndustryAlerts.forEach((alert) => {
+                const key = `${alert.industry_name}:${alert.kind}`;
+                const existing = current[key];
+                if (!existing) {
+                    next[key] = {
+                        firstSeenAt: seenAt,
+                        lastSeenAt: seenAt,
+                        hitCount: 1,
+                    };
+                    changed = true;
+                    return;
+                }
+
+                if (existing.lastSeenAt !== seenAt) {
+                    next[key] = {
+                        ...existing,
+                        lastSeenAt: seenAt,
+                        hitCount: (existing.hitCount || 1) + 1,
+                    };
+                    changed = true;
+                }
+            });
+
+            return changed ? next : current;
+        });
+    }, [rawIndustryAlerts]);
+
+    const industryAlerts = useMemo(() => {
+        const recencyMs = industryAlertRecency === 'session' ? Number.POSITIVE_INFINITY : Number(industryAlertRecency || 15) * 60 * 1000;
+        const alertsWithHistory = rawIndustryAlerts.map((alert) => {
+            const historyKey = `${alert.industry_name}:${alert.kind}`;
+            const history = industryAlertHistory[historyKey];
+            const firstSeenAt = history?.firstSeenAt || null;
+            const isNew = firstSeenAt ? (Date.now() - firstSeenAt) <= recencyMs : false;
+            return {
+                ...alert,
+                firstSeenAt,
+                isNew,
+                seenLabel: formatIndustryAlertSeenLabel(firstSeenAt),
+            };
+        });
+
+        const filteredAlerts = alertsWithHistory.filter((alert) => {
+            if (industryAlertRule === 'new') return alert.isNew;
+            if (industryAlertRule === 'capital') return ['capital_inflow', 'resonance'].includes(alert.kind);
+            if (industryAlertRule === 'risk') return alert.kind === 'risk_release';
+            if (industryAlertRule === 'rotation') return ['rotation_heatup', 'high_volatility'].includes(alert.kind);
+            return true;
+        });
+
+        if (filteredAlerts.length > 0) {
+            return filteredAlerts
+                .sort((a, b) => Number(b.isNew) - Number(a.isNew) || b.priority - a.priority)
+                .slice(0, 4);
+        }
+
+        if (rawIndustryAlerts.length > 0) {
+            return [];
+        }
+
+        return focusIndustrySuggestions.slice(0, 3).map((industry, index) => ({
+            industry_name: industry,
+            kind: 'watchlist_seed',
+            title: index === 0 ? '优先观察' : '关注备选',
+            color: 'processing',
+            accent: '#69c0ff',
+            summary: `${industry} 当前处在热度聚合视野里，适合先加入观察列表。`,
+            reason: '可以先看研究焦点、龙头股和行业详情三条链路。',
+            priority: 60 - index,
+            firstSeenAt: null,
+            isNew: false,
+            seenLabel: '等待下一次异动',
+        }));
+    }, [focusIndustrySuggestions, industryAlertHistory, industryAlertRecency, industryAlertRule, rawIndustryAlerts]);
 
     // 热门行业表格列
     const hotIndustryColumns = [
@@ -1027,9 +1594,18 @@ const IndustryDashboard = () => {
             dataIndex: 'total_score',
             key: 'total_score',
             width: 80,
-            render: (score) => (
-                score === null || score === undefined || Number(score) <= 0 ? '-' : Number(score).toFixed(1)
-            )
+            render: (score) => {
+                if (score === null || score === undefined || Number(score) <= 0) {
+                    return '-';
+                }
+                return (
+                    <Tooltip title={`综合评分 ${Number(score).toFixed(1)}`}>
+                        <span style={{ fontWeight: 700, color: getIndustryScoreTone(score) }}>
+                            {Number(score).toFixed(1)}
+                        </span>
+                    </Tooltip>
+                );
+            }
         },
         {
             title: '涨跌幅',
@@ -1176,6 +1752,32 @@ const IndustryDashboard = () => {
     const CLUSTER_COLORS = ['#ff4d4f', '#1890ff', '#52c41a', '#faad14', '#eb2f96'];
 
     const renderClusterScatterChart = () => {
+        if (loadingClusters && !clusters) {
+            return (
+                <div style={{ marginTop: 16 }}>
+                    <div style={{ marginBottom: 8, fontWeight: 'bold', color: TEXT_PRIMARY }}>
+                        聚类分布图 <span style={{ fontWeight: 'normal', color: PANEL_MUTED, fontSize: 12 }}>（X=动量, Y=资金强度）</span>
+                    </div>
+                    <div
+                        style={{
+                            minHeight: 280,
+                            borderRadius: 12,
+                            border: PANEL_BORDER,
+                            background: PANEL_SURFACE,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexDirection: 'column',
+                            gap: 10,
+                        }}
+                    >
+                        <Spin />
+                        <div style={{ fontSize: 12, color: PANEL_MUTED }}>聚类分析计算中，首次加载可能需要几秒</div>
+                    </div>
+                </div>
+            );
+        }
+
         if (!clusters) return null;
 
         const scatterData = (clusters.points || []).map(point => ({
@@ -1188,7 +1790,16 @@ const IndustryDashboard = () => {
             ? Object.keys(clusters.cluster_stats || {}).map(k => parseInt(k))
             : [...new Set(scatterData.map(d => d.cluster))];
 
-        if (scatterData.length === 0) return null;
+        if (scatterData.length === 0) {
+            return (
+                <div style={{ marginTop: 16 }}>
+                    <div style={{ marginBottom: 8, fontWeight: 'bold', color: TEXT_PRIMARY }}>
+                        聚类分布图 <span style={{ fontWeight: 'normal', color: PANEL_MUTED, fontSize: 12 }}>（X=动量, Y=资金强度）</span>
+                    </div>
+                    <Empty description="当前暂无可展示的聚类点位" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                </div>
+            );
+        }
 
         return (
             <div style={{ marginTop: 16 }}>
@@ -1265,6 +1876,7 @@ const IndustryDashboard = () => {
                     onIndustryClick={handleIndustryClick}
                     onDataLoad={handleHeatmapDataLoad}
                     onLeadingStockClick={handleLeadingStockClick}
+                    replaySnapshot={activeReplaySnapshot}
                     marketCapFilter={marketCapFilter}
                     onClearMarketCapFilter={() => setMarketCapFilter('all')}
                     onSelectMarketCapFilter={jumpToMarketCapFilter}
@@ -1279,6 +1891,7 @@ const IndustryDashboard = () => {
                     onDisplayCountChange={(value) => setHeatmapViewState(prev => ({ ...prev, displayCount: value }))}
                     onSearchTermChange={(value) => setHeatmapViewState(prev => ({ ...prev, searchTerm: value }))}
                     focusControlKey={focusedHeatmapControlKey}
+                    showStats={false}
                 />
             )
         },
@@ -1423,7 +2036,8 @@ const IndustryDashboard = () => {
                             pageSizeOptions: ['10', '15', '30', '50'],
                             showTotal: (total) => `共 ${total} 个行业`
                         }}
-                        onRow={() => ({
+                        onRow={(record) => ({
+                            onClick: () => handleIndustryClick(record.industry_name),
                             style: { cursor: 'pointer' }
                         })}
                         locale={{
@@ -1502,13 +2116,23 @@ const IndustryDashboard = () => {
         activeHeatmapStateTags.push({ key: 'search', label: '搜索', value: heatmapViewState.searchTerm });
     }
     const hasActiveHeatmapState = activeHeatmapStateTags.length > 0;
-    const activeRankingStateTags = [
-        { key: 'rank_type', label: '榜单', value: INDUSTRY_RANK_TYPE_LABELS[rankType] || rankType },
-        { key: 'sort_by', label: '排序', value: INDUSTRY_RANK_SORT_LABELS[sortBy] || sortBy },
-        { key: 'lookback', label: '周期', value: `近${lookbackDays}日` },
-        { key: 'volatility_filter', label: '波动', value: INDUSTRY_VOLATILITY_FILTER_LABELS[volatilityFilter] || volatilityFilter },
-        { key: 'market_cap_filter', label: '市值来源', value: INDUSTRY_RANKING_MARKET_CAP_FILTER_LABELS[rankingMarketCapFilter] || rankingMarketCapFilter },
-    ];
+    const activeRankingStateTags = [];
+    if (rankType !== INDUSTRY_URL_DEFAULTS.rankType) {
+        activeRankingStateTags.push({ key: 'rank_type', label: '榜单', value: INDUSTRY_RANK_TYPE_LABELS[rankType] || rankType });
+    }
+    if (sortBy !== INDUSTRY_URL_DEFAULTS.sortBy) {
+        activeRankingStateTags.push({ key: 'sort_by', label: '排序', value: INDUSTRY_RANK_SORT_LABELS[sortBy] || sortBy });
+    }
+    if (lookbackDays !== INDUSTRY_URL_DEFAULTS.lookbackDays) {
+        activeRankingStateTags.push({ key: 'lookback', label: '周期', value: `近${lookbackDays}日` });
+    }
+    if (volatilityFilter !== INDUSTRY_URL_DEFAULTS.volatilityFilter) {
+        activeRankingStateTags.push({ key: 'volatility_filter', label: '波动', value: INDUSTRY_VOLATILITY_FILTER_LABELS[volatilityFilter] || volatilityFilter });
+    }
+    if (rankingMarketCapFilter !== INDUSTRY_URL_DEFAULTS.rankingMarketCapFilter) {
+        activeRankingStateTags.push({ key: 'market_cap_filter', label: '市值来源', value: INDUSTRY_RANKING_MARKET_CAP_FILTER_LABELS[rankingMarketCapFilter] || rankingMarketCapFilter });
+    }
+    const hasActiveRankingState = activeRankingStateTags.length > 0;
 
     return (
         <Layout style={{ padding: 24, background: 'var(--bg-primary)', minHeight: '100vh' }}>
@@ -1611,12 +2235,60 @@ const IndustryDashboard = () => {
                                         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginBottom: 4 }}>
                                             <RiseOutlined style={{ color: '#ff7875', marginRight: 3 }} />主力流入
                                         </div>
-                                        <Space size={4}>
+                                        <Space size={[4, 4]} wrap style={{ maxWidth: '100%' }}>
                                             {heatmapSummary.topInflow.map((ind, idx) => (
                                                 <Tag
                                                     key={ind.name}
                                                     color={idx === 0 ? 'red' : 'volcano'}
-                                                    style={{ margin: 0, cursor: 'pointer', fontSize: 11 }}
+                                                    style={{
+                                                        margin: 0,
+                                                        cursor: 'pointer',
+                                                        fontSize: 10,
+                                                        lineHeight: '15px',
+                                                        paddingInline: 6,
+                                                        borderRadius: 999,
+                                                        maxWidth: '100%',
+                                                        whiteSpace: 'normal',
+                                                        wordBreak: 'break-word'
+                                                    }}
+                                                    onClick={() => handleIndustryClick(ind.name)}
+                                                >
+                                                    {ind.name}
+                                                </Tag>
+                                            ))}
+                                        </Space>
+                                        </div>
+                                    </Col>
+                                )}
+
+                                {heatmapSummary.topOutflow.length > 0 && (
+                                    <Col xs={24} sm={12} xl={5}>
+                                        <div style={{
+                                            height: '100%',
+                                            background: 'rgba(255,255,255,0.05)',
+                                            border: '1px solid rgba(255,255,255,0.08)',
+                                            borderRadius: 10,
+                                            padding: '10px 12px'
+                                        }}>
+                                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', marginBottom: 4 }}>
+                                            <FundOutlined style={{ color: '#95de64', marginRight: 3 }} />流出压力
+                                        </div>
+                                        <Space size={[4, 4]} wrap style={{ maxWidth: '100%' }}>
+                                            {heatmapSummary.topOutflow.map((ind, idx) => (
+                                                <Tag
+                                                    key={ind.name}
+                                                    color={idx === 0 ? 'green' : 'lime'}
+                                                    style={{
+                                                        margin: 0,
+                                                        cursor: 'pointer',
+                                                        fontSize: 10,
+                                                        lineHeight: '15px',
+                                                        paddingInline: 6,
+                                                        borderRadius: 999,
+                                                        maxWidth: '100%',
+                                                        whiteSpace: 'normal',
+                                                        wordBreak: 'break-word'
+                                                    }}
                                                     onClick={() => handleIndustryClick(ind.name)}
                                                 >
                                                     {ind.name}
@@ -1758,6 +2430,241 @@ const IndustryDashboard = () => {
                         </Card>
                     )}
 
+                    {heatmapReplaySnapshots.length > 0 && (
+                        <Card
+                            size="small"
+                            data-testid="industry-replay-card"
+                            style={{
+                                marginBottom: 12,
+                                background: activeReplaySnapshot
+                                    ? 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 92%, var(--accent-primary) 8%) 0%, color-mix(in srgb, var(--bg-secondary) 96%, var(--accent-warning) 4%) 100%)'
+                                    : PANEL_SURFACE,
+                                border: activeReplaySnapshot
+                                    ? '1px solid color-mix(in srgb, var(--accent-primary) 24%, var(--border-color) 76%)'
+                                    : PANEL_BORDER,
+                                boxShadow: PANEL_SHADOW,
+                            }}
+                            styles={{ body: { padding: '12px 14px' } }}
+                        >
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                    <span style={{ fontSize: 11, color: PANEL_MUTED, fontWeight: 700, letterSpacing: '0.04em' }}>行业历史回放</span>
+                                    <span style={{ fontSize: 13, color: TEXT_PRIMARY }}>
+                                        {activeReplaySnapshot
+                                            ? `正在回看 ${formatReplaySnapshotTime(activeReplaySnapshot.updateTime)} 的行业截面，热力图已暂停实时刷新`
+                                            : `已记录 ${heatmapReplaySnapshots.length} 个会话快照，可快速回看刚才的行业截面`}
+                                    </span>
+                                </div>
+                                <Space size={8} wrap>
+                                    {latestReplaySnapshot && (
+                                        <Tag color="default" style={{ margin: 0, borderRadius: 999 }}>
+                                            最新 {formatReplaySnapshotTime(latestReplaySnapshot.updateTime)}
+                                        </Tag>
+                                    )}
+                                    {activeReplaySnapshot && (
+                                        <Button
+                                            size="small"
+                                            type="primary"
+                                            onClick={() => setSelectedReplaySnapshotId(null)}
+                                        >
+                                            回到实时
+                                        </Button>
+                                    )}
+                                </Space>
+                            </div>
+
+                            <Space size={[8, 8]} wrap>
+                                {heatmapReplaySnapshots.slice(0, 6).map((snapshot, index) => (
+                                    <Button
+                                        key={snapshot.id}
+                                        size="small"
+                                        type={activeReplaySnapshot?.id === snapshot.id ? 'primary' : 'default'}
+                                        onClick={() => {
+                                            setActiveTab('heatmap');
+                                            setSelectedReplaySnapshotId(snapshot.id);
+                                            setHeatmapViewState((current) => ({
+                                                ...current,
+                                                timeframe: snapshot.timeframe,
+                                                sizeMetric: snapshot.sizeMetric,
+                                                colorMetric: snapshot.colorMetric,
+                                                displayCount: snapshot.displayCount,
+                                                searchTerm: snapshot.searchTerm || '',
+                                            }));
+                                            setMarketCapFilter(snapshot.marketCapFilter || 'all');
+                                        }}
+                                    >
+                                        {index === 0 ? '最新 ' : ''}{formatReplaySnapshotTime(snapshot.updateTime)} · {INDUSTRY_TIMEFRAME_LABELS[snapshot.timeframe] || `${snapshot.timeframe}日`}
+                                    </Button>
+                                ))}
+                            </Space>
+
+                            <div style={{ marginTop: 10, fontSize: 10, color: PANEL_MUTED }}>
+                                当前是会话内回放，不依赖后端历史库；适合盘中回看刚才看过的行业截面和研究焦点。
+                            </div>
+                        </Card>
+                    )}
+
+                    {(industryAlerts.length > 0 || rawIndustryAlerts.length > 0 || focusIndustrySuggestions.length > 0) && (
+                        <Card
+                            size="small"
+                            data-testid="industry-alerts-card"
+                            style={{
+                                marginBottom: 12,
+                                background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, var(--accent-warning) 6%) 0%, color-mix(in srgb, var(--bg-secondary) 96%, var(--accent-primary) 4%) 100%)',
+                                border: PANEL_BORDER,
+                                boxShadow: PANEL_SHADOW,
+                            }}
+                            styles={{ body: { padding: '12px 14px' } }}
+                        >
+                            <div style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                gap: 12,
+                                marginBottom: 12,
+                                flexWrap: 'wrap'
+                            }}>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                    <span style={{ fontSize: 11, color: PANEL_MUTED, fontWeight: 700, letterSpacing: '0.04em' }}>行业异动提醒</span>
+                                    <span style={{ fontSize: 13, color: TEXT_PRIMARY }}>支持按规则筛选，并标出本次会话内新出现的提醒</span>
+                                </div>
+                                <Space size={8} wrap>
+                                    <Tag color="processing" style={{ margin: 0, borderRadius: 999 }}>
+                                        {industryAlerts.length} 条提醒
+                                    </Tag>
+                                    <Tag color="default" style={{ margin: 0, borderRadius: 999 }}>
+                                        {industryAlerts.filter((alert) => alert.isNew).length} 条新增
+                                    </Tag>
+                                </Space>
+                            </div>
+
+                            <div
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    gap: 10,
+                                    flexWrap: 'wrap',
+                                    marginBottom: 12,
+                                }}
+                            >
+                                <Radio.Group
+                                    value={industryAlertRule}
+                                    onChange={(event) => setIndustryAlertRule(event.target.value)}
+                                    size="small"
+                                    buttonStyle="solid"
+                                >
+                                    <Radio.Button value="all">全部</Radio.Button>
+                                    <Radio.Button value="new">新增</Radio.Button>
+                                    <Radio.Button value="capital">资金</Radio.Button>
+                                    <Radio.Button value="risk">风险</Radio.Button>
+                                    <Radio.Button value="rotation">轮动</Radio.Button>
+                                </Radio.Group>
+
+                                <Select
+                                    value={industryAlertRecency}
+                                    onChange={setIndustryAlertRecency}
+                                    size="small"
+                                    style={{ width: 128 }}
+                                    disabled={industryAlertRule !== 'new'}
+                                >
+                                    {INDUSTRY_ALERT_RECENCY_OPTIONS.map((item) => (
+                                        <Option key={item.value} value={item.value}>{item.label}</Option>
+                                    ))}
+                                </Select>
+                            </div>
+
+                            {industryAlerts.length > 0 ? (
+                                <Row gutter={[10, 10]}>
+                                    {industryAlerts.map((alert) => (
+                                        <Col xs={24} md={12} key={`${alert.industry_name}-${alert.title}`}>
+                                            <div
+                                                data-testid="industry-alert-item"
+                                                style={{
+                                                    height: '100%',
+                                                    borderRadius: 12,
+                                                    padding: '12px 12px 10px',
+                                                    background: 'color-mix(in srgb, var(--bg-primary) 26%, var(--bg-secondary) 74%)',
+                                                    border: `1px solid ${alert.accent}33`,
+                                                    boxShadow: `inset 0 0 0 1px ${alert.accent}14`,
+                                                }}
+                                            >
+                                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 8 }}>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                            <Tag color={alert.color} style={{ margin: 0, borderRadius: 999, fontSize: 11 }}>
+                                                                {alert.title}
+                                                            </Tag>
+                                                            <span style={{ fontSize: 15, fontWeight: 700, color: TEXT_PRIMARY }}>{alert.industry_name}</span>
+                                                            <Tag color={alert.isNew ? 'magenta' : 'default'} style={{ margin: 0, borderRadius: 999, fontSize: 10 }}>
+                                                                {alert.isNew ? '本次会话新增' : '持续关注'}
+                                                            </Tag>
+                                                        </div>
+                                                        <div style={{ fontSize: 12, lineHeight: 1.7, color: TEXT_PRIMARY }}>
+                                                            {alert.summary}
+                                                        </div>
+                                                    </div>
+                                                    <Space size={6} wrap>
+                                                        <Tag color="default" style={{ margin: 0, borderRadius: 999, fontSize: 10 }}>
+                                                            {alert.seenLabel}
+                                                        </Tag>
+                                                        {selectedIndustry === alert.industry_name && (
+                                                            <Tag color="gold" style={{ margin: 0, borderRadius: 999 }}>已聚焦</Tag>
+                                                        )}
+                                                    </Space>
+                                                </div>
+                                                <div style={{ fontSize: 11, lineHeight: 1.7, color: TEXT_SECONDARY, marginBottom: 10 }}>
+                                                    {alert.reason}
+                                                </div>
+                                                <Space size={8} wrap>
+                                                    <Button
+                                                        size="small"
+                                                        type={selectedIndustry === alert.industry_name ? 'default' : 'primary'}
+                                                        onClick={() => setSelectedIndustry(alert.industry_name)}
+                                                    >
+                                                        聚焦
+                                                    </Button>
+                                                    <Button
+                                                        size="small"
+                                                        type="text"
+                                                        onClick={() => handleIndustryClick(alert.industry_name)}
+                                                    >
+                                                        查看详情
+                                                    </Button>
+                                                    <Button
+                                                        size="small"
+                                                        type="text"
+                                                        icon={<BranchesOutlined />}
+                                                        onClick={() => handleAddToComparison(alert.industry_name)}
+                                                    >
+                                                        加入对比
+                                                    </Button>
+                                                </Space>
+                                            </div>
+                                        </Col>
+                                    ))}
+                                </Row>
+                            ) : (
+                                <Empty
+                                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                    description={
+                                        industryAlertRule === 'new'
+                                            ? `当前没有${industryAlertRecency === 'session' ? '本次会话内' : `最近 ${industryAlertRecency} 分钟内`}新增提醒`
+                                            : '当前筛选下没有匹配提醒'
+                                    }
+                                >
+                                    <Button size="small" onClick={() => setIndustryAlertRule('all')}>
+                                        查看全部提醒
+                                    </Button>
+                                </Empty>
+                            )}
+
+                            <div style={{ marginTop: 10, fontSize: 10, color: PANEL_MUTED }}>
+                                当前为截面异动提醒；“新增”基于本页会话内首次出现时间判断，后续接入历史回放后可以升级成真正的突变告警。
+                            </div>
+                        </Card>
+                    )}
+
                     {activeTab === 'heatmap' && hasActiveHeatmapState && (
                         <div
                             style={{
@@ -1796,7 +2703,7 @@ const IndustryDashboard = () => {
                         </div>
                     )}
 
-                    {activeTab === 'ranking' && (
+                    {activeTab === 'ranking' && hasActiveRankingState && (
                         <div
                             style={{
                                 marginBottom: 12,
@@ -1809,7 +2716,7 @@ const IndustryDashboard = () => {
                         >
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                                    <span style={{ fontSize: 11, color: PANEL_MUTED, fontWeight: 700, letterSpacing: '0.04em' }}>当前排行榜</span>
+                                    <span style={{ fontSize: 11, color: PANEL_MUTED, fontWeight: 700, letterSpacing: '0.04em' }}>当前筛选</span>
                                     {activeRankingStateTags.map((item) => (
                                         <Tag
                                             key={item.key}
@@ -1843,11 +2750,181 @@ const IndustryDashboard = () => {
 
                 {/* 右侧：龙头股推荐 */}
                 <Col xs={24} lg={8}>
-                    <LeaderStockPanel
-                        topN={5}
-                        topIndustries={5}
-                        perIndustry={3}
-                    />
+                    <Card
+                        size="small"
+                        style={{
+                            marginBottom: 12,
+                            borderRadius: 12,
+                            border: selectedIndustry
+                                ? '1px solid color-mix(in srgb, var(--accent-primary) 24%, var(--border-color) 76%)'
+                                : PANEL_BORDER,
+                            boxShadow: PANEL_SHADOW,
+                            background: selectedIndustry
+                                ? 'linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 6%, var(--bg-secondary) 94%) 0%, color-mix(in srgb, var(--accent-warning) 4%, var(--bg-secondary) 96%) 100%)'
+                                : PANEL_SURFACE
+                        }}
+                        title={
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                <span style={{ fontWeight: 700, color: TEXT_PRIMARY }}>研究焦点</span>
+                                <span style={{ fontSize: 11, color: TEXT_SECONDARY }}>
+                                    {selectedIndustry ? '当前行业上下文与下一步动作' : '先选一个行业，再看龙头和详情'}
+                                </span>
+                            </div>
+                        }
+                    >
+                        {selectedIndustry ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        <span style={{ fontSize: 18, fontWeight: 700, color: TEXT_PRIMARY }}>{selectedIndustry}</span>
+                                        <Space size={[6, 6]} wrap>
+                                            {selectedIndustrySnapshot && (
+                                                <Tag
+                                                    color={getMarketCapBadgeMeta(selectedIndustrySnapshot.marketCapSource).color}
+                                                    style={{ margin: 0, borderRadius: 999 }}
+                                                >
+                                                    {getMarketCapBadgeMeta(selectedIndustrySnapshot.marketCapSource).label}市值
+                                                </Tag>
+                                            )}
+                                            {selectedIndustryVolatilityMeta?.value > 0 && (
+                                                <Tag color={selectedIndustryVolatilityMeta.color} style={{ margin: 0, borderRadius: 999 }}>
+                                                    {selectedIndustryVolatilityMeta.label} {selectedIndustryVolatilityMeta.value.toFixed(1)}%
+                                                </Tag>
+                                            )}
+                                        </Space>
+                                    </div>
+                                    <Button size="small" type="text" onClick={() => setSelectedIndustry(null)}>
+                                        清除
+                                    </Button>
+                                </div>
+
+                                <div style={{
+                                    padding: '10px 12px',
+                                    borderRadius: 10,
+                                    background: 'color-mix(in srgb, var(--accent-primary) 8%, var(--bg-secondary) 92%)',
+                                    border: '1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--border-color) 82%)'
+                                }}>
+                                    <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 5, fontWeight: 700, letterSpacing: '0.04em' }}>
+                                        一句话判断
+                                    </div>
+                                    <div style={{ fontSize: 13, lineHeight: 1.7, color: TEXT_PRIMARY }}>
+                                        {selectedIndustryFocusNarrative}
+                                    </div>
+                                </div>
+
+                                <Row gutter={[8, 8]}>
+                                    <Col span={8}>
+                                        <div style={{ padding: '10px 12px', borderRadius: 10, background: 'color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary) 12%)' }}>
+                                            <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>综合得分</div>
+                                            <div style={{ fontSize: 18, fontWeight: 700, color: TEXT_PRIMARY }}>
+                                                {selectedIndustrySnapshot?.score != null ? selectedIndustrySnapshot.score.toFixed(1) : '-'}
+                                            </div>
+                                        </div>
+                                    </Col>
+                                    <Col span={8}>
+                                        <div style={{ padding: '10px 12px', borderRadius: 10, background: 'color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary) 12%)' }}>
+                                            <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>涨跌幅</div>
+                                            <div style={{ fontSize: 18, fontWeight: 700, color: (selectedIndustrySnapshot?.change_pct || 0) >= 0 ? '#cf1322' : '#3f8600' }}>
+                                                {selectedIndustrySnapshot?.change_pct != null ? `${selectedIndustrySnapshot.change_pct >= 0 ? '+' : ''}${selectedIndustrySnapshot.change_pct.toFixed(2)}%` : '-'}
+                                            </div>
+                                        </div>
+                                    </Col>
+                                    <Col span={8}>
+                                        <div style={{ padding: '10px 12px', borderRadius: 10, background: 'color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary) 12%)' }}>
+                                            <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>资金流向</div>
+                                            <div style={{ fontSize: 18, fontWeight: 700, color: (selectedIndustrySnapshot?.money_flow || 0) >= 0 ? '#cf1322' : '#3f8600' }}>
+                                                {selectedIndustrySnapshot?.money_flow != null ? `${selectedIndustrySnapshot.money_flow >= 0 ? '+' : ''}${(selectedIndustrySnapshot.money_flow / 1e8).toFixed(1)}亿` : '-'}
+                                            </div>
+                                        </div>
+                                    </Col>
+                                </Row>
+
+                                {selectedIndustryReasons.length > 0 && (
+                                    <div style={{
+                                        padding: '10px 12px',
+                                        borderRadius: 10,
+                                        background: 'color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary) 12%)'
+                                    }}>
+                                        <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 8, fontWeight: 700, letterSpacing: '0.04em' }}>
+                                            为什么值得看
+                                        </div>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                            {selectedIndustryReasons.map((reason) => (
+                                                <div key={reason} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                                    <span style={{ color: 'var(--accent-primary)', fontWeight: 700, lineHeight: 1.6 }}>•</span>
+                                                    <span style={{ fontSize: 12, lineHeight: 1.7, color: TEXT_PRIMARY }}>{reason}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                <Space size={8} wrap>
+                                    <Button type="primary" size="small" onClick={() => {
+                                        if (selectedIndustry) {
+                                            loadIndustryStocks(selectedIndustry);
+                                            setDetailVisible(true);
+                                        }
+                                    }}>
+                                        查看行业详情
+                                    </Button>
+                                    <Button size="small" icon={<BranchesOutlined />} onClick={() => handleAddToComparison(selectedIndustry)}>
+                                        加入轮动对比
+                                    </Button>
+                                </Space>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                <div style={{ fontSize: 12, color: TEXT_SECONDARY, lineHeight: 1.7 }}>
+                                    从左侧热力图、排行榜或下面推荐标签中选一个行业，右侧会自动切到该行业的龙头股与研究动作。
+                                </div>
+                                {focusIndustrySuggestions.length > 0 && (
+                                    <Space size={[6, 6]} wrap>
+                                        {focusIndustrySuggestions.map((industry) => (
+                                            <Tag
+                                                key={industry}
+                                                color="processing"
+                                                style={{ margin: 0, cursor: 'pointer', borderRadius: 999, paddingInline: 8 }}
+                                                onClick={() => handleIndustryClick(industry)}
+                                            >
+                                                {industry}
+                                            </Tag>
+                                        ))}
+                                    </Space>
+                                )}
+                            </div>
+                        )}
+                    </Card>
+
+                    {shouldRenderLeaderPanel ? (
+                        <LeaderStockPanel
+                            topN={5}
+                            topIndustries={5}
+                            perIndustry={3}
+                            focusIndustry={selectedIndustry}
+                            onClearFocusIndustry={() => setSelectedIndustry(null)}
+                        />
+                    ) : (
+                        <Card
+                            title={
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                    <span>
+                                        <CrownOutlined style={{ marginRight: 8, color: '#faad14' }} />
+                                        龙头股推荐
+                                    </span>
+                                    <span style={{ fontSize: 11, color: TEXT_SECONDARY, fontWeight: 400 }}>首屏优先渲染行业热力图，龙头股榜单稍后加载</span>
+                                </div>
+                            }
+                            styles={{ body: { paddingTop: 20, paddingBottom: 20 } }}
+                        >
+                            <div style={{ textAlign: 'center', padding: '18px 0 10px' }}>
+                                <Spin size="small" />
+                                <div style={{ marginTop: 12, fontSize: 12, color: TEXT_SECONDARY }}>
+                                    正在后台准备龙头股榜单...
+                                </div>
+                            </div>
+                        </Card>
+                    )}
                 </Col>
             </Row>
 
@@ -1869,6 +2946,7 @@ const IndustryDashboard = () => {
                     loadingStocks={loadingStocks}
                     stocksRefining={stocksRefining}
                     stocksScoreStage={stocksScoreStage}
+                    stocksDisplayReady={stocksDisplayReady}
                     stockColumns={stockColumns}
                 />
             </Modal>

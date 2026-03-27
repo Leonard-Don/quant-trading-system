@@ -32,7 +32,18 @@ class CrossMarketTemplateContext(BaseModel):
     theme: Optional[str] = None
     allocation_mode: Optional[str] = None
     bias_summary: Optional[str] = None
+    bias_strength_raw: Optional[float] = None
     bias_strength: Optional[float] = None
+    bias_scale: Optional[float] = None
+    bias_quality_label: Optional[str] = None
+    bias_quality_reason: Optional[str] = None
+    base_recommendation_score: Optional[float] = None
+    recommendation_score: Optional[float] = None
+    base_recommendation_tier: Optional[str] = None
+    recommendation_tier: Optional[str] = None
+    ranking_penalty: Optional[float] = None
+    ranking_penalty_reason: Optional[str] = None
+    bias_highlights_raw: List[str] = Field(default_factory=list)
     bias_highlights: List[str] = Field(default_factory=list)
     bias_actions: List[Dict[str, Any]] = Field(default_factory=list)
     signal_attribution: List[Dict[str, Any]] = Field(default_factory=list)
@@ -43,11 +54,26 @@ class CrossMarketTemplateContext(BaseModel):
     theme_core: Optional[str] = None
     theme_support: Optional[str] = None
     base_assets: List[CrossMarketTemplateAsset] = Field(default_factory=list)
+    raw_bias_assets: List[CrossMarketTemplateAsset] = Field(default_factory=list)
+
+
+class CrossMarketAllocationConstraints(BaseModel):
+    max_single_weight: Optional[float] = Field(default=None, gt=0, le=1)
+    min_single_weight: Optional[float] = Field(default=None, gt=0, le=1)
+
+    @field_validator("min_single_weight")
+    @classmethod
+    def validate_bounds(cls, value: Optional[float], info):
+        max_single_weight = info.data.get("max_single_weight")
+        if value is not None and max_single_weight is not None and value > max_single_weight:
+            raise ValueError("min_single_weight cannot be greater than max_single_weight")
+        return value
 
 
 class CrossMarketBacktestRequest(BaseModel):
     assets: List[CrossMarketAsset]
     template_context: Optional[CrossMarketTemplateContext] = None
+    allocation_constraints: Optional[CrossMarketAllocationConstraints] = None
     strategy: str = "spread_zscore"
     construction_mode: str = "equal_weight"
     parameters: Dict[str, Any] = Field(

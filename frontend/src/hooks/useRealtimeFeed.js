@@ -4,10 +4,22 @@ import api from '../services/api';
 import webSocketService from '../services/websocket';
 
 const QUOTE_FRESHNESS_TICK_MS = 15000;
+const WS_CONNECT_WARMUP_MS = 40;
+const WS_SNAPSHOT_GRACE_MS = 180;
+
+const toTimestampMs = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? null : parsed;
+};
 
 export const normalizeQuotePayload = (quote, receivedAt = Date.now()) => ({
   ...quote,
   _clientReceivedAt: receivedAt,
+  _marketTimestampMs: toTimestampMs(quote?.timestamp),
 });
 
 export const useRealtimeFeed = ({
@@ -20,8 +32,10 @@ export const useRealtimeFeed = ({
   const [isConnected, setIsConnected] = useState(false);
   const [isAutoUpdate, setIsAutoUpdate] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [transportDecisions, setTransportDecisions] = useState([]);
   const [freshnessNow, setFreshnessNow] = useState(Date.now());
   const [lastMarketUpdateAt, setLastMarketUpdateAt] = useState(null);
+  const [lastClientRefreshAt, setLastClientRefreshAt] = useState(null);
   const [hasEverConnected, setHasEverConnected] = useState(false);
   const [hasExperiencedFallback, setHasExperiencedFallback] = useState(false);
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
@@ -32,6 +46,33 @@ export const useRealtimeFeed = ({
   const previousSubscribedSymbolsRef = useRef(new Set());
   const connectTimerRef = useRef(null);
   const missingQuoteRequestsRef = useRef(new Set());
+  const currentTabFallbackTimerRef = useRef(null);
+  const currentTabWarmupTimerRef = useRef(null);
+  const quotesRef = useRef({});
+
+  useEffect(() => {
+    quotesRef.current = quotes;
+  }, [quotes]);
+
+  const pushTransportDecision = useCallback((mode, symbols = [], note = '') => {
+    const normalizedSymbols = (Array.isArray(symbols) ? symbols : [symbols])
+      .filter(Boolean)
+      .map(symbol => String(symbol).trim().toUpperCase());
+
+    setTransportDecisions((prev) => {
+      const next = [
+        {
+          id: `${Date.now()}-${mode}-${normalizedSymbols.join('-')}`,
+          mode,
+          symbols: normalizedSymbols,
+          note,
+          timestamp: Date.now(),
+        },
+        ...prev,
+      ];
+      return next.slice(0, 6);
+    });
+  }, []);
 
   useEffect(() => {
     const removeConnectionListener = webSocketService.addListener('connection', (data) => {
@@ -56,7 +97,9 @@ export const useRealtimeFeed = ({
       const { symbol, data: quoteData } = data;
       const receivedAt = Date.now();
       const normalizedQuote = normalizeQuotePayload(quoteData, receivedAt);
-      setLastMarketUpdateAt(receivedAt);
+      setLoading(false);
+      setLastClientRefreshAt(receivedAt);
+      setLastMarketUpdateAt(normalizedQuote._marketTimestampMs || receivedAt);
       setQuotes(prev => ({
         ...prev,
         [symbol]: normalizedQuote,
@@ -73,6 +116,14 @@ export const useRealtimeFeed = ({
       removeConnectionListener();
       removeQuoteListener();
       removeErrorListener();
+      if (currentTabFallbackTimerRef.current) {
+        clearTimeout(currentTabFallbackTimerRef.current);
+        currentTabFallbackTimerRef.current = null;
+      }
+      if (currentTabWarmupTimerRef.current) {
+        clearTimeout(currentTabWarmupTimerRef.current);
+        currentTabWarmupTimerRef.current = null;
+      }
       webSocketService.disconnect({ resetSubscriptions: true });
     };
   }, [messageApi]);
@@ -139,7 +190,7 @@ export const useRealtimeFeed = ({
       .forEach(symbol => missingQuoteRequestsRef.current.delete(String(symbol).trim().toUpperCase()));
   }, []);
 
-  const fetchQuotes = useCallback(async (symbols = subscribedSymbols) => {
+  const fetchQuotes = useCallback(async (symbols = subscribedSymbols, options = {}) => {
     const isEventLike = symbols && typeof symbols === 'object' && (
       typeof symbols.preventDefault === 'function'
       || typeof symbols.stopPropagation === 'function'
@@ -150,6 +201,9 @@ export const useRealtimeFeed = ({
       .filter(Boolean)
       .map(symbol => String(symbol).trim().toUpperCase());
     if (!targetSymbols.length) return;
+    if (options.reason) {
+      pushTransportDecision(options.reason, targetSymbols, options.note || '');
+    }
 
     setLoading(true);
     try {
@@ -167,41 +221,111 @@ export const useRealtimeFeed = ({
           ])
         );
         if (Object.keys(normalizedQuotes).length > 0) {
-          setLastMarketUpdateAt(receivedAt);
+          setLastClientRefreshAt(receivedAt);
+          const latestMarketTimestamp = Object.values(normalizedQuotes).reduce((latest, quote) => {
+            return Math.max(latest, quote._marketTimestampMs || 0);
+          }, 0);
+          setLastMarketUpdateAt(latestMarketTimestamp || receivedAt);
         }
         setQuotes(prev => ({ ...prev, ...normalizedQuotes }));
       }
     } catch (error) {
       console.error('获取初始数据失败:', error);
     } finally {
+      clearMissingQuoteRequests(targetSymbols);
       setLoading(false);
     }
-  }, [clearMissingQuoteRequests, subscribedSymbols]);
+  }, [clearMissingQuoteRequests, pushTransportDecision, subscribedSymbols]);
 
-  useEffect(() => {
-    if (isInitializedRef.current) return;
-    isInitializedRef.current = true;
-    fetchQuotes(resolveSymbolsByCategory(activeTab));
-
-    return () => {};
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    const missingSymbols = resolveSymbolsByCategory(activeTab).filter(
-      symbol => !quotes[symbol] && !missingQuoteRequestsRef.current.has(symbol)
-    );
-    if (missingSymbols.length > 0) {
-      missingSymbols.forEach(symbol => missingQuoteRequestsRef.current.add(symbol));
-      fetchQuotes(missingSymbols);
+  const scheduleCurrentTabFallbackFetch = useCallback((delayMs = WS_SNAPSHOT_GRACE_MS) => {
+    if (currentTabFallbackTimerRef.current) {
+      clearTimeout(currentTabFallbackTimerRef.current);
     }
-  }, [activeTab, fetchQuotes, quotes, resolveSymbolsByCategory]);
+
+    const symbolsInCurrentTab = resolveSymbolsByCategory(activeTab);
+    if (!symbolsInCurrentTab.length) {
+      return;
+    }
+
+    currentTabFallbackTimerRef.current = setTimeout(() => {
+      const missingSymbols = symbolsInCurrentTab.filter(
+        symbol => !quotesRef.current[symbol] && !missingQuoteRequestsRef.current.has(symbol)
+      );
+      if (missingSymbols.length > 0) {
+        missingSymbols.forEach(symbol => missingQuoteRequestsRef.current.add(symbol));
+        fetchQuotes(missingSymbols, { reason: 'rest_fallback', note: 'snapshot grace miss' });
+      }
+    }, delayMs);
+  }, [activeTab, fetchQuotes, resolveSymbolsByCategory]);
+
+  const scheduleCurrentTabWarmupSnapshot = useCallback((delayMs = WS_CONNECT_WARMUP_MS) => {
+    if (currentTabWarmupTimerRef.current) {
+      clearTimeout(currentTabWarmupTimerRef.current);
+    }
+
+    const symbolsInCurrentTab = resolveSymbolsByCategory(activeTab);
+    if (!symbolsInCurrentTab.length || !isConnected) {
+      return;
+    }
+
+    currentTabWarmupTimerRef.current = setTimeout(() => {
+      const missingSymbols = symbolsInCurrentTab.filter(symbol => !quotesRef.current[symbol]);
+      if (missingSymbols.length > 0 && webSocketService.requestSnapshot(missingSymbols)) {
+        pushTransportDecision('warmup_snapshot', missingSymbols, 'post-connect warmup');
+        setLoading(true);
+      }
+    }, delayMs);
+  }, [activeTab, isConnected, pushTransportDecision, resolveSymbolsByCategory]);
+
+  useEffect(() => {
+    if (!isInitializedRef.current) {
+      isInitializedRef.current = true;
+    }
+
+    if (isAutoUpdate && isConnected) {
+      scheduleCurrentTabWarmupSnapshot();
+    }
+    scheduleCurrentTabFallbackFetch(isAutoUpdate ? WS_SNAPSHOT_GRACE_MS : 0);
+
+    return () => {
+      if (currentTabFallbackTimerRef.current) {
+        clearTimeout(currentTabFallbackTimerRef.current);
+        currentTabFallbackTimerRef.current = null;
+      }
+      if (currentTabWarmupTimerRef.current) {
+        clearTimeout(currentTabWarmupTimerRef.current);
+        currentTabWarmupTimerRef.current = null;
+      }
+    };
+  }, [
+    activeTab,
+    isAutoUpdate,
+    isConnected,
+    scheduleCurrentTabFallbackFetch,
+    scheduleCurrentTabWarmupSnapshot,
+    subscribedSymbols,
+  ]);
 
   const refreshCurrentTab = useCallback(() => {
     const symbolsInCurrentTab = resolveSymbolsByCategory(activeTab);
     clearMissingQuoteRequests(symbolsInCurrentTab);
-    fetchQuotes(symbolsInCurrentTab);
-  }, [activeTab, clearMissingQuoteRequests, fetchQuotes, resolveSymbolsByCategory]);
+    if (isConnected && webSocketService.requestSnapshot(symbolsInCurrentTab)) {
+      pushTransportDecision('manual_snapshot', symbolsInCurrentTab, 'manual refresh');
+      setLoading(true);
+      scheduleCurrentTabFallbackFetch(WS_SNAPSHOT_GRACE_MS);
+      return;
+    }
+
+    fetchQuotes(symbolsInCurrentTab, { reason: 'manual_rest', note: 'manual refresh fallback' });
+  }, [
+    activeTab,
+    clearMissingQuoteRequests,
+    fetchQuotes,
+    isConnected,
+    pushTransportDecision,
+    resolveSymbolsByCategory,
+    scheduleCurrentTabFallbackFetch,
+  ]);
 
   const removeQuote = useCallback((symbol) => {
     clearMissingQuoteRequests([symbol]);
@@ -221,6 +345,7 @@ export const useRealtimeFeed = ({
     isAutoUpdate,
     isConnected,
     lastConnectionIssue,
+    lastClientRefreshAt,
     lastMarketUpdateAt,
     loading,
     quotes,
@@ -228,5 +353,6 @@ export const useRealtimeFeed = ({
     refreshCurrentTab,
     removeQuote,
     setIsAutoUpdate,
+    transportDecisions,
   };
 };

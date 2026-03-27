@@ -32,6 +32,7 @@ class BacktestTask:
     initial_capital: float = 100000
     commission: float = 0.001
     slippage: float = 0.001
+    research_label: Optional[str] = None
 
 
 @dataclass
@@ -45,6 +46,7 @@ class BacktestResult:
     success: bool
     error: Optional[str] = None
     execution_time: float = 0
+    research_label: Optional[str] = None
 
 
 class BatchBacktester:
@@ -132,6 +134,7 @@ class BatchBacktester:
                     logger.error(f"回测任务失败 {task.task_id}: {e}")
                     self.results.append(BacktestResult(
                         task_id=task.task_id,
+                        research_label=task.research_label,
                         symbol=task.symbol,
                         strategy_name=task.strategy_name,
                         parameters=task.parameters,
@@ -164,6 +167,7 @@ class BatchBacktester:
             if data is None or data.empty:
                 return BacktestResult(
                     task_id=task.task_id,
+                    research_label=task.research_label,
                     symbol=task.symbol,
                     strategy_name=task.strategy_name,
                     parameters=task.parameters,
@@ -190,6 +194,7 @@ class BatchBacktester:
             
             return BacktestResult(
                 task_id=task.task_id,
+                research_label=task.research_label,
                 symbol=task.symbol,
                 strategy_name=task.strategy_name,
                 parameters=task.parameters,
@@ -241,6 +246,7 @@ class BatchBacktester:
             params = dict(zip(param_names, values))
             task = BacktestTask(
                 task_id=f"grid_{symbol}_{strategy_name}_{i}",
+                research_label=None,
                 symbol=symbol,
                 strategy_name=strategy_name,
                 parameters=params,

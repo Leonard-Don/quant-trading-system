@@ -61,3 +61,4 @@ def test_macro_factor_registry_and_combiner():
     assert len(results) == 3
     assert combined["signal"] in {-1, 0, 1}
     assert combined["score"] != 0
+    assert all("metadata" in result.to_dict() for result in results)

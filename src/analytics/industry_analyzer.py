@@ -1231,6 +1231,12 @@ class IndustryAnalyzer:
         
         # 使用公共合并方法
         merged_df = self._merge_momentum_and_flow(momentum_df, money_flow_df)
+        if "total_score" not in merged_df.columns:
+            try:
+                merged_df["total_score"] = self._calculate_rank_score_series(merged_df)
+            except Exception as e:
+                logger.warning(f"Failed to calculate heatmap total_score: {e}")
+                merged_df["total_score"] = 0.0
 
         # 判断是否有真实市值数据（来自成分股汇总）
         has_real_market_cap = (
@@ -1251,6 +1257,7 @@ class IndustryAnalyzer:
             industries.append({
                 "name": row.get("industry_name", ""),
                 "value": round(change_pct, 2),  # 涨跌幅
+                "total_score": round(float(row.get("total_score", 0) or 0), 2),
                 "size": mc,  # 用于方块大小
                 "stockCount": int(row.get("stock_count", 0)),
                 "moneyFlow": row.get("main_net_inflow", 0),
@@ -1371,6 +1378,7 @@ class IndustryAnalyzer:
                 industry_name,
                 provider_stocks=raw_stocks,
             )
+            expected_count = int(matched_flow_row.get("stock_count", 0) or 0) if matched_flow_row is not None else 0
             
             if not stocks:
                 # 混合数据源下，行业名称可能能在行业热度数据中找到，但无法稳定映射到成分股。
@@ -1416,9 +1424,38 @@ class IndustryAnalyzer:
                 for stock in detailed_stocks
                 if stock.get("pe_ratio") is not None and 0 < stock["pe_ratio"] < 500
             ]
+            valid_pe_weighted_pairs = [
+                (stock["market_cap"], stock["pe_ratio"])
+                for stock in detailed_stocks
+                if has_meaningful_numeric(stock.get("market_cap"))
+                and stock.get("pe_ratio") is not None
+                and 0 < stock["pe_ratio"] < 500
+            ]
 
             total_market_cap = sum(valid_market_caps)
-            avg_pe = np.mean(valid_pe_ratios) if valid_pe_ratios else np.nan
+            if valid_pe_weighted_pairs:
+                total_pe_market_cap = sum(float(market_cap) for market_cap, _ in valid_pe_weighted_pairs)
+                total_earnings_proxy = sum(float(market_cap) / float(pe_ratio) for market_cap, pe_ratio in valid_pe_weighted_pairs if float(pe_ratio) > 0)
+                avg_pe = (total_pe_market_cap / total_earnings_proxy) if total_pe_market_cap > 0 and total_earnings_proxy > 0 else np.nan
+            else:
+                avg_pe = np.mean(valid_pe_ratios) if valid_pe_ratios else np.nan
+            if fallback_market_cap > 0:
+                if not valid_market_caps:
+                    total_market_cap = fallback_market_cap
+                elif expected_count > 10:
+                    cap_coverage = len(valid_market_caps) / max(expected_count, 1)
+                    if cap_coverage < 0.35 or total_market_cap < fallback_market_cap * 0.25:
+                        total_market_cap = fallback_market_cap
+
+            if fallback_avg_pe > 0:
+                pe_coverage_base = len(valid_pe_weighted_pairs) if valid_pe_weighted_pairs else len(valid_pe_ratios)
+                if pe_coverage_base == 0:
+                    avg_pe = fallback_avg_pe
+                elif expected_count > 10:
+                    pe_coverage = pe_coverage_base / max(expected_count, 1)
+                    if pe_coverage < 0.35:
+                        avg_pe = fallback_avg_pe
+
             industry_volatility = float(fallback_volatility or 0)
             industry_volatility_source = fallback_volatility_source
             
@@ -1436,7 +1473,6 @@ class IndustryAnalyzer:
             note = None
             degraded = False
             # 如果成分股数量极少（比如只有1只），且不是原本就极小的行业，标记为降级/提示
-            expected_count = int(matched_flow_row.get("stock_count", 0) or 0) if matched_flow_row is not None else 0
             if len(stocks) <= 3 and expected_count > 10:
                 degraded = True
                 note = f"成分股列表可能不完整（获取到 {len(stocks)} 只，预期约 {expected_count} 只）。当前展示可能存在偏差。"

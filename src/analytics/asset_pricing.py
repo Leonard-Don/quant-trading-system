@@ -17,6 +17,19 @@ logger = logging.getLogger(__name__)
 _ff_cache: Dict[str, Any] = {}
 
 
+def _normalize_daily_index(data: pd.Series | pd.DataFrame) -> pd.Series | pd.DataFrame:
+    """Normalize market time series to a tz-naive daily DatetimeIndex."""
+    if data is None or data.empty:
+        return data
+
+    normalized = data.copy()
+    index = pd.to_datetime(normalized.index)
+    if getattr(index, "tz", None) is not None:
+        index = index.tz_localize(None)
+    normalized.index = index.normalize()
+    return normalized.sort_index()
+
+
 def _fetch_ff_factors(period: str = "1y") -> pd.DataFrame:
     """
     获取 Fama-French 三因子数据
@@ -39,6 +52,7 @@ def _fetch_ff_factors(period: str = "1y") -> pd.DataFrame:
                             start=datetime.now() - timedelta(days=_period_to_days(period)))
         df = ff[0] / 100.0  # 百分比 -> 小数
         df.index = pd.to_datetime(df.index)
+        df = _normalize_daily_index(df)
         _ff_cache[cache_key] = {"data": df, "ts": datetime.now()}
         logger.info(f"Fetched Fama-French factors: {len(df)} days")
         return df
@@ -69,6 +83,7 @@ def _estimate_ff_factors(period: str = "1y") -> pd.DataFrame:
             "HML": np.random.normal(0, 0.003, len(mkt_rf)),  # 代理
             "RF": rf
         }, index=mkt_rf.index)
+        df = _normalize_daily_index(df)
 
         logger.info("Using proxy FF factors (estimated)")
         return df
@@ -107,6 +122,7 @@ class AssetPricingEngine:
             days = _period_to_days(period)
             start = datetime.now() - timedelta(days=days)
             stock_data = self.data_manager.get_historical_data(symbol, start_date=start)
+            stock_data = _normalize_daily_index(stock_data)
 
             if stock_data.empty or len(stock_data) < 60:
                 return self._empty_result("数据不足，至少需要60个交易日")

@@ -216,11 +216,70 @@ class PricingGapAnalyzer:
                             "description": f"当前{m['method']}为{current:.1f}，行业基准为{bench:.1f}，折价{(1-ratio)*100:.0f}%"
                         })
 
+        sorted_drivers = self._sort_drivers(drivers)
         return {
-            "drivers": drivers,
-            "primary_driver": drivers[0] if drivers else None,
-            "driver_count": len(drivers)
+            "drivers": sorted_drivers,
+            "primary_driver": sorted_drivers[0] if sorted_drivers else None,
+            "driver_count": len(sorted_drivers)
         }
+
+    def _sort_drivers(self, drivers):
+        """Sort candidate drivers by impact strength instead of insertion order."""
+        if not drivers:
+            return []
+
+        ranked = sorted(
+            drivers,
+            key=lambda item: (
+                self._driver_signal_strength(item),
+                abs(float(item.get("magnitude") or 0)),
+                item.get("factor", ""),
+            ),
+            reverse=True,
+        )
+        enriched = []
+        for index, item in enumerate(ranked, start=1):
+            enriched.append({
+                **item,
+                "rank": index,
+                "signal_strength": self._driver_signal_strength(item),
+                "ranking_reason": self._driver_ranking_reason(item),
+            })
+        return enriched
+
+    def _driver_signal_strength(self, driver: Dict[str, Any]) -> float:
+        """Normalize heterogeneous driver magnitudes onto a comparable ranking scale."""
+        if "_signal_strength" in driver:
+            return float(driver["_signal_strength"])
+
+        magnitude = abs(float(driver.get("magnitude") or 0))
+        impact = driver.get("impact")
+
+        if impact in {"positive", "negative"}:
+            score = magnitude / 5.0
+        elif impact in {"risk", "defensive"}:
+            score = abs(magnitude - 1.0) / 0.3
+        elif impact == "style":
+            score = magnitude / 0.3
+        elif impact in {"overvalued", "undervalued"}:
+            score = abs(magnitude - 1.0) / 0.3
+        else:
+            score = magnitude
+
+        return round(score, 4)
+
+    def _driver_ranking_reason(self, driver: Dict[str, Any]) -> str:
+        """Explain the dimension used to rank this driver."""
+        impact = driver.get("impact")
+        if impact in {"positive", "negative"}:
+            return "按 Alpha 绝对值排序"
+        if impact in {"risk", "defensive"}:
+            return "按 Beta 偏离 1 的幅度排序"
+        if impact == "style":
+            return "按风格因子暴露绝对值排序"
+        if impact in {"overvalued", "undervalued"}:
+            return "按估值倍数偏离行业基准幅度排序"
+        return "按信号幅度排序"
 
     def _derive_implications(self, gap: Dict, factor: Dict, valuation: Dict) -> Dict[str, Any]:
         """推导投资含义和建议"""
@@ -267,11 +326,106 @@ class PricingGapAnalyzer:
         elif val_status in ["overvalued", "severely_overvalued"]:
             insights.append("一级市场视角（基本面估值）认为当前价格偏高")
 
+        confidence_meta = self._assess_confidence(gap, factor, valuation)
+
         return {
             "insights": insights,
             "risk_level": risk_level,
             "primary_view": "低估" if gap_pct and gap_pct < -10 else "高估" if gap_pct and gap_pct > 10 else "合理",
-            "confidence": "high" if severity in ["extreme", "high"] else "medium" if severity == "moderate" else "low"
+            "confidence": confidence_meta["level"],
+            "confidence_score": confidence_meta["score"],
+            "confidence_reasons": confidence_meta["reasons"],
+        }
+
+    def _assess_confidence(self, gap: Dict, factor: Dict, valuation: Dict) -> Dict[str, Any]:
+        """Estimate confidence from data quality, model coverage and valuation consistency."""
+        score = 0.0
+        reasons = []
+
+        fair_value = valuation.get("fair_value", {}) or {}
+        if gap.get("gap_pct") is not None and fair_value.get("mid"):
+            score += 0.15
+        else:
+            reasons.append("缺少完整的价格偏差锚点")
+
+        capm = factor.get("capm", {}) or {}
+        ff3 = factor.get("fama_french", {}) or {}
+        if "error" not in capm:
+            score += 0.12
+        else:
+            reasons.append("CAPM 模型不可用")
+
+        if "error" not in ff3:
+            score += 0.12
+        else:
+            reasons.append("FF3 模型不可用")
+
+        factor_points = max(
+            int(factor.get("data_points") or 0),
+            int(capm.get("data_points") or 0),
+            int(ff3.get("data_points") or 0),
+        )
+        if factor_points >= 180:
+            score += 0.16
+        elif factor_points >= 120:
+            score += 0.12
+        elif factor_points >= 60:
+            score += 0.08
+            reasons.append("因子样本窗口偏短")
+        else:
+            reasons.append("因子样本不足")
+
+        dcf = valuation.get("dcf", {}) or {}
+        comparable = valuation.get("comparable", {}) or {}
+        dcf_value = dcf.get("intrinsic_value")
+        comparable_value = comparable.get("fair_value")
+        dcf_ok = "error" not in dcf and dcf_value and dcf_value > 0
+        comparable_ok = "error" not in comparable and comparable_value and comparable_value > 0
+        valuation_methods = int(bool(dcf_ok)) + int(bool(comparable_ok))
+
+        if valuation_methods == 2:
+            score += 0.16
+        elif valuation_methods == 1:
+            score += 0.08
+            reasons.append("仅有单一估值方法支撑")
+        else:
+            reasons.append("缺少可用估值方法")
+
+        price_source = valuation.get("current_price_source", "unavailable")
+        if price_source == "live":
+            score += 0.09
+        elif price_source in {"fundamental_current_price", "fundamental_regular_market_price"}:
+            score += 0.07
+        elif price_source in {"fundamental_previous_close", "historical_close"}:
+            score += 0.04
+            reasons.append("当前价格使用回退值")
+        else:
+            reasons.append("当前价格来源不可确认")
+
+        if dcf_ok and comparable_ok:
+            midpoint = (float(dcf_value) + float(comparable_value)) / 2
+            divergence = abs(float(dcf_value) - float(comparable_value)) / midpoint if midpoint > 0 else None
+            if divergence is not None:
+                if divergence <= 0.15:
+                    score += 0.10
+                elif divergence <= 0.30:
+                    score += 0.05
+                    reasons.append("DCF 与可比估值存在一定分歧")
+                else:
+                    reasons.append("DCF 与可比估值分歧较大")
+
+        score = max(0.0, min(score, 1.0))
+        if score >= 0.72:
+            level = "high"
+        elif score >= 0.45:
+            level = "medium"
+        else:
+            level = "low"
+
+        return {
+            "level": level,
+            "score": round(score, 2),
+            "reasons": reasons[:3],
         }
 
     def _generate_summary(self, gap: Dict, valuation: Dict) -> str:

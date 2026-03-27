@@ -8,9 +8,12 @@ class TradeWebSocketService {
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 3;
     this.reconnectDelay = 2000;
+    this.maxReconnectDelay = 16000;
+    this.reconnectJitterRatio = 0.2;
     this.reconnectTimer = null;
     this.heartbeatIntervalMs = 15000;
     this.heartbeatTimer = null;
+    this.lastErrorReason = null;
   }
 
   startHeartbeat() {
@@ -27,6 +30,20 @@ class TradeWebSocketService {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+  }
+
+  getReconnectDelay(attempt = this.reconnectAttempts) {
+    const safeAttempt = Math.max(1, attempt);
+    const exponentialDelay = Math.min(
+      this.reconnectDelay * (2 ** (safeAttempt - 1)),
+      this.maxReconnectDelay,
+    );
+    const jitterWindow = Math.round(exponentialDelay * this.reconnectJitterRatio);
+    const jitterOffset = jitterWindow > 0
+      ? Math.round((Math.random() * jitterWindow * 2) - jitterWindow)
+      : 0;
+
+    return Math.max(this.reconnectDelay, exponentialDelay + jitterOffset);
   }
 
   getWebSocketUrl() {
@@ -75,6 +92,7 @@ class TradeWebSocketService {
 
           this.isConnected = true;
           this.reconnectAttempts = 0;
+          this.lastErrorReason = null;
           this.startHeartbeat();
           if (this.reconnectTimer) {
             clearTimeout(this.reconnectTimer);
@@ -102,6 +120,7 @@ class TradeWebSocketService {
             return;
           }
 
+          this.lastErrorReason = error?.message || 'Trade WebSocket connection failed';
           this.notifyListeners('error', { error });
           if (!this.isConnected) {
             rejectIfPending(new Error('Trade WebSocket connection failed'));
@@ -118,6 +137,7 @@ class TradeWebSocketService {
           this.isConnected = false;
           this.connectPromise = null;
           this.stopHeartbeat();
+          this.lastErrorReason = this.lastErrorReason || event?.reason || 'Trade WebSocket closed';
           this.notifyListeners('connection', { status: 'disconnected' });
 
           if (!wasConnected && !this.manuallyDisconnected) {
@@ -127,7 +147,14 @@ class TradeWebSocketService {
 
           if (!this.manuallyDisconnected && this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts += 1;
-            this.reconnectTimer = setTimeout(() => this.connect(), this.reconnectDelay);
+            const nextRetryInMs = this.getReconnectDelay(this.reconnectAttempts);
+            this.notifyListeners('connection', {
+              status: 'reconnecting',
+              reconnectAttempts: this.reconnectAttempts,
+              lastError: this.lastErrorReason,
+              nextRetryInMs,
+            });
+            this.reconnectTimer = setTimeout(() => this.connect(), nextRetryInMs);
           }
         };
       } catch (error) {
@@ -155,6 +182,7 @@ class TradeWebSocketService {
     }
 
     this.isConnected = false;
+    this.lastErrorReason = null;
   }
 
   sendMessage(message) {
@@ -206,6 +234,7 @@ class TradeWebSocketService {
     return {
       isConnected: this.isConnected,
       reconnectAttempts: this.reconnectAttempts,
+      lastErrorReason: this.lastErrorReason,
     };
   }
 }

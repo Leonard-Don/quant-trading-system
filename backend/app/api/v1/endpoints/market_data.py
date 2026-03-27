@@ -53,33 +53,3 @@ async def get_market_data(request: MarketDataRequest):
     except Exception as e:
         logger.error(f"Error fetching market data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
-@router.get("/search", summary="搜索股票代码")
-async def search_symbols(query: str):
-    """搜索股票代码"""
-    # 常见股票代码列表
-    common_symbols = [
-        {"symbol": "AAPL", "name": "Apple Inc.", "exchange": "NASDAQ"},
-        {"symbol": "MSFT", "name": "Microsoft Corporation", "exchange": "NASDAQ"},
-        {"symbol": "GOOGL", "name": "Alphabet Inc.", "exchange": "NASDAQ"},
-        {"symbol": "AMZN", "name": "Amazon.com Inc.", "exchange": "NASDAQ"},
-        {"symbol": "TSLA", "name": "Tesla Inc.", "exchange": "NASDAQ"},
-        {"symbol": "META", "name": "Meta Platforms Inc.", "exchange": "NASDAQ"},
-        {"symbol": "NVDA", "name": "NVIDIA Corporation", "exchange": "NASDAQ"},
-        {"symbol": "JPM", "name": "JPMorgan Chase & Co.", "exchange": "NYSE"},
-        {"symbol": "JNJ", "name": "Johnson & Johnson", "exchange": "NYSE"},
-        {"symbol": "V", "name": "Visa Inc.", "exchange": "NYSE"},
-        {"symbol": "PG", "name": "Procter & Gamble Co.", "exchange": "NYSE"},
-        {"symbol": "UNH", "name": "UnitedHealth Group Inc.", "exchange": "NYSE"},
-        {"symbol": "HD", "name": "Home Depot Inc.", "exchange": "NYSE"},
-        {"symbol": "MA", "name": "Mastercard Inc.", "exchange": "NYSE"},
-        {"symbol": "BAC", "name": "Bank of America Corp.", "exchange": "NYSE"},
-    ]
-
-    # 简单的搜索过滤
-    query = query.upper()
-    filtered = [
-        s for s in common_symbols if query in s["symbol"] or query in s["name"].upper()
-    ]
-
-    return {"symbols": filtered[:10]}  # 限制返回10个结果

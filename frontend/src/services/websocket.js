@@ -10,6 +10,8 @@ class WebSocketService {
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
         this.reconnectDelay = 3000;
+        this.maxReconnectDelay = 30000;
+        this.reconnectJitterRatio = 0.2;
         this.reconnectTimer = null;
         this.heartbeatIntervalMs = 15000;
         this.heartbeatTimer = null;
@@ -34,6 +36,20 @@ class WebSocketService {
             clearInterval(this.heartbeatTimer);
             this.heartbeatTimer = null;
         }
+    }
+
+    getReconnectDelay(attempt = this.reconnectAttempts) {
+        const safeAttempt = Math.max(1, attempt);
+        const exponentialDelay = Math.min(
+            this.reconnectDelay * (2 ** (safeAttempt - 1)),
+            this.maxReconnectDelay,
+        );
+        const jitterWindow = Math.round(exponentialDelay * this.reconnectJitterRatio);
+        const jitterOffset = jitterWindow > 0
+            ? Math.round((Math.random() * jitterWindow * 2) - jitterWindow)
+            : 0;
+
+        return Math.max(this.reconnectDelay, exponentialDelay + jitterOffset);
     }
 
     /**
@@ -160,14 +176,15 @@ class WebSocketService {
                     // 尝试重连
                     if (!this.manuallyDisconnected && this.reconnectAttempts < this.maxReconnectAttempts) {
                         this.reconnectAttempts++;
+                        const nextRetryInMs = this.getReconnectDelay(this.reconnectAttempts);
                         console.log(`Reconnecting... attempt ${this.reconnectAttempts}`);
                         this.notifyListeners('connection', {
                             status: 'reconnecting',
                             reconnectAttempts: this.reconnectAttempts,
                             lastError: this.lastErrorReason,
-                            nextRetryInMs: this.reconnectDelay,
+                            nextRetryInMs,
                         });
-                        this.reconnectTimer = setTimeout(() => this.connect(), this.reconnectDelay);
+                        this.reconnectTimer = setTimeout(() => this.connect(), nextRetryInMs);
                     } else {
                         this.notifyListeners('connection', {
                             status: 'disconnected',
@@ -238,6 +255,19 @@ class WebSocketService {
         return newSymbols;
     }
 
+    requestSnapshot(symbols = Array.from(this.subscriptions)) {
+        const normalizedSymbols = (Array.isArray(symbols) ? symbols : [symbols])
+            .filter(Boolean)
+            .map(symbol => String(symbol).trim().toUpperCase());
+
+        if (!this.isConnected || normalizedSymbols.length === 0) {
+            return false;
+        }
+
+        this.sendMessage({ action: 'snapshot', symbols: normalizedSymbols });
+        return true;
+    }
+
     /**
      * 取消订阅
      */
@@ -273,6 +303,20 @@ class WebSocketService {
             case 'price_update':
                 this.notifyListeners('quote', data);
                 this.notifyListeners(`quote:${data.symbol}`, data);
+                break;
+            case 'snapshot':
+                this.notifyListeners('snapshot', data);
+                Object.entries(data.data || {}).forEach(([symbol, quote]) => {
+                    const quoteEvent = {
+                        type: 'quote',
+                        symbol,
+                        data: quote,
+                        timestamp: data.timestamp,
+                        origin: data.origin || 'snapshot',
+                    };
+                    this.notifyListeners('quote', quoteEvent);
+                    this.notifyListeners(`quote:${symbol}`, quoteEvent);
+                });
                 break;
             case 'pong':
                 // 心跳响应

@@ -25,6 +25,7 @@ jest.mock('../components/SkeletonLoaders', () => ({
 }));
 
 jest.mock('../components/AIPredictionPanel', () => () => <div>AI</div>);
+jest.mock('../components/CandlestickChart', () => () => <div>Chart</div>);
 
 jest.mock('recharts', () => {
   const Mock = () => null;

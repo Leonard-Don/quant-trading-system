@@ -237,13 +237,8 @@ export const runWalkForwardBacktest = async (payload) => {
   return response.data;
 };
 
-export const getSystemStatus = async () => {
-  const response = await api.get('/system/status?detailed=true');
-  return response.data;
-};
-
-export const getPerformanceMetrics = async () => {
-  const response = await api.get('/system/performance');
+export const runPortfolioStrategyBacktest = async (payload) => {
+  const response = await api.post('/backtest/portfolio-strategy', payload);
   return response.data;
 };
 
@@ -283,13 +278,6 @@ export const getKlines = async (symbol, interval = '1d', limit = 150) => {
   return response.data;
 };
 
-export const getComprehensiveAnalysis = async (symbol, interval = '1d') => {
-  const response = await api.post('/analysis/comprehensive', { symbol, interval });
-  return response.data;
-};
-
-
-
 export const predictPrice = async (symbol) => {
   const response = await api.post('/analysis/prediction', { symbol });
   return response.data;
@@ -318,16 +306,6 @@ export const getPortfolio = async () => {
 
 export const getRealtimeQuote = async (symbol) => {
   const response = await api.get(`/realtime/quote/${encodeURIComponent(symbol)}`);
-  return response.data;
-};
-
-export const getRealtimePreferences = async () => {
-  const response = await api.get('/realtime/preferences');
-  return response.data;
-};
-
-export const updateRealtimePreferences = async (payload) => {
-  const response = await api.put('/realtime/preferences', payload);
   return response.data;
 };
 
@@ -365,17 +343,6 @@ export const getAlertSummary = async () => {
 
 export const resolveAlert = async (alertIndex) => {
   const response = await api.post(`/system/alerts/${alertIndex}/resolve`);
-  return response.data;
-};
-
-export const checkDependencies = async () => {
-  const response = await api.get('/system/dependencies');
-  return response.data;
-};
-
-// AI 模型相关 API
-export const getAvailableModels = async () => {
-  const response = await api.get('/analysis/models');
   return response.data;
 };
 
@@ -527,16 +494,6 @@ export const getAltDataSnapshot = async (refresh = false) => {
 
 export const getAltDataStatus = async () => {
   const response = await api.get('/alt-data/status');
-  return response.data;
-};
-
-export const getAltSignals = async (params = {}) => {
-  const search = new URLSearchParams();
-  if (params.category) search.set('category', params.category);
-  if (params.timeframe) search.set('timeframe', params.timeframe);
-  if (params.refresh) search.set('refresh', 'true');
-  const query = search.toString();
-  const response = await api.get(`/alt-data/signals${query ? `?${query}` : ''}`);
   return response.data;
 };
 

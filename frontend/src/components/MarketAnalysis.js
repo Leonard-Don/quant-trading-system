@@ -95,6 +95,7 @@ const DISPLAY_EMPTY = '--';
 const ANALYSIS_CACHE_TTL_MS = 2 * 60 * 1000;
 const analysisResponseCache = new Map();
 const AIPredictionPanel = lazy(() => import('./AIPredictionPanel'));
+const CandlestickChart = lazy(() => import('./CandlestickChart'));
 const TAB_LABELS = {
     overview: '总览',
     trend: '趋势分析',
@@ -999,6 +1000,18 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                     </Card>
                 </Col>
 
+                {/* K线图 */}
+                <Col span={24}>
+                    <Card
+                        title={<><LineChartOutlined /> K线图表</>}
+                        variant="borderless"
+                    >
+                        <Suspense fallback={<div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>}>
+                            <CandlestickChart symbol={symbol} embedMode />
+                        </Suspense>
+                    </Card>
+                </Col>
+
                 {/* 技术指标快照 */}
                 <Col span={24}>
                     <Card
@@ -1164,7 +1177,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 </Col>
             </Row>
         );
-    }, [loadingTab.overview, loadingTab.technical, loadingTab.events, errorTab.overview, overviewData, technicalData, eventData, renderScoreGauge, renderRadarChart, renderRecommendation]);
+    }, [loadingTab.overview, loadingTab.technical, loadingTab.events, errorTab.overview, overviewData, technicalData, eventData, renderScoreGauge, renderRadarChart, renderRecommendation, symbol]);
 
     // 2. Trend Content
     const trendContent = useMemo(() => {

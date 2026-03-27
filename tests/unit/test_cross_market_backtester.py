@@ -132,10 +132,24 @@ def test_cross_market_backtester_returns_expected_sections():
             "template_name": "US utilities vs NASDAQ growth",
             "allocation_mode": "macro_bias",
             "bias_summary": "多头增配 XLU，空头增配 QQQ",
+            "bias_strength_raw": 11.8,
             "bias_strength": 6.5,
+            "bias_scale": 0.55,
+            "bias_quality_label": "compressed",
+            "bias_quality_reason": "正文抓取脆弱源 ndrc，宏观偏置已收缩",
+            "base_recommendation_score": 3.1,
+            "recommendation_score": 2.65,
+            "base_recommendation_tier": "优先部署",
+            "recommendation_tier": "重点跟踪",
+            "ranking_penalty": 0.45,
+            "ranking_penalty_reason": "核心腿 XLU 已进入压缩焦点，模板排序自动降级",
             "base_assets": [
                 {"symbol": "XLU", "asset_class": "ETF", "side": "long", "weight": 0.45},
                 {"symbol": "QQQ", "asset_class": "ETF", "side": "short", "weight": 0.55},
+            ],
+            "raw_bias_assets": [
+                {"symbol": "XLU", "asset_class": "ETF", "side": "long", "weight": 0.518},
+                {"symbol": "QQQ", "asset_class": "ETF", "side": "short", "weight": 0.482},
             ],
         },
         strategy_name="spread_zscore",
@@ -158,7 +172,10 @@ def test_cross_market_backtester_returns_expected_sections():
     assert results["asset_universe"]["by_side"]["long"] == 1
     assert "XLU" in results["asset_contributions"]
     assert results["hedge_portfolio"]["gross_exposure"] > 0
+    assert results["hedge_portfolio"]["beta_neutrality"]["level"] in {"balanced", "watch", "stretched", "unknown"}
     assert results["data_alignment"]["per_symbol"][0]["provider"].startswith("mock_")
+    assert results["data_alignment"]["per_symbol"][0]["venue"]
+    assert results["data_alignment"]["calendar_diagnostics"]["level"] in {"aligned", "watch", "stretched"}
     assert results["execution_plan"]["route_count"] == 2
     assert results["execution_diagnostics"]["route_count"] == 2
     assert results["execution_plan"]["initial_capital"] == 100000
@@ -171,14 +188,45 @@ def test_cross_market_backtester_returns_expected_sections():
     assert results["execution_plan"]["largest_batch"]["target_notional"] > 0
     assert results["execution_plan"]["routes"][0]["rounded_quantity"] >= 1
     assert results["execution_plan"]["routes"][0]["reference_price"] > 0
+    assert results["execution_plan"]["routes"][0]["avg_daily_notional"] > 0
+    assert results["execution_plan"]["routes"][0]["adv_usage"] > 0
+    assert results["execution_plan"]["routes"][0]["liquidity_band"] in {"comfortable", "watch", "stretched", "unknown"}
+    assert results["execution_plan"]["routes"][0]["margin_requirement"] > 0
+    assert results["execution_plan"]["routes"][0]["margin_rate"] > 0
     assert results["execution_plan"]["sizing_summary"]["lot_efficiency"] > 0
+    assert results["execution_plan"]["liquidity_summary"]["max_adv_usage"] > 0
+    assert results["execution_plan"]["margin_summary"]["utilization"] > 0
+    assert results["execution_plan"]["margin_summary"]["gross_leverage"] > 0
+    assert results["execution_diagnostics"]["liquidity_level"] in {"comfortable", "watch", "stretched", "unknown"}
+    assert results["execution_diagnostics"]["margin_level"] in {"manageable", "elevated", "aggressive"}
+    assert results["execution_diagnostics"]["beta_level"] in {"balanced", "watch", "stretched", "unknown"}
+    assert results["execution_diagnostics"]["calendar_level"] in {"aligned", "watch", "stretched"}
     assert results["execution_diagnostics"]["suggested_rebalance"] in {"weekly", "biweekly", "monthly"}
     assert len(results["execution_plan"]["execution_stress"]["scenarios"]) == 4
     assert results["execution_plan"]["execution_stress"]["worst_case"]["largest_batch_notional"] > 0
+    assert "liquidity_level" in results["execution_plan"]["execution_stress"]["worst_case"]
+    assert "margin_level" in results["execution_plan"]["execution_stress"]["worst_case"]
     assert results["execution_diagnostics"]["stress_test_flag"] in {"balanced", "moderate", "high"}
     assert results["allocation_overlay"]["allocation_mode"] == "macro_bias"
+    assert results["allocation_overlay"]["bias_strength_raw"] == 11.8
+    assert results["allocation_overlay"]["bias_strength"] == 6.5
+    assert results["allocation_overlay"]["bias_scale"] == 0.55
+    assert results["allocation_overlay"]["bias_quality_label"] == "compressed"
+    assert results["allocation_overlay"]["bias_compression_effect"] > 0
+    assert results["allocation_overlay"]["compression_summary"]["label"] == "compressed"
+    assert results["allocation_overlay"]["compression_summary"]["compression_ratio"] > 0
+    assert results["allocation_overlay"]["selection_quality"]["label"] == "auto_downgraded"
+    assert results["allocation_overlay"]["selection_quality"]["base_recommendation_score"] == 3.1
+    assert results["allocation_overlay"]["selection_quality"]["effective_recommendation_score"] == 2.65
+    assert results["allocation_overlay"]["selection_quality"]["ranking_penalty"] == 0.45
+    assert "核心腿" in results["allocation_overlay"]["selection_quality"]["reason"]
+    assert results["allocation_overlay"]["compressed_asset_count"] >= 1
+    assert results["allocation_overlay"]["rows"][0]["raw_bias_weight"] >= 0
+    assert "compression_delta" in results["allocation_overlay"]["rows"][0]
     assert results["allocation_overlay"]["rows"][0]["effective_weight"] >= 0
     assert results["allocation_overlay"]["max_delta_weight"] >= 0
+    assert results["constraint_overlay"]["applied"] is False
+    assert results["data_alignment"]["per_symbol"][0]["avg_daily_notional"] > 0
 
 
 def test_cross_market_backtester_uses_tradable_mask():
@@ -201,6 +249,55 @@ def test_cross_market_backtester_uses_tradable_mask():
 
     assert results["data_alignment"]["dropped_dates_count"] == 2
     assert results["data_alignment"]["aligned_row_count"] == 10
+
+
+def test_cross_market_backtester_applies_weight_constraints():
+    frames = {
+        "XLU": _price_frame([100, 101, 102, 104, 108, 115, 118, 112, 109, 105, 103, 101]),
+        "DUK": _price_frame([100, 100, 101, 102, 103, 104, 105, 106, 106, 107, 108, 109]),
+        "QQQ": _price_frame([100, 100, 99, 98, 97, 96, 95, 97, 99, 101, 102, 103]),
+        "ARKK": _price_frame([100, 99, 98, 97, 95, 94, 93, 92, 91, 90, 89, 88]),
+    }
+    backtester = CrossMarketBacktester(data_manager=DummyDataManager(frames))
+
+    results = backtester.run(
+        assets=[
+            {"symbol": "XLU", "asset_class": "ETF", "side": "long", "weight": 0.85},
+            {"symbol": "DUK", "asset_class": "US_STOCK", "side": "long", "weight": 0.15},
+            {"symbol": "QQQ", "asset_class": "ETF", "side": "short", "weight": 0.8},
+            {"symbol": "ARKK", "asset_class": "ETF", "side": "short", "weight": 0.2},
+        ],
+        strategy_name="spread_zscore",
+        parameters={"lookback": 5, "entry_threshold": 1.0, "exit_threshold": 0.2},
+        min_history_days=10,
+        allocation_constraints={"max_single_weight": 0.6, "min_single_weight": 0.2},
+    )
+
+    assert results["constraint_overlay"]["applied"] is True
+    assert results["constraint_overlay"]["binding_count"] >= 1
+    assert results["constraint_overlay"]["max_delta_weight"] > 0
+    assert any(row["binding"] == "max" for row in results["constraint_overlay"]["rows"])
+    assert results["execution_diagnostics"]["constraint_binding_count"] == results["constraint_overlay"]["binding_count"]
+
+
+def test_cross_market_backtester_rejects_infeasible_constraints():
+    frames = {
+        "XLU": _price_frame([100, 101, 102, 104, 108, 115, 118, 112, 109, 105, 103, 101]),
+        "QQQ": _price_frame([100, 100, 99, 98, 97, 96, 95, 97, 99, 101, 102, 103]),
+    }
+    backtester = CrossMarketBacktester(data_manager=DummyDataManager(frames))
+
+    with pytest.raises(ValueError, match="infeasible"):
+        backtester.run(
+            assets=[
+                {"symbol": "XLU", "asset_class": "ETF", "side": "long"},
+                {"symbol": "QQQ", "asset_class": "ETF", "side": "short"},
+            ],
+            strategy_name="spread_zscore",
+            parameters={"lookback": 5, "entry_threshold": 1.0, "exit_threshold": 0.2},
+            min_history_days=10,
+            allocation_constraints={"max_single_weight": 0.4},
+        )
 
 
 def test_cross_market_backtester_rejects_short_history():

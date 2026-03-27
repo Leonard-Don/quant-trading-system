@@ -32,7 +32,7 @@ async def get_alt_data_snapshot(refresh: bool = Query(default=False)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.get("/signals", summary="另类数据统一信号")
+@router.get("/signals", summary="另类数据统一信号", deprecated=True)
 async def get_alt_signals(
     category: Optional[str] = Query(default=None),
     timeframe: str = Query(default="7d"),
@@ -52,7 +52,7 @@ async def get_alt_signals(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.get("/providers", summary="另类数据提供器状态")
+@router.get("/providers", summary="另类数据提供器状态", deprecated=True)
 async def get_alt_providers():
     try:
         manager = _get_manager()
@@ -112,6 +112,7 @@ async def get_alt_data_history(
     try:
         manager = _get_manager()
         records = manager.get_records(category=category, timeframe=timeframe, limit=limit)
+        history_analysis = manager.analyze_history(records)
         snapshot = manager.get_dashboard_snapshot(refresh=False)
         return {
             "records": [record.to_dict() for record in records],
@@ -119,6 +120,10 @@ async def get_alt_data_history(
             "category": category,
             "timeframe": timeframe,
             "snapshot_timestamp": snapshot.get("snapshot_timestamp"),
+            "category_series": history_analysis.get("category_series", {}),
+            "category_trends": history_analysis.get("category_trends", {}),
+            "overall_trend": history_analysis.get("overall_trend", {}),
+            "evidence_summary": manager.build_evidence_summary(records, limit=8),
         }
     except Exception as exc:
         logger.error("Failed to load alt-data history: %s", exc, exc_info=True)

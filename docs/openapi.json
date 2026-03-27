@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "量化交易系统API",
-    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.6.0\n    - **API版本**: v1\n    - **最后更新**: 2026-03-20\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
+    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.7.0\n    - **API版本**: v1\n    - **最后更新**: 2026-03-27\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
     "termsOfService": "https://example.com/terms/",
     "contact": {
       "name": "量化交易系统支持",
@@ -13,7 +13,7 @@
       "name": "MIT License",
       "url": "https://opensource.org/licenses/MIT"
     },
-    "version": "3.6.0"
+    "version": "3.7.0"
   },
   "paths": {
     "/market-data/": {
@@ -34,47 +34,6 @@
           },
           "required": true
         },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/market-data/search": {
-      "get": {
-        "tags": [
-          "Market Data"
-        ],
-        "summary": "搜索股票代码",
-        "description": "搜索股票代码",
-        "operationId": "search_symbols_market_data_search_get",
-        "parameters": [
-          {
-            "name": "query",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Query"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -251,111 +210,15 @@
         "summary": "比较多个策略的性能",
         "operationId": "compare_strategies_post_backtest_compare_post",
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CompareRequest"
               }
             }
-          }
+          },
+          "required": true
         },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "get": {
-        "tags": [
-          "Backtest"
-        ],
-        "summary": "比较多个策略的性能",
-        "description": "比较多个策略的性能\n\n包含：\n1. 并发执行回测\n2. 服务端计算综合评分 (收益40%, 夏普30%, 风控30%)",
-        "operationId": "compare_strategies_backtest_compare_get",
-        "parameters": [
-          {
-            "name": "symbol",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Symbol"
-            }
-          },
-          {
-            "name": "strategies",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Strategies"
-            }
-          },
-          {
-            "name": "start_date",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "title": "Start Date"
-            }
-          },
-          {
-            "name": "end_date",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "title": "End Date"
-            }
-          },
-          {
-            "name": "initial_capital",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "number",
-              "default": 10000.0,
-              "title": "Initial Capital"
-            }
-          },
-          {
-            "name": "commission",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "number",
-              "default": 0.001,
-              "title": "Commission"
-            }
-          },
-          {
-            "name": "slippage",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "number",
-              "default": 0.001,
-              "title": "Slippage"
-            }
-          }
-        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -424,6 +287,15 @@
               "type": "string",
               "title": "Strategy"
             }
+          },
+          {
+            "name": "record_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Record Type"
+            }
           }
         ],
         "responses": {
@@ -473,6 +345,15 @@
             "schema": {
               "type": "string",
               "title": "Strategy"
+            }
+          },
+          {
+            "name": "record_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "title": "Record Type"
             }
           }
         ],
@@ -556,6 +437,45 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/history/advanced": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "保存高级实验记录到历史",
+        "operationId": "save_advanced_history_record_backtest_history_advanced_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdvancedHistorySaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -666,6 +586,7 @@
         "summary": "系统状态检查",
         "description": "系统状态检查接口\n\nArgs:\n    detailed: 是否执行详细检查 (默认 False，仅返回基础资源使用情况)",
         "operationId": "get_system_status_system_status_get",
+        "deprecated": true,
         "parameters": [
           {
             "name": "detailed",
@@ -717,7 +638,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/system/health-check": {
@@ -737,7 +659,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/system/metrics": {
@@ -757,7 +680,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/system/alerts/summary": {
@@ -777,7 +701,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/system/alerts/{alert_index}/resolve": {
@@ -788,6 +713,7 @@
         "summary": "解决告警",
         "description": "解决告警",
         "operationId": "resolve_alert_system_alerts__alert_index__resolve_post",
+        "deprecated": true,
         "parameters": [
           {
             "name": "alert_index",
@@ -838,7 +764,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/realtime/quote/{symbol}": {
@@ -917,6 +844,25 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/realtime/summary": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "获取实时行情运行摘要",
+        "operationId": "get_realtime_summary_realtime_summary_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
               }
             }
           }
@@ -1469,26 +1415,6 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/analysis/models": {
-      "get": {
-        "tags": [
-          "Analysis"
-        ],
-        "summary": "获取可用模型列表",
-        "description": "获取所有可用的预测模型列表",
-        "operationId": "get_available_models_analysis_models_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           }
@@ -2701,6 +2627,7 @@
         ],
         "summary": "另类数据统一信号",
         "operationId": "get_alt_signals_alt_data_signals_get",
+        "deprecated": true,
         "parameters": [
           {
             "name": "category",
@@ -2777,7 +2704,8 @@
               }
             }
           }
-        }
+        },
+        "deprecated": true
       }
     },
     "/alt-data/status": {
@@ -2925,6 +2853,50 @@
               "type": "boolean",
               "default": false,
               "title": "Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/macro/history": {
+      "get": {
+        "tags": [
+          "Macro Mispricing"
+        ],
+        "summary": "宏观错误定价历史",
+        "operationId": "get_macro_history_macro_history_get",
+        "deprecated": true,
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 30,
+              "title": "Limit"
             }
           }
         ],
@@ -3567,6 +3539,77 @@
   },
   "components": {
     "schemas": {
+      "AdvancedHistorySaveRequest": {
+        "properties": {
+          "record_type": {
+            "type": "string",
+            "title": "Record Type"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters",
+            "default": {}
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "metrics": {
+            "type": "object",
+            "title": "Metrics",
+            "default": {}
+          },
+          "result": {
+            "type": "object",
+            "title": "Result"
+          }
+        },
+        "type": "object",
+        "required": [
+          "record_type",
+          "symbol",
+          "strategy",
+          "result"
+        ],
+        "title": "AdvancedHistorySaveRequest"
+      },
       "BacktestRequest": {
         "properties": {
           "symbol": {
@@ -3958,6 +4001,38 @@
         ],
         "title": "CorrelationRequest"
       },
+      "CrossMarketAllocationConstraints": {
+        "properties": {
+          "max_single_weight": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Single Weight"
+          },
+          "min_single_weight": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Single Weight"
+          }
+        },
+        "type": "object",
+        "title": "CrossMarketAllocationConstraints"
+      },
       "CrossMarketAsset": {
         "properties": {
           "symbol": {
@@ -4007,6 +4082,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/CrossMarketTemplateContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "allocation_constraints": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CrossMarketAllocationConstraints"
               },
               {
                 "type": "null"
@@ -4244,6 +4329,56 @@
             "type": "array",
             "title": "Signal Attribution"
           },
+          "driver_summary": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Driver Summary"
+          },
+          "dominant_drivers": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Dominant Drivers"
+          },
+          "core_legs": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Core Legs"
+          },
+          "support_legs": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Support Legs"
+          },
+          "theme_core": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Theme Core"
+          },
+          "theme_support": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Theme Support"
+          },
           "base_assets": {
             "items": {
               "$ref": "#/components/schemas/CrossMarketTemplateAsset"
@@ -4292,6 +4427,12 @@
             "type": "number",
             "title": "Value",
             "description": "涨跌幅"
+          },
+          "total_score": {
+            "type": "number",
+            "title": "Total Score",
+            "description": "综合得分",
+            "default": 0
           },
           "size": {
             "type": "number",

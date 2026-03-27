@@ -34,7 +34,7 @@ import {
 } from 'recharts';
 import moment from 'moment';
 import { compareStrategies } from '../services/api';
-import { getStrategyName, getStrategyParameterLabel } from '../constants/strategies';
+import { getStrategyName, getStrategyParameterLabel, getStrategyDetails } from '../constants/strategies';
 import { normalizeBacktestResult } from '../utils/backtest';
 import { useSafeMessageApi } from '../utils/messageApi';
 import {
@@ -152,6 +152,12 @@ const StrategyComparison = ({ strategies }) => {
                                 title={getStrategyName(strategyName)}
                                 className="workspace-panel workspace-panel--subtle"
                             >
+                                <div className="workspace-section__description" style={{ marginBottom: 12 }}>
+                                    {getStrategyDetails(strategyName).summary}
+                                </div>
+                                <div className="workspace-section__hint" style={{ marginBottom: 16 }}>
+                                    {getStrategyDetails(strategyName).marketFit}
+                                </div>
                                 {parameterEntries.length === 0 ? (
                                     <Alert
                                         message="该策略当前没有可调参数，将按默认规则参与对比。"

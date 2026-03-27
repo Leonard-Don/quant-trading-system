@@ -37,15 +37,8 @@ class ValuationModel:
             if "error" in fundamentals:
                 return self._empty_result(f"基本面数据获取失败: {fundamentals['error']}")
 
-            current_price = fundamentals.get("52w_high", 0)
-            # 尝试获取实时价格
-            try:
-                latest = self.data_manager.get_latest_price(symbol)
-                if "error" not in latest:
-                    current_price = latest.get("price", current_price)
-            except Exception:
-                pass
-
+            price_info = self._resolve_current_price(symbol, fundamentals)
+            current_price = price_info.get("price", 0)
             if current_price <= 0:
                 return self._empty_result("无法获取当前价格")
 
@@ -67,6 +60,7 @@ class ValuationModel:
                 "sector": fundamentals.get("sector", ""),
                 "industry": fundamentals.get("industry", ""),
                 "current_price": round(current_price, 2),
+                "current_price_source": price_info.get("source", "unavailable"),
                 "dcf": dcf_result,
                 "comparable": comparable_result,
                 "fair_value": fair_value,
@@ -77,6 +71,37 @@ class ValuationModel:
         except Exception as e:
             logger.error(f"估值分析出错 {symbol}: {e}", exc_info=True)
             return self._empty_result(str(e))
+
+    def _resolve_current_price(self, symbol: str, fundamentals: Dict[str, Any]) -> Dict[str, Any]:
+        """Resolve a usable spot price without falling back to 52-week extremes."""
+        try:
+            latest = self.data_manager.get_latest_price(symbol)
+            if "error" not in latest:
+                latest_price = float(latest.get("price") or 0)
+                if latest_price > 0:
+                    return {"price": latest_price, "source": "live"}
+        except Exception:
+            logger.debug("Latest price lookup failed for %s", symbol, exc_info=True)
+
+        for key, source in (
+            ("current_price", "fundamental_current_price"),
+            ("regular_market_price", "fundamental_regular_market_price"),
+            ("previous_close", "fundamental_previous_close"),
+        ):
+            value = float(fundamentals.get(key) or 0)
+            if value > 0:
+                return {"price": value, "source": source}
+
+        try:
+            recent_data = self.data_manager.get_historical_data(symbol, period="5d")
+            if not recent_data.empty and "close" in recent_data.columns:
+                close_series = recent_data["close"].dropna()
+                if not close_series.empty:
+                    return {"price": float(close_series.iloc[-1]), "source": "historical_close"}
+        except Exception:
+            logger.debug("Historical close fallback failed for %s", symbol, exc_info=True)
+
+        return {"price": 0.0, "source": "unavailable"}
 
     def _dcf_valuation(self, fundamentals: Dict, current_price: float) -> Dict[str, Any]:
         """
@@ -328,6 +353,7 @@ class ValuationModel:
             "symbol": "",
             "company_name": "",
             "current_price": 0,
+            "current_price_source": "unavailable",
             "dcf": {"error": reason, "intrinsic_value": None},
             "comparable": {"error": reason, "fair_value": None},
             "fair_value": {"mid": None, "low": None, "high": None},

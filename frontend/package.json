@@ -1,6 +1,6 @@
 {
   "name": "quantitative-trading-frontend",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "description": "量化交易系统前端",
   "private": true,
   "dependencies": {

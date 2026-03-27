@@ -4,6 +4,7 @@ describe('webSocketService', () => {
   const originalWebSocket = global.WebSocket;
   let consoleErrorSpy;
   let consoleLogSpy;
+  let mathRandomSpy;
 
   beforeEach(() => {
     webSocketService.disconnect({ resetSubscriptions: true });
@@ -11,6 +12,7 @@ describe('webSocketService', () => {
     webSocketService.reconnectAttempts = 0;
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    mathRandomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.5);
   });
 
   afterEach(() => {
@@ -21,6 +23,7 @@ describe('webSocketService', () => {
     jest.useRealTimers();
     consoleErrorSpy.mockRestore();
     consoleLogSpy.mockRestore();
+    mathRandomSpy.mockRestore();
   });
 
   test('rejects the connect promise when the initial websocket connection closes before opening', async () => {
@@ -107,7 +110,7 @@ describe('webSocketService', () => {
       status: 'reconnecting',
       reconnectAttempts: 1,
       lastError: 'network lost',
-      nextRetryInMs: webSocketService.reconnectDelay,
+      nextRetryInMs: webSocketService.getReconnectDelay(1),
     }));
     expect(webSocketService.getStatus()).toEqual(expect.objectContaining({
       reconnectAttempts: 1,
@@ -115,5 +118,72 @@ describe('webSocketService', () => {
     }));
 
     removeListener();
+  });
+
+  test('uses exponential backoff for later reconnect attempts', () => {
+    expect(webSocketService.getReconnectDelay(1)).toBe(3000);
+    expect(webSocketService.getReconnectDelay(2)).toBe(6000);
+    expect(webSocketService.getReconnectDelay(3)).toBe(12000);
+    expect(webSocketService.getReconnectDelay(4)).toBe(24000);
+    expect(webSocketService.getReconnectDelay(5)).toBe(30000);
+  });
+
+  test('fans out snapshot payloads to quote listeners', () => {
+    const quoteEvents = [];
+    const snapshotEvents = [];
+    const removeQuoteListener = webSocketService.addListener('quote', (payload) => {
+      quoteEvents.push(payload);
+    });
+    const removeSnapshotListener = webSocketService.addListener('snapshot', (payload) => {
+      snapshotEvents.push(payload);
+    });
+
+    webSocketService.handleMessage({
+      type: 'snapshot',
+      origin: 'subscribe',
+      timestamp: '2026-03-20T10:00:00',
+      data: {
+        AAPL: { symbol: 'AAPL', price: 188.2 },
+        MSFT: { symbol: 'MSFT', price: 412.6 },
+      },
+    });
+
+    expect(snapshotEvents).toHaveLength(1);
+    expect(quoteEvents).toEqual([
+      expect.objectContaining({ symbol: 'AAPL', data: expect.objectContaining({ price: 188.2 }) }),
+      expect.objectContaining({ symbol: 'MSFT', data: expect.objectContaining({ price: 412.6 }) }),
+    ]);
+
+    removeQuoteListener();
+    removeSnapshotListener();
+  });
+
+  test('requests websocket snapshots for the current symbols when connected', async () => {
+    let socketInstance = null;
+
+    global.WebSocket = jest.fn().mockImplementation(() => {
+      socketInstance = {
+        readyState: 0,
+        close: jest.fn(),
+        send: jest.fn(),
+      };
+      return socketInstance;
+    });
+    global.WebSocket.OPEN = 1;
+
+    webSocketService.subscribe(['AAPL', 'MSFT']);
+
+    const connectPromise = webSocketService.connect();
+    socketInstance.readyState = 1;
+    socketInstance.onopen?.();
+    await connectPromise;
+
+    socketInstance.send.mockClear();
+
+    expect(webSocketService.requestSnapshot(['AAPL', 'MSFT'])).toBe(true);
+    expect(socketInstance.send).toHaveBeenCalledWith(JSON.stringify({
+      action: 'snapshot',
+      symbols: ['AAPL', 'MSFT'],
+    }));
   });
 });

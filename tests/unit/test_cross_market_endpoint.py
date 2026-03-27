@@ -70,11 +70,28 @@ def test_cross_market_endpoint_success(monkeypatch):
                 "template_name": "US utilities vs NASDAQ growth",
                 "allocation_mode": "macro_bias",
                 "bias_summary": "多头增配 XLU，空头增配 QQQ",
+                "bias_strength_raw": 11.8,
                 "bias_strength": 6.5,
+                "bias_scale": 0.55,
+                "bias_quality_label": "compressed",
+                "bias_quality_reason": "正文抓取脆弱源 ndrc，宏观偏置已收缩",
+                "base_recommendation_score": 3.1,
+                "recommendation_score": 2.65,
+                "base_recommendation_tier": "优先部署",
+                "recommendation_tier": "重点跟踪",
+                "ranking_penalty": 0.45,
+                "ranking_penalty_reason": "核心腿 XLU 已进入压缩焦点，模板排序自动降级",
                 "base_assets": [
                     {"symbol": "XLU", "asset_class": "ETF", "side": "long", "weight": 0.45},
                     {"symbol": "QQQ", "asset_class": "ETF", "side": "short", "weight": 0.55},
                 ],
+                "raw_bias_assets": [
+                    {"symbol": "XLU", "asset_class": "ETF", "side": "long", "weight": 0.518},
+                    {"symbol": "QQQ", "asset_class": "ETF", "side": "short", "weight": 0.482},
+                ],
+            },
+            "allocation_constraints": {
+                "max_single_weight": 1.0,
             },
             "strategy": "spread_zscore",
             "parameters": {"lookback": 5, "entry_threshold": 1.0, "exit_threshold": 0.2},
@@ -93,12 +110,33 @@ def test_cross_market_endpoint_success(monkeypatch):
     assert payload["data"]["data_alignment"]["per_symbol"][0]["provider"].startswith("mock_")
     assert payload["data"]["execution_diagnostics"]["route_count"] == 2
     assert payload["data"]["execution_plan"]["routes"][0]["target_notional"] > 0
+    assert payload["data"]["execution_plan"]["routes"][0]["adv_usage"] > 0
+    assert payload["data"]["execution_plan"]["routes"][0]["margin_requirement"] > 0
     assert payload["data"]["execution_diagnostics"]["concentration_level"] in {"balanced", "moderate", "high"}
+    assert payload["data"]["execution_diagnostics"]["liquidity_level"] in {"comfortable", "watch", "stretched", "unknown"}
+    assert payload["data"]["execution_diagnostics"]["margin_level"] in {"manageable", "elevated", "aggressive"}
+    assert payload["data"]["execution_diagnostics"]["beta_level"] in {"balanced", "watch", "stretched", "unknown"}
+    assert payload["data"]["execution_diagnostics"]["calendar_level"] in {"aligned", "watch", "stretched"}
     assert "provider_allocation" in payload["data"]["execution_plan"]
+    assert "liquidity_summary" in payload["data"]["execution_plan"]
+    assert "margin_summary" in payload["data"]["execution_plan"]
+    assert "calendar_diagnostics" in payload["data"]["data_alignment"]
+    assert "beta_neutrality" in payload["data"]["hedge_portfolio"]
     assert payload["data"]["execution_plan"]["routes"][0]["rounded_quantity"] >= 1
     assert payload["data"]["execution_diagnostics"]["suggested_rebalance"] in {"weekly", "biweekly", "monthly"}
     assert len(payload["data"]["execution_plan"]["execution_stress"]["scenarios"]) == 4
     assert payload["data"]["allocation_overlay"]["allocation_mode"] == "macro_bias"
+    assert payload["data"]["allocation_overlay"]["bias_strength_raw"] == 11.8
+    assert payload["data"]["allocation_overlay"]["bias_strength"] == 6.5
+    assert payload["data"]["allocation_overlay"]["bias_quality_label"] == "compressed"
+    assert payload["data"]["allocation_overlay"]["bias_compression_effect"] > 0
+    assert payload["data"]["allocation_overlay"]["compression_summary"]["label"] == "compressed"
+    assert payload["data"]["allocation_overlay"]["selection_quality"]["label"] == "auto_downgraded"
+    assert payload["data"]["allocation_overlay"]["selection_quality"]["effective_recommendation_score"] == 2.65
+    assert payload["data"]["allocation_overlay"]["selection_quality"]["ranking_penalty"] == 0.45
+    assert payload["data"]["allocation_overlay"]["compressed_asset_count"] >= 1
+    assert "compression_delta" in payload["data"]["allocation_overlay"]["rows"][0]
+    assert "constraint_overlay" in payload["data"]
 
 
 def test_cross_market_endpoint_requires_both_sides(monkeypatch):
@@ -232,6 +270,34 @@ def test_cross_market_endpoint_rejects_low_overlap_ratio(monkeypatch):
 
     assert response.status_code == 400
     assert "overlap ratio" in response.json()["detail"].lower()
+
+
+def test_cross_market_endpoint_rejects_infeasible_constraints(monkeypatch):
+    client = _build_client(
+        monkeypatch,
+        {
+            "XLU": _price_frame([100, 101, 102, 103, 104, 105, 106, 107, 108, 109]),
+            "QQQ": _price_frame([100, 99, 98, 97, 96, 95, 94, 93, 92, 91]),
+        },
+    )
+
+    response = client.post(
+        "/cross-market/backtest",
+        json={
+            "assets": [
+                {"symbol": "XLU", "asset_class": "ETF", "side": "long"},
+                {"symbol": "QQQ", "asset_class": "ETF", "side": "short"},
+            ],
+            "strategy": "spread_zscore",
+            "allocation_constraints": {
+                "max_single_weight": 0.4,
+            },
+            "min_history_days": 10,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "infeasible" in response.json()["detail"].lower()
 
 
 def test_cross_market_templates_include_macro_linkage_metadata(monkeypatch):

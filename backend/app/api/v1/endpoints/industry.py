@@ -494,7 +494,7 @@ def get_industry_heatmap(
     """
     try:
         # 端点级缓存
-        cache_key = f"heatmap:{days}"
+        cache_key = f"heatmap:v2:{days}"
         cached = _get_endpoint_cache(cache_key)
         if cached is not None:
             return cached
@@ -507,6 +507,7 @@ def get_industry_heatmap(
                 HeatmapDataItem(
                     name=ind.get("name", ""),
                     value=ind.get("value", 0),
+                    total_score=ind.get("total_score", 0),
                     size=ind.get("size", 0),
                     stockCount=ind.get("stockCount", 0),
                     moneyFlow=ind.get("moneyFlow", 0),
@@ -565,7 +566,7 @@ def get_industry_trend(
     
     返回指定行业的详细趋势分析，包括涨幅/跌幅前5的股票。
     """
-    cache_key = f"trend:{industry_name}:{days}"
+    cache_key = f"trend:v3:{industry_name}:{days}"
     try:
         # 1. 检查有效缓存
         cached = _get_endpoint_cache(cache_key)
@@ -1052,7 +1053,7 @@ def get_leader_detail(
         resolved_symbol = _resolve_symbol_with_provider(symbol)
 
         # 端点级缓存
-        cache_key = f"leader_detail:{resolved_symbol}:{score_type}"
+        cache_key = f"leader_detail:v2:{resolved_symbol}:{score_type}"
         cached = _get_endpoint_cache(cache_key)
         if cached is not None:
             return cached

@@ -1,4 +1,5 @@
 import { buildCrossMarketCards as buildScoredCrossMarketCards } from '../../utils/crossMarketRecommendations';
+import { buildResearchTaskRefreshSignals } from '../../utils/researchTaskSignals';
 
 const DIMENSION_META = {
   investment_activity: { label: '投资活跃度', group: 'Supply Chain' },
@@ -112,9 +113,28 @@ const buildCrossMarketAction = (template, source, note) =>
       }
     : null;
 
+const buildWorkbenchAction = (taskId, source, note, reason = '') =>
+  taskId
+    ? {
+        target: 'workbench',
+        label: '打开任务',
+        taskId,
+        type: 'cross_market',
+        refresh: 'high',
+        reason,
+        source,
+        note,
+      }
+    : null;
+
 const extractTemplateMeta = (task = {}) =>
   task?.snapshot?.payload?.template_meta
   || task?.snapshot_history?.[0]?.payload?.template_meta
+  || {};
+
+const extractAllocationOverlay = (task = {}) =>
+  task?.snapshot?.payload?.allocation_overlay
+  || task?.snapshot_history?.[0]?.payload?.allocation_overlay
   || {};
 
 const extractTemplateIdentity = (task = {}, meta = {}) =>
@@ -124,6 +144,18 @@ const extractDominantDriver = (meta = {}) => meta?.dominant_drivers?.[0] || null
 
 const formatDriverLabel = (driver = {}) =>
   driver?.label || formatFactorName(driver?.key || '');
+
+const buildDisplayTier = (score) => {
+  if (score >= 2.6) return '优先部署';
+  if (score >= 1.4) return '重点跟踪';
+  return '候选模板';
+};
+
+const buildDisplayTone = (score) => {
+  if (score >= 2.6) return 'volcano';
+  if (score >= 1.4) return 'gold';
+  return 'blue';
+};
 
 const buildNarrativeShiftAlerts = (tasks = []) => {
   const grouped = tasks.reduce((accumulator, task) => {
@@ -205,10 +237,136 @@ const buildNarrativeShiftAlerts = (tasks = []) => {
     .slice(0, 3);
 };
 
+const buildNarrativeTrendLookup = (tasks = []) => {
+  const grouped = tasks.reduce((accumulator, task) => {
+    if (task?.type !== 'cross_market' || task?.status === 'archived') {
+      return accumulator;
+    }
+
+    const meta = extractTemplateMeta(task);
+    const templateId = extractTemplateIdentity(task, meta);
+    if (!templateId) {
+      return accumulator;
+    }
+
+    if (!accumulator[templateId]) {
+      accumulator[templateId] = [];
+    }
+    accumulator[templateId].push(task);
+    return accumulator;
+  }, {});
+
+  return Object.fromEntries(
+    Object.entries(grouped).map(([templateId, templateTasks]) => {
+      const orderedTasks = [...templateTasks].sort((left, right) =>
+        String(right.updated_at || '').localeCompare(String(left.updated_at || ''))
+      );
+      const latestTask = orderedTasks[0];
+      const latestMeta = extractTemplateMeta(latestTask);
+      const latestOverlay = extractAllocationOverlay(latestTask);
+      let previousMeta = latestTask?.snapshot_history?.[1]?.payload?.template_meta || null;
+      if (!previousMeta && orderedTasks[1]) {
+        previousMeta = extractTemplateMeta(orderedTasks[1]);
+      }
+
+      const latestDriver = extractDominantDriver(latestMeta);
+      const previousDriver = extractDominantDriver(previousMeta || {});
+      const latestDriverValue = Number(latestDriver?.value || 0);
+      const previousDriverValue = Number(previousDriver?.value || 0);
+      const driverDelta = Number((latestDriverValue - previousDriverValue).toFixed(4));
+      const driverSwitched =
+        latestDriver?.key && previousDriver?.key && latestDriver.key !== previousDriver.key;
+      const themeCoreChanged =
+        previousMeta?.theme_core
+        && latestMeta?.theme_core
+        && previousMeta.theme_core !== latestMeta.theme_core;
+
+      let trendLabel = '新建主题';
+      let trendTone = 'blue';
+      let trendSummary = '当前模板尚未积累足够的研究快照，先按实时推荐信号处理。';
+
+      if (previousMeta) {
+        if (driverSwitched) {
+          trendLabel = '叙事切换';
+          trendTone = 'volcano';
+          trendSummary = `主导驱动从 ${formatDriverLabel(previousDriver || {})} 切换到 ${formatDriverLabel(latestDriver || {})}`;
+        } else if (driverDelta >= 0.04) {
+          trendLabel = '驱动增强';
+          trendTone = 'green';
+          trendSummary = `${formatDriverLabel(latestDriver || {})} 持续增强，变化幅度 ${driverDelta.toFixed(2)}`;
+        } else if (driverDelta <= -0.04) {
+          trendLabel = '驱动走弱';
+          trendTone = 'gold';
+          trendSummary = `${formatDriverLabel(latestDriver || {})} 走弱，变化幅度 ${driverDelta.toFixed(2)}`;
+        } else {
+          trendLabel = themeCoreChanged ? '核心腿调整' : '叙事稳定';
+          trendTone = themeCoreChanged ? 'purple' : 'cyan';
+          trendSummary = themeCoreChanged
+            ? `核心腿从 ${previousMeta.theme_core} 调整为 ${latestMeta.theme_core}`
+            : `${formatDriverLabel(latestDriver || {})} 仍是主导驱动，主题结构基本稳定`;
+        }
+      }
+
+      return [templateId, {
+        trendLabel,
+        trendTone,
+        trendSummary,
+        trendDelta: driverDelta,
+        latestDriverLabel: formatDriverLabel(latestDriver || {}),
+        latestDriverValue,
+        latestThemeCore: latestMeta?.theme_core || '',
+        latestThemeSupport: latestMeta?.theme_support || '',
+        latestCompressedAssets: latestOverlay?.compressed_assets || [],
+        latestCompressionEffect: Number(latestOverlay?.compression_summary?.compression_effect || 0),
+        latestTopCompressedAsset:
+          (latestOverlay?.rows || [])
+            .slice()
+            .sort((left, right) => Math.abs(Number(right?.compression_delta || 0)) - Math.abs(Number(left?.compression_delta || 0)))
+            .map((item) =>
+              Math.abs(Number(item?.compression_delta || 0)) >= 0.005
+                ? `${item.symbol} ${(Math.abs(Number(item.compression_delta || 0)) * 100).toFixed(2)}pp`
+                : null
+            )
+            .find(Boolean)
+          || '',
+      }];
+    })
+  );
+};
+
 export const buildHeatmapModel = (snapshot = {}, history = {}) => {
   const supplyDimensions = snapshot?.signals?.supply_chain?.dimensions || {};
   const macroDimensions = snapshot?.signals?.macro_hf?.dimensions || {};
   const records = history?.records || [];
+  const categoryTrends = history?.category_trends || {};
+  const categorySeries = history?.category_series || {};
+
+  const groupCategories = {
+    'Supply Chain': ['bidding', 'env_assessment', 'hiring'],
+    'Macro HF': ['commodity_inventory', 'customs', 'port_congestion'],
+  };
+
+  const buildGroupTrend = (group) => {
+    const categories = groupCategories[group] || [];
+    const trends = categories
+      .map((category) => categoryTrends[category])
+      .filter(Boolean);
+    const count = trends.reduce((sum, item) => sum + Number(item.count || 0), 0);
+    const weightedDeltaTotal = trends.reduce(
+      (sum, item) => sum + Number(item.delta_score || 0) * Math.max(Number(item.count || 0), 1),
+      0
+    );
+    const deltaScore = count > 0 ? weightedDeltaTotal / count : 0;
+    const momentum =
+      deltaScore >= 0.12 ? 'strengthening' : deltaScore <= -0.12 ? 'weakening' : 'stable';
+    return {
+      deltaScore: Number(deltaScore || 0),
+      count,
+      momentum,
+      categories,
+      sparkline: categories.flatMap((category) => categorySeries[category] || []).slice(-6),
+    };
+  };
 
   const cells = Object.entries(DIMENSION_META).map(([key, meta]) => {
     const source = supplyDimensions[key] || macroDimensions[key] || {};
@@ -218,6 +376,7 @@ export const buildHeatmapModel = (snapshot = {}, history = {}) => {
       }
       return ['commodity_inventory', 'customs', 'port_congestion'].includes(item.category);
     });
+    const trend = buildGroupTrend(meta.group);
 
     const score = Number(source.score || 0);
     return {
@@ -226,11 +385,10 @@ export const buildHeatmapModel = (snapshot = {}, history = {}) => {
       group: meta.group,
       score,
       tone: scoreTone(score),
-      count: Number(source.count || relatedRecords.length || 0),
-      summary:
-        meta.group === 'Supply Chain'
-          ? `最近供应链记录 ${relatedRecords.length}`
-          : `最近宏观高频记录 ${relatedRecords.length}`,
+      count: Number(source.count || trend.count || relatedRecords.length || 0),
+      summary: `${meta.group === 'Supply Chain' ? '供应链' : '宏观高频'} ${trend.momentum === 'strengthening' ? '增强' : trend.momentum === 'weakening' ? '走弱' : '稳定'} · Δ${trend.deltaScore >= 0 ? '+' : ''}${trend.deltaScore.toFixed(2)}`,
+      trendDelta: trend.deltaScore,
+      momentum: trend.momentum,
     };
   });
 
@@ -252,8 +410,20 @@ export const buildHeatmapModel = (snapshot = {}, history = {}) => {
       anomalies.push({
         key: `heat-${cell.key}`,
         title: `${cell.label}出现显著偏移`,
-        description: `${cell.group} score=${cell.score.toFixed(3)}`,
+        description: `${cell.group} score=${cell.score.toFixed(3)} · ${cell.momentum === 'strengthening' ? '增强' : cell.momentum === 'weakening' ? '走弱' : '稳定'} ${cell.trendDelta >= 0 ? '+' : ''}${cell.trendDelta.toFixed(2)}`,
         type: cell.tone,
+      });
+    });
+
+  Object.entries(categoryTrends)
+    .filter(([, trend]) => Math.abs(Number(trend?.delta_score || 0)) >= 0.12)
+    .slice(0, 3)
+    .forEach(([category, trend]) => {
+      anomalies.push({
+        key: `trend-${category}`,
+        title: `${category} 趋势${trend.momentum === 'strengthening' ? '增强' : '走弱'}`,
+        description: `最近窗口 Δ${Number(trend.delta_score || 0) >= 0 ? '+' : ''}${Number(trend.delta_score || 0).toFixed(2)} · 高置信 ${trend.high_confidence_count || 0}`,
+        type: trend.momentum === 'strengthening' ? 'hot' : 'cold',
       });
     });
 
@@ -273,9 +443,15 @@ export const buildRadarModel = (overview = {}) => {
 };
 
 export const buildFactorPanelModel = (overview = {}, snapshot = {}) => {
+  const factorDeltas = overview?.trend?.factor_deltas || {};
   const factors = (overview?.factors || []).map((factor) => ({
     ...factor,
     displayName: formatFactorName(factor.name),
+    trendDelta: Number(factorDeltas[factor.name]?.z_score_delta || 0),
+    trendValueDelta: Number(factorDeltas[factor.name]?.value_delta || 0),
+    signalChanged: Boolean(factorDeltas[factor.name]?.signal_changed),
+    previousSignal: Number(factorDeltas[factor.name]?.previous_signal || 0),
+    evidenceSummary: factor?.metadata?.evidence_summary || {},
     action:
       factor.signal === 1
         ? buildCrossMarketAction(
@@ -301,6 +477,10 @@ export const buildFactorPanelModel = (overview = {}, snapshot = {}) => {
     factors,
     providerHealth: overview?.provider_health || snapshot?.provider_health || {},
     staleness: overview?.data_freshness || snapshot?.staleness || {},
+    macroTrend: overview?.trend || {},
+    resonanceSummary: overview?.resonance_summary || {},
+    evidenceSummary: overview?.evidence_summary || snapshot?.evidence_summary || {},
+    confidenceAdjustment: overview?.confidence_adjustment || {},
     primaryAction: topFactors[0]?.action || null,
   };
 };
@@ -395,7 +575,75 @@ export const buildHunterModel = ({ snapshot = {}, overview = {}, status = {}, re
       });
     });
 
+  const resonance = overview?.resonance_summary || {};
+  const resonanceFactors = [
+    ...(resonance.positive_cluster || []),
+    ...(resonance.negative_cluster || []),
+    ...(resonance.reversed_factors || []),
+    ...(resonance.precursor || []),
+    ...(resonance.weakening || []),
+  ];
+  if (resonance.label && resonance.label !== 'mixed' && resonanceFactors.length) {
+    const primaryFactor = resonanceFactors[0];
+    const clusterFactors = Array.from(new Set(resonanceFactors))
+      .slice(0, 3)
+      .map((name) => formatFactorName(name))
+      .join('、');
+    const severity =
+      resonance.label === 'reversal_cluster'
+        ? 'high'
+        : resonance.label === 'precursor_cluster' || resonance.label === 'fading_cluster'
+          ? 'medium'
+          : 'high';
+
+    alerts.push({
+      key: `resonance-${resonance.label}`,
+      title: `宏观因子共振 ${resonance.label}`,
+      severity,
+      description: `${resonance.reason} · ${clusterFactors}`,
+      action: buildCrossMarketAction(
+        FACTOR_TEMPLATE_MAP[primaryFactor],
+        'alert_hunter',
+        `${clusterFactors} 正在形成宏观共振，建议打开跨市场剧本复核当前模板。`
+      ),
+    });
+  }
+
   alerts.push(...buildNarrativeShiftAlerts(researchTasks));
+
+  const refreshSignals = buildResearchTaskRefreshSignals({ researchTasks, overview, snapshot });
+  refreshSignals.prioritized
+    .filter((item) => item.severity !== 'low')
+    .slice(0, 3)
+    .forEach((item) => {
+      alerts.push({
+        key: `refresh-${item.taskId}`,
+        title: `${item.title || formatTemplateName(item.templateId)} ${item.refreshLabel}`,
+        severity: item.severity,
+        description: [
+          item.summary,
+          item.selectionQualityDriven && item.selectionQualityShift?.currentLabel
+            ? `自动降级 ${item.selectionQualityShift.currentLabel}`
+            : '',
+          item.biasCompressionDriven && item.biasCompressionShift?.topCompressedAsset
+            ? `压缩焦点 ${item.biasCompressionShift.topCompressedAsset}`
+            : '',
+        ].filter(Boolean).join(' · '),
+        action:
+          item.severity === 'high'
+            ? buildWorkbenchAction(
+                item.taskId,
+                'alert_hunter',
+                `${item.title || formatTemplateName(item.templateId)} 当前研究输入已经变化，建议直接打开对应任务更新判断。`,
+                item.priorityReason || ''
+              )
+            : buildCrossMarketAction(
+                item.templateId,
+                'alert_hunter',
+                `${item.title || formatTemplateName(item.templateId)} 当前研究输入已经变化，建议重新打开跨市场剧本更新判断。`
+              ),
+      });
+    });
 
   alerts.sort((a, b) => {
     const priority = { high: 0, medium: 1, low: 2 };
@@ -405,7 +653,73 @@ export const buildHunterModel = ({ snapshot = {}, overview = {}, status = {}, re
   return alerts.slice(0, 8);
 };
 
-export const buildCrossMarketCards = (payload = {}, overview = {}, snapshot = {}) =>
-  buildScoredCrossMarketCards(payload, overview, snapshot, (templateId, note) =>
-    buildCrossMarketAction(templateId, 'cross_market_overview', note)
-  );
+export const buildCrossMarketCards = (
+  payload = {},
+  overview = {},
+  snapshot = {},
+  researchTasks = [],
+) => {
+  const trendLookup = buildNarrativeTrendLookup(researchTasks);
+  const refreshLookup = buildResearchTaskRefreshSignals({ researchTasks, overview, snapshot }).byTemplateId;
+
+  return buildScoredCrossMarketCards(
+    payload,
+    overview,
+    snapshot,
+    (templateId, note) => buildCrossMarketAction(templateId, 'cross_market_overview', note)
+  )
+    .map((card) => {
+      const trendMeta = trendLookup[card.id] || {};
+      const refreshMeta = refreshLookup[card.id] || null;
+      const rankingPenalty = refreshMeta?.biasCompressionShift?.coreLegAffected
+        ? 0.45
+        : refreshMeta?.selectionQualityDriven
+          ? 0.2
+          : 0;
+      const adjustedScore = Number(Math.max(0, Number(card.recommendationScore || 0) - rankingPenalty).toFixed(2));
+
+      return {
+        ...card,
+        baseRecommendationScore: card.recommendationScore,
+        baseRecommendationTier: card.recommendationTier,
+        rankingPenalty,
+        rankingPenaltyReason: rankingPenalty
+          ? refreshMeta?.biasCompressionShift?.coreLegAffected
+            ? `核心腿 ${refreshMeta?.biasCompressionShift?.topCompressedAsset || ''} 已进入偏置收缩焦点，模板排序自动降级`
+            : `当前主题已进入自动降级处理，模板排序谨慎下调`
+          : '',
+        recommendationScore: adjustedScore,
+        recommendationTier: buildDisplayTier(adjustedScore),
+        recommendationTone: buildDisplayTone(adjustedScore),
+        ...trendMeta,
+        ...(refreshMeta
+          ? {
+              taskRefreshTaskId: refreshMeta.taskId,
+              taskRefreshSeverity: refreshMeta.severity,
+              taskRefreshLabel: refreshMeta.refreshLabel,
+              taskRefreshTone: refreshMeta.refreshTone,
+              taskRefreshSummary: refreshMeta.summary,
+              taskRefreshResonanceDriven: refreshMeta.resonanceDriven,
+              taskRefreshPolicySourceDriven: refreshMeta.policySourceDriven,
+              taskRefreshBiasCompressionDriven: refreshMeta.biasCompressionDriven,
+              taskRefreshSelectionQualityDriven: refreshMeta.selectionQualityDriven,
+              taskRefreshSelectionQualityShift: refreshMeta.selectionQualityShift,
+              taskRefreshBiasCompressionShift: refreshMeta.biasCompressionShift,
+              taskRefreshBiasCompressionCore: refreshMeta.biasCompressionShift?.coreLegAffected || false,
+              taskRefreshTopCompressedAsset: refreshMeta.biasCompressionShift?.topCompressedAsset || '',
+              taskRefreshPolicySourceShift: refreshMeta.policySourceShift,
+              taskAction:
+                refreshMeta.severity === 'high'
+                  ? buildWorkbenchAction(
+                      refreshMeta.taskId,
+                      'cross_market_overview',
+                      `${card.name} 当前更适合直接打开对应任务处理。`,
+                      refreshMeta.priorityReason || ''
+                    )
+                  : null,
+            }
+          : {}),
+      };
+    })
+    .sort((left, right) => Number(right.recommendationScore || 0) - Number(left.recommendationScore || 0));
+};

@@ -14,9 +14,9 @@
     - 🔌 **WebSocket支持**: 实时股票报价推送
 
     ### API版本
-    - **当前版本**: v3.6.0
+    - **当前版本**: v3.7.0
     - **API版本**: v1
-    - **最后更新**: 2026-03-20
+    - **最后更新**: 2026-03-27
 
     ### 认证
     当前版本无需认证，生产环境建议添加API密钥认证。
@@ -27,7 +27,7 @@
     - 并发回测: 最多10个
     
 
-**版本**: 3.6.0
+**版本**: 3.7.0
 
 ## 基础信息
 
@@ -46,6 +46,20 @@
 - **报价字段**: `symbol, price, change, change_percent, volume, high, low, open, previous_close, bid, ask, timestamp, source`
 
 ## 数据模型
+
+### AdvancedHistorySaveRequest
+
+**字段: **
+
+- `record_type` (string): 无描述
+- `title` (unknown): 无描述
+- `symbol` (string): 无描述
+- `strategy` (string): 无描述
+- `parameters` (object): 无描述
+- `start_date` (unknown): 无描述
+- `end_date` (unknown): 无描述
+- `metrics` (object): 无描述
+- `result` (object): 无描述
 
 ### BacktestRequest
 
@@ -138,6 +152,13 @@
 - `symbols` (array): 无描述
 - `period_days` (integer): 无描述
 
+### CrossMarketAllocationConstraints
+
+**字段: **
+
+- `max_single_weight` (unknown): 无描述
+- `min_single_weight` (unknown): 无描述
+
 ### CrossMarketAsset
 
 **字段: **
@@ -153,6 +174,7 @@
 
 - `assets` (array): 无描述
 - `template_context` (unknown): 无描述
+- `allocation_constraints` (unknown): 无描述
 - `strategy` (string): 无描述
 - `construction_mode` (string): 无描述
 - `parameters` (object): 无描述
@@ -194,6 +216,12 @@
 - `bias_highlights` (array): 无描述
 - `bias_actions` (array): 无描述
 - `signal_attribution` (array): 无描述
+- `driver_summary` (array): 无描述
+- `dominant_drivers` (array): 无描述
+- `core_legs` (array): 无描述
+- `support_legs` (array): 无描述
+- `theme_core` (unknown): 无描述
+- `theme_support` (unknown): 无描述
 - `base_assets` (array): 无描述
 
 ### EventRequest
@@ -216,6 +244,7 @@
 
 - `name` (string): 行业名称
 - `value` (number): 涨跌幅
+- `total_score` (number): 综合得分
 - `size` (number): 市值/成交额
 - `stockCount` (integer): 成分股数量
 - `moneyFlow` (number): 资金流向

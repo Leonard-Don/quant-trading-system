@@ -4,12 +4,15 @@ import asyncio
 from datetime import datetime
 import logging
 from typing import Any, Dict, List, Optional, Tuple
+import numpy as np
+import pandas as pd
 
 from backend.app.schemas.backtest import (
     BacktestRequest,
     BacktestResponse,
     BatchBacktestRequest,
     WalkForwardRequest,
+    PortfolioStrategyRequest,
     AdvancedHistorySaveRequest,
 )
 from src.backtest.history import backtest_history
@@ -32,6 +35,7 @@ from src.strategy.advanced_strategies import (
 from src.strategy.strategy_validator import StrategyValidator
 from src.backtest.backtester import Backtester
 from src.analytics.dashboard import PerformanceAnalyzer
+from src.analytics.portfolio_optimizer import PortfolioOptimizer as AssetPortfolioOptimizer
 from src.utils.performance import timing_decorator
 from src.utils.data_validation import (
     validate_and_fix_backtest_results,
@@ -267,6 +271,34 @@ def _strategy_factory_for_batch(strategy_name: str, parameters: Dict[str, Any]):
     return _create_strategy_instance(strategy_name, cleaned_params)
 
 
+def _series_from_portfolio_history(results: Dict[str, Any]) -> pd.Series:
+    portfolio_history = results.get("portfolio_history") or results.get("portfolio") or []
+    if not portfolio_history:
+        return pd.Series(dtype="float64")
+
+    frame = pd.DataFrame(portfolio_history)
+    if frame.empty or "total" not in frame.columns:
+        return pd.Series(dtype="float64")
+
+    frame = frame.copy()
+    frame["date"] = pd.to_datetime(frame.get("date"))
+    frame = frame.dropna(subset=["date"]).sort_values("date")
+    if frame.empty:
+        return pd.Series(dtype="float64")
+
+    return pd.Series(frame["total"].astype(float).values, index=frame["date"])
+
+
+def _calculate_max_drawdown_from_series(values: pd.Series) -> float:
+    if values.empty:
+        return 0.0
+
+    running_max = values.cummax()
+    drawdown = (values - running_max) / running_max.replace(0, np.nan)
+    drawdown = drawdown.replace([np.inf, -np.inf], np.nan).fillna(0)
+    return float(drawdown.min())
+
+
 class CompareStrategyConfig(BaseModel):
     name: str
     parameters: Dict[str, Any] = {}
@@ -298,6 +330,7 @@ async def run_batch_backtest(request: BatchBacktestRequest):
                 initial_capital=item.initial_capital,
                 commission=item.commission,
                 slippage=item.slippage,
+                research_label=item.research_label,
             )
             for index, item in enumerate(request.tasks, start=1)
         ]
@@ -329,6 +362,7 @@ async def run_batch_backtest(request: BatchBacktestRequest):
                         "symbol": result.symbol,
                         "strategy": result.strategy_name,
                         "parameters": result.parameters,
+                        "research_label": result.research_label,
                         "metrics": result.metrics,
                         "success": result.success,
                         "error": result.error,
@@ -342,6 +376,7 @@ async def run_batch_backtest(request: BatchBacktestRequest):
                         "symbol": result.symbol,
                         "strategy": result.strategy_name,
                         "parameters": result.parameters,
+                        "research_label": result.research_label,
                         "metrics": result.metrics,
                         "success": result.success,
                         "execution_time": result.execution_time,
@@ -402,6 +437,155 @@ async def run_walk_forward_backtest(request: WalkForwardRequest):
         raise
     except Exception as e:
         logger.error(f"Error running walk-forward backtest: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/portfolio-strategy", summary="运行组合级策略回测")
+async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
+    try:
+        symbols = [symbol.strip().upper() for symbol in request.symbols if symbol and symbol.strip()]
+        if len(symbols) < 2:
+            raise HTTPException(status_code=400, detail="Portfolio strategy backtest requires at least 2 symbols")
+
+        if request.strategy not in STRATEGIES:
+            raise HTTPException(status_code=400, detail=f"Unknown strategy: {request.strategy}")
+
+        is_valid, error_msg, cleaned_params = StrategyValidator.validate_strategy_params(
+            request.strategy, request.parameters or {}
+        )
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
+
+        objective = str(request.objective or "equal_weight").lower()
+        if objective not in {"equal_weight", "max_sharpe", "min_volatility"}:
+            raise HTTPException(status_code=400, detail="Objective must be one of: equal_weight, max_sharpe, min_volatility")
+
+        weights = request.weights or []
+        if weights and len(weights) != len(symbols):
+            raise HTTPException(status_code=400, detail="Weights length must match symbols length")
+
+        price_data = {}
+        raw_weights = np.array(weights if weights else [1.0] * len(symbols), dtype="float64")
+        if np.any(raw_weights < 0):
+            raise HTTPException(status_code=400, detail="Weights must be non-negative")
+        if float(raw_weights.sum()) <= 0:
+            raise HTTPException(status_code=400, detail="Weights must sum to a positive value")
+
+        component_results = []
+        return_series = []
+        aggregate_trades = 0
+
+        for index, symbol in enumerate(symbols):
+            data = _fetch_backtest_data(symbol, request.start_date, request.end_date)
+            close_column = "close" if "close" in data.columns else "Close"
+            price_data[symbol] = data[close_column]
+            result, _ = run_backtest_pipeline(
+                symbol=symbol,
+                strategy_name=request.strategy,
+                parameters=cleaned_params,
+                start_date=request.start_date,
+                end_date=request.end_date,
+                initial_capital=float(request.initial_capital),
+                commission=request.commission,
+                slippage=request.slippage,
+                data=data,
+            )
+            component_series = _series_from_portfolio_history(result)
+            if component_series.empty:
+                continue
+
+            component_returns = component_series.pct_change().fillna(0)
+            return_series.append(component_returns.rename(symbol))
+            aggregate_trades += int(result.get("num_trades", 0) or 0)
+            component_results.append({
+                "symbol": symbol,
+                "total_return": float(result.get("total_return", 0) or 0),
+                "annualized_return": float(result.get("annualized_return", 0) or 0),
+                "max_drawdown": float(result.get("max_drawdown", 0) or 0),
+                "final_value": float(result.get("final_value", 0) or 0),
+                "num_trades": int(result.get("num_trades", 0) or 0),
+            })
+
+        if len(component_results) < 2 or not return_series:
+            raise HTTPException(status_code=400, detail="Insufficient valid component results for portfolio strategy backtest")
+
+        returns_df = pd.concat(return_series, axis=1).fillna(0)
+        ordered_symbols = list(returns_df.columns)
+        if weights:
+            normalized_weights = np.array(
+                [raw_weights[symbols.index(symbol)] for symbol in ordered_symbols],
+                dtype="float64",
+            )
+            normalized_weights = normalized_weights / normalized_weights.sum()
+        elif objective == "equal_weight":
+            normalized_weights = np.array([1.0 / len(ordered_symbols)] * len(ordered_symbols), dtype="float64")
+        else:
+            optimizer = AssetPortfolioOptimizer()
+            price_frame = pd.DataFrame({symbol: price_data[symbol] for symbol in ordered_symbols}).dropna()
+            optimization_result = optimizer.optimize_portfolio(
+                price_frame,
+                objective="max_sharpe" if objective == "max_sharpe" else "min_volatility",
+            )
+            if not optimization_result.get("success"):
+                raise HTTPException(status_code=400, detail=optimization_result.get("error", "Portfolio optimization failed"))
+            weight_map = optimization_result["optimal_portfolio"]["weights"]
+            normalized_weights = np.array([float(weight_map.get(symbol, 0)) for symbol in ordered_symbols], dtype="float64")
+            normalized_weights = normalized_weights / normalized_weights.sum()
+
+        combined_returns = (returns_df * normalized_weights).sum(axis=1)
+        combined_values = float(request.initial_capital) * (1 + combined_returns).cumprod()
+        portfolio_history = [
+            {
+                "date": str(index.date()),
+                "total": float(value),
+                "returns": float(combined_returns.iloc[position]),
+                "signal": 0,
+            }
+            for position, (index, value) in enumerate(combined_values.items())
+        ]
+
+        total_return = float(combined_values.iloc[-1] / float(request.initial_capital) - 1)
+        annualized_return = float((1 + total_return) ** (252 / max(len(combined_values), 1)) - 1) if len(combined_values) else 0.0
+        volatility = float(combined_returns.std() * np.sqrt(252)) if len(combined_returns) > 1 else 0.0
+        sharpe_ratio = float((combined_returns.mean() * 252) / volatility) if volatility > 0 else 0.0
+        max_drawdown = _calculate_max_drawdown_from_series(combined_values)
+
+        for component in component_results:
+            component["weight"] = float(normalized_weights[ordered_symbols.index(component["symbol"])])
+
+        results = normalize_backtest_results({
+            "symbol": ",".join(symbols),
+            "strategy": request.strategy,
+            "parameters": cleaned_params,
+            "portfolio_history": portfolio_history,
+            "portfolio": portfolio_history,
+            "initial_capital": float(request.initial_capital),
+            "final_value": float(combined_values.iloc[-1]),
+            "net_profit": float(combined_values.iloc[-1] - float(request.initial_capital)),
+            "total_return": total_return,
+            "annualized_return": annualized_return,
+            "max_drawdown": max_drawdown,
+            "sharpe_ratio": sharpe_ratio,
+            "num_trades": aggregate_trades,
+            "trades": [],
+            "has_open_position": False,
+            "total_completed_trades": 0,
+            "portfolio_components": component_results,
+            "portfolio_objective": objective,
+            "weights": {
+                symbol: float(weight)
+                for symbol, weight in zip(ordered_symbols, normalized_weights)
+            },
+        })
+
+        return ensure_json_serializable({
+            "success": True,
+            "data": results,
+        })
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running portfolio strategy backtest: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 
@@ -599,40 +783,6 @@ async def compare_strategies_post(request: CompareRequest):
     except Exception as e:
         logger.error(f"Error comparing strategies: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
-
-@router.get("/compare", summary="比较多个策略的性能")
-async def compare_strategies(
-    symbol: str,
-    strategies: str,  # 逗号分隔的策略列表
-    start_date: str = None,
-    end_date: str = None,
-    initial_capital: float = 10000.0,
-    commission: float = 0.001,
-    slippage: float = 0.001,
-):
-    """
-    比较多个策略的性能
-    
-    包含：
-    1. 并发执行回测
-    2. 服务端计算综合评分 (收益40%, 夏普30%, 风控30%)
-    """
-    try:
-        return await _compare_strategies_impl(
-            symbol=symbol,
-            strategy_configs=_normalize_compare_configs(strategies=strategies.split(",")),
-            start_date=start_date,
-            end_date=end_date,
-            initial_capital=initial_capital,
-            commission=commission,
-            slippage=slippage,
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error comparing strategies: {e}", exc_info=True)
-        return {"success": False, "error": str(e)}
-
 
 # ==================== 回测历史记录 ====================
 

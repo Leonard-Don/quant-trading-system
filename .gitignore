@@ -113,11 +113,16 @@ test-reports/
 tests/e2e/node_modules/
 .playwright-cli/
 .agents/
+verify_result.html
+tests/e2e/verify_result.html
 
 # Data
 data/
 !src/data/
 src/data/*
+!src/data/*.py
+!src/data/providers/
+!src/data/providers/**
 !src/data/alternative/
 !src/data/alternative/**
 src/data/alternative/**/__pycache__/

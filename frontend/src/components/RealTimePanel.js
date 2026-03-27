@@ -1,4 +1,4 @@
-import React, { useState, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import {
   Card,
   Statistic,
@@ -11,7 +11,8 @@ import {
   Switch,
   message,
   AutoComplete,
-  Tabs
+  Tabs,
+  Drawer
 } from 'antd';
 import {
   ArrowUpOutlined,
@@ -27,17 +28,34 @@ import {
   BankOutlined,
   ThunderboltOutlined,
   BarChartOutlined,
-  FundOutlined
+  FundOutlined,
+  BellOutlined,
+  DownOutlined,
+  RightOutlined
 } from '@ant-design/icons';
 import { STOCK_DATABASE } from '../constants/stocks';
+import { useRealtimeDiagnostics } from '../hooks/useRealtimeDiagnostics';
 import { useRealtimeFeed } from '../hooks/useRealtimeFeed';
 import { useRealtimePreferences } from '../hooks/useRealtimePreferences';
+import {
+  buildAlertDraftFromAnomaly,
+  buildRealtimeAnomalyFeed,
+  buildTradePlanDraftFromAnomaly,
+} from '../utils/realtimeSignals';
 
 const { Text } = Typography;
 const DEFAULT_PRICE_TEXT = '--';
 const EMPTY_NUMERIC_TEXT = '--';
 const QUOTE_FRESH_MS = 45 * 1000;
 const QUOTE_DELAYED_MS = 3 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const REVIEW_SNAPSHOT_STORAGE_KEY = 'realtime-review-snapshots';
+const MAX_REVIEW_SNAPSHOTS = 12;
+const SNAPSHOT_OUTCOME_OPTIONS = {
+  watching: { label: '继续观察', color: 'default' },
+  validated: { label: '验证有效', color: 'success' },
+  invalidated: { label: '观察失效', color: 'error' },
+};
 const DEFAULT_SUBSCRIBED_SYMBOLS = [
   '^GSPC', '^DJI', '^IXIC', '^RUT', '000001.SS', '^HSI',
   'AAPL', 'NVDA', 'TSLA', 'MSFT', 'GOOGL', 'AMZN', 'META', 'BABA',
@@ -59,8 +77,29 @@ const CATEGORY_THEMES = {
 };
 const TradePanel = lazy(() => import('./TradePanel'));
 const RealtimeStockDetailModal = lazy(() => import('./RealtimeStockDetailModal'));
+const PriceAlerts = lazy(() => import('./PriceAlerts'));
 
 const hasNumericValue = (value) => value !== undefined && value !== null && !Number.isNaN(Number(value));
+const formatRelativeAge = (ageMs, options = {}) => {
+  const { prefix = '', suffix = '' } = options;
+  const safeAge = Math.max(0, ageMs);
+
+  if (safeAge <= QUOTE_FRESH_MS) {
+    return `${prefix}刚刚更新${suffix}`;
+  }
+
+  if (safeAge < HOUR_MS) {
+    const seconds = Math.max(1, Math.floor(safeAge / 1000));
+    if (seconds < 60) {
+      return `${prefix}${seconds} 秒前${suffix}`;
+    }
+
+    return `${prefix}${Math.max(1, Math.floor(seconds / 60))} 分钟前${suffix}`;
+  }
+
+  return `${prefix}${Math.max(1, Math.floor(safeAge / HOUR_MS))} 小时前${suffix}`;
+};
+const DIAGNOSTICS_ENABLED = process.env.NODE_ENV !== 'production';
 
 const inferSymbolCategory = (symbol) => {
   const type = STOCK_DATABASE[symbol]?.type;
@@ -87,18 +126,53 @@ const inferSymbolCategory = (symbol) => {
   return 'us';
 };
 
-const RealTimePanel = () => {
+const loadReviewSnapshots = () => {
+  try {
+    const rawValue = window.localStorage.getItem(REVIEW_SNAPSHOT_STORAGE_KEY);
+    if (!rawValue) {
+      return [];
+    }
+
+    const parsed = JSON.parse(rawValue);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn('Failed to load realtime review snapshots:', error);
+    return [];
+  }
+};
+
+const getSnapshotOutcomeMeta = (outcome) => SNAPSHOT_OUTCOME_OPTIONS[outcome] || null;
+
+const RealTimePanel = ({ openAlertsSignal = null }) => {
   const [messageApi, messageContextHolder] = message.useMessage();
   const [searchSymbol, setSearchSymbol] = useState('');
+  const [isAlertsDrawerVisible, setIsAlertsDrawerVisible] = useState(false);
+  const [alertPrefillSymbol, setAlertPrefillSymbol] = useState('');
+  const [alertPrefillDraft, setAlertPrefillDraft] = useState(null);
+  const [alertComposerSignal, setAlertComposerSignal] = useState(0);
 
   // Trade Modal State
   const [isTradeModalVisible, setIsTradeModalVisible] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState(null);
+  const [tradePlanDraft, setTradePlanDraft] = useState(null);
 
   // Detail Modal State
   const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
   const [detailSymbol, setDetailSymbol] = useState(null);
   const [autoCompleteOptions, setAutoCompleteOptions] = useState([]);
+  const [isDiagnosticsExpanded, setIsDiagnosticsExpanded] = useState(false);
+  const [isSnapshotDrawerVisible, setIsSnapshotDrawerVisible] = useState(false);
+  const [reviewSnapshots, setReviewSnapshots] = useState(loadReviewSnapshots);
+
+  useEffect(() => {
+    if (openAlertsSignal) {
+      setIsAlertsDrawerVisible(true);
+    }
+  }, [openAlertsSignal]);
+
+  useEffect(() => {
+    window.localStorage.setItem(REVIEW_SNAPSHOT_STORAGE_KEY, JSON.stringify(reviewSnapshots));
+  }, [reviewSnapshots]);
 
   const {
     activeTab,
@@ -124,6 +198,7 @@ const RealTimePanel = () => {
     isAutoUpdate,
     isConnected,
     lastConnectionIssue,
+    lastClientRefreshAt,
     lastMarketUpdateAt,
     loading,
     quotes,
@@ -131,11 +206,22 @@ const RealTimePanel = () => {
     refreshCurrentTab,
     removeQuote,
     setIsAutoUpdate,
+    transportDecisions,
   } = useRealtimeFeed({
     activeTab,
     messageApi,
     resolveSymbolsByCategory: getSymbolsByCategory,
     subscribedSymbols,
+  });
+  const {
+    diagnosticsSummary,
+    diagnosticsLoading,
+    diagnosticsLastLoadedAt,
+    refreshDiagnostics,
+  } = useRealtimeDiagnostics({
+    enabled: DIAGNOSTICS_ENABLED,
+    isConnected,
+    reconnectAttempts,
   });
 
   const subscribeSymbol = useCallback((symbol) => {
@@ -200,14 +286,16 @@ const RealTimePanel = () => {
     return volume.toString();
   };
 
-  const handleOpenTrade = useCallback((symbol) => {
+  const handleOpenTrade = useCallback((symbol, draft = null) => {
     setSelectedSymbol(symbol);
+    setTradePlanDraft(draft);
     setIsTradeModalVisible(true);
   }, []);
 
   const handleCloseTrade = useCallback(() => {
     setIsTradeModalVisible(false);
     setSelectedSymbol(null);
+    setTradePlanDraft(null);
   }, []);
 
   const getDisplayName = useCallback((symbol) => {
@@ -227,6 +315,32 @@ const RealTimePanel = () => {
     setIsDetailModalVisible(false);
     setDetailSymbol(null);
   }, []);
+
+  const handleOpenAlerts = useCallback((symbol = '', draft = null) => {
+    if (symbol) {
+      setAlertPrefillSymbol(symbol);
+      setAlertPrefillDraft(draft);
+    } else {
+      setAlertPrefillSymbol('');
+      setAlertPrefillDraft(null);
+    }
+    setAlertComposerSignal(Date.now());
+    setIsAlertsDrawerVisible(true);
+  }, []);
+
+  const handleCloseAlerts = useCallback(() => {
+    setIsAlertsDrawerVisible(false);
+    setAlertPrefillDraft(null);
+  }, []);
+
+  const handleCreateAlertFromTradePlan = useCallback((draft) => {
+    if (!draft?.symbol) {
+      return;
+    }
+
+    handleCloseTrade();
+    handleOpenAlerts(draft.symbol, draft);
+  }, [handleCloseTrade, handleOpenAlerts]);
 
   const findMatchingSymbols = (input) => {
     if (!input || input.trim() === '') return [];
@@ -254,10 +368,10 @@ const RealTimePanel = () => {
     return results.sort((a, b) => a.priority - b.priority).slice(0, 10);
   };
 
-  const risingCount = Object.values(quotes).filter(q => q?.change > 0).length;
-  const fallingCount = Object.values(quotes).filter(q => q?.change < 0).length;
   const currentTabSymbols = getSymbolsByCategory(activeTab);
   const currentTabQuotes = currentTabSymbols.map(symbol => quotes[symbol]).filter(Boolean);
+  const risingCount = currentTabQuotes.filter(q => q?.change > 0).length;
+  const fallingCount = currentTabQuotes.filter(q => q?.change < 0).length;
   const loadedQuotesCount = Object.values(quotes).filter(Boolean).length;
   const spotlightSymbol = currentTabSymbols
     .filter(symbol => quotes[symbol])
@@ -316,12 +430,36 @@ const RealTimePanel = () => {
     if (Number.isNaN(date.getTime())) return '--';
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
+  const diagnosticsCache = diagnosticsSummary?.cache || {};
+  const diagnosticsFetch = diagnosticsCache.last_fetch_stats || {};
+  const diagnosticsQuality = diagnosticsSummary?.quality || {};
+  const weakestFields = Array.isArray(diagnosticsQuality.field_coverage)
+    ? [...diagnosticsQuality.field_coverage]
+      .sort((left, right) => left.coverage_ratio - right.coverage_ratio)
+      .slice(0, 3)
+    : [];
+  const weakestSymbols = Array.isArray(diagnosticsQuality.most_incomplete_symbols)
+    ? diagnosticsQuality.most_incomplete_symbols.slice(0, 3)
+    : [];
+  const formatTransportDecision = (decision) => {
+    const modeLabelMap = {
+      rest_fallback: 'REST 补数',
+      warmup_snapshot: 'Warmup Snapshot',
+      manual_snapshot: '手动 Snapshot',
+      manual_rest: '手动 REST',
+    };
+
+    const modeLabel = modeLabelMap[decision.mode] || decision.mode;
+    const symbolLabel = decision.symbols?.length ? decision.symbols.join(', ') : '--';
+    return `${modeLabel} -> ${symbolLabel}`;
+  };
 
   const getQuoteFreshness = useCallback((quote) => {
     if (!quote?._clientReceivedAt) {
       return {
         state: 'pending',
         label: '待补数',
+        detail: null,
         tone: {
           color: '#64748b',
           background: 'rgba(100, 116, 139, 0.12)',
@@ -329,11 +467,17 @@ const RealTimePanel = () => {
       };
     }
 
-    const ageMs = Math.max(0, freshnessNow - quote._clientReceivedAt);
-    if (ageMs <= QUOTE_FRESH_MS) {
+    const marketTimestampMs = Number.isFinite(quote._marketTimestampMs) ? quote._marketTimestampMs : null;
+    const marketAgeMs = marketTimestampMs ? Math.max(0, freshnessNow - marketTimestampMs) : null;
+    const clientAgeMs = Math.max(0, freshnessNow - quote._clientReceivedAt);
+    const effectiveAgeMs = marketAgeMs ?? clientAgeMs;
+    const receivedLabel = formatRelativeAge(clientAgeMs);
+
+    if (effectiveAgeMs <= QUOTE_FRESH_MS) {
       return {
         state: 'fresh',
-        label: '刚刚更新',
+        label: marketAgeMs !== null ? '行情刚刚更新' : '刚刚更新',
+        detail: marketAgeMs !== null ? `接收链路${receivedLabel}` : null,
         tone: {
           color: '#15803d',
           background: 'rgba(34, 197, 94, 0.14)',
@@ -341,10 +485,13 @@ const RealTimePanel = () => {
       };
     }
 
-    if (ageMs <= QUOTE_DELAYED_MS) {
+    if (effectiveAgeMs <= QUOTE_DELAYED_MS) {
       return {
         state: 'aging',
-        label: `${Math.max(1, Math.floor(ageMs / 1000))} 秒前更新`,
+        label: marketAgeMs !== null
+          ? formatRelativeAge(effectiveAgeMs, { prefix: '行情 ' })
+          : formatRelativeAge(effectiveAgeMs),
+        detail: marketAgeMs !== null ? `接收链路${receivedLabel}` : null,
         tone: {
           color: '#b45309',
           background: 'rgba(245, 158, 11, 0.16)',
@@ -354,7 +501,10 @@ const RealTimePanel = () => {
 
     return {
       state: 'delayed',
-      label: `延迟 ${Math.max(1, Math.floor(ageMs / 60000))} 分钟`,
+      label: marketAgeMs !== null
+        ? `行情延迟 ${Math.max(1, Math.floor(effectiveAgeMs / 60000))} 分钟`
+        : `延迟 ${Math.max(1, Math.floor(effectiveAgeMs / 60000))} 分钟`,
+      detail: marketAgeMs !== null ? `接收链路${receivedLabel}` : null,
       tone: {
         color: '#b91c1c',
         background: 'rgba(239, 68, 68, 0.14)',
@@ -377,6 +527,7 @@ const RealTimePanel = () => {
       : reconnectAttempts > 0
         ? '重连中 / REST 补数'
         : '连接中 / REST 补数';
+  const lastClientRefreshLabel = lastClientRefreshAt ? formatQuoteTime(lastClientRefreshAt) : '--';
   const lastMarketUpdateLabel = lastMarketUpdateAt ? formatQuoteTime(lastMarketUpdateAt) : '--';
   const transportBanner = !isAutoUpdate
     ? {
@@ -422,6 +573,72 @@ const RealTimePanel = () => {
           background: 'rgba(245, 158, 11, 0.14)',
           borderColor: 'rgba(245, 158, 11, 0.26)',
         };
+  const anomalyFeed = buildRealtimeAnomalyFeed(currentTabSymbols, quotes, { limit: 6 });
+  const latestSnapshots = reviewSnapshots.slice(0, 3);
+
+  const saveReviewSnapshot = useCallback(() => {
+    const snapshot = {
+      id: `snapshot_${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      activeTab,
+      activeTabLabel: getCategoryLabel(activeTab),
+      transportModeLabel,
+      spotlightSymbol,
+      spotlightName: spotlightSymbol ? getDisplayName(spotlightSymbol) : null,
+      watchedSymbols: currentTabSymbols.slice(0, 8),
+      loadedCount: currentTabQuotes.length,
+      totalCount: currentTabSymbols.length,
+      anomalyCount: anomalyFeed.length,
+      anomalies: anomalyFeed.slice(0, 3).map((item) => ({
+        symbol: item.symbol,
+        title: item.title,
+        description: item.description,
+      })),
+      freshnessSummary,
+      note: '',
+      outcome: null,
+    };
+
+    setReviewSnapshots((prev) => [snapshot, ...prev].slice(0, MAX_REVIEW_SNAPSHOTS));
+    messageApi.success('已保存当前复盘快照');
+  }, [
+    activeTab,
+    anomalyFeed,
+    currentTabQuotes.length,
+    currentTabSymbols,
+    freshnessSummary,
+    getDisplayName,
+    messageApi,
+    spotlightSymbol,
+    transportModeLabel,
+  ]);
+
+  const restoreSnapshot = useCallback((snapshot) => {
+    if (!snapshot?.activeTab) {
+      return;
+    }
+
+    setActiveTab(snapshot.activeTab);
+    setIsSnapshotDrawerVisible(false);
+    messageApi.success(`已切换到 ${snapshot.activeTabLabel || getCategoryLabel(snapshot.activeTab)} 复盘视角`);
+  }, [messageApi, setActiveTab]);
+
+  const openSnapshotFocus = useCallback((snapshot) => {
+    if (!snapshot?.spotlightSymbol) {
+      return;
+    }
+
+    setDetailSymbol(snapshot.spotlightSymbol);
+    setIsDetailModalVisible(true);
+  }, []);
+
+  const updateReviewSnapshot = useCallback((snapshotId, updates) => {
+    setReviewSnapshots((prev) => prev.map((snapshot) => (
+      snapshot.id === snapshotId
+        ? { ...snapshot, ...updates, updatedAt: new Date().toISOString() }
+        : snapshot
+    )));
+  }, []);
 
   const renderQuoteCard = (symbol, quote) => {
     const hasChange = hasNumericValue(quote.change);
@@ -500,13 +717,18 @@ const RealTimePanel = () => {
                   {freshness.label}
                 </Tag>
               </div>
+              {freshness.detail && (
+                <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: '12px' }}>
+                  {freshness.detail}
+                </Text>
+              )}
               <div className="realtime-quote-card__name">
                 <Text strong style={{ fontSize: '17px', color: 'var(--text-primary)' }}>
                   {getDisplayName(symbol)}
                 </Text>
               </div>
               <Text type="secondary" style={{ fontSize: '12px' }}>
-                {symbol} · {formatQuoteTime(quote.timestamp)}
+                {symbol} · 行情 {formatQuoteTime(quote.timestamp)} · 接收 {formatQuoteTime(quote._clientReceivedAt)}
               </Text>
             </div>
 
@@ -554,6 +776,17 @@ const RealTimePanel = () => {
               {isMarketIndex ? '指数详情与分析面板联动' : '支持查看实时快照、分析与交易入口'}
             </Text>
             <Space>
+              <Button
+                type="text"
+                size="small"
+                icon={<BellOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenAlerts(symbol);
+                }}
+              >
+                提醒
+              </Button>
               {!isMarketIndex && categoryType !== 'bond' && (
                 <Button
                   type="primary"
@@ -655,7 +888,8 @@ const RealTimePanel = () => {
               <div className="realtime-hero__chip">已加载 {loadedQuotesCount}/{subscribedSymbols.length} 个标的</div>
               <div className="realtime-hero__chip">当前分组：{getCategoryLabel(activeTab)}</div>
               <div className="realtime-hero__chip">链路模式：{transportModeLabel}</div>
-              <div className="realtime-hero__chip">最近成功刷新：{lastMarketUpdateLabel}</div>
+              <div className="realtime-hero__chip">最近接收：{lastClientRefreshLabel}</div>
+              <div className="realtime-hero__chip">最新行情时间：{lastMarketUpdateLabel}</div>
               {reconnectAttempts > 0 && (
                 <div className="realtime-hero__chip">重连次数：{reconnectAttempts}</div>
               )}
@@ -697,6 +931,22 @@ const RealTimePanel = () => {
                 unCheckedChildren={<PauseCircleOutlined />}
               />
             </div>
+
+            <Button
+              icon={<BellOutlined />}
+              onClick={() => handleOpenAlerts()}
+              size="large"
+            >
+              价格提醒
+            </Button>
+
+            <Button onClick={() => setIsSnapshotDrawerVisible(true)} size="large">
+              复盘快照
+            </Button>
+
+            <Button onClick={saveReviewSnapshot} size="large">
+              保存快照
+            </Button>
 
             <Button
               type="primary"
@@ -778,6 +1028,307 @@ const RealTimePanel = () => {
       <Card
         className="realtime-board-card"
         style={{
+          borderRadius: 24,
+          border: '1px solid var(--border-color)',
+          boxShadow: '0 16px 34px rgba(15, 23, 42, 0.06)',
+        }}
+      >
+        <div className="realtime-board-head" style={{ marginBottom: 14 }}>
+          <div>
+            <div className="realtime-block-title">异动雷达</div>
+            <div className="realtime-block-subtitle">
+              基于当前分组的实时报价，自动识别涨跌异常、振幅扩张、放量和逼近日高/日低的标的。
+            </div>
+          </div>
+          <div className="realtime-board-summary">
+            <span>当前异动</span>
+            <strong>{anomalyFeed.length}</strong>
+          </div>
+        </div>
+
+        {anomalyFeed.length === 0 ? (
+          <Text type="secondary">当前分组暂无显著异动，等待下一笔明显变化。</Text>
+        ) : (
+          <div style={{ display: 'grid', gap: 10 }}>
+            {anomalyFeed.map((item) => (
+              <div
+                key={item.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 14,
+                  padding: '14px 16px',
+                  borderRadius: 18,
+                  background: 'color-mix(in srgb, var(--bg-secondary) 90%, white 10%)',
+                  border: '1px solid var(--border-color)',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <Space wrap>
+                    <Tag color="magenta" style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>{item.title}</Tag>
+                    <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>{item.symbol}</Tag>
+                  </Space>
+                  <Text style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {getDisplayName(item.symbol)}
+                  </Text>
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    {item.description}
+                  </Text>
+                </div>
+
+                <Space wrap>
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    {formatQuoteTime(item.timestamp)}
+                  </Text>
+                  <Button
+                    size="small"
+                    onClick={() => handleOpenTrade(
+                      item.symbol,
+                      buildTradePlanDraftFromAnomaly(item, quotes[item.symbol])
+                    )}
+                  >
+                    计划
+                  </Button>
+                  <Button
+                    size="small"
+                    onClick={() => handleOpenAlerts(
+                      item.symbol,
+                      buildAlertDraftFromAnomaly(item, quotes[item.symbol], quotes)
+                    )}
+                    icon={<BellOutlined />}
+                  >
+                    提醒
+                  </Button>
+                  <Button type="primary" size="small" onClick={() => handleShowDetail(item.symbol)}>
+                    详情
+                  </Button>
+                </Space>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card
+        className="realtime-board-card"
+        style={{
+          borderRadius: 24,
+          border: '1px solid var(--border-color)',
+          boxShadow: '0 16px 34px rgba(15, 23, 42, 0.06)',
+        }}
+      >
+        <div className="realtime-board-head" style={{ marginBottom: 14 }}>
+          <div>
+            <div className="realtime-block-title">复盘快照</div>
+            <div className="realtime-block-subtitle">
+              保存当前分组、焦点标的、异动和链路状态，方便盘后回看当时看到的市场切片。
+            </div>
+          </div>
+          <div className="realtime-board-summary">
+            <span>已保存</span>
+            <strong>{reviewSnapshots.length}</strong>
+          </div>
+        </div>
+
+        {latestSnapshots.length === 0 ? (
+          <Text type="secondary">还没有保存过复盘快照，盘中发现机会时可以先记一笔，盘后更容易回看判断过程。</Text>
+        ) : (
+          <div style={{ display: 'grid', gap: 10 }}>
+            {latestSnapshots.map((snapshot) => (
+              (() => {
+                const outcomeMeta = getSnapshotOutcomeMeta(snapshot.outcome);
+                return (
+              <div
+                key={snapshot.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  gap: 14,
+                  padding: '14px 16px',
+                  borderRadius: 18,
+                  background: 'color-mix(in srgb, var(--bg-secondary) 90%, white 10%)',
+                  border: '1px solid var(--border-color)',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div style={{ display: 'grid', gap: 6 }}>
+                  <Space wrap>
+                    <Tag color="cyan" style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
+                      {snapshot.activeTabLabel || getCategoryLabel(snapshot.activeTab)}
+                    </Tag>
+                    {outcomeMeta ? (
+                      <Tag color={outcomeMeta.color} style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
+                        {outcomeMeta.label}
+                      </Tag>
+                    ) : null}
+                    <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
+                      {formatQuoteTime(snapshot.createdAt)}
+                    </Tag>
+                  </Space>
+                  <Text style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
+                    {snapshot.spotlightName || '未记录焦点标的'}
+                    {snapshot.spotlightSymbol ? ` · ${snapshot.spotlightSymbol}` : ''}
+                  </Text>
+                  <Text type="secondary" style={{ fontSize: '12px' }}>
+                    {snapshot.transportModeLabel} · 异动 {snapshot.anomalyCount} · 已加载 {snapshot.loadedCount}/{snapshot.totalCount}
+                  </Text>
+                  {snapshot.note ? (
+                    <Text type="secondary" style={{ fontSize: '12px' }}>
+                      备注：{snapshot.note}
+                    </Text>
+                  ) : null}
+                </div>
+
+                <Space wrap>
+                  <Button size="small" onClick={() => restoreSnapshot(snapshot)}>
+                    恢复分组
+                  </Button>
+                  {snapshot.spotlightSymbol ? (
+                    <Button size="small" type="primary" onClick={() => openSnapshotFocus(snapshot)}>
+                      焦点详情
+                    </Button>
+                  ) : null}
+                </Space>
+              </div>
+                );
+              })()
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {DIAGNOSTICS_ENABLED && (
+        <Card
+          className="realtime-diagnostics-card"
+          style={{
+            borderRadius: 24,
+            border: '1px dashed color-mix(in srgb, var(--accent-primary) 32%, var(--border-color) 68%)',
+            background: 'color-mix(in srgb, var(--bg-secondary) 86%, white 14%)',
+            boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
+          }}
+        >
+          <div className="realtime-board-head" style={{ marginBottom: 12 }}>
+            <div
+              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}
+              onClick={() => setIsDiagnosticsExpanded(prev => !prev)}
+            >
+              <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                {isDiagnosticsExpanded ? <DownOutlined /> : <RightOutlined />}
+              </span>
+              <div>
+                <div className="realtime-block-title">开发诊断</div>
+                <div className="realtime-block-subtitle">
+                  实时链路摘要，判断当前命中 bundle cache、走 WebSocket snapshot 还是退回 REST。
+                </div>
+              </div>
+            </div>
+            <Space>
+              <Text type="secondary" style={{ fontSize: '12px' }}>
+                最近拉取：{formatQuoteTime(diagnosticsLastLoadedAt)}
+              </Text>
+              <Button size="small" onClick={refreshDiagnostics} loading={diagnosticsLoading}>
+                刷新诊断
+              </Button>
+            </Space>
+          </div>
+
+          {isDiagnosticsExpanded && (<>
+          <div className="realtime-hero__meta" style={{ marginBottom: 14 }}>
+            <div className="realtime-hero__chip">WS 连接 {diagnosticsSummary?.websocket?.connections ?? '--'}</div>
+            <div className="realtime-hero__chip">活跃 symbols {diagnosticsSummary?.websocket?.active_symbols ?? '--'}</div>
+            <div className="realtime-hero__chip">bundle 命中 {diagnosticsCache.bundle_cache_hits ?? '--'}</div>
+            <div className="realtime-hero__chip">bundle miss {diagnosticsCache.bundle_cache_misses ?? '--'}</div>
+            <div className="realtime-hero__chip">bundle 写入 {diagnosticsCache.bundle_cache_writes ?? '--'}</div>
+            <div className="realtime-hero__chip">预热次数 {diagnosticsCache.bundle_prewarm_calls ?? '--'}</div>
+          </div>
+
+          <div className="realtime-quote-card__metrics">
+            <div className="realtime-quote-card__metric">
+              <span>最近抓取</span>
+              <strong>
+                req {diagnosticsFetch.requested ?? '--'} / hit {diagnosticsFetch.cache_hits ?? '--'} / fetch {diagnosticsFetch.fetched ?? '--'}
+              </strong>
+            </div>
+            <div className="realtime-quote-card__metric">
+              <span>最近耗时</span>
+              <strong>{diagnosticsFetch.duration_ms ?? '--'} ms</strong>
+            </div>
+            <div className="realtime-quote-card__metric">
+              <span>最近 bundle key</span>
+              <strong>
+                {Array.isArray(diagnosticsCache.last_bundle_cache_key) && diagnosticsCache.last_bundle_cache_key.length > 0
+                  ? diagnosticsCache.last_bundle_cache_key.join(', ')
+                  : '--'}
+              </strong>
+            </div>
+          </div>
+
+          <div className="realtime-quote-card__metrics" style={{ marginTop: 12 }}>
+            <div className="realtime-quote-card__metric">
+              <span>活跃质量样本</span>
+              <strong>{diagnosticsQuality.active_quote_count ?? '--'}</strong>
+            </div>
+            <div className="realtime-quote-card__metric">
+              <span>最弱字段</span>
+              <strong>
+                {weakestFields.length > 0
+                  ? weakestFields.map((item) => `${item.field} ${Math.round((item.coverage_ratio || 0) * 100)}%`).join(' / ')
+                  : '--'}
+              </strong>
+            </div>
+            <div className="realtime-quote-card__metric">
+              <span>最缺字段标的</span>
+              <strong>
+                {weakestSymbols.length > 0
+                  ? weakestSymbols.map((item) => `${item.symbol}(${item.missing_count})`).join(' / ')
+                  : '--'}
+              </strong>
+            </div>
+          </div>
+
+          <div style={{ marginTop: 14 }}>
+            <div className="realtime-block-subtitle" style={{ marginBottom: 8 }}>
+              最近决策轨迹
+            </div>
+            {transportDecisions.length === 0 ? (
+              <Text type="secondary" style={{ fontSize: '12px' }}>
+                暂无链路决策记录
+              </Text>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {transportDecisions.slice(0, 3).map((decision) => (
+                  <div
+                    key={decision.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      gap: 12,
+                      padding: '10px 12px',
+                      borderRadius: 14,
+                      background: 'rgba(15, 23, 42, 0.04)',
+                    }}
+                  >
+                    <Text style={{ fontSize: '12px', color: 'var(--text-primary)' }}>
+                      {formatTransportDecision(decision)}
+                    </Text>
+                    <Text type="secondary" style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>
+                      {formatQuoteTime(decision.timestamp)}
+                    </Text>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          </>)}
+        </Card>
+      )}
+
+      <Card
+        className="realtime-board-card"
+        style={{
           borderRadius: 28,
           border: '1px solid var(--border-color)',
           boxShadow: '0 18px 42px rgba(15, 23, 42, 0.07)',
@@ -806,10 +1357,146 @@ const RealTimePanel = () => {
         />
       </Card>
 
+      <Drawer
+        title="价格提醒"
+        placement="right"
+        width={720}
+        onClose={handleCloseAlerts}
+        open={isAlertsDrawerVisible}
+      >
+        <Suspense fallback={null}>
+          <PriceAlerts
+            embedded
+            prefillSymbol={alertPrefillSymbol}
+            prefillDraft={alertPrefillDraft}
+            composerSignal={alertComposerSignal}
+            liveQuotes={quotes}
+          />
+        </Suspense>
+      </Drawer>
+
+      <Drawer
+        title="复盘快照"
+        placement="right"
+        width={720}
+        onClose={() => setIsSnapshotDrawerVisible(false)}
+        open={isSnapshotDrawerVisible}
+      >
+        <div style={{ display: 'grid', gap: 12 }}>
+          {reviewSnapshots.length === 0 ? (
+            <Text type="secondary">暂无复盘快照，先在实时页保存一笔当前状态吧。</Text>
+          ) : reviewSnapshots.map((snapshot) => {
+            const outcomeMeta = getSnapshotOutcomeMeta(snapshot.outcome);
+            return (
+            <Card key={snapshot.id} style={{ borderRadius: 18 }}>
+              <div style={{ display: 'grid', gap: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div>
+                    <Space wrap>
+                      <Tag color="cyan" style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
+                        {snapshot.activeTabLabel || getCategoryLabel(snapshot.activeTab)}
+                      </Tag>
+                      {outcomeMeta ? (
+                        <Tag color={outcomeMeta.color} style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
+                          {outcomeMeta.label}
+                        </Tag>
+                      ) : null}
+                      <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
+                        {formatQuoteTime(snapshot.createdAt)}
+                      </Tag>
+                    </Space>
+                    <div style={{ marginTop: 8, fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
+                      {snapshot.spotlightName || '未记录焦点标的'}
+                      {snapshot.spotlightSymbol ? ` · ${snapshot.spotlightSymbol}` : ''}
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
+                      {snapshot.transportModeLabel}
+                    </div>
+                  </div>
+                  <Space wrap>
+                    <Button onClick={() => restoreSnapshot(snapshot)}>恢复分组</Button>
+                    {snapshot.spotlightSymbol ? (
+                      <Button type="primary" onClick={() => openSnapshotFocus(snapshot)}>
+                        打开焦点详情
+                      </Button>
+                    ) : null}
+                  </Space>
+                </div>
+
+                <div>
+                  <div className="realtime-block-subtitle" style={{ marginBottom: 8 }}>复盘结论</div>
+                  <Space wrap style={{ marginBottom: 10 }}>
+                    <Button size="small" onClick={() => updateReviewSnapshot(snapshot.id, { outcome: 'watching' })}>
+                      继续观察
+                    </Button>
+                    <Button size="small" onClick={() => updateReviewSnapshot(snapshot.id, { outcome: 'validated' })}>
+                      标记有效
+                    </Button>
+                    <Button size="small" danger onClick={() => updateReviewSnapshot(snapshot.id, { outcome: 'invalidated' })}>
+                      标记失效
+                    </Button>
+                  </Space>
+                  <Input
+                    value={snapshot.note || ''}
+                    placeholder="写下这笔快照后来的判断、复盘结论或后续动作"
+                    onChange={(event) => updateReviewSnapshot(snapshot.id, { note: event.target.value })}
+                  />
+                </div>
+
+                <div className="realtime-quote-card__metrics">
+                  <div className="realtime-quote-card__metric">
+                    <span>分组覆盖</span>
+                    <strong>{snapshot.loadedCount}/{snapshot.totalCount}</strong>
+                  </div>
+                  <div className="realtime-quote-card__metric">
+                    <span>异动数量</span>
+                    <strong>{snapshot.anomalyCount}</strong>
+                  </div>
+                  <div className="realtime-quote-card__metric">
+                    <span>新鲜 / 变旧 / 延迟</span>
+                    <strong>
+                      {snapshot.freshnessSummary?.fresh ?? 0} / {snapshot.freshnessSummary?.aging ?? 0} / {snapshot.freshnessSummary?.delayed ?? 0}
+                    </strong>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="realtime-block-subtitle" style={{ marginBottom: 8 }}>当时跟踪标的</div>
+                  <Space wrap>
+                    {(snapshot.watchedSymbols || []).map((item) => (
+                      <Tag key={`${snapshot.id}-${item}`} style={{ borderRadius: 999, paddingInline: 10 }}>{item}</Tag>
+                    ))}
+                  </Space>
+                </div>
+
+                <div>
+                  <div className="realtime-block-subtitle" style={{ marginBottom: 8 }}>当时异动</div>
+                  {snapshot.anomalies?.length ? (
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {snapshot.anomalies.map((item, index) => (
+                        <div key={`${snapshot.id}-${item.symbol}-${index}`} style={{ padding: '10px 12px', borderRadius: 14, background: 'rgba(15, 23, 42, 0.04)' }}>
+                          <Text style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{item.title} · {item.symbol}</Text>
+                          <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: '12px' }}>{item.description}</Text>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <Text type="secondary" style={{ fontSize: '12px' }}>这笔快照保存时没有显著异动。</Text>
+                  )}
+                </div>
+              </div>
+            </Card>
+            );
+          })}
+        </div>
+      </Drawer>
+
       <Suspense fallback={null}>
         <TradePanel
           visible={isTradeModalVisible}
           defaultSymbol={selectedSymbol}
+          planDraft={tradePlanDraft}
+          onCreateAlertFromPlan={handleCreateAlertFromTradePlan}
           onClose={handleCloseTrade}
           onSuccess={() => {
             messageApi.success('交易已记录');
@@ -1028,6 +1715,7 @@ const RealTimePanel = () => {
           background: color-mix(in srgb, var(--bg-secondary) 82%, white 18%);
           border: 1px solid color-mix(in srgb, var(--border-color) 80%, white 20%);
           color: var(--text-secondary);
+          white-space: nowrap;
         }
 
         .realtime-quote-card__price {
@@ -1075,8 +1763,8 @@ const RealTimePanel = () => {
         .realtime-quote-card__metric {
           padding: 12px;
           border-radius: 16px;
-          background: rgba(255, 255, 255, 0.52);
-          border: 1px solid rgba(148, 163, 184, 0.16);
+          background: color-mix(in srgb, var(--bg-secondary) 80%, white 20%);
+          border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent 30%);
           display: grid;
           gap: 8px;
         }

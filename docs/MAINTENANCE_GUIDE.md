@@ -6,7 +6,7 @@
 # 基础健康检查
 curl http://localhost:8000/health
 
-# 系统状态
+# 如需查看旧版系统状态接口（已废弃）
 curl http://localhost:8000/system/status
 ```
 
@@ -33,4 +33,4 @@ curl http://localhost:8000/system/status
 
 ---
 
-**最后更新**: 2026-02-05
+**最后更新**: 2026-03-26

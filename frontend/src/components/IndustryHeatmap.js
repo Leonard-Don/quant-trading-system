@@ -179,6 +179,7 @@ const IndustryHeatmap = ({
     onIndustryClick,
     onDataLoad,
     onLeadingStockClick,
+    replaySnapshot = null,
     marketCapFilter = 'all',
     onClearMarketCapFilter,
     onSelectMarketCapFilter,
@@ -193,6 +194,7 @@ const IndustryHeatmap = ({
     onDisplayCountChange,
     onSearchTermChange,
     focusControlKey,
+    showStats = true,
 }) => {
     const [refreshSec, setRefreshSec] = useState(60);
     const [data, setData] = useState(null);
@@ -264,6 +266,17 @@ const IndustryHeatmap = ({
         }
     }, [searchTermValue]);
 
+    useEffect(() => {
+        if (!replaySnapshot?.data) return undefined;
+        if (loadDataAbortRef.current) {
+            loadDataAbortRef.current.abort();
+        }
+        setError(null);
+        setLoading(false);
+        setData(replaySnapshot.data);
+        return undefined;
+    }, [replaySnapshot]);
+
     // 响应式容器尺寸监听
     useEffect(() => {
         if (!containerNode) return;
@@ -296,6 +309,12 @@ const IndustryHeatmap = ({
 
     // 加载热力图数据
     const loadData = useCallback(async () => {
+        if (replaySnapshot?.data) {
+            setData(replaySnapshot.data);
+            setLoading(false);
+            setError(null);
+            return;
+        }
         if (loadDataAbortRef.current) {
             loadDataAbortRef.current.abort();
         }
@@ -326,9 +345,16 @@ const IndustryHeatmap = ({
                 setLoading(false);
             }
         }
-    }, [timeframe, onDataLoad]);
+    }, [onDataLoad, replaySnapshot, timeframe]);
 
     useEffect(() => {
+        if (replaySnapshot?.data) {
+            return () => {
+                if (loadDataAbortRef.current) {
+                    loadDataAbortRef.current.abort();
+                }
+            };
+        }
         loadData();
         
         return () => {
@@ -336,15 +362,16 @@ const IndustryHeatmap = ({
                 loadDataAbortRef.current.abort();
             }
         };
-    }, [loadData]);
+    }, [loadData, replaySnapshot]);
 
     // 自动刷新
     useEffect(() => {
+        if (replaySnapshot?.data) return undefined;
         if (refreshSec > 0) {
             const timer = setInterval(loadData, refreshSec * 1000);
             return () => clearInterval(timer);
         }
-    }, [refreshSec, loadData]);
+    }, [refreshSec, loadData, replaySnapshot]);
 
     // 红涨绿跌渐变色计算（共用逻辑）
     const redGreenGradient = useCallback((value, absMax) => {
@@ -1089,7 +1116,7 @@ const IndustryHeatmap = ({
                                 )}
 
                                 {/* 大块：市值 */}
-                                {isLargeBlock && !isMediumBlock && (
+                                {isLargeBlock && (
                                     <Text
                                         style={{
                                             color: 'color-mix(in srgb, var(--text-primary) 68%, transparent)',
@@ -1342,6 +1369,11 @@ const IndustryHeatmap = ({
                     </Space>
                     {/* 第二行：显示数量 + 搜索 + 刷新 */}
                     <Space size={8} wrap>
+                        {replaySnapshot?.data && (
+                            <Tag color="processing" style={{ margin: 0, borderRadius: 999 }}>
+                                回放中 {replaySnapshot?.timeframe ? `${replaySnapshot.timeframe}日` : ''}
+                            </Tag>
+                        )}
                         <Radio.Group
                             className="heatmap-control-display-count"
                             value={displayCount}
@@ -1397,13 +1429,14 @@ const IndustryHeatmap = ({
                             icon={<ReloadOutlined />}
                             onClick={loadData}
                             loading={loading}
+                            disabled={Boolean(replaySnapshot?.data)}
                             style={{ color: 'var(--text-secondary)' }}
                         />
                     </Space>
                 </div>
             }
         >
-            {renderStats}
+            {showStats && renderStats}
             {renderTreemap}
             {renderLegend}
         </Card>

@@ -1,19 +1,30 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Card, Space, Button, Spin, Row, Col, Statistic, Popover, Checkbox, Divider } from 'antd';
+import { Card, Space, Button, Spin, Popover, Checkbox, Divider, Radio } from 'antd';
 import { ReloadOutlined, RiseOutlined, FallOutlined, LineChartOutlined, SettingOutlined } from '@ant-design/icons';
 import { createChart, ColorType, CrosshairMode, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';
 
-import { getMarketData } from '../services/api';
+import { getKlines } from '../services/api';
+
+const PERIOD_OPTIONS = [
+    { label: '日线', value: '1d' },
+    { label: '周线', value: '1wk' },
+    { label: '月线', value: '1mo' },
+    { label: '4小时', value: '4h' },
+];
+
+const CHART_HEIGHT = 440;
 
 const CandlestickChart = ({ symbol, embedMode = false }) => {
     const chartContainerRef = useRef(null);
     const chartRef = useRef(null);
     const seriesRef = useRef({}); // Store all series references
+    const updateStatsToLatestRef = useRef(() => {});
 
     const [loading, setLoading] = useState(false);
 
     const [stats, setStats] = useState(null);
     const [originalData, setOriginalData] = useState([]);
+    const [period, setPeriod] = useState('1d');
 
     // Indicators configuration
     const [indicators, setIndicators] = useState({
@@ -30,23 +41,46 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
         if (!symbol) return;
         setLoading(true);
         try {
-            const result = await getMarketData({ symbol });
-            if (result && result.data && result.data.data && result.data.data.length > 0) {
-                const rawData = Array.isArray(result.data.data) ? result.data.data : [];
-                setOriginalData(rawData);
-            } else {
-                setOriginalData([]);
-            }
+            const result = await getKlines(symbol, period, 200);
+            const rawData = Array.isArray(result?.klines) ? result.klines : [];
+            setOriginalData(rawData);
         } catch (err) {
-            console.error('Fetch error:', err);
+            console.error('Fetch kline error:', err);
+            setOriginalData([]);
         } finally {
             setLoading(false);
         }
-    }, [symbol]);
+    }, [symbol, period]);
 
     useEffect(() => {
         fetchKlineData();
     }, [fetchKlineData]);
+
+    const updateStatsToLatest = useCallback((data = null) => {
+        const currentData = data || (originalData.map(d => ({ ...d, time: new Date(d.date).toISOString().split('T')[0] })) || []);
+        if (currentData.length > 0) {
+            const last = currentData[currentData.length - 1];
+            let prevClose = last.open;
+            if (currentData.length > 1) {
+                prevClose = currentData[currentData.length - 2].close;
+            }
+            const change = ((last.close - prevClose) / prevClose) * 100;
+
+            const avgVol = chartRef.current?._avgVolMap?.[last.time] || last.volume; // Fallback to volume if no MA yet
+
+            setStats({
+                latestPrice: last.close,
+                change: change,
+                high: last.high,
+                low: last.low,
+                avgVolume: avgVol
+            });
+        }
+    }, [originalData]);
+
+    useEffect(() => {
+        updateStatsToLatestRef.current = updateStatsToLatest;
+    }, [updateStatsToLatest]);
 
 
     // Initialize Chart
@@ -63,7 +97,7 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
                 horzLines: { color: '#262626' },
             },
             width: chartContainerRef.current.clientWidth,
-            height: 400,
+            height: CHART_HEIGHT,
             crosshair: { mode: CrosshairMode.Normal },
             timeScale: {
                 timeVisible: true,
@@ -89,7 +123,7 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
             priceScaleId: '', // Overlay
         });
         volumeSeries.priceScale().applyOptions({
-            scaleMargins: { top: 0.8, bottom: 0 },
+            scaleMargins: { top: 0.7, bottom: 0 },
         });
         seriesRef.current.volume = volumeSeries;
 
@@ -113,7 +147,7 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
         // Crosshair handler
         chart.subscribeCrosshairMove(param => {
             if (!param.point || !param.time || param.point.x < 0 || param.point.x > chart.timeScale().width()) {
-                updateStatsToLatest();
+                updateStatsToLatestRef.current();
                 return;
             }
 
@@ -195,29 +229,18 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
         seriesRef.current.volume.setData(volData);
 
         // Calculate Indicators
-        const closes = uniqueData.map(d => d.close);
-
         // MAs
         const ma5 = calculateSMA(uniqueData, 5);
         const ma10 = calculateSMA(uniqueData, 10);
         const ma20 = calculateSMA(uniqueData, 20);
         const ma30 = calculateSMA(uniqueData, 30);
 
-        // Avg Volume (SMA 20 of Volume) - calculated manually here or helper?
-        // Helper expects {time, close} structure usually, but calculateSMA splits it?
-        // My calculateSMA helper: uses `data[i-j].close`. 
-        // Need a calculateVolumeSMA helper or modify calculateSMA to accept 'key'.
-        // Or just map uniqueData to { ..., close: volume } temporarily? 
-        // Cleaner to make calculateSMA accept key. But for now, let's map.
         const volDataForSma = uniqueData.map(d => ({ ...d, close: d.volume }));
         const avgVolData = calculateSMA(volDataForSma, 20);
 
-        // We need to store this accessible for crosshair.
-        // Can attach to chart data? Or just quick look up map? 
-        // Easiest is to create a map: time -> avgVol
         const avgVolMap = {};
         avgVolData.forEach(d => { avgVolMap[d.time] = d.value; });
-        chartRef.current._avgVolMap = avgVolMap; // Attach to ref for easy access
+        chartRef.current._avgVolMap = avgVolMap;
 
         seriesRef.current.ma5.setData(ma5);
         seriesRef.current.ma10.setData(ma10);
@@ -240,7 +263,7 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
         // Fit Content
         chartRef.current.timeScale().fitContent();
 
-        updateStatsToLatest(uniqueData);
+        updateStatsToLatestRef.current(uniqueData);
 
     }, [originalData]);
 
@@ -261,29 +284,6 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
         seriesRef.current.bollLower.applyOptions({ visible: indicators.boll });
 
     }, [indicators]);
-
-
-    const updateStatsToLatest = (data = null) => {
-        const currentData = data || (originalData.map(d => ({ ...d, time: new Date(d.date).toISOString().split('T')[0] })) || []);
-        if (currentData.length > 0) {
-            const last = currentData[currentData.length - 1];
-            let prevClose = last.open;
-            if (currentData.length > 1) {
-                prevClose = currentData[currentData.length - 2].close;
-            }
-            const change = ((last.close - prevClose) / prevClose) * 100;
-
-            const avgVol = chartRef.current?._avgVolMap?.[last.time] || last.volume; // Fallback to volume if no MA yet
-
-            setStats({
-                latestPrice: last.close,
-                change: change,
-                high: last.high,
-                low: last.low,
-                avgVolume: avgVol
-            });
-        }
-    };
 
     // --- Math Helpers ---
     const calculateSMA = (data, windowSize) => {
@@ -340,6 +340,20 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
         return { upper, mid, lower };
     };
 
+    // --- Formatting Helpers ---
+    const formatStatValue = (value, precision = 2) => {
+        if (value === undefined || value === null || isNaN(value)) return '--';
+        return Number(value).toFixed(precision);
+    };
+
+    const formatVolume = (value) => {
+        if (!value || value <= 0 || isNaN(value)) return '--';
+        if (value >= 1e9) return (value / 1e9).toFixed(1) + 'B';
+        if (value >= 1e6) return (value / 1e6).toFixed(1) + 'M';
+        if (value >= 1e3) return (value / 1e3).toFixed(1) + 'K';
+        return value.toFixed(0);
+    };
+
     // --- UI Content ---
     const indicatorContent = (
         <Space direction="vertical">
@@ -358,6 +372,8 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
         </Space>
     );
 
+    const changeColor = stats?.change >= 0 ? '#00b578' : '#ff3030';
+
     return (
         <Card
             bordered={!embedMode}
@@ -371,11 +387,19 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
                 )
             }
             extra={
-                <Space>
+                <Space size="middle">
+                    <Radio.Group
+                        value={period}
+                        onChange={(e) => setPeriod(e.target.value)}
+                        size="small"
+                        optionType="button"
+                        buttonStyle="solid"
+                        options={PERIOD_OPTIONS}
+                    />
                     <Popover content={indicatorContent} title="技术指标设置" trigger="click" placement="bottomRight">
-                        <Button icon={<SettingOutlined />}>指标</Button>
+                        <Button icon={<SettingOutlined />} size="small">指标</Button>
                     </Popover>
-                    <Button icon={<ReloadOutlined />} onClick={fetchKlineData} loading={loading} />
+                    <Button icon={<ReloadOutlined />} size="small" onClick={fetchKlineData} loading={loading} />
                 </Space>
             }
             styles={embedMode ? { body: { padding: 0 } } : undefined}
@@ -383,36 +407,82 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
         >
             {
                 stats && (
-                    <Row gutter={[24, 24]} style={{ marginBottom: 16, padding: '0 12px' }}>
-                        <Col span={6}>
-                            <Statistic title="最新价" value={stats.latestPrice} precision={2} prefix="$" valueStyle={{ fontSize: 16, fontWeight: 500 }} />
-                        </Col>
-                        <Col span={6}>
-                            <Statistic
-                                title="涨跌幅"
-                                value={stats.change}
-                                precision={2}
-                                suffix="%"
-                                valueStyle={{ fontSize: 16, fontWeight: 500, color: stats.change >= 0 ? '#00b578' : '#ff3030' }}
-                                prefix={stats.change >= 0 ? <RiseOutlined /> : <FallOutlined />}
-                            />
-                        </Col>
-                        <Col span={6}>
-                            <Statistic title="最高价" value={stats.high} precision={2} prefix="$" valueStyle={{ fontSize: 16, fontWeight: 500, color: '#00b578' }} />
-                        </Col>
-                        <Col span={6}>
-                            <Statistic title="最低价" value={stats.low} precision={2} prefix="$" valueStyle={{ fontSize: 16, fontWeight: 500, color: '#ff3030' }} />
-                        </Col>
-                        <Col span={6}>
-                            <Statistic title="均量" value={(stats.avgVolume / 1000000).toFixed(1)} suffix="M" valueStyle={{ fontSize: 16, fontWeight: 500 }} />
-                        </Col>
-                    </Row>
+                    <div className="kline-stats-row">
+                        <div className="kline-stat-item">
+                            <span className="kline-stat-label">最新价</span>
+                            <span className="kline-stat-value">{formatStatValue(stats.latestPrice)}</span>
+                        </div>
+                        <div className="kline-stat-item">
+                            <span className="kline-stat-label">涨跌幅</span>
+                            <span className="kline-stat-value" style={{ color: changeColor }}>
+                                {stats.change >= 0 ? <RiseOutlined /> : <FallOutlined />}
+                                {' '}{formatStatValue(stats.change)}%
+                            </span>
+                        </div>
+                        <div className="kline-stat-item">
+                            <span className="kline-stat-label">最高价</span>
+                            <span className="kline-stat-value" style={{ color: '#00b578' }}>{formatStatValue(stats.high)}</span>
+                        </div>
+                        <div className="kline-stat-item">
+                            <span className="kline-stat-label">最低价</span>
+                            <span className="kline-stat-value" style={{ color: '#ff3030' }}>{formatStatValue(stats.low)}</span>
+                        </div>
+                        <div className="kline-stat-item">
+                            <span className="kline-stat-label">均量</span>
+                            <span className="kline-stat-value">{formatVolume(stats.avgVolume)}</span>
+                        </div>
+                    </div>
                 )
             }
 
             {loading && <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 10 }}><Spin size="large" /></div>}
 
-            <div ref={chartContainerRef} style={{ width: '100%', height: 400, position: 'relative' }} />
+            <div ref={chartContainerRef} style={{ width: '100%', height: CHART_HEIGHT, position: 'relative' }} />
+
+            <style>{`
+                .kline-stats-row {
+                    display: flex;
+                    gap: 12px;
+                    margin-bottom: 16px;
+                    padding: 0 4px;
+                    flex-wrap: wrap;
+                }
+
+                .kline-stat-item {
+                    flex: 1;
+                    min-width: 100px;
+                    padding: 12px 16px;
+                    border-radius: 12px;
+                    background: color-mix(in srgb, var(--bg-secondary, #1a1a2e) 80%, white 20%);
+                    border: 1px solid color-mix(in srgb, var(--border-color, #303050) 70%, transparent 30%);
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                }
+
+                .kline-stat-label {
+                    font-size: 12px;
+                    color: var(--text-secondary, #999);
+                    letter-spacing: 0.04em;
+                }
+
+                .kline-stat-value {
+                    font-size: 18px;
+                    font-weight: 600;
+                    color: var(--text-primary, #e0e0e0);
+                    font-variant-numeric: tabular-nums;
+                }
+
+                @media (max-width: 640px) {
+                    .kline-stats-row {
+                        flex-direction: column;
+                    }
+
+                    .kline-stat-item {
+                        min-width: unset;
+                    }
+                }
+            `}</style>
         </Card>
     );
 };

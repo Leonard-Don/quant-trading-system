@@ -25,10 +25,22 @@ STIMULUS_KEYWORDS_ZH = [
     "新基建", "扩容", "放宽", "提振", "加速",
 ]
 
+STIMULUS_KEYWORDS_EN = [
+    "support", "stimulus", "expand", "accelerate", "boost",
+    "investment", "funding", "cut rates", "rate cut", "easing",
+    "liquidity", "infrastructure", "capacity expansion", "promote",
+]
+
 TIGHTENING_KEYWORDS_ZH = [
     "收紧", "限制", "整顿", "规范", "严控", "压降",
     "去杠杆", "淘汰", "清退", "暂停", "叫停",
     "严格执行", "问责", "审查", "制裁",
+]
+
+TIGHTENING_KEYWORDS_EN = [
+    "tighten", "restriction", "curb", "reduce", "suspend",
+    "pause", "ban", "penalty", "compliance", "rate hike",
+    "higher rates", "quantitative tightening", "deleveraging",
 ]
 
 STRONG_WILL_KEYWORDS_ZH = [
@@ -37,15 +49,21 @@ STRONG_WILL_KEYWORDS_ZH = [
     "高度重视", "亲自", "紧急", "限期",
 ]
 
+STRONG_WILL_KEYWORDS_EN = [
+    "must", "shall", "immediately", "strictly", "decisive",
+    "firmly", "without delay", "enforce", "urgent", "mandatory",
+    "committed", "determined", "no tolerance",
+]
+
 INDUSTRY_KEYWORDS = {
-    "光伏": ["光伏", "太阳能", "硅片", "组件", "逆变器"],
-    "风电": ["风电", "风机", "海上风电", "风力发电"],
-    "核电": ["核电", "核能", "核准", "核反应堆"],
-    "AI算力": ["人工智能", "算力", "数据中心", "GPU", "芯片", "智算"],
-    "新能源汽车": ["新能源汽车", "电动车", "充电桩", "动力电池"],
-    "半导体": ["半导体", "芯片", "集成电路", "晶圆"],
-    "电网": ["电网", "特高压", "输电", "变压器", "配电"],
-    "储能": ["储能", "电池储能", "抽水蓄能"],
+    "光伏": ["光伏", "太阳能", "硅片", "组件", "逆变器", "solar", "photovoltaic", "pv"],
+    "风电": ["风电", "风机", "海上风电", "风力发电", "wind", "offshore wind", "turbine"],
+    "核电": ["核电", "核能", "核准", "核反应堆", "nuclear", "reactor"],
+    "AI算力": ["人工智能", "算力", "数据中心", "GPU", "芯片", "智算", "artificial intelligence", "data center", "compute", "semiconductor"],
+    "新能源汽车": ["新能源汽车", "电动车", "充电桩", "动力电池", "electric vehicle", "ev", "battery"],
+    "半导体": ["半导体", "芯片", "集成电路", "晶圆", "semiconductor", "chip", "wafer"],
+    "电网": ["电网", "特高压", "输电", "变压器", "配电", "grid", "transmission", "distribution", "transformer"],
+    "储能": ["储能", "电池储能", "抽水蓄能", "energy storage", "battery storage"],
 }
 
 
@@ -129,8 +147,8 @@ class PolicyNLPAnalyzer:
         full_text = f"{title} {text}"
 
         # 1. 政策转向度：刺激 vs 紧缩关键词
-        stimulus_score = self._count_keywords(full_text, STIMULUS_KEYWORDS_ZH)
-        tightening_score = self._count_keywords(full_text, TIGHTENING_KEYWORDS_ZH)
+        stimulus_score = self._count_keywords(full_text, STIMULUS_KEYWORDS_ZH + STIMULUS_KEYWORDS_EN)
+        tightening_score = self._count_keywords(full_text, TIGHTENING_KEYWORDS_ZH + TIGHTENING_KEYWORDS_EN)
 
         total = stimulus_score + tightening_score
         if total > 0:
@@ -139,7 +157,7 @@ class PolicyNLPAnalyzer:
             policy_shift = 0.0
 
         # 2. 长官意志强烈度
-        will_count = self._count_keywords(full_text, STRONG_WILL_KEYWORDS_ZH)
+        will_count = self._count_keywords(full_text, STRONG_WILL_KEYWORDS_ZH + STRONG_WILL_KEYWORDS_EN)
         # 归一化到 0-100，假设超过 10 个强烈词汇已经非常强
         will_intensity = min(100, will_count * 10)
 
@@ -150,10 +168,10 @@ class PolicyNLPAnalyzer:
             if count > 0:
                 # 判断该产业是利好还是利空
                 stimulus_nearby = self._count_co_occurrence(
-                    full_text, keywords, STIMULUS_KEYWORDS_ZH
+                    full_text, keywords, STIMULUS_KEYWORDS_ZH + STIMULUS_KEYWORDS_EN
                 )
                 tightening_nearby = self._count_co_occurrence(
-                    full_text, keywords, TIGHTENING_KEYWORDS_ZH
+                    full_text, keywords, TIGHTENING_KEYWORDS_ZH + TIGHTENING_KEYWORDS_EN
                 )
                 if stimulus_nearby > tightening_nearby:
                     impact = "positive"
