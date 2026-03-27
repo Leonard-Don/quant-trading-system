@@ -278,6 +278,36 @@ class TestAPIIntegration:
         assert payload["data"]["aggregate_metrics"]["average_return"] is not None
         assert len(payload["data"]["window_results"]) == payload["data"]["n_windows"]
 
+    def test_portfolio_strategy_endpoint_returns_combined_portfolio_metrics(self, client, monkeypatch):
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
+        monkeypatch.setattr(
+            backtest_endpoint.data_manager,
+            "get_historical_data",
+            lambda *args, **kwargs: build_mock_backtest_data(periods=30),
+        )
+
+        response = client.post(
+            "/backtest/portfolio-strategy",
+            json={
+                "symbols": ["AAPL", "MSFT", "NVDA"],
+                "strategy": "buy_and_hold",
+                "parameters": {},
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-30",
+                "initial_capital": 10000,
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["data"]["portfolio_components"]
+        assert len(payload["data"]["portfolio_components"]) == 3
+        assert payload["data"]["final_value"] > 10000
+        assert payload["data"]["portfolio_history"]
+        assert payload["data"]["portfolio_objective"] == "equal_weight"
+
     def test_advanced_history_endpoint_saves_batch_experiment_record(self, client):
         response = client.post(
             "/backtest/history/advanced",

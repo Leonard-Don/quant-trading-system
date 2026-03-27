@@ -12,6 +12,7 @@ import { addResearchTaskSnapshot, createResearchTask, getGapAnalysis } from '../
 import ResearchPlaybook from './research-playbook/ResearchPlaybook';
 import { buildPricingPlaybook, buildPricingWorkbenchPayload } from './research-playbook/playbookViewModels';
 import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
+import { resolveAnalysisSymbol } from '../utils/pricingResearch';
 
 const { Title, Text, Paragraph } = Typography;
 const { Option } = Select;
@@ -45,7 +46,7 @@ const PricingResearch = () => {
   );
 
   const handleAnalyze = useCallback(async (overrideSymbol = null) => {
-    const targetSymbol = (overrideSymbol || symbol).trim().toUpperCase();
+    const targetSymbol = resolveAnalysisSymbol(overrideSymbol, symbol);
     if (!targetSymbol) return;
     setLoading(true);
     setError(null);
@@ -525,6 +526,7 @@ const ValuationCard = ({ data }) => {
 const DriversCard = ({ data }) => {
   if (!data) return null;
   const drivers = data.drivers || [];
+  const primaryDriver = data.primary_driver || drivers[0] || null;
 
   const impactColor = {
     positive: 'green', negative: 'red', risk: 'orange',
@@ -535,6 +537,28 @@ const DriversCard = ({ data }) => {
     <Card title={<><SwapOutlined style={{ marginRight: 8 }} />偏差驱动因素</>}>
       {drivers.length > 0 ? (
         <div>
+          {primaryDriver ? (
+            <div style={{
+              padding: '10px 12px',
+              marginBottom: 12,
+              background: 'var(--bg-secondary, #fafafa)',
+              borderRadius: 8,
+              border: '1px solid var(--border-color, #f0f0f0)',
+            }}>
+              <Space wrap size={6}>
+                <Tag color="gold">主驱动</Tag>
+                <Text strong>{primaryDriver.factor}</Text>
+                {primaryDriver.signal_strength !== undefined && primaryDriver.signal_strength !== null ? (
+                  <Tag>{`强度 ${Number(primaryDriver.signal_strength).toFixed(2)}`}</Tag>
+                ) : null}
+              </Space>
+              {primaryDriver.ranking_reason ? (
+                <Paragraph style={{ marginBottom: 0, marginTop: 6, fontSize: 12, color: '#8c8c8c' }}>
+                  排序依据：{primaryDriver.ranking_reason}
+                </Paragraph>
+              ) : null}
+            </div>
+          ) : null}
           {drivers.map((d, i) => (
             <div key={i} style={{
               padding: '10px 12px', marginBottom: 8,
@@ -542,12 +566,23 @@ const DriversCard = ({ data }) => {
               borderRadius: 6, borderLeft: `3px solid ${impactColor[d.impact] || '#d9d9d9'}`
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text strong style={{ fontSize: 13 }}>{d.factor}</Text>
+                <Space wrap size={6}>
+                  <Text strong style={{ fontSize: 13 }}>{d.factor}</Text>
+                  {d.rank === 1 ? <Tag color="gold">#1</Tag> : null}
+                  {d.signal_strength !== undefined && d.signal_strength !== null ? (
+                    <Tag>{`强度 ${Number(d.signal_strength).toFixed(2)}`}</Tag>
+                  ) : null}
+                </Space>
                 <Tag color={impactColor[d.impact]}>{d.impact}</Tag>
               </div>
               <Paragraph style={{ marginBottom: 0, marginTop: 4, fontSize: 12, color: '#8c8c8c' }}>
                 {d.description}
               </Paragraph>
+              {d.ranking_reason ? (
+                <Paragraph style={{ marginBottom: 0, marginTop: 4, fontSize: 11, color: '#bfbfbf' }}>
+                  排序依据：{d.ranking_reason}
+                </Paragraph>
+              ) : null}
             </div>
           ))}
         </div>
@@ -565,6 +600,8 @@ const ImplicationsCard = ({ data }) => {
   const riskColors = { low: '#52c41a', medium: '#faad14', high: '#ff4d4f' };
   const riskLabels = { low: '低', medium: '中', high: '高' };
   const confLabels = { low: '低', medium: '中', high: '高' };
+  const confidenceReasons = data.confidence_reasons || [];
+  const confidenceScore = data.confidence_score;
 
   return (
     <Card title={<><InfoCircleOutlined style={{ marginRight: 8 }} />投资含义</>}>
@@ -594,11 +631,27 @@ const ImplicationsCard = ({ data }) => {
             <div>
               <Tag style={{ marginTop: 4 }}>{confLabels[data.confidence] || '中'}</Tag>
             </div>
+            {confidenceScore !== undefined && confidenceScore !== null ? (
+              <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: 12 }}>
+                评分 {Number(confidenceScore).toFixed(2)}
+              </Text>
+            ) : null}
           </div>
         </Space>
       </div>
 
       <Divider style={{ margin: '12px 0' }} />
+
+      {confidenceReasons.length ? (
+        <div style={{ marginBottom: 12 }}>
+          {confidenceReasons.map((reason, i) => (
+            <Paragraph key={`${reason}-${i}`} style={{ marginBottom: 6, fontSize: 12, color: '#8c8c8c' }}>
+              <InfoCircleOutlined style={{ marginRight: 6, color: '#faad14' }} />
+              {reason}
+            </Paragraph>
+          ))}
+        </div>
+      ) : null}
 
       {(data.insights || []).map((insight, i) => (
         <Paragraph key={i} style={{ marginBottom: 6, fontSize: 13 }}>

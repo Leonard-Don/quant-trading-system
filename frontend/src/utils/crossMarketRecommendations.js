@@ -53,6 +53,30 @@ const buildRecommendationTone = (score) => {
   return 'blue';
 };
 
+const buildResonanceMeta = (overview = {}) => {
+  const resonance = overview?.resonance_summary || {};
+  return {
+    label: resonance.label || 'mixed',
+    reason: resonance.reason || '',
+    positive: new Set(resonance.positive_cluster || []),
+    negative: new Set(resonance.negative_cluster || []),
+    weakening: new Set(resonance.weakening || []),
+    precursor: new Set(resonance.precursor || []),
+    reversed: new Set(resonance.reversed_factors || []),
+  };
+};
+
+const buildPolicySourceHealthMeta = (overview = {}) => {
+  const summary = overview?.evidence_summary?.policy_source_health_summary || {};
+  return {
+    label: summary.label || 'unknown',
+    reason: summary.reason || '',
+    fragileSources: summary.fragile_sources || [],
+    watchSources: summary.watch_sources || [],
+    avgFullTextRatio: Number(summary.avg_full_text_ratio || 0),
+  };
+};
+
 export const CROSS_MARKET_FACTOR_LABELS = FACTOR_LABELS;
 export const CROSS_MARKET_DIMENSION_LABELS = Object.fromEntries(
   Object.entries(DIMENSION_META).map(([key, meta]) => [key, meta.label])
@@ -95,11 +119,36 @@ const buildSignalContext = (overview = {}, snapshot = {}) => {
   };
 };
 
-const buildAdjustedAssets = (template = {}, signalContext = {}) => {
+const buildBiasQualityMeta = (policySourceHealth = {}) => {
+  if (policySourceHealth.label === 'fragile') {
+    return {
+      scale: 0.55,
+      label: 'compressed',
+      reason: policySourceHealth.reason || '政策源正文抓取脆弱，宏观偏置已收缩到更保守的幅度',
+    };
+  }
+  if (policySourceHealth.label === 'watch') {
+    return {
+      scale: 0.78,
+      label: 'cautious',
+      reason: policySourceHealth.reason || '政策源正文覆盖下降，宏观偏置已适度收缩',
+    };
+  }
+  return {
+    scale: 1,
+    label: 'full',
+    reason: policySourceHealth.reason || '',
+  };
+};
+
+const buildAdjustedAssets = (template = {}, signalContext = {}, qualityMeta = {}) => {
   const longAssets = [];
   const shortAssets = [];
+  const rawLongAssets = [];
+  const rawShortAssets = [];
   const signalAttribution = [];
   const driverSummary = {};
+  const qualityScale = Number(qualityMeta.scale || 1);
 
   (template.assets || []).forEach((asset) => {
     const currentWeight = Number(asset.weight || 0) || 1;
@@ -169,32 +218,52 @@ const buildAdjustedAssets = (template = {}, signalContext = {}) => {
       };
     });
 
+    const adjustedMultiplier = 1 + (multiplier - 1) * qualityScale;
     const adjusted = {
       ...asset,
-      weight: clampMin(currentWeight * multiplier, 0.01),
+      weight: clampMin(currentWeight * adjustedMultiplier, 0.01),
       base_weight: Number(currentWeight.toFixed(6)),
       bias_reasons: biasReasons,
       bias_breakdown: breakdown,
+    };
+    const rawAdjusted = {
+      ...asset,
+      weight: clampMin(currentWeight * multiplier, 0.01),
+      base_weight: Number(currentWeight.toFixed(6)),
     };
     signalAttribution.push({
       symbol,
       side: asset.side,
       asset_class: asset.asset_class,
-      multiplier: Number(multiplier.toFixed(4)),
+      multiplier: Number(adjustedMultiplier.toFixed(4)),
+      raw_multiplier: Number(multiplier.toFixed(4)),
+      quality_scale: Number(qualityScale.toFixed(2)),
       reasons: biasReasons,
       breakdown,
     });
     if (isLong) {
       longAssets.push(adjusted);
+      rawLongAssets.push(rawAdjusted);
     } else {
       shortAssets.push(adjusted);
+      rawShortAssets.push(rawAdjusted);
     }
   });
 
   const normalizedLong = normalizeSideWeights(longAssets);
   const normalizedShort = normalizeSideWeights(shortAssets);
+  const normalizedRawLong = normalizeSideWeights(rawLongAssets);
+  const normalizedRawShort = normalizeSideWeights(rawShortAssets);
   const adjustedAssets = [...normalizedLong, ...normalizedShort];
+  const rawAdjustedAssets = [...normalizedRawLong, ...normalizedRawShort];
   const deltas = adjustedAssets
+    .map((asset) => ({
+      symbol: asset.symbol,
+      side: asset.side,
+      delta: Number(((asset.weight || 0) - (asset.base_weight || 0)).toFixed(4)),
+    }))
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+  const rawDeltas = rawAdjustedAssets
     .map((asset) => ({
       symbol: asset.symbol,
       side: asset.side,
@@ -205,6 +274,7 @@ const buildAdjustedAssets = (template = {}, signalContext = {}) => {
   const longLeader = deltas.find((item) => item.side === 'long' && item.delta > 0);
   const shortLeader = deltas.find((item) => item.side === 'short' && item.delta > 0);
   const strongestShift = deltas[0] ? Math.abs(deltas[0].delta) : 0;
+  const rawStrongestShift = rawDeltas[0] ? Math.abs(rawDeltas[0].delta) : 0;
 
   const summaryParts = [];
   if (longLeader) {
@@ -227,6 +297,10 @@ const buildAdjustedAssets = (template = {}, signalContext = {}) => {
       action: item.delta > 0 ? 'increase' : 'reduce',
       delta: Number(item.delta.toFixed(4)),
     }));
+  const rawBiasHighlights = rawDeltas
+    .filter((item) => Math.abs(item.delta) >= 0.02)
+    .slice(0, 4)
+    .map((item) => `${item.symbol} ${item.delta > 0 ? '+' : ''}${(item.delta * 100).toFixed(1)}pp`);
   const dominantDrivers = Object.values(driverSummary)
     .sort((a, b) => b.value - a.value)
     .slice(0, 3);
@@ -254,9 +328,15 @@ const buildAdjustedAssets = (template = {}, signalContext = {}) => {
     : '无辅助腿';
 
   return {
+    rawAdjustedAssets,
     adjustedAssets,
     biasSummary: summaryParts.join('，') || '当前信号更适合作为方向参考，权重保持接近模板原始配置',
+    rawBiasStrength: Number((rawStrongestShift * 100).toFixed(2)),
     biasStrength: Number((strongestShift * 100).toFixed(2)),
+    biasScale: Number(qualityScale.toFixed(2)),
+    biasQualityLabel: qualityMeta.label || 'full',
+    biasQualityReason: qualityMeta.reason || '',
+    rawBiasHighlights,
     biasHighlights,
     biasActions,
     signalAttribution,
@@ -275,6 +355,8 @@ export const buildCrossMarketCards = (payload = {}, overview = {}, snapshot = {}
   const dimensionLookup = buildDimensionLookup(snapshot);
   const supplyAlerts = snapshot?.signals?.supply_chain?.alerts || [];
   const signalContext = buildSignalContext(overview, snapshot);
+  const resonanceMeta = buildResonanceMeta(overview);
+  const policySourceHealth = buildPolicySourceHealthMeta(overview);
 
   return templates
     .map((template) => {
@@ -319,6 +401,49 @@ export const buildCrossMarketCards = (payload = {}, overview = {}, snapshot = {}
         });
       });
 
+      const linkedFactors = template.linked_factors || [];
+      const resonanceMatches = {
+        positive: linkedFactors.filter((factorName) => resonanceMeta.positive.has(factorName)),
+        negative: linkedFactors.filter((factorName) => resonanceMeta.negative.has(factorName)),
+        weakening: linkedFactors.filter((factorName) => resonanceMeta.weakening.has(factorName)),
+        precursor: linkedFactors.filter((factorName) => resonanceMeta.precursor.has(factorName)),
+        reversed: linkedFactors.filter((factorName) => resonanceMeta.reversed.has(factorName)),
+      };
+
+      if (resonanceMatches.positive.length) {
+        recommendationScore += resonanceMatches.positive.length * 0.55;
+        matchedDrivers.push({
+          key: `resonance-positive-${template.id}`,
+          label: `正向共振 ${resonanceMatches.positive.map((name) => formatFactorName(name)).join('、')}`,
+          detail: resonanceMeta.reason || '多个因子同步强化',
+          type: 'resonance',
+        });
+      }
+      if (resonanceMatches.negative.length && template.preferred_signal !== 'positive') {
+        recommendationScore += resonanceMatches.negative.length * 0.45;
+        matchedDrivers.push({
+          key: `resonance-negative-${template.id}`,
+          label: `负向共振 ${resonanceMatches.negative.map((name) => formatFactorName(name)).join('、')}`,
+          detail: resonanceMeta.reason || '多个因子同步走弱',
+          type: 'resonance',
+        });
+      }
+      if (resonanceMatches.precursor.length || resonanceMatches.reversed.length) {
+        recommendationScore += 0.2;
+        matchedDrivers.push({
+          key: `resonance-turn-${template.id}`,
+          label: `叙事临界 ${[
+            ...resonanceMatches.precursor.map((name) => formatFactorName(name)),
+            ...resonanceMatches.reversed.map((name) => formatFactorName(name)),
+          ].join('、')}`,
+          detail: resonanceMeta.reason || '相关因子进入反转临界区',
+          type: 'resonance',
+        });
+      }
+      if (resonanceMatches.weakening.length) {
+        recommendationScore = Math.max(0, recommendationScore - Math.min(0.25, resonanceMatches.weakening.length * 0.1));
+      }
+
       if ((template.linked_dimensions || []).includes('talent_structure') && supplyAlerts.length) {
         recommendationScore += Math.min(0.9, supplyAlerts.length * 0.25);
         matchedDrivers.push({
@@ -333,11 +458,36 @@ export const buildCrossMarketCards = (payload = {}, overview = {}, snapshot = {}
         recommendationScore += 0.25;
       }
 
+      if (policySourceHealth.label === 'fragile') {
+        recommendationScore = Math.max(0, recommendationScore - 0.35);
+        matchedDrivers.push({
+          key: `policy-source-${template.id}`,
+          label: `政策源退化 ${policySourceHealth.fragileSources.slice(0, 2).join('、') || 'fragile'}`,
+          detail: policySourceHealth.reason || '政策正文抓取质量下降，推荐级别需打折',
+          type: 'quality',
+        });
+      } else if (policySourceHealth.label === 'watch') {
+        recommendationScore = Math.max(0, recommendationScore - 0.18);
+        matchedDrivers.push({
+          key: `policy-source-${template.id}`,
+          label: '政策源需关注',
+          detail: policySourceHealth.reason || '政策正文覆盖下降，推荐级别适度打折',
+          type: 'quality',
+        });
+      } else if (policySourceHealth.label === 'healthy') {
+        recommendationScore += 0.06;
+      }
+
       const roundedScore = Number(recommendationScore.toFixed(2));
       const recommendationTier = buildRecommendationTier(roundedScore);
-      const allocationBias = buildAdjustedAssets(template, signalContext);
+      const biasQuality = buildBiasQualityMeta(policySourceHealth);
+      const allocationBias = buildAdjustedAssets(template, signalContext, biasQuality);
+      const prioritizedDrivers = [...matchedDrivers].sort((a, b) => {
+        const priority = { resonance: 0, quality: 1, factor: 2, alert: 3, dimension: 4 };
+        return (priority[a.type] ?? 9) - (priority[b.type] ?? 9);
+      });
       const driverHeadline = matchedDrivers.length
-        ? matchedDrivers
+        ? prioritizedDrivers
             .slice(0, 3)
             .map((item) => `${item.label}(${item.detail})`)
             .join(' · ')
@@ -353,11 +503,19 @@ export const buildCrossMarketCards = (payload = {}, overview = {}, snapshot = {}
         recommendationScore: roundedScore,
         recommendationTier,
         recommendationTone: buildRecommendationTone(roundedScore),
-        matchedDrivers: matchedDrivers.slice(0, 4),
+        matchedDrivers: prioritizedDrivers.slice(0, 4),
         driverHeadline,
+        resonanceLabel: resonanceMeta.label,
+        resonanceReason: resonanceMeta.reason,
+        resonanceFactors: resonanceMatches,
+        policySourceHealthLabel: policySourceHealth.label,
+        policySourceHealthReason: policySourceHealth.reason,
         adjustedAssets: allocationBias.adjustedAssets,
         biasSummary: allocationBias.biasSummary,
         biasStrength: allocationBias.biasStrength,
+        biasScale: allocationBias.biasScale,
+        biasQualityLabel: allocationBias.biasQualityLabel,
+        biasQualityReason: allocationBias.biasQualityReason,
         biasHighlights: allocationBias.biasHighlights,
         biasActions: allocationBias.biasActions,
         signalAttribution: allocationBias.signalAttribution,

@@ -47,6 +47,7 @@ import {
 import {
   buildCrossMarketLink,
   buildPricingLink,
+  buildWorkbenchLink,
   navigateToAppUrl,
 } from '../../utils/researchContext';
 
@@ -72,11 +73,48 @@ function GodEyeDashboard() {
   const navigateTo = (actionOrTarget) => {
     if (!actionOrTarget) return;
 
-    if (typeof actionOrTarget === 'string') {
-      if (actionOrTarget === 'pricing') {
+      if (typeof actionOrTarget === 'string') {
+        if (actionOrTarget === 'pricing') {
         navigateToAppUrl(buildPricingLink('', 'godeye', '来自 GodEye 的研究入口'));
       } else if (actionOrTarget === 'cross-market') {
         navigateToAppUrl(buildCrossMarketLink('', 'godeye', '来自 GodEye 的跨市场入口'));
+        } else if (actionOrTarget === 'workbench-refresh') {
+        const preferredCard =
+          crossMarketCards.find((card) => card.taskRefreshResonanceDriven && card.taskRefreshSeverity === 'high')
+          || crossMarketCards.find((card) => card.taskRefreshBiasCompressionCore && card.taskRefreshSeverity === 'high')
+          || crossMarketCards.find((card) => card.taskRefreshSelectionQualityDriven && card.taskRefreshSeverity === 'high')
+          || crossMarketCards.find((card) => card.taskRefreshBiasCompressionDriven && card.taskRefreshSeverity === 'high')
+          || crossMarketCards.find((card) => card.taskRefreshPolicySourceDriven && card.taskRefreshSeverity === 'high')
+          || crossMarketCards.find((card) => card.taskRefreshResonanceDriven)
+          || crossMarketCards.find((card) => card.taskRefreshBiasCompressionCore)
+          || crossMarketCards.find((card) => card.taskRefreshSelectionQualityDriven)
+          || crossMarketCards.find((card) => card.taskRefreshBiasCompressionDriven)
+          || crossMarketCards.find((card) => card.taskRefreshPolicySourceDriven)
+          || crossMarketCards.find((card) => card.taskRefreshSeverity === 'high')
+          || crossMarketCards.find((card) => card.taskRefreshLabel === '建议复核');
+        const preferredReason = preferredCard?.taskRefreshResonanceDriven
+          ? 'resonance'
+          : preferredCard?.taskRefreshBiasCompressionCore
+            ? 'bias_quality_core'
+          : preferredCard?.taskRefreshSelectionQualityDriven
+            ? 'selection_quality'
+          : preferredCard?.taskRefreshPolicySourceDriven
+            ? 'policy_source'
+            : preferredCard?.taskRefreshBiasCompressionDriven
+              ? 'bias_quality'
+            : '';
+        navigateToAppUrl(
+          buildWorkbenchLink(
+            {
+              refresh: 'high',
+              type: 'cross_market',
+              sourceFilter: '',
+              reason: preferredReason,
+              taskId: preferredCard?.taskRefreshTaskId || '',
+            },
+            window.location.search
+          )
+        );
       }
       return;
     }
@@ -98,6 +136,22 @@ function GodEyeDashboard() {
           actionOrTarget.template,
           actionOrTarget.source || 'godeye',
           actionOrTarget.note || ''
+        )
+      );
+      return;
+    }
+
+    if (actionOrTarget.target === 'workbench') {
+      navigateToAppUrl(
+        buildWorkbenchLink(
+          {
+            refresh: actionOrTarget.refresh || '',
+            type: actionOrTarget.type || '',
+            sourceFilter: actionOrTarget.sourceFilter || '',
+            reason: actionOrTarget.reason || '',
+            taskId: actionOrTarget.taskId || '',
+          },
+          window.location.search
         )
       );
     }
@@ -165,8 +219,20 @@ function GodEyeDashboard() {
     [snapshot, overview, status, researchTasks]
   );
   const crossMarketCards = useMemo(
-    () => buildCrossMarketCards(crossMarketTemplates, overview, snapshot),
-    [crossMarketTemplates, overview, snapshot]
+    () => buildCrossMarketCards(crossMarketTemplates, overview, snapshot, researchTasks),
+    [crossMarketTemplates, overview, snapshot, researchTasks]
+  );
+  const refreshCounts = useMemo(
+    () => ({
+      high: crossMarketCards.filter((card) => card.taskRefreshLabel === '建议更新').length,
+      medium: crossMarketCards.filter((card) => card.taskRefreshLabel === '建议复核').length,
+      resonance: crossMarketCards.filter((card) => card.taskRefreshResonanceDriven).length,
+      biasQualityCore: crossMarketCards.filter((card) => card.taskRefreshBiasCompressionCore).length,
+      selectionQuality: crossMarketCards.filter((card) => card.taskRefreshSelectionQualityDriven).length,
+      policySource: crossMarketCards.filter((card) => card.taskRefreshPolicySourceDriven).length,
+      biasQuality: crossMarketCards.filter((card) => card.taskRefreshBiasCompressionDriven).length,
+    }),
+    [crossMarketCards]
   );
 
   if (loading && !overview) {
@@ -308,6 +374,20 @@ function GodEyeDashboard() {
           showIcon
           message="数据治理提醒"
           description={`当前有 ${degradedProviders.length} 个 provider 处于 degraded/error 状态，页面继续使用最近成功快照。`}
+        />
+      ) : null}
+
+      {(refreshCounts.high || refreshCounts.medium) ? (
+        <Alert
+          type={refreshCounts.high ? 'error' : 'warning'}
+          showIcon
+          message="研究任务更新优先级"
+          description={`当前有 ${refreshCounts.high} 个跨市场任务建议立即更新，${refreshCounts.medium} 个任务建议优先复核。其中默认处理顺序会优先看共振驱动，其次是核心腿受压，再是自动降级。当前共有 ${refreshCounts.resonance || 0} 个共振驱动任务，${refreshCounts.biasQualityCore || 0} 个已经压到主题核心腿，${refreshCounts.selectionQuality || 0} 个已经进入自动降级，${refreshCounts.policySource || 0} 个属于政策源驱动，${refreshCounts.biasQuality || 0} 个已经出现偏置收缩。你可以直接从 Alert Hunter 或模板卡重新打开对应剧本。`}
+          action={
+            <Button size="small" type="primary" onClick={() => navigateTo('workbench-refresh')}>
+              打开待更新任务
+            </Button>
+          }
         />
       ) : null}
 

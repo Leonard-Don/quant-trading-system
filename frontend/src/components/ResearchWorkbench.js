@@ -31,6 +31,8 @@ import {
   addResearchTaskComment,
   deleteResearchTask,
   deleteResearchTaskComment,
+  getAltDataSnapshot,
+  getMacroOverview,
   getResearchTask,
   getResearchTaskStats,
   getResearchTasks,
@@ -38,7 +40,13 @@ import {
   reorderResearchBoard,
   updateResearchTask,
 } from '../services/api';
-import { formatResearchSource, navigateByResearchAction } from '../utils/researchContext';
+import {
+  buildWorkbenchLink,
+  formatResearchSource,
+  navigateByResearchAction,
+  readResearchContext,
+} from '../utils/researchContext';
+import { buildResearchTaskRefreshSignals } from '../utils/researchTaskSignals';
 import SnapshotComparePanel from './research-workbench/SnapshotComparePanel';
 
 const { Paragraph, Text, Title } = Typography;
@@ -60,6 +68,22 @@ const TYPE_OPTIONS = [
   { label: 'Cross-Market', value: 'cross_market' },
 ];
 
+const REFRESH_OPTIONS = [
+  { label: '全部更新状态', value: '' },
+  { label: '建议更新', value: 'high' },
+  { label: '建议复核', value: 'medium' },
+  { label: '继续观察', value: 'low' },
+];
+
+const REASON_OPTIONS = [
+  { label: '全部更新原因', value: '' },
+  { label: '共振驱动', value: 'resonance' },
+  { label: '核心腿受压', value: 'bias_quality_core' },
+  { label: '自动降级', value: 'selection_quality' },
+  { label: '政策源驱动', value: 'policy_source' },
+  { label: '偏置收缩', value: 'bias_quality' },
+];
+
 const STATUS_COLOR = {
   new: 'blue',
   in_progress: 'processing',
@@ -76,6 +100,25 @@ const TIMELINE_COLOR = {
   comment_added: 'cyan',
   comment_deleted: 'red',
   board_reordered: 'gold',
+};
+
+const sortTasksByRefreshPriority = (tasks = [], refreshLookup = {}, enablePriority = false) => {
+  const list = [...tasks];
+  if (!enablePriority) {
+    return list;
+  }
+
+  return list.sort((left, right) => {
+    const leftSignal = refreshLookup[left.id] || {};
+    const rightSignal = refreshLookup[right.id] || {};
+    if (Number(rightSignal.urgencyScore || 0) !== Number(leftSignal.urgencyScore || 0)) {
+      return Number(rightSignal.urgencyScore || 0) - Number(leftSignal.urgencyScore || 0);
+    }
+    if (Number(rightSignal.priorityWeight || 0) !== Number(leftSignal.priorityWeight || 0)) {
+      return Number(rightSignal.priorityWeight || 0) - Number(leftSignal.priorityWeight || 0);
+    }
+    return String(right.updated_at || '').localeCompare(String(left.updated_at || ''));
+  });
 };
 
 const formatContextValue = (value) => {
@@ -177,13 +220,22 @@ const buildReorderPayload = (tasks) =>
   );
 
 function ResearchWorkbench() {
+  const initialContext = readResearchContext();
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [tasks, setTasks] = useState([]);
   const [stats, setStats] = useState(null);
-  const [filters, setFilters] = useState({ type: '', source: '', keyword: '' });
-  const [selectedTaskId, setSelectedTaskId] = useState('');
+  const [liveOverview, setLiveOverview] = useState(null);
+  const [liveSnapshot, setLiveSnapshot] = useState(null);
+  const [filters, setFilters] = useState({
+    type: initialContext.workbenchType || '',
+    source: initialContext.workbenchSource || '',
+    refresh: initialContext.workbenchRefresh || '',
+    reason: initialContext.workbenchReason || '',
+    keyword: '',
+  });
+  const [selectedTaskId, setSelectedTaskId] = useState(initialContext.task || '');
   const [selectedTask, setSelectedTask] = useState(null);
   const [timeline, setTimeline] = useState([]);
   const [titleDraft, setTitleDraft] = useState('');
@@ -231,13 +283,17 @@ function ResearchWorkbench() {
   const loadWorkbench = useCallback(async () => {
     setLoading(true);
     try {
-      const [taskResponse, statsResponse] = await Promise.all([
+      const [taskResponse, statsResponse, macroResponse, altSnapshotResponse] = await Promise.all([
         getResearchTasks({ limit: 200, view: 'board' }),
         getResearchTaskStats(),
+        getMacroOverview(false),
+        getAltDataSnapshot(false),
       ]);
       const nextTasks = taskResponse.data || [];
       setTasks(nextTasks);
       setStats(statsResponse.data || null);
+      setLiveOverview(macroResponse || null);
+      setLiveSnapshot(altSnapshotResponse || null);
       setSelectedTaskId((current) => {
         if (current && nextTasks.some((task) => task.id === current)) {
           return current;
@@ -260,6 +316,20 @@ function ResearchWorkbench() {
   }, [loadTaskDetail, selectedTaskId]);
 
   useEffect(() => {
+    const nextUrl = buildWorkbenchLink(
+      {
+        refresh: filters.refresh,
+        type: filters.type,
+        sourceFilter: filters.source,
+        reason: filters.reason,
+        taskId: selectedTaskId,
+      },
+      window.location.search
+    );
+    window.history.replaceState(null, '', nextUrl);
+  }, [filters.reason, filters.refresh, filters.source, filters.type, selectedTaskId]);
+
+  useEffect(() => {
     if (!selectedTask) {
       setTitleDraft('');
       setNoteDraft('');
@@ -277,13 +347,59 @@ function ResearchWorkbench() {
     await loadTaskDetail(selectedTaskId);
   }, [loadTaskDetail, loadWorkbench, selectedTaskId]);
 
+  const refreshSignals = useMemo(
+    () => buildResearchTaskRefreshSignals({ researchTasks: tasks, overview: liveOverview, snapshot: liveSnapshot }),
+    [liveOverview, liveSnapshot, tasks]
+  );
+
+  const refreshStats = useMemo(() => {
+    const prioritized = refreshSignals.prioritized || [];
+    return {
+      high: prioritized.filter((item) => item.severity === 'high').length,
+      medium: prioritized.filter((item) => item.severity === 'medium').length,
+      low: prioritized.filter((item) => item.severity === 'low').length,
+      resonance: prioritized.filter((item) => item.resonanceDriven).length,
+      biasQualityCore: prioritized.filter((item) => item.biasCompressionShift?.coreLegAffected).length,
+      selectionQuality: prioritized.filter((item) => item.selectionQualityDriven || item.selectionQualityRunState?.active).length,
+      policySource: prioritized.filter((item) => item.policySourceDriven).length,
+      biasQuality: prioritized.filter((item) => item.biasCompressionDriven).length,
+    };
+  }, [refreshSignals]);
+
   const filteredTasks = useMemo(() => {
     const keyword = filters.keyword.trim().toLowerCase();
-    return tasks.filter((task) => {
+    const matches = tasks.filter((task) => {
       if (filters.type && task.type !== filters.type) {
         return false;
       }
       if (filters.source && task.source !== filters.source) {
+        return false;
+      }
+      if (filters.refresh) {
+        const severity = refreshSignals.byTaskId[task.id]?.severity || 'low';
+        if (severity !== filters.refresh) {
+          return false;
+        }
+      }
+      if (filters.reason === 'resonance' && !refreshSignals.byTaskId[task.id]?.resonanceDriven) {
+        return false;
+      }
+      if (filters.reason === 'policy_source' && !refreshSignals.byTaskId[task.id]?.policySourceDriven) {
+        return false;
+      }
+      if (filters.reason === 'bias_quality_core' && !refreshSignals.byTaskId[task.id]?.biasCompressionShift?.coreLegAffected) {
+        return false;
+      }
+      if (
+        filters.reason === 'selection_quality'
+        && !(
+          refreshSignals.byTaskId[task.id]?.selectionQualityDriven
+          || refreshSignals.byTaskId[task.id]?.selectionQualityRunState?.active
+        )
+      ) {
+        return false;
+      }
+      if (filters.reason === 'bias_quality' && !refreshSignals.byTaskId[task.id]?.biasCompressionDriven) {
         return false;
       }
       if (!keyword) {
@@ -301,7 +417,25 @@ function ResearchWorkbench() {
         .toLowerCase();
       return haystack.includes(keyword);
     });
-  }, [filters, tasks]);
+    return sortTasksByRefreshPriority(
+      matches,
+      refreshSignals.byTaskId,
+      Boolean(filters.refresh || filters.reason)
+    );
+  }, [filters, refreshSignals.byTaskId, tasks]);
+
+  useEffect(() => {
+    if (!filteredTasks.length) {
+      if (selectedTaskId) {
+        setSelectedTaskId('');
+      }
+      return;
+    }
+    const hasSelectedTask = filteredTasks.some((task) => task.id === selectedTaskId);
+    if (!selectedTaskId || !hasSelectedTask) {
+      setSelectedTaskId(filteredTasks[0].id);
+    }
+  }, [filteredTasks, selectedTaskId]);
 
   const boardColumns = useMemo(
     () =>
@@ -320,6 +454,8 @@ function ResearchWorkbench() {
         .sort((left, right) => String(right.updated_at || '').localeCompare(String(left.updated_at || ''))),
     [filteredTasks]
   );
+
+  const selectedTaskRefreshSignal = selectedTaskId ? refreshSignals.byTaskId[selectedTaskId] : null;
 
   const timelineItems = useMemo(() => {
     const visible = showAllTimeline ? timeline : timeline.slice(0, 8);
@@ -494,6 +630,7 @@ function ResearchWorkbench() {
     const payload = task.snapshot.payload || {};
     if (task.type === 'pricing') {
       const fairValue = payload.fair_value || payload.valuation?.fair_value || {};
+      const primaryDriver = payload.primary_driver || payload.drivers?.[0] || null;
       return (
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
           <Text strong>{task.snapshot.headline || 'Pricing Snapshot'}</Text>
@@ -509,7 +646,29 @@ function ResearchWorkbench() {
             </Text>
           ) : null}
           {payload.implications?.primary_view ? (
-            <Tag color="blue">{payload.implications.primary_view}</Tag>
+            <Space wrap size={6}>
+              <Tag color="blue">{payload.implications.primary_view}</Tag>
+              {payload.implications?.confidence ? (
+                <Tag>{`置信度 ${payload.implications.confidence}`}</Tag>
+              ) : null}
+              {payload.implications?.confidence_score !== undefined && payload.implications?.confidence_score !== null ? (
+                <Tag>{`评分 ${Number(payload.implications.confidence_score || 0).toFixed(2)}`}</Tag>
+              ) : null}
+            </Space>
+          ) : null}
+          {payload.implications?.confidence_reasons?.length ? (
+            <Text type="secondary">
+              置信度说明 {(payload.implications.confidence_reasons || []).slice(0, 2).join('；')}
+            </Text>
+          ) : null}
+          {primaryDriver?.factor ? (
+            <Text type="secondary">
+              主驱动 {primaryDriver.factor}
+              {primaryDriver.signal_strength !== undefined && primaryDriver.signal_strength !== null
+                ? ` · 强度 ${Number(primaryDriver.signal_strength).toFixed(2)}`
+                : ''}
+              {primaryDriver.ranking_reason ? ` · ${primaryDriver.ranking_reason}` : ''}
+            </Text>
           ) : null}
           {(task.snapshot.highlights || []).map((item) => (
             <Text key={item} type="secondary">
@@ -535,6 +694,32 @@ function ResearchWorkbench() {
         {payload.template_meta?.bias_summary ? (
           <Text type="secondary">权重偏置 {payload.template_meta.bias_summary}</Text>
         ) : null}
+        {payload.template_meta?.bias_strength_raw ? (
+          <Text type="secondary">
+            原始偏置 {Number(payload.template_meta.bias_strength_raw || 0).toFixed(1)}pp
+            {payload.template_meta?.bias_strength ? ` · 生效偏置 ${Number(payload.template_meta.bias_strength || 0).toFixed(1)}pp` : ''}
+          </Text>
+        ) : null}
+        {payload.template_meta?.bias_quality_label && payload.template_meta.bias_quality_label !== 'full' ? (
+          <Text type="secondary">
+            偏置收缩 {payload.template_meta.bias_quality_label}
+            {payload.template_meta?.bias_scale ? ` · scale ${Number(payload.template_meta.bias_scale).toFixed(2)}x` : ''}
+            {payload.template_meta?.bias_quality_reason ? ` · ${payload.template_meta.bias_quality_reason}` : ''}
+          </Text>
+        ) : null}
+        {payload.template_meta?.core_leg_pressure?.affected ? (
+          <Text type="secondary">
+            核心腿受压 {payload.template_meta.core_leg_pressure.summary || payload.template_meta.core_leg_pressure.symbol}
+          </Text>
+        ) : null}
+        {payload.allocation_overlay?.compressed_assets?.length ? (
+          <Text type="secondary">
+            压缩焦点 {payload.allocation_overlay.compressed_assets.join('，')}
+            {payload.allocation_overlay.compression_summary?.compression_effect !== undefined
+              ? ` · 收缩 ${Number(payload.allocation_overlay.compression_summary.compression_effect || 0).toFixed(1)}pp`
+              : ''}
+          </Text>
+        ) : null}
         {payload.template_meta?.bias_actions?.length ? (
           <Text type="secondary">
             建议动作 {(payload.template_meta.bias_actions || []).map((item) => `${item.action === 'increase' ? '增配' : '减配'} ${item.symbol}`).join('，')}
@@ -556,11 +741,71 @@ function ResearchWorkbench() {
             最大权重偏移 {(Number(payload.allocation_overlay.max_delta_weight || 0) * 100).toFixed(2)}pp
           </Text>
         ) : null}
+        {payload.constraint_overlay?.binding_count ? (
+          <Text type="secondary">
+            组合约束触发 {payload.constraint_overlay.binding_count} 个 · 最大约束偏移 {(Number(payload.constraint_overlay.max_delta_weight || 0) * 100).toFixed(2)}pp
+          </Text>
+        ) : null}
         {payload.template_meta?.recommendation_tier ? (
           <Tag color="gold">{payload.template_meta.recommendation_tier}</Tag>
         ) : null}
+        {payload.template_meta?.selection_quality?.label && payload.template_meta.selection_quality.label !== 'original' ? (
+          <Tag color="orange">自动降级 {payload.template_meta.selection_quality.label}</Tag>
+        ) : null}
+        {payload.template_meta?.resonance_label && payload.template_meta.resonance_label !== 'mixed' ? (
+          <Tag color="magenta">共振 {payload.template_meta.resonance_label}</Tag>
+        ) : null}
+        {payload.template_meta?.base_recommendation_score !== null
+        && payload.template_meta?.base_recommendation_score !== undefined ? (
+          <Text type="secondary">
+            推荐强度 {Number(payload.template_meta.base_recommendation_score || 0).toFixed(2)}
+            {payload.template_meta?.recommendation_score !== null && payload.template_meta?.recommendation_score !== undefined
+              ? ` -> ${Number(payload.template_meta.recommendation_score || 0).toFixed(2)}`
+              : ''}
+            {payload.template_meta?.base_recommendation_tier
+              ? ` · ${payload.template_meta.base_recommendation_tier} -> ${payload.template_meta.recommendation_tier || '-'}`
+              : ''}
+          </Text>
+        ) : null}
+        {payload.template_meta?.ranking_penalty ? (
+          <Text type="secondary">
+            排序惩罚 {Number(payload.template_meta.ranking_penalty || 0).toFixed(2)}
+            {payload.template_meta?.ranking_penalty_reason ? ` · ${payload.template_meta.ranking_penalty_reason}` : ''}
+          </Text>
+        ) : null}
         {payload.template_meta?.recommendation_reason ? (
           <Text type="secondary">推荐依据 {payload.template_meta.recommendation_reason}</Text>
+        ) : null}
+        {payload.template_meta?.resonance_reason ? (
+          <Text type="secondary">共振背景 {payload.template_meta.resonance_reason}</Text>
+        ) : null}
+        {payload.research_input?.macro ? (
+          <Text type="secondary">
+            宏观输入 分数 {Number(payload.research_input.macro.macro_score || 0).toFixed(2)}
+            {' · '}
+            Δ{Number(payload.research_input.macro.macro_score_delta || 0) >= 0 ? '+' : ''}{Number(payload.research_input.macro.macro_score_delta || 0).toFixed(2)}
+            {payload.research_input.macro.macro_signal_changed ? ' · 信号切换' : ''}
+            {payload.research_input.macro.resonance?.label && payload.research_input.macro.resonance.label !== 'mixed'
+              ? ` · 共振 ${payload.research_input.macro.resonance.label}`
+              : ''}
+            {payload.research_input.macro.policy_source_health?.label
+            && payload.research_input.macro.policy_source_health.label !== 'unknown'
+              ? ` · 政策源 ${payload.research_input.macro.policy_source_health.label}`
+              : ''}
+          </Text>
+        ) : null}
+        {payload.research_input?.macro?.policy_source_health?.reason ? (
+          <Text type="secondary">
+            政策源 {payload.research_input.macro.policy_source_health.reason}
+          </Text>
+        ) : null}
+        {payload.research_input?.alt_data?.top_categories?.length ? (
+          <Text type="secondary">
+            另类数据 {(payload.research_input.alt_data.top_categories || [])
+              .slice(0, 2)
+              .map((item) => `${item.category} ${item.momentum === 'strengthening' ? '增强' : item.momentum === 'weakening' ? '走弱' : '稳定'} ${Number(item.delta_score || 0) >= 0 ? '+' : ''}${Number(item.delta_score || 0).toFixed(2)}`)
+              .join('，')}
+          </Text>
         ) : null}
         {payload.total_return !== undefined ? (
           <Text type="secondary">
@@ -577,6 +822,41 @@ function ResearchWorkbench() {
           <Text type="secondary">
             执行集中度 {payload.execution_diagnostics.concentration_level}
             {payload.execution_diagnostics.concentration_reason ? ` · ${payload.execution_diagnostics.concentration_reason}` : ''}
+          </Text>
+        ) : null}
+        {payload.execution_diagnostics?.liquidity_level ? (
+          <Text type="secondary">
+            流动性 {payload.execution_diagnostics.liquidity_level}
+            {payload.execution_diagnostics.max_adv_usage !== undefined
+              ? ` · Max ADV ${(Number(payload.execution_diagnostics.max_adv_usage || 0) * 100).toFixed(2)}%`
+              : ''}
+          </Text>
+        ) : null}
+        {payload.execution_diagnostics?.margin_level ? (
+          <Text type="secondary">
+            保证金 {payload.execution_diagnostics.margin_level}
+            {payload.execution_diagnostics.margin_utilization !== undefined
+              ? ` · ${(Number(payload.execution_diagnostics.margin_utilization || 0) * 100).toFixed(2)}%`
+              : ''}
+            {payload.execution_diagnostics.gross_leverage !== undefined
+              ? ` · Gross ${Number(payload.execution_diagnostics.gross_leverage || 0).toFixed(2)}x`
+              : ''}
+          </Text>
+        ) : null}
+        {payload.execution_diagnostics?.beta_level ? (
+          <Text type="secondary">
+            Beta {payload.execution_diagnostics.beta_level}
+            {payload.hedge_portfolio?.beta_neutrality?.beta !== undefined
+              ? ` · ${Number(payload.hedge_portfolio.beta_neutrality.beta || 0).toFixed(2)}`
+              : ''}
+          </Text>
+        ) : null}
+        {payload.execution_diagnostics?.calendar_level ? (
+          <Text type="secondary">
+            日历 {payload.execution_diagnostics.calendar_level}
+            {payload.data_alignment?.calendar_diagnostics?.max_mismatch_ratio !== undefined
+              ? ` · mismatch ${(Number(payload.data_alignment.calendar_diagnostics.max_mismatch_ratio || 0) * 100).toFixed(2)}%`
+              : ''}
           </Text>
         ) : null}
         {payload.execution_diagnostics?.suggested_rebalance ? (
@@ -634,9 +914,20 @@ function ResearchWorkbench() {
                   <Space direction="vertical" size={4} style={{ width: '100%' }}>
                     <Text type="secondary">{item.summary || '暂无摘要'}</Text>
                     {task.type === 'pricing' ? (
-                      <Text type="secondary">
-                        Fair value {pricingValue || '-'} · {(payload.implications?.primary_view || '待判断')}
-                      </Text>
+                      <Space wrap size={6}>
+                        <Text type="secondary">
+                          Fair value {pricingValue || '-'} · {(payload.implications?.primary_view || '待判断')}
+                        </Text>
+                        {payload.implications?.confidence ? (
+                          <Tag>{`置信度 ${payload.implications.confidence}`}</Tag>
+                        ) : null}
+                        {payload.implications?.confidence_score !== undefined && payload.implications?.confidence_score !== null ? (
+                          <Tag>{`评分 ${Number(payload.implications.confidence_score || 0).toFixed(2)}`}</Tag>
+                        ) : null}
+                        {payload.primary_driver?.factor ? (
+                          <Tag>{`主驱动 ${payload.primary_driver.factor}`}</Tag>
+                        ) : null}
+                      </Space>
                     ) : (
                       <Space direction="vertical" size={2} style={{ width: '100%' }}>
                         <Text type="secondary">
@@ -651,6 +942,41 @@ function ResearchWorkbench() {
                         {payload.execution_diagnostics?.concentration_level ? (
                           <Text type="secondary">
                             集中度 {payload.execution_diagnostics.concentration_level}
+                          </Text>
+                        ) : null}
+                        {payload.execution_diagnostics?.liquidity_level ? (
+                          <Text type="secondary">
+                            流动性 {payload.execution_diagnostics.liquidity_level}
+                            {payload.execution_diagnostics.max_adv_usage !== undefined
+                              ? ` · Max ADV ${(Number(payload.execution_diagnostics.max_adv_usage || 0) * 100).toFixed(2)}%`
+                              : ''}
+                          </Text>
+                        ) : null}
+                        {payload.execution_diagnostics?.margin_level ? (
+                          <Text type="secondary">
+                            保证金 {payload.execution_diagnostics.margin_level}
+                            {payload.execution_diagnostics.margin_utilization !== undefined
+                              ? ` · ${(Number(payload.execution_diagnostics.margin_utilization || 0) * 100).toFixed(2)}%`
+                              : ''}
+                            {payload.execution_diagnostics.gross_leverage !== undefined
+                              ? ` · Gross ${Number(payload.execution_diagnostics.gross_leverage || 0).toFixed(2)}x`
+                              : ''}
+                          </Text>
+                        ) : null}
+                        {payload.execution_diagnostics?.beta_level ? (
+                          <Text type="secondary">
+                            Beta {payload.execution_diagnostics.beta_level}
+                            {payload.hedge_portfolio?.beta_neutrality?.beta !== undefined
+                              ? ` · ${Number(payload.hedge_portfolio.beta_neutrality.beta || 0).toFixed(2)}`
+                              : ''}
+                          </Text>
+                        ) : null}
+                        {payload.execution_diagnostics?.calendar_level ? (
+                          <Text type="secondary">
+                            日历 {payload.execution_diagnostics.calendar_level}
+                            {payload.data_alignment?.calendar_diagnostics?.max_mismatch_ratio !== undefined
+                              ? ` · mismatch ${(Number(payload.data_alignment.calendar_diagnostics.max_mismatch_ratio || 0) * 100).toFixed(2)}%`
+                              : ''}
                           </Text>
                         ) : null}
                         {payload.execution_diagnostics?.suggested_rebalance ? (
@@ -672,9 +998,58 @@ function ResearchWorkbench() {
                             {templateMeta.theme ? ` · ${templateMeta.theme}` : ''}
                           </Text>
                         ) : null}
+                        {templateMeta.selection_quality?.label && templateMeta.selection_quality.label !== 'original' ? (
+                          <Text type="secondary">
+                            自动降级 {templateMeta.selection_quality.label}
+                            {templateMeta.selection_quality?.reason ? ` · ${templateMeta.selection_quality.reason}` : ''}
+                          </Text>
+                        ) : null}
+                        {templateMeta.base_recommendation_score !== null
+                        && templateMeta.base_recommendation_score !== undefined ? (
+                          <Text type="secondary">
+                            推荐强度 {Number(templateMeta.base_recommendation_score || 0).toFixed(2)}
+                            {templateMeta.recommendation_score !== null && templateMeta.recommendation_score !== undefined
+                              ? ` -> ${Number(templateMeta.recommendation_score || 0).toFixed(2)}`
+                              : ''}
+                            {templateMeta.base_recommendation_tier
+                              ? ` · ${templateMeta.base_recommendation_tier} -> ${templateMeta.recommendation_tier || '-'}`
+                              : ''}
+                          </Text>
+                        ) : null}
+                        {templateMeta.ranking_penalty ? (
+                          <Text type="secondary">
+                            排序惩罚 {Number(templateMeta.ranking_penalty || 0).toFixed(2)}
+                            {templateMeta.ranking_penalty_reason ? ` · ${templateMeta.ranking_penalty_reason}` : ''}
+                          </Text>
+                        ) : null}
+                        {templateMeta.resonance_label && templateMeta.resonance_label !== 'mixed' ? (
+                          <Text type="secondary">
+                            共振 {templateMeta.resonance_label}
+                          </Text>
+                        ) : null}
                         {templateMeta.bias_summary ? (
                           <Text type="secondary">
                             偏置 {templateMeta.bias_summary}
+                          </Text>
+                        ) : null}
+                        {templateMeta.bias_strength_raw ? (
+                          <Text type="secondary">
+                            原始偏置 {Number(templateMeta.bias_strength_raw || 0).toFixed(1)}pp
+                            {templateMeta.bias_strength ? ` · 生效偏置 ${Number(templateMeta.bias_strength || 0).toFixed(1)}pp` : ''}
+                          </Text>
+                        ) : null}
+                        {templateMeta.bias_quality_label && templateMeta.bias_quality_label !== 'full' ? (
+                          <Text type="secondary">
+                            偏置收缩 {templateMeta.bias_quality_label}
+                            {templateMeta.bias_scale ? ` · scale ${Number(templateMeta.bias_scale).toFixed(2)}x` : ''}
+                          </Text>
+                        ) : null}
+                        {payload.allocation_overlay?.compressed_assets?.length ? (
+                          <Text type="secondary">
+                            压缩焦点 {payload.allocation_overlay.compressed_assets.join('，')}
+                            {payload.allocation_overlay.compression_summary?.compression_effect !== undefined
+                              ? ` · 收缩 ${Number(payload.allocation_overlay.compression_summary.compression_effect || 0).toFixed(1)}pp`
+                              : ''}
                           </Text>
                         ) : null}
                         {templateMeta.bias_actions?.length ? (
@@ -697,8 +1072,43 @@ function ResearchWorkbench() {
                             最大偏移 {(Number(payload.allocation_overlay.max_delta_weight || 0) * 100).toFixed(2)}pp
                           </Text>
                         ) : null}
+                        {payload.constraint_overlay?.binding_count ? (
+                          <Text type="secondary">
+                            约束 {payload.constraint_overlay.binding_count} 个 · 最大约束偏移 {(Number(payload.constraint_overlay.max_delta_weight || 0) * 100).toFixed(2)}pp
+                          </Text>
+                        ) : null}
                         {templateMeta.recommendation_reason ? (
                           <Text type="secondary">{templateMeta.recommendation_reason}</Text>
+                        ) : null}
+                        {templateMeta.resonance_reason ? (
+                          <Text type="secondary">{templateMeta.resonance_reason}</Text>
+                        ) : null}
+                        {payload.research_input?.macro ? (
+                          <Text type="secondary">
+                            宏观 {Number(payload.research_input.macro.macro_score || 0).toFixed(2)}
+                            {' · '}
+                            Δ{Number(payload.research_input.macro.macro_score_delta || 0) >= 0 ? '+' : ''}{Number(payload.research_input.macro.macro_score_delta || 0).toFixed(2)}
+                            {payload.research_input.macro.resonance?.label && payload.research_input.macro.resonance.label !== 'mixed'
+                              ? ` · 共振 ${payload.research_input.macro.resonance.label}`
+                              : ''}
+                            {payload.research_input.macro.policy_source_health?.label
+                            && payload.research_input.macro.policy_source_health.label !== 'unknown'
+                              ? ` · 政策源 ${payload.research_input.macro.policy_source_health.label}`
+                              : ''}
+                          </Text>
+                        ) : null}
+                        {payload.research_input?.macro?.policy_source_health?.reason ? (
+                          <Text type="secondary">
+                            政策源 {payload.research_input.macro.policy_source_health.reason}
+                          </Text>
+                        ) : null}
+                        {payload.research_input?.alt_data?.top_categories?.length ? (
+                          <Text type="secondary">
+                            另类 {(payload.research_input.alt_data.top_categories || [])
+                              .slice(0, 1)
+                              .map((item) => `${item.category} ${item.momentum === 'strengthening' ? '增强' : item.momentum === 'weakening' ? '走弱' : '稳定'}`)
+                              .join('，')}
+                          </Text>
                         ) : null}
                       </Space>
                     )}
@@ -716,6 +1126,7 @@ function ResearchWorkbench() {
     const isOverTarget = dragState?.overTaskId === task.id && dragState?.overStatus === status;
     const templateMeta = task.snapshot?.payload?.template_meta || {};
     const executionPlan = task.snapshot?.payload?.execution_plan || {};
+    const refreshSignal = refreshSignals.byTaskId[task.id];
     return (
       <div
         key={task.id}
@@ -751,10 +1162,65 @@ function ResearchWorkbench() {
             <Text strong>{task.title}</Text>
             <Tag color={task.type === 'pricing' ? 'blue' : 'purple'}>{task.type}</Tag>
             {templateMeta.recommendation_tier ? <Tag color="gold">{templateMeta.recommendation_tier}</Tag> : null}
+            {templateMeta.selection_quality?.label && templateMeta.selection_quality.label !== 'original' ? (
+              <Tag color="orange">自动降级</Tag>
+            ) : null}
+            {templateMeta.resonance_label && templateMeta.resonance_label !== 'mixed' ? (
+              <Tag color="magenta">{templateMeta.resonance_label}</Tag>
+            ) : null}
+            {refreshSignal ? <Tag color={refreshSignal.refreshTone || 'default'}>{refreshSignal.refreshLabel}</Tag> : null}
+            {refreshSignal?.resonanceDriven ? <Tag color="magenta">共振驱动</Tag> : null}
+            {refreshSignal?.biasCompressionShift?.coreLegAffected ? <Tag color="volcano">核心腿受压</Tag> : null}
+            {refreshSignal?.selectionQualityDriven ? <Tag color="orange">自动降级</Tag> : null}
+            {refreshSignal?.policySourceDriven ? <Tag color="red">政策源驱动</Tag> : null}
+            {refreshSignal?.biasCompressionDriven ? <Tag color="orange">偏置收缩</Tag> : null}
           </Space>
           <Text type="secondary">{task.snapshot?.headline || '暂无快照摘要'}</Text>
+          {refreshSignal?.severity !== 'low' ? <Text type="secondary">{refreshSignal.summary}</Text> : null}
           {templateMeta.theme ? <Text type="secondary">{templateMeta.theme}</Text> : null}
+          {templateMeta.resonance_reason ? <Text type="secondary">{templateMeta.resonance_reason}</Text> : null}
           {templateMeta.bias_summary ? <Text type="secondary">{templateMeta.bias_summary}</Text> : null}
+          {templateMeta.base_recommendation_score !== null
+          && templateMeta.base_recommendation_score !== undefined ? (
+            <Text type="secondary">
+              推荐强度 {Number(templateMeta.base_recommendation_score || 0).toFixed(2)}
+              {templateMeta.recommendation_score !== null && templateMeta.recommendation_score !== undefined
+                ? ` -> ${Number(templateMeta.recommendation_score || 0).toFixed(2)}`
+                : ''}
+            </Text>
+          ) : null}
+          {templateMeta.selection_quality?.label && templateMeta.selection_quality.label !== 'original' ? (
+            <Text type="secondary">
+              自动降级 {templateMeta.selection_quality.label}
+              {templateMeta.selection_quality?.reason ? ` · ${templateMeta.selection_quality.reason}` : ''}
+            </Text>
+          ) : null}
+          {templateMeta.bias_strength_raw ? (
+            <Text type="secondary">
+              原始偏置 {Number(templateMeta.bias_strength_raw || 0).toFixed(1)}pp
+              {templateMeta.bias_strength ? ` · 生效偏置 ${Number(templateMeta.bias_strength || 0).toFixed(1)}pp` : ''}
+            </Text>
+          ) : null}
+          {templateMeta.bias_quality_label && templateMeta.bias_quality_label !== 'full' ? (
+            <Text type="secondary">
+              偏置收缩 {templateMeta.bias_quality_label}
+              {templateMeta.bias_scale ? ` · scale ${Number(templateMeta.bias_scale).toFixed(2)}x` : ''}
+              {templateMeta.bias_quality_reason ? ` · ${templateMeta.bias_quality_reason}` : ''}
+            </Text>
+          ) : null}
+          {templateMeta.core_leg_pressure?.affected ? (
+            <Text type="secondary">
+              核心腿受压 {templateMeta.core_leg_pressure.summary || templateMeta.core_leg_pressure.symbol}
+            </Text>
+          ) : null}
+          {task.snapshot?.payload?.allocation_overlay?.compressed_assets?.length ? (
+            <Text type="secondary">
+              压缩焦点 {task.snapshot.payload.allocation_overlay.compressed_assets.join('，')}
+              {task.snapshot.payload.allocation_overlay.compression_summary?.compression_effect !== undefined
+                ? ` · 收缩 ${Number(task.snapshot.payload.allocation_overlay.compression_summary.compression_effect || 0).toFixed(1)}pp`
+                : ''}
+            </Text>
+          ) : null}
           {templateMeta.bias_actions?.length ? (
             <Text type="secondary">
               {(templateMeta.bias_actions || []).slice(0, 2).map((item) => `${item.action === 'increase' ? '增配' : '减配'} ${item.symbol}`).join('，')}
@@ -784,6 +1250,41 @@ function ResearchWorkbench() {
               集中度 {task.snapshot.payload.execution_diagnostics.concentration_level}
             </Text>
           ) : null}
+          {task.snapshot?.payload?.execution_diagnostics?.liquidity_level ? (
+            <Text type="secondary">
+              流动性 {task.snapshot.payload.execution_diagnostics.liquidity_level}
+              {task.snapshot.payload.execution_diagnostics.max_adv_usage !== undefined
+                ? ` · Max ADV ${(Number(task.snapshot.payload.execution_diagnostics.max_adv_usage || 0) * 100).toFixed(2)}%`
+                : ''}
+            </Text>
+          ) : null}
+          {task.snapshot?.payload?.execution_diagnostics?.margin_level ? (
+            <Text type="secondary">
+              保证金 {task.snapshot.payload.execution_diagnostics.margin_level}
+              {task.snapshot.payload.execution_diagnostics.margin_utilization !== undefined
+                ? ` · ${(Number(task.snapshot.payload.execution_diagnostics.margin_utilization || 0) * 100).toFixed(2)}%`
+                : ''}
+              {task.snapshot.payload.execution_diagnostics.gross_leverage !== undefined
+                ? ` · Gross ${Number(task.snapshot.payload.execution_diagnostics.gross_leverage || 0).toFixed(2)}x`
+                : ''}
+            </Text>
+          ) : null}
+          {task.snapshot?.payload?.execution_diagnostics?.beta_level ? (
+            <Text type="secondary">
+              Beta {task.snapshot.payload.execution_diagnostics.beta_level}
+              {task.snapshot.payload.hedge_portfolio?.beta_neutrality?.beta !== undefined
+                ? ` · ${Number(task.snapshot.payload.hedge_portfolio.beta_neutrality.beta || 0).toFixed(2)}`
+                : ''}
+            </Text>
+          ) : null}
+          {task.snapshot?.payload?.execution_diagnostics?.calendar_level ? (
+            <Text type="secondary">
+              日历 {task.snapshot.payload.execution_diagnostics.calendar_level}
+              {task.snapshot.payload.data_alignment?.calendar_diagnostics?.max_mismatch_ratio !== undefined
+                ? ` · mismatch ${(Number(task.snapshot.payload.data_alignment.calendar_diagnostics.max_mismatch_ratio || 0) * 100).toFixed(2)}%`
+                : ''}
+            </Text>
+          ) : null}
           {task.snapshot?.payload?.execution_diagnostics?.suggested_rebalance ? (
             <Text type="secondary">
               调仓 {task.snapshot.payload.execution_diagnostics.suggested_rebalance}
@@ -792,6 +1293,33 @@ function ResearchWorkbench() {
           {task.snapshot?.payload?.execution_plan?.execution_stress?.worst_case ? (
             <Text type="secondary">
               压测 {task.snapshot.payload.execution_plan.execution_stress.worst_case.label}
+            </Text>
+          ) : null}
+          {task.snapshot?.payload?.research_input?.macro ? (
+            <Text type="secondary">
+              宏观 {Number(task.snapshot.payload.research_input.macro.macro_score || 0).toFixed(2)}
+              {' · '}
+              Δ{Number(task.snapshot.payload.research_input.macro.macro_score_delta || 0) >= 0 ? '+' : ''}{Number(task.snapshot.payload.research_input.macro.macro_score_delta || 0).toFixed(2)}
+              {task.snapshot.payload.research_input.macro.resonance?.label && task.snapshot.payload.research_input.macro.resonance.label !== 'mixed'
+                ? ` · 共振 ${task.snapshot.payload.research_input.macro.resonance.label}`
+                : ''}
+              {task.snapshot.payload.research_input.macro.policy_source_health?.label
+              && task.snapshot.payload.research_input.macro.policy_source_health.label !== 'unknown'
+                ? ` · 政策源 ${task.snapshot.payload.research_input.macro.policy_source_health.label}`
+                : ''}
+            </Text>
+          ) : null}
+          {task.snapshot?.payload?.research_input?.macro?.policy_source_health?.reason ? (
+            <Text type="secondary">
+              政策源 {task.snapshot.payload.research_input.macro.policy_source_health.reason}
+            </Text>
+          ) : null}
+          {task.snapshot?.payload?.research_input?.alt_data?.top_categories?.length ? (
+            <Text type="secondary">
+              另类 {(task.snapshot.payload.research_input.alt_data.top_categories || [])
+                .slice(0, 1)
+                .map((item) => `${item.category} ${item.momentum === 'strengthening' ? '增强' : item.momentum === 'weakening' ? '走弱' : '稳定'}`)
+                .join('，')}
             </Text>
           ) : null}
           <Text type="secondary">{new Date(task.updated_at).toLocaleString()}</Text>
@@ -840,6 +1368,60 @@ function ResearchWorkbench() {
       </Row>
 
       <Row gutter={[16, 16]}>
+        <Col xs={24} md={6}>
+          <Card bordered={false}>
+            <Statistic title="建议更新" value={refreshStats.high} valueStyle={{ color: '#cf1322' }} />
+            <Text type="secondary">宏观或另类数据与保存输入明显脱节，建议优先重开研究。</Text>
+          </Card>
+        </Col>
+        <Col xs={24} md={6}>
+          <Card bordered={false}>
+            <Statistic title="建议复核" value={refreshStats.medium} valueStyle={{ color: '#d48806' }} />
+            <Text type="secondary">核心驱动在变化，适合先做一次中间复核，再决定是否更新快照。</Text>
+          </Card>
+        </Col>
+        <Col xs={24} md={6}>
+          <Card bordered={false}>
+            <Statistic title="共振驱动" value={refreshStats.resonance} valueStyle={{ color: '#c41d7f' }} />
+            <Text type="secondary">这些任务的优先级变化来自宏观共振结构切换，更值得优先看。</Text>
+          </Card>
+        </Col>
+        <Col xs={24} md={6}>
+          <Card bordered={false}>
+            <Statistic title="核心腿受压" value={refreshStats.biasQualityCore} valueStyle={{ color: '#fa541c' }} />
+            <Text type="secondary">这些任务的主题核心腿已经成为偏置收缩焦点，通常比普通配置压缩更值得先处理。</Text>
+          </Card>
+        </Col>
+        <Col xs={24} md={6}>
+          <Card bordered={false}>
+            <Statistic title="自动降级" value={refreshStats.selectionQuality} valueStyle={{ color: '#d48806' }} />
+            <Text type="secondary">这些任务已经从原始推荐切到降级处理，说明主题排序本身正在被重新评估。</Text>
+          </Card>
+        </Col>
+        <Col xs={24} md={6}>
+          <Card bordered={false}>
+            <Statistic title="政策源驱动" value={refreshStats.policySource} valueStyle={{ color: '#cf1322' }} />
+            <Text type="secondary">这些任务的更新优先级来自政策正文抓取质量退化，应先确认研究输入是否仍然可靠。</Text>
+          </Card>
+        </Col>
+        <Col xs={24} md={6}>
+          <Card bordered={false}>
+            <Statistic title="偏置收缩" value={refreshStats.biasQuality} valueStyle={{ color: '#d46b08' }} />
+            <Text type="secondary">这些任务的宏观偏置强度已经被证据质量压缩，建议先确认模板还适不适合维持原有配置力度。</Text>
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} md={24}>
+          <Card bordered={false}>
+            <Statistic title="继续观察" value={refreshStats.low} valueStyle={{ color: '#1677ff' }} />
+            <Text type="secondary">当前输入与保存快照仍然相近，可以继续沿现有研究路线推进。</Text>
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]}>
         <Col xs={24} xl={16}>
           <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <Card
@@ -858,6 +1440,18 @@ function ResearchWorkbench() {
                   value={filters.source}
                   options={sourceOptions}
                   onChange={(value) => setFilters((prev) => ({ ...prev, source: value }))}
+                  style={{ width: 180 }}
+                />
+                <Select
+                  value={filters.refresh}
+                  options={REFRESH_OPTIONS}
+                  onChange={(value) => setFilters((prev) => ({ ...prev, refresh: value }))}
+                  style={{ width: 180 }}
+                />
+                <Select
+                  value={filters.reason}
+                  options={REASON_OPTIONS}
+                  onChange={(value) => setFilters((prev) => ({ ...prev, reason: value }))}
                   style={{ width: 180 }}
                 />
                 <Search
@@ -1049,6 +1643,139 @@ function ResearchWorkbench() {
                     ))}
                   </Space>
                 </Card>
+
+                {selectedTask.type === 'cross_market' ? (
+                  <Card
+                    size="small"
+                    title="输入变化与更新建议"
+                    bordered={false}
+                    extra={
+                      selectedTaskRefreshSignal ? (
+                        <Space wrap>
+                          <Tag color={selectedTaskRefreshSignal.refreshTone || 'default'}>
+                            {selectedTaskRefreshSignal.refreshLabel}
+                          </Tag>
+                          {selectedTaskRefreshSignal.resonanceDriven ? (
+                            <Tag color="magenta">共振驱动</Tag>
+                          ) : null}
+                          {selectedTaskRefreshSignal.biasCompressionShift?.coreLegAffected ? (
+                            <Tag color="volcano">核心腿受压</Tag>
+                          ) : null}
+                          {selectedTaskRefreshSignal.selectionQualityDriven ? (
+                            <Tag color="orange">自动降级</Tag>
+                          ) : null}
+                          {selectedTaskRefreshSignal.selectionQualityRunState?.active ? (
+                            <Tag color="gold">降级运行</Tag>
+                          ) : null}
+                          {selectedTaskRefreshSignal.policySourceDriven ? (
+                            <Tag color="red">政策源驱动</Tag>
+                          ) : null}
+                          {selectedTaskRefreshSignal.biasCompressionDriven ? (
+                            <Tag color="orange">偏置收缩</Tag>
+                          ) : null}
+                        </Space>
+                      ) : null
+                    }
+                  >
+                    {selectedTaskRefreshSignal ? (
+                      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                        <Text strong>{selectedTaskRefreshSignal.recommendation}</Text>
+                        <Text type="secondary">{selectedTaskRefreshSignal.summary}</Text>
+                        {selectedTaskRefreshSignal.macroShift ? (
+                          <Text type="secondary">
+                            当前宏观分数 {Number(selectedTaskRefreshSignal.macroShift.currentScore || 0).toFixed(2)}
+                            {' · '}
+                            保存时 {Number(selectedTaskRefreshSignal.macroShift.savedScore || 0).toFixed(2)}
+                            {' · '}
+                            Δ{Number(selectedTaskRefreshSignal.macroShift.scoreGap || 0) >= 0 ? '+' : ''}{Number(selectedTaskRefreshSignal.macroShift.scoreGap || 0).toFixed(2)}
+                            {selectedTaskRefreshSignal.macroShift.signalShift
+                              ? ` · 信号 ${selectedTaskRefreshSignal.macroShift.savedSignal}→${selectedTaskRefreshSignal.macroShift.currentSignal}`
+                              : ''}
+                          </Text>
+                        ) : null}
+                        {selectedTaskRefreshSignal.policySourceShift ? (
+                          <Text type="secondary">
+                            政策源 {selectedTaskRefreshSignal.policySourceShift.savedLabel}→{selectedTaskRefreshSignal.policySourceShift.currentLabel}
+                            {selectedTaskRefreshSignal.policySourceShift.fullTextRatioGap
+                              ? ` · 正文覆盖 ${selectedTaskRefreshSignal.policySourceShift.fullTextRatioGap >= 0 ? '+' : ''}${Number(selectedTaskRefreshSignal.policySourceShift.fullTextRatioGap || 0).toFixed(2)}`
+                              : ''}
+                            {selectedTaskRefreshSignal.policySourceShift.currentReason
+                              ? ` · ${selectedTaskRefreshSignal.policySourceShift.currentReason}`
+                              : ''}
+                          </Text>
+                        ) : null}
+                        {selectedTaskRefreshSignal.selectionQualityShift ? (
+                          <Text type="secondary">
+                            自动降级 {selectedTaskRefreshSignal.selectionQualityShift.savedLabel}→{selectedTaskRefreshSignal.selectionQualityShift.currentLabel}
+                            {selectedTaskRefreshSignal.selectionQualityShift.penaltyGap
+                              ? ` · 惩罚 ${selectedTaskRefreshSignal.selectionQualityShift.penaltyGap >= 0 ? '+' : ''}${Number(selectedTaskRefreshSignal.selectionQualityShift.penaltyGap || 0).toFixed(2)}`
+                              : ''}
+                            {selectedTaskRefreshSignal.selectionQualityShift.currentReason
+                              ? ` · ${selectedTaskRefreshSignal.selectionQualityShift.currentReason}`
+                              : ''}
+                          </Text>
+                        ) : null}
+                        {selectedTaskRefreshSignal.selectionQualityRunState?.active ? (
+                          <Text type="secondary">
+                            当前结果按 {selectedTaskRefreshSignal.selectionQualityRunState.label} 强度运行
+                            {selectedTaskRefreshSignal.selectionQualityRunState.baseScore || selectedTaskRefreshSignal.selectionQualityRunState.effectiveScore
+                              ? ` · 推荐分 ${Number(selectedTaskRefreshSignal.selectionQualityRunState.baseScore || 0).toFixed(2)}→${Number(selectedTaskRefreshSignal.selectionQualityRunState.effectiveScore || 0).toFixed(2)}`
+                              : ''}
+                            {selectedTaskRefreshSignal.selectionQualityRunState.baseTier || selectedTaskRefreshSignal.selectionQualityRunState.effectiveTier
+                              ? ` · Tier ${selectedTaskRefreshSignal.selectionQualityRunState.baseTier || '-'}→${selectedTaskRefreshSignal.selectionQualityRunState.effectiveTier || '-'}`
+                              : ''}
+                            {selectedTaskRefreshSignal.selectionQualityRunState.rankingPenalty
+                              ? ` · 惩罚 ${Number(selectedTaskRefreshSignal.selectionQualityRunState.rankingPenalty || 0).toFixed(2)}`
+                              : ''}
+                            {selectedTaskRefreshSignal.selectionQualityRunState.reason
+                              ? ` · ${selectedTaskRefreshSignal.selectionQualityRunState.reason}`
+                              : ''}
+                          </Text>
+                        ) : null}
+                        {selectedTaskRefreshSignal.biasCompressionShift ? (
+                          <Text type="secondary">
+                            偏置收缩 {selectedTaskRefreshSignal.biasCompressionShift.savedLabel}→{selectedTaskRefreshSignal.biasCompressionShift.currentLabel}
+                            {' · '}
+                            scale {Number(selectedTaskRefreshSignal.biasCompressionShift.savedScale || 1).toFixed(2)}x→{Number(selectedTaskRefreshSignal.biasCompressionShift.currentScale || 1).toFixed(2)}x
+                            {selectedTaskRefreshSignal.biasCompressionShift.topCompressedAsset
+                              ? ` · 压缩焦点 ${selectedTaskRefreshSignal.biasCompressionShift.topCompressedAsset}`
+                              : ''}
+                            {selectedTaskRefreshSignal.biasCompressionShift.coreLegAffected
+                              ? ' · 主题核心腿已进入压缩焦点'
+                              : ''}
+                            {selectedTaskRefreshSignal.biasCompressionShift.currentReason
+                              ? ` · ${selectedTaskRefreshSignal.biasCompressionShift.currentReason}`
+                              : ''}
+                          </Text>
+                        ) : null}
+                        {selectedTaskRefreshSignal.altShift?.changedCategories?.length ? (
+                          <Text type="secondary">
+                            另类变化 {selectedTaskRefreshSignal.altShift.changedCategories
+                              .slice(0, 2)
+                              .map((item) => `${item.category} ${item.previousMomentum === 'strengthening' ? '增强' : item.previousMomentum === 'weakening' ? '走弱' : '稳定'}→${item.currentMomentum === 'strengthening' ? '增强' : item.currentMomentum === 'weakening' ? '走弱' : '稳定'}`)
+                              .join('，')}
+                          </Text>
+                        ) : null}
+                        {selectedTaskRefreshSignal.altShift?.emergentCategories?.length ? (
+                          <Text type="secondary">
+                            新热点 {selectedTaskRefreshSignal.altShift.emergentCategories
+                              .map((item) => `${item.category} ${item.momentum === 'strengthening' ? '增强' : item.momentum === 'weakening' ? '走弱' : '稳定'} ${item.delta >= 0 ? '+' : ''}${Number(item.delta || 0).toFixed(2)}`)
+                              .join('，')}
+                          </Text>
+                        ) : null}
+                        {selectedTaskRefreshSignal.factorShift?.length ? (
+                          <Text type="secondary">
+                            因子变化 {selectedTaskRefreshSignal.factorShift
+                              .map((item) => `${item.label} ${item.zScoreDelta >= 0 ? '+' : ''}${Number(item.zScoreDelta || 0).toFixed(2)}${item.signalChanged ? ' shift' : ''}`)
+                              .join('，')}
+                          </Text>
+                        ) : null}
+                      </Space>
+                    ) : (
+                      <Text type="secondary">当前任务还没有足够的输入快照，先继续积累研究记录。</Text>
+                    )}
+                  </Card>
+                ) : null}
 
                 <Card size="small" title="当前快照" bordered={false}>
                   {renderSnapshot(selectedTask)}

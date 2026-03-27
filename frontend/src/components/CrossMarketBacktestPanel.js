@@ -46,6 +46,7 @@ import {
   getAltDataSnapshot,
   getCrossMarketTemplates,
   getMacroOverview,
+  getResearchTasks,
   runCrossMarketBacktest,
 } from '../services/api';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
@@ -55,6 +56,7 @@ import {
   CROSS_MARKET_DIMENSION_LABELS,
   CROSS_MARKET_FACTOR_LABELS,
 } from '../utils/crossMarketRecommendations';
+import { buildResearchTaskRefreshSignals } from '../utils/researchTaskSignals';
 import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
 
 const { Paragraph, Text } = Typography;
@@ -86,6 +88,11 @@ const DEFAULT_QUALITY = {
   min_overlap_ratio: 0.7,
 };
 
+const DEFAULT_CONSTRAINTS = {
+  max_single_weight: null,
+  min_single_weight: null,
+};
+
 const createAsset = (side, index) => ({
   key: `${side}-${index}-${Date.now()}`,
   side,
@@ -103,6 +110,34 @@ const normalizeAssets = (assets, side) =>
     }));
 
 const formatConstructionMode = (value) => CONSTRUCTION_MODE_LABELS[value] || value || '未设置';
+
+const buildDisplayTier = (score) => {
+  if (score >= 2.6) return '优先部署';
+  if (score >= 1.4) return '重点跟踪';
+  return '候选模板';
+};
+
+const buildDisplayTone = (score) => {
+  if (score >= 2.6) return 'volcano';
+  if (score >= 1.4) return 'gold';
+  return 'blue';
+};
+
+const extractCoreLegPressure = (overlay = {}) => {
+  const topCompressed = (overlay.rows || [])
+    .slice()
+    .sort((left, right) => Math.abs(Number(right?.compression_delta || 0)) - Math.abs(Number(left?.compression_delta || 0)))
+    .find((item) => Math.abs(Number(item?.compression_delta || 0)) >= 0.005);
+  const symbol = String(topCompressed?.symbol || '').trim().toUpperCase();
+  const themeCore = String(overlay.theme_core || '').toUpperCase();
+  if (!symbol) {
+    return { affected: false, summary: '' };
+  }
+  return {
+    affected: Boolean(themeCore && themeCore.includes(symbol)),
+    summary: `${topCompressed.symbol} ${(Math.abs(Number(topCompressed.compression_delta || 0)) * 100).toFixed(2)}pp`,
+  };
+};
 
 const formatTradeAction = (value) => {
   const action = String(value || '').toUpperCase();
@@ -153,6 +188,53 @@ const getCapacityMeta = (band = '') => {
   return mapping[band] || { color: 'default', label: band || '-' };
 };
 
+const getLiquidityMeta = (band = '') => {
+  const mapping = {
+    comfortable: { color: 'green', label: '流动性舒适' },
+    watch: { color: 'orange', label: '需要留意' },
+    stretched: { color: 'red', label: '流动性偏紧' },
+    unknown: { color: 'default', label: '流动性未知' },
+  };
+  return mapping[band] || { color: 'default', label: band || '-' };
+};
+
+const getMarginMeta = (level = '') => {
+  const mapping = {
+    manageable: { color: 'green', label: '保证金可控' },
+    elevated: { color: 'orange', label: '保证金偏高' },
+    aggressive: { color: 'red', label: '保证金激进' },
+  };
+  return mapping[level] || { color: 'default', label: level || '-' };
+};
+
+const getBetaMeta = (level = '') => {
+  const mapping = {
+    balanced: { color: 'green', label: 'Beta 较中性' },
+    watch: { color: 'orange', label: 'Beta 需留意' },
+    stretched: { color: 'red', label: 'Beta 偏离较大' },
+    unknown: { color: 'default', label: 'Beta 未知' },
+  };
+  return mapping[level] || { color: 'default', label: level || '-' };
+};
+
+const getCalendarMeta = (level = '') => {
+  const mapping = {
+    aligned: { color: 'green', label: '日历较对齐' },
+    watch: { color: 'orange', label: '日历有错位' },
+    stretched: { color: 'red', label: '日历错位明显' },
+  };
+  return mapping[level] || { color: 'default', label: level || '-' };
+};
+
+const getSelectionQualityMeta = (label = '') => {
+  const mapping = {
+    original: { type: 'info', title: '本次回测沿用原始推荐强度运行' },
+    softened: { type: 'warning', title: '本次回测基于收缩后的推荐强度运行' },
+    auto_downgraded: { type: 'warning', title: '本次回测基于自动降级后的推荐强度运行' },
+  };
+  return mapping[label] || mapping.original;
+};
+
 const buildTemplateContextPayload = (template, appliedBiasMeta) => {
   if (!template?.id) {
     return undefined;
@@ -163,7 +245,18 @@ const buildTemplateContextPayload = (template, appliedBiasMeta) => {
     theme: template.theme || '',
     allocation_mode: appliedBiasMeta ? 'macro_bias' : 'template_base',
     bias_summary: appliedBiasMeta?.summary || '',
+    bias_strength_raw: appliedBiasMeta?.rawStrength || 0,
     bias_strength: appliedBiasMeta?.strength || 0,
+    bias_scale: appliedBiasMeta?.scale || 1,
+    bias_quality_label: appliedBiasMeta?.qualityLabel || 'full',
+    bias_quality_reason: appliedBiasMeta?.qualityReason || '',
+    base_recommendation_score: template.baseRecommendationScore ?? template.recommendationScore ?? null,
+    recommendation_score: template.recommendationScore ?? null,
+    base_recommendation_tier: template.baseRecommendationTier || template.recommendationTier || '',
+    recommendation_tier: template.recommendationTier || '',
+    ranking_penalty: template.rankingPenalty || 0,
+    ranking_penalty_reason: template.rankingPenaltyReason || '',
+    bias_highlights_raw: appliedBiasMeta?.rawHighlights || [],
     bias_highlights: appliedBiasMeta?.highlights || [],
     bias_actions: template.biasActions || [],
     signal_attribution: template.signalAttribution || [],
@@ -174,6 +267,12 @@ const buildTemplateContextPayload = (template, appliedBiasMeta) => {
     theme_core: template.themeCore || '',
     theme_support: template.themeSupport || '',
     base_assets: (template.assets || []).map((asset) => ({
+      symbol: asset.symbol,
+      asset_class: asset.asset_class,
+      side: asset.side,
+      weight: asset.weight,
+    })),
+    raw_bias_assets: (template.rawAdjustedAssets || []).map((asset) => ({
       symbol: asset.symbol,
       asset_class: asset.asset_class,
       side: asset.side,
@@ -194,6 +293,7 @@ function CrossMarketBacktestPanel() {
   ]);
   const [parameters, setParameters] = useState(DEFAULT_PARAMETERS);
   const [quality, setQuality] = useState(DEFAULT_QUALITY);
+  const [constraints, setConstraints] = useState(DEFAULT_CONSTRAINTS);
   const [meta, setMeta] = useState({
     initial_capital: 100000,
     commission: 0.1,
@@ -208,6 +308,7 @@ function CrossMarketBacktestPanel() {
   const [appliedBiasMeta, setAppliedBiasMeta] = useState(null);
   const [macroOverview, setMacroOverview] = useState(null);
   const [altSnapshot, setAltSnapshot] = useState(null);
+  const [researchTasks, setResearchTasks] = useState([]);
   const appliedTemplateRef = useRef('');
   const autoRecommendedRef = useRef('');
 
@@ -215,14 +316,16 @@ function CrossMarketBacktestPanel() {
     const loadTemplates = async () => {
       setLoadingTemplates(true);
       try {
-        const [templateResponse, macroResponse, snapshotResponse] = await Promise.all([
+        const [templateResponse, macroResponse, snapshotResponse, researchTaskResponse] = await Promise.all([
           getCrossMarketTemplates(),
           getMacroOverview(),
           getAltDataSnapshot(),
+          getResearchTasks({ limit: 40, type: 'cross_market' }),
         ]);
         setTemplates(templateResponse.templates || []);
         setMacroOverview(macroResponse);
         setAltSnapshot(snapshotResponse);
+        setResearchTasks(researchTaskResponse?.data || []);
       } catch (error) {
         message.error(error.userMessage || error.message || '加载模板失败');
       } finally {
@@ -258,14 +361,48 @@ function CrossMarketBacktestPanel() {
       ),
     [altSnapshot, macroOverview, templates]
   );
+  const refreshByTemplate = useMemo(
+    () => buildResearchTaskRefreshSignals({ researchTasks, overview: macroOverview, snapshot: altSnapshot }).byTemplateId,
+    [altSnapshot, macroOverview, researchTasks]
+  );
+  const displayRecommendedTemplates = useMemo(
+    () =>
+      recommendedTemplates
+        .map((template) => {
+          const refreshMeta = refreshByTemplate[template.id] || null;
+          const rankingPenalty = refreshMeta?.biasCompressionShift?.coreLegAffected
+            ? 0.45
+            : refreshMeta?.selectionQualityDriven
+              ? 0.2
+              : 0;
+          const recommendationScore = Number(Math.max(0, Number(template.recommendationScore || 0) - rankingPenalty).toFixed(2));
+          return {
+            ...template,
+            baseRecommendationScore: template.baseRecommendationScore ?? template.recommendationScore,
+            baseRecommendationTier: template.baseRecommendationTier || template.recommendationTier,
+            rankingPenalty,
+            rankingPenaltyReason: rankingPenalty
+              ? refreshMeta?.biasCompressionShift?.coreLegAffected
+                ? `核心腿 ${refreshMeta?.biasCompressionShift?.topCompressedAsset || ''} 已进入压缩焦点，默认模板选择自动降级`
+                : '当前主题已进入自动降级处理，默认模板选择谨慎下调'
+              : '',
+            recommendationScore,
+            recommendationTier: buildDisplayTier(recommendationScore),
+            recommendationTone: buildDisplayTone(recommendationScore),
+            refreshMeta,
+          };
+        })
+        .sort((left, right) => Number(right.recommendationScore || 0) - Number(left.recommendationScore || 0)),
+    [recommendedTemplates, refreshByTemplate]
+  );
   const selectedTemplate = useMemo(
     () =>
-      recommendedTemplates.find((item) => item.id === selectedTemplateId)
-      || recommendedTemplates.find((item) => item.id === researchContext.template)
+      displayRecommendedTemplates.find((item) => item.id === selectedTemplateId)
+      || displayRecommendedTemplates.find((item) => item.id === researchContext.template)
       || templates.find((item) => item.id === selectedTemplateId)
       || templates.find((item) => item.id === researchContext.template)
       || null,
-    [recommendedTemplates, templates, selectedTemplateId, researchContext.template]
+    [displayRecommendedTemplates, templates, selectedTemplateId, researchContext.template]
   );
   const effectiveTemplate = useMemo(() => {
     if (!selectedTemplate) {
@@ -275,14 +412,24 @@ function CrossMarketBacktestPanel() {
       return {
         ...selectedTemplate,
         biasSummary: '',
+        rawBiasStrength: 0,
         biasStrength: 0,
+        biasScale: 1,
+        biasQualityLabel: 'full',
+        biasQualityReason: '',
+        rawBiasHighlights: [],
         biasHighlights: [],
       };
     }
     return {
       ...selectedTemplate,
       biasSummary: appliedBiasMeta.summary || selectedTemplate.biasSummary || '',
+      rawBiasStrength: appliedBiasMeta.rawStrength || selectedTemplate.rawBiasStrength || 0,
       biasStrength: appliedBiasMeta.strength || selectedTemplate.biasStrength || 0,
+      biasScale: appliedBiasMeta.scale || selectedTemplate.biasScale || 1,
+      biasQualityLabel: appliedBiasMeta.qualityLabel || selectedTemplate.biasQualityLabel || 'full',
+      biasQualityReason: appliedBiasMeta.qualityReason || selectedTemplate.biasQualityReason || '',
+      rawBiasHighlights: appliedBiasMeta.rawHighlights || selectedTemplate.rawBiasHighlights || [],
       biasHighlights: appliedBiasMeta.highlights || selectedTemplate.biasHighlights || [],
     };
   }, [appliedBiasMeta, selectedTemplate]);
@@ -316,7 +463,7 @@ function CrossMarketBacktestPanel() {
   const applyTemplate = useCallback((templateOrId, options = {}) => {
     const { useBias = false, silent = false } = options;
     const template = typeof templateOrId === 'string'
-      ? (recommendedTemplates.find((item) => item.id === templateOrId) || templates.find((item) => item.id === templateOrId))
+      ? (displayRecommendedTemplates.find((item) => item.id === templateOrId) || templates.find((item) => item.id === templateOrId))
       : templateOrId;
     if (!template) {
       return;
@@ -333,7 +480,12 @@ function CrossMarketBacktestPanel() {
         ? {
             mode: 'macro_bias',
             summary: template.biasSummary || '',
+            rawStrength: template.rawBiasStrength || 0,
             strength: template.biasStrength || 0,
+            scale: template.biasScale || 1,
+            qualityLabel: template.biasQualityLabel || 'full',
+            qualityReason: template.biasQualityReason || '',
+            rawHighlights: template.rawBiasHighlights || [],
             highlights: template.biasHighlights || [],
           }
         : null
@@ -350,7 +502,7 @@ function CrossMarketBacktestPanel() {
     if (!silent) {
       message.success(`已载入模板: ${template.name}${useBias ? '（含宏观权重偏置）' : ''}`);
     }
-  }, [message, recommendedTemplates, templates]);
+  }, [displayRecommendedTemplates, message, templates]);
 
   useEffect(() => {
     if (!templates.length || !researchContext?.template) {
@@ -368,17 +520,17 @@ function CrossMarketBacktestPanel() {
   }, [applyTemplate, researchContext, templates]);
 
   useEffect(() => {
-    if (researchContext?.template || selectedTemplateId || !recommendedTemplates.length) {
+    if (researchContext?.template || selectedTemplateId || !displayRecommendedTemplates.length) {
       return;
     }
-    const topRecommendation = recommendedTemplates[0];
+    const topRecommendation = displayRecommendedTemplates[0];
     if (!topRecommendation || autoRecommendedRef.current === topRecommendation.id) {
       return;
     }
     autoRecommendedRef.current = topRecommendation.id;
     applyTemplate(topRecommendation, { useBias: true, silent: true });
     message.info(`已自动载入当前最优宏观模板: ${topRecommendation.name}`);
-  }, [applyTemplate, message, recommendedTemplates, researchContext, selectedTemplateId]);
+  }, [applyTemplate, displayRecommendedTemplates, message, researchContext, selectedTemplateId]);
 
   const handleRun = async () => {
     const payloadAssets = assets
@@ -401,6 +553,10 @@ function CrossMarketBacktestPanel() {
       const response = await runCrossMarketBacktest({
         assets: payloadAssets,
         template_context: buildTemplateContextPayload(selectedTemplate, appliedBiasMeta),
+        allocation_constraints: {
+          ...(constraints.max_single_weight ? { max_single_weight: constraints.max_single_weight / 100 } : {}),
+          ...(constraints.min_single_weight ? { min_single_weight: constraints.min_single_weight / 100 } : {}),
+        },
         strategy: 'spread_zscore',
         construction_mode: quality.construction_mode,
         parameters,
@@ -430,7 +586,8 @@ function CrossMarketBacktestPanel() {
       researchContext,
       effectiveTemplate,
       results,
-      assets
+      assets,
+      { macroOverview, altSnapshot }
     );
     if (!payload) {
       message.error('请先载入模板或配置篮子后再保存到研究工作台');
@@ -459,7 +616,8 @@ function CrossMarketBacktestPanel() {
       researchContext,
       effectiveTemplate,
       results,
-      assets
+      assets,
+      { macroOverview, altSnapshot }
     );
     if (!payload?.snapshot) {
       message.error('当前还没有可更新的研究快照');
@@ -646,6 +804,27 @@ function CrossMarketBacktestPanel() {
         },
       },
       {
+        title: 'ADV Usage',
+        dataIndex: 'adv_usage',
+        key: 'adv_usage',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '流动性',
+        dataIndex: 'liquidity_band',
+        key: 'liquidity_band',
+        render: (value) => {
+          const meta = getLiquidityMeta(value);
+          return <Tag color={meta.color}>{meta.label}</Tag>;
+        },
+      },
+      {
+        title: '保证金',
+        dataIndex: 'margin_requirement',
+        key: 'margin_requirement',
+        render: (value) => formatCurrency(Number(value || 0)),
+      },
+      {
         title: 'Symbols',
         dataIndex: 'symbols',
         key: 'symbols',
@@ -733,6 +912,39 @@ function CrossMarketBacktestPanel() {
           const meta = getCapacityMeta(value);
           return <Tag color={meta.color}>{meta.label}</Tag>;
         },
+      },
+      {
+        title: '日均成交额',
+        dataIndex: 'avg_daily_notional',
+        key: 'avg_daily_notional',
+        render: (value) => formatCurrency(Number(value || 0)),
+      },
+      {
+        title: 'ADV Usage',
+        dataIndex: 'adv_usage',
+        key: 'adv_usage',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '流动性',
+        dataIndex: 'liquidity_band',
+        key: 'liquidity_band',
+        render: (value) => {
+          const meta = getLiquidityMeta(value);
+          return <Tag color={meta.color}>{meta.label}</Tag>;
+        },
+      },
+      {
+        title: '保证金率',
+        dataIndex: 'margin_rate',
+        key: 'margin_rate',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '保证金',
+        dataIndex: 'margin_requirement',
+        key: 'margin_requirement',
+        render: (value) => formatCurrency(Number(value || 0)),
       },
     ],
     []
@@ -832,6 +1044,21 @@ function CrossMarketBacktestPanel() {
         key: 'total_residual_notional',
         render: (value) => formatCurrency(Number(value || 0)),
       },
+      {
+        title: 'Max ADV',
+        dataIndex: 'max_adv_usage',
+        key: 'max_adv_usage',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
+        title: '流动性',
+        dataIndex: 'liquidity_level',
+        key: 'liquidity_level',
+        render: (value) => {
+          const meta = getLiquidityMeta(value);
+          return <Tag color={meta.color}>{meta.label}</Tag>;
+        },
+      },
     ],
     []
   );
@@ -855,6 +1082,12 @@ function CrossMarketBacktestPanel() {
         render: (value) => formatPercentage(Number(value || 0)),
       },
       {
+        title: '原始偏置权重',
+        dataIndex: 'raw_bias_weight',
+        key: 'raw_bias_weight',
+        render: (value) => formatPercentage(Number(value || 0)),
+      },
+      {
         title: '有效权重',
         dataIndex: 'effective_weight',
         key: 'effective_weight',
@@ -869,11 +1102,24 @@ function CrossMarketBacktestPanel() {
           return <span style={{ color: getValueColor(numeric) }}>{numeric > 0 ? '+' : ''}{(numeric * 100).toFixed(2)}pp</span>;
         },
       },
+      {
+        title: '压缩差',
+        dataIndex: 'compression_delta',
+        key: 'compression_delta',
+        render: (value) => {
+          const numeric = Number(value || 0);
+          return <span style={{ color: getValueColor(-numeric) }}>{numeric > 0 ? '-' : ''}{(Math.abs(numeric) * 100).toFixed(2)}pp</span>;
+        },
+      },
     ],
     []
   );
   const concentrationMeta = getConcentrationMeta(results?.execution_diagnostics?.concentration_level);
   const stressMeta = getConcentrationMeta(results?.execution_diagnostics?.stress_test_flag);
+  const liquidityMeta = getLiquidityMeta(results?.execution_diagnostics?.liquidity_level);
+  const marginMeta = getMarginMeta(results?.execution_diagnostics?.margin_level);
+  const betaMeta = getBetaMeta(results?.execution_diagnostics?.beta_level);
+  const calendarMeta = getCalendarMeta(results?.execution_diagnostics?.calendar_level);
 
   return (
     <div className="workspace-tab-view" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -947,6 +1193,9 @@ function CrossMarketBacktestPanel() {
               {selectedTemplate.driverHeadline ? (
                 <Text type="secondary">{selectedTemplate.driverHeadline}</Text>
               ) : null}
+              {selectedTemplate.resonanceReason && selectedTemplate.resonanceLabel !== 'mixed' ? (
+                <Text type="secondary">{selectedTemplate.resonanceReason}</Text>
+              ) : null}
               <Space wrap size={[6, 6]}>
                 {(selectedTemplate.linked_factors || []).map((factor) => (
                   <Tag key={factor} color="purple">
@@ -958,7 +1207,30 @@ function CrossMarketBacktestPanel() {
                     维度: {CROSS_MARKET_DIMENSION_LABELS[dimension] || dimension}
                   </Tag>
                 ))}
+                {selectedTemplate.resonanceLabel && selectedTemplate.resonanceLabel !== 'mixed' ? (
+                  <Tag color="magenta">resonance {selectedTemplate.resonanceLabel}</Tag>
+                ) : null}
+                {selectedTemplate.policySourceHealthLabel && selectedTemplate.policySourceHealthLabel !== 'unknown' ? (
+                  <Tag color={selectedTemplate.policySourceHealthLabel === 'fragile' ? 'red' : selectedTemplate.policySourceHealthLabel === 'watch' ? 'gold' : 'green'}>
+                    policy source {selectedTemplate.policySourceHealthLabel}
+                  </Tag>
+                ) : null}
               </Space>
+              {selectedTemplate.policySourceHealthReason ? (
+                <Text type="secondary">{selectedTemplate.policySourceHealthReason}</Text>
+              ) : null}
+              {selectedTemplate.refreshMeta?.selectionQualityDriven && selectedTemplate.refreshMeta?.selectionQualityShift?.currentReason ? (
+                <Text type="secondary">
+                  自动降级 {selectedTemplate.refreshMeta.selectionQualityShift.currentLabel}
+                  {' · '}
+                  {selectedTemplate.refreshMeta.selectionQualityShift.currentReason}
+                </Text>
+              ) : null}
+              {selectedTemplate.biasQualityLabel && selectedTemplate.biasQualityLabel !== 'full' ? (
+                <Text type="secondary">
+                  偏置收缩 {selectedTemplate.biasQualityLabel} · {selectedTemplate.biasQualityReason}
+                </Text>
+              ) : null}
             </Space>
           )}
         />
@@ -972,6 +1244,9 @@ function CrossMarketBacktestPanel() {
           description={(
             <Space direction="vertical" size={6} style={{ width: '100%' }}>
               <Text>{appliedBiasMeta.summary}</Text>
+              {appliedBiasMeta.qualityLabel && appliedBiasMeta.qualityLabel !== 'full' ? (
+                <Text type="secondary">偏置收缩 {appliedBiasMeta.qualityLabel} · {appliedBiasMeta.qualityReason}</Text>
+              ) : null}
               <Space wrap size={[6, 6]}>
                 {(appliedBiasMeta.highlights || []).map((item) => (
                   <Tag key={item} color="green">{item}</Tag>
@@ -1010,12 +1285,17 @@ function CrossMarketBacktestPanel() {
         </Card>
       ) : null}
 
-      {!researchContext?.template && recommendedTemplates[0] ? (
+      {!researchContext?.template && displayRecommendedTemplates[0] ? (
         <Alert
           type="success"
           showIcon
-          message={`当前首选模板：${recommendedTemplates[0].name}`}
-          description={`${recommendedTemplates[0].driverHeadline}。${recommendedTemplates[0].biasSummary || '该模板会作为默认起点，你也可以在右侧改成其他模板。'}`}
+          message={`当前首选模板：${displayRecommendedTemplates[0].name}`}
+          description={`${displayRecommendedTemplates[0].driverHeadline}。${
+            displayRecommendedTemplates[0].rankingPenaltyReason
+            || displayRecommendedTemplates[0].refreshMeta?.selectionQualityShift?.currentReason
+            || displayRecommendedTemplates[0].biasSummary
+            || '该模板会作为默认起点，你也可以在右侧改成其他模板。'
+          }`}
         />
       ) : null}
 
@@ -1032,7 +1312,7 @@ function CrossMarketBacktestPanel() {
             <Space direction="vertical" style={{ width: '100%' }} size={14}>
               <Card size="small" className="workspace-panel workspace-panel--subtle" title="宏观推荐模板">
                 <Space direction="vertical" style={{ width: '100%' }} size={10}>
-                  {recommendedTemplates.slice(0, 3).map((template) => (
+                  {displayRecommendedTemplates.slice(0, 3).map((template) => (
                     <div
                       key={template.id}
                       style={{
@@ -1045,11 +1325,44 @@ function CrossMarketBacktestPanel() {
                       <Space wrap size={[6, 6]} style={{ marginBottom: 8 }}>
                         <Tag color={template.recommendationTone}>{template.recommendationTier}</Tag>
                         <Tag color="cyan">score {Number(template.recommendationScore || 0).toFixed(2)}</Tag>
+                        {template.resonanceLabel && template.resonanceLabel !== 'mixed' ? (
+                          <Tag color="magenta">resonance {template.resonanceLabel}</Tag>
+                        ) : null}
+                        {template.policySourceHealthLabel && template.policySourceHealthLabel !== 'unknown' ? (
+                          <Tag color={template.policySourceHealthLabel === 'fragile' ? 'red' : template.policySourceHealthLabel === 'watch' ? 'gold' : 'green'}>
+                            policy source {template.policySourceHealthLabel}
+                          </Tag>
+                        ) : null}
                       </Space>
                       <div style={{ fontWeight: 600, marginBottom: 6 }}>{template.name}</div>
                       <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
                         {template.driverHeadline}
                       </Text>
+                      {template.resonanceReason && template.resonanceLabel !== 'mixed' ? (
+                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                          {template.resonanceReason}
+                        </Text>
+                      ) : null}
+                      {template.policySourceHealthReason ? (
+                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                          {template.policySourceHealthReason}
+                        </Text>
+                      ) : null}
+                      {template.refreshMeta?.selectionQualityDriven && template.refreshMeta?.selectionQualityShift?.currentReason ? (
+                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                          自动降级 {template.refreshMeta.selectionQualityShift.currentLabel} · {template.refreshMeta.selectionQualityShift.currentReason}
+                        </Text>
+                      ) : null}
+                      {template.rankingPenaltyReason ? (
+                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                          {template.rankingPenaltyReason}
+                        </Text>
+                      ) : null}
+                      {template.biasQualityLabel && template.biasQualityLabel !== 'full' ? (
+                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                          偏置收缩 {template.biasQualityLabel} · {template.biasQualityReason}
+                        </Text>
+                      ) : null}
                       {template.biasSummary ? (
                         <Text style={{ display: 'block', marginBottom: 8 }}>
                           {template.biasSummary}
@@ -1057,12 +1370,31 @@ function CrossMarketBacktestPanel() {
                       ) : null}
                       <Space wrap size={[6, 6]} style={{ marginBottom: 10 }}>
                         {(template.matchedDrivers || []).slice(0, 3).map((driver) => (
-                          <Tag key={driver.key} color={driver.type === 'factor' ? 'purple' : driver.type === 'alert' ? 'red' : 'blue'}>
+                          <Tag
+                            key={driver.key}
+                            color={
+                              driver.type === 'factor'
+                                ? 'purple'
+                                : driver.type === 'alert'
+                                  ? 'red'
+                                  : driver.type === 'resonance'
+                                    ? 'magenta'
+                                    : driver.type === 'quality'
+                                      ? 'orange'
+                                    : 'blue'
+                            }
+                          >
                             {driver.label}
                           </Tag>
                         ))}
                         {template.biasStrength ? (
                           <Tag color="green">bias {Number(template.biasStrength).toFixed(1)}pp</Tag>
+                        ) : null}
+                        {template.biasScale && template.biasScale < 1 ? (
+                          <Tag color="orange">scale {Number(template.biasScale).toFixed(2)}x</Tag>
+                        ) : null}
+                        {template.rankingPenalty ? (
+                          <Tag color="volcano">降级 {Number(template.baseRecommendationScore || 0).toFixed(2)}→{Number(template.recommendationScore || 0).toFixed(2)}</Tag>
                         ) : null}
                       </Space>
                       <Button size="small" type={selectedTemplate?.id === template.id ? 'default' : 'primary'} onClick={() => applyTemplate(template, { useBias: true })}>
@@ -1155,6 +1487,28 @@ function CrossMarketBacktestPanel() {
                     onChange={(value) => setQuality((prev) => ({ ...prev, min_overlap_ratio: value || 0.7 }))}
                   />
                 </Form.Item>
+                <Form.Item label="单资产上限 (%)">
+                  <InputNumber
+                    min={1}
+                    max={100}
+                    step={1}
+                    value={constraints.max_single_weight}
+                    style={{ width: '100%' }}
+                    placeholder="可留空"
+                    onChange={(value) => setConstraints((prev) => ({ ...prev, max_single_weight: value ?? null }))}
+                  />
+                </Form.Item>
+                <Form.Item label="单资产下限 (%)">
+                  <InputNumber
+                    min={1}
+                    max={100}
+                    step={1}
+                    value={constraints.min_single_weight}
+                    style={{ width: '100%' }}
+                    placeholder="可留空"
+                    onChange={(value) => setConstraints((prev) => ({ ...prev, min_single_weight: value ?? null }))}
+                  />
+                </Form.Item>
                 <Form.Item label="手续费 (%)">
                   <InputNumber
                     min={0}
@@ -1218,6 +1572,27 @@ function CrossMarketBacktestPanel() {
             message="跨市场结果已生成"
             description={`样本区间 ${results.price_matrix_summary.start_date} 至 ${results.price_matrix_summary.end_date}，共 ${results.price_matrix_summary.row_count} 个对齐交易日。`}
           />
+
+          {results.allocation_overlay?.selection_quality ? (
+            <Alert
+              type={getSelectionQualityMeta(results.allocation_overlay.selection_quality.label).type}
+              showIcon
+              message={getSelectionQualityMeta(results.allocation_overlay.selection_quality.label).title}
+              description={`推荐强度 ${Number(results.allocation_overlay.selection_quality.base_recommendation_score || 0).toFixed(2)} → ${Number(results.allocation_overlay.selection_quality.effective_recommendation_score || 0).toFixed(2)}${
+                results.allocation_overlay.selection_quality.base_recommendation_tier
+                  ? ` · ${results.allocation_overlay.selection_quality.base_recommendation_tier} → ${results.allocation_overlay.selection_quality.effective_recommendation_tier || '-'}`
+                  : ''
+              }${
+                results.allocation_overlay.selection_quality.ranking_penalty
+                  ? ` · 惩罚 ${Number(results.allocation_overlay.selection_quality.ranking_penalty || 0).toFixed(2)}`
+                  : ''
+              }${
+                results.allocation_overlay.selection_quality.reason
+                  ? ` · ${results.allocation_overlay.selection_quality.reason}`
+                  : ''
+              }`}
+            />
+          ) : null}
 
           {(results.data_alignment?.tradable_day_ratio || 0) < 0.8 ? (
             <Alert
@@ -1314,6 +1689,18 @@ function CrossMarketBacktestPanel() {
                       key: 'coverage_ratio',
                       render: (value) => formatPercentage(Number(value || 0)),
                     },
+                    {
+                      title: '日均成交额',
+                      dataIndex: 'avg_daily_notional',
+                      key: 'avg_daily_notional',
+                      render: (value) => formatCurrency(Number(value || 0)),
+                    },
+                    {
+                      title: 'Venue',
+                      dataIndex: 'venue',
+                      key: 'venue',
+                      render: (value) => formatVenue(value),
+                    },
                   ]}
                 />
               </Card>
@@ -1398,12 +1785,58 @@ function CrossMarketBacktestPanel() {
                     />
                   </Col>
                 </Row>
+                <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
+                  <Col span={12}>
+                    <Statistic
+                      title="最大 ADV 使用率"
+                      value={(results.execution_diagnostics?.max_adv_usage || results.execution_plan?.liquidity_summary?.max_adv_usage || 0) * 100}
+                      precision={2}
+                      suffix="%"
+                    />
+                  </Col>
+                  <Col span={12}>
+                    <Statistic
+                      title="流动性紧张路由"
+                      value={results.execution_diagnostics?.stretched_route_count || results.execution_plan?.liquidity_summary?.stretched_route_count || 0}
+                    />
+                  </Col>
+                </Row>
+                <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
+                  <Col span={12}>
+                    <Statistic
+                      title="保证金占用"
+                      value={(results.execution_diagnostics?.margin_utilization || results.execution_plan?.margin_summary?.utilization || 0) * 100}
+                      precision={2}
+                      suffix="%"
+                    />
+                  </Col>
+                  <Col span={12}>
+                    <Statistic
+                      title="Gross Leverage"
+                      value={results.execution_diagnostics?.gross_leverage || results.execution_plan?.margin_summary?.gross_leverage || 0}
+                      precision={2}
+                      suffix="x"
+                    />
+                  </Col>
+                </Row>
                 <div style={{ marginTop: 16 }}>
                   <Tag color="purple">
                     {formatConstructionMode(results.execution_diagnostics?.construction_mode || quality.construction_mode)}
                   </Tag>
                   <Tag color={concentrationMeta.color}>
                     {concentrationMeta.label}
+                  </Tag>
+                  <Tag color={liquidityMeta.color}>
+                    {liquidityMeta.label}
+                  </Tag>
+                  <Tag color={marginMeta.color}>
+                    {marginMeta.label}
+                  </Tag>
+                  <Tag color={betaMeta.color}>
+                    {betaMeta.label}
+                  </Tag>
+                  <Tag color={calendarMeta.color}>
+                    {calendarMeta.label}
                   </Tag>
                   {results.execution_diagnostics?.suggested_rebalance ? (
                     <Tag color="geekblue">建议调仓 {results.execution_diagnostics.suggested_rebalance}</Tag>
@@ -1417,6 +1850,42 @@ function CrossMarketBacktestPanel() {
                     showIcon
                     message="执行集中度提示"
                     description={results.execution_diagnostics.concentration_reason}
+                  />
+                ) : null}
+                {results.execution_diagnostics?.liquidity_reason ? (
+                  <Alert
+                    style={{ marginTop: 16 }}
+                    type={results.execution_diagnostics?.liquidity_level === 'stretched' ? 'warning' : 'info'}
+                    showIcon
+                    message="流动性容量提示"
+                    description={results.execution_diagnostics.liquidity_reason}
+                  />
+                ) : null}
+                {results.execution_diagnostics?.margin_reason ? (
+                  <Alert
+                    style={{ marginTop: 16 }}
+                    type={results.execution_diagnostics?.margin_level === 'aggressive' ? 'warning' : 'info'}
+                    showIcon
+                    message="保证金占用提示"
+                    description={results.execution_diagnostics.margin_reason}
+                  />
+                ) : null}
+                {results.execution_diagnostics?.beta_reason ? (
+                  <Alert
+                    style={{ marginTop: 16 }}
+                    type={results.execution_diagnostics?.beta_level === 'stretched' ? 'warning' : 'info'}
+                    showIcon
+                    message="Beta 中性提示"
+                    description={results.execution_diagnostics.beta_reason}
+                  />
+                ) : null}
+                {results.execution_diagnostics?.calendar_reason ? (
+                  <Alert
+                    style={{ marginTop: 16 }}
+                    type={results.execution_diagnostics?.calendar_level === 'stretched' ? 'warning' : 'info'}
+                    showIcon
+                    message="多市场日历提示"
+                    description={results.execution_diagnostics.calendar_reason}
                   />
                 ) : null}
                 {Number(results.execution_diagnostics?.residual_notional || 0) > 0 ? (
@@ -1507,6 +1976,30 @@ function CrossMarketBacktestPanel() {
                     />
                   </Col>
                 </Row>
+                <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
+                  <Col span={8}>
+                    <Statistic
+                      title="Beta"
+                      value={results.hedge_portfolio?.beta_neutrality?.beta || 0}
+                      precision={2}
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic
+                      title="Beta Gap"
+                      value={(results.hedge_portfolio?.beta_neutrality?.beta_gap || 0) * 100}
+                      precision={2}
+                      suffix="pp"
+                    />
+                  </Col>
+                  <Col span={8}>
+                    <Statistic
+                      title="Rolling Beta"
+                      value={results.hedge_portfolio?.beta_neutrality?.rolling_beta_last || 0}
+                      precision={2}
+                    />
+                  </Col>
+                </Row>
                 <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
                   <Text type="secondary">
                     多头权重 {formatPercentage(results.hedge_portfolio?.long_weight || 0)} ·
@@ -1516,6 +2009,11 @@ function CrossMarketBacktestPanel() {
                   <Text type="secondary">
                     Hedge Ratio 区间 {Number(results.hedge_portfolio?.hedge_ratio?.min || 0).toFixed(2)} ~ {Number(results.hedge_portfolio?.hedge_ratio?.max || 0).toFixed(2)}
                   </Text>
+                  {results.hedge_portfolio?.beta_neutrality?.reason ? (
+                    <Text type="secondary">
+                      {results.hedge_portfolio.beta_neutrality.reason}
+                    </Text>
+                  ) : null}
                 </div>
               </Card>
             </Col>
@@ -1576,7 +2074,78 @@ function CrossMarketBacktestPanel() {
           </Row>
 
           <Row gutter={[16, 16]}>
-            <Col xs={24}>
+            <Col xs={24} xl={12}>
+              <Card title="流动性概况" variant="borderless">
+                <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                  <Space wrap size={[8, 8]}>
+                    <Tag color={liquidityMeta.color}>{liquidityMeta.label}</Tag>
+                    <Tag color="cyan">
+                      Max ADV {(Number(results.execution_plan?.liquidity_summary?.max_adv_usage || 0) * 100).toFixed(2)}%
+                    </Tag>
+                    <Tag color="orange">
+                      关注路由 {results.execution_plan?.liquidity_summary?.watch_route_count || 0}
+                    </Tag>
+                    <Tag color="red">
+                      紧张路由 {results.execution_plan?.liquidity_summary?.stretched_route_count || 0}
+                    </Tag>
+                  </Space>
+                  {results.execution_plan?.liquidity_summary?.reason ? (
+                    <Text type="secondary">{results.execution_plan.liquidity_summary.reason}</Text>
+                  ) : null}
+                  {results.execution_plan?.liquidity_summary?.largest_adv_route ? (
+                    <Text type="secondary">
+                      最紧路由 {results.execution_plan.liquidity_summary.largest_adv_route.symbol}
+                      {' · '}
+                      ADV {(Number(results.execution_plan.liquidity_summary.largest_adv_route.adv_usage || 0) * 100).toFixed(2)}%
+                      {' · '}
+                      日均成交额 {formatCurrency(Number(results.execution_plan.liquidity_summary.largest_adv_route.avg_daily_notional || 0))}
+                    </Text>
+                  ) : null}
+                </Space>
+              </Card>
+            </Col>
+            <Col xs={24} xl={12}>
+              <Card title="多市场日历概况" variant="borderless">
+                <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                  <Space wrap size={[8, 8]}>
+                    <Tag color={calendarMeta.color}>{calendarMeta.label}</Tag>
+                    <Tag color="cyan">
+                      Max mismatch {(Number(results.data_alignment?.calendar_diagnostics?.max_mismatch_ratio || 0) * 100).toFixed(2)}%
+                    </Tag>
+                  </Space>
+                  {results.data_alignment?.calendar_diagnostics?.reason ? (
+                    <Text type="secondary">{results.data_alignment.calendar_diagnostics.reason}</Text>
+                  ) : null}
+                  <Table
+                    size="small"
+                    rowKey="venue"
+                    pagination={false}
+                    dataSource={results.data_alignment?.calendar_diagnostics?.rows || []}
+                    locale={{ emptyText: '暂无日历错位信息' }}
+                    columns={[
+                      {
+                        title: 'Venue',
+                        dataIndex: 'venue',
+                        key: 'venue',
+                        render: (value) => formatVenue(value),
+                      },
+                      { title: '活跃日', dataIndex: 'active_dates', key: 'active_dates' },
+                      { title: '共享日', dataIndex: 'shared_dates', key: 'shared_dates' },
+                      {
+                        title: '错位率',
+                        dataIndex: 'mismatch_ratio',
+                        key: 'mismatch_ratio',
+                        render: (value) => formatPercentage(Number(value || 0)),
+                      },
+                    ]}
+                  />
+                </Space>
+              </Card>
+            </Col>
+          </Row>
+
+          <Row gutter={[16, 16]}>
+            <Col xs={24} xl={12}>
               <Card title="执行压力测试" variant="borderless">
                 <Table
                   size="small"
@@ -1586,6 +2155,39 @@ function CrossMarketBacktestPanel() {
                   locale={{ emptyText: '暂无压力测试结果' }}
                   columns={stressScenarioColumns}
                 />
+              </Card>
+            </Col>
+            <Col xs={24} xl={12}>
+              <Card title="保证金与杠杆画像" variant="borderless">
+                <Space direction="vertical" size={10} style={{ width: '100%' }}>
+                  <Space wrap size={[8, 8]}>
+                    <Tag color={marginMeta.color}>{marginMeta.label}</Tag>
+                    <Tag color="volcano">
+                      保证金 {(Number(results.execution_plan?.margin_summary?.utilization || 0) * 100).toFixed(2)}%
+                    </Tag>
+                    <Tag color="purple">
+                      Gross {Number(results.execution_plan?.margin_summary?.gross_leverage || 0).toFixed(2)}x
+                    </Tag>
+                    <Tag color="blue">
+                      Short {formatCurrency(Number(results.execution_plan?.margin_summary?.short_notional || 0))}
+                    </Tag>
+                    <Tag color="cyan">
+                      Futures {formatCurrency(Number(results.execution_plan?.margin_summary?.futures_notional || 0))}
+                    </Tag>
+                  </Space>
+                  {results.execution_plan?.margin_summary?.reason ? (
+                    <Text type="secondary">{results.execution_plan.margin_summary.reason}</Text>
+                  ) : null}
+                  {results.execution_plan?.margin_summary?.max_margin_route ? (
+                    <Text type="secondary">
+                      最大保证金路由 {results.execution_plan.margin_summary.max_margin_route.symbol}
+                      {' · '}
+                      {formatCurrency(Number(results.execution_plan.margin_summary.max_margin_route.margin_requirement || 0))}
+                      {' · '}
+                      保证金率 {(Number(results.execution_plan.margin_summary.max_margin_route.margin_rate || 0) * 100).toFixed(2)}%
+                    </Text>
+                  ) : null}
+                </Space>
               </Card>
             </Col>
           </Row>
@@ -1789,9 +2391,49 @@ function CrossMarketBacktestPanel() {
                   </Tag>
                   {results.allocation_overlay.theme ? <Tag color="blue">{results.allocation_overlay.theme}</Tag> : null}
                   {results.allocation_overlay.bias_strength ? <Tag color="green">bias {Number(results.allocation_overlay.bias_strength).toFixed(1)}pp</Tag> : null}
+                  {results.allocation_overlay.compression_summary?.label && results.allocation_overlay.compression_summary.label !== 'full' ? (
+                    <Tag color={results.allocation_overlay.compression_summary.label === 'compressed' ? 'orange' : 'gold'}>
+                      压缩 {results.allocation_overlay.compression_summary.label}
+                    </Tag>
+                  ) : null}
                 </Space>
                 {results.allocation_overlay.bias_summary ? (
                   <Text>{results.allocation_overlay.bias_summary}</Text>
+                ) : null}
+                {results.allocation_overlay.compression_summary ? (
+                  <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                    <Text type="secondary">
+                      原始偏置 {Number(results.allocation_overlay.compression_summary.raw_bias_strength || 0).toFixed(1)}pp
+                      {' · '}
+                      生效偏置 {Number(results.allocation_overlay.compression_summary.effective_bias_strength || 0).toFixed(1)}pp
+                      {' · '}
+                      收缩 {Number(results.allocation_overlay.compression_summary.compression_effect || 0).toFixed(1)}pp
+                      {' · '}
+                      比例 {(Number(results.allocation_overlay.compression_summary.compression_ratio || 0) * 100).toFixed(1)}%
+                    </Text>
+                    {results.allocation_overlay.compression_summary.reason ? (
+                      <Text type="secondary">
+                        {results.allocation_overlay.compression_summary.reason}
+                      </Text>
+                    ) : null}
+                    <Text type="secondary">
+                      受影响资产 {results.allocation_overlay.compressed_asset_count || 0} 个
+                      {results.allocation_overlay.compressed_assets?.length
+                        ? ` · ${results.allocation_overlay.compressed_assets.join('、')}`
+                        : ''}
+                    </Text>
+                    {results.allocation_overlay.selection_quality?.reason ? (
+                      <Text type="secondary">
+                        推荐降级 {Number(results.allocation_overlay.selection_quality.base_recommendation_score || 0).toFixed(2)}
+                        →{Number(results.allocation_overlay.selection_quality.effective_recommendation_score || 0).toFixed(2)}
+                        {results.allocation_overlay.selection_quality.effective_recommendation_tier
+                          ? ` · ${results.allocation_overlay.selection_quality.effective_recommendation_tier}`
+                          : ''}
+                        {' · '}
+                        {results.allocation_overlay.selection_quality.reason}
+                      </Text>
+                    ) : null}
+                  </Space>
                 ) : null}
                 {results.allocation_overlay.bias_highlights?.length ? (
                   <Space wrap size={[6, 6]}>
@@ -1830,12 +2472,22 @@ function CrossMarketBacktestPanel() {
                 {results.allocation_overlay.theme_core ? (
                   <Text type="secondary">核心腿：{results.allocation_overlay.theme_core}</Text>
                 ) : null}
+                {extractCoreLegPressure(results.allocation_overlay).affected ? (
+                  <Text type="secondary">核心腿受压：{extractCoreLegPressure(results.allocation_overlay).summary}</Text>
+                ) : null}
                 {results.allocation_overlay.theme_support ? (
                   <Text type="secondary">辅助腿：{results.allocation_overlay.theme_support}</Text>
                 ) : null}
                 <Text type="secondary">
                   偏移资产 {results.allocation_overlay.shifted_asset_count || 0} 个 · 最大偏移 {(Number(results.allocation_overlay.max_delta_weight || 0) * 100).toFixed(2)}pp
                 </Text>
+                {results.allocation_overlay.side_bias_summary ? (
+                  <Text type="secondary">
+                    多头 {formatPercentage(Number(results.allocation_overlay.side_bias_summary.long_raw_weight || 0))}→{formatPercentage(Number(results.allocation_overlay.side_bias_summary.long_effective_weight || 0))}
+                    {' · '}
+                    空头 {formatPercentage(Number(results.allocation_overlay.side_bias_summary.short_raw_weight || 0))}→{formatPercentage(Number(results.allocation_overlay.side_bias_summary.short_effective_weight || 0))}
+                  </Text>
+                ) : null}
                 <Table
                   size="small"
                   rowKey={(record) => `${record.symbol}-${record.side}`}
@@ -1883,9 +2535,84 @@ function CrossMarketBacktestPanel() {
                 ) : null}
               </Space>
             </Card>
-          ) : null}
-        </div>
-      ) : null}
+	          ) : null}
+	          {results.constraint_overlay?.applied ? (
+	            <Card title="组合约束落地" variant="borderless">
+	              <Space direction="vertical" size={10} style={{ width: '100%' }}>
+	                <Space wrap size={[8, 8]}>
+	                  {results.constraint_overlay.constraints?.max_single_weight ? (
+	                    <Tag color="blue">
+	                      单资产上限 {(Number(results.constraint_overlay.constraints.max_single_weight || 0) * 100).toFixed(1)}%
+	                    </Tag>
+	                  ) : null}
+	                  {results.constraint_overlay.constraints?.min_single_weight ? (
+	                    <Tag color="purple">
+	                      单资产下限 {(Number(results.constraint_overlay.constraints.min_single_weight || 0) * 100).toFixed(1)}%
+	                    </Tag>
+	                  ) : null}
+	                  <Tag color={results.constraint_overlay.binding_count ? 'orange' : 'green'}>
+	                    触发约束 {results.constraint_overlay.binding_count || 0} 个
+	                  </Tag>
+	                </Space>
+	                <Text type="secondary">
+	                  最大约束偏移 {(Number(results.constraint_overlay.max_delta_weight || 0) * 100).toFixed(2)}pp
+	                </Text>
+	                {results.constraint_overlay.binding_assets?.length ? (
+	                  <Space wrap size={[6, 6]}>
+	                    {results.constraint_overlay.binding_assets.map((symbol) => (
+	                      <Tag key={`binding-${symbol}`} color="orange">{symbol}</Tag>
+	                    ))}
+	                  </Space>
+	                ) : null}
+	                <Table
+	                  size="small"
+	                  rowKey={(record) => `${record.symbol}-${record.side}`}
+	                  pagination={false}
+	                  locale={{ emptyText: '暂无约束调整' }}
+	                  dataSource={results.constraint_overlay.rows || []}
+	                  columns={[
+	                    { title: '资产', dataIndex: 'symbol', key: 'symbol' },
+	                    {
+	                      title: '方向',
+	                      dataIndex: 'side',
+	                      key: 'side',
+	                      render: (value) => <Tag color={value === 'long' ? 'green' : 'volcano'}>{value === 'long' ? '多头' : '空头'}</Tag>,
+	                    },
+	                    {
+	                      title: '原始权重',
+	                      dataIndex: 'base_weight',
+	                      key: 'base_weight',
+	                      render: (value) => formatPercentage(Number(value || 0)),
+	                    },
+	                    {
+	                      title: '约束后',
+	                      dataIndex: 'constrained_weight',
+	                      key: 'constrained_weight',
+	                      render: (value) => formatPercentage(Number(value || 0)),
+	                    },
+	                    {
+	                      title: '变化',
+	                      dataIndex: 'delta_weight',
+	                      key: 'delta_weight',
+	                      render: (value) => (
+	                        <span style={{ color: getValueColor(Number(value || 0)) }}>
+	                          {Number(value || 0) >= 0 ? '+' : ''}{formatPercentage(Number(value || 0))}
+	                        </span>
+	                      ),
+	                    },
+	                    {
+	                      title: '触发',
+	                      dataIndex: 'binding',
+	                      key: 'binding',
+	                      render: (value) => (value ? <Tag color={value === 'max' ? 'red' : 'purple'}>{value}</Tag> : '-'),
+	                    },
+	                  ]}
+	                />
+	              </Space>
+	            </Card>
+	          ) : null}
+	        </div>
+	      ) : null}
     </div>
   );
 }

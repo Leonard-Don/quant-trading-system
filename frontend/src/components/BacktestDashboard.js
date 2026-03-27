@@ -6,6 +6,7 @@ import ResultsDisplay from './ResultsDisplay';
 import LoadingSpinner from './LoadingSpinner';
 import CrossMarketBacktestPanel from './CrossMarketBacktestPanel';
 import { buildAppUrl, navigateToAppUrl, sanitizeParamsForView } from '../utils/researchContext';
+import { saveAdvancedExperimentIntent } from '../utils/backtestWorkspace';
 
 // Lazy load history component to keep initial bundle size small
 const BacktestHistory = lazy(() => import('./BacktestHistory'));
@@ -141,6 +142,14 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
         setBacktestTab('history', { [RECORD_QUERY_KEY]: recordId });
     };
 
+    const handleContinueToAdvancedExperiment = () => {
+        saveAdvancedExperimentIntent({
+            type: 'import_main_backtest',
+            created_at: new Date().toISOString(),
+        });
+        setBacktestTab('advanced');
+    };
+
     const tabItems = [
         {
             key: 'new',
@@ -171,6 +180,7 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
                         <ResultsDisplay
                             results={results}
                             onOpenHistoryRecord={handleOpenHistoryRecord}
+                            onContinueAdvancedExperiment={handleContinueToAdvancedExperiment}
                         />
                     )}
                 </div>

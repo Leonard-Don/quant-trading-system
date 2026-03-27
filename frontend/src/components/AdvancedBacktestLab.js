@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Button,
@@ -31,10 +31,24 @@ import {
   YAxis,
 } from 'recharts';
 
-import { runBatchBacktest, runWalkForwardBacktest, saveAdvancedHistoryRecord } from '../services/api';
-import { getStrategyName, getStrategyParameterLabel } from '../constants/strategies';
+import { compareStrategies, runBatchBacktest, runPortfolioStrategyBacktest, runWalkForwardBacktest, saveAdvancedHistoryRecord } from '../services/api';
+import { getStrategyName, getStrategyParameterLabel, getStrategyDetails } from '../constants/strategies';
 import { formatPercentage, formatCurrency, getValueColor } from '../utils/formatting';
 import { useSafeMessageApi } from '../utils/messageApi';
+import { consumeAdvancedExperimentIntent, loadBacktestWorkspaceDraft } from '../utils/backtestWorkspace';
+import {
+  buildBatchDraftState,
+  buildBatchInsight,
+  buildWalkForwardInsight,
+} from '../utils/advancedBacktestLab';
+import {
+  buildBenchmarkSummary,
+  buildCostSensitivityTasks,
+  buildMultiSymbolTasks,
+  buildParameterOptimizationTasks,
+  buildRobustnessTasks,
+  parseSymbolsInput,
+} from '../utils/backtestResearch';
 import {
   exportToCSV,
   exportToJSON,
@@ -70,10 +84,21 @@ function AdvancedBacktestLab({ strategies }) {
   const [walkLoading, setWalkLoading] = useState(false);
   const [batchResult, setBatchResult] = useState(null);
   const [walkResult, setWalkResult] = useState(null);
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [benchmarkResult, setBenchmarkResult] = useState(null);
+  const [portfolioStrategyResult, setPortfolioStrategyResult] = useState(null);
   const [focusedBatchTaskId, setFocusedBatchTaskId] = useState('');
   const [focusedWalkWindowKey, setFocusedWalkWindowKey] = useState('');
   const [batchConfigs, setBatchConfigs] = useState({});
   const [walkParams, setWalkParams] = useState({});
+  const [researchSymbolsInput, setResearchSymbolsInput] = useState('AAPL,MSFT,NVDA');
+  const [optimizationDensity, setOptimizationDensity] = useState(3);
+  const [portfolioObjective, setPortfolioObjective] = useState('equal_weight');
+  const [batchExperimentMeta, setBatchExperimentMeta] = useState({
+    title: '批量回测结果',
+    description: '同一实验上下文下的多任务回测结果会集中展示在这里。',
+  });
   const [batchForm] = Form.useForm();
   const [walkForm] = Form.useForm();
   const watchedBatchStrategies = Form.useWatch('strategies', batchForm);
@@ -128,12 +153,13 @@ function AdvancedBacktestLab({ strategies }) {
       .map((record) => ({
         key: record.task_id,
         taskId: record.task_id,
-        label: getStrategyName(record.strategy),
+        label: record.research_label || `${record.symbol} · ${getStrategyName(record.strategy)}`,
         symbol: record.symbol,
         totalReturn: getMetricValue(record, 'total_return'),
         sharpe: getMetricValue(record, 'sharpe_ratio'),
         drawdown: Math.abs(getMetricValue(record, 'max_drawdown')),
         finalValue: getMetricValue(record, 'final_value'),
+        researchLabel: record.research_label || '',
       }));
   }, [batchResult]);
 
@@ -161,6 +187,28 @@ function AdvancedBacktestLab({ strategies }) {
   const focusedWalkRecord = useMemo(
     () => (walkResult?.window_results || []).find((record) => `${record.window_id}-${record.test_start}` === focusedWalkWindowKey) || null,
     [focusedWalkWindowKey, walkResult]
+  );
+  const batchInsight = useMemo(() => buildBatchInsight(batchResult), [batchResult]);
+  const walkInsight = useMemo(() => buildWalkForwardInsight(walkResult), [walkResult]);
+  const benchmarkSummary = useMemo(
+    () => buildBenchmarkSummary(benchmarkResult?.data, selectedWalkStrategy),
+    [benchmarkResult, selectedWalkStrategy]
+  );
+  const benchmarkChartData = useMemo(
+    () => Object.entries(benchmarkResult?.data || {}).map(([key, value]) => ({
+      key,
+      label: getStrategyName(key),
+      totalReturn: Number(value.total_return || 0),
+      drawdown: Math.abs(Number(value.max_drawdown || 0)),
+    })),
+    [benchmarkResult]
+  );
+  const portfolioChartData = useMemo(
+    () => (portfolioStrategyResult?.portfolio_history || []).map((point) => ({
+      date: point.date,
+      total: Number(point.total || 0),
+    })),
+    [portfolioStrategyResult]
   );
 
   useEffect(() => {
@@ -233,8 +281,8 @@ function AdvancedBacktestLab({ strategies }) {
       key: 'task_id',
       render: (_, record) => (
         <div>
-          <div style={{ fontWeight: 700 }}>{getStrategyName(record.strategy)}</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{record.symbol}</div>
+          <div style={{ fontWeight: 700 }}>{record.research_label || getStrategyName(record.strategy)}</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>{record.symbol} · {getStrategyName(record.strategy)}</div>
         </div>
       ),
     },
@@ -318,6 +366,10 @@ function AdvancedBacktestLab({ strategies }) {
 
     setBatchLoading(true);
     setBatchResult(null);
+    setBatchExperimentMeta({
+      title: '批量回测结果',
+      description: '同一实验上下文下的多任务回测结果会集中展示在这里。',
+    });
     try {
       const payload = {
         ranking_metric: values.ranking_metric || 'sharpe_ratio',
@@ -384,6 +436,193 @@ function AdvancedBacktestLab({ strategies }) {
       setWalkLoading(false);
     }
   };
+
+  const getWalkBaseline = useCallback(() => {
+    const values = walkForm.getFieldsValue();
+    const symbol = String(values.symbol || '').trim().toUpperCase();
+    const strategy = values.strategy;
+    if (!symbol || !strategy) {
+      return null;
+    }
+
+    return {
+      symbol,
+      strategy,
+      dateRange: [
+        values.dateRange?.[0]?.format(DATE_FORMAT),
+        values.dateRange?.[1]?.format(DATE_FORMAT),
+      ],
+      initialCapital: Number(values.initial_capital ?? DEFAULT_CAPITAL),
+      commission: Number(values.commission ?? DEFAULT_COMMISSION) / 100,
+      slippage: Number(values.slippage ?? DEFAULT_SLIPPAGE) / 100,
+      baseParameters: walkParams,
+      strategyDefinition: strategyDefinitions[strategy],
+    };
+  }, [strategyDefinitions, walkForm, walkParams]);
+
+  const runResearchBatchTasks = async (tasks, meta) => {
+    if (!tasks.length) {
+      message.warning('当前实验模板没有生成可执行任务，请先检查策略和参数设置。');
+      return;
+    }
+
+    setBatchLoading(true);
+    setBatchResult(null);
+    setBatchExperimentMeta(meta);
+    try {
+      const response = await runBatchBacktest({
+        ranking_metric: 'sharpe_ratio',
+        tasks,
+      });
+      if (!response.success) {
+        throw new Error(response.error || '实验执行失败');
+      }
+      setBatchResult(response.data);
+      message.success(`${meta.title}已完成`);
+    } catch (error) {
+      message.error(error.message || '实验执行失败');
+    } finally {
+      setBatchLoading(false);
+    }
+  };
+
+  const handleRunParameterOptimization = async () => {
+    const baseline = getWalkBaseline();
+    if (!baseline) {
+      message.warning('请先在滚动前瞻分析里选择标的和策略');
+      return;
+    }
+
+    const tasks = buildParameterOptimizationTasks({
+      ...baseline,
+      density: optimizationDensity,
+    });
+    await runResearchBatchTasks(tasks, {
+      title: '参数寻优结果',
+      description: '围绕当前策略参数做局部网格搜索，快速找出更有潜力的参数组合。',
+    });
+  };
+
+  const handleRunBenchmarkComparison = async () => {
+    const baseline = getWalkBaseline();
+    if (!baseline) {
+      message.warning('请先在滚动前瞻分析里选择标的和策略');
+      return;
+    }
+
+    setBenchmarkLoading(true);
+    setBenchmarkResult(null);
+    try {
+      const response = await compareStrategies({
+        symbol: baseline.symbol,
+        start_date: baseline.dateRange?.[0],
+        end_date: baseline.dateRange?.[1],
+        initial_capital: baseline.initialCapital,
+        commission: baseline.commission,
+        slippage: baseline.slippage,
+        strategy_configs: [
+          { name: baseline.strategy, parameters: baseline.baseParameters },
+          { name: 'buy_and_hold', parameters: {} },
+        ],
+      });
+      if (!response.success) {
+        throw new Error(response.error || '基准对照失败');
+      }
+      setBenchmarkResult(response);
+      message.success('基准对照已完成');
+    } catch (error) {
+      message.error(error.message || '基准对照失败');
+    } finally {
+      setBenchmarkLoading(false);
+    }
+  };
+
+  const handleRunMultiSymbolResearch = async () => {
+    const baseline = getWalkBaseline();
+    if (!baseline) {
+      message.warning('请先在滚动前瞻分析里选择基准策略');
+      return;
+    }
+
+    const symbols = parseSymbolsInput(researchSymbolsInput);
+    if (symbols.length < 2) {
+      message.warning('请输入至少两个标的代码');
+      return;
+    }
+
+    await runResearchBatchTasks(buildMultiSymbolTasks({
+      ...baseline,
+      symbols,
+    }), {
+      title: '多标的横向研究',
+      description: '在同一策略与参数下，比较不同标的的适配度和泛化能力。',
+    });
+  };
+
+  const handleRunCostSensitivity = async () => {
+    const baseline = getWalkBaseline();
+    if (!baseline) {
+      message.warning('请先在滚动前瞻分析里选择基准策略');
+      return;
+    }
+
+    await runResearchBatchTasks(buildCostSensitivityTasks(baseline), {
+      title: '成本敏感性结果',
+      description: '比较低成本、基准成本和高成本场景下，策略收益对交易摩擦的敏感度。',
+    });
+  };
+
+  const handleRunRobustnessDiagnostic = async () => {
+    const baseline = getWalkBaseline();
+    if (!baseline) {
+      message.warning('请先在滚动前瞻分析里选择基准策略');
+      return;
+    }
+
+    await runResearchBatchTasks(buildRobustnessTasks(baseline), {
+      title: '稳健性诊断结果',
+      description: '通过日期窗口扰动和参数轻微扰动，观察策略表现是否足够稳定。',
+    });
+  };
+
+  const handleRunPortfolioStrategy = useCallback(async () => {
+    const baseline = getWalkBaseline();
+    if (!baseline) {
+      message.warning('请先在滚动前瞻分析里选择基准策略');
+      return;
+    }
+
+    const symbols = parseSymbolsInput(researchSymbolsInput);
+    if (symbols.length < 2) {
+      message.warning('组合级策略回测至少需要两个标的');
+      return;
+    }
+
+    setPortfolioLoading(true);
+    setPortfolioStrategyResult(null);
+    try {
+      const response = await runPortfolioStrategyBacktest({
+        symbols,
+        strategy: baseline.strategy,
+        parameters: baseline.baseParameters,
+        objective: portfolioObjective,
+        start_date: baseline.dateRange?.[0],
+        end_date: baseline.dateRange?.[1],
+        initial_capital: baseline.initialCapital,
+        commission: baseline.commission,
+        slippage: baseline.slippage,
+      });
+      if (!response.success) {
+        throw new Error(response.error || '组合级策略回测失败');
+      }
+      setPortfolioStrategyResult(response.data);
+      message.success('组合级策略回测已完成');
+    } catch (error) {
+      message.error(error.message || '组合级策略回测失败');
+    } finally {
+      setPortfolioLoading(false);
+    }
+  }, [getWalkBaseline, message, portfolioObjective, researchSymbolsInput]);
 
   const handleSaveBatchHistory = async () => {
     if (!batchResult) {
@@ -528,6 +767,61 @@ function AdvancedBacktestLab({ strategies }) {
     message.success(`滚动前瞻分析结果已导出为${format.toUpperCase()}`);
   };
 
+  const handleApplyMainBacktestDraft = useCallback(() => {
+    const draft = buildBatchDraftState(loadBacktestWorkspaceDraft());
+    if (!draft) {
+      message.warning('暂未找到主回测配置，请先在“新建回测”页配置一次策略。');
+      return;
+    }
+
+    const strategyExists = Boolean(strategyDefinitions[draft.strategy]);
+    const nextDateRange = draft.dateRange
+      ? [moment(draft.dateRange[0], DATE_FORMAT), moment(draft.dateRange[1], DATE_FORMAT)]
+      : undefined;
+
+    batchForm.setFieldsValue({
+      symbol: draft.symbol,
+      dateRange: nextDateRange,
+      initial_capital: draft.initial_capital,
+      commission: draft.commission,
+      slippage: draft.slippage,
+      strategies: strategyExists ? [draft.strategy] : [],
+    });
+
+    walkForm.setFieldsValue({
+      symbol: draft.symbol,
+      dateRange: nextDateRange,
+      initial_capital: draft.initial_capital,
+      commission: draft.commission,
+      slippage: draft.slippage,
+      ...(strategyExists ? { strategy: draft.strategy } : {}),
+    });
+
+    if (strategyExists) {
+      const defaultParams = buildDefaultParams(strategyDefinitions[draft.strategy]);
+      const mergedParams = {
+        ...defaultParams,
+        ...(draft.parameters || {}),
+      };
+      setBatchConfigs((previous) => ({
+        ...previous,
+        [draft.strategy]: mergedParams,
+      }));
+      setWalkParams(mergedParams);
+      message.success('已带入主回测当前配置，可直接运行高级实验');
+      return;
+    }
+
+    message.warning('主回测策略已带入，但当前高级实验页暂不支持该策略参数面板。');
+  }, [batchForm, message, strategyDefinitions, walkForm]);
+
+  useEffect(() => {
+    const intent = consumeAdvancedExperimentIntent();
+    if (intent?.type === 'import_main_backtest') {
+      handleApplyMainBacktestDraft();
+    }
+  }, [handleApplyMainBacktestDraft]);
+
   return (
     <div className="workspace-tab-view">
       <div className="workspace-section workspace-section--accent">
@@ -536,6 +830,9 @@ function AdvancedBacktestLab({ strategies }) {
             <div className="workspace-section__title">高级实验台</div>
             <div className="workspace-section__description">把批量回测和滚动前瞻分析接进正式工作流，方便做更系统的策略研究。</div>
           </div>
+          <Button type="default" onClick={handleApplyMainBacktestDraft}>
+            带入主回测当前配置
+          </Button>
         </div>
         <div className="summary-strip summary-strip--compact">
           <div className="summary-strip__item">
@@ -552,6 +849,74 @@ function AdvancedBacktestLab({ strategies }) {
           </div>
         </div>
       </div>
+
+      <Card className="workspace-panel" style={{ marginBottom: 20 }}>
+        <div className="workspace-section__header">
+          <div>
+            <div className="workspace-section__title">研究增强工具</div>
+            <div className="workspace-section__description">把参数寻优、基准对照、多标的研究、成本敏感性、稳健性诊断和组合级策略回测收进同一组实验模板。</div>
+          </div>
+        </div>
+        <Row gutter={[16, 16]} align="middle">
+          <Col xs={24} xl={10}>
+            <div className="workspace-field-label">研究标的池</div>
+            <Input
+              value={researchSymbolsInput}
+              onChange={(event) => setResearchSymbolsInput(event.target.value)}
+              placeholder="用逗号分隔标的，例如 AAPL,MSFT,NVDA"
+            />
+            <div className="workspace-section__hint" style={{ marginTop: 8 }}>
+              参数寻优、基准对照会优先使用当前滚动前瞻表单里的单一标的；多标的和组合级回测会读取这里的标的池。
+            </div>
+          </Col>
+          <Col xs={12} xl={4}>
+            <div className="workspace-field-label">寻优密度</div>
+            <InputNumber
+              min={3}
+              max={5}
+              precision={0}
+              style={{ width: '100%' }}
+              value={optimizationDensity}
+              onChange={(value) => setOptimizationDensity(Number(value || 3))}
+            />
+          </Col>
+          <Col xs={12} xl={4}>
+            <div className="workspace-field-label">组合权重模式</div>
+            <Select
+              value={portfolioObjective}
+              style={{ width: '100%' }}
+              options={[
+                { value: 'equal_weight', label: '等权组合' },
+                { value: 'max_sharpe', label: '最大夏普' },
+                { value: 'min_volatility', label: '最小波动' },
+              ]}
+              onChange={setPortfolioObjective}
+            />
+          </Col>
+          <Col xs={24} xl={6}>
+            <Space wrap style={{ width: '100%' }}>
+              <Button onClick={handleRunParameterOptimization} loading={batchLoading}>
+                参数寻优
+              </Button>
+              <Button onClick={handleRunBenchmarkComparison} loading={benchmarkLoading}>
+                基准对照
+              </Button>
+              <Button onClick={handleRunMultiSymbolResearch} loading={batchLoading}>
+                多标的研究
+              </Button>
+              <Button onClick={handleRunCostSensitivity} loading={batchLoading}>
+                成本敏感性
+              </Button>
+              <Button onClick={handleRunRobustnessDiagnostic} loading={batchLoading}>
+                稳健性诊断
+              </Button>
+              <Button type="primary" onClick={handleRunPortfolioStrategy} loading={portfolioLoading}>
+                组合级策略回测
+              </Button>
+            </Space>
+          </Col>
+        </Row>
+      </Card>
 
       <Row gutter={[20, 20]}>
         <Col xs={24} xl={13}>
@@ -646,12 +1011,15 @@ function AdvancedBacktestLab({ strategies }) {
                     const strategy = strategyDefinitions[strategyName];
                     const entries = Object.entries(strategy?.parameters || {});
                     return (
-                      <div key={strategyName} className="workspace-section">
+                        <div key={strategyName} className="workspace-section">
                         <div className="workspace-section__header">
                           <div>
                             <div className="workspace-section__title">{getStrategyName(strategyName)}</div>
-                            <div className="workspace-section__description">这组参数会用于当前策略的批量实验任务。</div>
+                            <div className="workspace-section__description">{getStrategyDetails(strategyName).summary}</div>
                           </div>
+                        </div>
+                        <div className="workspace-section__hint" style={{ marginBottom: 12 }}>
+                          {getStrategyDetails(strategyName).marketFit}
                         </div>
                         {entries.length ? (
                           <Row gutter={[12, 12]}>
@@ -769,6 +1137,16 @@ function AdvancedBacktestLab({ strategies }) {
                 </Col>
               </Row>
 
+              {selectedWalkStrategy ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                  message={`${getStrategyName(selectedWalkStrategy)} · ${getStrategyDetails(selectedWalkStrategy).style}`}
+                  description={`${getStrategyDetails(selectedWalkStrategy).summary} ${getStrategyDetails(selectedWalkStrategy).marketFit}`}
+                />
+              ) : null}
+
               {selectedWalkStrategy && Object.keys(strategyDefinitions[selectedWalkStrategy]?.parameters || {}).length ? (
                 <div className="workspace-section" style={{ marginBottom: 16 }}>
                   <div className="workspace-section__header">
@@ -807,7 +1185,7 @@ function AdvancedBacktestLab({ strategies }) {
         <Col xs={24} xl={13}>
           <Card
             className="workspace-panel workspace-chart-card"
-            title="批量回测结果"
+            title={batchExperimentMeta.title}
             extra={batchResult ? (
               <Space size="small">
                 <Button size="small" onClick={handleSaveBatchHistory}>
@@ -824,6 +1202,12 @@ function AdvancedBacktestLab({ strategies }) {
           >
             {batchResult ? (
               <Space direction="vertical" style={{ width: '100%' }} size="large">
+                <Alert
+                  type="info"
+                  showIcon
+                  message={batchExperimentMeta.title}
+                  description={batchExperimentMeta.description}
+                />
                 <div className="summary-strip">
                   <div className="summary-strip__item">
                     <span className="summary-strip__label">总任务数</span>
@@ -848,6 +1232,14 @@ function AdvancedBacktestLab({ strategies }) {
                     showIcon
                     message={`当前最佳策略：${getStrategyName(batchResult.summary.best_result.strategy)}`}
                     description={`总收益 ${formatPercentage(batchResult.summary.best_result.total_return || 0)}，夏普 ${Number(batchResult.summary.best_result.sharpe_ratio || 0).toFixed(2)}`}
+                  />
+                ) : null}
+                {batchInsight ? (
+                  <Alert
+                    type={batchInsight.type}
+                    showIcon
+                    message={batchInsight.title}
+                    description={batchInsight.description}
                   />
                 ) : null}
                 {focusedBatchRecord ? (
@@ -990,6 +1382,14 @@ function AdvancedBacktestLab({ strategies }) {
                   message={`正收益窗口 ${walkResult.aggregate_metrics?.positive_windows ?? 0} 个，负收益窗口 ${walkResult.aggregate_metrics?.negative_windows ?? 0} 个`}
                   description="如果窗口之间表现差异很大，就说明策略更依赖某些特定市场阶段，稳定性需要继续验证。"
                 />
+                {walkInsight ? (
+                  <Alert
+                    type={walkInsight.type}
+                    showIcon
+                    message={walkInsight.title}
+                    description={walkInsight.description}
+                  />
+                ) : null}
                 {focusedWalkRecord ? (
                   <Alert
                     type="info"
@@ -1098,6 +1498,130 @@ function AdvancedBacktestLab({ strategies }) {
               </Space>
             ) : (
               <Empty description="运行滚动前瞻分析后，这里会显示各窗口表现和聚合结果。" />
+            )}
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[20, 20]}>
+        <Col xs={24} xl={12}>
+          <Card className="workspace-panel workspace-chart-card" title="基准对照">
+            {benchmarkResult?.data && selectedWalkStrategy ? (
+              <Space direction="vertical" style={{ width: '100%' }} size="large">
+                <Alert
+                  type={benchmarkSummary?.beatBenchmark ? 'success' : 'warning'}
+                  showIcon
+                  message={`${getStrategyName(selectedWalkStrategy)} vs 买入持有`}
+                  description={
+                    benchmarkSummary
+                      ? `超额收益 ${formatPercentage(benchmarkSummary.excessReturn)}，夏普差值 ${benchmarkSummary.sharpeDelta.toFixed(2)}，回撤差值 ${formatPercentage(-benchmarkSummary.drawdownDelta)}`
+                      : '当前结果不足以生成基准对照摘要。'
+                  }
+                />
+                {benchmarkChartData.length ? (
+                  <div style={{ height: 260 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={benchmarkChartData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.18)" />
+                        <XAxis dataKey="label" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
+                        <YAxis tickFormatter={(value) => `${(Number(value || 0) * 100).toFixed(0)}%`} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
+                        <RechartsTooltip />
+                        <Legend />
+                        <Bar dataKey="totalReturn" name="总收益率" fill={CHART_POSITIVE} />
+                        <Bar dataKey="drawdown" name="最大回撤绝对值" fill={CHART_NEGATIVE} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : null}
+                <Table
+                  size="small"
+                  pagination={false}
+                  rowKey={(record) => record.key}
+                  dataSource={Object.entries(benchmarkResult.data).map(([key, value]) => ({
+                    key,
+                    strategy: getStrategyName(key),
+                    total_return: value.total_return,
+                    sharpe_ratio: value.sharpe_ratio,
+                    max_drawdown: value.max_drawdown,
+                    final_value: value.final_value,
+                  }))}
+                  columns={[
+                    { title: '策略', dataIndex: 'strategy', key: 'strategy' },
+                    { title: '总收益率', dataIndex: 'total_return', key: 'total_return', render: (value) => formatPercentage(value || 0) },
+                    { title: '夏普比率', dataIndex: 'sharpe_ratio', key: 'sharpe_ratio', render: (value) => Number(value || 0).toFixed(2) },
+                    { title: '最大回撤', dataIndex: 'max_drawdown', key: 'max_drawdown', render: (value) => formatPercentage(value || 0) },
+                    { title: '最终价值', dataIndex: 'final_value', key: 'final_value', render: (value) => formatCurrency(value || 0) },
+                  ]}
+                />
+              </Space>
+            ) : (
+              <Empty description="运行基准对照后，这里会展示策略与买入持有的差异。" />
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} xl={12}>
+          <Card className="workspace-panel workspace-chart-card" title="组合级策略回测">
+            {portfolioStrategyResult ? (
+              <Space direction="vertical" style={{ width: '100%' }} size="large">
+                <div className="summary-strip">
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">组合收益</span>
+                    <span className="summary-strip__value">{formatPercentage(portfolioStrategyResult.total_return || 0)}</span>
+                  </div>
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">年化收益</span>
+                    <span className="summary-strip__value">{formatPercentage(portfolioStrategyResult.annualized_return || 0)}</span>
+                  </div>
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">最大回撤</span>
+                    <span className="summary-strip__value">{formatPercentage(portfolioStrategyResult.max_drawdown || 0)}</span>
+                  </div>
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">夏普比率</span>
+                    <span className="summary-strip__value">{Number(portfolioStrategyResult.sharpe_ratio || 0).toFixed(2)}</span>
+                  </div>
+                </div>
+                <Alert
+                  type="info"
+                  showIcon
+                  message={`${getStrategyName(portfolioStrategyResult.strategy)} · 多资产组合`}
+                  description={`当前版本使用同一策略同时作用于多个标的，并按权重合成为组合净值。当前权重模式：${
+                    portfolioStrategyResult.portfolio_objective === 'max_sharpe'
+                      ? '最大夏普'
+                      : portfolioStrategyResult.portfolio_objective === 'min_volatility'
+                        ? '最小波动'
+                        : '等权组合'
+                  }。`}
+                />
+                {portfolioChartData.length ? (
+                  <div style={{ height: 260 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={portfolioChartData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.18)" />
+                        <XAxis dataKey="date" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
+                        <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
+                        <RechartsTooltip />
+                        <Line type="monotone" dataKey="total" name="组合净值" stroke={CHART_NEUTRAL} strokeWidth={2.5} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : null}
+                <Table
+                  size="small"
+                  pagination={false}
+                  rowKey={(record) => record.symbol}
+                  dataSource={portfolioStrategyResult.portfolio_components || []}
+                  columns={[
+                    { title: '标的', dataIndex: 'symbol', key: 'symbol' },
+                    { title: '权重', dataIndex: 'weight', key: 'weight', render: (value) => formatPercentage(value || 0) },
+                    { title: '总收益率', dataIndex: 'total_return', key: 'total_return', render: (value) => formatPercentage(value || 0) },
+                    { title: '最大回撤', dataIndex: 'max_drawdown', key: 'max_drawdown', render: (value) => formatPercentage(value || 0) },
+                    { title: '最终价值', dataIndex: 'final_value', key: 'final_value', render: (value) => formatCurrency(value || 0) },
+                  ]}
+                />
+              </Space>
+            ) : (
+              <Empty description="运行组合级策略回测后，这里会展示组合表现和各资产贡献。" />
             )}
           </Card>
         </Col>

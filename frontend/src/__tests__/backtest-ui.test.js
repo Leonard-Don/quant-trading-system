@@ -61,9 +61,11 @@ afterEach(() => {
 describe('ResultsDisplay', () => {
   test('renders top-level metrics and normalizes compatibility trade fields', async () => {
     const onOpenHistoryRecord = jest.fn();
+    const onContinueAdvancedExperiment = jest.fn();
     render(
       <ResultsDisplay
         onOpenHistoryRecord={onOpenHistoryRecord}
+        onContinueAdvancedExperiment={onContinueAdvancedExperiment}
         results={{
           symbol: 'AAPL',
           strategy: 'buy_and_hold',
@@ -100,8 +102,11 @@ describe('ResultsDisplay', () => {
 
     expect(screen.getByText('最终价值')).toBeInTheDocument();
     expect(screen.getByText('$11,000.00')).toBeInTheDocument();
+    expect(screen.getByText(/首日建仓后持续持有到回测结束/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /查看历史记录/ }));
     expect(onOpenHistoryRecord).toHaveBeenCalledWith('bt_123');
+    fireEvent.click(screen.getByRole('button', { name: /继续做高级实验/ }));
+    expect(onContinueAdvancedExperiment).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole('tab', { name: '交易记录' }));
 

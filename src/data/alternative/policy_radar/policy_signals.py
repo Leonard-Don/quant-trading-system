@@ -61,11 +61,17 @@ class PolicySignalProvider(BaseAltDataProvider):
         sources = kwargs.get("sources", list(self.crawler.sources.keys()))
         limit = kwargs.get("limit", 10)
         days_back = kwargs.get("days_back", 30)
+        fetch_details = kwargs.get("fetch_details", True)
+        detail_limit = kwargs.get("detail_limit", min(limit, 5))
 
         all_policies = []
         for source_id in sources:
             policies = self.crawler.crawl_source(
-                source_id, limit=limit, days_back=days_back
+                source_id,
+                limit=limit,
+                days_back=days_back,
+                fetch_details=fetch_details,
+                detail_limit=detail_limit,
             )
             all_policies.extend(policies)
 
@@ -87,6 +93,8 @@ class PolicySignalProvider(BaseAltDataProvider):
             parsed.append({
                 **policy,
                 **analysis,
+                "detail_excerpt": policy.get("detail_excerpt", policy.get("summary", "")),
+                "text_length": policy.get("text_length", len(text)),
             })
 
         return parsed
@@ -130,12 +138,22 @@ class PolicySignalProvider(BaseAltDataProvider):
                     "policy_shift": policy_shift,
                     "will_intensity": will_intensity,
                     "industry_impact": industry_impact,
+                    "summary": item.get("summary", ""),
+                    "excerpt": item.get("detail_excerpt", item.get("summary", "")),
+                    "text_length": int(item.get("text_length", 0) or 0),
                 },
                 normalized_score=normalized_score,
                 confidence=item.get("confidence", 0.5),
                 metadata={
                     "source_name": item.get("source", ""),
                     "link": item.get("link", ""),
+                    "detail_url": item.get("detail_url", item.get("link", "")),
+                    "detail_title": item.get("detail_title", item.get("title", "")),
+                    "detail_excerpt": item.get("detail_excerpt", item.get("summary", "")),
+                    "detail_status": item.get("detail_status", "summary_only"),
+                    "detail_quality": item.get("detail_quality", "thin"),
+                    "text_length": int(item.get("text_length", 0) or 0),
+                    "ingest_mode": item.get("ingest_mode", "html"),
                     "analysis_mode": item.get("analysis_mode", "local"),
                 },
                 tags=tags,
@@ -185,5 +203,45 @@ class PolicySignalProvider(BaseAltDataProvider):
 
         base_signal["industry_signals"] = industry_signals
         base_signal["policy_count"] = len(records)
+        base_signal["source_health"] = self._build_source_health(records)
 
         return base_signal
+
+    @staticmethod
+    def _build_source_health(records: List[AltDataRecord]) -> Dict[str, Dict[str, Any]]:
+        grouped: Dict[str, List[AltDataRecord]] = {}
+        for record in records:
+            source_key = record.source.split(":", 1)[-1] if ":" in record.source else record.source
+            grouped.setdefault(source_key, []).append(record)
+
+        source_health: Dict[str, Dict[str, Any]] = {}
+        for source_key, items in grouped.items():
+            text_lengths = [int(item.metadata.get("text_length", 0) or 0) for item in items]
+            full_text_count = sum(1 for item in items if item.metadata.get("detail_status") == "full_text")
+            ingest_modes = {}
+            quality_counts = {}
+            for item in items:
+                ingest_mode = item.metadata.get("ingest_mode", "unknown")
+                ingest_modes[ingest_mode] = ingest_modes.get(ingest_mode, 0) + 1
+                quality = item.metadata.get("detail_quality", "unknown")
+                quality_counts[quality] = quality_counts.get(quality, 0) + 1
+
+            avg_text_length = sum(text_lengths) / len(text_lengths) if text_lengths else 0.0
+            full_text_ratio = full_text_count / len(items) if items else 0.0
+            if full_text_ratio >= 0.8 and avg_text_length >= 600:
+                level = "healthy"
+            elif full_text_ratio >= 0.5 and avg_text_length >= 200:
+                level = "watch"
+            else:
+                level = "fragile"
+
+            source_health[source_key] = {
+                "record_count": len(items),
+                "full_text_ratio": round(full_text_ratio, 4),
+                "avg_text_length": round(avg_text_length, 2),
+                "ingest_modes": ingest_modes,
+                "detail_quality": quality_counts,
+                "level": level,
+            }
+
+        return source_health

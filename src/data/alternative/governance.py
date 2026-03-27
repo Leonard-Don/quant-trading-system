@@ -83,6 +83,7 @@ class AltDataSnapshotEnvelope:
     signals: Dict[str, Dict[str, Any]]
     category_summary: Dict[str, Dict[str, Any]]
     recent_records: List[Dict[str, Any]]
+    evidence_summary: Dict[str, Any]
     refresh_status: Dict[str, Dict[str, Any]]
     staleness: Dict[str, Any]
     provider_health: Dict[str, Any]

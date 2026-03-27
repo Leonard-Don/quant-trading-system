@@ -61,6 +61,18 @@ async def get_quotes(symbols: str):
     return {"success": True, "data": results}
 
 
+@router.get("/summary", summary="获取实时行情运行摘要")
+async def get_realtime_summary():
+    from backend.app.websocket.connection_manager import manager
+
+    summary = realtime_manager.get_market_summary()
+    summary["websocket"] = {
+        "connections": len(manager.subscriptions),
+        "active_symbols": len(manager.active_connections),
+    }
+    return {"success": True, "data": summary}
+
+
 def _resolve_realtime_profile(request: Request) -> str:
     return request.headers.get("X-Realtime-Profile", "default")
 

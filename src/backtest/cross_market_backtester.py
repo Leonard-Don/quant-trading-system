@@ -50,6 +50,7 @@ class CrossMarketBacktester:
         assets: List[Dict[str, object]],
         strategy_name: str,
         template_context: Optional[Dict[str, Any]] = None,
+        allocation_constraints: Optional[Dict[str, Any]] = None,
         parameters: Optional[Dict[str, Any]] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
@@ -66,7 +67,11 @@ class CrossMarketBacktester:
         if not 0 < float(min_overlap_ratio) <= 1:
             raise ValueError("min_overlap_ratio must be between 0 and 1")
 
-        universe = AssetUniverse(assets)
+        base_universe = AssetUniverse(assets)
+        universe, constraint_overlay = self._apply_allocation_constraints(
+            base_universe,
+            allocation_constraints or {},
+        )
         alignment = self._build_price_matrix(
             universe=universe,
             start_date=start_date,
@@ -91,11 +96,13 @@ class CrossMarketBacktester:
             signal_frame=signal_frame,
             data_alignment=alignment,
             construction_mode=construction_mode,
+            constraint_overlay=constraint_overlay,
         )
         results["strategy"] = strategy_name
         results["parameters"] = parameters or {}
         results["asset_specs"] = universe.as_dicts()
         results["asset_universe"] = universe.summary()
+        results["constraint_overlay"] = constraint_overlay
         if template_context:
             results["template_context"] = template_context
             results["allocation_overlay"] = self._build_allocation_overlay(
@@ -112,37 +119,216 @@ class CrossMarketBacktester:
         return results
 
     @staticmethod
+    def _rebalance_side_weights(
+        weights: np.ndarray,
+        *,
+        min_weight: Optional[float],
+        max_weight: Optional[float],
+    ) -> np.ndarray:
+        size = len(weights)
+        if size == 0:
+            return weights
+        if max_weight is not None and max_weight * size < 1 - 1e-9:
+            raise ValueError(
+                f"max_single_weight={max_weight:.2f} is infeasible for a basket with {size} assets"
+            )
+        if min_weight is not None and min_weight * size > 1 + 1e-9:
+            raise ValueError(
+                f"min_single_weight={min_weight:.2f} is infeasible for a basket with {size} assets"
+            )
+
+        adjusted = np.zeros(size, dtype=float)
+        locked = np.zeros(size, dtype=bool)
+        base_weights = np.array(weights, dtype=float)
+
+        while not locked.all():
+            remaining = 1.0 - adjusted[locked].sum()
+            if remaining < -1e-9:
+                raise ValueError("Allocation constraints produced negative remaining weight")
+
+            free_idx = np.where(~locked)[0]
+            if len(free_idx) == 0:
+                break
+
+            free_base = base_weights[free_idx]
+            base_sum = free_base.sum()
+            if base_sum <= 0:
+                proposed = np.full(len(free_idx), remaining / len(free_idx))
+            else:
+                proposed = free_base / base_sum * remaining
+
+            changed = False
+            if min_weight is not None:
+                low_mask = proposed < min_weight - 1e-9
+                if low_mask.any():
+                    for idx in free_idx[low_mask]:
+                        adjusted[idx] = float(min_weight)
+                        locked[idx] = True
+                    changed = True
+
+            if max_weight is not None:
+                high_mask = proposed > max_weight + 1e-9
+                if high_mask.any():
+                    for idx in free_idx[high_mask]:
+                        adjusted[idx] = float(max_weight)
+                        locked[idx] = True
+                    changed = True
+
+            if changed:
+                continue
+
+            adjusted[free_idx] = proposed
+            break
+
+        adjusted = adjusted / adjusted.sum()
+        return adjusted
+
+    def _apply_allocation_constraints(
+        self,
+        universe: AssetUniverse,
+        allocation_constraints: Dict[str, Any],
+    ) -> tuple[AssetUniverse, Dict[str, Any]]:
+        max_single_weight = allocation_constraints.get("max_single_weight")
+        min_single_weight = allocation_constraints.get("min_single_weight")
+
+        if max_single_weight is None and min_single_weight is None:
+            return universe, {
+                "applied": False,
+                "constraints": {},
+                "binding_assets": [],
+                "binding_count": 0,
+                "max_delta_weight": 0.0,
+                "rows": [],
+            }
+
+        constrained_assets: List[Dict[str, Any]] = []
+        rows: List[Dict[str, Any]] = []
+        binding_assets: List[str] = []
+
+        for side in (AssetSide.LONG, AssetSide.SHORT):
+            side_assets = universe.get_assets(side)
+            original_weights = np.array([float(asset.weight) for asset in side_assets], dtype=float)
+            adjusted_weights = self._rebalance_side_weights(
+                original_weights,
+                min_weight=float(min_single_weight) if min_single_weight is not None else None,
+                max_weight=float(max_single_weight) if max_single_weight is not None else None,
+            )
+            for asset, adjusted_weight in zip(side_assets, adjusted_weights):
+                delta_weight = float(adjusted_weight - asset.weight)
+                binding = None
+                if max_single_weight is not None and abs(adjusted_weight - float(max_single_weight)) < 1e-6:
+                    binding = "max"
+                elif min_single_weight is not None and abs(adjusted_weight - float(min_single_weight)) < 1e-6:
+                    binding = "min"
+
+                if binding:
+                    binding_assets.append(asset.symbol)
+
+                constrained_assets.append(
+                    {
+                        "symbol": asset.symbol,
+                        "asset_class": asset.asset_class.value,
+                        "side": asset.side.value,
+                        "weight": float(adjusted_weight),
+                    }
+                )
+                rows.append(
+                    {
+                        "symbol": asset.symbol,
+                        "side": asset.side.value,
+                        "asset_class": asset.asset_class.value,
+                        "base_weight": round(float(asset.weight), 6),
+                        "constrained_weight": round(float(adjusted_weight), 6),
+                        "delta_weight": round(delta_weight, 6),
+                        "binding": binding or "",
+                    }
+                )
+
+        constrained_universe = AssetUniverse(constrained_assets)
+        max_delta = max((abs(float(item["delta_weight"])) for item in rows), default=0.0)
+        rows.sort(key=lambda item: (item["side"], -abs(item["delta_weight"]), item["symbol"]))
+
+        return constrained_universe, {
+            "applied": True,
+            "constraints": {
+                "max_single_weight": float(max_single_weight) if max_single_weight is not None else None,
+                "min_single_weight": float(min_single_weight) if min_single_weight is not None else None,
+            },
+            "binding_assets": sorted(set(binding_assets)),
+            "binding_count": len(set(binding_assets)),
+            "max_delta_weight": round(max_delta, 6),
+            "rows": rows,
+        }
+
+    @staticmethod
     def _build_allocation_overlay(
         *,
         template_context: Dict[str, Any],
         effective_assets: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
         base_assets = template_context.get("base_assets") or []
+        raw_bias_assets = template_context.get("raw_bias_assets") or []
         base_lookup = {
             (str(asset.get("symbol", "")).upper(), str(asset.get("side", "")).lower()): asset
             for asset in base_assets
+        }
+        raw_bias_lookup = {
+            (str(asset.get("symbol", "")).upper(), str(asset.get("side", "")).lower()): asset
+            for asset in raw_bias_assets
         }
         rows: List[Dict[str, Any]] = []
         for asset in effective_assets:
             key = (str(asset.get("symbol", "")).upper(), str(asset.get("side", "")).lower())
             base_asset = base_lookup.get(key, {})
+            raw_bias_asset = raw_bias_lookup.get(key, {})
             base_weight = float(base_asset.get("weight") or 0.0)
+            raw_bias_weight = float(raw_bias_asset.get("weight") or base_weight)
             effective_weight = float(asset.get("weight") or 0.0)
             delta_weight = effective_weight - base_weight
+            compression_delta = raw_bias_weight - effective_weight
             rows.append(
                 {
                     "symbol": asset.get("symbol"),
                     "side": asset.get("side"),
                     "asset_class": asset.get("asset_class"),
                     "base_weight": round(base_weight, 6),
+                    "raw_bias_weight": round(raw_bias_weight, 6),
                     "effective_weight": round(effective_weight, 6),
                     "delta_weight": round(delta_weight, 6),
+                    "compression_delta": round(compression_delta, 6),
                 }
             )
 
         rows.sort(key=lambda item: (item["side"], -abs(item["delta_weight"]), item["symbol"]))
         max_delta = max((abs(item["delta_weight"]) for item in rows), default=0.0)
         shifted_assets = [item["symbol"] for item in rows if abs(item["delta_weight"]) >= 0.02]
+        compressed_rows = [
+            item for item in rows if abs(float(item.get("compression_delta") or 0.0)) >= 0.005
+        ]
+        compressed_rows.sort(key=lambda item: -abs(float(item.get("compression_delta") or 0.0)))
+        long_raw_total = sum(
+            float(item["raw_bias_weight"]) for item in rows if str(item.get("side")) == "long"
+        )
+        long_effective_total = sum(
+            float(item["effective_weight"]) for item in rows if str(item.get("side")) == "long"
+        )
+        short_raw_total = sum(
+            float(item["raw_bias_weight"]) for item in rows if str(item.get("side")) == "short"
+        )
+        short_effective_total = sum(
+            float(item["effective_weight"]) for item in rows if str(item.get("side")) == "short"
+        )
+        bias_strength_raw = float(template_context.get("bias_strength_raw") or 0.0)
+        bias_strength = float(template_context.get("bias_strength") or 0.0)
+        compression_effect = round(bias_strength_raw - bias_strength, 6)
+        base_recommendation_score = float(template_context.get("base_recommendation_score") or 0.0)
+        recommendation_score = float(
+            template_context.get("recommendation_score")
+            if template_context.get("recommendation_score") is not None
+            else base_recommendation_score
+        )
+        ranking_penalty = float(template_context.get("ranking_penalty") or 0.0)
+        ranking_penalty_reason = template_context.get("ranking_penalty_reason") or ""
 
         return {
             "template_id": template_context.get("template_id") or "",
@@ -150,7 +336,18 @@ class CrossMarketBacktester:
             "theme": template_context.get("theme") or "",
             "allocation_mode": template_context.get("allocation_mode") or "template_base",
             "bias_summary": template_context.get("bias_summary") or "",
+            "bias_strength_raw": float(template_context.get("bias_strength_raw") or 0.0),
             "bias_strength": float(template_context.get("bias_strength") or 0.0),
+            "bias_scale": float(template_context.get("bias_scale") or 1.0),
+            "bias_quality_label": template_context.get("bias_quality_label") or "full",
+            "bias_quality_reason": template_context.get("bias_quality_reason") or "",
+            "base_recommendation_score": base_recommendation_score,
+            "recommendation_score": recommendation_score,
+            "base_recommendation_tier": template_context.get("base_recommendation_tier") or "",
+            "recommendation_tier": template_context.get("recommendation_tier") or "",
+            "ranking_penalty": ranking_penalty,
+            "ranking_penalty_reason": ranking_penalty_reason,
+            "bias_highlights_raw": template_context.get("bias_highlights_raw") or [],
             "bias_highlights": template_context.get("bias_highlights") or [],
             "bias_actions": template_context.get("bias_actions") or [],
             "signal_attribution": template_context.get("signal_attribution") or [],
@@ -160,9 +357,51 @@ class CrossMarketBacktester:
             "support_legs": template_context.get("support_legs") or [],
             "theme_core": template_context.get("theme_core") or "",
             "theme_support": template_context.get("theme_support") or "",
+            "bias_compression_effect": compression_effect,
+            "compression_summary": {
+                "label": (
+                    "compressed"
+                    if compression_effect >= 3
+                    else "cautious"
+                    if compression_effect >= 1
+                    else "full"
+                ),
+                "raw_bias_strength": bias_strength_raw,
+                "effective_bias_strength": bias_strength,
+                "compression_effect": compression_effect,
+                "compression_ratio": round(
+                    (compression_effect / bias_strength_raw) if bias_strength_raw > 0 else 0.0,
+                    6,
+                ),
+                "quality_label": template_context.get("bias_quality_label") or "full",
+                "reason": template_context.get("bias_quality_reason") or "",
+            },
+            "selection_quality": {
+                "label": (
+                    "auto_downgraded"
+                    if ranking_penalty >= 0.4
+                    else "softened"
+                    if ranking_penalty > 0
+                    else "original"
+                ),
+                "base_recommendation_score": base_recommendation_score,
+                "effective_recommendation_score": recommendation_score,
+                "base_recommendation_tier": template_context.get("base_recommendation_tier") or "",
+                "effective_recommendation_tier": template_context.get("recommendation_tier") or "",
+                "ranking_penalty": ranking_penalty,
+                "reason": ranking_penalty_reason,
+            },
+            "side_bias_summary": {
+                "long_raw_weight": round(long_raw_total, 6),
+                "long_effective_weight": round(long_effective_total, 6),
+                "short_raw_weight": round(short_raw_total, 6),
+                "short_effective_weight": round(short_effective_total, 6),
+            },
             "max_delta_weight": round(max_delta, 6),
             "shifted_asset_count": len(shifted_assets),
             "shifted_assets": shifted_assets,
+            "compressed_asset_count": len(compressed_rows),
+            "compressed_assets": [item["symbol"] for item in compressed_rows[:4]],
             "rows": rows,
         }
 
@@ -176,6 +415,8 @@ class CrossMarketBacktester:
     ) -> Dict[str, Any]:
         series_map: Dict[str, pd.Series] = {}
         symbol_alignment: List[Dict[str, Any]] = []
+        liquidity_snapshot: Dict[str, Dict[str, float]] = {}
+        venue_dates: Dict[str, set[pd.Timestamp]] = {}
         for asset in universe.get_assets():
             provider_name = "legacy"
             if hasattr(self.data_manager, "get_cross_market_historical_data"):
@@ -204,15 +445,24 @@ class CrossMarketBacktester:
             if series.empty:
                 raise ValueError(f"No normalized daily close data found for {asset.symbol}")
             series_map[asset.symbol] = series
+            liquidity_stats = self._extract_liquidity_stats(data)
+            liquidity_snapshot[asset.symbol] = liquidity_stats
+            venue_dates.setdefault(asset.venue, set()).update(series.index.to_list())
             symbol_alignment.append(
                 {
                     "symbol": asset.symbol,
                     "asset_class": asset.asset_class.value,
+                    "market": asset.market,
+                    "venue": asset.venue,
+                    "execution_channel": asset.execution_channel,
+                    "settlement": asset.settlement,
                     "provider": provider_name,
                     "raw_rows": int(len(data)),
                     "valid_rows": int(len(series)),
                     "first_date": series.index[0].strftime("%Y-%m-%d") if len(series) else None,
                     "last_date": series.index[-1].strftime("%Y-%m-%d") if len(series) else None,
+                    "avg_daily_volume": liquidity_stats["avg_daily_volume"],
+                    "avg_daily_notional": liquidity_stats["avg_daily_notional"],
                 }
             )
 
@@ -228,6 +478,7 @@ class CrossMarketBacktester:
         union_count = int(len(outer_matrix))
         tradable_day_ratio = tradable_count / union_count if union_count else 0.0
         dropped_dates_count = int(union_count - tradable_count)
+        common_dates = set(aligned_price_matrix.index.to_list())
 
         if aligned_price_matrix.empty:
             raise ValueError("No aligned cross-market price history found after tradable-day filtering")
@@ -256,7 +507,14 @@ class CrossMarketBacktester:
                 "aligned_row_count": tradable_count,
                 "tradable_day_ratio": round(tradable_day_ratio, 4),
                 "dropped_dates_count": dropped_dates_count,
+                "calendar_diagnostics": self._build_calendar_diagnostics(
+                    venue_dates=venue_dates,
+                    common_dates=common_dates,
+                    union_count=union_count,
+                    tradable_day_ratio=tradable_day_ratio,
+                ),
             },
+            "liquidity_snapshot": liquidity_snapshot,
         }
 
     def _build_results(
@@ -266,6 +524,7 @@ class CrossMarketBacktester:
         signal_frame: pd.DataFrame,
         data_alignment: Dict[str, Any],
         construction_mode: str,
+        constraint_overlay: Dict[str, Any],
     ) -> Dict[str, Any]:
         returns = price_matrix.pct_change().fillna(0.0)
         hedge_portfolio = HedgePortfolioBuilder(universe.get_assets())
@@ -317,13 +576,21 @@ class CrossMarketBacktester:
         }
         asset_contributions = hedge_portfolio.build_asset_contributions(returns)
         hedge_summary = hedge_portfolio.summarize_exposures(signal_frame.get("hedge_ratio"))
+        hedge_summary["beta_neutrality"] = self._build_beta_neutrality(
+            long_leg_returns=long_leg_returns,
+            short_leg_returns=short_leg_returns,
+            hedge_ratio_series=signal_frame.get("hedge_ratio"),
+        )
         execution_router = ExecutionRouter(
             universe.get_assets(),
             initial_capital=self.initial_capital,
             avg_hedge_ratio=hedge_summary["hedge_ratio"]["average"],
             latest_prices={symbol: float(price) for symbol, price in price_matrix.iloc[-1].items()},
+            liquidity_snapshots=data_alignment.get("liquidity_snapshot", {}),
         )
         execution_plan = execution_router.build_plan()
+        liquidity_summary = execution_plan.get("liquidity_summary", {})
+        margin_summary = execution_plan.get("margin_summary", {})
 
         spread_series = signal_frame.copy()
         spread_series["date"] = spread_series.index.strftime("%Y-%m-%d")
@@ -335,6 +602,7 @@ class CrossMarketBacktester:
             "turnover": float(turnover.sum()),
             "cost_drag": float(transaction_cost.sum()),
             "avg_holding_period": round(avg_holding_period, 2),
+            "constraint_binding_count": int(constraint_overlay.get("binding_count", 0)),
             "route_count": execution_plan["route_count"],
             "batch_count": len(execution_plan.get("batches", [])),
             "provider_count": len(execution_plan.get("by_provider", {})),
@@ -343,6 +611,18 @@ class CrossMarketBacktester:
             "max_batch_fraction": float(execution_plan.get("max_batch_fraction", 0.0)),
             "concentration_level": execution_plan.get("concentration", {}).get("level", "balanced"),
             "concentration_reason": execution_plan.get("concentration", {}).get("reason", ""),
+            "liquidity_level": liquidity_summary.get("level", "unknown"),
+            "liquidity_reason": liquidity_summary.get("reason", ""),
+            "max_adv_usage": float(liquidity_summary.get("max_adv_usage", 0.0)),
+            "stretched_route_count": int(liquidity_summary.get("stretched_route_count", 0)),
+            "margin_level": margin_summary.get("level", "manageable"),
+            "margin_reason": margin_summary.get("reason", ""),
+            "margin_utilization": float(margin_summary.get("utilization", 0.0)),
+            "gross_leverage": float(margin_summary.get("gross_leverage", 0.0)),
+            "beta_level": hedge_summary.get("beta_neutrality", {}).get("level", "unknown"),
+            "beta_reason": hedge_summary.get("beta_neutrality", {}).get("reason", ""),
+            "calendar_level": data_alignment["data_alignment"].get("calendar_diagnostics", {}).get("level", "aligned"),
+            "calendar_reason": data_alignment["data_alignment"].get("calendar_diagnostics", {}).get("reason", ""),
             "lot_efficiency": float(execution_plan.get("sizing_summary", {}).get("lot_efficiency", 1.0)),
             "residual_notional": float(execution_plan.get("sizing_summary", {}).get("total_residual_notional", 0.0)),
             "suggested_rebalance": self._suggest_rebalance_cadence(
@@ -400,6 +680,124 @@ class CrossMarketBacktester:
                 spread_series[["date", "hedge_ratio"]]
             )
         return results
+
+    @staticmethod
+    def _extract_liquidity_stats(data: pd.DataFrame) -> Dict[str, float]:
+        if data.empty:
+            return {"avg_daily_volume": 0.0, "avg_daily_notional": 0.0}
+
+        close_series = pd.to_numeric(data.get("close"), errors="coerce")
+        volume_series = pd.to_numeric(data.get("volume"), errors="coerce")
+        if close_series is None or volume_series is None:
+            return {"avg_daily_volume": 0.0, "avg_daily_notional": 0.0}
+
+        valid = pd.DataFrame({"close": close_series, "volume": volume_series}).dropna()
+        valid = valid[(valid["close"] > 0) & (valid["volume"] > 0)]
+        if valid.empty:
+            return {"avg_daily_volume": 0.0, "avg_daily_notional": 0.0}
+
+        recent = valid.tail(20)
+        avg_daily_volume = float(recent["volume"].mean())
+        avg_daily_notional = float((recent["close"] * recent["volume"]).mean())
+        return {
+            "avg_daily_volume": round(avg_daily_volume, 2),
+            "avg_daily_notional": round(avg_daily_notional, 2),
+        }
+
+    @staticmethod
+    def _build_calendar_diagnostics(
+        *,
+        venue_dates: Dict[str, set[pd.Timestamp]],
+        common_dates: set[pd.Timestamp],
+        union_count: int,
+        tradable_day_ratio: float,
+    ) -> Dict[str, Any]:
+        rows: List[Dict[str, Any]] = []
+        max_mismatch_ratio = 0.0
+        for venue, dates in venue_dates.items():
+            active_dates = len(dates)
+            common_overlap = len(dates & common_dates)
+            mismatch_days = len(dates - common_dates)
+            mismatch_ratio = mismatch_days / active_dates if active_dates else 0.0
+            max_mismatch_ratio = max(max_mismatch_ratio, mismatch_ratio)
+            rows.append(
+                {
+                    "venue": venue,
+                    "active_dates": active_dates,
+                    "shared_dates": common_overlap,
+                    "mismatch_days": mismatch_days,
+                    "coverage_ratio": round(active_dates / union_count, 4) if union_count else 0.0,
+                    "mismatch_ratio": round(mismatch_ratio, 4),
+                }
+            )
+
+        rows.sort(key=lambda item: (-item["mismatch_ratio"], item["venue"]))
+        if tradable_day_ratio < 0.75 or max_mismatch_ratio > 0.2:
+            level = "stretched"
+        elif tradable_day_ratio < 0.9 or max_mismatch_ratio > 0.08:
+            level = "watch"
+        else:
+            level = "aligned"
+
+        top_row = rows[0] if rows else None
+        reason = (
+            f"tradable {round(tradable_day_ratio * 100, 1)}%"
+            + (
+                f", top venue {top_row['venue']} mismatch {round(top_row['mismatch_ratio'] * 100, 1)}%"
+                if top_row else ""
+            )
+        )
+        return {
+            "level": level,
+            "reason": reason,
+            "rows": rows,
+            "max_mismatch_ratio": round(max_mismatch_ratio, 6),
+        }
+
+    @staticmethod
+    def _build_beta_neutrality(
+        *,
+        long_leg_returns: pd.Series,
+        short_leg_returns: pd.Series,
+        hedge_ratio_series: Optional[pd.Series],
+    ) -> Dict[str, Any]:
+        paired = pd.DataFrame({"long": long_leg_returns, "short": short_leg_returns}).dropna()
+        if len(paired) < 5 or float(paired["short"].var(ddof=0)) == 0:
+            return {
+                "level": "unknown",
+                "reason": "insufficient variance",
+                "beta": 1.0,
+                "beta_gap": 0.0,
+                "rolling_beta_last": 1.0,
+                "rolling_beta_mean": 1.0,
+                "hedge_ratio_average": float(hedge_ratio_series.mean()) if hedge_ratio_series is not None else 1.0,
+            }
+
+        beta = float(paired["long"].cov(paired["short"]) / paired["short"].var(ddof=0))
+        rolling_window = min(20, len(paired))
+        rolling_cov = paired["long"].rolling(rolling_window).cov(paired["short"])
+        rolling_var = paired["short"].rolling(rolling_window).var(ddof=0).replace(0, np.nan)
+        rolling_beta = (rolling_cov / rolling_var).replace([np.inf, -np.inf], np.nan).dropna()
+        rolling_last = float(rolling_beta.iloc[-1]) if not rolling_beta.empty else beta
+        rolling_mean = float(rolling_beta.mean()) if not rolling_beta.empty else beta
+        beta_gap = abs(beta - 1.0)
+
+        if beta_gap > 0.4:
+            level = "stretched"
+        elif beta_gap > 0.18:
+            level = "watch"
+        else:
+            level = "balanced"
+
+        return {
+            "level": level,
+            "reason": f"beta {beta:.2f}, gap {beta_gap:.2f}, rolling {rolling_last:.2f}",
+            "beta": round(beta, 6),
+            "beta_gap": round(beta_gap, 6),
+            "rolling_beta_last": round(rolling_last, 6),
+            "rolling_beta_mean": round(rolling_mean, 6),
+            "hedge_ratio_average": round(float(hedge_ratio_series.mean()) if hedge_ratio_series is not None else 1.0, 6),
+        }
 
     def _build_trades(self, signal_frame: pd.DataFrame, portfolio: pd.DataFrame) -> List[Dict[str, Any]]:
         trades: List[Dict[str, Any]] = []

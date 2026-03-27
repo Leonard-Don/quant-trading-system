@@ -45,6 +45,35 @@ const WARNING = 'var(--accent-warning)';
 const NEUTRAL_LINE = 'color-mix(in srgb, var(--border-color) 78%, var(--text-muted) 22%)';
 const POSITIVE_SOFT = 'color-mix(in srgb, var(--accent-danger) 24%, #ffffff 76%)';
 const NEGATIVE_SOFT = 'color-mix(in srgb, var(--accent-success) 24%, #ffffff 76%)';
+const COMPACT_STAT_VALUE_STYLE = {
+    fontSize: 20,
+    lineHeight: 1.2,
+    whiteSpace: 'nowrap',
+};
+const COMPACT_STAT_TITLE_STYLE = {
+    fontSize: 12,
+};
+
+const calculateWeightedIndustryPe = (stocks = []) => {
+    const validPairs = (stocks || [])
+        .map((stock) => ({
+            marketCap: Number(stock?.market_cap || 0),
+            peRatio: Number(stock?.pe_ratio || 0),
+        }))
+        .filter(({ marketCap, peRatio }) => Number.isFinite(marketCap) && marketCap > 0 && Number.isFinite(peRatio) && peRatio > 0 && peRatio < 500);
+
+    if (validPairs.length === 0) {
+        return null;
+    }
+
+    const totalMarketCap = validPairs.reduce((sum, item) => sum + item.marketCap, 0);
+    const totalEarnings = validPairs.reduce((sum, item) => sum + (item.marketCap / item.peRatio), 0);
+    if (!Number.isFinite(totalMarketCap) || !Number.isFinite(totalEarnings) || totalMarketCap <= 0 || totalEarnings <= 0) {
+        return null;
+    }
+
+    return totalMarketCap / totalEarnings;
+};
 
 /**
  * 行业趋势详情面板
@@ -57,6 +86,7 @@ const IndustryTrendPanel = ({
     loadingStocks = false,
     stocksRefining = false,
     stocksScoreStage = null,
+    stocksDisplayReady = false,
     stockColumns = []
 }) => {
     const getVolatilityMeta = (value, source) => {
@@ -154,6 +184,9 @@ const IndustryTrendPanel = ({
         return `${wan >= 0 ? '+' : ''}${wan.toFixed(0)}万`;
     };
 
+    const stockDerivedTotalMarketCap = (stocks || []).reduce((sum, stock) => sum + Number(stock?.market_cap || 0), 0);
+    const stockDerivedAvgPe = calculateWeightedIndustryPe(stocks);
+
     const renderStocksSection = () => (
         <div style={{ marginTop: 16 }}>
             <div style={{ marginBottom: 8 }} data-testid="industry-stock-table-header">
@@ -164,10 +197,18 @@ const IndustryTrendPanel = ({
                     type="info"
                     showIcon
                     style={{ marginBottom: 12 }}
-                    message={stocksRefining ? '当前为快速评分，完整评分后台计算中（大行业可能稍慢）' : '当前为快速评分'}
+                    message={
+                        stocksDisplayReady
+                            ? '当前展示已具备主要明细，完整评分后台仍在构建'
+                            : (stocksRefining ? '当前为快速评分，完整评分后台计算中（大行业可能稍慢）' : '当前为快速评分')
+                    }
                 />
             )}
-            <div data-testid="industry-stock-table" data-score-stage={stocksScoreStage || 'unknown'}>
+            <div
+                data-testid="industry-stock-table"
+                data-score-stage={stocksScoreStage || 'unknown'}
+                data-display-ready={stocksDisplayReady ? 'true' : 'false'}
+            >
                 <Table
                     dataSource={stocks}
                     columns={stockColumns}
@@ -201,6 +242,37 @@ const IndustryTrendPanel = ({
                     <Spin />
                     <div style={{ marginTop: 12, color: TEXT_MUTED }}>行业摘要加载中，成分股可先行展示</div>
                 </div>
+                <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                    <Col xs={12} sm={12} md={8} lg={6}>
+                        <Statistic
+                            title="成分股数量"
+                            value={stocks?.length || 0}
+                            suffix="只"
+                            prefix={<TeamOutlined />}
+                            valueStyle={COMPACT_STAT_VALUE_STYLE}
+                            titleStyle={COMPACT_STAT_TITLE_STYLE}
+                        />
+                    </Col>
+                <Col xs={12} sm={12} md={8} lg={8}>
+                        <Statistic
+                            title="总市值"
+                            value={stockDerivedTotalMarketCap}
+                            formatter={() => formatMarketCap(stockDerivedTotalMarketCap)}
+                            prefix={<DollarOutlined />}
+                            valueStyle={COMPACT_STAT_VALUE_STYLE}
+                            titleStyle={COMPACT_STAT_TITLE_STYLE}
+                        />
+                    </Col>
+                    <Col xs={12} sm={12} md={8} lg={6}>
+                        <Statistic
+                            title="平均市盈率"
+                            value={stockDerivedAvgPe || '-'}
+                            precision={2}
+                            valueStyle={COMPACT_STAT_VALUE_STYLE}
+                            titleStyle={COMPACT_STAT_TITLE_STYLE}
+                        />
+                    </Col>
+                </Row>
                 <Divider style={{ margin: '12px 0' }} />
                 {renderStocksSection()}
             </Card>
@@ -251,6 +323,16 @@ const IndustryTrendPanel = ({
     const flatCount = trendData.flat_count || 0;
     const volatilityValue = Number(trendData.industry_volatility || 0);
     const volatilityMeta = getVolatilityMeta(volatilityValue, trendData.industry_volatility_source);
+    const derivedTotalMarketCap = (
+        Number(trendData.total_market_cap || 0) > 0
+            ? Number(trendData.total_market_cap || 0)
+            : stockDerivedTotalMarketCap
+    );
+    const derivedAvgPe = (
+        trendData.avg_pe != null && trendData.avg_pe > 0
+            ? trendData.avg_pe
+            : stockDerivedAvgPe
+    );
 
     return (
         <Card
@@ -278,36 +360,47 @@ const IndustryTrendPanel = ({
             )}
 
             {/* 行业统计信息 */}
-            <Row gutter={24} style={{ marginBottom: 16 }}>
-                <Col span={5}>
+            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                <Col xs={12} sm={12} md={8} lg={6}>
                     <Statistic
                         title="成分股数量"
                         value={trendData.stock_count || 0}
                         suffix="只"
                         prefix={<TeamOutlined />}
+                        valueStyle={COMPACT_STAT_VALUE_STYLE}
+                        titleStyle={COMPACT_STAT_TITLE_STYLE}
                     />
                 </Col>
-                <Col span={5}>
+                <Col xs={12} sm={12} md={8} lg={8}>
                     <Statistic
                         title="总市值"
-                        value={formatMarketCap(trendData.total_market_cap)}
+                        value={derivedTotalMarketCap}
+                        formatter={() => formatMarketCap(derivedTotalMarketCap)}
                         prefix={<DollarOutlined />}
+                        valueStyle={COMPACT_STAT_VALUE_STYLE}
+                        titleStyle={COMPACT_STAT_TITLE_STYLE}
                     />
                 </Col>
-                <Col span={4}>
+                <Col xs={12} sm={12} md={8} lg={6}>
                     <Statistic
                         title="平均市盈率"
-                        value={trendData.avg_pe || '-'}
+                        value={derivedAvgPe || '-'}
                         precision={2}
+                        valueStyle={COMPACT_STAT_VALUE_STYLE}
+                        titleStyle={COMPACT_STAT_TITLE_STYLE}
                     />
                 </Col>
-                <Col span={5}>
+                <Col xs={12} sm={12} md={12} lg={5}>
                     <Statistic
                         title="区间波动率"
                         value={volatilityValue || '-'}
                         precision={2}
                         suffix={volatilityValue ? '%' : ''}
-                        valueStyle={{ color: volatilityValue ? volatilityMeta.color : undefined }}
+                        valueStyle={{
+                            ...COMPACT_STAT_VALUE_STYLE,
+                            color: volatilityValue ? volatilityMeta.color : undefined,
+                        }}
+                        titleStyle={COMPACT_STAT_TITLE_STYLE}
                     />
                     {volatilityValue > 0 && (
                         <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
@@ -318,7 +411,7 @@ const IndustryTrendPanel = ({
                         </div>
                     )}
                 </Col>
-                <Col span={5}>
+                <Col xs={24} sm={24} md={12} lg={5}>
                     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                         <Statistic
                             title={<span style={{ fontSize: 12 }}>涨/跌/平</span>}

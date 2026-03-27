@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "量化交易系统API",
-    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.6.0\n    - **API版本**: v1\n    - **最后更新**: 2026-03-20\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
+    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.7.0\n    - **API版本**: v1\n    - **最后更新**: 2026-03-27\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -33,29 +33,6 @@
               "language": "json"
             }
           }
-        }
-      }
-    },
-    {
-      "name": "搜索股票代码",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/market-data/search",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "market-data",
-            "search"
-          ]
         }
       }
     },
@@ -209,29 +186,6 @@
       }
     },
     {
-      "name": "比较多个策略的性能",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/backtest/compare",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "backtest",
-            "compare"
-          ]
-        }
-      }
-    },
-    {
       "name": "获取回测历史记录",
       "request": {
         "method": "GET",
@@ -323,6 +277,39 @@
             "history",
             "{record_id}"
           ]
+        }
+      }
+    },
+    {
+      "name": "保存高级实验记录到历史",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/history/advanced",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "history",
+            "advanced"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
         }
       }
     },
@@ -598,6 +585,29 @@
           "path": [
             "realtime",
             "quotes"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取实时行情运行摘要",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/summary",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "summary"
           ]
         }
       }
@@ -1038,29 +1048,6 @@
               "language": "json"
             }
           }
-        }
-      }
-    },
-    {
-      "name": "获取可用模型列表",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/analysis/models",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "analysis",
-            "models"
-          ]
         }
       }
     },
@@ -1949,6 +1936,29 @@
           "path": [
             "macro",
             "overview"
+          ]
+        }
+      }
+    },
+    {
+      "name": "宏观错误定价历史",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/macro/history",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "macro",
+            "history"
           ]
         }
       }

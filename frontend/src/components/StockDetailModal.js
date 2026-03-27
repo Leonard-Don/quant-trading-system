@@ -160,6 +160,104 @@ const renderDetailSection = (title, subtitle, accentColor, children) => (
     </div>
 );
 
+const renderRecommendationSection = (recommendationContext) => {
+    if (!recommendationContext || !Array.isArray(recommendationContext.reasons) || recommendationContext.reasons.length === 0) {
+        return null;
+    }
+
+    const scoreDeltaVsIndustry = recommendationContext.industryAvgScore != null
+        ? recommendationContext.scoreValue - recommendationContext.industryAvgScore
+        : null;
+    const scoreDeltaVsMarket = recommendationContext.marketAvgScore != null
+        ? recommendationContext.scoreValue - recommendationContext.marketAvgScore
+        : null;
+
+    return renderDetailSection(
+        '推荐理由',
+        recommendationContext.industryName
+            ? `结合 ${recommendationContext.industryName} 行业内位置与当前榜单横向比较`
+            : '结合当前榜单横向比较',
+        '#722ed1',
+        (
+            <>
+                <Row gutter={[12, 12]}>
+                    <Col span={8}>
+                        {renderDetailMetric(
+                            '行业内排名',
+                            recommendationContext.industryRank ? `#${recommendationContext.industryRank}` : '-',
+                            {
+                                subtle: recommendationContext.industryName || undefined,
+                            }
+                        )}
+                    </Col>
+                    <Col span={8}>
+                        {renderDetailMetric(
+                            '全榜排名',
+                            recommendationContext.globalRank ? `#${recommendationContext.globalRank}` : '-',
+                            {
+                                subtle: '同口径龙头榜单',
+                            }
+                        )}
+                    </Col>
+                    <Col span={8}>
+                        {renderDetailMetric(
+                            formatScoreLabel(recommendationContext.scoreType),
+                            Number.isFinite(Number(recommendationContext.scoreValue))
+                                ? Number(recommendationContext.scoreValue).toFixed(1)
+                                : '-',
+                            {
+                                color: getScoreTone(recommendationContext.scoreValue),
+                                subtle: scoreDeltaVsIndustry != null
+                                    ? `较行业均值 ${scoreDeltaVsIndustry >= 0 ? '+' : ''}${scoreDeltaVsIndustry.toFixed(1)}`
+                                    : scoreDeltaVsMarket != null
+                                        ? `较全榜均值 ${scoreDeltaVsMarket >= 0 ? '+' : ''}${scoreDeltaVsMarket.toFixed(1)}`
+                                        : undefined,
+                            }
+                        )}
+                    </Col>
+                </Row>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 12 }}>
+                    {recommendationContext.reasons.map((reason, index) => (
+                        <div
+                            key={`${index}-${reason}`}
+                            style={{
+                                display: 'flex',
+                                alignItems: 'flex-start',
+                                gap: 10,
+                                padding: '10px 12px',
+                                borderRadius: 12,
+                                background: 'color-mix(in srgb, var(--bg-primary) 28%, var(--bg-secondary) 72%)',
+                                border: '1px solid color-mix(in srgb, var(--border-color) 76%, #722ed1 24%)',
+                            }}
+                        >
+                            <span
+                                style={{
+                                    width: 20,
+                                    minWidth: 20,
+                                    height: 20,
+                                    borderRadius: 999,
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: '#722ed1',
+                                    background: '#722ed114',
+                                }}
+                            >
+                                {index + 1}
+                            </span>
+                            <div style={{ fontSize: 12, lineHeight: 1.7, color: 'var(--text-primary)' }}>
+                                {reason}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </>
+        )
+    );
+};
+
 const formatMetricNumber = (value, digits = 2, fallback = '-') => {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
         return fallback;
@@ -179,6 +277,63 @@ const formatMetricVolume = (value) => {
     return `${volume}`;
 };
 
+const formatScoreLabel = (scoreType) => (scoreType === 'hot' ? '动量评分' : '综合评分');
+
+const getScoreTone = (score) => {
+    const numericScore = Number(score || 0);
+    if (numericScore >= 70) return '#52c41a';
+    if (numericScore >= 50) return '#faad14';
+    return '#ff4d4f';
+};
+
+const renderLoadingState = (selectedStock) => (
+    <div data-testid="stock-detail-modal-body">
+        <div
+            style={{
+                padding: '16px 18px',
+                borderRadius: 16,
+                background: DETAIL_HERO_BG,
+                border: DETAIL_HERO_BORDER,
+                boxShadow: DETAIL_HERO_SHADOW,
+                marginBottom: 16,
+            }}
+        >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                <div>
+                    <div style={{ fontSize: 12, color: DETAIL_HERO_MUTED, marginBottom: 6 }}>股票代码</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: DETAIL_HERO_TEXT, lineHeight: 1.1 }}>
+                        {selectedStock || '-'}
+                    </div>
+                    <div style={{ fontSize: 12, color: DETAIL_HERO_TEXT, marginTop: 8 }}>
+                        正在拉取最新评分和实时快照
+                    </div>
+                </div>
+                <div style={{ minWidth: 120, textAlign: 'right' }}>
+                    <Spin size="large" />
+                    <div style={{ fontSize: 11, color: DETAIL_HERO_SUBTLE, marginTop: 10 }}>
+                        明细加载中
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+);
+
+const renderErrorState = (error, onRetry) => (
+    <div data-testid="stock-detail-modal-body">
+        <Empty
+            description={error}
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+        >
+            {onRetry && (
+                <Button className="industry-empty-action" icon={<ReloadOutlined />} onClick={onRetry}>
+                    重试
+                </Button>
+            )}
+        </Empty>
+    </div>
+);
+
 const StockDetailModal = ({
     open,
     onCancel,
@@ -186,8 +341,14 @@ const StockDetailModal = ({
     error = null,
     detailData = null,
     selectedStock = null,
+    selectedRecord = null,
+    recommendationContext = null,
     onRetry,
-}) => (
+}) => {
+    const displayScoreType = detailData?.score_type || selectedRecord?.score_type || 'core';
+    const displayScore = selectedRecord?.total_score ?? detailData?.total_score ?? null;
+
+    return (
     <Modal
         title={
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -195,12 +356,12 @@ const StockDetailModal = ({
                     <StarFilled style={{ color: '#faad14', marginRight: 8 }} />
                     {detailData?.name || selectedStock || '股票'} 详细分析
                 </span>
-                {detailData?.score_type && (
+                {displayScoreType && (
                     <Tag
-                        color={detailData.score_type === 'hot' ? 'volcano' : 'blue'}
+                        color={displayScoreType === 'hot' ? 'volcano' : 'blue'}
                         style={{ margin: 0, fontSize: 11, borderRadius: 999, paddingInline: 8 }}
                     >
-                        {detailData.score_type === 'hot' ? '动量评分' : '综合评分'}
+                        {formatScoreLabel(displayScoreType)}
                     </Tag>
                 )}
             </div>
@@ -219,20 +380,9 @@ const StockDetailModal = ({
         }}
     >
         {loading ? (
-            <div style={{ textAlign: 'center', padding: 40 }}>
-                <Spin size="large" />
-            </div>
+            renderLoadingState(selectedStock)
         ) : error ? (
-            <Empty
-                description={error}
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-            >
-                {onRetry && (
-                    <Button className="industry-empty-action" icon={<ReloadOutlined />} onClick={onRetry}>
-                        重试
-                    </Button>
-                )}
-            </Empty>
+            renderErrorState(error, onRetry)
         ) : detailData ? (
             <div data-testid="stock-detail-modal-body">
                 <div
@@ -253,24 +403,26 @@ const StockDetailModal = ({
                         </div>
                         <div style={{ textAlign: 'right' }}>
                             <div style={{ fontSize: 12, color: DETAIL_HERO_MUTED, marginBottom: 6 }}>
-                                {detailData.score_type === 'hot' ? '动量得分' : '综合得分'}
+                                {formatScoreLabel(displayScoreType)}
                             </div>
                             <div
                                 style={{
                                     fontSize: 30,
                                     fontWeight: 800,
-                                    color: detailData.total_score >= 70 ? '#95de64' : detailData.total_score >= 50 ? '#ffd666' : '#ff9c9c',
+                                    color: getScoreTone(displayScore),
                                     lineHeight: 1,
                                 }}
                             >
-                                {detailData.total_score?.toFixed(2)}
+                                {displayScore != null ? Number(displayScore).toFixed(1) : '-'}
                             </div>
                             <div style={{ fontSize: 11, color: DETAIL_HERO_SUBTLE, marginTop: 6 }}>
-                                {detailData.score_type === 'hot' ? '短线动量与资金关注度' : '基本面、估值与流动性'}
+                                {displayScoreType === 'hot' ? '短线动量与资金关注度' : '基本面、估值与流动性'}
                             </div>
                         </div>
                     </div>
                 </div>
+
+                {renderRecommendationSection(recommendationContext)}
 
                 {detailData.raw_data && (
                     renderDetailSection('实时快照', '当前报价与盘口摘要', '#fa8c16', (
@@ -421,8 +573,8 @@ const StockDetailModal = ({
 
                 {renderDetailSection(
                     '评分维度',
-                    detailData.score_type === 'hot' ? '更强调涨势与资金响应' : '更强调估值、盈利与成长',
-                    detailData.score_type === 'hot' ? '#eb2f96' : '#722ed1',
+                    displayScoreType === 'hot' ? '更强调涨势与资金响应' : '更强调估值、盈利与成长',
+                    displayScoreType === 'hot' ? '#eb2f96' : '#722ed1',
                     renderDimensionScores(detailData.dimension_scores)
                 )}
 
@@ -469,6 +621,7 @@ const StockDetailModal = ({
             <Empty description="无法加载详情" />
         )}
     </Modal>
-);
+    );
+};
 
 export default StockDetailModal;

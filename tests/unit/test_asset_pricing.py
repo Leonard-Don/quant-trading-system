@@ -100,6 +100,37 @@ class TestAssetPricingEngine:
         assert "value" in loadings
         assert "r_squared" in ff3
 
+    @patch("src.analytics.asset_pricing._fetch_ff_factors")
+    @patch("src.data.data_manager.DataManager.get_historical_data")
+    def test_aligns_tz_aware_prices_with_tz_naive_factors(self, mock_get_data, mock_ff):
+        """测试时区感知价格索引与无时区因子索引可以安全对齐"""
+        from src.analytics.asset_pricing import AssetPricingEngine
+
+        days = 200
+        aware_dates = pd.date_range(start="2024-01-01", periods=days, tz="America/New_York")
+        naive_dates = pd.date_range(start="2024-01-01", periods=days)
+        close_prices = 100 + np.cumsum(np.random.normal(0.1, 1, days))
+
+        mock_get_data.return_value = pd.DataFrame({
+            "open": close_prices * 0.99,
+            "high": close_prices * 1.01,
+            "low": close_prices * 0.98,
+            "close": close_prices,
+            "volume": np.random.randint(1000000, 5000000, days)
+        }, index=aware_dates)
+        mock_ff.return_value = pd.DataFrame({
+            "Mkt-RF": np.random.normal(0.0003, 0.01, days),
+            "SMB": np.random.normal(0.0001, 0.005, days),
+            "HML": np.random.normal(0.0001, 0.005, days),
+            "RF": np.full(days, 0.0002)
+        }, index=naive_dates)
+
+        engine = AssetPricingEngine()
+        result = engine.analyze("TEST", "1y")
+
+        assert "error" not in result["capm"], result["capm"].get("error")
+        assert "error" not in result["fama_french"], result["fama_french"].get("error")
+
     @patch("src.data.data_manager.DataManager.get_historical_data")
     def test_insufficient_data(self, mock_get_data):
         """测试数据不足时的处理"""
@@ -197,6 +228,28 @@ class TestValuationModel:
             assert comp["fair_value"] > 0
             assert len(comp["methods"]) > 0
 
+    @patch("src.data.data_manager.DataManager.get_historical_data")
+    @patch("src.data.data_manager.DataManager.get_latest_price")
+    @patch("src.data.data_manager.DataManager.get_fundamental_data")
+    def test_valuation_falls_back_to_recent_close_when_latest_price_unavailable(self, mock_fund, mock_price, mock_hist):
+        """测试最新价失败时回退到最近收盘价，而不是 52 周高点"""
+        from src.analytics.valuation_model import ValuationModel
+
+        fundamentals = self._mock_fundamentals()
+        fundamentals["52w_high"] = 200
+        mock_fund.return_value = fundamentals
+        mock_price.return_value = {"symbol": "TEST", "error": "latest unavailable"}
+        mock_hist.return_value = pd.DataFrame({
+            "close": [118.5, 121.2, 123.45],
+        }, index=pd.date_range(start="2024-01-01", periods=3))
+
+        model = ValuationModel()
+        result = model.analyze("TEST")
+
+        assert result["current_price"] == 123.45
+        assert result["current_price"] != 200
+        assert result["current_price_source"] == "historical_close"
+
     @patch("src.data.data_manager.DataManager.get_fundamental_data")
     def test_missing_data_handling(self, mock_fund):
         """测试缺失数据的处理"""
@@ -262,6 +315,101 @@ class TestPricingGapAnalyzer:
         assert "deviation_drivers" in result
         assert "implications" in result
         assert "summary" in result
+
+    def test_implications_confidence_high_with_full_model_coverage(self):
+        """测试数据完整时给出高置信度"""
+        from src.analytics.pricing_gap_analyzer import PricingGapAnalyzer
+
+        analyzer = PricingGapAnalyzer()
+        factor = {
+            "data_points": 220,
+            "capm": {"alpha_pct": -2.1, "data_points": 212},
+            "fama_french": {"alpha_pct": -1.8, "data_points": 212},
+        }
+        valuation = {
+            "current_price_source": "live",
+            "fair_value": {"mid": 100},
+            "dcf": {"intrinsic_value": 96},
+            "comparable": {"fair_value": 104},
+            "valuation_status": {"status": "fairly_valued"},
+        }
+        gap = {
+            "gap_pct": 12.0,
+            "severity": "moderate",
+            "direction": "溢价(高估)",
+        }
+
+        implications = analyzer._derive_implications(gap, factor, valuation)
+
+        assert implications["confidence"] == "high"
+        assert implications["confidence_score"] >= 0.72
+        assert implications["confidence_reasons"] == []
+
+    def test_implications_confidence_low_with_partial_models_and_fallback_price(self):
+        """测试模型缺失且价格回退时降低置信度"""
+        from src.analytics.pricing_gap_analyzer import PricingGapAnalyzer
+
+        analyzer = PricingGapAnalyzer()
+        factor = {
+            "data_points": 45,
+            "capm": {"error": "对齐后数据不足30天"},
+            "fama_french": {"error": "对齐后数据不足30天"},
+        }
+        valuation = {
+            "current_price_source": "historical_close",
+            "fair_value": {"mid": 100},
+            "dcf": {"error": "缺少关键财务数据", "intrinsic_value": None},
+            "comparable": {"fair_value": 138},
+            "valuation_status": {"status": "overvalued"},
+        }
+        gap = {
+            "gap_pct": 38.0,
+            "severity": "extreme",
+            "direction": "溢价(高估)",
+        }
+
+        implications = analyzer._derive_implications(gap, factor, valuation)
+
+        assert implications["confidence"] == "low"
+        assert implications["confidence_score"] < 0.45
+        assert any("CAPM" in reason for reason in implications["confidence_reasons"])
+
+    def test_deviation_drivers_are_ranked_by_signal_strength(self):
+        """测试主驱动按影响强度排序，而不是按拼接顺序返回"""
+        from src.analytics.pricing_gap_analyzer import PricingGapAnalyzer
+
+        analyzer = PricingGapAnalyzer()
+        factor = {
+            "capm": {
+                "alpha_pct": 6.0,
+                "beta": 1.35,
+            },
+            "fama_french": {
+                "factor_loadings": {
+                    "size": 0.35,
+                    "value": -0.32,
+                }
+            },
+        }
+        valuation = {
+            "comparable": {
+                "methods": [
+                    {
+                        "method": "P/B 倍数法",
+                        "current_multiple": 4.8,
+                        "benchmark_multiple": 2.4,
+                    }
+                ]
+            }
+        }
+
+        drivers = analyzer._analyze_deviation_drivers(factor, valuation)
+
+        assert drivers["primary_driver"]["factor"] == "P/B 倍数法溢价"
+        assert drivers["drivers"][0]["factor"] == "P/B 倍数法溢价"
+        assert drivers["drivers"][1]["factor"] == "Alpha 超额收益"
+        assert drivers["primary_driver"]["signal_strength"] > drivers["drivers"][1]["signal_strength"]
+        assert drivers["primary_driver"]["ranking_reason"] == "按估值倍数偏离行业基准幅度排序"
 
 
 if __name__ == "__main__":

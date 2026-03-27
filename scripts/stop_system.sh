@@ -1,35 +1,111 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# 量化交易系统停止脚本
+set -Eeuo pipefail
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+LOG_DIR="$PROJECT_ROOT/logs"
+FRONTEND_DIR="$PROJECT_ROOT/frontend"
+BACKEND_PID_FILE="$LOG_DIR/backend.pid"
+FRONTEND_PID_FILE="$LOG_DIR/frontend.pid"
+
+process_alive() {
+    local pid="$1"
+    kill -0 "$pid" >/dev/null 2>&1
+}
+
+process_command() {
+    local pid="$1"
+    ps -p "$pid" -o command= 2>/dev/null || true
+}
+
+process_cwd() {
+    local pid="$1"
+    if ! command -v lsof >/dev/null 2>&1; then
+        return 0
+    fi
+    lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | awk 'BEGIN { FS="n" } /^n/ { print $2; exit }'
+}
+
+is_project_managed_process() {
+    local pid="$1"
+    local command
+    local cwd
+    command="$(process_command "$pid")"
+    cwd="$(process_cwd "$pid")"
+    [[ -n "$command" && ( "$command" == *"$PROJECT_ROOT/"* || "$command" == *"$FRONTEND_DIR/"* || "$command" == *"scripts/start_backend.py"* ) ]] || \
+        [[ -n "$cwd" && ( "$cwd" == "$PROJECT_ROOT" || "$cwd" == "$FRONTEND_DIR" ) ]]
+}
+
+graceful_stop_pid() {
+    local pid="$1"
+    local label="$2"
+
+    if ! process_alive "$pid"; then
+        echo "⚠️  $label 已经停止"
+        return 0
+    fi
+
+    kill "$pid" >/dev/null 2>&1 || true
+    for _ in $(seq 1 10); do
+        if ! process_alive "$pid"; then
+            echo "✅ $label 已停止 (PID: $pid)"
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "⚠️  $label 未及时退出，执行强制停止..."
+    kill -9 "$pid" >/dev/null 2>&1 || true
+    echo "✅ $label 已强制停止 (PID: $pid)"
+}
+
+stop_from_pid_file() {
+    local pid_file="$1"
+    local label="$2"
+
+    if [[ ! -f "$pid_file" ]]; then
+        return 0
+    fi
+
+    local pid
+    pid="$(cat "$pid_file" 2>/dev/null || true)"
+    if [[ -n "$pid" ]]; then
+        graceful_stop_pid "$pid" "$label"
+    fi
+    rm -f "$pid_file"
+}
+
+stop_project_listeners_on_port() {
+    local port="$1"
+    local label="$2"
+    local pids=""
+
+    if ! command -v lsof >/dev/null 2>&1; then
+        return 0
+    fi
+
+    pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+    while IFS= read -r pid; do
+        [[ -n "$pid" ]] || continue
+        if is_project_managed_process "$pid"; then
+            graceful_stop_pid "$pid" "$label"
+        fi
+    done <<< "$pids"
+}
 
 echo "🛑 正在停止量化交易系统..."
 
-# 从PID文件读取进程ID并停止
-if [ -f "logs/backend.pid" ]; then
-    BACKEND_PID=$(cat logs/backend.pid)
-    if kill -0 $BACKEND_PID 2>/dev/null; then
-        kill $BACKEND_PID
-        echo "✅ 后端服务已停止 (PID: $BACKEND_PID)"
-    else
-        echo "⚠️  后端服务已经停止"
-    fi
-    rm -f logs/backend.pid
-fi
+mkdir -p "$LOG_DIR"
+stop_from_pid_file "$BACKEND_PID_FILE" "后端服务"
+stop_from_pid_file "$FRONTEND_PID_FILE" "前端服务"
+stop_project_listeners_on_port 8000 "后端服务"
+stop_project_listeners_on_port 3000 "前端服务"
 
-if [ -f "logs/frontend.pid" ]; then
-    FRONTEND_PID=$(cat logs/frontend.pid)
-    if kill -0 $FRONTEND_PID 2>/dev/null; then
-        kill $FRONTEND_PID
-        echo "✅ 前端服务已停止 (PID: $FRONTEND_PID)"
-    else
-        echo "⚠️  前端服务已经停止"
-    fi
-    rm -f logs/frontend.pid
-fi
-
-# 强制杀死可能残留的进程
-pkill -f "uvicorn.*backend.main:app" 2>/dev/null
-pkill -f "react-scripts start" 2>/dev/null
-pkill -f "node.*react-scripts" 2>/dev/null
+pkill -f "$PROJECT_ROOT/scripts/start_backend.py" 2>/dev/null || true
+pkill -f "scripts/start_backend.py" 2>/dev/null || true
+pkill -f "uvicorn.*backend.main:app" 2>/dev/null || true
+pkill -f "react-scripts start" 2>/dev/null || true
+pkill -f "node.*react-scripts" 2>/dev/null || true
 
 echo "🏁 系统已完全停止"

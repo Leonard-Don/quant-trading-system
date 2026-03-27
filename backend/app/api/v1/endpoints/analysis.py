@@ -601,29 +601,6 @@ def get_correlation_interpretation(avg_corr: float) -> dict:
 
 from src.analytics.model_comparator import model_comparator
 
-class ModelPredictionRequest(BaseModel):
-    symbol: str
-    prediction_model: str = "random_forest"  # 'random_forest' 或 'lstm'
-    days: int = 5
-    
-    model_config = {"protected_namespaces": ()}
-
-
-@router.get("/models", summary="获取可用模型列表")
-async def get_available_models():
-    """
-    获取所有可用的预测模型列表
-    """
-    try:
-        models = model_comparator.get_available_models()
-        return {
-            "models": models,
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        logger.error(f"Error getting models: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 
 @router.post("/prediction/compare", summary="多模型预测对比")
 async def compare_model_predictions(request: TrendAnalysisRequest):
@@ -1282,4 +1259,3 @@ async def get_risk_metrics(request: TrendAnalysisRequest):
     except Exception as e:
         logger.error(f"Error calculating risk metrics: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-

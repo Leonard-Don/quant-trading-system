@@ -150,6 +150,11 @@ async def run_cross_market_backtest(request: CrossMarketBacktestRequest):
         results = backtester.run(
             assets=[asset.model_dump() for asset in request.assets],
             template_context=request.template_context.model_dump() if request.template_context else None,
+            allocation_constraints=(
+                request.allocation_constraints.model_dump(exclude_none=True)
+                if request.allocation_constraints
+                else None
+            ),
             strategy_name=request.strategy,
             parameters=request.parameters,
             start_date=start_date,

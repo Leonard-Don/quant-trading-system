@@ -67,6 +67,7 @@ class HeatmapDataItem(BaseModel):
     """热力图数据项"""
     name: str = Field(..., description="行业名称")
     value: float = Field(..., description="涨跌幅")
+    total_score: float = Field(0, description="综合得分")
     size: float = Field(0, description="市值/成交额")
     stockCount: int = Field(0, description="成分股数量")
     moneyFlow: float = Field(0, description="资金流向")

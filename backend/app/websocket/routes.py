@@ -4,6 +4,7 @@ WebSocket路由端点
 
 import asyncio
 import logging
+from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from backend.app.websocket.connection_manager import manager
 from backend.app.websocket.trade_connection_manager import trade_ws_manager
@@ -52,22 +53,45 @@ async def websocket_quotes(websocket: WebSocket):
                     quotes = await loop.run_in_executor(
                         None, realtime_manager.get_quotes_dict, new_symbols, True
                     )
-                    for symbol in new_symbols:
-                        quote = quotes.get(symbol)
-                        if quote:
-                            await manager.send_personal_message(websocket, {
-                                "type": "quote",
-                                "symbol": symbol,
-                                "data": quote,
-                                "timestamp": quote["timestamp"],
-                            })
+                    snapshot_data = {
+                        symbol: quote
+                        for symbol, quote in quotes.items()
+                        if symbol in new_symbols and quote
+                    }
+                    if snapshot_data:
+                        await manager.send_personal_message(websocket, {
+                            "type": "snapshot",
+                            "symbols": list(snapshot_data.keys()),
+                            "data": snapshot_data,
+                            "origin": "subscribe",
+                            "timestamp": datetime.now().isoformat(),
+                        })
 
                     logger.info(
                         "Initial realtime snapshot sent: websocket_symbols=%s snapshots=%s duplicates=%s",
                         len(symbols),
-                        len(new_symbols),
+                        len(snapshot_data),
                         len([result for result in subscription_results if result.get("duplicate")]),
                     )
+            elif action == "snapshot":
+                target_symbols = symbols or list(manager.subscriptions.get(websocket, set()))
+                if target_symbols:
+                    loop = asyncio.get_running_loop()
+                    quotes = await loop.run_in_executor(
+                        None, realtime_manager.get_quotes_dict, target_symbols, True
+                    )
+                    snapshot_data = {
+                        symbol: quote
+                        for symbol, quote in quotes.items()
+                        if symbol in target_symbols and quote
+                    }
+                    await manager.send_personal_message(websocket, {
+                        "type": "snapshot",
+                        "symbols": list(snapshot_data.keys()),
+                        "data": snapshot_data,
+                        "origin": "manual_refresh",
+                        "timestamp": datetime.now().isoformat(),
+                    })
 
             elif action == "unsubscribe":
                 for symbol in symbols:

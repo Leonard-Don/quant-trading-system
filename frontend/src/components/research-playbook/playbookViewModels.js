@@ -15,6 +15,10 @@ const toSignedPercent = (value, digits = 1) => {
   const numeric = Number(value || 0);
   return `${numeric > 0 ? '+' : ''}${(numeric * 100).toFixed(digits)}%`;
 };
+const toSignedPercentPoints = (value, digits = 1) => {
+  const numeric = Number(value || 0);
+  return `${numeric > 0 ? '+' : ''}${numeric.toFixed(digits)}%`;
+};
 
 const compactText = (value = '') => String(value || '').replace(/\s+/g, ' ').trim();
 
@@ -189,7 +193,7 @@ export const buildPricingPlaybook = (context = {}, pricingResult = null) => {
   }
 
   const primaryView = implications.primary_view || gap.direction || '合理';
-  const thesis = `${symbol} 当前偏向 ${primaryView}，价格偏差 ${toSignedPercent(gap.gap_pct || 0)}。${
+  const thesis = `${symbol} 当前偏向 ${primaryView}，价格偏差 ${toSignedPercentPoints(gap.gap_pct || 0)}。${
     shouldCrossMarket
       ? '由于宏观变量干扰较强，下一步更适合用跨市场模板继续验证。'
       : '当前更适合继续留在单标的定价研究框架内。'
@@ -212,7 +216,7 @@ export const buildPricingPlaybook = (context = {}, pricingResult = null) => {
         id: 'pricing-gap',
         title: '定价差异确认',
         description: gap.fair_value_mid
-          ? `当前价格 ${gap.current_price || '-'}，公允价值 ${gap.fair_value_mid}，偏差 ${toSignedPercent(gap.gap_pct || 0)}，结论为 ${gap.severity_label || primaryView}。`
+          ? `当前价格 ${gap.current_price || '-'}，公允价值 ${gap.fair_value_mid}，偏差 ${toSignedPercentPoints(gap.gap_pct || 0)}，结论为 ${gap.severity_label || primaryView}。`
           : '已有结果，但缺少明确的价格偏差区间。',
         status: gap.fair_value_mid ? 'complete' : 'warning',
         cta: null,
@@ -324,6 +328,7 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
 
   const dataAlignment = backtestResult?.data_alignment || {};
   const execution = backtestResult?.execution_diagnostics || {};
+  const constraintOverlay = backtestResult?.constraint_overlay || {};
   const longLeg = backtestResult?.leg_performance?.long || {};
   const shortLeg = backtestResult?.leg_performance?.short || {};
   const coverage = Number(dataAlignment.tradable_day_ratio || 0);
@@ -364,6 +369,21 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
   }
   if (execution.stress_test_flag === 'high') {
     warnings.push(`资金放大压力测试提示高集中，${execution.stress_test_reason || '继续放大资金前应先拆分批次或分散 venue。'}`);
+  }
+  if (execution.liquidity_level === 'stretched') {
+    warnings.push(`当前最大 ADV 使用率达到 ${toPercent(execution.max_adv_usage || 0, 2)}，流动性偏紧，继续放大资金前应复核容量。`);
+  }
+  if (execution.margin_level === 'aggressive') {
+    warnings.push(`保证金占用达到 ${toPercent(execution.margin_utilization || 0, 2)}，Gross Leverage ${Number(execution.gross_leverage || 0).toFixed(2)}x，当前配置偏激进。`);
+  }
+  if (execution.beta_level === 'stretched') {
+    warnings.push(`当前长短腿 beta 偏离较大，${execution.beta_reason || '建议复核对冲比和长短腿结构。'}`);
+  }
+  if (execution.calendar_level === 'stretched') {
+    warnings.push(`多市场日历错位明显，${execution.calendar_reason || '当前可交易日可能被不同 venue 的休市错配压缩。'}`);
+  }
+  if (Number(constraintOverlay.binding_count || 0) > 0) {
+    warnings.push(`当前有 ${constraintOverlay.binding_count} 个资产触发权重约束，结论需结合约束偏移一起解释。`);
   }
 
   const thesis = weakResult
@@ -413,11 +433,15 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
       {
         id: 'cross-execution',
         title: '执行质量检查',
-        description: `Turnover ${Number(execution.turnover || 0).toFixed(2)}，Cost Drag ${toPercent(execution.cost_drag || 0, 2)}，平均持有 ${Number(execution.avg_holding_period || 0).toFixed(1)} 天，Lot 效率 ${toPercent(execution.lot_efficiency || 0, 2)}，建议调仓 ${execution.suggested_rebalance || 'biweekly'}，压力测试 ${execution.stress_test_flag || 'balanced'}。`,
+        description: `Turnover ${Number(execution.turnover || 0).toFixed(2)}，Cost Drag ${toPercent(execution.cost_drag || 0, 2)}，平均持有 ${Number(execution.avg_holding_period || 0).toFixed(1)} 天，Lot 效率 ${toPercent(execution.lot_efficiency || 0, 2)}，Max ADV ${toPercent(execution.max_adv_usage || 0, 2)}，保证金 ${toPercent(execution.margin_utilization || 0, 2)}，Gross ${Number(execution.gross_leverage || 0).toFixed(2)}x，Beta ${execution.beta_level || 'balanced'}，日历 ${execution.calendar_level || 'aligned'}，建议调仓 ${execution.suggested_rebalance || 'biweekly'}，压力测试 ${execution.stress_test_flag || 'balanced'}。`,
         status:
           Number(execution.cost_drag || 0) > 0.02
           || Number(execution.turnover || 0) > 8
           || execution.concentration_level === 'high'
+          || execution.liquidity_level === 'stretched'
+          || execution.margin_level === 'aggressive'
+          || execution.beta_level === 'stretched'
+          || execution.calendar_level === 'stretched'
           || execution.stress_test_flag === 'high'
           || Number(execution.lot_efficiency || 1) < 0.97
             ? 'warning'
@@ -451,6 +475,7 @@ export const buildPricingWorkbenchPayload = (context = {}, pricingResult = null,
   const valuation = pricingResult?.valuation || {};
   const implications = pricingResult?.implications || {};
   const drivers = pricingResult?.deviation_drivers?.drivers || [];
+  const primaryDriver = pricingResult?.deviation_drivers?.primary_driver || drivers[0] || null;
   const title = `[Pricing] ${symbol} mispricing review`;
 
   return {
@@ -475,6 +500,7 @@ export const buildPricingWorkbenchPayload = (context = {}, pricingResult = null,
         gap_analysis: gap,
         fair_value: valuation?.fair_value || {},
         implications,
+        primary_driver: primaryDriver,
         drivers: drivers.slice(0, 3),
       },
     },
@@ -485,7 +511,8 @@ export const buildCrossMarketWorkbenchPayload = (
   context = {},
   template = null,
   backtestResult = null,
-  assets = []
+  assets = [],
+  researchInputs = {}
 ) => {
   const templateId = context.template || template?.id || '';
   const taskLabel = template?.name || templateId || 'custom basket';
@@ -500,6 +527,110 @@ export const buildCrossMarketWorkbenchPayload = (
   if (!templateId && !safeAssets.length && !backtestResult) {
     return null;
   }
+
+  const macroOverview = researchInputs?.macroOverview || {};
+  const altSnapshot = researchInputs?.altSnapshot || {};
+  const factorDeltas = macroOverview?.trend?.factor_deltas || {};
+  const topFactorShifts = Object.entries(factorDeltas)
+    .sort((left, right) => Math.abs(Number(right[1]?.z_score_delta || 0)) - Math.abs(Number(left[1]?.z_score_delta || 0)))
+    .slice(0, 3)
+    .map(([name, item]) => ({
+      name,
+      z_score_delta: Number(item?.z_score_delta || 0),
+      signal_changed: Boolean(item?.signal_changed),
+    }));
+  const topAltCategories = Object.entries(altSnapshot?.category_summary || {})
+    .sort((left, right) => Math.abs(Number(right[1]?.delta_score || 0)) - Math.abs(Number(left[1]?.delta_score || 0)))
+    .slice(0, 4)
+    .map(([category, item]) => ({
+      category,
+      avg_score: Number(item?.avg_score || 0),
+      delta_score: Number(item?.delta_score || 0),
+      momentum: item?.momentum || 'stable',
+      count: Number(item?.count || 0),
+    }));
+  const allocationOverlay = backtestResult?.allocation_overlay || {};
+  const selectionQuality = allocationOverlay.selection_quality || {};
+  const baseRecommendationScore = selectionQuality.base_recommendation_score
+    ?? template?.baseRecommendationScore
+    ?? template?.recommendationScore
+    ?? null;
+  const effectiveRecommendationScore = selectionQuality.effective_recommendation_score
+    ?? template?.recommendationScore
+    ?? null;
+  const baseRecommendationTier = selectionQuality.base_recommendation_tier
+    || template?.baseRecommendationTier
+    || template?.recommendationTier
+    || '';
+  const effectiveRecommendationTier = selectionQuality.effective_recommendation_tier
+    || template?.recommendationTier
+    || '';
+  const rankingPenalty = selectionQuality.ranking_penalty
+    ?? template?.rankingPenalty
+    ?? 0;
+  const rankingPenaltyReason = selectionQuality.reason
+    || template?.rankingPenaltyReason
+    || '';
+  const selectionQualityLabel = selectionQuality.label || (rankingPenalty > 0 ? 'softened' : 'original');
+  const selectionQualityReason = selectionQuality.reason || rankingPenaltyReason || '';
+  const coreLegSymbols = new Set(
+    (template?.coreLegs || [])
+      .map((item) => String(item?.symbol || '').trim().toUpperCase())
+      .filter(Boolean)
+  );
+  const themeCoreText = String(template?.themeCore || '').toUpperCase();
+  const topCompressedRow = (allocationOverlay.rows || [])
+    .slice()
+    .sort((left, right) => Math.abs(Number(right?.compression_delta || 0)) - Math.abs(Number(left?.compression_delta || 0)))
+    .find((item) => Math.abs(Number(item?.compression_delta || 0)) >= 0.005);
+  const topCompressedSymbol = String(topCompressedRow?.symbol || '').trim().toUpperCase();
+  const coreLegPressure = {
+    affected: Boolean(
+      topCompressedSymbol
+      && (coreLegSymbols.has(topCompressedSymbol) || (themeCoreText && themeCoreText.includes(topCompressedSymbol)))
+    ),
+    symbol: topCompressedRow?.symbol || '',
+    compression_delta: Number(topCompressedRow?.compression_delta || 0),
+    summary: topCompressedRow?.symbol
+      ? `${topCompressedRow.symbol} ${(Math.abs(Number(topCompressedRow.compression_delta || 0)) * 100).toFixed(2)}pp`
+      : '',
+  };
+  const researchInput = {
+    macro: {
+      macro_score: Number(macroOverview?.macro_score || 0),
+      macro_signal: Number(macroOverview?.macro_signal || 0),
+      confidence: Number(macroOverview?.confidence || 0),
+      macro_score_delta: Number(macroOverview?.trend?.macro_score_delta || 0),
+      macro_signal_changed: Boolean(macroOverview?.trend?.macro_signal_changed),
+      snapshot_timestamp: macroOverview?.snapshot_timestamp || '',
+      resonance: {
+        label: macroOverview?.resonance_summary?.label || 'mixed',
+        reason: macroOverview?.resonance_summary?.reason || '',
+        positive_cluster: macroOverview?.resonance_summary?.positive_cluster || [],
+        negative_cluster: macroOverview?.resonance_summary?.negative_cluster || [],
+        weakening: macroOverview?.resonance_summary?.weakening || [],
+        precursor: macroOverview?.resonance_summary?.precursor || [],
+        reversed_factors: macroOverview?.resonance_summary?.reversed_factors || [],
+      },
+      policy_source_health: {
+        label: macroOverview?.evidence_summary?.policy_source_health_summary?.label || 'unknown',
+        reason: macroOverview?.evidence_summary?.policy_source_health_summary?.reason || '',
+        fragile_sources: macroOverview?.evidence_summary?.policy_source_health_summary?.fragile_sources || [],
+        watch_sources: macroOverview?.evidence_summary?.policy_source_health_summary?.watch_sources || [],
+        healthy_sources: macroOverview?.evidence_summary?.policy_source_health_summary?.healthy_sources || [],
+        avg_full_text_ratio: Number(
+          macroOverview?.evidence_summary?.policy_source_health_summary?.avg_full_text_ratio || 0
+        ),
+      },
+      top_factor_shifts: topFactorShifts,
+    },
+    alt_data: {
+      snapshot_timestamp: altSnapshot?.snapshot_timestamp || '',
+      freshness_label: altSnapshot?.staleness?.label || '',
+      max_snapshot_age_seconds: Number(altSnapshot?.staleness?.max_snapshot_age_seconds || 0),
+      top_categories: topAltCategories,
+    },
+  };
 
   return {
     type: 'cross_market',
@@ -519,7 +650,11 @@ export const buildCrossMarketWorkbenchPayload = (
       theme: template?.theme || '',
       allocation_mode: template?.biasSummary ? 'macro_bias' : 'template_base',
       bias_summary: template?.biasSummary || '',
+      bias_strength_raw: template?.rawBiasStrength || 0,
       bias_strength: template?.biasStrength || 0,
+      bias_scale: template?.biasScale || 1,
+      bias_quality_label: template?.biasQualityLabel || 'full',
+      bias_quality_reason: template?.biasQualityReason || '',
       bias_highlights: template?.biasHighlights || [],
       bias_actions: template?.biasActions || [],
       driver_summary: template?.driverSummary || [],
@@ -528,9 +663,22 @@ export const buildCrossMarketWorkbenchPayload = (
       support_legs: template?.supportLegs || [],
       theme_core: template?.themeCore || '',
       theme_support: template?.themeSupport || '',
-      recommendation_tier: template?.recommendationTier || '',
-      recommendation_score: template?.recommendationScore || null,
+      core_leg_pressure: coreLegPressure,
+      resonance_label: template?.resonanceLabel || macroOverview?.resonance_summary?.label || 'mixed',
+      resonance_reason: template?.resonanceReason || macroOverview?.resonance_summary?.reason || '',
+      resonance_factors: template?.resonanceFactors || {},
+      base_recommendation_tier: baseRecommendationTier,
+      recommendation_tier: effectiveRecommendationTier,
+      base_recommendation_score: baseRecommendationScore,
+      recommendation_score: effectiveRecommendationScore,
+      ranking_penalty: rankingPenalty,
+      ranking_penalty_reason: rankingPenaltyReason,
+      selection_quality: {
+        label: selectionQualityLabel,
+        reason: selectionQualityReason,
+      },
       recommendation_reason: template?.driverHeadline || '',
+      research_input: researchInput,
       assets: safeAssets,
     },
     snapshot: {
@@ -560,7 +708,11 @@ export const buildCrossMarketWorkbenchPayload = (
               theme: template?.theme || '',
               allocation_mode: template?.biasSummary ? 'macro_bias' : 'template_base',
               bias_summary: template?.biasSummary || '',
+              bias_strength_raw: template?.rawBiasStrength || 0,
               bias_strength: template?.biasStrength || 0,
+              bias_scale: template?.biasScale || 1,
+              bias_quality_label: template?.biasQualityLabel || 'full',
+              bias_quality_reason: template?.biasQualityReason || '',
               bias_highlights: template?.biasHighlights || [],
               bias_actions: template?.biasActions || [],
               driver_summary: template?.driverSummary || [],
@@ -569,8 +721,20 @@ export const buildCrossMarketWorkbenchPayload = (
               support_legs: template?.supportLegs || [],
               theme_core: template?.themeCore || '',
               theme_support: template?.themeSupport || '',
-              recommendation_tier: template?.recommendationTier || '',
-              recommendation_score: template?.recommendationScore || null,
+              core_leg_pressure: coreLegPressure,
+              resonance_label: template?.resonanceLabel || macroOverview?.resonance_summary?.label || 'mixed',
+              resonance_reason: template?.resonanceReason || macroOverview?.resonance_summary?.reason || '',
+              resonance_factors: template?.resonanceFactors || {},
+              base_recommendation_tier: baseRecommendationTier,
+              recommendation_tier: effectiveRecommendationTier,
+              base_recommendation_score: baseRecommendationScore,
+              recommendation_score: effectiveRecommendationScore,
+              ranking_penalty: rankingPenalty,
+              ranking_penalty_reason: rankingPenaltyReason,
+              selection_quality: {
+                label: selectionQualityLabel,
+                reason: selectionQualityReason,
+              },
               recommendation_reason: template?.driverHeadline || '',
             },
             price_matrix_summary: backtestResult.price_matrix_summary || {},
@@ -578,6 +742,9 @@ export const buildCrossMarketWorkbenchPayload = (
             execution_diagnostics: backtestResult.execution_diagnostics || {},
             execution_plan: backtestResult.execution_plan || {},
             allocation_overlay: backtestResult.allocation_overlay || {},
+            constraint_overlay: backtestResult.constraint_overlay || {},
+            hedge_portfolio: backtestResult.hedge_portfolio || {},
+            research_input: researchInput,
             total_return: backtestResult.total_return || 0,
             sharpe_ratio: backtestResult.sharpe_ratio || 0,
             leg_performance: backtestResult.leg_performance || {},
@@ -588,7 +755,11 @@ export const buildCrossMarketWorkbenchPayload = (
               theme: template?.theme || '',
               allocation_mode: template?.biasSummary ? 'macro_bias' : 'template_base',
               bias_summary: template?.biasSummary || '',
+              bias_strength_raw: template?.rawBiasStrength || 0,
               bias_strength: template?.biasStrength || 0,
+              bias_scale: template?.biasScale || 1,
+              bias_quality_label: template?.biasQualityLabel || 'full',
+              bias_quality_reason: template?.biasQualityReason || '',
               bias_highlights: template?.biasHighlights || [],
               bias_actions: template?.biasActions || [],
               driver_summary: template?.driverSummary || [],
@@ -597,10 +768,23 @@ export const buildCrossMarketWorkbenchPayload = (
               support_legs: template?.supportLegs || [],
               theme_core: template?.themeCore || '',
               theme_support: template?.themeSupport || '',
-              recommendation_tier: template?.recommendationTier || '',
-              recommendation_score: template?.recommendationScore || null,
+              core_leg_pressure: coreLegPressure,
+              resonance_label: template?.resonanceLabel || macroOverview?.resonance_summary?.label || 'mixed',
+              resonance_reason: template?.resonanceReason || macroOverview?.resonance_summary?.reason || '',
+              resonance_factors: template?.resonanceFactors || {},
+              base_recommendation_tier: baseRecommendationTier,
+              recommendation_tier: effectiveRecommendationTier,
+              base_recommendation_score: baseRecommendationScore,
+              recommendation_score: effectiveRecommendationScore,
+              ranking_penalty: rankingPenalty,
+              ranking_penalty_reason: rankingPenaltyReason,
+              selection_quality: {
+                label: selectionQualityLabel,
+                reason: selectionQualityReason,
+              },
               recommendation_reason: template?.driverHeadline || '',
             },
+            research_input: researchInput,
             assets: safeAssets,
           },
     },

@@ -39,6 +39,14 @@ function SupplyChainHeatmap({ cells = [], anomalies = [] }) {
                 <div style={{ fontSize: 30, fontWeight: 700, lineHeight: 1, marginBottom: 12 }}>
                   {cell.score.toFixed(2)}
                 </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+                  <Tag color={cell.momentum === 'strengthening' ? 'red' : cell.momentum === 'weakening' ? 'blue' : 'default'}>
+                    {cell.momentum === 'strengthening' ? '趋势增强' : cell.momentum === 'weakening' ? '趋势走弱' : '趋势稳定'}
+                  </Tag>
+                  <Tag color="default">
+                    Δ{cell.trendDelta >= 0 ? '+' : ''}{cell.trendDelta.toFixed(2)}
+                  </Tag>
+                </div>
                 <Text style={{ color: 'rgba(246, 251, 255, 0.78)' }}>{cell.summary}</Text>
               </div>
             </Col>

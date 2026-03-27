@@ -5,6 +5,7 @@ from .baseload_mismatch import BaseloadMismatchFactor
 from .bureaucratic_friction import BureaucraticFrictionFactor
 from .factor_combiner import FactorCombiner
 from .factor_registry import FactorRegistry, build_default_registry
+from .history import MacroHistoryStore
 from .tech_dilution import TechDilutionFactor
 
 __all__ = [
@@ -14,6 +15,7 @@ __all__ = [
     "BureaucraticFrictionFactor",
     "FactorCombiner",
     "FactorRegistry",
+    "MacroHistoryStore",
     "TechDilutionFactor",
     "build_default_registry",
 ]

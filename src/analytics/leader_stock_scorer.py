@@ -125,6 +125,53 @@ class LeaderStockScorer:
         """
         self.provider = data_provider
         self.weights = weights or self.DEFAULT_WEIGHTS.copy()
+
+    @staticmethod
+    def _normalize_quote_snapshot(quote: Dict[str, Any]) -> Dict[str, Any]:
+        """统一实时行情字段，兼容 AKShare/Sina 不同返回口径。"""
+        if not quote or "error" in quote:
+            return {}
+
+        def pick_number(*keys: str) -> Any:
+            for key in keys:
+                value = quote.get(key)
+                if value not in (None, ""):
+                    return value
+            return None
+
+        current_price = pick_number("current_price", "price")
+        previous_close = pick_number("previous_close", "prev_close", "pre_close")
+        change = pick_number("change")
+
+        if change in (None, ""):
+            try:
+                if current_price not in (None, "") and previous_close not in (None, "", 0):
+                    change = float(current_price) - float(previous_close)
+            except (TypeError, ValueError):
+                change = None
+
+        updated_at = quote.get("updated_at")
+        timestamp = quote.get("timestamp")
+        if updated_at in (None, "") and timestamp not in (None, ""):
+            if hasattr(timestamp, "isoformat"):
+                updated_at = timestamp.isoformat()
+            else:
+                updated_at = str(timestamp)
+
+        return {
+            "current_price": current_price,
+            "previous_close": previous_close,
+            "change": change,
+            "high": pick_number("high"),
+            "low": pick_number("low"),
+            "volume": pick_number("volume"),
+            "amount": pick_number("amount"),
+            "open": pick_number("open"),
+            "bid": pick_number("bid"),
+            "ask": pick_number("ask"),
+            "source": quote.get("source", "unknown"),
+            "updated_at": updated_at,
+        }
         self._cache: Dict[str, Any] = {}
         self._cache_time: Optional[datetime] = None
         self._cache_ttl = timedelta(minutes=60)  # 财务数据缓存1小时
@@ -634,15 +681,28 @@ class LeaderStockScorer:
             end_date = datetime.now()
             start_date = end_date - timedelta(days=60)
             
-            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                 future_score = executor.submit(self.score_stock, symbol, None, None, score_type)
                 future_hist = executor.submit(self.provider.get_historical_data, symbol, start_date, end_date)
+                future_quote = (
+                    executor.submit(self.provider.get_latest_quote, symbol)
+                    if hasattr(self.provider, "get_latest_quote")
+                    else None
+                )
                 
                 score_result = future_score.result()
                 hist_data = future_hist.result()
+                quote_data = future_quote.result() if future_quote is not None else {}
 
             if "error" in score_result:
                 return score_result
+
+            quote_snapshot = self._normalize_quote_snapshot(quote_data)
+            if quote_snapshot:
+                raw_data = score_result.setdefault("raw_data", {})
+                for key, value in quote_snapshot.items():
+                    if value not in (None, ""):
+                        raw_data[key] = value
             
             # 计算技术指标
             tech_analysis = {}

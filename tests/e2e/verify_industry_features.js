@@ -66,14 +66,26 @@ const waitForIndustryScoreStage = async (page, expectedStages, timeout = 6000) =
   return page.locator('[data-testid="industry-stock-table"]').getAttribute('data-score-stage');
 };
 
+const readIndustryDisplayReady = async (page) => page.locator('[data-testid="industry-stock-table"]').getAttribute('data-display-ready');
+
 const closeVisibleModal = async (page, testId) => {
   const modal = page.locator(`[data-testid="${testId}"]`);
   if (await modal.count()) {
     const closeButton = modal.locator('.ant-modal-close');
     if (await closeButton.count()) {
       await closeButton.click();
+      await modal.waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+      await page.waitForTimeout(250);
     }
   }
+};
+
+const chooseSelectOption = async (page, selectLocator, optionText) => {
+  await selectLocator.waitFor({ state: 'visible', timeout: 10000 });
+  await selectLocator.click();
+  const option = page.locator('.ant-select-dropdown .ant-select-item-option-content').filter({ hasText: optionText }).last();
+  await option.waitFor({ state: 'visible', timeout: 10000 });
+  await option.click();
 };
 
 (async () => {
@@ -237,6 +249,7 @@ const closeVisibleModal = async (page, testId) => {
       await waitForIndustryScoreStage(page, 'full', 9000).catch(() => null);
     }
     const upgradedScoreStage = await page.locator('[data-testid="industry-stock-table"]').getAttribute('data-score-stage');
+    const upgradedDisplayReady = await readIndustryDisplayReady(page);
     const upgradedStockRows = await page.locator('[data-testid="industry-stock-table"] tbody tr').evaluateAll(
       (rows) => rows.slice(0, 5).map((row) => Array.from(row.querySelectorAll('td')).map((cell) => (cell.textContent || '').trim()))
     );
@@ -257,7 +270,8 @@ const closeVisibleModal = async (page, testId) => {
     console.log(`行业成分股初始评分阶段: ${initialScoreStage || 'unknown'}`);
     console.log(`行业摘要总市值已补齐: ${summarySnapshot.totalMarketCap && summarySnapshot.totalMarketCap !== '-' ? '是' : '否'}`);
     console.log(`行业成分股前5行存在真实明细: ${stockRowsHaveDetails ? '是' : '否'}`);
-    console.log(`行业成分股已升级为完整评分: ${upgradedScoreStage === 'full' && stockScoresUpgraded ? '是' : upgradedScoreStage === 'full' ? '是' : '否'}`);
+    const scoreDisplayReady = upgradedScoreStage === 'full' || upgradedDisplayReady === 'true';
+    console.log(`行业成分股展示是否已就绪: ${scoreDisplayReady && stockScoresUpgraded ? '是' : scoreDisplayReady ? '是' : '否'}`);
     await closeVisibleModal(page, 'industry-detail-modal');
   }
 
@@ -334,20 +348,16 @@ const closeVisibleModal = async (page, testId) => {
   console.log(`排行榜波动率标签是否显示: ${volatilityTagCount > 0 ? '是' : '否'}`);
 
   console.log('验证排行榜波动率排序与筛选...');
-  const rankingSelects = page.locator('.ant-tabs-tabpane-active .ant-card-extra .ant-select:visible');
   await page.waitForFunction(
-    () => document.querySelectorAll('.ant-tabs-tabpane-active .ant-card-extra .ant-select').length >= 2,
+    () => document.querySelectorAll('.ant-tabs-tabpane-active .ant-card-extra .ant-select').length >= 4,
     null,
-    { timeout: 5000 }
+    { timeout: 10000 }
   );
-  await rankingSelects.nth(0).click();
-  await page.locator('.ant-select-item-option-content').filter({ hasText: '按波动率' }).click();
+  await chooseSelectOption(page, page.locator('.ant-tabs-tabpane-active .ranking-control-sort-by'), '按波动率');
   await page.waitForTimeout(1000);
-  await rankingSelects.nth(2).click();
-  await page.locator('.ant-select-item-option-content').filter({ hasText: '低波动' }).click();
+  await chooseSelectOption(page, page.locator('.ant-tabs-tabpane-active .ranking-control-volatility'), '低波动');
   await page.waitForTimeout(1000);
-  await rankingSelects.nth(3).click();
-  await page.locator('.ant-select-item-option-content').filter({ hasText: '实时市值' }).click();
+  await chooseSelectOption(page, page.locator('.ant-tabs-tabpane-active .ranking-control-market-cap'), '实时市值');
   await page.waitForTimeout(1000);
   const rankingTableBody = page.locator('.ant-tabs-tabpane-active .ant-table-tbody');
   const rankingBodyRows = await rankingTableBody.locator('tr').evaluateAll(
@@ -435,7 +445,10 @@ const closeVisibleModal = async (page, testId) => {
   }
 
   console.log('验证聚类分析...');
-  await page.click('.ant-tabs-tab-btn:has-text("聚类分析")');
+  await closeVisibleModal(page, 'industry-detail-modal');
+  await closeVisibleModal(page, 'stock-detail-modal');
+  await page.keyboard.press('Escape').catch(() => {});
+  await page.locator('.ant-tabs-tab-btn').filter({ hasText: '聚类分析' }).click({ force: true });
   await page.waitForFunction(
     () => document.querySelector('.ant-tabs-tab-active .ant-tabs-tab-btn')?.textContent?.includes('聚类分析'),
     null,

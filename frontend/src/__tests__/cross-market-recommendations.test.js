@@ -37,6 +37,25 @@ describe('crossMarketRecommendations', () => {
     };
     const overview = {
       macro_signal: 1,
+      evidence_summary: {
+        policy_source_health_summary: {
+          label: 'fragile',
+          reason: '正文抓取脆弱源 ndrc',
+          fragile_sources: ['ndrc'],
+          watch_sources: [],
+          healthy_sources: ['fed'],
+          avg_full_text_ratio: 0.41,
+        },
+      },
+      resonance_summary: {
+        label: 'bullish_cluster',
+        reason: '多个宏观因子同时强化正向扭曲，形成上行共振',
+        positive_cluster: ['baseload_mismatch', 'tech_dilution'],
+        negative_cluster: [],
+        weakening: [],
+        precursor: [],
+        reversed_factors: [],
+      },
       factors: [
         { name: 'baseload_mismatch', z_score: 1.8, value: 0.9, signal: 1 },
         { name: 'tech_dilution', z_score: 1.1, value: 0.6, signal: 1 },
@@ -66,16 +85,106 @@ describe('crossMarketRecommendations', () => {
     expect(cards[0].id).toBe('energy_vs_ai_apps');
     expect(cards[0].recommendationScore).toBeGreaterThan(cards[1].recommendationScore);
     expect(cards[0].recommendationTier).toBeTruthy();
+    expect(cards[0].policySourceHealthLabel).toBe('fragile');
+    expect(cards[0].policySourceHealthReason).toContain('ndrc');
     expect(cards[0].driverHeadline).toContain('基荷错配');
+    expect(cards[0].matchedDrivers.some((item) => item.type === 'quality')).toBe(true);
     expect(cards[0].biasSummary).toBeTruthy();
     expect(cards[0].biasStrength).toBeGreaterThan(0);
+    expect(cards[0].biasQualityLabel).toBe('compressed');
+    expect(cards[0].biasScale).toBe(0.55);
     expect(cards[0].adjustedAssets).toHaveLength(4);
     expect(cards[0].signalAttribution.length).toBe(4);
     expect(cards[0].signalAttribution.some((item) => item.reasons.length > 0)).toBe(true);
     expect(cards[0].driverSummary.length).toBeGreaterThan(0);
     expect(cards[0].dominantDrivers.length).toBeGreaterThan(0);
     expect(cards[0].themeCore).toBeTruthy();
+    expect(cards[0].resonanceLabel).toBe('bullish_cluster');
+    expect(cards[0].resonanceReason).toContain('上行共振');
+    expect(cards[0].matchedDrivers.some((item) => item.type === 'resonance')).toBe(true);
     expect(cards[0].signalAttribution.some((item) => item.breakdown.length > 0)).toBe(true);
     expect(cards[1].matchedDrivers.some((item) => item.type === 'alert')).toBe(true);
+  });
+
+  it('compresses macro bias strength when policy-source health degrades', () => {
+    const payload = {
+      templates: [
+        {
+          id: 'energy_vs_ai_apps',
+          name: 'Energy vs AI',
+          linked_factors: ['baseload_mismatch', 'tech_dilution'],
+          linked_dimensions: ['investment_activity', 'inventory'],
+          assets: [
+            { symbol: 'HG=F', side: 'long', weight: 0.5, asset_class: 'COMMODITY_FUTURES' },
+            { symbol: 'XLE', side: 'long', weight: 0.5, asset_class: 'ETF' },
+            { symbol: 'IGV', side: 'short', weight: 0.6, asset_class: 'ETF' },
+            { symbol: 'SOXX', side: 'short', weight: 0.4, asset_class: 'ETF' },
+          ],
+          preferred_signal: 'positive',
+        },
+      ],
+    };
+    const baseOverview = {
+      macro_signal: 1,
+      resonance_summary: {
+        label: 'bullish_cluster',
+        reason: '多个宏观因子同时强化正向扭曲，形成上行共振',
+        positive_cluster: ['baseload_mismatch', 'tech_dilution'],
+        negative_cluster: [],
+        weakening: [],
+        precursor: [],
+        reversed_factors: [],
+      },
+      factors: [
+        { name: 'baseload_mismatch', z_score: 1.8, value: 0.9, signal: 1 },
+        { name: 'tech_dilution', z_score: 1.1, value: 0.6, signal: 1 },
+      ],
+    };
+    const snapshot = {
+      signals: {
+        supply_chain: { dimensions: { investment_activity: { score: 0.35 } } },
+        macro_hf: { dimensions: { inventory: { score: 0.45 } } },
+      },
+    };
+
+    const healthyCard = buildCrossMarketCards(
+      payload,
+      {
+        ...baseOverview,
+        evidence_summary: {
+          policy_source_health_summary: {
+            label: 'healthy',
+            reason: '主要政策源正文覆盖稳定',
+            fragile_sources: [],
+            watch_sources: [],
+            healthy_sources: ['ndrc', 'fed'],
+            avg_full_text_ratio: 0.9,
+          },
+        },
+      },
+      snapshot
+    )[0];
+    const fragileCard = buildCrossMarketCards(
+      payload,
+      {
+        ...baseOverview,
+        evidence_summary: {
+          policy_source_health_summary: {
+            label: 'fragile',
+            reason: '正文抓取脆弱源 ndrc',
+            fragile_sources: ['ndrc'],
+            watch_sources: [],
+            healthy_sources: ['fed'],
+            avg_full_text_ratio: 0.4,
+          },
+        },
+      },
+      snapshot
+    )[0];
+
+    expect(healthyCard.biasQualityLabel).toBe('full');
+    expect(fragileCard.biasQualityLabel).toBe('compressed');
+    expect(fragileCard.biasStrength).toBeLessThan(healthyCard.biasStrength);
+    expect(fragileCard.biasScale).toBeLessThan(1);
   });
 });

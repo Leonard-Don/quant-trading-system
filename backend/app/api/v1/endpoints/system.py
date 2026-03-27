@@ -37,7 +37,7 @@ STRATEGIES = {
     "atr_trailing_stop": ATRTrailingStop,
 }
 
-@router.get("/status", summary="系统状态检查")
+@router.get("/status", summary="系统状态检查", deprecated=True)
 async def get_system_status(detailed: bool = False):
     """
     系统状态检查接口
@@ -91,7 +91,7 @@ async def get_system_status(detailed: bool = False):
             "version": config["app_version"],
         }
 
-@router.get("/performance", summary="获取性能指标概览")
+@router.get("/performance", summary="获取性能指标概览", deprecated=True)
 async def get_system_performance_overview():
     """获取性能指标"""
     try:
@@ -106,7 +106,7 @@ async def get_system_performance_overview():
         logger.error(f"Performance metrics error: {e}")
         return {"success": False, "error": str(e)}
 
-@router.get("/health-check", summary="综合健康检查")
+@router.get("/health-check", summary="综合健康检查", deprecated=True)
 def comprehensive_health_check():
     """综合健康检查"""
     try:
@@ -118,7 +118,7 @@ def comprehensive_health_check():
         logger.error(f"Health check error: {e}")
         return {"success": False, "error": str(e)}
 
-@router.get("/metrics", summary="获取详细性能指标")
+@router.get("/metrics", summary="获取详细性能指标", deprecated=True)
 async def get_performance_metrics():
     """获取性能指标"""
     try:
@@ -140,7 +140,7 @@ async def get_performance_metrics():
         logger.error(f"获取性能指标失败: {e}")
         return {"success": False, "error": str(e)}
 
-@router.get("/alerts/summary", summary="获取告警摘要")
+@router.get("/alerts/summary", summary="获取告警摘要", deprecated=True)
 async def get_alert_summary():
     """获取告警摘要"""
     try:
@@ -156,7 +156,7 @@ async def get_alert_summary():
         logger.error(f"获取告警摘要失败: {e}")
         return {"success": False, "error": str(e)}
 
-@router.post("/alerts/{alert_index}/resolve", summary="解决告警")
+@router.post("/alerts/{alert_index}/resolve", summary="解决告警", deprecated=True)
 async def resolve_alert(alert_index: int):
     """解决告警"""
     try:
@@ -167,7 +167,7 @@ async def resolve_alert(alert_index: int):
         return {"success": False, "error": str(e)}
 
 
-@router.get("/dependencies", summary="依赖项连通性检查")
+@router.get("/dependencies", summary="依赖项连通性检查", deprecated=True)
 async def check_dependencies():
     """
     检查所有外部依赖项的连通性

@@ -6,7 +6,6 @@ import {
   LineChartOutlined,
   SunOutlined,
   MoonOutlined,
-  BellOutlined,
   FireOutlined,
   FundOutlined,
   RadarChartOutlined,
@@ -17,16 +16,13 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { getStrategies, runBacktest } from './services/api';
 import { useTheme } from './contexts/ThemeContext';
 import { APP_VERSION } from './generated/version';
-import { buildAppUrl, sanitizeParamsForView } from './utils/researchContext';
+import { buildViewUrlForCurrentState } from './utils/researchContext';
 
 // 懒加载非核心组件，减少初始包大小
 
 
 const AlertCenter = lazy(() => import('./components/AlertCenter'));
 const RealTimePanel = lazy(() => import('./components/RealTimePanel'));
-
-
-const PriceAlerts = lazy(() => import('./components/PriceAlerts'));
 const IndustryDashboard = lazy(() => import('./components/IndustryDashboard'));
 const BacktestDashboard = lazy(() => import('./components/BacktestDashboard'));
 const PricingResearch = lazy(() => import('./components/PricingResearch'));
@@ -50,7 +46,31 @@ const LazyLoadFallback = () => (
 const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
 const VIEW_QUERY_KEY = 'view';
-const VALID_VIEWS = new Set(['backtest', 'realtime', 'industry', 'alerts', 'pricing', 'godsEye', 'workbench']);
+const VALID_VIEWS = new Set(['backtest', 'realtime', 'industry', 'pricing', 'godsEye', 'workbench']);
+
+const readViewStateFromLocation = (search = window.location.search) => {
+  const params = new URLSearchParams(search);
+  const requestedView = params.get(VIEW_QUERY_KEY);
+
+  if (requestedView === 'alerts') {
+    return {
+      currentView: 'realtime',
+      realtimeAuxIntent: `alerts:${Date.now()}`,
+    };
+  }
+
+  if (requestedView && VALID_VIEWS.has(requestedView)) {
+    return {
+      currentView: requestedView,
+      realtimeAuxIntent: null,
+    };
+  }
+
+  return {
+    currentView: 'backtest',
+    realtimeAuxIntent: null,
+  };
+};
 
 function App() {
   const { message } = AntdApp.useApp();
@@ -60,7 +80,8 @@ function App() {
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
-  const [currentView, setCurrentView] = useState('backtest');
+  const [viewState, setViewState] = useState(() => readViewStateFromLocation());
+  const { currentView, realtimeAuxIntent } = viewState;
 
   const loadStrategies = useCallback(async () => {
     try {
@@ -77,11 +98,7 @@ function App() {
 
   useEffect(() => {
     const applyViewFromUrl = () => {
-      const params = new URLSearchParams(window.location.search);
-      const nextView = params.get(VIEW_QUERY_KEY);
-      if (nextView && VALID_VIEWS.has(nextView)) {
-        setCurrentView(nextView);
-      }
+      setViewState(readViewStateFromLocation());
     };
 
     applyViewFromUrl();
@@ -90,19 +107,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    sanitizeParamsForView(params, currentView);
-    const nextUrl = buildAppUrl({
-      currentSearch: `?${params.toString()}`,
-      view: currentView,
-      tab: currentView === 'backtest' ? params.get('tab') : undefined,
-      symbol: params.get('symbol'),
-      symbols: params.get('symbols'),
-      template: params.get('template'),
-      action: params.get('action'),
-      source: params.get('source'),
-      note: params.get('note'),
-    });
+    const nextUrl = buildViewUrlForCurrentState(currentView);
     window.history.replaceState(null, '', nextUrl);
   }, [currentView]);
 
@@ -156,12 +161,6 @@ function App() {
       icon: <FireOutlined />,
       label: '行业热度',
     },
-
-    {
-      key: 'alerts',
-      icon: <BellOutlined />,
-      label: '价格提醒',
-    },
     {
       key: 'pricing',
       icon: <FundOutlined />,
@@ -179,17 +178,22 @@ function App() {
     }
   ];
 
+  const setCurrentView = useCallback((nextView) => {
+    setViewState((prev) => ({
+      ...prev,
+      currentView: nextView,
+      realtimeAuxIntent: nextView === 'realtime' ? prev.realtimeAuxIntent : null,
+    }));
+  }, []);
+
   const renderContent = () => {
     switch (currentView) {
 
       case 'realtime':
-        return <Suspense fallback={<LazyLoadFallback />}><RealTimePanel /></Suspense>;
+        return <Suspense fallback={<LazyLoadFallback />}><RealTimePanel openAlertsSignal={realtimeAuxIntent} /></Suspense>;
 
       case 'industry':
         return <Suspense fallback={<LazyLoadFallback />}><IndustryDashboard /></Suspense>;
-
-      case 'alerts':
-        return <Suspense fallback={<LazyLoadFallback />}><PriceAlerts /></Suspense>;
 
       case 'pricing':
         return <Suspense fallback={<LazyLoadFallback />}><PricingResearch /></Suspense>;
@@ -268,7 +272,9 @@ function App() {
               mode="inline"
               selectedKeys={[currentView]}
               items={menuItems}
-              onClick={({ key }) => setCurrentView(key)}
+              onClick={({ key }) => {
+                setCurrentView(key);
+              }}
               style={{
                 height: '100%',
                 borderRight: 0,

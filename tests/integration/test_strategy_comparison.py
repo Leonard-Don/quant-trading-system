@@ -73,11 +73,11 @@ def test_compare_strategies(mock_run_backtest_pipeline, mock_data_manager, mock_
     mock_run_backtest_pipeline.side_effect = pipeline_side_effect
 
     # Call API
-    response = client.get(
+    response = client.post(
         "/backtest/compare",
-        params={
+        json={
             "symbol": "AAPL",
-            "strategies": "moving_average,rsi",
+            "strategies": ["moving_average", "rsi"],
             "start_date": "2023-01-01",
             "end_date": "2023-12-31",
             "initial_capital": 50000,

@@ -14,10 +14,49 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
             turnover: 4.2,
             construction_mode: 'equal_weight',
             concentration_level: 'moderate',
+            liquidity_level: 'watch',
+            max_adv_usage: 0.031,
+            margin_level: 'elevated',
+            margin_utilization: 1.12,
+            gross_leverage: 1.85,
+            beta_level: 'watch',
+            calendar_level: 'watch',
             max_batch_fraction: 0.45,
             lot_efficiency: 0.96,
             suggested_rebalance: 'weekly',
             stress_test_flag: 'high',
+          },
+          data_alignment: {
+            tradable_day_ratio: 0.82,
+            calendar_diagnostics: { max_mismatch_ratio: 0.14 },
+          },
+          hedge_portfolio: {
+            beta_neutrality: {
+              beta: 1.22,
+              beta_gap: 0.22,
+            },
+          },
+          research_input: {
+            macro: {
+              macro_score: 0.72,
+              macro_score_delta: 0.16,
+              macro_signal_changed: true,
+              policy_source_health: {
+                label: 'healthy',
+                reason: '主要政策源正文覆盖稳定',
+                avg_full_text_ratio: 0.88,
+              },
+              resonance: {
+                label: 'fading_cluster',
+                reason: '多个因子同步衰减，共振正在减弱',
+              },
+            },
+            alt_data: {
+              top_categories: [
+                { category: 'policy', momentum: 'strengthening' },
+                { category: 'customs', momentum: 'weakening' },
+              ],
+            },
           },
           execution_plan: {
             route_count: 2,
@@ -26,10 +65,24 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
             venue_allocation: [{ key: 'US_ETF' }],
           },
           template_meta: {
+            base_recommendation_tier: '重点跟踪',
             recommendation_tier: '重点跟踪',
+            base_recommendation_score: 3.1,
+            recommendation_score: 3.1,
+            ranking_penalty: 0,
+            ranking_penalty_reason: '',
+            selection_quality: {
+              label: 'original',
+              reason: '原始推荐强度保留',
+            },
             theme: 'Old theme',
+            resonance_label: 'fading_cluster',
+            resonance_reason: '多个因子同步衰减，共振正在减弱',
             allocation_mode: 'template_base',
             bias_summary: '多头增配 XLE',
+            bias_scale: 1,
+            bias_quality_label: 'full',
+            bias_quality_reason: '主要政策源正文覆盖稳定',
             dominant_drivers: [{ key: 'baseload_support', label: '基建/基荷支撑', value: 0.2 }],
             driver_summary: [
               { key: 'baseload_support', label: '基建/基荷支撑', value: 0.2 },
@@ -37,9 +90,32 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
             ],
             theme_core: 'XLE+4.0pp',
             theme_support: 'IGV',
+            core_leg_pressure: {
+              affected: false,
+              symbol: '',
+              compression_delta: 0,
+              summary: '',
+            },
           },
           allocation_overlay: {
+            selection_quality: {
+              label: 'original',
+              base_recommendation_score: 3.1,
+              effective_recommendation_score: 3.1,
+              base_recommendation_tier: '重点跟踪',
+              effective_recommendation_tier: '重点跟踪',
+              ranking_penalty: 0,
+              reason: '原始推荐强度保留',
+            },
             max_delta_weight: 0.04,
+            bias_compression_effect: 0,
+            compression_summary: { compression_ratio: 0 },
+            compressed_assets: [],
+            rows: [],
+          },
+          constraint_overlay: {
+            binding_count: 1,
+            max_delta_weight: 0.03,
           },
         },
       },
@@ -53,10 +129,49 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
             turnover: 3.8,
             construction_mode: 'ols_hedge',
             concentration_level: 'balanced',
+            liquidity_level: 'comfortable',
+            max_adv_usage: 0.014,
+            margin_level: 'manageable',
+            margin_utilization: 0.86,
+            gross_leverage: 1.42,
+            beta_level: 'balanced',
+            calendar_level: 'aligned',
             max_batch_fraction: 0.33,
             lot_efficiency: 0.992,
             suggested_rebalance: 'biweekly',
             stress_test_flag: 'moderate',
+          },
+          data_alignment: {
+            tradable_day_ratio: 0.9,
+            calendar_diagnostics: { max_mismatch_ratio: 0.03 },
+          },
+          hedge_portfolio: {
+            beta_neutrality: {
+              beta: 1.04,
+              beta_gap: 0.04,
+            },
+          },
+          research_input: {
+            macro: {
+              macro_score: 0.49,
+              macro_score_delta: 0.04,
+              macro_signal_changed: false,
+              policy_source_health: {
+                label: 'fragile',
+                reason: '正文抓取脆弱源 ndrc',
+                avg_full_text_ratio: 0.43,
+              },
+              resonance: {
+                label: 'bullish_cluster',
+                reason: '多个宏观因子同时强化正向扭曲，形成上行共振',
+              },
+            },
+            alt_data: {
+              top_categories: [
+                { category: 'policy', momentum: 'stable' },
+                { category: 'inventory', momentum: 'strengthening' },
+              ],
+            },
           },
           execution_plan: {
             route_count: 3,
@@ -65,10 +180,24 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
             venue_allocation: [{ key: 'COMEX_CME' }, { key: 'US_ETF' }],
           },
           template_meta: {
+            base_recommendation_tier: '优先部署',
             recommendation_tier: '优先部署',
+            base_recommendation_score: 3.45,
+            recommendation_score: 2.88,
+            ranking_penalty: 0.57,
+            ranking_penalty_reason: '核心腿 XLE 已进入压缩焦点，主题排序自动降级',
+            selection_quality: {
+              label: 'auto_downgraded',
+              reason: '核心腿 XLE 已进入压缩焦点，主题排序自动降级',
+            },
             theme: 'New theme',
+            resonance_label: 'bullish_cluster',
+            resonance_reason: '多个宏观因子同时强化正向扭曲，形成上行共振',
             allocation_mode: 'macro_bias',
             bias_summary: '多头增配 XLE，空头增配 IGV',
+            bias_scale: 0.55,
+            bias_quality_label: 'compressed',
+            bias_quality_reason: '正文抓取脆弱源 ndrc，宏观偏置已收缩',
             dominant_drivers: [{ key: 'growth_pressure', label: '成长端估值压力', value: 0.32 }],
             driver_summary: [
               { key: 'baseload_support', label: '基建/基荷支撑', value: 0.18 },
@@ -76,9 +205,35 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
             ],
             theme_core: 'XLE+8.5pp',
             theme_support: 'SOXX',
+            core_leg_pressure: {
+              affected: true,
+              symbol: 'XLE',
+              compression_delta: 0.031,
+              summary: 'XLE 3.10pp',
+            },
           },
           allocation_overlay: {
+            selection_quality: {
+              label: 'auto_downgraded',
+              base_recommendation_score: 3.45,
+              effective_recommendation_score: 2.88,
+              base_recommendation_tier: '优先部署',
+              effective_recommendation_tier: '优先部署',
+              ranking_penalty: 0.57,
+              reason: '核心腿 XLE 已进入压缩焦点，主题排序自动降级',
+            },
             max_delta_weight: 0.085,
+            bias_compression_effect: 3.1,
+            compression_summary: { compression_ratio: 0.2627 },
+            compressed_assets: ['XLE', 'IGV'],
+            rows: [
+              { symbol: 'XLE', compression_delta: 0.031 },
+              { symbol: 'IGV', compression_delta: 0.018 },
+            ],
+          },
+          constraint_overlay: {
+            binding_count: 3,
+            max_delta_weight: 0.07,
           },
         },
       }
@@ -90,13 +245,49 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
     expect(comparison.rows.some((row) => row.label === 'Max Batch')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Concentration')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Lot Efficiency')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Liquidity')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Max ADV Usage')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Margin')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Margin Utilization')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Gross Leverage')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Beta')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Beta Value')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Calendar')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Calendar Mismatch')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Macro Score')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Macro Δ')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Macro Resonance')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Policy Source')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Policy Full Text')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Policy Source Reason')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Macro Signal Change')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Alt Trend')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Rebalance')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Stress Flag')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Recommendation')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Base Recommendation')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Effective Recommendation')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Base Tier')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Ranking Penalty')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Selection Quality')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Selection Quality Reason')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Ranking Penalty Reason')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Theme')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Resonance Reason')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Allocation Mode')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Bias Summary')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Bias Scale')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Bias Quality')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Bias Quality Reason')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Bias Compression')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Bias Compression Ratio')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Compressed Assets')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Top Compressed')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Core Leg Pressure')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Core Leg Focus')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Max Weight Shift')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Constraint Bindings')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Constraint Shift')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Dominant Driver')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Theme Core')).toBe(true);
     expect(comparison.rows.some((row) => row.label.startsWith('Driver: '))).toBe(true);

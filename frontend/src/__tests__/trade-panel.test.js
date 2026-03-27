@@ -11,6 +11,7 @@ import {
   executeTrade,
   resetAccount,
 } from '../services/api';
+import { buildAlertDraftFromTradePlan } from '../utils/realtimeSignals';
 
 const mockListeners = new Map();
 const createDeferred = () => {
@@ -50,6 +51,7 @@ jest.mock('@ant-design/icons', () => {
     ReloadOutlined: MockIcon,
     ArrowUpOutlined: MockIcon,
     ArrowDownOutlined: MockIcon,
+    BellOutlined: MockIcon,
   };
 });
 
@@ -81,6 +83,7 @@ jest.mock('antd', () => {
   );
   const Tabs = ({ items = [], activeKey, defaultActiveKey, onChange }) => {
     const currentKey = activeKey || defaultActiveKey || items[0]?.key;
+    const activeItem = items.find((item) => item.key === currentKey);
     return (
       <div>
         {items.map((item) => (
@@ -88,7 +91,7 @@ jest.mock('antd', () => {
             {item.label}
           </button>
         ))}
-        {items.find((item) => item.key === currentKey)?.children}
+        {Reflect.get(activeItem || {}, 'children')}
       </div>
     );
   };
@@ -162,15 +165,13 @@ describe('TradePanel', () => {
   });
 
   test('loads single-symbol realtime quote for the active symbol', async () => {
-    await act(async () => {
-      render(
-        <TradePanel
-          visible
-          defaultSymbol="^GSPC"
-          onClose={jest.fn()}
-        />
-      );
-    });
+    render(
+      <TradePanel
+        visible
+        defaultSymbol="^GSPC"
+        onClose={jest.fn()}
+      />
+    );
 
     await waitFor(() => {
       expect(getRealtimeQuote).toHaveBeenCalledWith('^GSPC');
@@ -180,14 +181,16 @@ describe('TradePanel', () => {
   });
 
   test('hydrates portfolio and history from the trade websocket snapshot', async () => {
-    await act(async () => {
-      render(
-        <TradePanel
-          visible
-          defaultSymbol="AAPL"
-          onClose={jest.fn()}
-        />
-      );
+    render(
+      <TradePanel
+        visible
+        defaultSymbol="AAPL"
+        onClose={jest.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(getRealtimeQuote).toHaveBeenCalledWith('AAPL');
     });
 
     await act(async () => {
@@ -228,21 +231,19 @@ describe('TradePanel', () => {
 
     await waitFor(() => {
       expect(screen.getByText('交易次数')).toBeInTheDocument();
-      expect(screen.getAllByTestId('table')[0]).toHaveTextContent('AAPL');
     });
+    expect(screen.getAllByTestId('table')[0]).toHaveTextContent('AAPL');
   });
 
   test('resets order state when reopening for another symbol', async () => {
     let rerender;
-    await act(async () => {
-      ({ rerender } = render(
-        <TradePanel
-          visible
-          defaultSymbol="AAPL"
-          onClose={jest.fn()}
-        />
-      ));
-    });
+    ({ rerender } = render(
+      <TradePanel
+        visible
+        defaultSymbol="AAPL"
+        onClose={jest.fn()}
+      />
+    ));
 
     await waitFor(() => {
       expect(getRealtimeQuote).toHaveBeenCalledWith('AAPL');
@@ -252,29 +253,23 @@ describe('TradePanel', () => {
     const priceInput = screen.getByLabelText('市价 Market Price');
     fireEvent.change(quantityInput, { target: { value: '25' } });
     fireEvent.change(priceInput, { target: { value: '101.5' } });
-    await act(async () => {
-      screen.getByRole('button', { name: '卖出' }).click();
-    });
+    fireEvent.click(screen.getByRole('button', { name: '卖出' }));
 
-    await act(async () => {
-      rerender(
-        <TradePanel
-          visible={false}
-          defaultSymbol="AAPL"
-          onClose={jest.fn()}
-        />
-      );
-    });
+    rerender(
+      <TradePanel
+        visible={false}
+        defaultSymbol="AAPL"
+        onClose={jest.fn()}
+      />
+    );
 
-    await act(async () => {
-      rerender(
-        <TradePanel
-          visible
-          defaultSymbol="MSFT"
-          onClose={jest.fn()}
-        />
-      );
-    });
+    rerender(
+      <TradePanel
+        visible
+        defaultSymbol="MSFT"
+        onClose={jest.fn()}
+      />
+    );
 
     expect(screen.getByText('MSFT 买入计划')).toBeInTheDocument();
     expect(screen.getByText('准备买入')).toBeInTheDocument();
@@ -303,25 +298,21 @@ describe('TradePanel', () => {
       });
 
     let rerender;
-    await act(async () => {
-      ({ rerender } = render(
-        <TradePanel
-          visible
-          defaultSymbol="AAPL"
-          onClose={jest.fn()}
-        />
-      ));
-    });
+    ({ rerender } = render(
+      <TradePanel
+        visible
+        defaultSymbol="AAPL"
+        onClose={jest.fn()}
+      />
+    ));
 
-    await act(async () => {
-      rerender(
-        <TradePanel
-          visible
-          defaultSymbol="MSFT"
-          onClose={jest.fn()}
-        />
-      );
-    });
+    rerender(
+      <TradePanel
+        visible
+        defaultSymbol="MSFT"
+        onClose={jest.fn()}
+      />
+    );
 
     await act(async () => {
       msftRequest.resolve({
@@ -357,5 +348,79 @@ describe('TradePanel', () => {
 
     expect(screen.queryByText('参考市价 $999.99')).not.toBeInTheDocument();
     expect(screen.getByText('参考市价 $412.34')).toBeInTheDocument();
+  });
+
+  test('hydrates the order form from an anomaly trade plan draft', async () => {
+    render(
+      <TradePanel
+        visible
+        defaultSymbol="NVDA"
+        planDraft={{
+          symbol: 'NVDA',
+          action: 'BUY',
+          quantity: 25,
+          limitPrice: 920.16,
+          suggestedEntry: 920.16,
+          stopLoss: 906.36,
+          takeProfit: 947.76,
+          sourceTitle: '强势拉升',
+          sourceDescription: 'NVDA 当前涨幅 3.20%，处于盘中强势区间。',
+          note: '由异动雷达自动生成，适合先做纸面进场推演。',
+        }}
+        onClose={jest.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(getRealtimeQuote).toHaveBeenCalledWith('NVDA');
+    });
+
+    expect(screen.getByText('强势拉升')).toBeInTheDocument();
+    expect(screen.getByText('建议数量 25')).toBeInTheDocument();
+    expect(screen.getByText('止损参考')).toBeInTheDocument();
+    expect(screen.getByText('$906.36')).toBeInTheDocument();
+    expect(screen.getByText('$947.76')).toBeInTheDocument();
+    expect(screen.getByText('顺势进场草稿')).toBeInTheDocument();
+
+    const quantityInput = screen.getByLabelText('input-number');
+    const priceInput = screen.getByLabelText('市价 Market Price');
+    expect(quantityInput).toHaveValue('25');
+    expect(priceInput).toHaveValue('920.16');
+  });
+
+  test('emits alert drafts from the active trade plan', async () => {
+    const onCreateAlertFromPlan = jest.fn();
+    const planDraft = {
+      symbol: 'NVDA',
+      action: 'BUY',
+      quantity: 25,
+      limitPrice: 920.16,
+      suggestedEntry: 920.16,
+      stopLoss: 906.36,
+      takeProfit: 947.76,
+      sourceTitle: '强势拉升',
+      sourceDescription: 'NVDA 当前涨幅 3.20%，处于盘中强势区间。',
+      note: '由异动雷达自动生成，适合先做纸面进场推演。',
+    };
+
+    render(
+      <TradePanel
+        visible
+        defaultSymbol="NVDA"
+        planDraft={planDraft}
+        onCreateAlertFromPlan={onCreateAlertFromPlan}
+        onClose={jest.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(getRealtimeQuote).toHaveBeenCalledWith('NVDA');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '转止损提醒' }));
+
+    expect(onCreateAlertFromPlan).toHaveBeenCalledWith(
+      buildAlertDraftFromTradePlan(planDraft, 'stop')
+    );
   });
 });

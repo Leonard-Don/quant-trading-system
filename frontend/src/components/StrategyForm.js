@@ -13,12 +13,14 @@ import {
   Space,
   Modal,
   Tag,
-  Popconfirm
+  Popconfirm,
+  Alert,
 } from 'antd';
 import { PlayCircleOutlined, SaveOutlined, FolderOpenOutlined, DeleteOutlined, DownOutlined } from '@ant-design/icons';
 import moment from 'moment';
-import { getStrategyName, getStrategyParameterLabel } from '../constants/strategies';
+import { getStrategyName, getStrategyParameterLabel, getStrategyDetails } from '../constants/strategies';
 import { useSafeMessageApi } from '../utils/messageApi';
+import { saveBacktestWorkspaceDraft } from '../utils/backtestWorkspace';
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
@@ -32,7 +34,8 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
   const [savedConfigs, setSavedConfigs] = useState([]);
   const [saveModalVisible, setSaveModalVisible] = useState(false);
   const [configName, setConfigName] = useState('');
-  const watchedValues = Form.useWatch([], form) || {};
+  const watchedValues = Form.useWatch([], form);
+  const selectedStrategyDetails = selectedStrategy ? getStrategyDetails(selectedStrategy.name) : null;
 
   // Load saved configs from localStorage on mount
   useEffect(() => {
@@ -59,6 +62,28 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       }
     }
   }, [selectedStrategy, strategies]);
+
+  useEffect(() => {
+    if (!watchedValues?.symbol && !watchedValues?.strategy && !selectedStrategy) {
+      return;
+    }
+
+    saveBacktestWorkspaceDraft({
+      symbol: watchedValues?.symbol || 'AAPL',
+      strategy: watchedValues?.strategy || selectedStrategy?.name || '',
+      dateRange: watchedValues?.dateRange
+        ? [
+            watchedValues.dateRange[0]?.format(DATE_FORMAT),
+            watchedValues.dateRange[1]?.format(DATE_FORMAT),
+          ]
+        : null,
+      initial_capital: watchedValues?.initial_capital ?? 10000,
+      commission: watchedValues?.commission ?? 0.1,
+      slippage: watchedValues?.slippage ?? 0.1,
+      parameters: strategyParams,
+      updated_at: new Date().toISOString(),
+    });
+  }, [selectedStrategy, strategyParams, watchedValues]);
 
   // Save current config
   const saveConfig = () => {
@@ -176,19 +201,23 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
     },
     {
       label: '回测区间',
-      value: watchedValues.dateRange
+      value: watchedValues?.dateRange
         ? `${watchedValues.dateRange[0]?.format('YYYY-MM-DD')} ~ ${watchedValues.dateRange[1]?.format('YYYY-MM-DD')}`
         : '最近一年',
     },
     {
       label: '初始资金',
-      value: watchedValues.initial_capital ? `$${Number(watchedValues.initial_capital).toLocaleString()}` : '$10,000',
+      value: watchedValues?.initial_capital ? `$${Number(watchedValues.initial_capital).toLocaleString()}` : '$10,000',
     },
     {
       label: '成本设置',
-      value: `${watchedValues.commission ?? 0.1}% / ${watchedValues.slippage ?? 0.1}%`,
+      value: `${watchedValues?.commission ?? 0.1}% / ${watchedValues?.slippage ?? 0.1}%`,
     },
   ];
+  const runBriefSymbol = watchedValues?.symbol || 'AAPL';
+  const runBriefCapital = Number(watchedValues?.initial_capital ?? 10000).toLocaleString();
+  const runBriefCommission = watchedValues?.commission ?? 0.1;
+  const runBriefSlippage = watchedValues?.slippage ?? 0.1;
 
   return (
     <Card
@@ -345,6 +374,27 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
           </Col>
 
           <Col xs={24} xl={9}>
+            {selectedStrategyDetails ? (
+              <div className="workspace-section">
+                <div className="workspace-section__header">
+                  <div>
+                    <div className="workspace-section__title">策略详情</div>
+                    <div className="workspace-section__description">先确认策略逻辑和适用行情，再决定是否值得继续调参与回测。</div>
+                  </div>
+                </div>
+                <Alert
+                  type="info"
+                  showIcon
+                  message={`${getStrategyName(selectedStrategy.name)} · ${selectedStrategyDetails.style}`}
+                  description={(
+                    <div>
+                      <div style={{ marginBottom: 6 }}>{selectedStrategyDetails.summary}</div>
+                      <div style={{ color: 'var(--text-muted)' }}>{selectedStrategyDetails.marketFit}</div>
+                    </div>
+                  )}
+                />
+              </div>
+            ) : null}
             {selectedStrategy && selectedStrategy.parameters &&
               Object.keys(selectedStrategy.parameters).length > 0 && (
                 <div className="workspace-section">
@@ -384,7 +434,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
         <div className="workspace-run-brief">
           <span className="workspace-run-brief__label">本次运行摘要</span>
           <span className="workspace-run-brief__value">
-            {`${watchedValues.symbol || 'AAPL'} · ${selectedStrategy ? getStrategyName(selectedStrategy.name) : '待选策略'} · ${(watchedValues.initial_capital || 10000).toLocaleString()} 美元 · 手续费 ${watchedValues.commission ?? 0.1}% · 滑点 ${watchedValues.slippage ?? 0.1}%`}
+            {`${runBriefSymbol} · ${selectedStrategy ? getStrategyName(selectedStrategy.name) : '待选策略'} · ${runBriefCapital} 美元 · 手续费 ${runBriefCommission}% · 滑点 ${runBriefSlippage}%`}
           </span>
         </div>
 

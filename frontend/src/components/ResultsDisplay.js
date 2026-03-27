@@ -9,7 +9,8 @@ import {
   Button,
   Space,
   Tag,
-  Dropdown
+  Dropdown,
+  Alert,
 } from 'antd';
 import {
   CopyOutlined,
@@ -25,11 +26,14 @@ import {
   RiseOutlined,
   FallOutlined,
   TransactionOutlined,
-  ClockCircleOutlined
+  ClockCircleOutlined,
+  DeploymentUnitOutlined
 } from '@ant-design/icons';
 import { downloadBacktestReport } from '../services/api';
+import { getStrategyDetails, getStrategyName } from '../constants/strategies';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
 import { normalizeBacktestResult } from '../utils/backtest';
+import { buildSignalExplanation } from '../utils/backtestResearch';
 import { useSafeMessageApi } from '../utils/messageApi';
 import PerformanceChart from './PerformanceChart';
 import DrawdownChart from './DrawdownChart';
@@ -37,10 +41,18 @@ import MonthlyHeatmap from './MonthlyHeatmap';
 import RiskRadar from './RiskRadar';
 import ReturnHistogram from './ReturnHistogram';
 
-const ResultsDisplay = ({ results, onOpenHistoryRecord }) => {
+const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperiment }) => {
   const message = useSafeMessageApi();
   const [activeTab, setActiveTab] = useState('overview');
   const normalizedResults = useMemo(() => normalizeBacktestResult(results), [results]);
+  const strategyDetails = useMemo(
+    () => getStrategyDetails(normalizedResults.strategy),
+    [normalizedResults.strategy]
+  );
+  const signalExplanation = useMemo(
+    () => buildSignalExplanation(normalizedResults),
+    [normalizedResults]
+  );
   const trades = normalizedResults.trades || [];
   const portfolioHistory = normalizedResults.portfolio_history || normalizedResults.portfolio || [];
   const primaryMetrics = [
@@ -474,6 +486,25 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord }) => {
               </Col>
             ))}
           </Row>
+
+          {signalExplanation.length ? (
+            <div className="workspace-section">
+              <div className="workspace-section__header">
+                <div>
+                  <div className="workspace-section__title">信号解释</div>
+                  <div className="workspace-section__description">把结果翻译成更容易复盘的结论，帮助判断策略为什么赚钱、亏钱或还不够稳。</div>
+                </div>
+              </div>
+              <div className="summary-strip summary-strip--stack">
+                {signalExplanation.map((item, index) => (
+                  <div key={`${index + 1}-${item.slice(0, 12)}`} className="summary-strip__item">
+                    <span className="summary-strip__label">结论 {index + 1}</span>
+                    <span className="summary-strip__value" style={{ whiteSpace: 'normal' }}>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
       )
     },
@@ -597,6 +628,13 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord }) => {
                 查看历史记录
               </Button>
             ) : null}
+            <Button
+              icon={<DeploymentUnitOutlined />}
+              onClick={() => onContinueAdvancedExperiment?.()}
+              size="small"
+            >
+              继续做高级实验
+            </Button>
             <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
               <Button icon={<DownloadOutlined />} size="small">
                 导出报告
@@ -616,7 +654,7 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord }) => {
         <div className="summary-strip summary-strip--compact">
           <div className="summary-strip__item">
             <span className="summary-strip__label">策略</span>
-            <span className="summary-strip__value">{normalizedResults.strategy || '当前回测'}</span>
+            <span className="summary-strip__value">{getStrategyName(normalizedResults.strategy)}</span>
           </div>
           <div className="summary-strip__item">
             <span className="summary-strip__label">标的</span>
@@ -627,6 +665,13 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord }) => {
             <span className="summary-strip__value">{Number(normalizedResults.total_return || 0) >= 0 ? '收益为正' : '收益承压'}</span>
           </div>
         </div>
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`${getStrategyName(normalizedResults.strategy)} · ${strategyDetails.style}`}
+          description={`${strategyDetails.summary} ${strategyDetails.marketFit}`}
+        />
         <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
       </Card>
     </div>

@@ -4,6 +4,7 @@ const TAB_QUERY_KEY = 'tab';
 const RESEARCH_KEYS = ['symbol', 'symbols', 'template', 'action', 'source', 'note'];
 const PRICING_KEYS = ['symbol', 'symbols', 'action', 'source', 'note'];
 const CROSS_MARKET_KEYS = ['template', 'action', 'source', 'note'];
+const WORKBENCH_KEYS = ['workbench_refresh', 'workbench_type', 'workbench_source', 'workbench_reason', 'task'];
 
 export const readResearchContext = (search = window.location.search) => {
   const params = new URLSearchParams(search);
@@ -19,6 +20,11 @@ export const readResearchContext = (search = window.location.search) => {
     record: params.get('record') || '',
     historySymbol: params.get('history_symbol') || '',
     historyStrategy: params.get('history_strategy') || '',
+    workbenchRefresh: params.get('workbench_refresh') || '',
+    workbenchType: params.get('workbench_type') || '',
+    workbenchSource: params.get('workbench_source') || '',
+    workbenchReason: params.get('workbench_reason') || '',
+    task: params.get('task') || '',
   };
 };
 
@@ -59,11 +65,21 @@ export const sanitizeParamsForView = (params, view) => {
     return params;
   }
 
+  if (view === 'workbench') {
+    params.delete(TAB_QUERY_KEY);
+    params.delete('record');
+    params.delete('history_symbol');
+    params.delete('history_strategy');
+    RESEARCH_KEYS.forEach((key) => params.delete(key));
+    return params;
+  }
+
   params.delete(TAB_QUERY_KEY);
   params.delete('record');
   params.delete('history_symbol');
   params.delete('history_strategy');
   RESEARCH_KEYS.forEach((key) => params.delete(key));
+  WORKBENCH_KEYS.forEach((key) => params.delete(key));
   return params;
 };
 
@@ -81,6 +97,11 @@ export const buildAppUrl = ({
   record = undefined,
   historySymbol = undefined,
   historyStrategy = undefined,
+  workbenchRefresh = undefined,
+  workbenchType = undefined,
+  workbenchSource = undefined,
+  workbenchReason = undefined,
+  task = undefined,
 } = {}) => {
   const params = new URLSearchParams(currentSearch);
   if (view === 'backtest') {
@@ -104,11 +125,46 @@ export const buildAppUrl = ({
   setParam(params, 'record', record);
   setParam(params, 'history_symbol', historySymbol);
   setParam(params, 'history_strategy', historyStrategy);
+  setParam(params, 'workbench_refresh', workbenchRefresh);
+  setParam(params, 'workbench_type', workbenchType);
+  setParam(params, 'workbench_source', workbenchSource);
+  setParam(params, 'workbench_reason', workbenchReason);
+  setParam(params, 'task', task);
 
   sanitizeParamsForView(params, view);
 
   const query = params.toString();
   return `${pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`;
+};
+
+export const buildViewUrlForCurrentState = (
+  view,
+  currentSearch = window.location.search,
+  pathname = window.location.pathname,
+) => {
+  const params = new URLSearchParams(currentSearch);
+  sanitizeParamsForView(params, view);
+
+  return buildAppUrl({
+    pathname,
+    currentSearch: `?${params.toString()}`,
+    view,
+    tab: view === 'backtest' ? params.get(TAB_QUERY_KEY) : undefined,
+    symbol: params.get('symbol'),
+    symbols: params.get('symbols'),
+    template: params.get('template'),
+    action: params.get('action'),
+    source: params.get('source'),
+    note: params.get('note'),
+    record: params.get('record'),
+    historySymbol: params.get('history_symbol'),
+    historyStrategy: params.get('history_strategy'),
+    workbenchRefresh: params.get('workbench_refresh'),
+    workbenchType: params.get('workbench_type'),
+    workbenchSource: params.get('workbench_source'),
+    workbenchReason: params.get('workbench_reason'),
+    task: params.get('task'),
+  });
 };
 
 export const buildPricingLink = (symbol, source = 'godeye', note = '', currentSearch = window.location.search) =>
@@ -138,6 +194,26 @@ export const buildGodEyeLink = (currentSearch = window.location.search) =>
     view: 'godsEye',
   });
 
+export const buildWorkbenchLink = (
+  {
+    refresh = '',
+    type = '',
+    sourceFilter = '',
+    reason = '',
+    taskId = '',
+  } = {},
+  currentSearch = window.location.search,
+) =>
+  buildAppUrl({
+    currentSearch,
+    view: 'workbench',
+    workbenchRefresh: refresh,
+    workbenchType: type,
+    workbenchSource: sourceFilter,
+    workbenchReason: reason,
+    task: taskId,
+  });
+
 export const navigateToAppUrl = (url) => {
   window.history.pushState(null, '', url);
   window.dispatchEvent(new PopStateEvent('popstate'));
@@ -164,6 +240,22 @@ export const navigateByResearchAction = (action, currentSearch = window.location
 
   if (action.target === 'godsEye') {
     navigateToAppUrl(buildGodEyeLink(currentSearch));
+    return;
+  }
+
+  if (action.target === 'workbench') {
+    navigateToAppUrl(
+      buildWorkbenchLink(
+        {
+          refresh: action.refresh,
+          type: action.type,
+          sourceFilter: action.sourceFilter,
+          reason: action.reason,
+          taskId: action.taskId,
+        },
+        currentSearch
+      )
+    );
   }
 };
 

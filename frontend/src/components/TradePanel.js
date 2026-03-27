@@ -20,10 +20,12 @@ import {
     HistoryOutlined,
     ReloadOutlined,
     ArrowUpOutlined,
-    ArrowDownOutlined
+    ArrowDownOutlined,
+    BellOutlined
 } from '@ant-design/icons';
 import { getPortfolio, executeTrade, getTradeHistory, getRealtimeQuote, resetAccount } from '../services/api';
 import tradeWebSocketService from '../services/tradeWebsocket';
+import { buildAlertDraftFromTradePlan } from '../utils/realtimeSignals';
 
 const { Text } = Typography;
 const formatCurrency = (value) => `$${Number(value || 0).toFixed(2)}`;
@@ -50,7 +52,7 @@ const formatTimestamp = (value) => {
     return date.toLocaleTimeString();
 };
 
-const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
+const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = null, onCreateAlertFromPlan = null }) => {
     const [portfolio, setPortfolio] = useState(null);
     const [history, setHistory] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -115,13 +117,13 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
 
     useEffect(() => {
         if (visible) {
-            setSymbol(defaultSymbol || 'AAPL');
-            setAction('BUY');
-            setQuantity(100);
-            setPrice(null);
+            setSymbol(planDraft?.symbol || defaultSymbol || 'AAPL');
+            setAction(planDraft?.action || 'BUY');
+            setQuantity(planDraft?.quantity || 100);
+            setPrice(planDraft?.limitPrice ?? null);
             setCurrentQuote(null);
         }
-    }, [visible, defaultSymbol]);
+    }, [visible, defaultSymbol, planDraft]);
 
     useEffect(() => {
         if (!visible) {
@@ -229,6 +231,17 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
             }
         } catch (error) {
             message.error('重置失败');
+        }
+    };
+
+    const handleCreateAlert = (target) => {
+        if (!planDraft || !onCreateAlertFromPlan) {
+            return;
+        }
+
+        const draft = buildAlertDraftFromTradePlan(planDraft, target);
+        if (draft) {
+            onCreateAlertFromPlan(draft);
         }
     };
 
@@ -393,6 +406,72 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess }) => {
                         </div>
                     </div>
                 </Card>
+
+                {planDraft ? (
+                    <Card
+                        className="trade-panel-card"
+                        style={{ background: 'linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 10%, var(--bg-secondary) 90%) 0%, color-mix(in srgb, var(--bg-secondary) 94%, white 6%) 100%)' }}
+                    >
+                        <div style={{ display: 'grid', gap: 14 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                                <div>
+                                    <div style={{ fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                                        Trading Draft
+                                    </div>
+                                    <div style={{ marginTop: 6, fontSize: 18, fontWeight: 800, color: 'var(--text-primary)' }}>
+                                        {planDraft.sourceTitle || '异动交易计划'}
+                                    </div>
+                                    <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.7, color: 'var(--text-secondary)' }}>
+                                        {planDraft.sourceDescription || planDraft.note || '已根据当前异动自动带入交易草稿参数。'}
+                                    </div>
+                                </div>
+                                <Space wrap>
+                                    <Tag color={action === 'BUY' ? 'green' : 'volcano'} style={{ borderRadius: 999, paddingInline: 10 }}>
+                                        {action === 'BUY' ? '顺势进场草稿' : '风险收缩草稿'}
+                                    </Tag>
+                                    <Tag color="blue" style={{ borderRadius: 999, paddingInline: 10 }}>
+                                        建议数量 {quantity}
+                                    </Tag>
+                                </Space>
+                            </div>
+
+                            {onCreateAlertFromPlan ? (
+                                <Space wrap>
+                                    <Button icon={<BellOutlined />} onClick={() => handleCreateAlert('entry')}>
+                                        转入场提醒
+                                    </Button>
+                                    <Button icon={<BellOutlined />} onClick={() => handleCreateAlert('stop')}>
+                                        转止损提醒
+                                    </Button>
+                                    <Button icon={<BellOutlined />} onClick={() => handleCreateAlert('take')}>
+                                        转止盈提醒
+                                    </Button>
+                                </Space>
+                            ) : null}
+
+                            <div className="trade-panel-quote-grid">
+                                <div className="trade-panel-quote-stat">
+                                    <div className="trade-panel-quote-stat__label">建议入场</div>
+                                    <div className="trade-panel-quote-stat__value">{formatOptionalCurrency(planDraft.suggestedEntry)}</div>
+                                </div>
+                                <div className="trade-panel-quote-stat">
+                                    <div className="trade-panel-quote-stat__label">止损参考</div>
+                                    <div className="trade-panel-quote-stat__value">{formatOptionalCurrency(planDraft.stopLoss)}</div>
+                                </div>
+                                <div className="trade-panel-quote-stat">
+                                    <div className="trade-panel-quote-stat__label">止盈参考</div>
+                                    <div className="trade-panel-quote-stat__value">{formatOptionalCurrency(planDraft.takeProfit)}</div>
+                                </div>
+                                <div className="trade-panel-quote-stat">
+                                    <div className="trade-panel-quote-stat__label">计划说明</div>
+                                    <div className="trade-panel-quote-stat__value" style={{ fontSize: 13, lineHeight: 1.5 }}>
+                                        {planDraft.note || '已自动生成一份可编辑的交易计划草稿。'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </Card>
+                ) : null}
 
                 <Row gutter={[16, 16]}>
                 {/* Left: Order Entry */}

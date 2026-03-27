@@ -200,4 +200,16 @@ describe('AIPredictionPanel', () => {
     expect(screen.getByText('$200.00')).toBeInTheDocument();
     expect(screen.queryByText('$50.00')).not.toBeInTheDocument();
   });
+
+  test('renders prediction results under React StrictMode instead of staying stuck in loading state', async () => {
+    render(
+      <React.StrictMode>
+        <AIPredictionPanel symbol="AAPL" />
+      </React.StrictMode>
+    );
+
+    expect(await screen.findByText('当前仅使用随机森林结果')).toBeInTheDocument();
+    expect(screen.getByText('$100.00')).toBeInTheDocument();
+    expect(screen.queryByText(/正在分析并预测未来趋势/)).not.toBeInTheDocument();
+  });
 });

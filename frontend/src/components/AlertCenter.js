@@ -22,12 +22,37 @@ import {
 import * as api from '../services/api';
 
 const { Text, Title } = Typography;
+const EMPTY_ALERT_SUMMARY = {
+  activeAlerts: 0,
+  recentAlerts: [],
+  alertsByLevel: {},
+  backendUnavailable: false,
+};
+
+const normalizeAlertSummary = (payload) => {
+  if (payload?.success && payload?.data) {
+    const baseAlerts = Array.isArray(payload.data.alerts) ? payload.data.alerts : [];
+    return {
+      activeAlerts: Number(payload.data.count || 0),
+      recentAlerts: baseAlerts,
+      alertsByLevel: {},
+      backendUnavailable: true,
+    };
+  }
+
+  return {
+    activeAlerts: Number(payload?.active_alerts || 0),
+    recentAlerts: Array.isArray(payload?.recent_alerts) ? payload.recent_alerts : [],
+    alertsByLevel: payload?.alerts_by_level || {},
+    backendUnavailable: false,
+  };
+};
 
 const AlertCenter = () => {
   const [visible, setVisible] = useState(false);
   const [alerts, setAlerts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [summary, setSummary] = useState({ active_alerts: 0 });
+  const [summary, setSummary] = useState(EMPTY_ALERT_SUMMARY);
 
   // 告警级别配置
   const alertConfig = {
@@ -58,10 +83,13 @@ const AlertCenter = () => {
     setLoading(true);
     try {
       const data = await api.getAlertSummary();
-      setSummary(data);
-      setAlerts(data.recent_alerts || []);
+      const nextSummary = normalizeAlertSummary(data);
+      setSummary(nextSummary);
+      setAlerts(nextSummary.recentAlerts);
     } catch (error) {
       console.error('获取告警数据失败:', error);
+      setSummary(EMPTY_ALERT_SUMMARY);
+      setAlerts([]);
     } finally {
       setLoading(false);
     }
@@ -147,7 +175,7 @@ const AlertCenter = () => {
 
   // 获取告警统计信息
   const getAlertStats = () => {
-    const stats = summary.alerts_by_level || {};
+    const stats = summary.alertsByLevel || {};
     return (
       <Space direction="vertical" style={{ width: '100%' }}>
         <Title level={5}>告警统计</Title>
@@ -169,13 +197,13 @@ const AlertCenter = () => {
   return (
     <>
       {/* 告警铃铛按钮 */}
-      <Badge count={summary.active_alerts} size="small">
+      <Badge count={summary.activeAlerts} size="small">
         <Button
           type="text"
           icon={<BellOutlined />}
           onClick={() => setVisible(true)}
           style={{
-            color: summary.active_alerts > 0 ? '#ff4d4f' : undefined
+            color: summary.activeAlerts > 0 ? '#ff4d4f' : undefined
           }}
         />
       </Badge>
@@ -199,9 +227,17 @@ const AlertCenter = () => {
         }
       >
         {/* 总体告警状态 */}
-        {summary.active_alerts > 0 ? (
+        {summary.backendUnavailable ? (
           <AntAlert
-            message={`当前有 ${summary.active_alerts} 个活跃告警`}
+            message="告警系统暂未启用"
+            description="当前后端仅保留占位接口，页面会优雅降级显示为空状态。"
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+        ) : summary.activeAlerts > 0 ? (
+          <AntAlert
+            message={`当前有 ${summary.activeAlerts} 个活跃告警`}
             type="warning"
             showIcon
             style={{ marginBottom: 16 }}
