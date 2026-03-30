@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   Card,
   Col,
@@ -46,8 +47,10 @@ import {
   navigateByResearchAction,
   readResearchContext,
 } from '../utils/researchContext';
+import { getDriverImpactMeta, getPriceSourceLabel, getSignalStrengthMeta } from '../utils/pricingResearch';
 import { buildResearchTaskRefreshSignals } from '../utils/researchTaskSignals';
 import SnapshotComparePanel from './research-workbench/SnapshotComparePanel';
+import { buildSnapshotComparison } from './research-workbench/snapshotCompare';
 
 const { Paragraph, Text, Title } = Typography;
 const { TextArea, Search } = Input;
@@ -79,6 +82,8 @@ const REASON_OPTIONS = [
   { label: '全部更新原因', value: '' },
   { label: '共振驱动', value: 'resonance' },
   { label: '核心腿受压', value: 'bias_quality_core' },
+  { label: '降级运行', value: 'selection_quality_active' },
+  { label: '复核语境切换', value: 'review_context' },
   { label: '自动降级', value: 'selection_quality' },
   { label: '政策源驱动', value: 'policy_source' },
   { label: '偏置收缩', value: 'bias_quality' },
@@ -100,6 +105,19 @@ const TIMELINE_COLOR = {
   comment_added: 'cyan',
   comment_deleted: 'red',
   board_reordered: 'gold',
+};
+
+const formatPricingScenarioSummary = (scenarios = []) => {
+  const bearCase = (scenarios || []).find((item) => item?.name === 'bear') || null;
+  const baseCase = (scenarios || []).find((item) => item?.name === 'base') || null;
+  const bullCase = (scenarios || []).find((item) => item?.name === 'bull') || null;
+  const summaryParts = [
+    bearCase?.intrinsic_value != null ? `悲观 ${Number(bearCase.intrinsic_value).toFixed(2)}` : null,
+    baseCase?.intrinsic_value != null ? `基准 ${Number(baseCase.intrinsic_value).toFixed(2)}` : null,
+    bullCase?.intrinsic_value != null ? `乐观 ${Number(bullCase.intrinsic_value).toFixed(2)}` : null,
+  ].filter(Boolean);
+
+  return summaryParts.length ? `DCF 情景 ${summaryParts.join(' / ')}` : '';
 };
 
 const sortTasksByRefreshPriority = (tasks = [], refreshLookup = {}, enablePriority = false) => {
@@ -360,6 +378,8 @@ function ResearchWorkbench() {
       low: prioritized.filter((item) => item.severity === 'low').length,
       resonance: prioritized.filter((item) => item.resonanceDriven).length,
       biasQualityCore: prioritized.filter((item) => item.biasCompressionShift?.coreLegAffected).length,
+      selectionQualityActive: prioritized.filter((item) => item.selectionQualityRunState?.active).length,
+      reviewContext: prioritized.filter((item) => item.reviewContextDriven).length,
       selectionQuality: prioritized.filter((item) => item.selectionQualityDriven || item.selectionQualityRunState?.active).length,
       policySource: prioritized.filter((item) => item.policySourceDriven).length,
       biasQuality: prioritized.filter((item) => item.biasCompressionDriven).length,
@@ -388,6 +408,12 @@ function ResearchWorkbench() {
         return false;
       }
       if (filters.reason === 'bias_quality_core' && !refreshSignals.byTaskId[task.id]?.biasCompressionShift?.coreLegAffected) {
+        return false;
+      }
+      if (filters.reason === 'selection_quality_active' && !refreshSignals.byTaskId[task.id]?.selectionQualityRunState?.active) {
+        return false;
+      }
+      if (filters.reason === 'review_context' && !refreshSignals.byTaskId[task.id]?.reviewContextDriven) {
         return false;
       }
       if (
@@ -456,6 +482,25 @@ function ResearchWorkbench() {
   );
 
   const selectedTaskRefreshSignal = selectedTaskId ? refreshSignals.byTaskId[selectedTaskId] : null;
+  const openTaskPriorityLabel = selectedTaskRefreshSignal?.selectionQualityRunState?.active
+    ? '优先重看研究页'
+    : '重新打开研究页';
+  const openTaskPriorityNote = selectedTask
+    ? (
+        selectedTaskRefreshSignal?.selectionQualityRunState?.active
+          ? `${
+              selectedTask.note || `从研究工作台重新打开 ${selectedTask.title}`
+            } · 当前结果已按 ${selectedTaskRefreshSignal.selectionQualityRunState.label} 强度运行，建议优先重看`
+          : selectedTask.note || `从研究工作台重新打开 ${selectedTask.title}`
+      )
+    : '';
+  const latestSnapshotComparison = useMemo(() => {
+    const history = selectedTask?.snapshot_history || [];
+    if (history.length < 2) {
+      return null;
+    }
+    return buildSnapshotComparison(selectedTask?.type, history[1], history[0]);
+  }, [selectedTask]);
 
   const timelineItems = useMemo(() => {
     const visible = showAllTimeline ? timeline : timeline.slice(0, 8);
@@ -572,8 +617,9 @@ function ResearchWorkbench() {
       navigateByResearchAction({
         target: 'pricing',
         symbol: selectedTask.symbol,
+        period: selectedTask.snapshot?.payload?.period || selectedTask.context?.period || '',
         source: 'research_workbench',
-        note: selectedTask.note || `从研究工作台重新打开 ${selectedTask.title}`,
+        note: openTaskPriorityNote,
       });
       return;
     }
@@ -583,7 +629,7 @@ function ResearchWorkbench() {
         target: 'cross-market',
         template: selectedTask.template,
         source: 'research_workbench',
-        note: selectedTask.note || `从研究工作台重新打开 ${selectedTask.title}`,
+        note: openTaskPriorityNote,
       });
       return;
     }
@@ -631,6 +677,10 @@ function ResearchWorkbench() {
     if (task.type === 'pricing') {
       const fairValue = payload.fair_value || payload.valuation?.fair_value || {};
       const primaryDriver = payload.primary_driver || payload.drivers?.[0] || null;
+      const primaryDriverStrength = getSignalStrengthMeta(primaryDriver?.signal_strength);
+      const primaryDriverImpact = getDriverImpactMeta(primaryDriver?.impact);
+      const factorSummary = payload.factor_model || {};
+      const dcfScenarioSummary = formatPricingScenarioSummary(payload.dcf_scenarios || []);
       return (
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
           <Text strong>{task.snapshot.headline || 'Pricing Snapshot'}</Text>
@@ -645,6 +695,11 @@ function ResearchWorkbench() {
               综合公允价值区间 {fairValue.low || '-'} ~ {fairValue.high || '-'}
             </Text>
           ) : null}
+          {dcfScenarioSummary ? (
+            <Text type="secondary">
+              {dcfScenarioSummary}
+            </Text>
+          ) : null}
           {payload.implications?.primary_view ? (
             <Space wrap size={6}>
               <Tag color="blue">{payload.implications.primary_view}</Tag>
@@ -654,6 +709,9 @@ function ResearchWorkbench() {
               {payload.implications?.confidence_score !== undefined && payload.implications?.confidence_score !== null ? (
                 <Tag>{`评分 ${Number(payload.implications.confidence_score || 0).toFixed(2)}`}</Tag>
               ) : null}
+              {payload.implications?.factor_alignment?.label ? (
+                <Tag>{`证据 ${payload.implications?.factor_alignment?.label}`}</Tag>
+              ) : null}
             </Space>
           ) : null}
           {payload.implications?.confidence_reasons?.length ? (
@@ -661,12 +719,42 @@ function ResearchWorkbench() {
               置信度说明 {(payload.implications.confidence_reasons || []).slice(0, 2).join('；')}
             </Text>
           ) : null}
+          {payload.implications?.factor_alignment?.summary ? (
+            <Text type="secondary">
+              证据共振 {payload.implications?.factor_alignment?.summary}
+            </Text>
+          ) : null}
+          {(payload.period || factorSummary.data_points || payload.current_price_source) ? (
+            <Text type="secondary">
+              分析窗口 {payload.period || factorSummary.period || '—'}
+              {factorSummary.data_points !== null && factorSummary.data_points !== undefined
+                ? ` · 因子样本 ${factorSummary.data_points}`
+                : ''}
+              {payload.current_price_source ? ` · 现价来源 ${getPriceSourceLabel(payload.current_price_source)}` : ''}
+            </Text>
+          ) : null}
+          {(factorSummary.capm_alpha_pct !== null && factorSummary.capm_alpha_pct !== undefined)
+          || (factorSummary.ff3_alpha_pct !== null && factorSummary.ff3_alpha_pct !== undefined) ? (
+            <Text type="secondary">
+              CAPM α {factorSummary.capm_alpha_pct !== null && factorSummary.capm_alpha_pct !== undefined
+                ? `${Number(factorSummary.capm_alpha_pct).toFixed(2)}%`
+                : '—'}
+              {factorSummary.capm_beta !== null && factorSummary.capm_beta !== undefined
+                ? ` / β ${Number(factorSummary.capm_beta).toFixed(2)}`
+                : ''}
+              {' · '}
+              FF3 α {factorSummary.ff3_alpha_pct !== null && factorSummary.ff3_alpha_pct !== undefined
+                ? `${Number(factorSummary.ff3_alpha_pct).toFixed(2)}%`
+                : '—'}
+            </Text>
+          ) : null}
           {primaryDriver?.factor ? (
             <Text type="secondary">
               主驱动 {primaryDriver.factor}
-              {primaryDriver.signal_strength !== undefined && primaryDriver.signal_strength !== null
-                ? ` · 强度 ${Number(primaryDriver.signal_strength).toFixed(2)}`
+              {primaryDriverStrength
+                ? ` · 强度 ${primaryDriverStrength.label}(${primaryDriverStrength.score.toFixed(2)})`
                 : ''}
+              {primaryDriver?.impact ? ` · ${primaryDriverImpact.label}` : ''}
               {primaryDriver.ranking_reason ? ` · ${primaryDriver.ranking_reason}` : ''}
             </Text>
           ) : null}
@@ -900,13 +988,19 @@ function ResearchWorkbench() {
           const payload = item.payload || {};
           const savedAt = item.saved_at ? new Date(item.saved_at).toLocaleString() : '-';
           const pricingValue = payload.fair_value?.mid || payload.gap_analysis?.fair_value_mid;
+          const dcfScenarioSummary = formatPricingScenarioSummary(payload.dcf_scenarios || []);
           const templateMeta = payload.template_meta || {};
+          const isReviewRunSnapshot = Boolean(
+            String(item.headline || '').includes('复核型结果')
+            || (templateMeta.selection_quality?.label && templateMeta.selection_quality.label !== 'original')
+          );
           return (
             <List.Item>
               <List.Item.Meta
                 title={(
                   <Space wrap>
                     <Text strong>{item.headline || '研究快照'}</Text>
+                    {isReviewRunSnapshot ? <Tag color="gold">复核型结果</Tag> : null}
                     <Tag>{savedAt}</Tag>
                   </Space>
                 )}
@@ -914,18 +1008,29 @@ function ResearchWorkbench() {
                   <Space direction="vertical" size={4} style={{ width: '100%' }}>
                     <Text type="secondary">{item.summary || '暂无摘要'}</Text>
                     {task.type === 'pricing' ? (
-                      <Space wrap size={6}>
-                        <Text type="secondary">
-                          Fair value {pricingValue || '-'} · {(payload.implications?.primary_view || '待判断')}
-                        </Text>
-                        {payload.implications?.confidence ? (
-                          <Tag>{`置信度 ${payload.implications.confidence}`}</Tag>
-                        ) : null}
-                        {payload.implications?.confidence_score !== undefined && payload.implications?.confidence_score !== null ? (
-                          <Tag>{`评分 ${Number(payload.implications.confidence_score || 0).toFixed(2)}`}</Tag>
-                        ) : null}
-                        {payload.primary_driver?.factor ? (
-                          <Tag>{`主驱动 ${payload.primary_driver.factor}`}</Tag>
+                      <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                        <Space wrap size={6}>
+                          <Text type="secondary">
+                            Fair value {pricingValue || '-'} · {(payload.implications?.primary_view || '待判断')}
+                          </Text>
+                          {payload.implications?.confidence ? (
+                            <Tag>{`置信度 ${payload.implications.confidence}`}</Tag>
+                          ) : null}
+                          {payload.implications?.confidence_score !== undefined && payload.implications?.confidence_score !== null ? (
+                            <Tag>{`评分 ${Number(payload.implications.confidence_score || 0).toFixed(2)}`}</Tag>
+                          ) : null}
+                          {payload.implications?.factor_alignment?.label ? (
+                            <Tag>{`证据 ${payload.implications?.factor_alignment?.label}`}</Tag>
+                          ) : null}
+                          {payload.primary_driver?.factor ? (
+                            <Tag>{`主驱动 ${payload.primary_driver.factor}`}</Tag>
+                          ) : null}
+                          {getSignalStrengthMeta(payload.primary_driver?.signal_strength) ? (
+                            <Tag>{`强度 ${getSignalStrengthMeta(payload.primary_driver?.signal_strength).label}`}</Tag>
+                          ) : null}
+                        </Space>
+                        {dcfScenarioSummary ? (
+                          <Text type="secondary">{dcfScenarioSummary}</Text>
                         ) : null}
                       </Space>
                     ) : (
@@ -1002,6 +1107,11 @@ function ResearchWorkbench() {
                           <Text type="secondary">
                             自动降级 {templateMeta.selection_quality.label}
                             {templateMeta.selection_quality?.reason ? ` · ${templateMeta.selection_quality.reason}` : ''}
+                          </Text>
+                        ) : null}
+                        {isReviewRunSnapshot ? (
+                          <Text style={{ color: '#ad6800' }}>
+                            这是一版复核型结果，建议与普通默认模板结果分开理解。
                           </Text>
                         ) : null}
                         {templateMeta.base_recommendation_score !== null
@@ -1127,9 +1237,14 @@ function ResearchWorkbench() {
     const templateMeta = task.snapshot?.payload?.template_meta || {};
     const executionPlan = task.snapshot?.payload?.execution_plan || {};
     const refreshSignal = refreshSignals.byTaskId[task.id];
+    const history = task?.snapshot_history || [];
+    const latestComparison = history.length >= 2
+      ? buildSnapshotComparison(task.type, history[1], history[0])
+      : null;
     return (
       <div
         key={task.id}
+        data-testid={`workbench-task-card-${task.id}`}
         draggable
         onDragStart={() => setDragState({ taskId: task.id, sourceStatus: status, overTaskId: null, overStatus: null })}
         onDragEnd={() => setDragState(null)}
@@ -1171,12 +1286,29 @@ function ResearchWorkbench() {
             {refreshSignal ? <Tag color={refreshSignal.refreshTone || 'default'}>{refreshSignal.refreshLabel}</Tag> : null}
             {refreshSignal?.resonanceDriven ? <Tag color="magenta">共振驱动</Tag> : null}
             {refreshSignal?.biasCompressionShift?.coreLegAffected ? <Tag color="volcano">核心腿受压</Tag> : null}
+            {refreshSignal?.selectionQualityRunState?.active ? <Tag color="gold">降级运行</Tag> : null}
+            {refreshSignal?.reviewContextDriven ? <Tag color="geekblue">复核语境切换</Tag> : null}
             {refreshSignal?.selectionQualityDriven ? <Tag color="orange">自动降级</Tag> : null}
             {refreshSignal?.policySourceDriven ? <Tag color="red">政策源驱动</Tag> : null}
             {refreshSignal?.biasCompressionDriven ? <Tag color="orange">偏置收缩</Tag> : null}
           </Space>
           <Text type="secondary">{task.snapshot?.headline || '暂无快照摘要'}</Text>
-          {refreshSignal?.severity !== 'low' ? <Text type="secondary">{refreshSignal.summary}</Text> : null}
+          {latestComparison?.lead ? (
+            <Text type="secondary">
+              最近两版：{latestComparison.lead}
+            </Text>
+          ) : null}
+          {refreshSignal?.selectionQualityRunState?.active ? (
+            <Text style={{ color: '#ad6800' }}>
+              优先重看：当前结果已按 {refreshSignal.selectionQualityRunState.label} 强度运行
+              {refreshSignal.selectionQualityRunState.baseScore || refreshSignal.selectionQualityRunState.effectiveScore
+                ? ` · ${Number(refreshSignal.selectionQualityRunState.baseScore || 0).toFixed(2)}→${Number(refreshSignal.selectionQualityRunState.effectiveScore || 0).toFixed(2)}`
+                : ''}
+            </Text>
+          ) : null}
+          {refreshSignal?.severity && refreshSignal.severity !== 'low' ? (
+            <Text type="secondary">{refreshSignal.summary}</Text>
+          ) : null}
           {templateMeta.theme ? <Text type="secondary">{templateMeta.theme}</Text> : null}
           {templateMeta.resonance_reason ? <Text type="secondary">{templateMeta.resonance_reason}</Text> : null}
           {templateMeta.bias_summary ? <Text type="secondary">{templateMeta.bias_summary}</Text> : null}
@@ -1394,6 +1526,18 @@ function ResearchWorkbench() {
         </Col>
         <Col xs={24} md={6}>
           <Card bordered={false}>
+            <Statistic title="降级运行" value={refreshStats.selectionQualityActive} valueStyle={{ color: '#ad6800' }} />
+            <Text type="secondary">这些任务的当前结果已经按收缩或自动降级强度运行，通常应排在普通更新前面优先重看。</Text>
+          </Card>
+        </Col>
+        <Col xs={24} md={6}>
+          <Card bordered={false}>
+            <Statistic title="复核语境切换" value={refreshStats.reviewContext} valueStyle={{ color: '#1d39c4' }} />
+            <Text type="secondary">这些任务最近两版刚切入复核语境，或从复核型结果回到普通结果，适合尽快复核最新判断。</Text>
+          </Card>
+        </Col>
+        <Col xs={24} md={6}>
+          <Card bordered={false}>
             <Statistic title="自动降级" value={refreshStats.selectionQuality} valueStyle={{ color: '#d48806' }} />
             <Text type="secondary">这些任务已经从原始推荐切到降级处理，说明主题排序本身正在被重新评估。</Text>
           </Card>
@@ -1420,6 +1564,15 @@ function ResearchWorkbench() {
           </Card>
         </Col>
       </Row>
+
+      {refreshStats.selectionQualityActive ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="降级运行任务应优先重看"
+          description={`当前有 ${refreshStats.selectionQualityActive} 条任务的保存结果已经按收缩或自动降级强度运行。这类结果本身已经受推荐质量变化影响，通常应排在普通“建议更新”前面优先处理。`}
+        />
+      ) : null}
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={16}>
@@ -1581,8 +1734,8 @@ function ResearchWorkbench() {
             ) : selectedTask ? (
               <Space direction="vertical" size={16} style={{ width: '100%' }}>
                 <Space wrap>
-                  <Button type="primary" icon={<FolderOpenOutlined />} onClick={handleOpenTask}>
-                    重新打开研究页
+                  <Button data-testid="workbench-open-task" type="primary" icon={<FolderOpenOutlined />} onClick={handleOpenTask}>
+                    {openTaskPriorityLabel}
                   </Button>
                   <Button icon={<RadarChartOutlined />} onClick={() => navigateByResearchAction({ target: 'godsEye' })}>
                     回到 GodEye
@@ -1591,6 +1744,15 @@ function ResearchWorkbench() {
                     删除任务
                   </Button>
                 </Space>
+
+                {latestSnapshotComparison?.lead ? (
+                  <Alert
+                    type={latestSnapshotComparison.summary?.[0]?.includes('复核型结果') ? 'warning' : 'info'}
+                    showIcon
+                    message="最近两版变化摘要"
+                    description={latestSnapshotComparison.lead}
+                  />
+                ) : null}
 
                 <Row gutter={[12, 12]}>
                   <Col xs={24} md={12}>
@@ -1667,6 +1829,9 @@ function ResearchWorkbench() {
                           {selectedTaskRefreshSignal.selectionQualityRunState?.active ? (
                             <Tag color="gold">降级运行</Tag>
                           ) : null}
+                          {selectedTaskRefreshSignal.reviewContextDriven ? (
+                            <Tag color="geekblue">复核语境切换</Tag>
+                          ) : null}
                           {selectedTaskRefreshSignal.policySourceDriven ? (
                             <Tag color="red">政策源驱动</Tag>
                           ) : null}
@@ -1732,6 +1897,16 @@ function ResearchWorkbench() {
                               : ''}
                           </Text>
                         ) : null}
+                        {selectedTaskRefreshSignal.selectionQualityRunState?.active ? (
+                          <Text strong style={{ color: '#ad6800' }}>
+                            当前保存结果已经在降级强度下运行，建议优先重看研究页而不是只做被动观察。
+                          </Text>
+                        ) : null}
+                        {selectedTaskRefreshSignal.reviewContextShift?.lead ? (
+                          <Text type="secondary">
+                            {selectedTaskRefreshSignal.reviewContextShift.lead}
+                          </Text>
+                        ) : null}
                         {selectedTaskRefreshSignal.biasCompressionShift ? (
                           <Text type="secondary">
                             偏置收缩 {selectedTaskRefreshSignal.biasCompressionShift.savedLabel}→{selectedTaskRefreshSignal.biasCompressionShift.currentLabel}
@@ -1782,6 +1957,15 @@ function ResearchWorkbench() {
                 </Card>
 
                 <Card size="small" title="历史快照" bordered={false}>
+                  {latestSnapshotComparison?.lead ? (
+                    <Alert
+                      type={latestSnapshotComparison.summary?.[0]?.includes('复核型结果') ? 'warning' : 'info'}
+                      showIcon
+                      style={{ marginBottom: 12 }}
+                      message="最近两版变化摘要"
+                      description={latestSnapshotComparison.lead}
+                    />
+                  ) : null}
                   {renderSnapshotHistory(selectedTask)}
                 </Card>
 

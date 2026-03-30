@@ -90,6 +90,15 @@ describe('GodEye cross-market cards narrative trends', () => {
                 },
               },
               allocation_overlay: {
+                selection_quality: {
+                  label: 'auto_downgraded',
+                  base_recommendation_score: 3.12,
+                  effective_recommendation_score: 2.67,
+                  base_recommendation_tier: '优先部署',
+                  effective_recommendation_tier: '重点跟踪',
+                  ranking_penalty: 0.45,
+                  reason: '当前主题已进入自动降级处理，默认模板选择谨慎下调',
+                },
                 compression_summary: { compression_effect: 3.1 },
                 compressed_assets: ['XLE', 'IGV'],
                 rows: [
@@ -104,6 +113,10 @@ describe('GodEye cross-market cards narrative trends', () => {
               payload: {
                 template_meta: {
                   template_id: 'energy_vs_ai_apps',
+                  selection_quality: {
+                    label: 'auto_downgraded',
+                    reason: '核心腿 XLE 已进入压缩焦点，主题排序自动降级',
+                  },
                   dominant_drivers: [{ key: 'growth_pressure', label: '成长端估值压力', value: 0.34 }],
                   theme_core: 'XLE+8.5pp',
                   theme_support: 'SOXX',
@@ -114,6 +127,10 @@ describe('GodEye cross-market cards narrative trends', () => {
               payload: {
                 template_meta: {
                   template_id: 'energy_vs_ai_apps',
+                  selection_quality: {
+                    label: 'original',
+                    reason: '原始推荐强度保留',
+                  },
                   dominant_drivers: [{ key: 'growth_pressure', label: '成长端估值压力', value: 0.21 }],
                   theme_core: 'XLE+4.0pp',
                   theme_support: 'IGV',
@@ -137,10 +154,14 @@ describe('GodEye cross-market cards narrative trends', () => {
     expect(cards[0].taskRefreshBiasCompressionDriven).toBe(true);
     expect(cards[0].taskRefreshBiasCompressionCore).toBe(true);
     expect(cards[0].taskRefreshSelectionQualityDriven).toBe(true);
+    expect(cards[0].taskRefreshSelectionQualityActive).toBe(true);
+    expect(cards[0].taskRefreshReviewContextDriven).toBe(true);
+    expect(cards[0].taskRefreshSelectionQualityRunState.label).toBe('auto_downgraded');
     expect(cards[0].rankingPenalty).toBeGreaterThan(0);
     expect(cards[0].rankingPenaltyReason).toContain('核心腿');
     expect(cards[0].baseRecommendationScore).toBeGreaterThan(cards[0].recommendationScore);
     expect(cards[0].taskAction.target).toBe('workbench');
+    expect(cards[0].taskAction.label).toBe('优先重看任务');
     expect(cards[0].taskAction.taskId).toBe('rw_1');
     expect(cards[0].taskAction.reason).toBe('bias_quality_core');
     expect(cards[0].taskRefreshSummary).toContain('宏观信号从 0 切到 1');
@@ -149,5 +170,105 @@ describe('GodEye cross-market cards narrative trends', () => {
     expect(cards[0].taskRefreshSummary).toContain('核心腿受压 XLE');
     expect(cards[0].latestTopCompressedAsset).toContain('XLE');
     expect(cards[0].taskRefreshTopCompressedAsset).toContain('XLE');
+    expect(cards[0].taskRecentComparisonLead).toContain('目标版本已从普通结果进入复核型结果');
+  });
+
+  it('softly downgrades a template when recent snapshots switch review context without active downgraded run-state', () => {
+    const cards = buildCrossMarketCards(
+      {
+        templates: [
+          {
+            id: 'utilities_vs_growth',
+            name: 'Utilities vs Growth',
+            description: 'Defensive utilities against growth beta',
+            narrative: 'Defensive hedge',
+            linked_factors: ['bureaucratic_friction'],
+            linked_dimensions: ['inventory'],
+            assets: [
+              { symbol: 'XLU', side: 'long', weight: 0.5, asset_class: 'ETF' },
+              { symbol: 'QQQ', side: 'short', weight: 0.5, asset_class: 'ETF' },
+            ],
+            preferred_signal: 'positive',
+            construction_mode: 'equal_weight',
+          },
+        ],
+      },
+      {
+        macro_signal: 0,
+        macro_score: 0.41,
+        evidence_summary: {
+          policy_source_health_summary: {
+            label: 'healthy',
+            reason: '主要政策源正文覆盖稳定',
+            fragile_sources: [],
+            watch_sources: [],
+            healthy_sources: ['fed'],
+            avg_full_text_ratio: 0.88,
+          },
+        },
+        factors: [{ name: 'bureaucratic_friction', z_score: 0.3, value: 0.18, signal: 0 }],
+        trend: { factor_deltas: {} },
+      },
+      { category_summary: {}, signals: {} },
+      [
+        {
+          id: 'rw_review',
+          type: 'cross_market',
+          status: 'in_progress',
+          template: 'utilities_vs_growth',
+          updated_at: '2026-03-21T10:00:00',
+          snapshot: {
+            payload: {
+              template_meta: {
+                template_id: 'utilities_vs_growth',
+                selection_quality: { label: 'original', reason: '原始推荐强度保留' },
+              },
+              research_input: {
+                macro: {
+                  macro_score: 0.41,
+                  macro_signal: 0,
+                  policy_source_health: { label: 'healthy', reason: '主要政策源正文覆盖稳定', avg_full_text_ratio: 0.88 },
+                },
+                alt_data: { top_categories: [] },
+              },
+              allocation_overlay: {
+                selection_quality: {
+                  label: 'original',
+                  base_recommendation_score: 1.8,
+                  effective_recommendation_score: 1.8,
+                  base_recommendation_tier: '重点跟踪',
+                  effective_recommendation_tier: '重点跟踪',
+                  ranking_penalty: 0,
+                  reason: '原始推荐强度保留',
+                },
+              },
+            },
+          },
+          snapshot_history: [
+            {
+              payload: {
+                template_meta: {
+                  template_id: 'utilities_vs_growth',
+                  selection_quality: { label: 'original', reason: '原始推荐强度保留' },
+                },
+              },
+            },
+            {
+              payload: {
+                template_meta: {
+                  template_id: 'utilities_vs_growth',
+                  selection_quality: { label: 'auto_downgraded', reason: '上一版曾为自动降级结果' },
+                },
+              },
+            },
+          ],
+        },
+      ]
+    );
+
+    expect(cards[0].taskRefreshReviewContextDriven).toBe(true);
+    expect(cards[0].taskRefreshSelectionQualityActive).toBe(false);
+    expect(cards[0].rankingPenalty).toBeCloseTo(0.24, 5);
+    expect(cards[0].rankingPenaltyReason).toContain('复核语境');
   });
 });

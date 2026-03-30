@@ -2,7 +2,7 @@ const VIEW_QUERY_KEY = 'view';
 const TAB_QUERY_KEY = 'tab';
 
 const RESEARCH_KEYS = ['symbol', 'symbols', 'template', 'action', 'source', 'note'];
-const PRICING_KEYS = ['symbol', 'symbols', 'action', 'source', 'note'];
+const PRICING_KEYS = ['symbol', 'symbols', 'action', 'source', 'note', 'period'];
 const CROSS_MARKET_KEYS = ['template', 'action', 'source', 'note'];
 const WORKBENCH_KEYS = ['workbench_refresh', 'workbench_type', 'workbench_source', 'workbench_reason', 'task'];
 
@@ -17,6 +17,7 @@ export const readResearchContext = (search = window.location.search) => {
     action: params.get('action') || '',
     source: params.get('source') || '',
     note: params.get('note') || '',
+    period: params.get('period') || '',
     record: params.get('record') || '',
     historySymbol: params.get('history_symbol') || '',
     historyStrategy: params.get('history_strategy') || '',
@@ -49,6 +50,7 @@ export const sanitizeParamsForView = (params, view) => {
   }
 
   if (view === 'backtest') {
+    params.delete('period');
     const activeTab = params.get(TAB_QUERY_KEY) || 'new';
     if (activeTab !== 'history') {
       params.delete('record');
@@ -67,6 +69,7 @@ export const sanitizeParamsForView = (params, view) => {
 
   if (view === 'workbench') {
     params.delete(TAB_QUERY_KEY);
+    params.delete('period');
     params.delete('record');
     params.delete('history_symbol');
     params.delete('history_strategy');
@@ -75,6 +78,7 @@ export const sanitizeParamsForView = (params, view) => {
   }
 
   params.delete(TAB_QUERY_KEY);
+  params.delete('period');
   params.delete('record');
   params.delete('history_symbol');
   params.delete('history_strategy');
@@ -94,6 +98,7 @@ export const buildAppUrl = ({
   action = undefined,
   source = undefined,
   note = undefined,
+  period = undefined,
   record = undefined,
   historySymbol = undefined,
   historyStrategy = undefined,
@@ -122,6 +127,7 @@ export const buildAppUrl = ({
   setParam(params, 'action', action);
   setParam(params, 'source', source);
   setParam(params, 'note', note);
+  setParam(params, 'period', period);
   setParam(params, 'record', record);
   setParam(params, 'history_symbol', historySymbol);
   setParam(params, 'history_strategy', historyStrategy);
@@ -156,6 +162,7 @@ export const buildViewUrlForCurrentState = (
     action: params.get('action'),
     source: params.get('source'),
     note: params.get('note'),
+    period: params.get('period'),
     record: params.get('record'),
     historySymbol: params.get('history_symbol'),
     historyStrategy: params.get('history_strategy'),
@@ -167,15 +174,25 @@ export const buildViewUrlForCurrentState = (
   });
 };
 
-export const buildPricingLink = (symbol, source = 'godeye', note = '', currentSearch = window.location.search) =>
-  buildAppUrl({
+export const buildPricingLink = (
+  symbol,
+  source = 'godeye',
+  note = '',
+  currentSearch = window.location.search,
+  period = undefined,
+) => {
+  const params = new URLSearchParams(currentSearch);
+  const resolvedPeriod = period ?? params.get('period') ?? undefined;
+  return buildAppUrl({
     currentSearch,
     view: 'pricing',
     symbol,
     source,
     action: 'pricing',
     note,
+    period: resolvedPeriod,
   });
+};
 
 export const buildCrossMarketLink = (templateId, source = 'godeye', note = '', currentSearch = window.location.search) =>
   buildAppUrl({
@@ -226,7 +243,7 @@ export const navigateByResearchAction = (action, currentSearch = window.location
 
   if (action.target === 'pricing') {
     navigateToAppUrl(
-      buildPricingLink(action.symbol, action.source || 'playbook', action.note || '', currentSearch)
+      buildPricingLink(action.symbol, action.source || 'playbook', action.note || '', currentSearch, action.period)
     );
     return;
   }

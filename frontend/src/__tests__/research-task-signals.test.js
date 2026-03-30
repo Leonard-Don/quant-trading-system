@@ -303,10 +303,143 @@ describe('buildResearchTaskRefreshSignals', () => {
     expect(model.byTaskId.task_softened.biasCompressionShift.coreLegAffected).toBe(false);
     expect(model.byTaskId.task_softened.selectionQualityShift.currentLabel).toBe('softened');
     expect(model.byTaskId.task_softened.selectionQualityRunState.label).toBe('softened');
-    expect(model.byTaskId.task_softened.priorityReason).toBe('selection_quality');
-    expect(model.byTaskId.task_softened.priorityWeight).toBe(3.5);
+    expect(model.byTaskId.task_softened.priorityReason).toBe('selection_quality_active');
+    expect(model.byTaskId.task_softened.priorityWeight).toBe(3.75);
     expect(model.byTaskId.task_softened.summary).toContain('自动降级从 original 切到 softened');
     expect(model.byTaskId.task_softened.summary).toContain('当前结果已按 softened 强度运行');
     expect(model.byTaskId.task_softened.recommendation).toContain('降级运行状态');
+  });
+
+  it('marks review-context shift when latest snapshots move from ordinary to review result', () => {
+    const model = buildResearchTaskRefreshSignals({
+      overview: {
+        macro_score: 0.4,
+        macro_signal: 0,
+        evidence_summary: {
+          policy_source_health_summary: {
+            label: 'healthy',
+            reason: '主要政策源正文覆盖稳定',
+            fragile_sources: [],
+            watch_sources: [],
+            healthy_sources: ['fed'],
+            avg_full_text_ratio: 0.86,
+          },
+        },
+        resonance_summary: {
+          label: 'mixed',
+          reason: '当前因子变化尚未形成明确共振',
+          positive_cluster: [],
+          negative_cluster: [],
+          weakening: [],
+          precursor: [],
+          reversed_factors: [],
+        },
+        trend: {
+          factor_deltas: {},
+        },
+      },
+      snapshot: {
+        category_summary: {},
+      },
+      researchTasks: [
+        {
+          id: 'task_review_context',
+          type: 'cross_market',
+          status: 'in_progress',
+          title: 'Review context shift',
+          template: 'energy_vs_ai_apps',
+          snapshot: {
+            payload: {
+              research_input: {
+                macro: {
+                  macro_score: 0.4,
+                  macro_signal: 0,
+                  policy_source_health: {
+                    label: 'healthy',
+                    reason: '主要政策源正文覆盖稳定',
+                    fragile_sources: [],
+                    watch_sources: [],
+                    healthy_sources: ['fed'],
+                    avg_full_text_ratio: 0.86,
+                  },
+                  resonance: {
+                    label: 'mixed',
+                    reason: '当前因子变化尚未形成明确共振',
+                    positive_cluster: [],
+                    negative_cluster: [],
+                    weakening: [],
+                    precursor: [],
+                    reversed_factors: [],
+                  },
+                },
+                alt_data: {
+                  top_categories: [],
+                },
+              },
+              template_meta: {
+                template_id: 'energy_vs_ai_apps',
+                selection_quality: {
+                  label: 'original',
+                  reason: '原始推荐强度保留',
+                },
+                ranking_penalty: 0,
+              },
+              allocation_overlay: {
+                selection_quality: {
+                  label: 'original',
+                  base_recommendation_score: 3.1,
+                  effective_recommendation_score: 3.1,
+                  base_recommendation_tier: '重点跟踪',
+                  effective_recommendation_tier: '重点跟踪',
+                  ranking_penalty: 0,
+                  reason: '原始推荐强度保留',
+                },
+              },
+            },
+          },
+          snapshot_history: [
+            {
+              headline: 'Energy vs AI 跨市场复核型结果',
+              payload: {
+                template_meta: {
+                  template_id: 'energy_vs_ai_apps',
+                  selection_quality: {
+                    label: 'softened',
+                    reason: '当前主题已进入自动降级处理',
+                  },
+                },
+                allocation_overlay: {
+                  selection_quality: {
+                    label: 'softened',
+                  },
+                },
+              },
+            },
+            {
+              headline: 'Energy vs AI 跨市场结果',
+              payload: {
+                template_meta: {
+                  template_id: 'energy_vs_ai_apps',
+                  selection_quality: {
+                    label: 'original',
+                    reason: '原始推荐强度保留',
+                  },
+                },
+                allocation_overlay: {
+                  selection_quality: {
+                    label: 'original',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(model.byTaskId.task_review_context.reviewContextDriven).toBe(true);
+    expect(model.byTaskId.task_review_context.reviewContextShift.enteredReview).toBe(true);
+    expect(model.byTaskId.task_review_context.reviewContextShift.lead).toContain('最近两版已从普通结果切到复核型结果');
+    expect(model.byTaskId.task_review_context.summary).toContain('最近两版已从普通结果切到复核型结果');
   });
 });

@@ -182,6 +182,9 @@ describe('buildCrossMarketWorkbenchPayload', () => {
     expect(payload.context.base_recommendation_score).toBe(3.4);
     expect(payload.context.recommendation_score).toBe(2.95);
     expect(payload.context.ranking_penalty).toBe(0.45);
+    expect(payload.snapshot.headline).toContain('复核型结果');
+    expect(payload.snapshot.summary).toContain('复核型回测结果');
+    expect(payload.snapshot.summary).toContain('auto_downgraded');
     expect(payload.snapshot.payload.template_meta.core_leg_pressure.affected).toBe(true);
     expect(payload.snapshot.payload.template_meta.selection_quality.label).toBe('auto_downgraded');
   });

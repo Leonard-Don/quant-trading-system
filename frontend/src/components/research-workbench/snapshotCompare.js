@@ -1,3 +1,5 @@
+import { getPriceSourceLabel } from '../../utils/pricingResearch';
+
 const formatNumber = (value, digits = 2) => {
   if (value === null || value === undefined || value === '') {
     return '-';
@@ -71,19 +73,90 @@ const buildDriverTrendRows = (baseDrivers = [], targetDrivers = []) => {
     .map(({ magnitude, ...row }) => row);
 };
 
+const getSelectionQualitySummaryLabel = (label) => {
+  if (!label || label === '-') {
+    return '未知结果';
+  }
+  if (label === 'original') {
+    return '普通结果';
+  }
+  return '复核型结果';
+};
+
+const buildSelectionQualitySummary = (base, target) => {
+  const baseLabel = getSelectionQualitySummaryLabel(base.selectionQualityLabel);
+  const targetLabel = getSelectionQualitySummaryLabel(target.selectionQualityLabel);
+
+  if (base.selectionQualityLabel === target.selectionQualityLabel) {
+    return `结果语境 ${baseLabel}`;
+  }
+
+  return `结果语境 ${baseLabel} -> ${targetLabel}`;
+};
+
+const buildSelectionQualityStateSummary = (base, target) => {
+  const baseLabel = base.selectionQualityLabel || '-';
+  const targetLabel = target.selectionQualityLabel || '-';
+
+  if (baseLabel === targetLabel) {
+    return `运行强度 ${baseLabel}`;
+  }
+
+  return `运行强度 ${baseLabel} -> ${targetLabel}`;
+};
+
+const buildSelectionQualityLead = (base, target) => {
+  const baseState = base.selectionQualityLabel || '-';
+  const targetState = target.selectionQualityLabel || '-';
+  const baseSummary = getSelectionQualitySummaryLabel(base.selectionQualityLabel);
+  const targetSummary = getSelectionQualitySummaryLabel(target.selectionQualityLabel);
+
+  if (baseState === 'original' && targetState !== 'original') {
+    return `目标版本已从${baseSummary}进入${targetSummary}，当前更适合按复核型结果理解。`;
+  }
+
+  if (baseState !== 'original' && targetState === 'original') {
+    return `目标版本已从${baseSummary}回到${targetSummary}，可以重新按普通结果理解主题强度。`;
+  }
+
+  if (baseState !== targetState) {
+    return `两版结果语境发生切换，运行强度由 ${baseState} 变为 ${targetState}。`;
+  }
+
+  if (targetState !== 'original') {
+    return `两版都属于${targetSummary}，重点关注降级强度、偏置收缩和执行约束变化。`;
+  }
+
+  return '两版都属于普通结果，重点关注模板构造、输入条件和执行质量变化。';
+};
+
 const extractPricingMetrics = (snapshot) => {
   const payload = snapshot?.payload || {};
   const fairValue = payload.fair_value || {};
   const implications = payload.implications || {};
   const drivers = payload.drivers || [];
   const primaryDriver = payload.primary_driver || drivers[0] || {};
+  const factorModel = payload.factor_model || {};
+  const dcfScenarios = payload.dcf_scenarios || [];
+  const bearCase = dcfScenarios.find((item) => item?.name === 'bear') || dcfScenarios[0] || null;
+  const bullCase = dcfScenarios.find((item) => item?.name === 'bull') || dcfScenarios[dcfScenarios.length - 1] || null;
+  const scenarioSpread = bearCase?.intrinsic_value != null && bullCase?.intrinsic_value != null
+    ? Number(bullCase.intrinsic_value) - Number(bearCase.intrinsic_value)
+    : null;
   return {
     fairValueMid: fairValue.mid ?? payload.gap_analysis?.fair_value_mid ?? null,
+    fairValueLow: fairValue.low ?? bearCase?.intrinsic_value ?? null,
+    fairValueHigh: fairValue.high ?? bullCase?.intrinsic_value ?? null,
     gapPct: payload.gap_analysis?.gap_pct ?? null,
+    analysisPeriod: payload.period || factorModel.period || '-',
+    currentPriceSource: getPriceSourceLabel(payload.current_price_source || ''),
+    factorDataPoints: factorModel.data_points ?? null,
     primaryView: implications.primary_view || '-',
+    alignmentLabel: implications.factor_alignment?.label || '-',
     driverHeadline: primaryDriver.factor || primaryDriver.name || '-',
     confidence: implications.confidence || '-',
     confidenceScore: implications.confidence_score ?? null,
+    scenarioSpread,
   };
 };
 
@@ -190,6 +263,7 @@ export const buildSnapshotComparison = (taskType, baseSnapshot, targetSnapshot) 
       summary: [
         `视角 ${base.primaryView} -> ${target.primaryView}`,
         `主驱动 ${base.driverHeadline} -> ${target.driverHeadline}`,
+        `情景区间 ${formatNumber(base.fairValueLow)}-${formatNumber(base.fairValueHigh)} -> ${formatNumber(target.fairValueLow)}-${formatNumber(target.fairValueHigh)}`,
       ],
       rows: [
         {
@@ -198,6 +272,27 @@ export const buildSnapshotComparison = (taskType, baseSnapshot, targetSnapshot) 
           left: formatNumber(base.fairValueMid),
           right: formatNumber(target.fairValueMid),
           delta: formatSignedDelta(base.fairValueMid, target.fairValueMid, (value) => formatNumber(value)),
+        },
+        {
+          key: 'fair-value-bear',
+          label: 'Bear Case',
+          left: formatNumber(base.fairValueLow),
+          right: formatNumber(target.fairValueLow),
+          delta: formatSignedDelta(base.fairValueLow, target.fairValueLow, (value) => formatNumber(value)),
+        },
+        {
+          key: 'fair-value-bull',
+          label: 'Bull Case',
+          left: formatNumber(base.fairValueHigh),
+          right: formatNumber(target.fairValueHigh),
+          delta: formatSignedDelta(base.fairValueHigh, target.fairValueHigh, (value) => formatNumber(value)),
+        },
+        {
+          key: 'scenario-spread',
+          label: 'Scenario Spread',
+          left: formatNumber(base.scenarioSpread),
+          right: formatNumber(target.scenarioSpread),
+          delta: formatSignedDelta(base.scenarioSpread, target.scenarioSpread, (value) => formatNumber(value)),
         },
         {
           key: 'gap-pct',
@@ -221,6 +316,34 @@ export const buildSnapshotComparison = (taskType, baseSnapshot, targetSnapshot) 
           delta: base.driverHeadline === target.driverHeadline ? '不变' : '已切换',
         },
         {
+          key: 'alignment',
+          label: 'Evidence Alignment',
+          left: base.alignmentLabel,
+          right: target.alignmentLabel,
+          delta: base.alignmentLabel === target.alignmentLabel ? '不变' : `${base.alignmentLabel} -> ${target.alignmentLabel}`,
+        },
+        {
+          key: 'analysis-period',
+          label: 'Analysis Window',
+          left: base.analysisPeriod,
+          right: target.analysisPeriod,
+          delta: base.analysisPeriod === target.analysisPeriod ? '不变' : `${base.analysisPeriod} -> ${target.analysisPeriod}`,
+        },
+        {
+          key: 'price-source',
+          label: 'Price Source',
+          left: base.currentPriceSource,
+          right: target.currentPriceSource,
+          delta: base.currentPriceSource === target.currentPriceSource ? '不变' : `${base.currentPriceSource} -> ${target.currentPriceSource}`,
+        },
+        {
+          key: 'factor-samples',
+          label: 'Factor Samples',
+          left: formatNumber(base.factorDataPoints, 0),
+          right: formatNumber(target.factorDataPoints, 0),
+          delta: formatSignedDelta(base.factorDataPoints, target.factorDataPoints, (value) => formatNumber(value, 0)),
+        },
+        {
           key: 'confidence',
           label: 'Confidence',
           left: base.confidence,
@@ -242,7 +365,10 @@ export const buildSnapshotComparison = (taskType, baseSnapshot, targetSnapshot) 
   const target = extractCrossMarketMetrics(targetSnapshot);
   const driverTrendRows = buildDriverTrendRows(base.driverSummary, target.driverSummary);
   return {
+    lead: buildSelectionQualityLead(base, target),
     summary: [
+      buildSelectionQualitySummary(base, target),
+      buildSelectionQualityStateSummary(base, target),
       `构造 ${base.constructionMode} -> ${target.constructionMode}`,
       `覆盖率 ${formatPercent(base.coverage)} -> ${formatPercent(target.coverage)}`,
       `执行批次 ${formatNumber(base.batchCount, 0)} -> ${formatNumber(target.batchCount, 0)}`,

@@ -239,6 +239,9 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
       }
     );
 
+    expect(comparison.lead).toContain('目标版本已从普通结果进入复核型结果');
+    expect(comparison.summary[0]).toContain('结果语境 普通结果 -> 复核型结果');
+    expect(comparison.summary[1]).toContain('运行强度 original -> auto_downgraded');
     expect(comparison.summary.some((item) => item.includes('执行批次'))).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Route Count')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Batch Count')).toBe(true);

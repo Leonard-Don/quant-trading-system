@@ -16,7 +16,13 @@ const toSignedPercent = (value, digits = 1) => {
   return `${numeric > 0 ? '+' : ''}${(numeric * 100).toFixed(digits)}%`;
 };
 const toSignedPercentPoints = (value, digits = 1) => {
-  const numeric = Number(value || 0);
+  if (value === null || value === undefined || value === '') {
+    return '—';
+  }
+  const numeric = Number(value);
+  if (Number.isNaN(numeric)) {
+    return String(value);
+  }
   return `${numeric > 0 ? '+' : ''}${numeric.toFixed(digits)}%`;
 };
 
@@ -193,7 +199,7 @@ export const buildPricingPlaybook = (context = {}, pricingResult = null) => {
   }
 
   const primaryView = implications.primary_view || gap.direction || '合理';
-  const thesis = `${symbol} 当前偏向 ${primaryView}，价格偏差 ${toSignedPercentPoints(gap.gap_pct || 0)}。${
+  const thesis = `${symbol} 当前偏向 ${primaryView}，价格偏差 ${toSignedPercentPoints(gap.gap_pct)}。${
     shouldCrossMarket
       ? '由于宏观变量干扰较强，下一步更适合用跨市场模板继续验证。'
       : '当前更适合继续留在单标的定价研究框架内。'
@@ -216,7 +222,7 @@ export const buildPricingPlaybook = (context = {}, pricingResult = null) => {
         id: 'pricing-gap',
         title: '定价差异确认',
         description: gap.fair_value_mid
-          ? `当前价格 ${gap.current_price || '-'}，公允价值 ${gap.fair_value_mid}，偏差 ${toSignedPercentPoints(gap.gap_pct || 0)}，结论为 ${gap.severity_label || primaryView}。`
+          ? `当前价格 ${gap.current_price || '-'}，公允价值 ${gap.fair_value_mid}，偏差 ${toSignedPercentPoints(gap.gap_pct)}，结论为 ${gap.severity_label || primaryView}。`
           : '已有结果，但缺少明确的价格偏差区间。',
         status: gap.fair_value_mid ? 'complete' : 'warning',
         cta: null,
@@ -476,7 +482,9 @@ export const buildPricingWorkbenchPayload = (context = {}, pricingResult = null,
   const implications = pricingResult?.implications || {};
   const drivers = pricingResult?.deviation_drivers?.drivers || [];
   const primaryDriver = pricingResult?.deviation_drivers?.primary_driver || drivers[0] || null;
+  const factorModel = pricingResult?.factor_model || {};
   const title = `[Pricing] ${symbol} mispricing review`;
+  const analysisPeriod = context.period || '1y';
 
   return {
     type: 'pricing',
@@ -487,7 +495,7 @@ export const buildPricingWorkbenchPayload = (context = {}, pricingResult = null,
     note: context.note || '',
     context: {
       view: 'pricing',
-      period: context.period || '1y',
+      period: analysisPeriod,
       source: context.source || 'manual',
       stage: playbook?.stageLabel || (pricingResult ? '结果已生成' : '待分析'),
       playbook_context: playbook?.context || [],
@@ -499,7 +507,30 @@ export const buildPricingWorkbenchPayload = (context = {}, pricingResult = null,
       payload: {
         gap_analysis: gap,
         fair_value: valuation?.fair_value || {},
+        dcf_scenarios: (valuation?.dcf?.scenarios || []).map((item) => ({
+          name: item?.name || '',
+          label: item?.label || '',
+          intrinsic_value: item?.intrinsic_value ?? null,
+          premium_discount: item?.premium_discount ?? null,
+          assumptions: {
+            wacc: item?.assumptions?.wacc ?? null,
+            initial_growth: item?.assumptions?.initial_growth ?? null,
+            terminal_growth: item?.assumptions?.terminal_growth ?? null,
+            fcf_margin: item?.assumptions?.fcf_margin ?? null,
+          },
+        })),
+        current_price_source: valuation?.current_price_source || '',
+        factor_model: {
+          period: factorModel?.period || analysisPeriod,
+          data_points: factorModel?.data_points ?? null,
+          capm_alpha_pct: factorModel?.capm?.alpha_pct ?? null,
+          capm_beta: factorModel?.capm?.beta ?? null,
+          capm_r_squared: factorModel?.capm?.r_squared ?? null,
+          ff3_alpha_pct: factorModel?.fama_french?.alpha_pct ?? null,
+          ff3_r_squared: factorModel?.fama_french?.r_squared ?? null,
+        },
         implications,
+        period: analysisPeriod,
         primary_driver: primaryDriver,
         drivers: drivers.slice(0, 3),
       },
@@ -573,6 +604,7 @@ export const buildCrossMarketWorkbenchPayload = (
     || '';
   const selectionQualityLabel = selectionQuality.label || (rankingPenalty > 0 ? 'softened' : 'original');
   const selectionQualityReason = selectionQuality.reason || rankingPenaltyReason || '';
+  const isReviewRunResult = Boolean(backtestResult && selectionQualityLabel && selectionQualityLabel !== 'original');
   const coreLegSymbols = new Set(
     (template?.coreLegs || [])
       .map((item) => String(item?.symbol || '').trim().toUpperCase())
@@ -682,9 +714,13 @@ export const buildCrossMarketWorkbenchPayload = (
       assets: safeAssets,
     },
     snapshot: {
-      headline: `${taskLabel} 跨市场研究任务`,
+      headline: isReviewRunResult
+        ? `${taskLabel} 跨市场复核型结果`
+        : `${taskLabel} 跨市场研究任务`,
       summary: backtestResult
-        ? `${taskLabel} 已生成回测结果，可继续在工作台里跟踪。`
+        ? isReviewRunResult
+          ? `${taskLabel} 已生成复核型回测结果，当前结果按 ${selectionQualityLabel} 强度运行，可继续在工作台里优先重看。`
+          : `${taskLabel} 已生成回测结果，可继续在工作台里跟踪。`
         : `${taskLabel} 已保存为跨市场模板任务，等待进一步运行回测。`,
       highlights: buildHighlights(
         null,
