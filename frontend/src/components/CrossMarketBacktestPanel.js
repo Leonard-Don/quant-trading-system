@@ -40,6 +40,7 @@ import {
   buildCrossMarketPlaybook,
   buildCrossMarketWorkbenchPayload,
 } from './research-playbook/playbookViewModels';
+import { buildSnapshotComparison } from './research-workbench/snapshotCompare';
 import {
   addResearchTaskSnapshot,
   createResearchTask,
@@ -121,6 +122,24 @@ const buildDisplayTone = (score) => {
   if (score >= 2.6) return 'volcano';
   if (score >= 1.4) return 'gold';
   return 'blue';
+};
+
+const extractRecentComparisonLead = (task = {}) => {
+  const history = task?.snapshot_history || [];
+  if (history.length < 2 || task?.type !== 'cross_market') {
+    return '';
+  }
+  const [latestSnapshot, previousSnapshot] = history;
+  const latestSelectionQuality =
+    latestSnapshot?.payload?.allocation_overlay?.selection_quality?.label
+    || latestSnapshot?.payload?.template_meta?.selection_quality?.label;
+  const previousSelectionQuality =
+    previousSnapshot?.payload?.allocation_overlay?.selection_quality?.label
+    || previousSnapshot?.payload?.template_meta?.selection_quality?.label;
+  if (!latestSelectionQuality && !previousSelectionQuality) {
+    return '';
+  }
+  return buildSnapshotComparison(task.type, history[1], history[0])?.lead || '';
 };
 
 const extractCoreLegPressure = (overlay = {}) => {
@@ -217,6 +236,16 @@ const getBetaMeta = (level = '') => {
   return mapping[level] || { color: 'default', label: level || '-' };
 };
 
+const getCointegrationMeta = (level = '') => {
+  const mapping = {
+    strong: { color: 'green', label: '协整较强' },
+    watch: { color: 'orange', label: '协整待确认' },
+    weak: { color: 'red', label: '协整偏弱' },
+    unknown: { color: 'default', label: '协整未知' },
+  };
+  return mapping[level] || { color: 'default', label: level || '-' };
+};
+
 const getCalendarMeta = (level = '') => {
   const mapping = {
     aligned: { color: 'green', label: '日历较对齐' },
@@ -229,10 +258,32 @@ const getCalendarMeta = (level = '') => {
 const getSelectionQualityMeta = (label = '') => {
   const mapping = {
     original: { type: 'info', title: '本次回测沿用原始推荐强度运行' },
-    softened: { type: 'warning', title: '本次回测基于收缩后的推荐强度运行' },
-    auto_downgraded: { type: 'warning', title: '本次回测基于自动降级后的推荐强度运行' },
+    softened: { type: 'warning', title: '本次回测生成复核型结果：基于收缩后的推荐强度运行' },
+    auto_downgraded: { type: 'warning', title: '本次回测生成复核型结果：基于自动降级后的推荐强度运行' },
   };
   return mapping[label] || mapping.original;
+};
+
+const getSelectionQualityExplanationLines = (refreshMeta = {}) => {
+  const lines = [];
+  const runState = refreshMeta?.selectionQualityRunState;
+  const shift = refreshMeta?.selectionQualityShift;
+
+  if (runState?.active) {
+    const scoreText =
+      Number.isFinite(runState.baseScore) || Number.isFinite(runState.effectiveScore)
+        ? ` · ${Number(runState.baseScore || 0).toFixed(2)}→${Number(runState.effectiveScore || 0).toFixed(2)}`
+        : '';
+    lines.push(
+      `降级运行 ${runState.label}${scoreText}${runState.reason ? ` · ${runState.reason}` : ''}`
+    );
+  }
+
+  if (refreshMeta?.selectionQualityDriven && shift?.currentReason) {
+    lines.push(`自动降级 ${shift.currentLabel} · ${shift.currentReason}`);
+  }
+
+  return lines;
 };
 
 const buildTemplateContextPayload = (template, appliedBiasMeta) => {
@@ -365,13 +416,36 @@ function CrossMarketBacktestPanel() {
     () => buildResearchTaskRefreshSignals({ researchTasks, overview: macroOverview, snapshot: altSnapshot }).byTemplateId,
     [altSnapshot, macroOverview, researchTasks]
   );
+  const taskByTemplate = useMemo(
+    () =>
+      Object.fromEntries(
+        (researchTasks || [])
+          .filter((task) => task?.type === 'cross_market' && task?.status !== 'archived')
+          .sort((left, right) => String(right.updated_at || '').localeCompare(String(left.updated_at || '')))
+          .map((task) => {
+            const templateId =
+              task?.template
+              || task?.snapshot?.payload?.template_meta?.template_id
+              || task?.snapshot_history?.[0]?.payload?.template_meta?.template_id
+              || '';
+            return [templateId, task];
+          })
+          .filter(([templateId]) => Boolean(templateId))
+      ),
+    [researchTasks]
+  );
   const displayRecommendedTemplates = useMemo(
     () =>
       recommendedTemplates
         .map((template) => {
           const refreshMeta = refreshByTemplate[template.id] || null;
+          const recentComparisonLead = extractRecentComparisonLead(taskByTemplate[template.id]);
           const rankingPenalty = refreshMeta?.biasCompressionShift?.coreLegAffected
             ? 0.45
+            : refreshMeta?.selectionQualityRunState?.active
+              ? 0.3
+            : refreshMeta?.reviewContextDriven
+              ? 0.24
             : refreshMeta?.selectionQualityDriven
               ? 0.2
               : 0;
@@ -384,16 +458,21 @@ function CrossMarketBacktestPanel() {
             rankingPenaltyReason: rankingPenalty
               ? refreshMeta?.biasCompressionShift?.coreLegAffected
                 ? `核心腿 ${refreshMeta?.biasCompressionShift?.topCompressedAsset || ''} 已进入压缩焦点，默认模板选择自动降级`
+                : refreshMeta?.selectionQualityRunState?.active
+                  ? `当前结果已按 ${refreshMeta?.selectionQualityRunState?.label || 'degraded'} 强度运行，默认模板选择进一步下调`
+                : refreshMeta?.reviewContextDriven
+                  ? `复核语境切换：${refreshMeta?.reviewContextShift?.lead || '最近两版已发生复核语境切换，默认模板选择谨慎下调'}`
                 : '当前主题已进入自动降级处理，默认模板选择谨慎下调'
               : '',
             recommendationScore,
             recommendationTier: buildDisplayTier(recommendationScore),
             recommendationTone: buildDisplayTone(recommendationScore),
             refreshMeta,
+            recentComparisonLead,
           };
         })
         .sort((left, right) => Number(right.recommendationScore || 0) - Number(left.recommendationScore || 0)),
-    [recommendedTemplates, refreshByTemplate]
+    [recommendedTemplates, refreshByTemplate, taskByTemplate]
   );
   const selectedTemplate = useMemo(
     () =>
@@ -433,6 +512,10 @@ function CrossMarketBacktestPanel() {
       biasHighlights: appliedBiasMeta.highlights || selectedTemplate.biasHighlights || [],
     };
   }, [appliedBiasMeta, selectedTemplate]);
+  const selectedTemplateSelectionQualityLines = useMemo(
+    () => getSelectionQualityExplanationLines(selectedTemplate?.refreshMeta),
+    [selectedTemplate]
+  );
   const playbook = useMemo(
     () =>
       buildCrossMarketPlaybook(
@@ -444,6 +527,19 @@ function CrossMarketBacktestPanel() {
         results
       ),
     [effectiveTemplate, researchContext, results, selectedTemplateId]
+  );
+  const topRecommendationSelectionQualityLines = useMemo(
+    () => getSelectionQualityExplanationLines(displayRecommendedTemplates[0]?.refreshMeta),
+    [displayRecommendedTemplates]
+  );
+  const topRecommendation = displayRecommendedTemplates[0] || null;
+  const topRecommendationNeedsPriorityReview = Boolean(
+    topRecommendation?.refreshMeta?.selectionQualityRunState?.active
+    || topRecommendation?.refreshMeta?.reviewContextDriven
+  );
+  const selectedTemplateNeedsPriorityReview = Boolean(
+    selectedTemplate?.refreshMeta?.selectionQualityRunState?.active
+    || selectedTemplate?.refreshMeta?.reviewContextDriven
   );
 
   const updateAsset = (key, field, value) => {
@@ -1120,6 +1216,7 @@ function CrossMarketBacktestPanel() {
   const marginMeta = getMarginMeta(results?.execution_diagnostics?.margin_level);
   const betaMeta = getBetaMeta(results?.execution_diagnostics?.beta_level);
   const calendarMeta = getCalendarMeta(results?.execution_diagnostics?.calendar_level);
+  const cointegrationMeta = getCointegrationMeta(results?.execution_diagnostics?.cointegration_level);
 
   return (
     <div className="workspace-tab-view" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -1219,13 +1316,11 @@ function CrossMarketBacktestPanel() {
               {selectedTemplate.policySourceHealthReason ? (
                 <Text type="secondary">{selectedTemplate.policySourceHealthReason}</Text>
               ) : null}
-              {selectedTemplate.refreshMeta?.selectionQualityDriven && selectedTemplate.refreshMeta?.selectionQualityShift?.currentReason ? (
-                <Text type="secondary">
-                  自动降级 {selectedTemplate.refreshMeta.selectionQualityShift.currentLabel}
-                  {' · '}
-                  {selectedTemplate.refreshMeta.selectionQualityShift.currentReason}
+              {selectedTemplateSelectionQualityLines.map((line) => (
+                <Text key={line} type="secondary">
+                  {line}
                 </Text>
-              ) : null}
+              ))}
               {selectedTemplate.biasQualityLabel && selectedTemplate.biasQualityLabel !== 'full' ? (
                 <Text type="secondary">
                   偏置收缩 {selectedTemplate.biasQualityLabel} · {selectedTemplate.biasQualityReason}
@@ -1285,15 +1380,25 @@ function CrossMarketBacktestPanel() {
         </Card>
       ) : null}
 
-      {!researchContext?.template && displayRecommendedTemplates[0] ? (
+      {!researchContext?.template && topRecommendation ? (
         <Alert
-          type="success"
+          type={topRecommendationNeedsPriorityReview ? 'warning' : 'success'}
           showIcon
-          message={`当前首选模板：${displayRecommendedTemplates[0].name}`}
-          description={`${displayRecommendedTemplates[0].driverHeadline}。${
-            displayRecommendedTemplates[0].rankingPenaltyReason
-            || displayRecommendedTemplates[0].refreshMeta?.selectionQualityShift?.currentReason
-            || displayRecommendedTemplates[0].biasSummary
+          message={`当前首选模板：${topRecommendation.name}${topRecommendationNeedsPriorityReview ? ' · 建议优先重看' : ''}`}
+          description={`${topRecommendation.driverHeadline}。${
+            topRecommendation.recentComparisonLead
+              ? `最近两版：${topRecommendation.recentComparisonLead}。`
+              : ''
+          }${
+            topRecommendationNeedsPriorityReview
+              ? topRecommendation?.refreshMeta?.selectionQualityRunState?.active
+                ? '该主题当前保存结果已经在降级强度下运行，默认起点仍保留，但更适合先重看当前任务判断。'
+                : '该主题最近两版已发生复核语境切换，默认起点仍保留，但更适合先重看当前任务判断。'
+              : ''
+          }${
+            topRecommendation.rankingPenaltyReason
+            || topRecommendationSelectionQualityLines[0]
+            || topRecommendation.biasSummary
             || '该模板会作为默认起点，你也可以在右侧改成其他模板。'
           }`}
         />
@@ -1325,6 +1430,12 @@ function CrossMarketBacktestPanel() {
                       <Space wrap size={[6, 6]} style={{ marginBottom: 8 }}>
                         <Tag color={template.recommendationTone}>{template.recommendationTier}</Tag>
                         <Tag color="cyan">score {Number(template.recommendationScore || 0).toFixed(2)}</Tag>
+                        {template.refreshMeta?.selectionQualityRunState?.active ? (
+                          <Tag color="gold">优先重看</Tag>
+                        ) : null}
+                        {template.refreshMeta?.reviewContextDriven && !template.refreshMeta?.selectionQualityRunState?.active ? (
+                          <Tag color="geekblue">复核语境切换</Tag>
+                        ) : null}
                         {template.resonanceLabel && template.resonanceLabel !== 'mixed' ? (
                           <Tag color="magenta">resonance {template.resonanceLabel}</Tag>
                         ) : null}
@@ -1338,6 +1449,11 @@ function CrossMarketBacktestPanel() {
                       <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
                         {template.driverHeadline}
                       </Text>
+                      {template.recentComparisonLead ? (
+                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                          最近两版：{template.recentComparisonLead}
+                        </Text>
+                      ) : null}
                       {template.resonanceReason && template.resonanceLabel !== 'mixed' ? (
                         <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
                           {template.resonanceReason}
@@ -1348,11 +1464,11 @@ function CrossMarketBacktestPanel() {
                           {template.policySourceHealthReason}
                         </Text>
                       ) : null}
-                      {template.refreshMeta?.selectionQualityDriven && template.refreshMeta?.selectionQualityShift?.currentReason ? (
-                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          自动降级 {template.refreshMeta.selectionQualityShift.currentLabel} · {template.refreshMeta.selectionQualityShift.currentReason}
+                      {getSelectionQualityExplanationLines(template.refreshMeta).map((line) => (
+                        <Text key={line} type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                          {line}
                         </Text>
-                      ) : null}
+                      ))}
                       {template.rankingPenaltyReason ? (
                         <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
                           {template.rankingPenaltyReason}
@@ -1543,6 +1659,35 @@ function CrossMarketBacktestPanel() {
                 </Form.Item>
               </Form>
 
+              {selectedTemplateNeedsPriorityReview ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  message={`当前模板属于优先重看：${selectedTemplate?.name || ''}`}
+                  description={`这次运行更适合作为复核型回测，而不是普通默认模板回测。${
+                    selectedTemplate?.recentComparisonLead
+                      ? `最近两版：${selectedTemplate.recentComparisonLead} · `
+                      : ''
+                  }${
+                    selectedTemplate?.refreshMeta?.selectionQualityRunState?.active
+                      ? `当前保存结果已按 ${selectedTemplate?.refreshMeta?.selectionQualityRunState?.label || 'degraded'} 强度运行`
+                      : selectedTemplate?.refreshMeta?.reviewContextDriven
+                        ? '最近两版已发生复核语境切换'
+                        : '当前主题已进入优先重看语境'
+                  }${
+                    selectedTemplate?.refreshMeta?.selectionQualityRunState?.baseScore || selectedTemplate?.refreshMeta?.selectionQualityRunState?.effectiveScore
+                      ? ` · ${Number(selectedTemplate?.refreshMeta?.selectionQualityRunState?.baseScore || 0).toFixed(2)}→${Number(selectedTemplate?.refreshMeta?.selectionQualityRunState?.effectiveScore || 0).toFixed(2)}`
+                      : ''
+                  }${
+                    selectedTemplate?.refreshMeta?.selectionQualityRunState?.reason
+                      ? ` · ${selectedTemplate.refreshMeta.selectionQualityRunState.reason}`
+                      : selectedTemplate?.refreshMeta?.reviewContextShift?.lead
+                        ? ` · ${selectedTemplate.refreshMeta.reviewContextShift.lead}`
+                      : ''
+                  }`}
+                />
+              ) : null}
+
               <Space style={{ width: '100%', justifyContent: 'space-between' }}>
                 <Button icon={<ReloadOutlined />} onClick={() => setResults(null)}>
                   清空结果
@@ -1569,8 +1714,20 @@ function CrossMarketBacktestPanel() {
           <Alert
             type={results.total_return >= 0 ? 'success' : 'warning'}
             showIcon
-            message="跨市场结果已生成"
-            description={`样本区间 ${results.price_matrix_summary.start_date} 至 ${results.price_matrix_summary.end_date}，共 ${results.price_matrix_summary.row_count} 个对齐交易日。`}
+            message={`跨市场结果已生成${
+              results.allocation_overlay?.selection_quality?.label && results.allocation_overlay.selection_quality.label !== 'original'
+                ? ' · 复核型结果'
+                : ''
+            }`}
+            description={`样本区间 ${results.price_matrix_summary.start_date} 至 ${results.price_matrix_summary.end_date}，共 ${results.price_matrix_summary.row_count} 个对齐交易日。${
+              selectedTemplate?.recentComparisonLead
+                ? ` 最近两版：${selectedTemplate.recentComparisonLead}`
+                : ''
+            }${
+              results.allocation_overlay?.selection_quality?.label && results.allocation_overlay.selection_quality.label !== 'original'
+                ? ` 当前结果按 ${results.allocation_overlay.selection_quality.label} 强度运行，应作为复核型结果理解。`
+                : ''
+            }`}
           />
 
           {results.allocation_overlay?.selection_quality ? (
@@ -1835,6 +1992,9 @@ function CrossMarketBacktestPanel() {
                   <Tag color={betaMeta.color}>
                     {betaMeta.label}
                   </Tag>
+                  <Tag color={cointegrationMeta.color}>
+                    {cointegrationMeta.label}
+                  </Tag>
                   <Tag color={calendarMeta.color}>
                     {calendarMeta.label}
                   </Tag>
@@ -1886,6 +2046,15 @@ function CrossMarketBacktestPanel() {
                     showIcon
                     message="多市场日历提示"
                     description={results.execution_diagnostics.calendar_reason}
+                  />
+                ) : null}
+                {results.execution_diagnostics?.cointegration_reason ? (
+                  <Alert
+                    style={{ marginTop: 16 }}
+                    type={results.execution_diagnostics?.cointegration_level === 'weak' ? 'warning' : 'info'}
+                    showIcon
+                    message="协整关系提示"
+                    description={results.execution_diagnostics.cointegration_reason}
                   />
                 ) : null}
                 {Number(results.execution_diagnostics?.residual_notional || 0) > 0 ? (

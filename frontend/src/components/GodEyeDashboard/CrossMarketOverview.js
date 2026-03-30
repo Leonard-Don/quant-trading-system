@@ -52,8 +52,14 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
                   {card.taskRefreshSelectionQualityDriven ? (
                     <Tag color="orange">自动降级驱动</Tag>
                   ) : null}
+                  {card.taskRefreshSelectionQualityActive ? (
+                    <Tag color="gold">降级运行</Tag>
+                  ) : null}
+                  {card.taskRefreshReviewContextDriven ? (
+                    <Tag color="geekblue">复核语境切换</Tag>
+                  ) : null}
                   {card.rankingPenalty ? (
-                    <Tag color="orange">自动降级</Tag>
+                    <Tag color="orange">排序降级</Tag>
                   ) : null}
                   {card.taskRefreshPolicySourceDriven ? (
                     <Tag color="red">政策源驱动</Tag>
@@ -85,6 +91,16 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
                     {card.taskRefreshSummary}
                   </Paragraph>
                 ) : null}
+                {card.taskRefreshReviewContextShift?.lead ? (
+                  <Paragraph style={{ color: 'rgba(168, 198, 255, 0.9)', minHeight: 28, marginBottom: 10 }}>
+                    {card.taskRefreshReviewContextShift.lead}
+                  </Paragraph>
+                ) : null}
+                {card.taskRecentComparisonLead ? (
+                  <Paragraph style={{ color: 'rgba(196, 230, 255, 0.86)', minHeight: 30, marginBottom: 10 }}>
+                    最近两版：{card.taskRecentComparisonLead}
+                  </Paragraph>
+                ) : null}
                 {card.taskRefreshPolicySourceShift?.currentReason ? (
                   <Paragraph style={{ color: 'rgba(255, 120, 120, 0.92)', minHeight: 30, marginBottom: 10 }}>
                     政策源状态：{card.taskRefreshPolicySourceShift.currentReason}
@@ -100,6 +116,17 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
                 {card.taskRefreshSelectionQualityShift?.currentReason && !card.taskRefreshBiasCompressionShift?.currentReason ? (
                   <Paragraph style={{ color: 'rgba(255, 182, 114, 0.9)', minHeight: 26, marginBottom: 10 }}>
                     自动降级：{card.taskRefreshSelectionQualityShift.currentReason}
+                  </Paragraph>
+                ) : null}
+                {card.taskRefreshSelectionQualityRunState?.active ? (
+                  <Paragraph style={{ color: 'rgba(255, 212, 120, 0.92)', minHeight: 28, marginBottom: 10 }}>
+                    降级运行：当前结果已按 {card.taskRefreshSelectionQualityRunState.label} 强度运行
+                    {card.taskRefreshSelectionQualityRunState.baseScore || card.taskRefreshSelectionQualityRunState.effectiveScore
+                      ? ` · ${Number(card.taskRefreshSelectionQualityRunState.baseScore || 0).toFixed(2)}→${Number(card.taskRefreshSelectionQualityRunState.effectiveScore || 0).toFixed(2)}`
+                      : ''}
+                    {card.taskRefreshSelectionQualityRunState.reason
+                      ? ` · ${card.taskRefreshSelectionQualityRunState.reason}`
+                      : ''}
                   </Paragraph>
                 ) : null}
                 {card.taskRefreshTopCompressedAsset ? (

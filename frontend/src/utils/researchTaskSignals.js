@@ -237,6 +237,60 @@ const summarizeSelectionQualityRunState = (templateMeta = {}, allocationOverlay 
   };
 };
 
+const getSnapshotSelectionQualityLabel = (snapshot = {}) => {
+  const payload = snapshot?.payload || {};
+  const label =
+    payload?.allocation_overlay?.selection_quality?.label
+    || payload?.template_meta?.selection_quality?.label
+    || '';
+  if (label) {
+    return label;
+  }
+  return String(snapshot?.headline || '').includes('复核型结果') ? 'review_result' : 'original';
+};
+
+const summarizeReviewContextShift = (task = {}) => {
+  const history = task?.snapshot_history || [];
+  if (history.length < 2) {
+    return {
+      changed: false,
+      enteredReview: false,
+      exitedReview: false,
+      savedLabel: '',
+      currentLabel: '',
+      lead: '',
+    };
+  }
+
+  const currentLabel = getSnapshotSelectionQualityLabel(history[0]);
+  const savedLabel = getSnapshotSelectionQualityLabel(history[1]);
+  const currentIsReview = currentLabel !== 'original';
+  const savedIsReview = savedLabel !== 'original';
+  const changed = currentIsReview !== savedIsReview || currentLabel !== savedLabel;
+  const enteredReview = !savedIsReview && currentIsReview;
+  const exitedReview = savedIsReview && !currentIsReview;
+
+  let lead = '';
+  if (enteredReview) {
+    lead = '最近两版已从普通结果切到复核型结果';
+  } else if (exitedReview) {
+    lead = '最近两版已从复核型结果回到普通结果';
+  } else if (changed && currentIsReview) {
+    lead = `最近两版复核强度已从 ${savedLabel} 切到 ${currentLabel}`;
+  } else if (changed) {
+    lead = `最近两版结果语境已从 ${savedLabel} 切到 ${currentLabel}`;
+  }
+
+  return {
+    changed,
+    enteredReview,
+    exitedReview,
+    savedLabel,
+    currentLabel,
+    lead,
+  };
+};
+
 const summarizeAltShifts = (altInput = {}, snapshot = {}) => {
   const currentSummary = snapshot?.category_summary || {};
   const savedCategories = altInput?.top_categories || [];
@@ -315,6 +369,7 @@ const buildSummaryLines = ({
   biasCompressionShift,
   selectionQualityShift,
   selectionQualityRunState,
+  reviewContextShift,
   altShift,
   factorShift,
 }) => {
@@ -361,6 +416,9 @@ const buildSummaryLines = ({
       )
     );
   }
+  if (reviewContextShift?.lead) {
+    lines.push(reviewContextShift.lead);
+  }
 
   if (altShift.changedCategories[0]) {
     const item = altShift.changedCategories[0];
@@ -384,6 +442,7 @@ const determinePriorityReason = ({
   resonanceDriven,
   selectionQualityDriven,
   selectionQualityRunState,
+  reviewContextDriven,
   biasCompressionDriven,
   biasCompressionShift,
   policySourceDriven,
@@ -397,10 +456,13 @@ const determinePriorityReason = ({
   if (biasCompressionShift?.coreLegAffected) {
     return 'bias_quality_core';
   }
-  if (selectionQualityDriven) {
-    return 'selection_quality';
-  }
   if (selectionQualityRunState?.active) {
+    return 'selection_quality_active';
+  }
+  if (reviewContextDriven) {
+    return 'review_context';
+  }
+  if (selectionQualityDriven) {
     return 'selection_quality';
   }
   if (biasCompressionDriven) {
@@ -427,6 +489,10 @@ const getPriorityWeight = (reason = '') => {
       return 5;
     case 'bias_quality_core':
       return 4;
+    case 'selection_quality_active':
+      return 3.75;
+    case 'review_context':
+      return 3.6;
     case 'selection_quality':
       return 3.5;
     case 'bias_quality':
@@ -487,6 +553,7 @@ export const buildResearchTaskRefreshSignals = ({
     const biasCompressionShift = summarizeBiasCompressionShift(templateMeta, overview, allocationOverlay);
     const selectionQualityShift = summarizeSelectionQualityShift(templateMeta, biasCompressionShift);
     const selectionQualityRunState = summarizeSelectionQualityRunState(templateMeta, allocationOverlay);
+    const reviewContextShift = summarizeReviewContextShift(task);
     const altShift = summarizeAltShifts(researchInput?.alt_data || {}, snapshot);
     const factorShift = summarizeFactorShifts(overview, templateMeta);
 
@@ -504,6 +571,8 @@ export const buildResearchTaskRefreshSignals = ({
     if (selectionQualityShift.worsening) urgencyScore += 1;
     else if (selectionQualityShift.labelChanged || selectionQualityShift.penaltyGap >= 0.1) urgencyScore += 1;
     if (selectionQualityRunState.active) urgencyScore += selectionQualityRunState.label === 'auto_downgraded' ? 2 : 1;
+    if (reviewContextShift.enteredReview) urgencyScore += 1;
+    else if (reviewContextShift.exitedReview) urgencyScore += 0.5;
     urgencyScore += Math.min(2, altShift.changedCategories.length);
     if (altShift.emergentCategories.length) urgencyScore += 1;
     if (factorShift.some((item) => item.signalChanged)) urgencyScore += 1;
@@ -528,6 +597,7 @@ export const buildResearchTaskRefreshSignals = ({
       biasCompressionShift,
       selectionQualityShift,
       selectionQualityRunState,
+      reviewContextShift,
       altShift,
       factorShift,
     });
@@ -549,10 +619,12 @@ export const buildResearchTaskRefreshSignals = ({
       selectionQualityShift.worsening
       || selectionQualityShift.labelChanged
       || selectionQualityShift.penaltyGap >= 0.1;
+    const reviewContextDriven = reviewContextShift.changed;
     const priorityReason = determinePriorityReason({
       resonanceDriven,
       selectionQualityDriven,
       selectionQualityRunState,
+      reviewContextDriven,
       biasCompressionDriven,
       biasCompressionShift,
       policySourceDriven,
@@ -577,10 +649,12 @@ export const buildResearchTaskRefreshSignals = ({
       biasCompressionShift,
       selectionQualityShift,
       selectionQualityRunState,
+      reviewContextShift,
       resonanceDriven,
       policySourceDriven,
       biasCompressionDriven,
       selectionQualityDriven,
+      reviewContextDriven,
       priorityReason,
       priorityWeight,
       altShift,

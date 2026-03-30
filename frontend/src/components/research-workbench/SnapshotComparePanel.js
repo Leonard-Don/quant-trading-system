@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Card, Empty, List, Select, Space, Tag, Typography } from 'antd';
+import { Alert, Card, Empty, List, Select, Space, Tag, Typography } from 'antd';
 
 import { buildSnapshotComparison } from './snapshotCompare';
 
@@ -32,7 +32,7 @@ function SnapshotComparePanel({ task }) {
 
   if (history.length < 2) {
     return (
-      <Card size="small" title="版本对比" bordered={false}>
+      <Card data-testid="workbench-snapshot-compare" size="small" title="版本对比" bordered={false}>
         <Empty description="至少需要两个快照版本才能开始对比" image={Empty.PRESENTED_IMAGE_SIMPLE} />
       </Card>
     );
@@ -40,12 +40,23 @@ function SnapshotComparePanel({ task }) {
 
   return (
     <Card
+      data-testid="workbench-snapshot-compare"
       size="small"
-      title="版本对比"
+      title={(
+        <Space direction="vertical" size={0}>
+          <span>版本对比</span>
+          {comparison?.lead ? (
+            <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+              {comparison.lead}
+            </Text>
+          ) : null}
+        </Space>
+      )}
       bordered={false}
       extra={(
         <Space wrap>
           <Select
+            data-testid="workbench-snapshot-compare-base"
             size="small"
             value={baseIndex}
             options={options}
@@ -54,6 +65,7 @@ function SnapshotComparePanel({ task }) {
           />
           <Text type="secondary">vs</Text>
           <Select
+            data-testid="workbench-snapshot-compare-target"
             size="small"
             value={targetIndex}
             options={options}
@@ -68,6 +80,14 @@ function SnapshotComparePanel({ task }) {
           <Paragraph style={{ marginBottom: 0 }}>
             对比 {options[baseIndex]?.label || '基准版本'} 与 {options[targetIndex]?.label || '目标版本'} 的关键研究结论变化。
           </Paragraph>
+          {comparison.lead ? (
+            <Alert
+              type={comparison.summary?.[0]?.includes('复核型结果') ? 'warning' : 'info'}
+              showIcon
+              message="版本变化解读"
+              description={comparison.lead}
+            />
+          ) : null}
           <Space wrap>
             {(comparison.summary || []).filter(Boolean).map((item) => (
               <Tag key={item}>{item}</Tag>

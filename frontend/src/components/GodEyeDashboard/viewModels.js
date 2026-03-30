@@ -1,5 +1,6 @@
 import { buildCrossMarketCards as buildScoredCrossMarketCards } from '../../utils/crossMarketRecommendations';
 import { buildResearchTaskRefreshSignals } from '../../utils/researchTaskSignals';
+import { buildSnapshotComparison } from '../research-workbench/snapshotCompare';
 
 const DIMENSION_META = {
   investment_activity: { label: '投资活跃度', group: 'Supply Chain' },
@@ -113,11 +114,11 @@ const buildCrossMarketAction = (template, source, note) =>
       }
     : null;
 
-const buildWorkbenchAction = (taskId, source, note, reason = '') =>
+const buildWorkbenchAction = (taskId, source, note, reason = '', label = '打开任务') =>
   taskId
     ? {
         target: 'workbench',
-        label: '打开任务',
+        label,
         taskId,
         type: 'cross_market',
         refresh: 'high',
@@ -141,6 +142,24 @@ const extractTemplateIdentity = (task = {}, meta = {}) =>
   task.template || meta.template_id || '';
 
 const extractDominantDriver = (meta = {}) => meta?.dominant_drivers?.[0] || null;
+
+const extractRecentComparisonLead = (task = {}) => {
+  const history = task?.snapshot_history || [];
+  if (history.length < 2 || task?.type !== 'cross_market') {
+    return '';
+  }
+  const [latestSnapshot, previousSnapshot] = history;
+  const latestSelectionQuality =
+    latestSnapshot?.payload?.allocation_overlay?.selection_quality?.label
+    || latestSnapshot?.payload?.template_meta?.selection_quality?.label;
+  const previousSelectionQuality =
+    previousSnapshot?.payload?.allocation_overlay?.selection_quality?.label
+    || previousSnapshot?.payload?.template_meta?.selection_quality?.label;
+  if (!latestSelectionQuality && !previousSelectionQuality) {
+    return '';
+  }
+  return buildSnapshotComparison(task.type, history[1], history[0])?.lead || '';
+};
 
 const formatDriverLabel = (driver = {}) =>
   driver?.label || formatFactorName(driver?.key || '');
@@ -612,16 +631,29 @@ export const buildHunterModel = ({ snapshot = {}, overview = {}, status = {}, re
   alerts.push(...buildNarrativeShiftAlerts(researchTasks));
 
   const refreshSignals = buildResearchTaskRefreshSignals({ researchTasks, overview, snapshot });
+  const taskById = Object.fromEntries((researchTasks || []).map((task) => [task.id, task]));
   refreshSignals.prioritized
     .filter((item) => item.severity !== 'low')
     .slice(0, 3)
     .forEach((item) => {
+      const recentComparisonLead = extractRecentComparisonLead(taskById[item.taskId]);
+      const runStateSummary =
+        item.selectionQualityRunState?.active && item.selectionQualityRunState?.label
+          ? `降级运行 ${item.selectionQualityRunState.label}${
+              item.selectionQualityRunState.reason ? `，${item.selectionQualityRunState.reason}` : ''
+            }`
+          : '';
       alerts.push({
         key: `refresh-${item.taskId}`,
         title: `${item.title || formatTemplateName(item.templateId)} ${item.refreshLabel}`,
         severity: item.severity,
         description: [
           item.summary,
+          recentComparisonLead ? `最近两版：${recentComparisonLead}` : '',
+          item.reviewContextDriven && item.reviewContextShift?.lead ? item.reviewContextShift.lead : '',
+          runStateSummary
+            ? `${runStateSummary}，当前结果已在降级强度下运行，应优先重看`
+            : '',
           item.selectionQualityDriven && item.selectionQualityShift?.currentLabel
             ? `自动降级 ${item.selectionQualityShift.currentLabel}`
             : '',
@@ -634,13 +666,18 @@ export const buildHunterModel = ({ snapshot = {}, overview = {}, status = {}, re
             ? buildWorkbenchAction(
                 item.taskId,
                 'alert_hunter',
-                `${item.title || formatTemplateName(item.templateId)} 当前研究输入已经变化，建议直接打开对应任务更新判断。`,
-                item.priorityReason || ''
+                runStateSummary
+                  ? `${item.title || formatTemplateName(item.templateId)} 当前结果已在降级强度下运行，建议优先直接打开对应任务重看判断。`
+                  : `${item.title || formatTemplateName(item.templateId)} 当前研究输入已经变化，建议直接打开对应任务更新判断。`,
+                item.priorityReason || '',
+                item.selectionQualityRunState?.active ? '优先重看任务' : '打开任务'
               )
             : buildCrossMarketAction(
                 item.templateId,
                 'alert_hunter',
-                `${item.title || formatTemplateName(item.templateId)} 当前研究输入已经变化，建议重新打开跨市场剧本更新判断。`
+                runStateSummary
+                  ? `${item.title || formatTemplateName(item.templateId)} 当前结果已在降级强度下运行，建议重新打开跨市场剧本优先重看。`
+                  : `${item.title || formatTemplateName(item.templateId)} 当前研究输入已经变化，建议重新打开跨市场剧本更新判断。`
               ),
       });
     });
@@ -661,6 +698,13 @@ export const buildCrossMarketCards = (
 ) => {
   const trendLookup = buildNarrativeTrendLookup(researchTasks);
   const refreshLookup = buildResearchTaskRefreshSignals({ researchTasks, overview, snapshot }).byTemplateId;
+  const taskLookup = Object.fromEntries(
+    (researchTasks || [])
+      .filter((task) => task?.type === 'cross_market' && task?.status !== 'archived')
+      .sort((left, right) => String(right.updated_at || '').localeCompare(String(left.updated_at || '')))
+      .map((task) => [extractTemplateIdentity(task, extractTemplateMeta(task)), task])
+      .filter(([templateId]) => Boolean(templateId))
+  );
 
   return buildScoredCrossMarketCards(
     payload,
@@ -671,8 +715,13 @@ export const buildCrossMarketCards = (
     .map((card) => {
       const trendMeta = trendLookup[card.id] || {};
       const refreshMeta = refreshLookup[card.id] || null;
+      const recentComparisonLead = extractRecentComparisonLead(taskLookup[card.id]);
       const rankingPenalty = refreshMeta?.biasCompressionShift?.coreLegAffected
         ? 0.45
+        : refreshMeta?.selectionQualityRunState?.active
+          ? 0.3
+        : refreshMeta?.reviewContextDriven
+          ? 0.24
         : refreshMeta?.selectionQualityDriven
           ? 0.2
           : 0;
@@ -686,6 +735,10 @@ export const buildCrossMarketCards = (
         rankingPenaltyReason: rankingPenalty
           ? refreshMeta?.biasCompressionShift?.coreLegAffected
             ? `核心腿 ${refreshMeta?.biasCompressionShift?.topCompressedAsset || ''} 已进入偏置收缩焦点，模板排序自动降级`
+            : refreshMeta?.selectionQualityRunState?.active
+              ? `当前结果已按 ${refreshMeta?.selectionQualityRunState?.label || 'degraded'} 强度运行，模板排序进一步下调`
+            : refreshMeta?.reviewContextDriven
+              ? `复核语境切换：${refreshMeta?.reviewContextShift?.lead || '最近两版已发生复核语境切换，模板排序谨慎下调'}`
             : `当前主题已进入自动降级处理，模板排序谨慎下调`
           : '',
         recommendationScore: adjustedScore,
@@ -704,17 +757,27 @@ export const buildCrossMarketCards = (
               taskRefreshBiasCompressionDriven: refreshMeta.biasCompressionDriven,
               taskRefreshSelectionQualityDriven: refreshMeta.selectionQualityDriven,
               taskRefreshSelectionQualityShift: refreshMeta.selectionQualityShift,
+              taskRefreshSelectionQualityRunState: refreshMeta.selectionQualityRunState,
+              taskRefreshSelectionQualityActive: refreshMeta.selectionQualityRunState?.active || false,
+              taskRefreshReviewContextDriven: refreshMeta.reviewContextDriven,
+              taskRefreshReviewContextShift: refreshMeta.reviewContextShift,
               taskRefreshBiasCompressionShift: refreshMeta.biasCompressionShift,
               taskRefreshBiasCompressionCore: refreshMeta.biasCompressionShift?.coreLegAffected || false,
               taskRefreshTopCompressedAsset: refreshMeta.biasCompressionShift?.topCompressedAsset || '',
               taskRefreshPolicySourceShift: refreshMeta.policySourceShift,
+              taskRecentComparisonLead: recentComparisonLead,
               taskAction:
                 refreshMeta.severity === 'high'
                   ? buildWorkbenchAction(
                       refreshMeta.taskId,
                       'cross_market_overview',
-                      `${card.name} 当前更适合直接打开对应任务处理。`,
-                      refreshMeta.priorityReason || ''
+                      refreshMeta.selectionQualityRunState?.active
+                        ? `${card.name} 当前结果已在降级强度下运行，更适合直接打开对应任务优先重看。`
+                        : refreshMeta.reviewContextDriven
+                          ? `${card.name} 最近两版已发生复核语境切换，更适合直接打开对应任务优先重看。`
+                        : `${card.name} 当前更适合直接打开对应任务处理。`,
+                      refreshMeta.priorityReason || '',
+                      (refreshMeta.selectionQualityRunState?.active || refreshMeta.reviewContextDriven) ? '优先重看任务' : '打开任务'
                     )
                   : null,
             }
