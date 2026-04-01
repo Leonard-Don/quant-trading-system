@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import {
   Card,
   Statistic,
@@ -11,7 +11,6 @@ import {
   Switch,
   message,
   AutoComplete,
-  Tabs,
   Drawer
 } from 'antd';
 import {
@@ -22,25 +21,35 @@ import {
   PauseCircleOutlined,
   SyncOutlined,
   RiseOutlined,
-  DollarOutlined,
   StockOutlined,
   PropertySafetyOutlined,
   BankOutlined,
   ThunderboltOutlined,
   BarChartOutlined,
   FundOutlined,
-  BellOutlined,
-  DownOutlined,
-  RightOutlined
+  BellOutlined
 } from '@ant-design/icons';
+import RealtimeQuoteBoard from './realtime/RealtimeQuoteBoard';
+import RealtimeAnomalyRadar from './realtime/RealtimeAnomalyRadar';
+import RealtimeAlertHistoryCard from './realtime/RealtimeAlertHistoryCard';
+import RealtimeReviewSummaryCard from './realtime/RealtimeReviewSummaryCard';
+import RealtimeDiagnosticsCard from './realtime/RealtimeDiagnosticsCard';
+import RealtimeSnapshotDrawer from './realtime/RealtimeSnapshotDrawer';
 import { STOCK_DATABASE } from '../constants/stocks';
+import api from '../services/api';
 import { useRealtimeDiagnostics } from '../hooks/useRealtimeDiagnostics';
 import { useRealtimeFeed } from '../hooks/useRealtimeFeed';
 import { useRealtimePreferences } from '../hooks/useRealtimePreferences';
 import {
+  ALERT_HIT_HISTORY_STORAGE_KEY,
+  loadAlertHitHistory,
+  MAX_ALERT_HIT_HISTORY,
+  summarizeAlertHitFollowThrough,
+  summarizeAlertHitHistory,
   buildAlertDraftFromAnomaly,
   buildRealtimeAnomalyFeed,
   buildTradePlanDraftFromAnomaly,
+  buildRealtimeActionPosture,
 } from '../utils/realtimeSignals';
 
 const { Text } = Typography;
@@ -50,7 +59,22 @@ const QUOTE_FRESH_MS = 45 * 1000;
 const QUOTE_DELAYED_MS = 3 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 const REVIEW_SNAPSHOT_STORAGE_KEY = 'realtime-review-snapshots';
+const REALTIME_TIMELINE_STORAGE_KEY = 'realtime-timeline-events';
 const MAX_REVIEW_SNAPSHOTS = 12;
+const MAX_TIMELINE_EVENTS = 120;
+const REALTIME_JOURNAL_DEBOUNCE_MS = 500;
+const QUOTE_SORT_OPTIONS = [
+  { key: 'change_desc', label: '涨跌幅' },
+  { key: 'range_desc', label: '振幅' },
+  { key: 'volume_desc', label: '成交量' },
+  { key: 'symbol_asc', label: '代码' },
+];
+const REVIEW_SCOPE_OPTIONS = [
+  { key: 'all', label: '全部' },
+  { key: 'recent7d', label: '最近7天' },
+  { key: 'recent20', label: '最近20条' },
+  { key: 'activeTab', label: '当前分组' },
+];
 const SNAPSHOT_OUTCOME_OPTIONS = {
   watching: { label: '继续观察', color: 'default' },
   validated: { label: '验证有效', color: 'success' },
@@ -75,6 +99,16 @@ const CATEGORY_THEMES = {
   option: { label: '期权', accent: '#a855f7', soft: 'rgba(168, 85, 247, 0.12)' },
   other: { label: '其他', accent: '#64748b', soft: 'rgba(100, 116, 139, 0.12)' },
 };
+const CATEGORY_OPTIONS = [
+  { key: 'index', label: '指数' },
+  { key: 'us', label: '美股' },
+  { key: 'cn', label: 'A股' },
+  { key: 'crypto', label: '加密' },
+  { key: 'bond', label: '债券' },
+  { key: 'future', label: '期货' },
+  { key: 'option', label: '期权' },
+  { key: 'other', label: '其他' },
+];
 const TradePanel = lazy(() => import('./TradePanel'));
 const RealtimeStockDetailModal = lazy(() => import('./RealtimeStockDetailModal'));
 const PriceAlerts = lazy(() => import('./PriceAlerts'));
@@ -141,11 +175,317 @@ const loadReviewSnapshots = () => {
   }
 };
 
+const loadRealtimeTimelineEvents = () => {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(REALTIME_TIMELINE_STORAGE_KEY);
+    if (!rawValue) {
+      return [];
+    }
+
+    const parsedValue = JSON.parse(rawValue);
+    return Array.isArray(parsedValue) ? parsedValue : [];
+  } catch (error) {
+    console.warn('Failed to load realtime timeline events:', error);
+    return [];
+  }
+};
+
+const getTimelineTone = (kind = '') => {
+  if (['price_up', 'touch_high', 'trade_plan', 'review_validated'].includes(kind)) {
+    return 'positive';
+  }
+
+  if (['price_down', 'touch_low', 'review_invalidated'].includes(kind)) {
+    return 'negative';
+  }
+
+  if (['volume_spike', 'range_expansion', 'alert_plan', 'review_snapshot'].includes(kind)) {
+    return 'warning';
+  }
+
+  return 'neutral';
+};
+
+const buildRealtimeDetailTimeline = ({ symbol, anomalyFeed = [], reviewSnapshots = [], actionEvents = [], alertHistory = [] }) => {
+  if (!symbol) {
+    return [];
+  }
+
+  const liveSignalEvents = anomalyFeed
+    .filter((item) => item?.symbol === symbol)
+    .map((item) => ({
+      id: `live_${symbol}_${item.kind}_${item.timestamp || item.title}`,
+      symbol,
+      kind: item.kind || 'live_signal',
+      source: 'live',
+      sourceLabel: '实时异动',
+      title: item.title,
+      description: item.description,
+      createdAt: item.timestamp || new Date().toISOString(),
+      tone: getTimelineTone(item.kind),
+      priceSnapshot: item.priceSnapshot,
+      changePercentSnapshot: item.changePercentSnapshot,
+      rangePercentSnapshot: item.rangePercentSnapshot,
+      volumeSnapshot: item.volumeSnapshot,
+    }));
+
+  const reviewEvents = reviewSnapshots
+    .filter((snapshot) => snapshot?.spotlightSymbol === symbol || (snapshot?.anomalies || []).some((item) => item?.symbol === symbol))
+    .map((snapshot) => {
+      const outcomeMeta = getSnapshotOutcomeMeta(snapshot.outcome);
+      const relatedAnomaly = (snapshot.anomalies || []).find((item) => item?.symbol === symbol);
+      return {
+        id: `review_${snapshot.id}_${symbol}`,
+        symbol,
+        kind: snapshot.outcome ? `review_${snapshot.outcome}` : 'review_snapshot',
+        source: 'review',
+        sourceLabel: '复盘快照',
+        title: outcomeMeta?.label ? `${outcomeMeta.label} · ${snapshot.activeTabLabel || snapshot.activeTab || '复盘记录'}` : '保存复盘快照',
+        description: snapshot.note
+          || relatedAnomaly?.description
+          || `记录了 ${snapshot.activeTabLabel || snapshot.activeTab || '--'} 视角下的 ${snapshot.anomalyCount ?? 0} 条异动。`,
+        createdAt: snapshot.updatedAt || snapshot.createdAt,
+        tone: getTimelineTone(snapshot.outcome ? `review_${snapshot.outcome}` : 'review_snapshot'),
+      };
+    });
+
+  const manualEvents = actionEvents
+    .filter((event) => event?.symbol === symbol)
+    .map((event) => ({
+      ...event,
+      tone: event.tone || getTimelineTone(event.kind),
+    }));
+
+  const alertEvents = alertHistory
+    .filter((entry) => entry?.symbol === symbol)
+    .map((entry) => ({
+      id: `alert_hit_${entry.id}`,
+      symbol,
+      kind: 'alert_triggered',
+      source: 'alert',
+      sourceLabel: '提醒命中',
+      title: `提醒命中 · ${entry.conditionLabel || '提醒规则'}`,
+      description: entry.message || `${symbol} 的提醒规则已触发。`,
+      createdAt: entry.triggerTime,
+      tone: ['price_above', 'change_pct_above', 'touch_high'].includes(entry.condition) ? 'positive' : 'warning',
+      priceSnapshot: entry.priceSnapshot ?? entry.triggerPrice ?? null,
+      threshold: entry.threshold,
+      condition: entry.condition,
+    }));
+
+  const uniqueEvents = new Map();
+  [...liveSignalEvents, ...manualEvents, ...reviewEvents, ...alertEvents].forEach((event) => {
+    if (!event?.id) {
+      return;
+    }
+    uniqueEvents.set(event.id, event);
+  });
+
+  return Array.from(uniqueEvents.values())
+    .sort((left, right) => new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime())
+    .slice(0, 10);
+};
+
 const getSnapshotOutcomeMeta = (outcome) => SNAPSHOT_OUTCOME_OPTIONS[outcome] || null;
+const escapeHtml = (value) => String(value ?? '')
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;')
+  .replaceAll("'", '&#39;');
+
+const formatReviewSnapshotMarkdown = (snapshot) => {
+  const outcomeMeta = getSnapshotOutcomeMeta(snapshot?.outcome);
+  const anomalies = Array.isArray(snapshot?.anomalies) ? snapshot.anomalies : [];
+  const watchedSymbols = Array.isArray(snapshot?.watchedSymbols) ? snapshot.watchedSymbols : [];
+  const quoteSnapshots = Array.isArray(snapshot?.quoteSnapshots) ? snapshot.quoteSnapshots : [];
+
+  return [
+    `## 复盘快照 - ${snapshot?.spotlightName || snapshot?.spotlightSymbol || '未记录焦点标的'}`,
+    '',
+    `- 时间: ${snapshot?.createdAt || '--'}`,
+    `- 分组: ${snapshot?.activeTabLabel || snapshot?.activeTab || '--'}`,
+    `- 焦点标的: ${snapshot?.spotlightSymbol || '--'}`,
+    `- 链路模式: ${snapshot?.transportModeLabel || '--'}`,
+    `- 结果: ${outcomeMeta?.label || '未标记'}`,
+    `- 异动数量: ${snapshot?.anomalyCount ?? 0}`,
+    `- 覆盖情况: ${snapshot?.loadedCount ?? 0}/${snapshot?.totalCount ?? 0}`,
+    snapshot?.note ? `- 备注: ${snapshot.note}` : null,
+    '',
+    '### 跟踪标的',
+    watchedSymbols.length ? watchedSymbols.map((item) => `- ${item}`).join('\n') : '- --',
+    '',
+    '### 当时价格快照',
+    quoteSnapshots.length
+      ? quoteSnapshots.map((item) => `- ${item.symbol}: 价格 ${item.price ?? '--'} | 涨跌幅 ${item.changePercent ?? '--'} | 成交量 ${item.volume ?? '--'}`).join('\n')
+      : '- --',
+    '',
+    '### 当时异动',
+    anomalies.length
+      ? anomalies.map((item) => `- ${item.title} | ${item.symbol}: ${item.description}`).join('\n')
+      : '- 无显著异动',
+  ].filter(Boolean).join('\n');
+};
+
+const formatReviewSummaryMarkdown = ({ scopeLabel, filteredReviewSnapshots, reviewOutcomeSummary, validationRate, reviewAttribution }) => [
+  `## 实时行情复盘摘要 - ${scopeLabel}`,
+  '',
+  `- 样本数: ${filteredReviewSnapshots.length}`,
+  `- 已复盘: ${reviewOutcomeSummary.validated + reviewOutcomeSummary.invalidated}/${filteredReviewSnapshots.length}`,
+  `- 验证有效: ${reviewOutcomeSummary.validated}`,
+  `- 观察失效: ${reviewOutcomeSummary.invalidated}`,
+  `- 持续观察: ${reviewOutcomeSummary.watching}`,
+  `- 有效率: ${validationRate}`,
+  `- 最强分组: ${reviewAttribution.topValidatedMarket}`,
+  `- 常失效异动: ${reviewAttribution.topInvalidatedSignal}`,
+  `- 高频焦点: ${reviewAttribution.topSpotlightSymbol}`,
+].join('\n');
+const formatReviewSnapshotShareHtml = (snapshot) => {
+  const outcomeMeta = getSnapshotOutcomeMeta(snapshot?.outcome);
+  const anomalies = Array.isArray(snapshot?.anomalies) ? snapshot.anomalies : [];
+  const watchedSymbols = Array.isArray(snapshot?.watchedSymbols) ? snapshot.watchedSymbols : [];
+  const quoteSnapshots = Array.isArray(snapshot?.quoteSnapshots) ? snapshot.quoteSnapshots : [];
+
+  return `
+    <section class="share-card">
+      <div class="eyebrow">Realtime Review Snapshot</div>
+      <h1>${escapeHtml(snapshot?.spotlightName || snapshot?.spotlightSymbol || '未记录焦点标的')}</h1>
+      <p class="subtitle">${escapeHtml(snapshot?.transportModeLabel || '--')}</p>
+      <div class="chips">
+        <span class="chip">${escapeHtml(snapshot?.activeTabLabel || snapshot?.activeTab || '--')}</span>
+        <span class="chip">${escapeHtml(outcomeMeta?.label || '未标记')}</span>
+        <span class="chip">${escapeHtml(snapshot?.createdAt || '--')}</span>
+      </div>
+      <div class="metrics">
+        <div class="metric"><span>焦点标的</span><strong>${escapeHtml(snapshot?.spotlightSymbol || '--')}</strong></div>
+        <div class="metric"><span>异动数量</span><strong>${escapeHtml(snapshot?.anomalyCount ?? 0)}</strong></div>
+        <div class="metric"><span>覆盖情况</span><strong>${escapeHtml(`${snapshot?.loadedCount ?? 0}/${snapshot?.totalCount ?? 0}`)}</strong></div>
+      </div>
+      ${snapshot?.note ? `<div class="note"><strong>备注</strong><p>${escapeHtml(snapshot.note)}</p></div>` : ''}
+      <div class="section">
+        <h2>跟踪标的</h2>
+        <div class="list">${watchedSymbols.length ? watchedSymbols.map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join('') : '<span class="muted">--</span>'}</div>
+      </div>
+      <div class="section">
+        <h2>当时价格快照</h2>
+        ${quoteSnapshots.length ? quoteSnapshots.map((item) => `
+          <div class="anomaly">
+            <strong>${escapeHtml(item.symbol)}</strong>
+            <p>价格 ${escapeHtml(item.price ?? '--')} · 涨跌幅 ${escapeHtml(item.changePercent ?? '--')} · 成交量 ${escapeHtml(item.volume ?? '--')}</p>
+          </div>
+        `).join('') : '<p class="muted">--</p>'}
+      </div>
+      <div class="section">
+        <h2>当时异动</h2>
+        ${anomalies.length ? anomalies.map((item) => `
+          <div class="anomaly">
+            <strong>${escapeHtml(item.title)} · ${escapeHtml(item.symbol)}</strong>
+            <p>${escapeHtml(item.description)}</p>
+          </div>
+        `).join('') : '<p class="muted">无显著异动</p>'}
+      </div>
+    </section>
+  `;
+};
+
+const formatReviewSummaryShareHtml = ({ scopeLabel, filteredReviewSnapshots, reviewOutcomeSummary, validationRate, reviewAttribution }) => `
+  <section class="share-card">
+    <div class="eyebrow">Realtime Review Summary</div>
+    <h1>实时行情复盘摘要</h1>
+    <p class="subtitle">${escapeHtml(scopeLabel)}</p>
+    <div class="metrics">
+      <div class="metric"><span>样本数</span><strong>${escapeHtml(filteredReviewSnapshots.length)}</strong></div>
+      <div class="metric"><span>已复盘</span><strong>${escapeHtml(`${reviewOutcomeSummary.validated + reviewOutcomeSummary.invalidated}/${filteredReviewSnapshots.length}`)}</strong></div>
+      <div class="metric"><span>验证有效</span><strong>${escapeHtml(reviewOutcomeSummary.validated)}</strong></div>
+      <div class="metric"><span>观察失效</span><strong>${escapeHtml(reviewOutcomeSummary.invalidated)}</strong></div>
+      <div class="metric"><span>持续观察</span><strong>${escapeHtml(reviewOutcomeSummary.watching)}</strong></div>
+      <div class="metric"><span>有效率</span><strong>${escapeHtml(validationRate)}</strong></div>
+    </div>
+    <div class="section">
+      <h2>归因结果</h2>
+      <div class="metrics">
+        <div class="metric"><span>最强分组</span><strong>${escapeHtml(reviewAttribution.topValidatedMarket)}</strong></div>
+        <div class="metric"><span>常失效异动</span><strong>${escapeHtml(reviewAttribution.topInvalidatedSignal)}</strong></div>
+        <div class="metric"><span>高频焦点</span><strong>${escapeHtml(reviewAttribution.topSpotlightSymbol)}</strong></div>
+      </div>
+    </div>
+  </section>
+`;
+const filterReviewSnapshots = (snapshots = [], scope = 'all', activeTab = '') => {
+  if (scope === 'recent20') {
+    return snapshots.slice(0, 20);
+  }
+
+  if (scope === 'recent7d') {
+    const now = Date.now();
+    return snapshots.filter((snapshot) => {
+      const createdAt = new Date(snapshot.createdAt).getTime();
+      return Number.isFinite(createdAt) && now - createdAt <= 7 * 24 * 60 * 60 * 1000;
+    });
+  }
+
+  if (scope === 'activeTab') {
+    return snapshots.filter((snapshot) => snapshot.activeTab === activeTab);
+  }
+
+  return snapshots;
+};
+
+const summarizeReviewAttribution = (snapshots = []) => {
+  const validatedMarkets = new Map();
+  const invalidatedSignals = new Map();
+  const spotlightSymbols = new Map();
+
+  snapshots.forEach((snapshot) => {
+    if (snapshot.spotlightSymbol) {
+      const currentSpotlight = spotlightSymbols.get(snapshot.spotlightSymbol) || {
+        label: snapshot.spotlightName || snapshot.spotlightSymbol,
+        count: 0,
+      };
+      currentSpotlight.count += 1;
+      spotlightSymbols.set(snapshot.spotlightSymbol, currentSpotlight);
+    }
+
+    if (snapshot.outcome === 'validated' && snapshot.activeTabLabel) {
+      validatedMarkets.set(
+        snapshot.activeTabLabel,
+        (validatedMarkets.get(snapshot.activeTabLabel) || 0) + 1
+      );
+    }
+
+    if (snapshot.outcome === 'invalidated') {
+      (snapshot.anomalies || []).forEach((anomaly) => {
+        if (!anomaly?.title) {
+          return;
+        }
+        invalidatedSignals.set(anomaly.title, (invalidatedSignals.get(anomaly.title) || 0) + 1);
+      });
+    }
+  });
+
+  const pickTop = (entries, formatter) => {
+    const sorted = [...entries.entries()].sort((left, right) => right[1] - left[1]);
+    if (!sorted.length) {
+      return '--';
+    }
+    return formatter(sorted[0][0], sorted[0][1]);
+  };
+
+  return {
+    topValidatedMarket: pickTop(validatedMarkets, (label, count) => `${label} · ${count} 次有效`),
+    topInvalidatedSignal: pickTop(invalidatedSignals, (label, count) => `${label} · ${count} 次失效`),
+    topSpotlightSymbol: pickTop(spotlightSymbols, (symbol, meta) => `${meta.label} · ${meta.count} 次聚焦`),
+  };
+};
 
 const RealTimePanel = ({ openAlertsSignal = null }) => {
   const [messageApi, messageContextHolder] = message.useMessage();
   const [searchSymbol, setSearchSymbol] = useState('');
+  const [globalJumpQuery, setGlobalJumpQuery] = useState('');
   const [isAlertsDrawerVisible, setIsAlertsDrawerVisible] = useState(false);
   const [alertPrefillSymbol, setAlertPrefillSymbol] = useState('');
   const [alertPrefillDraft, setAlertPrefillDraft] = useState(null);
@@ -155,14 +495,31 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
   const [isTradeModalVisible, setIsTradeModalVisible] = useState(false);
   const [selectedSymbol, setSelectedSymbol] = useState(null);
   const [tradePlanDraft, setTradePlanDraft] = useState(null);
+  const [quoteSortMode, setQuoteSortMode] = useState('change_desc');
+  const [quoteViewMode, setQuoteViewMode] = useState('grid');
 
   // Detail Modal State
   const [isDetailModalVisible, setIsDetailModalVisible] = useState(false);
   const [detailSymbol, setDetailSymbol] = useState(null);
   const [autoCompleteOptions, setAutoCompleteOptions] = useState([]);
+  const [globalJumpOptions, setGlobalJumpOptions] = useState([]);
+  const [isAnomalyExpanded, setIsAnomalyExpanded] = useState(true);
+  const [isAlertHistoryExpanded, setIsAlertHistoryExpanded] = useState(false);
+  const [isReviewExpanded, setIsReviewExpanded] = useState(false);
   const [isDiagnosticsExpanded, setIsDiagnosticsExpanded] = useState(false);
   const [isSnapshotDrawerVisible, setIsSnapshotDrawerVisible] = useState(false);
   const [reviewSnapshots, setReviewSnapshots] = useState(loadReviewSnapshots);
+  const [timelineEvents, setTimelineEvents] = useState(loadRealtimeTimelineEvents);
+  const [isJournalHydrated, setIsJournalHydrated] = useState(false);
+  const [alertHitHistory, setAlertHitHistory] = useState(loadAlertHitHistory);
+  const [reviewScope, setReviewScope] = useState('all');
+  const [selectedQuoteSymbols, setSelectedQuoteSymbols] = useState([]);
+  const [draggingSymbol, setDraggingSymbol] = useState(null);
+  const notifiedAnomaliesRef = useRef(new Map());
+  const snapshotImportInputRef = useRef(null);
+  const journalSaveTimerRef = useRef(null);
+  const latestJournalRef = useRef('');
+  const lastSyncedJournalRef = useRef('');
 
   useEffect(() => {
     if (openAlertsSignal) {
@@ -174,20 +531,195 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     window.localStorage.setItem(REVIEW_SNAPSHOT_STORAGE_KEY, JSON.stringify(reviewSnapshots));
   }, [reviewSnapshots]);
 
+  useEffect(() => {
+    window.localStorage.setItem(REALTIME_TIMELINE_STORAGE_KEY, JSON.stringify(timelineEvents));
+  }, [timelineEvents]);
+
+  useEffect(() => {
+    window.localStorage.setItem(ALERT_HIT_HISTORY_STORAGE_KEY, JSON.stringify(alertHitHistory));
+  }, [alertHitHistory]);
+
+  useEffect(() => {
+    latestJournalRef.current = JSON.stringify({
+      review_snapshots: reviewSnapshots,
+      timeline_events: timelineEvents,
+    });
+  }, [reviewSnapshots, timelineEvents]);
+
   const {
     activeTab,
+    realtimeProfileId,
     setActiveTab,
+    setSymbolCategoryOverrides,
     setSubscribedSymbols,
     subscribedSymbols,
+    symbolCategoryOverrides,
   } = useRealtimePreferences({
     defaultSymbols: DEFAULT_SUBSCRIBED_SYMBOLS,
   });
 
+  useEffect(() => {
+    let isCancelled = false;
+    const initialJournalSnapshot = latestJournalRef.current || JSON.stringify({
+      review_snapshots: reviewSnapshots,
+      timeline_events: timelineEvents,
+    });
+    let initialLocalJournal = {
+      review_snapshots: reviewSnapshots,
+      timeline_events: timelineEvents,
+    };
+
+    try {
+      initialLocalJournal = JSON.parse(initialJournalSnapshot);
+    } catch (error) {
+      console.warn('Failed to parse initial realtime journal snapshot, falling back to local state:', error);
+    }
+
+    const hydrateJournal = async () => {
+      try {
+        const response = await api.get('/realtime/journal', {
+          headers: {
+            'X-Realtime-Profile': realtimeProfileId,
+          },
+        });
+        if (!response.data?.success || isCancelled) {
+          return;
+        }
+
+        const currentJournalSnapshot = latestJournalRef.current || initialJournalSnapshot;
+        const userChangedJournalDuringHydration = currentJournalSnapshot !== initialJournalSnapshot;
+        const nextReviewSnapshots = Array.isArray(response.data.data?.review_snapshots)
+          ? response.data.data.review_snapshots.slice(0, MAX_REVIEW_SNAPSHOTS)
+          : [];
+        const nextTimelineEvents = Array.isArray(response.data.data?.timeline_events)
+          ? response.data.data.timeline_events.slice(0, MAX_TIMELINE_EVENTS)
+          : [];
+        const backendJournalEmpty = nextReviewSnapshots.length === 0 && nextTimelineEvents.length === 0;
+        const localJournalHasEntries = (
+          Array.isArray(initialLocalJournal.review_snapshots) && initialLocalJournal.review_snapshots.length > 0
+        ) || (
+          Array.isArray(initialLocalJournal.timeline_events) && initialLocalJournal.timeline_events.length > 0
+        );
+
+        if (!userChangedJournalDuringHydration) {
+          if (backendJournalEmpty && localJournalHasEntries) {
+            lastSyncedJournalRef.current = '';
+          } else {
+            setReviewSnapshots(nextReviewSnapshots);
+            setTimelineEvents(nextTimelineEvents);
+            lastSyncedJournalRef.current = JSON.stringify({
+              review_snapshots: nextReviewSnapshots,
+              timeline_events: nextTimelineEvents,
+            });
+          }
+        }
+      } catch (error) {
+        console.warn('Failed to load realtime journal from backend, falling back to local cache:', error);
+      } finally {
+        if (!isCancelled) {
+          setIsJournalHydrated(true);
+        }
+      }
+    };
+
+    hydrateJournal();
+
+    return () => {
+      isCancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [realtimeProfileId]);
+
+  useEffect(() => {
+    if (!isJournalHydrated) {
+      return undefined;
+    }
+
+    const payload = {
+      review_snapshots: reviewSnapshots,
+      timeline_events: timelineEvents,
+    };
+    const serializedPayload = JSON.stringify(payload);
+    if (serializedPayload === lastSyncedJournalRef.current) {
+      return undefined;
+    }
+
+    if (journalSaveTimerRef.current) {
+      clearTimeout(journalSaveTimerRef.current);
+    }
+
+    journalSaveTimerRef.current = setTimeout(async () => {
+      try {
+        await api.put('/realtime/journal', payload, {
+          headers: {
+            'X-Realtime-Profile': realtimeProfileId,
+          },
+        });
+        lastSyncedJournalRef.current = serializedPayload;
+      } catch (error) {
+        console.warn('Failed to sync realtime journal to backend, keeping local cache only:', error);
+      }
+    }, REALTIME_JOURNAL_DEBOUNCE_MS);
+
+    return () => {
+      if (journalSaveTimerRef.current) {
+        clearTimeout(journalSaveTimerRef.current);
+        journalSaveTimerRef.current = null;
+      }
+    };
+  }, [isJournalHydrated, realtimeProfileId, reviewSnapshots, timelineEvents]);
+
+  useEffect(() => {
+    let isCancelled = false;
+    const initialAlertHistorySnapshot = JSON.stringify(alertHitHistory);
+
+    const hydrateAlertHitHistory = async () => {
+      try {
+        const response = await api.get('/realtime/alerts', {
+          headers: {
+            'X-Realtime-Profile': realtimeProfileId,
+          },
+        });
+
+        if (!response.data?.success || isCancelled) {
+          return;
+        }
+
+        const nextAlertHitHistory = Array.isArray(response.data.data?.alert_hit_history)
+          ? response.data.data.alert_hit_history.slice(0, MAX_ALERT_HIT_HISTORY)
+          : [];
+        const userChangedAlertHistoryDuringHydration = JSON.stringify(alertHitHistory) !== initialAlertHistorySnapshot;
+        const backendHistoryEmpty = nextAlertHitHistory.length === 0;
+        const localHistoryExists = alertHitHistory.length > 0;
+
+        if (!userChangedAlertHistoryDuringHydration) {
+          if (backendHistoryEmpty && localHistoryExists) {
+            return;
+          }
+          setAlertHitHistory(nextAlertHitHistory);
+        }
+      } catch (error) {
+        console.warn('Failed to load realtime alert hit history from backend, falling back to local cache:', error);
+      }
+    };
+
+    hydrateAlertHitHistory();
+
+    return () => {
+      isCancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [realtimeProfileId]);
+
+  const resolveSymbolCategory = useCallback((symbol) => {
+    return symbolCategoryOverrides[symbol] || inferSymbolCategory(symbol);
+  }, [symbolCategoryOverrides]);
+
   const getSymbolsByCategory = useCallback((category) => {
     return subscribedSymbols.filter(symbol => {
-      return inferSymbolCategory(symbol) === category;
+      return resolveSymbolCategory(symbol) === category;
     });
-  }, [subscribedSymbols]);
+  }, [resolveSymbolCategory, subscribedSymbols]);
 
   const {
     clearMissingQuoteRequests,
@@ -224,6 +756,20 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     reconnectAttempts,
   });
 
+  const appendTimelineEvent = useCallback((event) => {
+    if (!event?.symbol) {
+      return;
+    }
+
+    const nextEvent = {
+      id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      createdAt: new Date().toISOString(),
+      ...event,
+    };
+
+    setTimelineEvents((prev) => [nextEvent, ...prev].slice(0, MAX_TIMELINE_EVENTS));
+  }, []);
+
   const subscribeSymbol = useCallback((symbol) => {
     if (subscribedSymbols.includes(symbol)) {
       return false;
@@ -236,15 +782,41 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
   const removeSymbol = useCallback((symbol) => {
     setSubscribedSymbols(prev => prev.filter(s => s !== symbol));
+    setSelectedQuoteSymbols((prev) => prev.filter((item) => item !== symbol));
     removeQuote(symbol);
   }, [removeQuote, setSubscribedSymbols]);
+
+  const reorderWithinCategory = useCallback((fromSymbol, toSymbol) => {
+    if (!fromSymbol || !toSymbol || fromSymbol === toSymbol) {
+      return;
+    }
+
+    if (resolveSymbolCategory(fromSymbol) !== activeTab || resolveSymbolCategory(toSymbol) !== activeTab) {
+      return;
+    }
+
+    setSubscribedSymbols((prev) => {
+      const next = [...prev];
+      const fromIndex = next.indexOf(fromSymbol);
+      const toIndex = next.indexOf(toSymbol);
+
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) {
+        return prev;
+      }
+
+      const [movedSymbol] = next.splice(fromIndex, 1);
+      const adjustedTargetIndex = next.indexOf(toSymbol);
+      next.splice(adjustedTargetIndex, 0, movedSymbol);
+      return next;
+    });
+  }, [activeTab, resolveSymbolCategory, setSubscribedSymbols]);
 
   const toggleAutoUpdate = useCallback((checked) => {
     setIsAutoUpdate(checked);
   }, [setIsAutoUpdate]);
 
   // 添加新股票
-  const addSymbol = (symbol) => {
+  const addSymbol = useCallback((symbol) => {
     if (!symbol) return;
     const newSymbol = symbol.trim().toUpperCase();
     if (subscribedSymbols.includes(newSymbol)) return;
@@ -253,7 +825,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     if (!added) {
       return;
     }
-    const nextCategory = inferSymbolCategory(newSymbol);
+    const nextCategory = resolveSymbolCategory(newSymbol);
     if (nextCategory) {
       setActiveTab(nextCategory);
     }
@@ -261,7 +833,14 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     fetchQuotes([newSymbol]);
     setSearchSymbol('');
     setAutoCompleteOptions([]);
-  };
+  }, [
+    clearMissingQuoteRequests,
+    fetchQuotes,
+    setActiveTab,
+    subscribeSymbol,
+    subscribedSymbols,
+    resolveSymbolCategory,
+  ]);
 
   const formatPrice = (price, fallback = DEFAULT_PRICE_TEXT) => {
     if (!hasNumericValue(price)) return fallback;
@@ -290,7 +869,22 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     setSelectedSymbol(symbol);
     setTradePlanDraft(draft);
     setIsTradeModalVisible(true);
-  }, []);
+    if (draft?.symbol) {
+      appendTimelineEvent({
+        symbol: draft.symbol,
+        kind: 'trade_plan',
+        source: 'plan',
+        sourceLabel: '交易计划',
+        title: draft.sourceTitle || '生成交易计划',
+        description: draft.note || draft.sourceDescription || `已为 ${draft.symbol} 生成交易计划草稿。`,
+        action: draft.action,
+        entryPrice: draft.suggestedEntry ?? draft.limitPrice,
+        stopLoss: draft.stopLoss,
+        takeProfit: draft.takeProfit,
+        priceSnapshot: quotes[draft.symbol]?.price ?? draft.suggestedEntry ?? draft.limitPrice ?? null,
+      });
+    }
+  }, [appendTimelineEvent, quotes]);
 
   const handleCloseTrade = useCallback(() => {
     setIsTradeModalVisible(false);
@@ -316,6 +910,11 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     setDetailSymbol(null);
   }, []);
 
+  const handleOpenTradeFromDetail = useCallback((symbol, draft = null) => {
+    setIsDetailModalVisible(false);
+    handleOpenTrade(symbol, draft);
+  }, [handleOpenTrade]);
+
   const handleOpenAlerts = useCallback((symbol = '', draft = null) => {
     if (symbol) {
       setAlertPrefillSymbol(symbol);
@@ -326,7 +925,20 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     }
     setAlertComposerSignal(Date.now());
     setIsAlertsDrawerVisible(true);
-  }, []);
+    if (draft?.symbol) {
+      appendTimelineEvent({
+        symbol: draft.symbol,
+        kind: 'alert_plan',
+        source: 'alert',
+        sourceLabel: '提醒草稿',
+        title: draft.sourceTitle || '生成提醒规则',
+        description: draft.sourceDescription || `已为 ${draft.symbol} 准备提醒规则草稿。`,
+        condition: draft.condition,
+        threshold: draft.threshold,
+        priceSnapshot: quotes[draft.symbol]?.price ?? null,
+      });
+    }
+  }, [appendTimelineEvent, quotes]);
 
   const handleCloseAlerts = useCallback(() => {
     setIsAlertsDrawerVisible(false);
@@ -342,7 +954,15 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     handleOpenAlerts(draft.symbol, draft);
   }, [handleCloseTrade, handleOpenAlerts]);
 
-  const findMatchingSymbols = (input) => {
+  const handleAlertTriggered = useCallback((historyEntry) => {
+    if (!historyEntry?.symbol) {
+      return;
+    }
+
+    setAlertHitHistory((prev) => [historyEntry, ...prev].slice(0, MAX_ALERT_HIT_HISTORY));
+  }, []);
+
+  const findMatchingSymbols = useCallback((input) => {
     if (!input || input.trim() === '') return [];
 
     const query = input.toLowerCase().trim();
@@ -366,16 +986,125 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     });
 
     return results.sort((a, b) => a.priority - b.priority).slice(0, 10);
-  };
+  }, [subscribedSymbols]);
+
+  const findJumpCandidates = useCallback((input) => {
+    if (!input || input.trim() === '') {
+      return [];
+    }
+
+    const query = input.toLowerCase().trim();
+    const trackedResults = subscribedSymbols
+      .filter((code) => {
+        const info = STOCK_DATABASE[code];
+        return code.toLowerCase().includes(query)
+          || info?.en?.toLowerCase?.().includes(query)
+          || info?.cn?.includes(query);
+      })
+      .map((code) => ({
+        code,
+        tracked: true,
+        info: STOCK_DATABASE[code] || { en: code, cn: code, type: resolveSymbolCategory(code) },
+        priority: code.toLowerCase() === query ? 0 : 1,
+      }));
+
+    const addableResults = findMatchingSymbols(input).map((item) => ({
+      ...item,
+      tracked: false,
+      priority: item.priority + 2,
+    }));
+
+    return [...trackedResults, ...addableResults]
+      .sort((left, right) => left.priority - right.priority)
+      .slice(0, 12);
+  }, [findMatchingSymbols, resolveSymbolCategory, subscribedSymbols]);
 
   const currentTabSymbols = getSymbolsByCategory(activeTab);
   const currentTabQuotes = currentTabSymbols.map(symbol => quotes[symbol]).filter(Boolean);
+  const selectedCurrentTabSymbols = selectedQuoteSymbols.filter((symbol) => currentTabSymbols.includes(symbol));
   const risingCount = currentTabQuotes.filter(q => q?.change > 0).length;
   const fallingCount = currentTabQuotes.filter(q => q?.change < 0).length;
+  const flatCount = currentTabQuotes.filter((q) => q?.change === 0).length;
   const loadedQuotesCount = Object.values(quotes).filter(Boolean).length;
   const spotlightSymbol = currentTabSymbols
     .filter(symbol => quotes[symbol])
     .sort((left, right) => Math.abs(Number(quotes[right]?.change_percent || 0)) - Math.abs(Number(quotes[left]?.change_percent || 0)))[0] || null;
+  const marketSentiment = (() => {
+    const activeCount = risingCount + fallingCount;
+    if (!activeCount) {
+      return {
+        label: '待观察',
+        detail: '当前分组还没有足够的涨跌样本',
+      };
+    }
+
+    const breadth = risingCount / activeCount;
+    if (breadth >= 0.66) {
+      return {
+        label: '偏强',
+        detail: `上涨 ${risingCount} / 下跌 ${fallingCount}`,
+      };
+    }
+    if (breadth <= 0.34) {
+      return {
+        label: '偏弱',
+        detail: `上涨 ${risingCount} / 下跌 ${fallingCount}`,
+      };
+    }
+    return {
+      label: '中性',
+      detail: `上涨 ${risingCount} / 下跌 ${fallingCount}${flatCount > 0 ? ` / 平 ${flatCount}` : ''}`,
+    };
+  })();
+
+  const toggleQuoteSelection = useCallback((symbol) => {
+    setSelectedQuoteSymbols((prev) => (
+      prev.includes(symbol)
+        ? prev.filter((item) => item !== symbol)
+        : [...prev, symbol]
+    ));
+  }, []);
+
+  const selectAllCurrentTab = useCallback(() => {
+    setSelectedQuoteSymbols(currentTabSymbols);
+  }, [currentTabSymbols]);
+
+  const clearSelectedQuotes = useCallback(() => {
+    setSelectedQuoteSymbols([]);
+  }, []);
+
+  const moveSelectedQuotesToCategory = useCallback((targetCategory) => {
+    if (!targetCategory || selectedCurrentTabSymbols.length === 0 || targetCategory === activeTab) {
+      return;
+    }
+
+    setSymbolCategoryOverrides((prev) => {
+      const next = { ...prev };
+      selectedCurrentTabSymbols.forEach((symbol) => {
+        if (inferSymbolCategory(symbol) === targetCategory) {
+          delete next[symbol];
+        } else {
+          next[symbol] = targetCategory;
+        }
+      });
+      return next;
+    });
+    setActiveTab(targetCategory);
+    setSelectedQuoteSymbols([]);
+    messageApi.success(`已将 ${selectedCurrentTabSymbols.length} 个标的移动到${getCategoryLabel(targetCategory)}`);
+  }, [activeTab, messageApi, selectedCurrentTabSymbols, setActiveTab, setSymbolCategoryOverrides]);
+
+  const removeSelectedQuotes = useCallback(() => {
+    if (selectedCurrentTabSymbols.length === 0) {
+      return;
+    }
+
+    const removedCount = selectedCurrentTabSymbols.length;
+    setSubscribedSymbols((prev) => prev.filter((symbol) => !selectedCurrentTabSymbols.includes(symbol)));
+    selectedCurrentTabSymbols.forEach((symbol) => removeQuote(symbol));
+    setSelectedQuoteSymbols([]);
+    messageApi.success(`已移除 ${removedCount} 个标的`);
+  }, [messageApi, removeQuote, selectedCurrentTabSymbols, setSubscribedSymbols]);
 
   const handleSearch = (value) => {
     setSearchSymbol(value);
@@ -408,6 +1137,48 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     setAutoCompleteOptions([]);
   };
 
+  const handleGlobalJumpSearch = useCallback((value) => {
+    setGlobalJumpQuery(value);
+    if (!value || value.trim() === '') {
+      setGlobalJumpOptions([]);
+      return;
+    }
+
+    const options = findJumpCandidates(value).map(({ code, info, tracked }) => ({
+      value: code,
+      label: (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0' }}>
+          <span>
+            <Text strong style={{ fontSize: '14px' }}>{code}</Text>
+            <Text type="secondary" style={{ marginLeft: 10 }}>{info?.cn || code}</Text>
+          </span>
+          <Tag color={tracked ? 'geekblue' : 'blue'} style={{ margin: 0 }}>
+            {tracked ? '已跟踪' : '可添加'}
+          </Tag>
+        </div>
+      ),
+    }));
+    setGlobalJumpOptions(options);
+  }, [findJumpCandidates]);
+
+  const handleGlobalJumpSelect = useCallback((value) => {
+    const normalized = String(value || '').trim().toUpperCase();
+    if (!normalized) {
+      return;
+    }
+
+    if (subscribedSymbols.includes(normalized)) {
+      setActiveTab(inferSymbolCategory(normalized));
+      handleShowDetail(normalized);
+      messageApi.success(`已跳转到 ${normalized} 的实时详情`);
+    } else {
+      addSymbol(normalized);
+    }
+
+    setGlobalJumpQuery('');
+    setGlobalJumpOptions([]);
+  }, [addSymbol, handleShowDetail, messageApi, setActiveTab, subscribedSymbols]);
+
   const getCategoryLabel = (type) => {
     switch (type) {
       case 'index': return '指数';
@@ -422,6 +1193,76 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
   };
 
   const getCategoryTheme = (type) => CATEGORY_THEMES[type] || CATEGORY_THEMES.other;
+  const getQuoteRangePercent = useCallback((quote) => {
+    const high = Number(quote?.high);
+    const low = Number(quote?.low);
+    const base = Number(quote?.previous_close ?? quote?.price);
+    if (![high, low, base].every(Number.isFinite) || base <= 0) {
+      return null;
+    }
+    return ((high - low) / base) * 100;
+  }, []);
+  const getQuoteSortValue = useCallback((symbol, quote, mode) => {
+    switch (mode) {
+      case 'range_desc':
+        return getQuoteRangePercent(quote) ?? Number.NEGATIVE_INFINITY;
+      case 'volume_desc':
+        return hasNumericValue(quote?.volume) ? Number(quote.volume) : Number.NEGATIVE_INFINITY;
+      case 'symbol_asc':
+        return symbol;
+      case 'change_desc':
+      default:
+        return hasNumericValue(quote?.change_percent) ? Number(quote.change_percent) : Number.NEGATIVE_INFINITY;
+    }
+  }, [getQuoteRangePercent]);
+  const sortSymbolsForDisplay = useCallback((symbols) => {
+    return [...symbols].sort((left, right) => {
+      const leftQuote = quotes[left];
+      const rightQuote = quotes[right];
+      const leftValue = getQuoteSortValue(left, leftQuote, quoteSortMode);
+      const rightValue = getQuoteSortValue(right, rightQuote, quoteSortMode);
+
+      if (quoteSortMode === 'symbol_asc') {
+        return String(leftValue).localeCompare(String(rightValue));
+      }
+
+      if (leftValue === rightValue) {
+        return left.localeCompare(right);
+      }
+
+      return Number(rightValue) - Number(leftValue);
+    });
+  }, [getQuoteSortValue, quoteSortMode, quotes]);
+  const buildMiniTrendSeries = useCallback((quote) => {
+    const candidates = [
+      Number(quote?.previous_close),
+      Number(quote?.open),
+      Number(quote?.low),
+      Number(quote?.price),
+      Number(quote?.high),
+    ].filter((value) => Number.isFinite(value) && value > 0);
+
+    if (candidates.length < 2) {
+      return null;
+    }
+
+    return candidates;
+  }, []);
+  const buildSparklinePoints = useCallback((series, width = 144, height = 44, padding = 4) => {
+    if (!Array.isArray(series) || series.length < 2) {
+      return null;
+    }
+
+    const min = Math.min(...series);
+    const max = Math.max(...series);
+    const span = max - min || 1;
+
+    return series.map((value, index) => {
+      const x = padding + (index * (width - padding * 2)) / (series.length - 1);
+      const y = height - padding - (((value - min) / span) * (height - padding * 2));
+      return `${x},${y}`;
+    }).join(' ');
+  }, []);
 
   const formatQuoteTime = (value) => {
     if (!value) return '--';
@@ -574,7 +1415,98 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           borderColor: 'rgba(245, 158, 11, 0.26)',
         };
   const anomalyFeed = buildRealtimeAnomalyFeed(currentTabSymbols, quotes, { limit: 6 });
-  const latestSnapshots = reviewSnapshots.slice(0, 3);
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof Notification === 'undefined') {
+      return;
+    }
+
+    if (Notification.permission !== 'granted') {
+      return;
+    }
+
+    const now = Date.now();
+    const cooldownMs = 10 * 60 * 1000;
+    const notifications = notifiedAnomaliesRef.current;
+
+    anomalyFeed.forEach((item) => {
+      if (!item?.id || !['high', 'critical'].includes(item.level)) {
+        return;
+      }
+
+      const lastNotifiedAt = notifications.get(item.id) || 0;
+      if (now - lastNotifiedAt < cooldownMs) {
+        return;
+      }
+
+      notifications.set(item.id, now);
+      new Notification(`异动雷达: ${item.symbol}`, {
+        body: `${item.title} · ${item.description}`,
+      });
+    });
+
+    if (notifications.size > 80) {
+      const activeIds = new Set(anomalyFeed.map((item) => item.id));
+      Array.from(notifications.keys()).forEach((key) => {
+        if (!activeIds.has(key)) {
+          notifications.delete(key);
+        }
+      });
+    }
+  }, [anomalyFeed]);
+  const filteredReviewSnapshots = filterReviewSnapshots(reviewSnapshots, reviewScope, activeTab);
+  const reviewScopeLabel = REVIEW_SCOPE_OPTIONS.find((option) => option.key === reviewScope)?.label || '全部';
+  const latestSnapshots = filteredReviewSnapshots.slice(0, 3);
+  const reviewOutcomeSummary = filteredReviewSnapshots.reduce((summary, snapshot) => {
+    if (snapshot.outcome === 'validated') {
+      summary.validated += 1;
+    } else if (snapshot.outcome === 'invalidated') {
+      summary.invalidated += 1;
+    } else if (snapshot.outcome === 'watching') {
+      summary.watching += 1;
+    }
+    return summary;
+  }, { validated: 0, invalidated: 0, watching: 0 });
+  const resolvedSnapshotCount = reviewOutcomeSummary.validated + reviewOutcomeSummary.invalidated;
+  const validationRate = resolvedSnapshotCount > 0
+    ? `${Math.round((reviewOutcomeSummary.validated / resolvedSnapshotCount) * 100)}%`
+    : '--';
+  const reviewAttribution = summarizeReviewAttribution(filteredReviewSnapshots);
+  const currentTabAlertHitSummary = summarizeAlertHitHistory(alertHitHistory, currentTabSymbols);
+  const currentTabAlertFollowThrough = summarizeAlertHitFollowThrough(alertHitHistory, quotes, currentTabSymbols);
+  const realtimeActionPosture = buildRealtimeActionPosture({
+    freshnessSummary,
+    alertHitSummary: currentTabAlertHitSummary,
+    alertFollowThrough: currentTabAlertFollowThrough,
+    anomalyCount: anomalyFeed.length,
+    symbolCount: currentTabSymbols.length,
+    spotlightSymbol,
+  });
+  const detailEventTimeline = buildRealtimeDetailTimeline({
+    symbol: detailSymbol,
+    anomalyFeed,
+    reviewSnapshots,
+    actionEvents: timelineEvents,
+    alertHistory: alertHitHistory,
+  });
+  const detailCompareCandidates = currentTabSymbols
+    .filter((symbol) => symbol && quotes[symbol])
+    .sort((left, right) => Math.abs(Number(quotes[right]?.change_percent || 0)) - Math.abs(Number(quotes[left]?.change_percent || 0)))
+    .slice(0, 6)
+    .map((candidateSymbol) => ({
+      symbol: candidateSymbol,
+      name: getDisplayName(candidateSymbol),
+      quote: quotes[candidateSymbol] || null,
+    }));
+  const detailCompareTimelineMap = detailCompareCandidates.reduce((accumulator, item) => {
+    accumulator[item.symbol] = buildRealtimeDetailTimeline({
+      symbol: item.symbol,
+      anomalyFeed,
+      reviewSnapshots,
+      actionEvents: timelineEvents,
+      alertHistory: alertHitHistory,
+    });
+    return accumulator;
+  }, {});
 
   const saveReviewSnapshot = useCallback(() => {
     const snapshot = {
@@ -586,6 +1518,15 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       spotlightSymbol,
       spotlightName: spotlightSymbol ? getDisplayName(spotlightSymbol) : null,
       watchedSymbols: currentTabSymbols.slice(0, 8),
+      quoteSnapshots: currentTabSymbols.slice(0, 8).map((symbol) => {
+        const quote = quotes[symbol];
+        return {
+          symbol,
+          price: hasNumericValue(quote?.price) ? Number(quote.price).toFixed(2) : '--',
+          changePercent: hasNumericValue(quote?.change_percent) ? `${Number(quote.change_percent).toFixed(2)}%` : '--',
+          volume: hasNumericValue(quote?.volume) ? Number(quote.volume).toLocaleString() : '--',
+        };
+      }),
       loadedCount: currentTabQuotes.length,
       totalCount: currentTabSymbols.length,
       anomalyCount: anomalyFeed.length,
@@ -600,15 +1541,31 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     };
 
     setReviewSnapshots((prev) => [snapshot, ...prev].slice(0, MAX_REVIEW_SNAPSHOTS));
+    if (spotlightSymbol) {
+      appendTimelineEvent({
+        symbol: spotlightSymbol,
+        kind: 'review_snapshot',
+        source: 'review',
+        sourceLabel: '复盘快照',
+        title: `保存复盘快照 · ${getCategoryLabel(activeTab)}`,
+        description: `记录了 ${anomalyFeed.length} 条异动与 ${currentTabQuotes.length}/${currentTabSymbols.length} 条已加载行情。`,
+        createdAt: snapshot.createdAt,
+        priceSnapshot: quotes[spotlightSymbol]?.price ?? null,
+      });
+    }
     messageApi.success('已保存当前复盘快照');
+  // quotes is intentionally omitted here to keep the snapshot callback stable for UI interactions.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeTab,
     anomalyFeed,
+    appendTimelineEvent,
     currentTabQuotes.length,
     currentTabSymbols,
     freshnessSummary,
     getDisplayName,
     messageApi,
+    quotes,
     spotlightSymbol,
     transportModeLabel,
   ]);
@@ -628,9 +1585,10 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       return;
     }
 
+    setActiveTab(snapshot.activeTab || inferSymbolCategory(snapshot.spotlightSymbol));
     setDetailSymbol(snapshot.spotlightSymbol);
     setIsDetailModalVisible(true);
-  }, []);
+  }, [setActiveTab]);
 
   const updateReviewSnapshot = useCallback((snapshotId, updates) => {
     setReviewSnapshots((prev) => prev.map((snapshot) => (
@@ -640,207 +1598,247 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     )));
   }, []);
 
-  const renderQuoteCard = (symbol, quote) => {
-    const hasChange = hasNumericValue(quote.change);
-    const isPositive = hasChange ? Number(quote.change) >= 0 : null;
-    const changeColor = isPositive === null
-      ? 'var(--text-secondary)'
-      : isPositive
-        ? 'var(--accent-success)'
-        : 'var(--accent-danger)';
-    const changeIcon = isPositive === null ? null : (isPositive ? <ArrowUpOutlined /> : <ArrowDownOutlined />);
-    const categoryType = inferSymbolCategory(symbol);
-    const categoryTheme = getCategoryTheme(categoryType);
-    const isMarketIndex = categoryType === 'index';
-    const changePercentText = formatPercent(quote.change_percent);
-    const changeTagBackground = isPositive === null
-      ? 'rgba(100, 116, 139, 0.12)'
-      : isPositive
-        ? 'rgba(34, 197, 94, 0.14)'
-        : 'rgba(239, 68, 68, 0.14)';
-    const freshness = getQuoteFreshness(quote);
+  const copyTextToClipboard = useCallback(async (content, successText) => {
+    if (!navigator?.clipboard?.writeText) {
+      messageApi.warning('当前环境不支持剪贴板复制');
+      return;
+    }
 
-    return (
-      <Card
-        key={symbol}
-        className="realtime-quote-card"
-        style={{
-          border: `1px solid color-mix(in srgb, ${categoryTheme.accent} 28%, var(--border-color) 72%)`,
-          background: `linear-gradient(180deg, ${categoryTheme.soft} 0%, color-mix(in srgb, var(--bg-secondary) 92%, white 8%) 100%)`,
-          boxShadow: '0 14px 34px rgba(15, 23, 42, 0.08)',
-          overflow: 'hidden',
-        }}
-        styles={{ body: { padding: 0 } }}
-      >
-        <div
-          className="realtime-quote-card__surface"
-          onClick={() => handleShowDetail(symbol)}
-          style={{ cursor: 'pointer', padding: 18 }}
-        >
-          <div className="realtime-quote-card__header">
-            <div>
-              <div className="realtime-quote-card__tags">
-                <Tag
-                  style={{
-                    margin: 0,
-                    borderRadius: 999,
-                    color: categoryTheme.accent,
-                    background: categoryTheme.soft,
-                    borderColor: 'transparent',
-                    fontWeight: 700,
-                  }}
-                >
-                  {categoryTheme.label}
-                </Tag>
-                <Tag
-                  style={{
-                    margin: 0,
-                    borderRadius: 999,
-                    borderColor: 'transparent',
-                    color: changeColor,
-                    background: changeTagBackground,
-                    fontWeight: 700,
-                  }}
-                >
-                  {changePercentText}
-                </Tag>
-                <Tag
-                  style={{
-                    margin: 0,
-                    borderRadius: 999,
-                    borderColor: 'transparent',
-                    color: freshness.tone.color,
-                    background: freshness.tone.background,
-                    fontWeight: 700,
-                  }}
-                >
-                  {freshness.label}
-                </Tag>
-              </div>
-              {freshness.detail && (
-                <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: '12px' }}>
-                  {freshness.detail}
-                </Text>
-              )}
-              <div className="realtime-quote-card__name">
-                <Text strong style={{ fontSize: '17px', color: 'var(--text-primary)' }}>
-                  {getDisplayName(symbol)}
-                </Text>
-              </div>
-              <Text type="secondary" style={{ fontSize: '12px' }}>
-                {symbol} · 行情 {formatQuoteTime(quote.timestamp)} · 接收 {formatQuoteTime(quote._clientReceivedAt)}
-              </Text>
-            </div>
+    try {
+      await navigator.clipboard.writeText(content);
+      messageApi.success(successText);
+    } catch (error) {
+      messageApi.error('复制失败，请稍后重试');
+    }
+  }, [messageApi]);
 
-            <div className="realtime-quote-card__source">
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.72 }}>
-                Source
-              </div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>
-                {quote.source || '--'}
-              </div>
-            </div>
-          </div>
+  const openShareWindow = useCallback((title, bodyHtml) => {
+    if (typeof window === 'undefined' || typeof window.open !== 'function') {
+      messageApi.warning('当前环境不支持分享卡片预览');
+      return;
+    }
 
-          <div className="realtime-quote-card__price-row">
-            <div>
-              <div className="realtime-quote-card__price">{formatPrice(quote.price)}</div>
-              <div className="realtime-quote-card__delta" style={{ color: changeColor }}>
-                {changeIcon ? <>{changeIcon} </> : null}
-                {hasChange ? formatPrice(Math.abs(Number(quote.change))) : EMPTY_NUMERIC_TEXT} · {changePercentText}
-              </div>
-            </div>
-            <div className="realtime-quote-card__focus">
-              <div className="realtime-quote-card__focus-label">点击卡片</div>
-              <div className="realtime-quote-card__focus-value">查看深度详情</div>
-            </div>
-          </div>
+    const shareWindow = window.open('', '_blank', 'noopener,noreferrer,width=960,height=760');
 
-          <div className="realtime-quote-card__metrics">
-            <div className="realtime-quote-card__metric">
-              <span>日内区间</span>
-              <strong>{formatPrice(quote.low, EMPTY_NUMERIC_TEXT)} - {formatPrice(quote.high, EMPTY_NUMERIC_TEXT)}</strong>
-            </div>
-            <div className="realtime-quote-card__metric">
-              <span>开盘 / 昨收</span>
-              <strong>{formatPrice(quote.open, EMPTY_NUMERIC_TEXT)} / {formatPrice(quote.previous_close, EMPTY_NUMERIC_TEXT)}</strong>
-            </div>
-            <div className="realtime-quote-card__metric">
-              <span>成交量</span>
-              <strong>{formatVolume(quote.volume)}</strong>
-            </div>
-          </div>
+    if (!shareWindow?.document) {
+      messageApi.warning('分享窗口被浏览器拦截了，请允许弹窗后重试');
+      return;
+    }
 
-          <div className="realtime-quote-card__footer">
-            <Text type="secondary" style={{ fontSize: '12px' }}>
-              {isMarketIndex ? '指数详情与分析面板联动' : '支持查看实时快照、分析与交易入口'}
-            </Text>
-            <Space>
-              <Button
-                type="text"
-                size="small"
-                icon={<BellOutlined />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenAlerts(symbol);
-                }}
-              >
-                提醒
-              </Button>
-              {!isMarketIndex && categoryType !== 'bond' && (
-                <Button
-                  type="primary"
-                  size="small"
-                  onClick={(e) => { e.stopPropagation(); handleOpenTrade(symbol); }}
-                  icon={<DollarOutlined />}
-                >
-                  交易
-                </Button>
-              )}
-              <Button
-                type="text"
-                size="small"
-                danger
-                onClick={(e) => { e.stopPropagation(); removeSymbol(symbol); }}
-              >
-                ×
-              </Button>
-            </Space>
-          </div>
-        </div>
-      </Card>
+    shareWindow.document.write(`<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(title)}</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f8fafc;
+        --panel: rgba(255, 255, 255, 0.92);
+        --panel-border: rgba(148, 163, 184, 0.24);
+        --text-primary: #0f172a;
+        --text-secondary: #475569;
+        --text-muted: #64748b;
+        --accent: #2563eb;
+        --accent-soft: rgba(37, 99, 235, 0.1);
+        --chip-bg: rgba(15, 23, 42, 0.06);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 32%),
+          radial-gradient(circle at top right, rgba(16, 185, 129, 0.14), transparent 30%),
+          linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
+        color: var(--text-primary);
+        padding: 32px;
+      }
+      .share-shell {
+        max-width: 920px;
+        margin: 0 auto;
+      }
+      .share-card {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 28px;
+        box-shadow: 0 28px 60px rgba(15, 23, 42, 0.12);
+        padding: 32px;
+        backdrop-filter: blur(12px);
+      }
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 18px 0 8px;
+        font-size: clamp(28px, 4vw, 40px);
+        line-height: 1.08;
+      }
+      .subtitle {
+        margin: 0;
+        font-size: 15px;
+        color: var(--text-secondary);
+      }
+      .chips, .list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+      .chip, .pill {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: var(--chip-bg);
+        color: var(--text-primary);
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+        gap: 12px;
+        margin-top: 22px;
+      }
+      .metric {
+        border-radius: 20px;
+        padding: 16px 18px;
+        background: rgba(255, 255, 255, 0.74);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        min-height: 92px;
+      }
+      .metric span {
+        display: block;
+        font-size: 12px;
+        color: var(--text-muted);
+        margin-bottom: 8px;
+      }
+      .metric strong {
+        font-size: 20px;
+        line-height: 1.2;
+      }
+      .section, .note {
+        margin-top: 24px;
+        padding-top: 20px;
+        border-top: 1px solid rgba(148, 163, 184, 0.18);
+      }
+      .section h2, .note strong {
+        display: block;
+        margin: 0 0 12px;
+        font-size: 15px;
+      }
+      .note p, .anomaly p {
+        margin: 8px 0 0;
+        color: var(--text-secondary);
+        line-height: 1.6;
+      }
+      .anomaly {
+        padding: 14px 0;
+      }
+      .anomaly + .anomaly {
+        border-top: 1px dashed rgba(148, 163, 184, 0.2);
+      }
+      .muted {
+        color: var(--text-muted);
+      }
+      @media (max-width: 640px) {
+        body {
+          padding: 18px;
+        }
+        .share-card {
+          padding: 22px;
+          border-radius: 22px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="share-shell">
+      ${bodyHtml}
+    </main>
+  </body>
+</html>`);
+    shareWindow.document.close();
+  }, [messageApi]);
+
+  const openSnapshotShareCard = useCallback((snapshot) => {
+    openShareWindow(
+      `Realtime Review Snapshot - ${snapshot?.spotlightName || snapshot?.spotlightSymbol || '未记录焦点标的'}`,
+      formatReviewSnapshotShareHtml(snapshot)
     );
-  };
+  }, [openShareWindow]);
 
-  const renderTabItem = (key, label, icon) => {
-    const symbols = getSymbolsByCategory(key);
-    return {
-      key,
-      label: <span>{icon} {label}</span>,
-      children: symbols.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '56px 20px' }}>
-          <Text type="secondary">暂无{label}数据，请添加</Text>
-        </div>
-      ) : (
-        <div className="realtime-quote-grid">
-          {symbols.map(symbol => {
-            const quote = quotes[symbol];
-            return quote ? renderQuoteCard(symbol, quote) : (
-              <Card
-                key={symbol}
-                loading
-                style={{
-                  minHeight: 220,
-                  borderRadius: 22,
-                  border: '1px solid var(--border-color)',
-                }}
-              />
-            );
-          })}
-        </div>
-      )
+  const openReviewSummaryShareCard = useCallback(() => {
+    openShareWindow(
+      `Realtime Review Summary - ${reviewScopeLabel}`,
+      formatReviewSummaryShareHtml({
+        scopeLabel: reviewScopeLabel,
+        filteredReviewSnapshots,
+        reviewOutcomeSummary,
+        validationRate,
+        reviewAttribution,
+      })
+    );
+  }, [
+    filteredReviewSnapshots,
+    openShareWindow,
+    reviewAttribution,
+    reviewOutcomeSummary,
+    reviewScopeLabel,
+    validationRate,
+  ]);
+
+  const exportReviewSnapshots = useCallback(() => {
+    const payload = JSON.stringify(reviewSnapshots, null, 2);
+    copyTextToClipboard(payload, '复盘快照 JSON 已复制');
+  }, [copyTextToClipboard, reviewSnapshots]);
+
+  const triggerSnapshotImport = useCallback(() => {
+    snapshotImportInputRef.current?.click();
+  }, []);
+
+  const handleImportReviewSnapshots = useCallback((event) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed = JSON.parse(String(reader.result || '[]'));
+        if (!Array.isArray(parsed)) {
+          throw new Error('invalid payload');
+        }
+
+        const normalized = parsed
+          .filter((item) => item && typeof item === 'object' && item.id)
+          .sort((left, right) => new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime())
+          .slice(0, MAX_REVIEW_SNAPSHOTS);
+
+        setReviewSnapshots(normalized);
+        messageApi.success(`已导入 ${normalized.length} 条复盘快照`);
+      } catch (error) {
+        messageApi.error('复盘快照导入失败，请检查 JSON 格式');
+      } finally {
+        event.target.value = '';
+      }
     };
-  };
+    reader.readAsText(file);
+  }, [messageApi]);
 
   const tabs = [
     { key: 'index', label: '指数', icon: <BarChartOutlined /> },
@@ -888,23 +1886,20 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               <div className="realtime-hero__chip">已加载 {loadedQuotesCount}/{subscribedSymbols.length} 个标的</div>
               <div className="realtime-hero__chip">当前分组：{getCategoryLabel(activeTab)}</div>
               <div className="realtime-hero__chip">链路模式：{transportModeLabel}</div>
-              <div className="realtime-hero__chip">最近接收：{lastClientRefreshLabel}</div>
-              <div className="realtime-hero__chip">最新行情时间：{lastMarketUpdateLabel}</div>
-              {reconnectAttempts > 0 && (
-                <div className="realtime-hero__chip">重连次数：{reconnectAttempts}</div>
-              )}
               <div className="realtime-hero__chip">新鲜 {freshnessSummary.fresh}/{currentTabSymbols.length}</div>
-              {freshnessSummary.aging > 0 && (
-                <div className="realtime-hero__chip">变旧 {freshnessSummary.aging}</div>
-              )}
-              {freshnessSummary.delayed > 0 && (
-                <div className="realtime-hero__chip">延迟 {freshnessSummary.delayed}</div>
-              )}
               {spotlightSymbol && (
                 <div className="realtime-hero__chip">
                   焦点：{getDisplayName(spotlightSymbol)} {formatPercent(quotes[spotlightSymbol]?.change_percent)}
                 </div>
               )}
+              <div className="realtime-hero__chip">提醒命中 {currentTabAlertHitSummary.totalHits}</div>
+            </div>
+            <div className="realtime-hero__secondary">
+              <span>最近接收：{lastClientRefreshLabel}</span>
+              <span>最新行情时间：{lastMarketUpdateLabel}</span>
+              {freshnessSummary.aging > 0 && <span>变旧 {freshnessSummary.aging}</span>}
+              {freshnessSummary.delayed > 0 && <span>延迟 {freshnessSummary.delayed}</span>}
+              {reconnectAttempts > 0 && <span>重连次数：{reconnectAttempts}</span>}
             </div>
             <div
               style={{
@@ -918,6 +1913,25 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
             >
               <div style={{ fontWeight: 700, fontSize: 13 }}>{transportBanner.title}</div>
               <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.6 }}>{transportBanner.description}</div>
+            </div>
+
+            <div
+              style={{
+                marginTop: 12,
+                padding: '12px 14px',
+                borderRadius: 16,
+                border: `1px solid ${realtimeActionPosture.level === 'warning' ? 'rgba(250, 173, 20, 0.55)' : realtimeActionPosture.level === 'success' ? 'rgba(82, 196, 26, 0.45)' : 'rgba(22, 119, 255, 0.28)'}`,
+                background: realtimeActionPosture.level === 'warning'
+                  ? 'rgba(250, 173, 20, 0.10)'
+                  : realtimeActionPosture.level === 'success'
+                    ? 'rgba(82, 196, 26, 0.10)'
+                    : 'rgba(22, 119, 255, 0.08)',
+                color: 'var(--text-primary)',
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: 13 }}>{realtimeActionPosture.title}</div>
+              <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.6 }}>{realtimeActionPosture.actionHint}</div>
+              <div style={{ marginTop: 4, fontSize: 11, lineHeight: 1.6, color: 'var(--text-secondary)' }}>{realtimeActionPosture.reason}</div>
             </div>
           </div>
 
@@ -992,6 +2006,30 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               添加
             </Button>
           </Space.Compact>
+          <div style={{ marginTop: 18 }}>
+            <div className="realtime-block-title" style={{ fontSize: 14 }}>全局跳转</div>
+            <div className="realtime-block-subtitle">输入已跟踪标的可直接切组并打开详情，未跟踪标的则会直接加入工作台。</div>
+            <Space.Compact style={{ width: '100%', marginTop: 12 }}>
+              <AutoComplete
+                style={{ flex: 1 }}
+                options={globalJumpOptions}
+                value={globalJumpQuery}
+                onChange={handleGlobalJumpSearch}
+                onSelect={handleGlobalJumpSelect}
+              >
+                <Input
+                  placeholder="全局搜索并跳转... (例如 AAPL / BTC-USD / 纳指)"
+                  prefix={<SearchOutlined />}
+                  allowClear
+                  size="large"
+                  onPressEnter={() => handleGlobalJumpSelect(globalJumpQuery)}
+                />
+              </AutoComplete>
+              <Button size="large" onClick={() => handleGlobalJumpSelect(globalJumpQuery)}>
+                跳转
+              </Button>
+            </Space.Compact>
+          </div>
         </Card>
 
         <div className="realtime-stats-grid">
@@ -1022,340 +2060,140 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               prefix={tabs.find(tab => tab.key === activeTab)?.icon}
             />
           </Card>
+          <Card className="realtime-stat-card">
+            <Statistic
+              title="市场情绪"
+              value={marketSentiment.label}
+              formatter={() => marketSentiment.label}
+            />
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+              {marketSentiment.detail}
+            </div>
+          </Card>
         </div>
       </div>
 
-      <Card
-        className="realtime-board-card"
-        style={{
-          borderRadius: 24,
-          border: '1px solid var(--border-color)',
-          boxShadow: '0 16px 34px rgba(15, 23, 42, 0.06)',
-        }}
-      >
-        <div className="realtime-board-head" style={{ marginBottom: 14 }}>
-          <div>
-            <div className="realtime-block-title">异动雷达</div>
-            <div className="realtime-block-subtitle">
-              基于当前分组的实时报价，自动识别涨跌异常、振幅扩张、放量和逼近日高/日低的标的。
-            </div>
-          </div>
-          <div className="realtime-board-summary">
-            <span>当前异动</span>
-            <strong>{anomalyFeed.length}</strong>
-          </div>
-        </div>
+      <RealtimeQuoteBoard
+        EMPTY_NUMERIC_TEXT={EMPTY_NUMERIC_TEXT}
+        activeTab={activeTab}
+        onActiveTabChange={setActiveTab}
+        buildMiniTrendSeries={buildMiniTrendSeries}
+        buildSparklinePoints={buildSparklinePoints}
+        currentTabSymbols={currentTabSymbols}
+        draggingSymbol={draggingSymbol}
+        formatPrice={formatPrice}
+        formatPercent={formatPercent}
+        formatQuoteTime={formatQuoteTime}
+        formatVolume={formatVolume}
+        getCategoryLabel={getCategoryLabel}
+        getCategoryTheme={getCategoryTheme}
+        getDisplayName={getDisplayName}
+        getQuoteFreshness={getQuoteFreshness}
+        getSymbolsByCategory={getSymbolsByCategory}
+        handleOpenAlerts={handleOpenAlerts}
+        handleOpenTrade={handleOpenTrade}
+        handleShowDetail={handleShowDetail}
+        hasNumericValue={hasNumericValue}
+        inferSymbolCategory={inferSymbolCategory}
+        categoryOptions={CATEGORY_OPTIONS}
+        onClearSelectedQuotes={clearSelectedQuotes}
+        onMoveSelectedQuotesToCategory={moveSelectedQuotesToCategory}
+        onRemoveSelectedQuotes={removeSelectedQuotes}
+        onSelectAllCurrentTab={selectAllCurrentTab}
+        onSetDraggingSymbol={setDraggingSymbol}
+        onToggleQuoteSelection={toggleQuoteSelection}
+        quoteSortMode={quoteSortMode}
+        onQuoteSortModeChange={setQuoteSortMode}
+        quoteSortOptions={QUOTE_SORT_OPTIONS}
+        quoteViewMode={quoteViewMode}
+        onQuoteViewModeChange={setQuoteViewMode}
+        quotes={quotes}
+        removeSymbol={removeSymbol}
+        reorderWithinCategory={reorderWithinCategory}
+        selectedCurrentTabSymbols={selectedCurrentTabSymbols}
+        selectedQuoteSymbols={selectedQuoteSymbols}
+        resolveSymbolCategory={resolveSymbolCategory}
+        sortSymbolsForDisplay={sortSymbolsForDisplay}
+        tabs={tabs}
+      />
 
-        {anomalyFeed.length === 0 ? (
-          <Text type="secondary">当前分组暂无显著异动，等待下一笔明显变化。</Text>
-        ) : (
-          <div style={{ display: 'grid', gap: 10 }}>
-            {anomalyFeed.map((item) => (
-              <div
-                key={item.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 14,
-                  padding: '14px 16px',
-                  borderRadius: 18,
-                  background: 'color-mix(in srgb, var(--bg-secondary) 90%, white 10%)',
-                  border: '1px solid var(--border-color)',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <Space wrap>
-                    <Tag color="magenta" style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>{item.title}</Tag>
-                    <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>{item.symbol}</Tag>
-                  </Space>
-                  <Text style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
-                    {getDisplayName(item.symbol)}
-                  </Text>
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
-                    {item.description}
-                  </Text>
-                </div>
+      <RealtimeAnomalyRadar
+        anomalyFeed={anomalyFeed}
+        buildAlertDraftFromAnomaly={buildAlertDraftFromAnomaly}
+        buildTradePlanDraftFromAnomaly={buildTradePlanDraftFromAnomaly}
+        formatQuoteTime={formatQuoteTime}
+        getDisplayName={getDisplayName}
+        handleOpenAlerts={handleOpenAlerts}
+        handleOpenTrade={handleOpenTrade}
+        handleShowDetail={handleShowDetail}
+        isExpanded={isAnomalyExpanded}
+        onToggleExpanded={() => setIsAnomalyExpanded(prev => !prev)}
+        quotes={quotes}
+      />
 
-                <Space wrap>
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
-                    {formatQuoteTime(item.timestamp)}
-                  </Text>
-                  <Button
-                    size="small"
-                    onClick={() => handleOpenTrade(
-                      item.symbol,
-                      buildTradePlanDraftFromAnomaly(item, quotes[item.symbol])
-                    )}
-                  >
-                    计划
-                  </Button>
-                  <Button
-                    size="small"
-                    onClick={() => handleOpenAlerts(
-                      item.symbol,
-                      buildAlertDraftFromAnomaly(item, quotes[item.symbol], quotes)
-                    )}
-                    icon={<BellOutlined />}
-                  >
-                    提醒
-                  </Button>
-                  <Button type="primary" size="small" onClick={() => handleShowDetail(item.symbol)}>
-                    详情
-                  </Button>
-                </Space>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      <RealtimeAlertHistoryCard
+        currentTabAlertFollowThrough={currentTabAlertFollowThrough}
+        currentTabAlertHitSummary={currentTabAlertHitSummary}
+        formatQuoteTime={formatQuoteTime}
+        handleOpenAlerts={handleOpenAlerts}
+        handleShowDetail={handleShowDetail}
+        isExpanded={isAlertHistoryExpanded}
+        onToggleExpanded={() => setIsAlertHistoryExpanded(prev => !prev)}
+      />
 
-      <Card
-        className="realtime-board-card"
-        style={{
-          borderRadius: 24,
-          border: '1px solid var(--border-color)',
-          boxShadow: '0 16px 34px rgba(15, 23, 42, 0.06)',
-        }}
-      >
-        <div className="realtime-board-head" style={{ marginBottom: 14 }}>
-          <div>
-            <div className="realtime-block-title">复盘快照</div>
-            <div className="realtime-block-subtitle">
-              保存当前分组、焦点标的、异动和链路状态，方便盘后回看当时看到的市场切片。
-            </div>
-          </div>
-          <div className="realtime-board-summary">
-            <span>已保存</span>
-            <strong>{reviewSnapshots.length}</strong>
-          </div>
-        </div>
+      <RealtimeReviewSummaryCard
+        REVIEW_SCOPE_OPTIONS={REVIEW_SCOPE_OPTIONS}
+        copyTextToClipboard={copyTextToClipboard}
+        exportReviewSnapshots={exportReviewSnapshots}
+        filteredReviewSnapshots={filteredReviewSnapshots}
+        formatQuoteTime={formatQuoteTime}
+        formatReviewSnapshotMarkdown={formatReviewSnapshotMarkdown}
+        formatReviewSummaryMarkdown={formatReviewSummaryMarkdown}
+        getCategoryLabel={getCategoryLabel}
+        getSnapshotOutcomeMeta={getSnapshotOutcomeMeta}
+        isExpanded={isReviewExpanded}
+        latestSnapshots={latestSnapshots}
+        onOpenReviewSummaryShareCard={openReviewSummaryShareCard}
+        onOpenSnapshotFocus={openSnapshotFocus}
+        onOpenSnapshotShareCard={openSnapshotShareCard}
+        onRestoreSnapshot={restoreSnapshot}
+        onSetReviewScope={setReviewScope}
+        onToggleExpanded={() => setIsReviewExpanded(prev => !prev)}
+        onTriggerSnapshotImport={triggerSnapshotImport}
+        resolvedSnapshotCount={resolvedSnapshotCount}
+        reviewAttribution={reviewAttribution}
+        reviewOutcomeSummary={reviewOutcomeSummary}
+        reviewScope={reviewScope}
+        reviewScopeLabel={reviewScopeLabel}
+        validationRate={validationRate}
+      />
 
-        {latestSnapshots.length === 0 ? (
-          <Text type="secondary">还没有保存过复盘快照，盘中发现机会时可以先记一笔，盘后更容易回看判断过程。</Text>
-        ) : (
-          <div style={{ display: 'grid', gap: 10 }}>
-            {latestSnapshots.map((snapshot) => (
-              (() => {
-                const outcomeMeta = getSnapshotOutcomeMeta(snapshot.outcome);
-                return (
-              <div
-                key={snapshot.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 14,
-                  padding: '14px 16px',
-                  borderRadius: 18,
-                  background: 'color-mix(in srgb, var(--bg-secondary) 90%, white 10%)',
-                  border: '1px solid var(--border-color)',
-                  alignItems: 'center',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ display: 'grid', gap: 6 }}>
-                  <Space wrap>
-                    <Tag color="cyan" style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
-                      {snapshot.activeTabLabel || getCategoryLabel(snapshot.activeTab)}
-                    </Tag>
-                    {outcomeMeta ? (
-                      <Tag color={outcomeMeta.color} style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
-                        {outcomeMeta.label}
-                      </Tag>
-                    ) : null}
-                    <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
-                      {formatQuoteTime(snapshot.createdAt)}
-                    </Tag>
-                  </Space>
-                  <Text style={{ color: 'var(--text-primary)', fontWeight: 600 }}>
-                    {snapshot.spotlightName || '未记录焦点标的'}
-                    {snapshot.spotlightSymbol ? ` · ${snapshot.spotlightSymbol}` : ''}
-                  </Text>
-                  <Text type="secondary" style={{ fontSize: '12px' }}>
-                    {snapshot.transportModeLabel} · 异动 {snapshot.anomalyCount} · 已加载 {snapshot.loadedCount}/{snapshot.totalCount}
-                  </Text>
-                  {snapshot.note ? (
-                    <Text type="secondary" style={{ fontSize: '12px' }}>
-                      备注：{snapshot.note}
-                    </Text>
-                  ) : null}
-                </div>
-
-                <Space wrap>
-                  <Button size="small" onClick={() => restoreSnapshot(snapshot)}>
-                    恢复分组
-                  </Button>
-                  {snapshot.spotlightSymbol ? (
-                    <Button size="small" type="primary" onClick={() => openSnapshotFocus(snapshot)}>
-                      焦点详情
-                    </Button>
-                  ) : null}
-                </Space>
-              </div>
-                );
-              })()
-            ))}
-          </div>
-        )}
-      </Card>
+      <input
+        ref={snapshotImportInputRef}
+        type="file"
+        accept="application/json"
+        style={{ display: 'none' }}
+        onChange={handleImportReviewSnapshots}
+      />
 
       {DIAGNOSTICS_ENABLED && (
-        <Card
-          className="realtime-diagnostics-card"
-          style={{
-            borderRadius: 24,
-            border: '1px dashed color-mix(in srgb, var(--accent-primary) 32%, var(--border-color) 68%)',
-            background: 'color-mix(in srgb, var(--bg-secondary) 86%, white 14%)',
-            boxShadow: '0 12px 28px rgba(15, 23, 42, 0.05)',
-          }}
-        >
-          <div className="realtime-board-head" style={{ marginBottom: 12 }}>
-            <div
-              style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10 }}
-              onClick={() => setIsDiagnosticsExpanded(prev => !prev)}
-            >
-              <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                {isDiagnosticsExpanded ? <DownOutlined /> : <RightOutlined />}
-              </span>
-              <div>
-                <div className="realtime-block-title">开发诊断</div>
-                <div className="realtime-block-subtitle">
-                  实时链路摘要，判断当前命中 bundle cache、走 WebSocket snapshot 还是退回 REST。
-                </div>
-              </div>
-            </div>
-            <Space>
-              <Text type="secondary" style={{ fontSize: '12px' }}>
-                最近拉取：{formatQuoteTime(diagnosticsLastLoadedAt)}
-              </Text>
-              <Button size="small" onClick={refreshDiagnostics} loading={diagnosticsLoading}>
-                刷新诊断
-              </Button>
-            </Space>
-          </div>
-
-          {isDiagnosticsExpanded && (<>
-          <div className="realtime-hero__meta" style={{ marginBottom: 14 }}>
-            <div className="realtime-hero__chip">WS 连接 {diagnosticsSummary?.websocket?.connections ?? '--'}</div>
-            <div className="realtime-hero__chip">活跃 symbols {diagnosticsSummary?.websocket?.active_symbols ?? '--'}</div>
-            <div className="realtime-hero__chip">bundle 命中 {diagnosticsCache.bundle_cache_hits ?? '--'}</div>
-            <div className="realtime-hero__chip">bundle miss {diagnosticsCache.bundle_cache_misses ?? '--'}</div>
-            <div className="realtime-hero__chip">bundle 写入 {diagnosticsCache.bundle_cache_writes ?? '--'}</div>
-            <div className="realtime-hero__chip">预热次数 {diagnosticsCache.bundle_prewarm_calls ?? '--'}</div>
-          </div>
-
-          <div className="realtime-quote-card__metrics">
-            <div className="realtime-quote-card__metric">
-              <span>最近抓取</span>
-              <strong>
-                req {diagnosticsFetch.requested ?? '--'} / hit {diagnosticsFetch.cache_hits ?? '--'} / fetch {diagnosticsFetch.fetched ?? '--'}
-              </strong>
-            </div>
-            <div className="realtime-quote-card__metric">
-              <span>最近耗时</span>
-              <strong>{diagnosticsFetch.duration_ms ?? '--'} ms</strong>
-            </div>
-            <div className="realtime-quote-card__metric">
-              <span>最近 bundle key</span>
-              <strong>
-                {Array.isArray(diagnosticsCache.last_bundle_cache_key) && diagnosticsCache.last_bundle_cache_key.length > 0
-                  ? diagnosticsCache.last_bundle_cache_key.join(', ')
-                  : '--'}
-              </strong>
-            </div>
-          </div>
-
-          <div className="realtime-quote-card__metrics" style={{ marginTop: 12 }}>
-            <div className="realtime-quote-card__metric">
-              <span>活跃质量样本</span>
-              <strong>{diagnosticsQuality.active_quote_count ?? '--'}</strong>
-            </div>
-            <div className="realtime-quote-card__metric">
-              <span>最弱字段</span>
-              <strong>
-                {weakestFields.length > 0
-                  ? weakestFields.map((item) => `${item.field} ${Math.round((item.coverage_ratio || 0) * 100)}%`).join(' / ')
-                  : '--'}
-              </strong>
-            </div>
-            <div className="realtime-quote-card__metric">
-              <span>最缺字段标的</span>
-              <strong>
-                {weakestSymbols.length > 0
-                  ? weakestSymbols.map((item) => `${item.symbol}(${item.missing_count})`).join(' / ')
-                  : '--'}
-              </strong>
-            </div>
-          </div>
-
-          <div style={{ marginTop: 14 }}>
-            <div className="realtime-block-subtitle" style={{ marginBottom: 8 }}>
-              最近决策轨迹
-            </div>
-            {transportDecisions.length === 0 ? (
-              <Text type="secondary" style={{ fontSize: '12px' }}>
-                暂无链路决策记录
-              </Text>
-            ) : (
-              <div style={{ display: 'grid', gap: 8 }}>
-                {transportDecisions.slice(0, 3).map((decision) => (
-                  <div
-                    key={decision.id}
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      gap: 12,
-                      padding: '10px 12px',
-                      borderRadius: 14,
-                      background: 'rgba(15, 23, 42, 0.04)',
-                    }}
-                  >
-                    <Text style={{ fontSize: '12px', color: 'var(--text-primary)' }}>
-                      {formatTransportDecision(decision)}
-                    </Text>
-                    <Text type="secondary" style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>
-                      {formatQuoteTime(decision.timestamp)}
-                    </Text>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          </>)}
-        </Card>
-      )}
-
-      <Card
-        className="realtime-board-card"
-        style={{
-          borderRadius: 28,
-          border: '1px solid var(--border-color)',
-          boxShadow: '0 18px 42px rgba(15, 23, 42, 0.07)',
-        }}
-      >
-        <div className="realtime-board-head">
-          <div>
-            <div className="realtime-block-title">多市场看盘面板</div>
-            <div className="realtime-block-subtitle">
-              选中不同市场后按卡片浏览，点开即可进入完整的实时快照与全维分析详情。
-            </div>
-          </div>
-          <div className="realtime-board-summary">
-            <span>当前 {getCategoryLabel(activeTab)}</span>
-            <strong>{currentTabSymbols.length}</strong>
-          </div>
-        </div>
-
-        <Tabs
-          type="card"
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          size="large"
-          className="market-tabs"
-          items={tabs.map(t => renderTabItem(t.key, t.label, t.icon))}
+        <RealtimeDiagnosticsCard
+          diagnosticsCache={diagnosticsCache}
+          diagnosticsFetch={diagnosticsFetch}
+          diagnosticsLastLoadedAt={diagnosticsLastLoadedAt}
+          diagnosticsLoading={diagnosticsLoading}
+          diagnosticsQuality={diagnosticsQuality}
+          diagnosticsSummary={diagnosticsSummary}
+          formatQuoteTime={formatQuoteTime}
+          formatTransportDecision={formatTransportDecision}
+          isExpanded={isDiagnosticsExpanded}
+          onRefresh={refreshDiagnostics}
+          onToggleExpanded={() => setIsDiagnosticsExpanded(prev => !prev)}
+          transportDecisions={transportDecisions}
+          weakestFields={weakestFields}
+          weakestSymbols={weakestSymbols}
         />
-      </Card>
+      )}
 
       <Drawer
         title="价格提醒"
@@ -1370,126 +2208,28 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
             prefillSymbol={alertPrefillSymbol}
             prefillDraft={alertPrefillDraft}
             composerSignal={alertComposerSignal}
+            initialAlertHitHistory={alertHitHistory}
             liveQuotes={quotes}
+            onAlertHitHistoryChange={setAlertHitHistory}
+            onAlertTriggered={handleAlertTriggered}
           />
         </Suspense>
       </Drawer>
 
-      <Drawer
-        title="复盘快照"
-        placement="right"
-        width={720}
+      <RealtimeSnapshotDrawer
+        filteredReviewSnapshots={filteredReviewSnapshots}
+        formatQuoteTime={formatQuoteTime}
+        formatReviewSnapshotMarkdown={formatReviewSnapshotMarkdown}
+        getCategoryLabel={getCategoryLabel}
+        getSnapshotOutcomeMeta={getSnapshotOutcomeMeta}
+        isOpen={isSnapshotDrawerVisible}
         onClose={() => setIsSnapshotDrawerVisible(false)}
-        open={isSnapshotDrawerVisible}
-      >
-        <div style={{ display: 'grid', gap: 12 }}>
-          {reviewSnapshots.length === 0 ? (
-            <Text type="secondary">暂无复盘快照，先在实时页保存一笔当前状态吧。</Text>
-          ) : reviewSnapshots.map((snapshot) => {
-            const outcomeMeta = getSnapshotOutcomeMeta(snapshot.outcome);
-            return (
-            <Card key={snapshot.id} style={{ borderRadius: 18 }}>
-              <div style={{ display: 'grid', gap: 12 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <div>
-                    <Space wrap>
-                      <Tag color="cyan" style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
-                        {snapshot.activeTabLabel || getCategoryLabel(snapshot.activeTab)}
-                      </Tag>
-                      {outcomeMeta ? (
-                        <Tag color={outcomeMeta.color} style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
-                          {outcomeMeta.label}
-                        </Tag>
-                      ) : null}
-                      <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
-                        {formatQuoteTime(snapshot.createdAt)}
-                      </Tag>
-                    </Space>
-                    <div style={{ marginTop: 8, fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>
-                      {snapshot.spotlightName || '未记录焦点标的'}
-                      {snapshot.spotlightSymbol ? ` · ${snapshot.spotlightSymbol}` : ''}
-                    </div>
-                    <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary)' }}>
-                      {snapshot.transportModeLabel}
-                    </div>
-                  </div>
-                  <Space wrap>
-                    <Button onClick={() => restoreSnapshot(snapshot)}>恢复分组</Button>
-                    {snapshot.spotlightSymbol ? (
-                      <Button type="primary" onClick={() => openSnapshotFocus(snapshot)}>
-                        打开焦点详情
-                      </Button>
-                    ) : null}
-                  </Space>
-                </div>
-
-                <div>
-                  <div className="realtime-block-subtitle" style={{ marginBottom: 8 }}>复盘结论</div>
-                  <Space wrap style={{ marginBottom: 10 }}>
-                    <Button size="small" onClick={() => updateReviewSnapshot(snapshot.id, { outcome: 'watching' })}>
-                      继续观察
-                    </Button>
-                    <Button size="small" onClick={() => updateReviewSnapshot(snapshot.id, { outcome: 'validated' })}>
-                      标记有效
-                    </Button>
-                    <Button size="small" danger onClick={() => updateReviewSnapshot(snapshot.id, { outcome: 'invalidated' })}>
-                      标记失效
-                    </Button>
-                  </Space>
-                  <Input
-                    value={snapshot.note || ''}
-                    placeholder="写下这笔快照后来的判断、复盘结论或后续动作"
-                    onChange={(event) => updateReviewSnapshot(snapshot.id, { note: event.target.value })}
-                  />
-                </div>
-
-                <div className="realtime-quote-card__metrics">
-                  <div className="realtime-quote-card__metric">
-                    <span>分组覆盖</span>
-                    <strong>{snapshot.loadedCount}/{snapshot.totalCount}</strong>
-                  </div>
-                  <div className="realtime-quote-card__metric">
-                    <span>异动数量</span>
-                    <strong>{snapshot.anomalyCount}</strong>
-                  </div>
-                  <div className="realtime-quote-card__metric">
-                    <span>新鲜 / 变旧 / 延迟</span>
-                    <strong>
-                      {snapshot.freshnessSummary?.fresh ?? 0} / {snapshot.freshnessSummary?.aging ?? 0} / {snapshot.freshnessSummary?.delayed ?? 0}
-                    </strong>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="realtime-block-subtitle" style={{ marginBottom: 8 }}>当时跟踪标的</div>
-                  <Space wrap>
-                    {(snapshot.watchedSymbols || []).map((item) => (
-                      <Tag key={`${snapshot.id}-${item}`} style={{ borderRadius: 999, paddingInline: 10 }}>{item}</Tag>
-                    ))}
-                  </Space>
-                </div>
-
-                <div>
-                  <div className="realtime-block-subtitle" style={{ marginBottom: 8 }}>当时异动</div>
-                  {snapshot.anomalies?.length ? (
-                    <div style={{ display: 'grid', gap: 8 }}>
-                      {snapshot.anomalies.map((item, index) => (
-                        <div key={`${snapshot.id}-${item.symbol}-${index}`} style={{ padding: '10px 12px', borderRadius: 14, background: 'rgba(15, 23, 42, 0.04)' }}>
-                          <Text style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{item.title} · {item.symbol}</Text>
-                          <Text type="secondary" style={{ display: 'block', marginTop: 4, fontSize: '12px' }}>{item.description}</Text>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <Text type="secondary" style={{ fontSize: '12px' }}>这笔快照保存时没有显著异动。</Text>
-                  )}
-                </div>
-              </div>
-            </Card>
-            );
-          })}
-        </div>
-      </Drawer>
+        onCopyText={copyTextToClipboard}
+        onOpenSnapshotFocus={openSnapshotFocus}
+        onOpenSnapshotShareCard={openSnapshotShareCard}
+        onRestoreSnapshot={restoreSnapshot}
+        onUpdateReviewSnapshot={updateReviewSnapshot}
+      />
 
       <Suspense fallback={null}>
         <TradePanel
@@ -1509,8 +2249,13 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         <RealtimeStockDetailModal
           open={isDetailModalVisible}
           onCancel={handleCloseDetail}
+          onQuickTrade={handleOpenTradeFromDetail}
           symbol={detailSymbol}
           quote={detailSymbol ? quotes[detailSymbol] || null : null}
+          quoteMap={quotes}
+          eventTimeline={detailEventTimeline}
+          compareCandidates={detailCompareCandidates}
+          compareTimelineMap={detailCompareTimelineMap}
         />
       </Suspense>
 
@@ -1563,6 +2308,16 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           flex-wrap: wrap;
           gap: 10px;
           margin-top: 18px;
+        }
+
+        .realtime-hero__secondary {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-top: 12px;
+          color: var(--text-secondary);
+          font-size: 12px;
+          line-height: 1.6;
         }
 
         .realtime-hero__chip {
@@ -1648,6 +2403,14 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           flex-wrap: wrap;
         }
 
+        .realtime-board-controls {
+          display: flex;
+          align-items: center;
+          justify-content: flex-end;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
         .realtime-board-summary {
           display: inline-flex;
           align-items: baseline;
@@ -1680,6 +2443,10 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           align-items: stretch;
         }
 
+        .realtime-quote-grid--list {
+          grid-template-columns: 1fr;
+        }
+
         .realtime-quote-card__surface {
           min-height: 100%;
           display: grid;
@@ -1705,6 +2472,25 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
         .realtime-quote-card__name {
           margin-bottom: 4px;
+        }
+
+        .realtime-quote-card__sparkline {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          margin-top: 10px;
+          padding: 8px 10px;
+          border-radius: 14px;
+          background: color-mix(in srgb, var(--bg-secondary) 82%, white 18%);
+          border: 1px solid color-mix(in srgb, var(--border-color) 78%, white 22%);
+          color: var(--text-secondary);
+          font-size: 11px;
+          line-height: 1.4;
+        }
+
+        .realtime-quote-card__sparkline svg {
+          display: block;
+          flex: none;
         }
 
         .realtime-quote-card__source {
@@ -1788,10 +2574,46 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           padding-top: 4px;
         }
 
+        .realtime-quote-card--list .realtime-quote-card__surface--list {
+          grid-template-columns: minmax(0, 1.45fr) minmax(180px, 0.7fr) minmax(280px, 0.95fr) auto;
+          align-items: center;
+        }
+
+        .realtime-quote-card--list .realtime-quote-card__header,
+        .realtime-quote-card--list .realtime-quote-card__price-row,
+        .realtime-quote-card--list .realtime-quote-card__footer {
+          align-items: center;
+        }
+
+        .realtime-quote-card--list .realtime-quote-card__price-row {
+          justify-content: flex-start;
+        }
+
+        .realtime-quote-card--list .realtime-quote-card__price {
+          font-size: 26px;
+        }
+
+        .realtime-quote-card--list .realtime-quote-card__focus {
+          min-width: auto;
+          text-align: left;
+        }
+
+        .realtime-quote-card--list .realtime-quote-card__footer {
+          justify-content: flex-end;
+        }
+
         @media (max-width: 1180px) {
           .realtime-toolbar-grid,
           .realtime-hero {
             grid-template-columns: 1fr;
+          }
+
+          .realtime-board-controls {
+            justify-content: flex-start;
+          }
+
+          .realtime-quote-card--list .realtime-quote-card__surface--list {
+            grid-template-columns: 1fr 1fr;
           }
         }
 
@@ -1799,6 +2621,10 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           .realtime-stats-grid,
           .realtime-quote-card__metrics {
             grid-template-columns: 1fr 1fr;
+          }
+
+          .realtime-quote-card--list .realtime-quote-card__surface--list {
+            grid-template-columns: 1fr;
           }
         }
 

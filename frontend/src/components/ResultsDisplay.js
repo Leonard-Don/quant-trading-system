@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Card,
   Row,
@@ -29,11 +29,12 @@ import {
   ClockCircleOutlined,
   DeploymentUnitOutlined
 } from '@ant-design/icons';
-import { downloadBacktestReport } from '../services/api';
+import { downloadBacktestReport, runMarketRegimeBacktest } from '../services/api';
 import { getStrategyDetails, getStrategyName } from '../constants/strategies';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
 import { normalizeBacktestResult } from '../utils/backtest';
-import { buildSignalExplanation } from '../utils/backtestResearch';
+import { buildBacktestActionPosture, buildSignalExplanation } from '../utils/backtestResearch';
+import { buildMarketRegimeInsight } from '../utils/advancedBacktestLab';
 import { useSafeMessageApi } from '../utils/messageApi';
 import PerformanceChart from './PerformanceChart';
 import DrawdownChart from './DrawdownChart';
@@ -44,6 +45,8 @@ import ReturnHistogram from './ReturnHistogram';
 const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperiment }) => {
   const message = useSafeMessageApi();
   const [activeTab, setActiveTab] = useState('overview');
+  const [marketRegimeLoading, setMarketRegimeLoading] = useState(false);
+  const [marketRegimeResult, setMarketRegimeResult] = useState(null);
   const normalizedResults = useMemo(() => normalizeBacktestResult(results), [results]);
   const strategyDetails = useMemo(
     () => getStrategyDetails(normalizedResults.strategy),
@@ -53,8 +56,54 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
     () => buildSignalExplanation(normalizedResults),
     [normalizedResults]
   );
+  const actionPosture = useMemo(
+    () => buildBacktestActionPosture({ result: normalizedResults }),
+    [normalizedResults]
+  );
+  const executionDiagnostics = useMemo(
+    () => normalizedResults.execution_diagnostics || {},
+    [normalizedResults.execution_diagnostics]
+  );
+  const executionDiagnosticItems = useMemo(() => {
+    if (!executionDiagnostics || !Object.keys(executionDiagnostics).length) {
+      return [];
+    }
+
+    const signalModeLabel = executionDiagnostics.resolved_signal_mode === 'target'
+      ? '目标仓位'
+      : executionDiagnostics.resolved_signal_mode === 'event'
+        ? '事件信号'
+        : '自动识别';
+
+    return [
+      { label: '执行语义', value: signalModeLabel },
+      { label: '小数份额', value: executionDiagnostics.allow_fractional_shares ? '已开启' : '关闭' },
+      { label: '仓位管理', value: executionDiagnostics.position_sizer || '默认仓位器' },
+      { label: '风控组件', value: executionDiagnostics.risk_manager || '未启用' },
+      {
+        label: '止损 / 止盈',
+        value: executionDiagnostics.stop_loss_pct || executionDiagnostics.take_profit_pct
+          ? `${executionDiagnostics.stop_loss_pct ? formatPercentage(executionDiagnostics.stop_loss_pct) : '未设'} / ${executionDiagnostics.take_profit_pct ? formatPercentage(executionDiagnostics.take_profit_pct) : '未设'}`
+          : '未设',
+      },
+    ];
+  }, [executionDiagnostics]);
+  const marketRegimeInsight = useMemo(
+    () => buildMarketRegimeInsight(marketRegimeResult),
+    [marketRegimeResult]
+  );
   const trades = normalizedResults.trades || [];
   const portfolioHistory = normalizedResults.portfolio_history || normalizedResults.portfolio || [];
+
+  useEffect(() => {
+    setMarketRegimeResult(null);
+    setMarketRegimeLoading(false);
+  }, [
+    normalizedResults.symbol,
+    normalizedResults.strategy,
+    normalizedResults.start_date,
+    normalizedResults.end_date,
+  ]);
   const primaryMetrics = [
     {
       key: 'total_return',
@@ -145,6 +194,38 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
       icon: <ThunderboltOutlined style={{ fontSize: '14px' }} />,
     },
   ];
+
+  const runMarketRegimeAnalysis = async () => {
+    if (!normalizedResults.symbol || !normalizedResults.strategy) {
+      message.warning('当前结果缺少标的或策略信息，暂时无法分析市场状态。');
+      return;
+    }
+
+    setMarketRegimeLoading(true);
+    try {
+      const response = await runMarketRegimeBacktest({
+        symbol: normalizedResults.symbol,
+        strategy: normalizedResults.strategy,
+        parameters: normalizedResults.parameters || {},
+        start_date: normalizedResults.start_date,
+        end_date: normalizedResults.end_date,
+        initial_capital: normalizedResults.initial_capital,
+        commission: normalizedResults.commission,
+        slippage: normalizedResults.slippage,
+      });
+
+      if (!response?.success) {
+        throw new Error(response?.error || '市场状态分析失败');
+      }
+
+      setMarketRegimeResult(response.data);
+      message.success('市场状态分析已完成');
+    } catch (error) {
+      message.error(error.userMessage || error.message || '市场状态分析失败');
+    } finally {
+      setMarketRegimeLoading(false);
+    }
+  };
 
   const copyResults = () => {
     const text = `
@@ -505,6 +586,98 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
               </div>
             </div>
           ) : null}
+
+          {executionDiagnosticItems.length ? (
+            <div className="workspace-section">
+              <div className="workspace-section__header">
+                <div>
+                  <div className="workspace-section__title">执行诊断</div>
+                  <div className="workspace-section__description">把这次回测采用的执行语义、仓位器和风控方式显式写出来，避免只看结果却不清楚执行口径。</div>
+                </div>
+              </div>
+              <Alert
+                type="info"
+                showIcon
+                message={`本次回测按 ${executionDiagnosticItems[0]?.value || '默认执行'} 运行`}
+                description={
+                  executionDiagnostics.configured_signal_mode && executionDiagnostics.configured_signal_mode !== executionDiagnostics.resolved_signal_mode
+                    ? `原始配置为 ${executionDiagnostics.configured_signal_mode}，引擎最终按 ${executionDiagnostics.resolved_signal_mode} 解释信号。`
+                    : '当前结果已经附带执行层诊断信息，便于区分事件信号回测和目标仓位回测。'
+                }
+              />
+              <div className="summary-strip summary-strip--stack" style={{ marginTop: 12 }}>
+                {executionDiagnosticItems.map((item) => (
+                  <div key={item.label} className="summary-strip__item">
+                    <span className="summary-strip__label">{item.label}</span>
+                    <span className="summary-strip__value">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="workspace-section">
+            <div className="workspace-section__header">
+              <div>
+                <div className="workspace-section__title">市场状态结论</div>
+                <div className="workspace-section__description">把这次回测放进上涨、下跌和震荡环境里看，判断策略更适合什么行情。</div>
+              </div>
+              <Button
+                size="small"
+                icon={<BarChartOutlined />}
+                loading={marketRegimeLoading}
+                onClick={runMarketRegimeAnalysis}
+              >
+                分析市场状态
+              </Button>
+            </div>
+            {marketRegimeResult ? (
+              <div className="workspace-analysis-stack">
+                {marketRegimeInsight ? (
+                  <Alert
+                    type={marketRegimeInsight.type}
+                    showIcon
+                    message={marketRegimeInsight.title}
+                    description={marketRegimeInsight.description}
+                  />
+                ) : null}
+                <div className="summary-strip summary-strip--stack">
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">最适合的市场状态</span>
+                    <span className="summary-strip__value">
+                      {marketRegimeResult.summary?.strongest_regime?.regime || '未识别'}
+                      {' · '}
+                      {formatPercentage(marketRegimeResult.summary?.strongest_regime?.strategy_total_return || 0)}
+                    </span>
+                  </div>
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">最承压的市场状态</span>
+                    <span className="summary-strip__value">
+                      {marketRegimeResult.summary?.weakest_regime?.regime || '未识别'}
+                      {' · '}
+                      {formatPercentage(marketRegimeResult.summary?.weakest_regime?.strategy_total_return || 0)}
+                    </span>
+                  </div>
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">正收益状态占比</span>
+                    <span className="summary-strip__value">
+                      {formatPercentage(
+                        Number(marketRegimeResult.summary?.positive_regimes || 0)
+                        / Math.max(Number(marketRegimeResult.summary?.regime_count || 0), 1)
+                      )}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <Alert
+                type="info"
+                showIcon
+                message="还没有市场状态结论"
+                description="点击“分析市场状态”后，结果页会直接告诉你这个策略更适合上涨、下跌还是震荡行情。"
+              />
+            )}
+          </div>
         </div>
       )
     },
@@ -575,6 +748,39 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
                 </div>
               </div>
               <MonthlyHeatmap data={portfolioHistory} />
+            </div>
+          </Col>
+          <Col xs={24}>
+            <div className="workspace-section workspace-chart-card">
+              <div className="workspace-section__header">
+                <div>
+                  <div className="workspace-section__title">市场状态分层结果</div>
+                  <div className="workspace-section__description">把策略收益和市场收益放在同一张表里，快速确认它到底擅长什么环境。</div>
+                </div>
+              </div>
+              {marketRegimeResult ? (
+                <Table
+                  size="small"
+                  pagination={false}
+                  rowKey={(record) => record.regime}
+                  dataSource={marketRegimeResult.regimes || []}
+                  columns={[
+                    { title: '市场状态', dataIndex: 'regime', key: 'regime' },
+                    { title: '区间天数', dataIndex: 'days', key: 'days' },
+                    { title: '策略收益', dataIndex: 'strategy_total_return', key: 'strategy_total_return', render: (value) => formatPercentage(value || 0) },
+                    { title: '市场收益', dataIndex: 'market_total_return', key: 'market_total_return', render: (value) => formatPercentage(value || 0) },
+                    { title: '胜率', dataIndex: 'win_rate', key: 'win_rate', render: (value) => formatPercentage(value || 0) },
+                    { title: '最大回撤', dataIndex: 'max_drawdown', key: 'max_drawdown', render: (value) => formatPercentage(value || 0) },
+                  ]}
+                />
+              ) : (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="尚未生成市场状态分层结果"
+                  description="先在概览页点击“分析市场状态”，这里就会补出完整分层明细。"
+                />
+              )}
             </div>
           </Col>
         </Row>
@@ -672,6 +878,15 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
           message={`${getStrategyName(normalizedResults.strategy)} · ${strategyDetails.style}`}
           description={`${strategyDetails.summary} ${strategyDetails.marketFit}`}
         />
+        {actionPosture ? (
+          <Alert
+            type={actionPosture.type}
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={actionPosture.title}
+            description={`${actionPosture.actionHint} ${actionPosture.reason}`.trim()}
+          />
+        ) : null}
         <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
       </Card>
     </div>
