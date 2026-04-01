@@ -89,6 +89,46 @@ export const buildParameterOptimizationTasks = ({
   return tasks;
 };
 
+export const buildWalkForwardParameterCandidates = ({
+  baseParameters,
+  strategyDefinition,
+  density = 3,
+}) => {
+  const tunableEntries = Object.entries(strategyDefinition?.parameters || {}).slice(0, 2);
+  if (!tunableEntries.length) {
+    return [baseParameters || {}];
+  }
+
+  const valueSets = tunableEntries.map(([key, config]) => {
+    const baseValue = Number(baseParameters?.[key] ?? config.default);
+    const step = Number(config.step || (config.type === 'float' ? 0.1 : 1));
+    const values = density >= 5
+      ? [baseValue - 2 * step, baseValue - step, baseValue, baseValue + step, baseValue + 2 * step]
+      : [baseValue - step, baseValue, baseValue + step];
+    return [
+      key,
+      Array.from(new Set(values.map((value) => roundByStep(clampNumber(value, config.min, config.max), step)))),
+    ];
+  });
+
+  const candidates = [];
+  const recurse = (index, current) => {
+    if (index >= valueSets.length) {
+      candidates.push({
+        ...(baseParameters || {}),
+        ...current,
+      });
+      return;
+    }
+
+    const [key, values] = valueSets[index];
+    values.forEach((value) => recurse(index + 1, { ...current, [key]: value }));
+  };
+
+  recurse(0, {});
+  return candidates;
+};
+
 export const buildMultiSymbolTasks = ({
   symbols,
   strategy,
@@ -261,4 +301,66 @@ export const buildSignalExplanation = (result = {}) => {
   }
 
   return summary;
+};
+
+export const buildBacktestActionPosture = ({
+  result = {},
+  benchmarkSummary = null,
+} = {}) => {
+  const totalReturn = Number(result.total_return || 0);
+  const sharpeRatio = Number(result.sharpe_ratio || 0);
+  const maxDrawdown = Math.abs(Number(result.max_drawdown || 0));
+  const profitFactor = Number(result.profit_factor || 0);
+  const winRate = Number(result.win_rate || 0);
+  const tradeCount = Number(result.num_trades || 0);
+  const beatBenchmark = benchmarkSummary ? Boolean(benchmarkSummary.beatBenchmark) : null;
+
+  if (
+    totalReturn <= 0
+    || sharpeRatio < 0.6
+    || maxDrawdown >= 0.2
+    || (beatBenchmark === false && Number(benchmarkSummary?.excessReturn || 0) <= -0.03)
+  ) {
+    return {
+      type: 'warning',
+      label: 'review',
+      posture: '先回测复核',
+      title: '当前结果更适合先回到参数与风险假设复核',
+      actionHint: '先回看参数、成本和风控假设，再决定是否继续把这套策略推进到后续实验。',
+      reason: beatBenchmark === false && Number(benchmarkSummary?.excessReturn || 0) <= -0.03
+        ? `当前相对基准落后 ${((Number(benchmarkSummary?.excessReturn || 0)) * 100).toFixed(2)}%，结果还不能直接推进。`
+        : maxDrawdown >= 0.2
+          ? `最大回撤已到 ${(maxDrawdown * 100).toFixed(2)}%，当前更适合先压缩风险再继续。`
+          : `当前收益 ${((totalReturn) * 100).toFixed(2)}%，夏普 ${sharpeRatio.toFixed(2)}，结果还不够稳。`,
+    };
+  }
+
+  if (
+    totalReturn > 0
+    && sharpeRatio >= 1
+    && maxDrawdown <= 0.15
+    && profitFactor >= 1.2
+    && winRate >= 0.45
+    && (beatBenchmark !== false)
+  ) {
+    return {
+      type: 'success',
+      label: 'advance',
+      posture: '继续稳健性验证',
+      title: '当前结果可以推进到稳健性与扩展验证',
+      actionHint: '可以继续做滚动窗口、成本敏感性和市场状态验证，而不是只停留在单次回测结果。',
+      reason: `当前收益 ${((totalReturn) * 100).toFixed(2)}%，夏普 ${sharpeRatio.toFixed(2)}，回撤 ${(maxDrawdown * 100).toFixed(2)}%，基础画像相对健康。`,
+    };
+  }
+
+  return {
+    type: 'info',
+    label: 'observe',
+    posture: '继续观察与补证',
+    title: '当前结果适合继续观察并补充验证',
+    actionHint: '可以继续补做基准对照、训练窗口切换和交易成本测试，再决定是否升级结论。',
+    reason: tradeCount <= 1
+      ? '当前交易样本还比较少，先把结果当作方向信号而不是定论。'
+      : `当前收益 ${(totalReturn * 100).toFixed(2)}%，夏普 ${sharpeRatio.toFixed(2)}，还需要更多稳健性证据。`,
+  };
 };
