@@ -52,6 +52,8 @@ import {
   buildRobustnessScore,
   buildWalkForwardInsight,
 } from '../utils/advancedBacktestLab';
+import TemplateManagerSection from './advanced-backtest/TemplateManagerSection';
+import ResearchInsightsSection from './advanced-backtest/ResearchInsightsSection';
 import {
   ADVANCED_TEMPLATE_CATEGORY_LABELS,
   buildMainBacktestDraftFromTemplate,
