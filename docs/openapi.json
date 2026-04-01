@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "量化交易系统API",
-    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.7.0\n    - **API版本**: v1\n    - **最后更新**: 2026-03-27\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
+    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.8.0\n    - **API版本**: v1\n    - **最后更新**: 2026-04-01\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
     "termsOfService": "https://example.com/terms/",
     "contact": {
       "name": "量化交易系统支持",
@@ -13,7 +13,7 @@
       "name": "MIT License",
       "url": "https://opensource.org/licenses/MIT"
     },
-    "version": "3.7.0"
+    "version": "3.8.0"
   },
   "paths": {
     "/market-data/": {
@@ -133,6 +133,84 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/WalkForwardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/market-regimes": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "运行市场状态分层回测",
+        "operationId": "run_market_regime_backtest_backtest_market_regimes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarketRegimeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/portfolio-strategy": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "运行组合级策略回测",
+        "operationId": "run_portfolio_strategy_backtest_backtest_portfolio_strategy_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PortfolioStrategyRequest"
               }
             }
           },
@@ -898,6 +976,118 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/RealtimePreferencesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/realtime/alerts": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "获取实时提醒规则",
+        "operationId": "get_alerts_realtime_alerts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "更新实时提醒规则",
+        "operationId": "update_alerts_realtime_alerts_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RealtimeAlertsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/realtime/journal": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "获取实时行情复盘与时间线",
+        "operationId": "get_journal_realtime_journal_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "更新实时行情复盘与时间线",
+        "operationId": "update_journal_realtime_journal_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RealtimeJournalRequest"
               }
             }
           },
@@ -2074,6 +2264,74 @@
         }
       }
     },
+    "/industry/industries/heatmap/history": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Industry Heatmap History",
+        "description": "获取行业热力图历史快照。\n\n用于行业热度模块的历史回放。当前返回服务端近期保留的快照窗口。",
+        "operationId": "get_industry_heatmap_history_industry_industries_heatmap_history_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "description": "返回快照数量",
+              "default": 10,
+              "title": "Limit"
+            },
+            "description": "返回快照数量"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 90,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按周期过滤",
+              "title": "Days"
+            },
+            "description": "按周期过滤"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeatmapHistoryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/industry/industries/{industry_name}/trend": {
       "get": {
         "tags": [
@@ -2198,6 +2456,24 @@
               "title": "Industries"
             },
             "description": "行业名称列表，逗号分隔"
+          },
+          {
+            "name": "periods",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "统计周期列表，逗号分隔，如 1,5,20",
+              "title": "Periods"
+            },
+            "description": "统计周期列表，逗号分隔，如 1,5,20"
           }
         ],
         "responses": {
@@ -2519,6 +2795,46 @@
         }
       }
     },
+    "/pricing/valuation-sensitivity": {
+      "post": {
+        "tags": [
+          "Asset Pricing Research"
+        ],
+        "summary": "Valuation Sensitivity Analysis",
+        "description": "DCF 敏感性分析\n\n允许覆盖折现率、增长率、终值增长率和估值权重，返回新的估值结果与敏感性矩阵。",
+        "operationId": "valuation_sensitivity_analysis_pricing_valuation_sensitivity_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValuationSensitivityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/pricing/gap-analysis": {
       "post": {
         "tags": [
@@ -2537,6 +2853,222 @@
           },
           "required": true
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pricing/screener": {
+      "post": {
+        "tags": [
+          "Asset Pricing Research"
+        ],
+        "summary": "Pricing Screener",
+        "description": "定价候选池筛选\n\n对一组标的运行定价差异分析，并按机会分排序返回。",
+        "operationId": "pricing_screener_pricing_screener_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PricingScreenerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pricing/symbol-suggestions": {
+      "get": {
+        "tags": [
+          "Asset Pricing Research"
+        ],
+        "summary": "Pricing Symbol Suggestions",
+        "description": "股票代码/公司名搜索建议",
+        "operationId": "pricing_symbol_suggestions_pricing_symbol_suggestions_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 50,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "default": 8,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pricing/gap-history": {
+      "get": {
+        "tags": [
+          "Asset Pricing Research"
+        ],
+        "summary": "Pricing Gap History",
+        "description": "历史偏差时间序列，用于观察均值回归和情绪演化。",
+        "operationId": "pricing_gap_history_pricing_gap_history_get",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 12,
+              "title": "Symbol"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "1y",
+              "title": "Period"
+            }
+          },
+          {
+            "name": "points",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 180,
+              "minimum": 12,
+              "default": 60,
+              "title": "Points"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/pricing/peers": {
+      "get": {
+        "tags": [
+          "Asset Pricing Research"
+        ],
+        "summary": "Pricing Peer Comparison",
+        "description": "同行估值对比，优先从扩展研究股票池中选择更接近的同行。",
+        "operationId": "pricing_peer_comparison_pricing_peers_get",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 12,
+              "title": "Symbol"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 10,
+              "minimum": 1,
+              "default": 5,
+              "title": "Limit"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3661,6 +4193,32 @@
             "type": "number",
             "title": "Slippage",
             "default": 0.001
+          },
+          "fixed_commission": {
+            "type": "number",
+            "title": "Fixed Commission",
+            "default": 0.0
+          },
+          "min_commission": {
+            "type": "number",
+            "title": "Min Commission",
+            "default": 0.0
+          },
+          "market_impact_bps": {
+            "type": "number",
+            "title": "Market Impact Bps",
+            "default": 0.0
+          },
+          "max_holding_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Holding Days"
           }
         },
         "type": "object",
@@ -3739,6 +4297,16 @@
             "type": "integer",
             "title": "Max Workers",
             "default": 4
+          },
+          "use_processes": {
+            "type": "boolean",
+            "title": "Use Processes",
+            "default": false
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "title": "Timeout Seconds",
+            "default": 60.0
           }
         },
         "type": "object",
@@ -3759,6 +4327,17 @@
               }
             ],
             "title": "Task Id"
+          },
+          "research_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Research Label"
           },
           "symbol": {
             "type": "string",
@@ -3809,6 +4388,32 @@
             "type": "number",
             "title": "Slippage",
             "default": 0.001
+          },
+          "fixed_commission": {
+            "type": "number",
+            "title": "Fixed Commission",
+            "default": 0.0
+          },
+          "min_commission": {
+            "type": "number",
+            "title": "Min Commission",
+            "default": 0.0
+          },
+          "market_impact_bps": {
+            "type": "number",
+            "title": "Market Impact Bps",
+            "default": 0.0
+          },
+          "max_holding_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Holding Days"
           }
         },
         "type": "object",
@@ -3954,6 +4559,32 @@
             "type": "number",
             "title": "Slippage",
             "default": 0.001
+          },
+          "fixed_commission": {
+            "type": "number",
+            "title": "Fixed Commission",
+            "default": 0.0
+          },
+          "min_commission": {
+            "type": "number",
+            "title": "Min Commission",
+            "default": 0.0
+          },
+          "market_impact_bps": {
+            "type": "number",
+            "title": "Market Impact Bps",
+            "default": 0.0
+          },
+          "max_holding_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Holding Days"
           }
         },
         "type": "object",
@@ -4297,6 +4928,17 @@
             ],
             "title": "Bias Summary"
           },
+          "bias_strength_raw": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias Strength Raw"
+          },
           "bias_strength": {
             "anyOf": [
               {
@@ -4307,6 +4949,178 @@
               }
             ],
             "title": "Bias Strength"
+          },
+          "bias_scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias Scale"
+          },
+          "bias_quality_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias Quality Label"
+          },
+          "bias_quality_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bias Quality Reason"
+          },
+          "base_recommendation_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Recommendation Score"
+          },
+          "recommendation_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendation Score"
+          },
+          "base_recommendation_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Recommendation Tier"
+          },
+          "recommendation_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendation Tier"
+          },
+          "ranking_penalty": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ranking Penalty"
+          },
+          "ranking_penalty_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ranking Penalty Reason"
+          },
+          "input_reliability_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Reliability Label"
+          },
+          "input_reliability_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Reliability Score"
+          },
+          "input_reliability_lead": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Reliability Lead"
+          },
+          "input_reliability_posture": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Reliability Posture"
+          },
+          "input_reliability_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Reliability Reason"
+          },
+          "input_reliability_action_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Reliability Action Hint"
+          },
+          "bias_highlights_raw": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Bias Highlights Raw"
           },
           "bias_highlights": {
             "items": {
@@ -4385,6 +5199,13 @@
             },
             "type": "array",
             "title": "Base Assets"
+          },
+          "raw_bias_assets": {
+            "items": {
+              "$ref": "#/components/schemas/CrossMarketTemplateAsset"
+            },
+            "type": "array",
+            "title": "Raw Bias Assets"
           }
         },
         "type": "object",
@@ -4613,6 +5434,74 @@
         "title": "HeatmapDataItem",
         "description": "热力图数据项"
       },
+      "HeatmapHistoryItem": {
+        "properties": {
+          "snapshot_id": {
+            "type": "string",
+            "title": "Snapshot Id",
+            "description": "快照ID"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days",
+            "description": "分析周期（天）"
+          },
+          "captured_at": {
+            "type": "string",
+            "title": "Captured At",
+            "description": "服务端记录时间"
+          },
+          "update_time": {
+            "type": "string",
+            "title": "Update Time",
+            "description": "快照更新时间"
+          },
+          "max_value": {
+            "type": "number",
+            "title": "Max Value",
+            "description": "最大值",
+            "default": 0
+          },
+          "min_value": {
+            "type": "number",
+            "title": "Min Value",
+            "description": "最小值",
+            "default": 0
+          },
+          "industries": {
+            "items": {
+              "$ref": "#/components/schemas/HeatmapDataItem"
+            },
+            "type": "array",
+            "title": "Industries",
+            "description": "行业数据"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot_id",
+          "days",
+          "captured_at",
+          "update_time"
+        ],
+        "title": "HeatmapHistoryItem",
+        "description": "热力图历史快照"
+      },
+      "HeatmapHistoryResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/HeatmapHistoryItem"
+            },
+            "type": "array",
+            "title": "Items",
+            "description": "历史快照列表"
+          }
+        },
+        "type": "object",
+        "title": "HeatmapHistoryResponse",
+        "description": "热力图历史响应"
+      },
       "HeatmapResponse": {
         "properties": {
           "industries": {
@@ -4718,6 +5607,14 @@
             "title": "Marketcapsource",
             "description": "行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*",
             "default": "unknown"
+          },
+          "mini_trend": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Mini Trend",
+            "description": "近5日相对走势火花线数据"
           }
         },
         "type": "object",
@@ -4768,6 +5665,105 @@
         "title": "IndustryRotationResponse",
         "description": "行业轮动对比响应"
       },
+      "IndustryTrendPoint": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "title": "Date",
+            "description": "日期"
+          },
+          "open": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open",
+            "description": "开盘价"
+          },
+          "high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "High",
+            "description": "最高价"
+          },
+          "low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Low",
+            "description": "最低价"
+          },
+          "close": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close",
+            "description": "收盘价"
+          },
+          "volume": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Volume",
+            "description": "成交量"
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount",
+            "description": "成交额"
+          },
+          "change_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change Pct",
+            "description": "相对前一交易日涨跌幅"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date"
+        ],
+        "title": "IndustryTrendPoint",
+        "description": "行业趋势序列点"
+      },
       "IndustryTrendResponse": {
         "properties": {
           "industry_name": {
@@ -4779,6 +5775,12 @@
             "type": "integer",
             "title": "Stock Count",
             "description": "成分股数量",
+            "default": 0
+          },
+          "expected_stock_count": {
+            "type": "integer",
+            "title": "Expected Stock Count",
+            "description": "预期成分股数量",
             "default": 0
           },
           "total_market_cap": {
@@ -4856,6 +5858,68 @@
             "title": "Flat Count",
             "description": "平盘股票数",
             "default": 0
+          },
+          "stock_coverage_ratio": {
+            "type": "number",
+            "title": "Stock Coverage Ratio",
+            "description": "成分股覆盖率",
+            "default": 0
+          },
+          "change_coverage_ratio": {
+            "type": "number",
+            "title": "Change Coverage Ratio",
+            "description": "涨跌幅覆盖率",
+            "default": 0
+          },
+          "market_cap_coverage_ratio": {
+            "type": "number",
+            "title": "Market Cap Coverage Ratio",
+            "description": "市值覆盖率",
+            "default": 0
+          },
+          "pe_coverage_ratio": {
+            "type": "number",
+            "title": "Pe Coverage Ratio",
+            "description": "市盈率覆盖率",
+            "default": 0
+          },
+          "total_market_cap_fallback": {
+            "type": "boolean",
+            "title": "Total Market Cap Fallback",
+            "description": "总市值是否回退到行业聚合口径",
+            "default": false
+          },
+          "avg_pe_fallback": {
+            "type": "boolean",
+            "title": "Avg Pe Fallback",
+            "description": "平均市盈率是否回退到行业聚合口径",
+            "default": false
+          },
+          "market_cap_source": {
+            "type": "string",
+            "title": "Market Cap Source",
+            "description": "市值来源",
+            "default": "unknown"
+          },
+          "valuation_source": {
+            "type": "string",
+            "title": "Valuation Source",
+            "description": "估值来源",
+            "default": "unavailable"
+          },
+          "valuation_quality": {
+            "type": "string",
+            "title": "Valuation Quality",
+            "description": "估值质量",
+            "default": "unavailable"
+          },
+          "trend_series": {
+            "items": {
+              "$ref": "#/components/schemas/IndustryTrendPoint"
+            },
+            "type": "array",
+            "title": "Trend Series",
+            "description": "行业指数趋势序列"
           },
           "degraded": {
             "type": "boolean",
@@ -5022,6 +6086,14 @@
             "type": "object",
             "title": "Dimension Scores",
             "description": "各维度得分"
+          },
+          "mini_trend": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Mini Trend",
+            "description": "近期价格走势火花线数据"
           }
         },
         "type": "object",
@@ -5082,6 +6154,220 @@
         ],
         "title": "MarketDataRequest"
       },
+      "MarketRegimeRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters",
+            "default": {}
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 10000
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
+          },
+          "fixed_commission": {
+            "type": "number",
+            "title": "Fixed Commission",
+            "default": 0.0
+          },
+          "min_commission": {
+            "type": "number",
+            "title": "Min Commission",
+            "default": 0.0
+          },
+          "market_impact_bps": {
+            "type": "number",
+            "title": "Market Impact Bps",
+            "default": 0.0
+          },
+          "max_holding_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Holding Days"
+          },
+          "lookback_days": {
+            "type": "integer",
+            "title": "Lookback Days",
+            "default": 20
+          },
+          "trend_threshold": {
+            "type": "number",
+            "title": "Trend Threshold",
+            "default": 0.03
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "strategy"
+        ],
+        "title": "MarketRegimeRequest"
+      },
+      "PortfolioStrategyRequest": {
+        "properties": {
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Symbols"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters",
+            "default": {}
+          },
+          "weights": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weights"
+          },
+          "objective": {
+            "type": "string",
+            "title": "Objective",
+            "default": "equal_weight"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 10000
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
+          },
+          "fixed_commission": {
+            "type": "number",
+            "title": "Fixed Commission",
+            "default": 0.0
+          },
+          "min_commission": {
+            "type": "number",
+            "title": "Min Commission",
+            "default": 0.0
+          },
+          "market_impact_bps": {
+            "type": "number",
+            "title": "Market Impact Bps",
+            "default": 0.0
+          },
+          "min_trade_value": {
+            "type": "number",
+            "title": "Min Trade Value",
+            "default": 0.0
+          },
+          "min_rebalance_weight_delta": {
+            "type": "number",
+            "title": "Min Rebalance Weight Delta",
+            "default": 0.0
+          },
+          "max_turnover_per_rebalance": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Turnover Per Rebalance"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbols",
+          "strategy"
+        ],
+        "title": "PortfolioStrategyRequest"
+      },
       "PricingRequest": {
         "properties": {
           "symbol": {
@@ -5102,6 +6388,87 @@
         ],
         "title": "PricingRequest"
       },
+      "PricingScreenerRequest": {
+        "properties": {
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 25,
+            "minItems": 1,
+            "title": "Symbols",
+            "description": "候选股票代码列表"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period",
+            "description": "分析周期: 6mo, 1y, 2y, 3y, 5y",
+            "default": "1y"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 25.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "description": "返回前 N 个结果",
+            "default": 10
+          },
+          "max_workers": {
+            "type": "integer",
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Max Workers",
+            "description": "并行执行数",
+            "default": 4
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbols"
+        ],
+        "title": "PricingScreenerRequest"
+      },
+      "RealtimeAlertsRequest": {
+        "properties": {
+          "alerts": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Alerts"
+          },
+          "alert_hit_history": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Alert Hit History"
+          }
+        },
+        "type": "object",
+        "title": "RealtimeAlertsRequest"
+      },
+      "RealtimeJournalRequest": {
+        "properties": {
+          "review_snapshots": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Review Snapshots"
+          },
+          "timeline_events": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Timeline Events"
+          }
+        },
+        "type": "object",
+        "title": "RealtimeJournalRequest"
+      },
       "RealtimePreferencesRequest": {
         "properties": {
           "symbols": {
@@ -5115,6 +6482,13 @@
             "type": "string",
             "title": "Active Tab",
             "default": "index"
+          },
+          "symbol_categories": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Symbol Categories"
           }
         },
         "type": "object",
@@ -5841,6 +7215,92 @@
         ],
         "title": "ValuationRequest"
       },
+      "ValuationSensitivityRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol",
+            "description": "股票代码"
+          },
+          "wacc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Wacc",
+            "description": "覆盖 WACC"
+          },
+          "initial_growth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initial Growth",
+            "description": "覆盖初始增长率"
+          },
+          "terminal_growth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal Growth",
+            "description": "覆盖终值增长率"
+          },
+          "fcf_margin": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fcf Margin",
+            "description": "覆盖现金流转化率"
+          },
+          "dcf_weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dcf Weight",
+            "description": "覆盖 DCF 权重"
+          },
+          "comparable_weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparable Weight",
+            "description": "覆盖可比估值权重"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "ValuationSensitivityRequest"
+      },
       "WalkForwardRequest": {
         "properties": {
           "symbol": {
@@ -5855,6 +7315,35 @@
             "type": "object",
             "title": "Parameters",
             "default": {}
+          },
+          "parameter_grid": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {},
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameter Grid"
+          },
+          "parameter_candidates": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameter Candidates"
           },
           "start_date": {
             "anyOf": [
@@ -5893,6 +7382,32 @@
             "title": "Slippage",
             "default": 0.001
           },
+          "fixed_commission": {
+            "type": "number",
+            "title": "Fixed Commission",
+            "default": 0.0
+          },
+          "min_commission": {
+            "type": "number",
+            "title": "Min Commission",
+            "default": 0.0
+          },
+          "market_impact_bps": {
+            "type": "number",
+            "title": "Market Impact Bps",
+            "default": 0.0
+          },
+          "max_holding_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Holding Days"
+          },
           "train_period": {
             "type": "integer",
             "title": "Train Period",
@@ -5907,6 +7422,37 @@
             "type": "integer",
             "title": "Step Size",
             "default": 21
+          },
+          "optimization_metric": {
+            "type": "string",
+            "title": "Optimization Metric",
+            "default": "sharpe_ratio"
+          },
+          "optimization_method": {
+            "type": "string",
+            "title": "Optimization Method",
+            "default": "grid"
+          },
+          "optimization_budget": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optimization Budget"
+          },
+          "monte_carlo_simulations": {
+            "type": "integer",
+            "title": "Monte Carlo Simulations",
+            "default": 250
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "title": "Timeout Seconds",
+            "default": 60.0
           }
         },
         "type": "object",

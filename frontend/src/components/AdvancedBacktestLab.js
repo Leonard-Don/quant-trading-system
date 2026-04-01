@@ -1311,194 +1311,33 @@ function AdvancedBacktestLab({ strategies, onImportTemplateToMainBacktest }) {
         </div>
       </div>
 
-      <Card className="workspace-panel" style={{ marginBottom: 20 }}>
-        <div className="workspace-section__header">
-          <div>
-            <div className="workspace-section__title">实验模板与版本对比</div>
-            <div className="workspace-section__description">把常用实验配置保存成模板，并将当前实验结果与上一版关键指标并排比较。</div>
-          </div>
-        </div>
-        <Row gutter={[16, 16]} align="top">
-          <Col xs={24} xl={10}>
-            <div className="workspace-field-label">模板名称</div>
-            <Input
-              value={templateName}
-              onChange={(event) => setTemplateName(event.target.value)}
-              placeholder="例如：趋势策略稳健性模板"
-            />
-            <div className="workspace-field-label" style={{ marginTop: 12 }}>模板备注</div>
-            <Input.TextArea
-              value={templateNote}
-              onChange={(event) => setTemplateNote(event.target.value)}
-              placeholder="例如：适合做趋势策略在大盘股上的参数寻优与稳健性验证"
-              rows={3}
-              maxLength={160}
-              showCount
-            />
-            <div className="workspace-field-label" style={{ marginTop: 12 }}>已保存模板</div>
-            <Select
-              value={templateCategoryFilter}
-              style={{ width: '100%', marginBottom: 12 }}
-              options={[
-                { value: 'all', label: '全部研究场景' },
-                ...Object.entries(ADVANCED_TEMPLATE_CATEGORY_LABELS).map(([value, label]) => ({ value, label })),
-              ]}
-              onChange={setTemplateCategoryFilter}
-            />
-            <Select
-              value={selectedTemplateId || undefined}
-              style={{ width: '100%' }}
-              placeholder="选择一个已保存模板"
-              options={groupedTemplateOptions}
-              onChange={setSelectedTemplateId}
-            />
-            <Space wrap style={{ marginTop: 12 }}>
-              <Button type="primary" onClick={handleSaveTemplate}>
-                保存模板
-              </Button>
-              <Button onClick={handleSuggestTemplateName}>
-                推荐命名
-              </Button>
-              <Button onClick={handleApplyTemplate} disabled={!savedTemplates.length}>
-                套用模板
-              </Button>
-              <Button onClick={handleImportTemplateToMainBacktest} disabled={!selectedTemplateId}>
-                带回主回测
-              </Button>
-              <Button onClick={handleOverwriteTemplate} disabled={!selectedTemplateId}>
-                覆盖当前模板
-              </Button>
-              <Button onClick={handleTogglePinnedTemplate} disabled={!selectedTemplateId}>
-                {selectedTemplate?.pinned ? '取消置顶' : '置顶模板'}
-              </Button>
-              <Button danger onClick={handleDeleteTemplate} disabled={!selectedTemplateId}>
-                删除模板
-              </Button>
-            </Space>
-            {selectedTemplatePreview ? (
-              <div className="workspace-section" style={{ marginTop: 16 }}>
-                <div className="workspace-section__header" style={{ marginBottom: 12 }}>
-                  <div>
-                    <div className="workspace-section__title">模板预览</div>
-                    <div className="workspace-section__description">套用前先确认这个模板对应的研究场景、标的和关键参数。</div>
-                  </div>
-                  <Space size="small">
-                    {selectedTemplate?.pinned ? <Tag color="gold">已置顶</Tag> : null}
-                    <Tag color="processing">
-                      {ADVANCED_TEMPLATE_CATEGORY_LABELS[selectedTemplatePreview.category] || selectedTemplatePreview.category}
-                    </Tag>
-                  </Space>
-                </div>
-                <div className="summary-strip" style={{ marginTop: 0 }}>
-                  <div className="summary-strip__item">
-                    <span className="summary-strip__label">标的</span>
-                    <span className="summary-strip__value">{selectedTemplatePreview.symbol || '未设置'}</span>
-                  </div>
-                  <div className="summary-strip__item">
-                    <span className="summary-strip__label">主策略</span>
-                    <span className="summary-strip__value">{selectedTemplatePreview.strategy ? getStrategyName(selectedTemplatePreview.strategy) : '未设置'}</span>
-                  </div>
-                  <div className="summary-strip__item">
-                    <span className="summary-strip__label">策略数量</span>
-                    <span className="summary-strip__value">{selectedTemplatePreview.strategyCount || 1}</span>
-                  </div>
-                  <div className="summary-strip__item">
-                    <span className="summary-strip__label">寻优密度</span>
-                    <span className="summary-strip__value">{selectedTemplatePreview.optimizationDensity}</span>
-                  </div>
-                </div>
-                <div className="workspace-section__hint">
-                  区间：{selectedTemplatePreview.dateRange?.filter(Boolean).join(' 至 ') || '未设置'}
-                </div>
-                <div className="workspace-section__hint">
-                  研究标的池：{selectedTemplatePreview.researchSymbolsInput || '未设置'}
-                </div>
-                {selectedTemplatePreview.note ? (
-                  <div className="workspace-section__hint">
-                    备注：{selectedTemplatePreview.note}
-                  </div>
-                ) : null}
-                {selectedTemplatePreview.keyParameters.length ? (
-                  <Space wrap style={{ marginTop: 12 }}>
-                    {selectedTemplatePreview.keyParameters.map((entry) => (
-                      <Tag key={entry.key} color="blue">
-                        {getStrategyParameterLabel(entry.key)}: {String(entry.value)}
-                      </Tag>
-                    ))}
-                  </Space>
-                ) : (
-                  <div className="workspace-section__hint">这个模板当前没有额外参数覆盖。</div>
-                )}
-              </div>
-            ) : null}
-          </Col>
-          <Col xs={24} xl={14}>
-            <div className="workspace-section">
-              <div className="workspace-section__header">
-                <div>
-                  <div className="workspace-section__title">实验版本对比</div>
-                  <div className="workspace-section__description">当前结果会与一条已保存实验版本对比，快速确认这次改动到底带来了什么变化。</div>
-                </div>
-                <Space wrap>
-                  <Select
-                    value={selectedSnapshotId || undefined}
-                    style={{ minWidth: 260 }}
-                    placeholder="选择一个历史版本"
-                    options={savedSnapshots.map((snapshot) => ({
-                      value: snapshot.id,
-                      label: snapshot.name,
-                    }))}
-                    onChange={setSelectedSnapshotId}
-                  />
-                  <Button onClick={handleSaveSnapshot} disabled={!currentSnapshot}>
-                    保存本次版本
-                  </Button>
-                </Space>
-              </div>
-              {experimentComparison ? (
-                <Space direction="vertical" style={{ width: '100%' }} size="middle">
-                  <Alert
-                    type="info"
-                    showIcon
-                    message="版本对比已生成"
-                    description={experimentComparison.title}
-                  />
-                  <Table
-                    size="small"
-                    pagination={false}
-                    rowKey={(record) => record.key}
-                    dataSource={experimentComparison.rows}
-                    columns={[
-                      { title: '指标', dataIndex: 'label', key: 'label' },
-                      { title: '当前版本', dataIndex: 'current', key: 'current' },
-                      { title: '对比版本', dataIndex: 'previous', key: 'previous' },
-                      {
-                        title: '变化',
-                        dataIndex: 'delta',
-                        key: 'delta',
-                        render: (value, record) => (
-                          <span style={{
-                            color: record.direction === 'up'
-                              ? CHART_POSITIVE
-                              : record.direction === 'down'
-                                ? CHART_NEGATIVE
-                                : 'var(--text-muted)',
-                          }}
-                          >
-                            {value}
-                          </span>
-                        ),
-                      },
-                    ]}
-                  />
-                </Space>
-              ) : (
-                <Empty description="先保存至少一版实验结果，再运行或保留当前结果，这里就会显示关键指标差异。" />
-              )}
-            </div>
-          </Col>
-        </Row>
-      </Card>
+      <TemplateManagerSection
+        templateName={templateName}
+        setTemplateName={setTemplateName}
+        templateNote={templateNote}
+        setTemplateNote={setTemplateNote}
+        templateCategoryFilter={templateCategoryFilter}
+        setTemplateCategoryFilter={setTemplateCategoryFilter}
+        selectedTemplateId={selectedTemplateId}
+        setSelectedTemplateId={setSelectedTemplateId}
+        groupedTemplateOptions={groupedTemplateOptions}
+        handleSaveTemplate={handleSaveTemplate}
+        handleSuggestTemplateName={handleSuggestTemplateName}
+        handleApplyTemplate={handleApplyTemplate}
+        handleImportTemplateToMainBacktest={handleImportTemplateToMainBacktest}
+        handleOverwriteTemplate={handleOverwriteTemplate}
+        handleTogglePinnedTemplate={handleTogglePinnedTemplate}
+        handleDeleteTemplate={handleDeleteTemplate}
+        savedTemplates={savedTemplates}
+        selectedTemplate={selectedTemplate}
+        selectedTemplatePreview={selectedTemplatePreview}
+        selectedSnapshotId={selectedSnapshotId}
+        setSelectedSnapshotId={setSelectedSnapshotId}
+        savedSnapshots={savedSnapshots}
+        handleSaveSnapshot={handleSaveSnapshot}
+        currentSnapshot={currentSnapshot}
+        experimentComparison={experimentComparison}
+      />
 
       <Card className="workspace-panel" style={{ marginBottom: 20 }}>
         <div className="workspace-section__header">
@@ -2226,153 +2065,16 @@ function AdvancedBacktestLab({ strategies, onImportTemplateToMainBacktest }) {
         </Col>
       </Row>
 
-      <Row gutter={[20, 20]}>
-        <Col xs={24} xl={9}>
-          <Card className="workspace-panel workspace-chart-card" title="稳健性评分">
-            {robustnessScore || overfittingWarnings.length || researchConclusion ? (
-              <Space direction="vertical" style={{ width: '100%' }} size="large">
-                {robustnessScore ? (
-                  <>
-                    <Alert
-                      type={robustnessScore.score >= 75 ? 'success' : robustnessScore.score >= 55 ? 'info' : 'warning'}
-                      showIcon
-                      message={`稳健性评分 ${robustnessScore.score} / 100`}
-                      description={`当前结论：${robustnessScore.level}稳健性。${robustnessScore.summary}`}
-                    />
-                    <div className="summary-strip">
-                      {robustnessScore.dimensions.map((dimension) => (
-                        <div className="summary-strip__item" key={dimension.key}>
-                          <span className="summary-strip__label">{dimension.label}</span>
-                          <span className="summary-strip__value">{dimension.score}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <Table
-                      size="small"
-                      pagination={false}
-                      rowKey={(record) => record.key}
-                      dataSource={robustnessScore.dimensions}
-                      columns={[
-                        { title: '维度', dataIndex: 'label', key: 'label' },
-                        { title: '得分', dataIndex: 'score', key: 'score', render: (value) => `${value}` },
-                        { title: '说明', dataIndex: 'detail', key: 'detail' },
-                      ]}
-                    />
-                  </>
-                ) : null}
-                {overfittingWarnings.length ? (
-                  <div className="workspace-section">
-                    <div className="workspace-section__header">
-                      <div>
-                        <div className="workspace-section__title">过拟合预警</div>
-                        <div className="workspace-section__description">这些信号说明当前优势可能依赖少数参数、少数窗口或少数市场状态。</div>
-                      </div>
-                    </div>
-                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
-                      {overfittingWarnings.map((warning) => (
-                        <Alert
-                          key={warning.key}
-                          type="warning"
-                          showIcon
-                          message={warning.title}
-                          description={warning.description}
-                        />
-                      ))}
-                    </Space>
-                  </div>
-                ) : null}
-                {researchConclusion ? (
-                  <div className="workspace-section">
-                    <div className="workspace-section__header">
-                      <div>
-                        <div className="workspace-section__title">自动研究结论</div>
-                        <div className="workspace-section__description">把当前结果压缩成结论和下一步动作，减少人工读图和读表的成本。</div>
-                      </div>
-                    </div>
-                    <Alert
-                      type={overfittingWarnings.length ? 'warning' : 'success'}
-                      showIcon
-                      message={researchConclusion.title}
-                      description={researchConclusion.summary}
-                    />
-                    <div className="summary-strip summary-strip--stack">
-                      {researchConclusion.nextActions.map((action, index) => (
-                        <div key={`${index + 1}-${action.slice(0, 12)}`} className="summary-strip__item">
-                          <span className="summary-strip__label">下一步 {index + 1}</span>
-                          <span className="summary-strip__value" style={{ whiteSpace: 'normal' }}>{action}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </Space>
-            ) : (
-              <Empty description="运行批量实验、滚动前瞻、基准对照或市场状态分析后，这里会给出稳健性评分、过拟合预警和自动研究结论。" />
-            )}
-          </Card>
-        </Col>
-        <Col xs={24} xl={15}>
-          <Card className="workspace-panel workspace-chart-card" title="市场状态分层回测">
-            {marketRegimeResult ? (
-              <Space direction="vertical" style={{ width: '100%' }} size="large">
-                <div className="summary-strip">
-                  <div className="summary-strip__item">
-                    <span className="summary-strip__label">市场状态数</span>
-                    <span className="summary-strip__value">{marketRegimeResult.summary?.regime_count ?? 0}</span>
-                  </div>
-                  <div className="summary-strip__item">
-                    <span className="summary-strip__label">正收益状态</span>
-                    <span className="summary-strip__value">{marketRegimeResult.summary?.positive_regimes ?? 0}</span>
-                  </div>
-                  <div className="summary-strip__item">
-                    <span className="summary-strip__label">平均阶段收益</span>
-                    <span className="summary-strip__value">{formatPercentage(marketRegimeResult.summary?.average_regime_return ?? 0)}</span>
-                  </div>
-                </div>
-                {marketRegimeInsight ? (
-                  <Alert
-                    type={marketRegimeInsight.type}
-                    showIcon
-                    message={marketRegimeInsight.title}
-                    description={marketRegimeInsight.description}
-                  />
-                ) : null}
-                {marketRegimeChartData.length ? (
-                  <div style={{ height: 280 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={marketRegimeChartData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.18)" />
-                        <XAxis dataKey="label" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
-                        <YAxis tickFormatter={(value) => `${(Number(value || 0) * 100).toFixed(0)}%`} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
-                        <RechartsTooltip />
-                        <Legend />
-                        <Bar dataKey="strategyTotalReturn" name="策略收益" fill={CHART_POSITIVE} />
-                        <Bar dataKey="marketTotalReturn" name="市场收益" fill={CHART_NEUTRAL} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : null}
-                <Table
-                  size="small"
-                  pagination={false}
-                  rowKey={(record) => record.regime}
-                  dataSource={marketRegimeResult.regimes || []}
-                  columns={[
-                    { title: '市场状态', dataIndex: 'regime', key: 'regime' },
-                    { title: '天数', dataIndex: 'days', key: 'days' },
-                    { title: '策略收益', dataIndex: 'strategy_total_return', key: 'strategy_total_return', render: (value) => formatPercentage(value || 0) },
-                    { title: '市场收益', dataIndex: 'market_total_return', key: 'market_total_return', render: (value) => formatPercentage(value || 0) },
-                    { title: '胜率', dataIndex: 'win_rate', key: 'win_rate', render: (value) => formatPercentage(value || 0) },
-                    { title: '最大回撤', dataIndex: 'max_drawdown', key: 'max_drawdown', render: (value) => formatPercentage(value || 0) },
-                  ]}
-                />
-              </Space>
-            ) : (
-              <Empty description="运行市场状态分层回测后，这里会展示策略在不同市场状态下的表现差异。" />
-            )}
-          </Card>
-        </Col>
-      </Row>
+      <ResearchInsightsSection
+        robustnessScore={robustnessScore}
+        overfittingWarnings={overfittingWarnings}
+        researchConclusion={researchConclusion}
+        marketRegimeResult={marketRegimeResult}
+        marketRegimeInsight={marketRegimeInsight}
+        marketRegimeChartData={marketRegimeChartData}
+        CHART_NEUTRAL={CHART_NEUTRAL}
+        CHART_POSITIVE={CHART_POSITIVE}
+      />
 
       <Row gutter={[20, 20]}>
         <Col xs={24} xl={12}>

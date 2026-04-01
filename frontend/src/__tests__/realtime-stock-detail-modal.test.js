@@ -348,6 +348,64 @@ describe('RealtimeStockDetailModal', () => {
     expect(screen.getByText('命中后仍在阈值上方')).toBeInTheDocument();
   });
 
+  test('keeps compare selection stable when switching away and back to the same symbol', async () => {
+    const { rerender } = await renderRealtimeDetailModal(
+      <RealtimeStockDetailModal
+        open
+        symbol="AAPL"
+        quote={{ symbol: 'AAPL', price: 184.2, change: 3.1, change_percent: 2.8 }}
+        compareCandidates={[
+          { symbol: 'AAPL', quote: { symbol: 'AAPL', price: 184.2, change_percent: 2.8 } },
+          { symbol: 'NVDA', quote: { symbol: 'NVDA', price: 910.5, change_percent: 1.5 } },
+          { symbol: 'MSFT', quote: { symbol: 'MSFT', price: 428.8, change_percent: -0.4 } },
+        ]}
+        onCancel={jest.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'MSFT' }));
+    expect(screen.getByTestId('detail-compare-grid')).not.toHaveTextContent('MSFT');
+
+    rerender(
+      <RealtimeStockDetailModal
+        open
+        symbol="BTC-USD"
+        quote={{ symbol: 'BTC-USD', price: 68000, change: -220, change_percent: -0.32 }}
+        compareCandidates={[
+          { symbol: 'BTC-USD', quote: { symbol: 'BTC-USD', price: 68000, change_percent: -0.32 } },
+          { symbol: 'ETH-USD', quote: { symbol: 'ETH-USD', price: 3600, change_percent: 1.1 } },
+          { symbol: 'SOL-USD', quote: { symbol: 'SOL-USD', price: 145, change_percent: 0.8 } },
+        ]}
+        onCancel={jest.fn()}
+      />
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    rerender(
+      <RealtimeStockDetailModal
+        open
+        symbol="AAPL"
+        quote={{ symbol: 'AAPL', price: 184.2, change: 3.1, change_percent: 2.8 }}
+        compareCandidates={[
+          { symbol: 'AAPL', quote: { symbol: 'AAPL', price: 184.2, change_percent: 2.8 } },
+          { symbol: 'NVDA', quote: { symbol: 'NVDA', price: 910.5, change_percent: 1.5 } },
+          { symbol: 'MSFT', quote: { symbol: 'MSFT', price: 428.8, change_percent: -0.4 } },
+        ]}
+        onCancel={jest.fn()}
+      />
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('detail-compare-grid')).toHaveTextContent('NVDA');
+    expect(screen.getByTestId('detail-compare-grid')).not.toHaveTextContent('MSFT');
+  });
+
   test('can hand off a quick trade draft from the detail signal summary', async () => {
     const onQuickTrade = jest.fn();
 

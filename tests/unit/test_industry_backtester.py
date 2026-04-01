@@ -184,3 +184,12 @@ def test_industry_backtester_run_wrapper_exposes_diagnostics():
     assert "diagnostics" in payload
     assert payload["diagnostics"]["provider_name"] is None
     assert payload["diagnostics"]["strict_data_validation"] is True
+
+
+def test_industry_backtester_default_proxy_map_includes_a_share_etfs():
+    proxy_map = IndustryBacktester.DEFAULT_INDUSTRY_PROXY_MAP
+
+    assert proxy_map["电子"][0]["symbol"] == "159995"
+    assert proxy_map["医药生物"][0]["symbol"] == "512010"
+    assert proxy_map["新能源"][0]["symbol"] == "516160"
+    assert proxy_map["金融"][0]["symbol"] == "512800"

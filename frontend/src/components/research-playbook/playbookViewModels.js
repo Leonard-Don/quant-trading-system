@@ -71,6 +71,73 @@ const detectMacroCue = (texts = []) =>
     texts.map((item) => compactText(item)).join(' ')
   );
 
+const isMacroSensitiveSector = (sector = '') =>
+  /energy|utilities|industrials|materials/i.test(String(sector || '').trim());
+
+const hasProxyFactorInputs = (factorModel = {}) =>
+  Boolean(factorModel?.factor_source?.is_proxy || factorModel?.five_factor_source?.is_proxy);
+
+const deriveCrossMarketSignal = (symbol, pricingResult = {}) => {
+  const gap = pricingResult?.gap_analysis || {};
+  const drivers = pricingResult?.deviation_drivers?.drivers || [];
+  const valuation = pricingResult?.valuation || {};
+  const implications = pricingResult?.implications || {};
+  const factorModel = pricingResult?.factor_model || {};
+  const insights = implications?.insights || [];
+  const texts = [
+    gap.direction,
+    gap.severity_label,
+    ...drivers.map((item) => item?.description),
+    implications?.factor_alignment?.summary,
+    implications?.primary_view,
+    ...insights,
+  ];
+  const reasons = [];
+  const confidence = implications?.confidence;
+  const riskLevel = implications?.risk_level;
+  const alignmentStatus = implications?.factor_alignment?.status;
+  const severity = gap?.severity;
+  const sector = valuation?.comparables?.sector || valuation?.fundamentals?.sector || '';
+  const macroCue = detectMacroCue(texts);
+  const proxyInputs = hasProxyFactorInputs(factorModel);
+
+  if (alignmentStatus === 'conflict') {
+    reasons.push('因子信号与估值结论存在冲突');
+  }
+  if (confidence === 'low') {
+    reasons.push('当前结论置信度偏低');
+  }
+  if (riskLevel === 'high') {
+    reasons.push('风险等级偏高');
+  }
+  if (proxyInputs) {
+    reasons.push('因子数据包含代理估算值');
+  }
+  if (isMacroSensitiveSector(sector)) {
+    reasons.push(`标的处在 ${sector || '宏观敏感行业'}，更容易受跨资产变量驱动`);
+  }
+  if (macroCue) {
+    reasons.push('驱动描述里出现明显的宏观或供需线索');
+  }
+  if (['moderate', 'extreme', 'unknown'].includes(severity)) {
+    reasons.push('当前偏差等级需要额外验证');
+  }
+  if (POWER_SYMBOLS.has(symbol) || AI_SYMBOLS.has(symbol)) {
+    reasons.push(`${symbol} 所在主题常和跨市场变量联动`);
+  }
+
+  const hardTriggers = [alignmentStatus === 'conflict', riskLevel === 'high', confidence === 'low'].filter(Boolean).length;
+  const supportingSignals = [macroCue, proxyInputs, isMacroSensitiveSector(sector), ['moderate', 'extreme', 'unknown'].includes(severity), POWER_SYMBOLS.has(symbol) || AI_SYMBOLS.has(symbol)].filter(Boolean).length;
+  const shouldCrossMarket = hardTriggers >= 2 || (hardTriggers >= 1 && supportingSignals >= 1) || (macroCue && isMacroSensitiveSector(sector));
+
+  return {
+    shouldCrossMarket,
+    reasons: Array.from(new Set(reasons)),
+    macroCue,
+    sector,
+  };
+};
+
 const recommendTemplateForSymbol = (symbol = '', texts = []) => {
   const upper = String(symbol || '').toUpperCase();
   const joined = texts.map((item) => compactText(item)).join(' ');
@@ -160,26 +227,17 @@ export const buildPricingPlaybook = (context = {}, pricingResult = null) => {
   const fairValue = valuation?.fair_value || {};
   const implications = pricingResult?.implications || {};
   const insights = implications?.insights || [];
-  const macroCue = detectMacroCue([
-    gap.direction,
-    ...drivers.map((item) => item.description),
-    ...insights,
-  ]);
-  const shouldCrossMarket =
-    macroCue
-    && (
-      implications.confidence === 'low'
-      || implications.risk_level === 'high'
-      || ['moderate', 'unknown'].includes(gap.severity)
-    );
+  const crossMarketSignal = deriveCrossMarketSignal(symbol, pricingResult);
+  const shouldCrossMarket = crossMarketSignal.shouldCrossMarket;
   const recommendedTemplate = shouldCrossMarket
     ? recommendTemplateForSymbol(symbol, insights)
     : null;
+  const crossMarketReasonText = crossMarketSignal.reasons.slice(0, 2).join('，');
   const primaryAction = shouldCrossMarket
     ? buildCrossMarketAction(
         recommendedTemplate,
         'pricing_playbook',
-        `${symbol} 的单标的结论受宏观变量干扰较大，建议切换到跨市场模板继续验证。`
+        `${symbol} 的单标的结论受跨资产变量干扰较大，${crossMarketReasonText || '建议切换到跨市场模板继续验证'}。`
       )
     : null;
   const nextActions = [primaryAction, buildGodEyeAction()].filter(Boolean);
@@ -201,7 +259,7 @@ export const buildPricingPlaybook = (context = {}, pricingResult = null) => {
   const primaryView = implications.primary_view || gap.direction || '合理';
   const thesis = `${symbol} 当前偏向 ${primaryView}，价格偏差 ${toSignedPercentPoints(gap.gap_pct)}。${
     shouldCrossMarket
-      ? '由于宏观变量干扰较强，下一步更适合用跨市场模板继续验证。'
+      ? `由于${crossMarketReasonText || '跨资产变量干扰较强'}，下一步更适合用跨市场模板继续验证。`
       : '当前更适合继续留在单标的定价研究框架内。'
   }`;
 
@@ -252,7 +310,7 @@ export const buildPricingPlaybook = (context = {}, pricingResult = null) => {
         id: 'pricing-action',
         title: '行动建议',
         description: shouldCrossMarket
-          ? '单标的结论受宏观变量影响较大，建议进入跨市场剧本继续确认对冲结构。'
+          ? `单标的结论受跨市场变量影响较大，${crossMarketReasonText || '建议进入跨市场剧本继续确认对冲结构'}。`
           : '当前更适合继续观察单标的定价偏差，必要时回到 GodEye 寻找新的宏观线索。',
         status: shouldCrossMarket ? 'warning' : 'complete',
         cta: primaryAction || buildGodEyeAction(),

@@ -16,7 +16,7 @@ DEFAULT_JOURNAL_PAYLOAD = {
     "review_snapshots": [],
     "timeline_events": [],
 }
-MAX_REVIEW_SNAPSHOTS = 12
+MAX_REVIEW_SNAPSHOTS = 48
 MAX_TIMELINE_EVENTS = 120
 
 

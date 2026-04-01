@@ -19,6 +19,7 @@ const waitForRealtimeShell = async (page) => {
 const waitForQuoteCard = async (page, symbol) => {
   const card = page.locator('.realtime-quote-card').filter({ hasText: symbol }).first();
   await card.waitFor({ state: 'visible', timeout: 60000 });
+  await card.scrollIntoViewIfNeeded();
   return card;
 };
 
@@ -236,7 +237,7 @@ const closeVisibleDrawer = async (page) => {
   console.log('验证提醒抽屉...');
   await usCard.getByRole('button', { name: '提醒' }).click();
   await page.locator('.ant-drawer-title').filter({ hasText: '价格提醒' }).first().waitFor({ state: 'visible', timeout: 60000 });
-  await page.locator('.ant-drawer-body').getByText('实时提醒', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  await page.getByText('提醒规则管理', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   console.log('提醒抽屉已打开: 是');
   await closeVisibleDrawer(page);
 

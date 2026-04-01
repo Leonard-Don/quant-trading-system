@@ -34,7 +34,7 @@ def _build_context(refresh: bool = False):
     return {
         "snapshot_timestamp": snapshot.get("snapshot_timestamp"),
         "signals": snapshot.get("signals", {}),
-        "records": manager.get_records(timeframe="30d", limit=200),
+        "records": manager.get_records(timeframe="45d", limit=200),
         "provider_status": snapshot.get("providers", {}),
         "refresh_status": snapshot.get("refresh_status", {}),
         "data_freshness": snapshot.get("staleness", {}),
@@ -924,12 +924,34 @@ def _build_source_gap_summary(records: List[Any]) -> Dict[str, Any]:
         [record for record in records if getattr(record, "timestamp", None) is not None],
         key=lambda item: item.timestamp,
     )
-    if len(ordered) < 3:
+    if len(ordered) < 2:
         return {
             "label": "stable",
             "latest_gap_hours": 0.0,
             "baseline_gap_hours": 0.0,
             "reason": "样本不足，默认无明显断流",
+        }
+
+    if len(ordered) == 2:
+        latest_gap = round(
+            max((ordered[1].timestamp - ordered[0].timestamp).total_seconds() / 3600, 0.0),
+            2,
+        )
+        baseline_gap = 24.0
+        if latest_gap >= 168:
+            label = "broken"
+            reason = "仅有两条样本且最近间隔已明显超出常规更新节奏，疑似出现来源断流"
+        elif latest_gap >= 72:
+            label = "stretching"
+            reason = "仅有两条样本且最近间隔明显拉长，应关注来源是否正在断流"
+        else:
+            label = "stable"
+            reason = "当前样本较少，但最近间隔仍处于可接受范围"
+        return {
+            "label": label,
+            "latest_gap_hours": latest_gap,
+            "baseline_gap_hours": baseline_gap,
+            "reason": reason,
         }
 
     gap_hours = []

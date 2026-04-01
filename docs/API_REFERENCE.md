@@ -14,9 +14,9 @@
     - 🔌 **WebSocket支持**: 实时股票报价推送
 
     ### API版本
-    - **当前版本**: v3.7.0
+    - **当前版本**: v3.8.0
     - **API版本**: v1
-    - **最后更新**: 2026-03-27
+    - **最后更新**: 2026-04-01
 
     ### 认证
     当前版本无需认证，生产环境建议添加API密钥认证。
@@ -27,7 +27,7 @@
     - 并发回测: 最多10个
     
 
-**版本**: 3.7.0
+**版本**: 3.8.0
 
 ## 基础信息
 
@@ -73,6 +73,10 @@
 - `initial_capital` (number): 无描述
 - `commission` (number): 无描述
 - `slippage` (number): 无描述
+- `fixed_commission` (number): 无描述
+- `min_commission` (number): 无描述
+- `market_impact_bps` (number): 无描述
+- `max_holding_days` (unknown): 无描述
 
 ### BacktestResponse
 
@@ -91,12 +95,15 @@
 - `ascending` (boolean): 无描述
 - `top_n` (unknown): 无描述
 - `max_workers` (integer): 无描述
+- `use_processes` (boolean): 无描述
+- `timeout_seconds` (number): 无描述
 
 ### BatchBacktestTaskRequest
 
 **字段: **
 
 - `task_id` (unknown): 无描述
+- `research_label` (unknown): 无描述
 - `symbol` (string): 无描述
 - `strategy` (string): 无描述
 - `parameters` (object): 无描述
@@ -105,6 +112,10 @@
 - `initial_capital` (number): 无描述
 - `commission` (number): 无描述
 - `slippage` (number): 无描述
+- `fixed_commission` (number): 无描述
+- `min_commission` (number): 无描述
+- `market_impact_bps` (number): 无描述
+- `max_holding_days` (unknown): 无描述
 
 ### Body_optimize_portfolio_optimization_optimize_post
 
@@ -137,6 +148,10 @@
 - `initial_capital` (number): 无描述
 - `commission` (number): 无描述
 - `slippage` (number): 无描述
+- `fixed_commission` (number): 无描述
+- `min_commission` (number): 无描述
+- `market_impact_bps` (number): 无描述
+- `max_holding_days` (unknown): 无描述
 
 ### CompareStrategyConfig
 
@@ -212,7 +227,24 @@
 - `theme` (unknown): 无描述
 - `allocation_mode` (unknown): 无描述
 - `bias_summary` (unknown): 无描述
+- `bias_strength_raw` (unknown): 无描述
 - `bias_strength` (unknown): 无描述
+- `bias_scale` (unknown): 无描述
+- `bias_quality_label` (unknown): 无描述
+- `bias_quality_reason` (unknown): 无描述
+- `base_recommendation_score` (unknown): 无描述
+- `recommendation_score` (unknown): 无描述
+- `base_recommendation_tier` (unknown): 无描述
+- `recommendation_tier` (unknown): 无描述
+- `ranking_penalty` (unknown): 无描述
+- `ranking_penalty_reason` (unknown): 无描述
+- `input_reliability_label` (unknown): 无描述
+- `input_reliability_score` (unknown): 无描述
+- `input_reliability_lead` (unknown): 无描述
+- `input_reliability_posture` (unknown): 无描述
+- `input_reliability_reason` (unknown): 无描述
+- `input_reliability_action_hint` (unknown): 无描述
+- `bias_highlights_raw` (array): 无描述
 - `bias_highlights` (array): 无描述
 - `bias_actions` (array): 无描述
 - `signal_attribution` (array): 无描述
@@ -223,6 +255,7 @@
 - `theme_core` (unknown): 无描述
 - `theme_support` (unknown): 无描述
 - `base_assets` (array): 无描述
+- `raw_bias_assets` (array): 无描述
 
 ### EventRequest
 
@@ -269,6 +302,28 @@
 - `pb` (unknown): 市净率(PB)
 - `dividend_yield` (unknown): 静态股息率(%)
 
+### HeatmapHistoryItem
+
+热力图历史快照
+
+**字段: **
+
+- `snapshot_id` (string): 快照ID
+- `days` (integer): 分析周期（天）
+- `captured_at` (string): 服务端记录时间
+- `update_time` (string): 快照更新时间
+- `max_value` (number): 最大值
+- `min_value` (number): 最小值
+- `industries` (array): 行业数据
+
+### HeatmapHistoryResponse
+
+热力图历史响应
+
+**字段: **
+
+- `items` (array): 历史快照列表
+
 ### HeatmapResponse
 
 热力图响应
@@ -298,6 +353,7 @@
 - `stock_count` (integer): 成分股数量
 - `total_market_cap` (number): 总市值
 - `marketCapSource` (string): 行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*
+- `mini_trend` (array): 近5日相对走势火花线数据
 
 ### IndustryRotationResponse
 
@@ -310,6 +366,21 @@
 - `data` (array): 轮动数据
 - `update_time` (string): 更新时间
 
+### IndustryTrendPoint
+
+行业趋势序列点
+
+**字段: **
+
+- `date` (string): 日期
+- `open` (unknown): 开盘价
+- `high` (unknown): 最高价
+- `low` (unknown): 最低价
+- `close` (unknown): 收盘价
+- `volume` (unknown): 成交量
+- `amount` (unknown): 成交额
+- `change_pct` (unknown): 相对前一交易日涨跌幅
+
 ### IndustryTrendResponse
 
 行业趋势响应
@@ -318,6 +389,7 @@
 
 - `industry_name` (string): 行业名称
 - `stock_count` (integer): 成分股数量
+- `expected_stock_count` (integer): 预期成分股数量
 - `total_market_cap` (number): 总市值
 - `avg_pe` (number): 平均市盈率
 - `industry_volatility` (number): 行业区间波动率(%)
@@ -330,6 +402,16 @@
 - `rise_count` (integer): 上涨股票数
 - `fall_count` (integer): 下跌股票数
 - `flat_count` (integer): 平盘股票数
+- `stock_coverage_ratio` (number): 成分股覆盖率
+- `change_coverage_ratio` (number): 涨跌幅覆盖率
+- `market_cap_coverage_ratio` (number): 市值覆盖率
+- `pe_coverage_ratio` (number): 市盈率覆盖率
+- `total_market_cap_fallback` (boolean): 总市值是否回退到行业聚合口径
+- `avg_pe_fallback` (boolean): 平均市盈率是否回退到行业聚合口径
+- `market_cap_source` (string): 市值来源
+- `valuation_source` (string): 估值来源
+- `valuation_quality` (string): 估值质量
+- `trend_series` (array): 行业指数趋势序列
 - `degraded` (boolean): 是否为降级数据
 - `note` (unknown): 降级或补充说明
 - `update_time` (string): 更新时间
@@ -366,6 +448,7 @@
 - `pe_ratio` (number): 市盈率
 - `change_pct` (number): 涨跌幅
 - `dimension_scores` (object): 各维度得分
+- `mini_trend` (array): 近期价格走势火花线数据
 
 ### MarketDataRequest
 
@@ -377,6 +460,46 @@
 - `interval` (string): 无描述
 - `period` (unknown): 无描述
 
+### MarketRegimeRequest
+
+**字段: **
+
+- `symbol` (string): 无描述
+- `strategy` (string): 无描述
+- `parameters` (object): 无描述
+- `start_date` (unknown): 无描述
+- `end_date` (unknown): 无描述
+- `initial_capital` (number): 无描述
+- `commission` (number): 无描述
+- `slippage` (number): 无描述
+- `fixed_commission` (number): 无描述
+- `min_commission` (number): 无描述
+- `market_impact_bps` (number): 无描述
+- `max_holding_days` (unknown): 无描述
+- `lookback_days` (integer): 无描述
+- `trend_threshold` (number): 无描述
+
+### PortfolioStrategyRequest
+
+**字段: **
+
+- `symbols` (array): 无描述
+- `strategy` (string): 无描述
+- `parameters` (object): 无描述
+- `weights` (unknown): 无描述
+- `objective` (string): 无描述
+- `start_date` (unknown): 无描述
+- `end_date` (unknown): 无描述
+- `initial_capital` (number): 无描述
+- `commission` (number): 无描述
+- `slippage` (number): 无描述
+- `fixed_commission` (number): 无描述
+- `min_commission` (number): 无描述
+- `market_impact_bps` (number): 无描述
+- `min_trade_value` (number): 无描述
+- `min_rebalance_weight_delta` (number): 无描述
+- `max_turnover_per_rebalance` (unknown): 无描述
+
 ### PricingRequest
 
 **字段: **
@@ -384,12 +507,36 @@
 - `symbol` (string): 股票代码，如 AAPL
 - `period` (string): 分析周期: 6mo, 1y, 2y, 3y, 5y
 
+### PricingScreenerRequest
+
+**字段: **
+
+- `symbols` (array): 候选股票代码列表
+- `period` (string): 分析周期: 6mo, 1y, 2y, 3y, 5y
+- `limit` (integer): 返回前 N 个结果
+- `max_workers` (integer): 并行执行数
+
+### RealtimeAlertsRequest
+
+**字段: **
+
+- `alerts` (array): 无描述
+- `alert_hit_history` (array): 无描述
+
+### RealtimeJournalRequest
+
+**字段: **
+
+- `review_snapshots` (array): 无描述
+- `timeline_events` (array): 无描述
+
 ### RealtimePreferencesRequest
 
 **字段: **
 
 - `symbols` (array): 无描述
 - `active_tab` (string): 无描述
+- `symbol_categories` (object): 无描述
 
 ### ReportRequest
 
@@ -554,6 +701,18 @@
 
 - `symbol` (string): 股票代码
 
+### ValuationSensitivityRequest
+
+**字段: **
+
+- `symbol` (string): 股票代码
+- `wacc` (unknown): 覆盖 WACC
+- `initial_growth` (unknown): 覆盖初始增长率
+- `terminal_growth` (unknown): 覆盖终值增长率
+- `fcf_margin` (unknown): 覆盖现金流转化率
+- `dcf_weight` (unknown): 覆盖 DCF 权重
+- `comparable_weight` (unknown): 覆盖可比估值权重
+
 ### WalkForwardRequest
 
 **字段: **
@@ -561,14 +720,25 @@
 - `symbol` (string): 无描述
 - `strategy` (string): 无描述
 - `parameters` (object): 无描述
+- `parameter_grid` (unknown): 无描述
+- `parameter_candidates` (unknown): 无描述
 - `start_date` (unknown): 无描述
 - `end_date` (unknown): 无描述
 - `initial_capital` (number): 无描述
 - `commission` (number): 无描述
 - `slippage` (number): 无描述
+- `fixed_commission` (number): 无描述
+- `min_commission` (number): 无描述
+- `market_impact_bps` (number): 无描述
+- `max_holding_days` (unknown): 无描述
 - `train_period` (integer): 无描述
 - `test_period` (integer): 无描述
 - `step_size` (integer): 无描述
+- `optimization_metric` (string): 无描述
+- `optimization_method` (string): 无描述
+- `optimization_budget` (unknown): 无描述
+- `monte_carlo_simulations` (integer): 无描述
+- `timeout_seconds` (number): 无描述
 
 ## 错误代码
 

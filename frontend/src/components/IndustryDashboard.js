@@ -2542,6 +2542,33 @@ const IndustryDashboard = () => {
             }
         },
         {
+            title: '主力净流入',
+            dataIndex: 'money_flow',
+            key: 'money_flow',
+            width: 110,
+            render: (value) => (
+                value === null || value === undefined
+                    ? '-'
+                    : (
+                        <span style={{ color: Number(value) >= 0 ? '#cf1322' : '#3f8600' }}>
+                            {formatIndustryAlertMoneyFlow(Number(value))}
+                        </span>
+                    )
+            )
+        },
+        {
+            title: '换手率',
+            dataIndex: 'turnover_rate',
+            key: 'turnover_rate',
+            width: 86,
+            render: (_, record) => {
+                const value = record.turnover_rate ?? record.turnover;
+                return value === null || value === undefined || Number.isNaN(Number(value))
+                    ? '-'
+                    : `${Number(value).toFixed(2)}%`;
+            }
+        },
+        {
             title: '市值(亿)',
             dataIndex: 'market_cap',
             key: 'market_cap',

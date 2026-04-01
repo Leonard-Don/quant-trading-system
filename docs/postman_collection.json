@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "量化交易系统API",
-    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.7.0\n    - **API版本**: v1\n    - **最后更新**: 2026-03-27\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
+    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.8.0\n    - **API版本**: v1\n    - **最后更新**: 2026-04-01\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -109,6 +109,70 @@
           "path": [
             "backtest",
             "walk-forward"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "运行市场状态分层回测",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/market-regimes",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "market-regimes"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "运行组合级策略回测",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/portfolio-strategy",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "portfolio-strategy"
           ]
         },
         "body": {
@@ -654,6 +718,116 @@
           "path": [
             "realtime",
             "preferences"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "获取实时提醒规则",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/alerts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "alerts"
+          ]
+        }
+      }
+    },
+    {
+      "name": "更新实时提醒规则",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/alerts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "alerts"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "获取实时行情复盘与时间线",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/journal",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "journal"
+          ]
+        }
+      }
+    },
+    {
+      "name": "更新实时行情复盘与时间线",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/journal",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "journal"
           ]
         },
         "body": {
@@ -1485,6 +1659,31 @@
       }
     },
     {
+      "name": "Get Industry Heatmap History",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/industries/heatmap/history",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "industries",
+            "heatmap",
+            "history"
+          ]
+        }
+      }
+    },
+    {
       "name": "Get Industry Trend",
       "request": {
         "method": "GET",
@@ -1725,6 +1924,38 @@
       }
     },
     {
+      "name": "Valuation Sensitivity Analysis",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/pricing/valuation-sensitivity",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "pricing",
+            "valuation-sensitivity"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "Gap Analysis",
       "request": {
         "method": "POST",
@@ -1753,6 +1984,107 @@
               "language": "json"
             }
           }
+        }
+      }
+    },
+    {
+      "name": "Pricing Screener",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/pricing/screener",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "pricing",
+            "screener"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Pricing Symbol Suggestions",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/pricing/symbol-suggestions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "pricing",
+            "symbol-suggestions"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Pricing Gap History",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/pricing/gap-history",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "pricing",
+            "gap-history"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Pricing Peer Comparison",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/pricing/peers",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "pricing",
+            "peers"
+          ]
         }
       }
     },
