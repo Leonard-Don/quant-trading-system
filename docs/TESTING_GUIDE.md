@@ -22,6 +22,9 @@ python scripts/run_tests.py --integration
 # 行业热度 E2E 回归
 python scripts/run_tests.py --e2e-industry
 
+# 实时行情 E2E 回归
+python scripts/run_tests.py --e2e-realtime
+
 # 覆盖率报告
 python scripts/run_tests.py --coverage
 ```
@@ -30,6 +33,7 @@ python scripts/run_tests.py --coverage
 
 ```bash
 npm run verify:industry
+npm run verify:realtime
 ```
 
 ## 测试分层说明
@@ -38,6 +42,7 @@ npm run verify:industry
 - `integration`：接口与模块集成测试，可能依赖第三方数据源
 - `system`：系统级脚本检查
 - `e2e-industry`：浏览器回归，要求本地前后端服务均已启动
+- `e2e-realtime`：实时行情浏览器回归，覆盖详情页、对比模式、信号总表、交易与提醒入口
 
 ## 注意事项
 

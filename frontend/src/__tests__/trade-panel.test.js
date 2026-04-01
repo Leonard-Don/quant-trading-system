@@ -139,6 +139,14 @@ jest.mock('antd', () => {
 });
 
 describe('TradePanel', () => {
+  const renderTradePanel = async (ui) => {
+    const view = render(ui);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    return view;
+  };
+
   beforeEach(() => {
     mockListeners.clear();
     jest.clearAllMocks();
@@ -165,7 +173,7 @@ describe('TradePanel', () => {
   });
 
   test('loads single-symbol realtime quote for the active symbol', async () => {
-    render(
+    await renderTradePanel(
       <TradePanel
         visible
         defaultSymbol="^GSPC"
@@ -181,7 +189,7 @@ describe('TradePanel', () => {
   });
 
   test('hydrates portfolio and history from the trade websocket snapshot', async () => {
-    render(
+    await renderTradePanel(
       <TradePanel
         visible
         defaultSymbol="AAPL"
@@ -237,7 +245,7 @@ describe('TradePanel', () => {
 
   test('resets order state when reopening for another symbol', async () => {
     let rerender;
-    ({ rerender } = render(
+    ({ rerender } = await renderTradePanel(
       <TradePanel
         visible
         defaultSymbol="AAPL"
@@ -262,6 +270,9 @@ describe('TradePanel', () => {
         onClose={jest.fn()}
       />
     );
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     rerender(
       <TradePanel
@@ -270,6 +281,9 @@ describe('TradePanel', () => {
         onClose={jest.fn()}
       />
     );
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(screen.getByText('MSFT 买入计划')).toBeInTheDocument();
     expect(screen.getByText('准备买入')).toBeInTheDocument();
@@ -298,7 +312,7 @@ describe('TradePanel', () => {
       });
 
     let rerender;
-    ({ rerender } = render(
+    ({ rerender } = await renderTradePanel(
       <TradePanel
         visible
         defaultSymbol="AAPL"
@@ -313,6 +327,9 @@ describe('TradePanel', () => {
         onClose={jest.fn()}
       />
     );
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     await act(async () => {
       msftRequest.resolve({
@@ -351,7 +368,7 @@ describe('TradePanel', () => {
   });
 
   test('hydrates the order form from an anomaly trade plan draft', async () => {
-    render(
+    await renderTradePanel(
       <TradePanel
         visible
         defaultSymbol="NVDA"
@@ -403,7 +420,7 @@ describe('TradePanel', () => {
       note: '由异动雷达自动生成，适合先做纸面进场推演。',
     };
 
-    render(
+    await renderTradePanel(
       <TradePanel
         visible
         defaultSymbol="NVDA"
@@ -422,5 +439,54 @@ describe('TradePanel', () => {
     expect(onCreateAlertFromPlan).toHaveBeenCalledWith(
       buildAlertDraftFromTradePlan(planDraft, 'stop')
     );
+  });
+
+  test('calculates and applies a suggested risk-based position size from the trade draft', async () => {
+    await renderTradePanel(
+      <TradePanel
+        visible
+        defaultSymbol="NVDA"
+        planDraft={{
+          symbol: 'NVDA',
+          action: 'BUY',
+          quantity: 25,
+          limitPrice: 920.16,
+          suggestedEntry: 920.16,
+          stopLoss: 906.36,
+          takeProfit: 947.76,
+          sourceTitle: '强势拉升',
+        }}
+        onClose={jest.fn()}
+      />
+    );
+
+    await act(async () => {
+      mockListeners.get('trade_snapshot')?.({
+        data: {
+          portfolio: {
+            balance: 98000,
+            total_equity: 100000,
+            total_pnl: 0,
+            total_pnl_percent: 0,
+            trade_count: 0,
+            positions: [],
+          },
+          history: [],
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('仓位建议')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('$2000.00')).toBeInTheDocument();
+    expect(screen.getByText('$13.80')).toBeInTheDocument();
+    expect(screen.getByText('106')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '使用建议仓位' }));
+
+    const quantityInput = screen.getByLabelText('input-number');
+    expect(quantityInput).toHaveValue('106');
   });
 });

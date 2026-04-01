@@ -162,4 +162,84 @@ describe('buildHunterModel narrative shifts', () => {
     expect(resonanceAlert.description).toContain('官僚摩擦');
     expect(resonanceAlert.action.target).toBe('cross-market');
   });
+
+  it('surfaces input-reliability deterioration in refresh alerts', () => {
+    const alerts = buildHunterModel({
+      snapshot: {},
+      overview: {
+        macro_score: 0.46,
+        macro_signal: 1,
+        input_reliability_summary: {
+          label: 'fragile',
+          score: 0.41,
+          lead: '当前输入可靠度偏脆弱，主要风险来自时效偏旧与来源退化。',
+          reason: 'effective confidence 0.41 · freshness aging',
+        },
+        evidence_summary: {
+          policy_source_health_summary: {
+            label: 'healthy',
+            reason: '主要政策源正文覆盖稳定',
+            fragile_sources: [],
+            watch_sources: [],
+            healthy_sources: ['fed'],
+            avg_full_text_ratio: 0.88,
+          },
+        },
+        resonance_summary: {
+          label: 'mixed',
+          reason: '当前因子变化尚未形成明确共振',
+          positive_cluster: [],
+          negative_cluster: [],
+          weakening: [],
+          precursor: [],
+          reversed_factors: [],
+        },
+        trend: { factor_deltas: {} },
+      },
+      status: {},
+      researchTasks: [
+        {
+          id: 'task_input_reliability',
+          type: 'cross_market',
+          status: 'in_progress',
+          title: 'Input reliability thesis',
+          template: 'energy_vs_ai_apps',
+          updated_at: '2026-03-22T10:00:00',
+          snapshot: {
+            payload: {
+              research_input: {
+                macro: {
+                  macro_score: 0.45,
+                  macro_signal: 0,
+                  input_reliability: {
+                    label: 'robust',
+                    score: 0.84,
+                    lead: '当前输入可靠度整体稳健。',
+                  },
+                  policy_source_health: {
+                    label: 'healthy',
+                    reason: '主要政策源正文覆盖稳定',
+                    avg_full_text_ratio: 0.88,
+                  },
+                },
+                alt_data: {
+                  top_categories: [],
+                },
+              },
+              template_meta: {
+                template_id: 'energy_vs_ai_apps',
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const refreshAlert = alerts.find((item) => item.key === 'refresh-task_input_reliability');
+    expect(refreshAlert).toBeTruthy();
+    expect(refreshAlert.description).toContain('输入可靠度 robust→fragile');
+    expect(refreshAlert.action.reason).toBe('input_reliability');
+    expect(refreshAlert.action.label).toBe('先复核输入可靠度');
+    expect(refreshAlert.action.note).toContain('先复核当前宏观输入可靠度');
+  });
 });

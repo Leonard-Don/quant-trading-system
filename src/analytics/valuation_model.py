@@ -5,11 +5,32 @@
 
 import logging
 import numpy as np
+import pandas as pd
 from typing import Dict, Any, Optional
 
 from src.data.data_manager import DataManager
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_SECTOR_BENCHMARKS = {
+    "Technology": {"pe": 28, "pb": 6.0, "ps": 7.0, "ev_ebitda": 20, "ev_revenue": 8.0, "peg": 1.8},
+    "Healthcare": {"pe": 22, "pb": 4.0, "ps": 5.0, "ev_ebitda": 15, "ev_revenue": 5.5, "peg": 1.6},
+    "Financial Services": {"pe": 14, "pb": 1.5, "ps": 3.0, "ev_ebitda": 10, "ev_revenue": 4.0, "peg": 1.3},
+    "Consumer Cyclical": {"pe": 20, "pb": 3.5, "ps": 2.5, "ev_ebitda": 14, "ev_revenue": 2.8, "peg": 1.5},
+    "Consumer Defensive": {"pe": 22, "pb": 4.0, "ps": 2.8, "ev_ebitda": 15, "ev_revenue": 3.2, "peg": 1.7},
+    "Energy": {"pe": 12, "pb": 1.8, "ps": 1.6, "ev_ebitda": 7, "ev_revenue": 1.7, "peg": 1.1},
+    "Industrials": {"pe": 18, "pb": 3.0, "ps": 2.2, "ev_ebitda": 12, "ev_revenue": 2.5, "peg": 1.4},
+    "Real Estate": {"pe": 30, "pb": 2.0, "ps": 4.0, "ev_ebitda": 18, "ev_revenue": 6.0, "peg": 1.5},
+    "Utilities": {"pe": 18, "pb": 2.0, "ps": 2.3, "ev_ebitda": 12, "ev_revenue": 3.0, "peg": 1.2},
+    "Communication Services": {"pe": 20, "pb": 3.0, "ps": 3.2, "ev_ebitda": 12, "ev_revenue": 3.6, "peg": 1.5},
+    "Basic Materials": {"pe": 15, "pb": 2.0, "ps": 1.8, "ev_ebitda": 9, "ev_revenue": 2.0, "peg": 1.2},
+}
+DEFAULT_BENCHMARK = {"pe": 20, "pb": 3.0, "ps": 2.5, "ev_ebitda": 13, "ev_revenue": 3.0, "peg": 1.5}
+DEFAULT_PEER_BENCHMARK_SYMBOLS = [
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "AMD", "AVGO", "NFLX",
+    "PLTR", "SNOW", "CRM", "ORCL", "ADBE", "TSLA", "JPM", "GS", "XOM",
+    "CVX", "NEE", "UNH", "PFE", "LLY", "COST", "WMT", "HD", "CAT",
+]
 
 
 class ValuationModel:
@@ -21,7 +42,7 @@ class ValuationModel:
     def __init__(self):
         self.data_manager = DataManager()
 
-    def analyze(self, symbol: str) -> Dict[str, Any]:
+    def analyze(self, symbol: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         综合估值分析
 
@@ -43,13 +64,14 @@ class ValuationModel:
                 return self._empty_result("无法获取当前价格")
 
             # DCF 估值
-            dcf_result = self._dcf_valuation(fundamentals, current_price)
+            dcf_result = self._dcf_valuation(fundamentals, current_price, overrides=overrides)
+            monte_carlo_result = self._monte_carlo_valuation(fundamentals, current_price, dcf_result)
 
             # 可比估值法
-            comparable_result = self._comparable_valuation(fundamentals, current_price)
+            comparable_result = self._comparable_valuation(symbol, fundamentals, current_price)
 
             # 综合估值
-            fair_value = self._composite_valuation(dcf_result, comparable_result)
+            fair_value = self._composite_valuation(dcf_result, comparable_result, overrides=overrides)
 
             # 估值判断
             valuation_status = self._assess_valuation_status(current_price, fair_value)
@@ -61,7 +83,9 @@ class ValuationModel:
                 "industry": fundamentals.get("industry", ""),
                 "current_price": round(current_price, 2),
                 "current_price_source": price_info.get("source", "unavailable"),
+                "analysis_overrides": overrides or {},
                 "dcf": dcf_result,
+                "monte_carlo": monte_carlo_result,
                 "comparable": comparable_result,
                 "fair_value": fair_value,
                 "valuation_status": valuation_status,
@@ -103,7 +127,7 @@ class ValuationModel:
 
         return {"price": 0.0, "source": "unavailable"}
 
-    def _dcf_valuation(self, fundamentals: Dict, current_price: float) -> Dict[str, Any]:
+    def _dcf_valuation(self, fundamentals: Dict, current_price: float, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         DCF 现金流折现估值
 
@@ -115,7 +139,6 @@ class ValuationModel:
             market_cap = fundamentals.get("market_cap", 0)
             pe = fundamentals.get("pe_ratio", 0)
             revenue_growth = fundamentals.get("revenue_growth", 0)
-            profit_margin = fundamentals.get("profit_margin", 0)
             beta = fundamentals.get("beta", 1.0)
 
             if market_cap <= 0 or pe <= 0:
@@ -126,8 +149,7 @@ class ValuationModel:
             if earnings <= 0:
                 return {"error": "净利润为负，DCF不适用", "intrinsic_value": None}
 
-            # 估算自由现金流 (FCF ≈ 净利润 * 0.8，粗略估计)
-            fcf = earnings * 0.8
+            overrides = overrides or {}
 
             # WACC 估算
             risk_free_rate = 0.04        # 无风险利率 (10年期美债)
@@ -142,82 +164,207 @@ class ValuationModel:
                 growth_rate = 0.05  # 默认5%
 
             terminal_growth = 0.025  # 永续增长率 2.5%
+            base_wacc = float(overrides.get("wacc", wacc))
+            base_growth = float(overrides.get("initial_growth", growth_rate))
+            base_terminal_growth = float(overrides.get("terminal_growth", terminal_growth))
+            base_fcf_margin = float(overrides.get("fcf_margin", 0.80))
+            scenario_configs = [
+                {
+                    "name": "bear",
+                    "label": "悲观",
+                    "description": "更高折现率、更慢增长和更保守的现金流转化率",
+                    "wacc": base_wacc + 0.015,
+                    "initial_growth": max(base_growth - 0.04, 0.02),
+                    "terminal_growth": max(base_terminal_growth - 0.005, 0.015),
+                    "fcf_margin": max(base_fcf_margin - 0.05, 0.55),
+                },
+                {
+                    "name": "base",
+                    "label": "基准",
+                    "description": "沿用当前默认假设的基础情景",
+                    "wacc": base_wacc,
+                    "initial_growth": base_growth,
+                    "terminal_growth": base_terminal_growth,
+                    "fcf_margin": base_fcf_margin,
+                },
+                {
+                    "name": "bull",
+                    "label": "乐观",
+                    "description": "更低折现率、更快增长和更积极的现金流转化率",
+                    "wacc": max(base_wacc - 0.01, 0.055),
+                    "initial_growth": min(base_growth + 0.04, 0.35),
+                    "terminal_growth": min(base_terminal_growth + 0.005, 0.035),
+                    "fcf_margin": min(base_fcf_margin + 0.05, 0.92),
+                },
+            ]
 
-            # 阶段1: 5年高增长期 FCF 折现
-            pv_fcfs = 0
-            projected_fcfs = []
-            for year in range(1, 6):
-                # 增长率逐年衰减
-                decay = growth_rate * (1 - (year - 1) * 0.15)
-                yearly_growth = max(decay, terminal_growth)
-                fcf *= (1 + yearly_growth)
-                pv = fcf / ((1 + wacc) ** year)
-                pv_fcfs += pv
-                projected_fcfs.append({
-                    "year": year,
-                    "fcf": round(fcf, 0),
-                    "growth_rate": round(yearly_growth, 4),
-                    "pv": round(pv, 0)
-                })
-
-            # 阶段2: 终值 (Gordon Growth Model)
-            terminal_value = fcf * (1 + terminal_growth) / (wacc - terminal_growth)
-            pv_terminal = terminal_value / ((1 + wacc) ** 5)
-
-            # 企业价值
-            enterprise_value = pv_fcfs + pv_terminal
-
-            # 转换为每股价值 (企业价值 / 市值 * 当前价格)
-            intrinsic_value = (enterprise_value / market_cap) * current_price if market_cap > 0 else 0
+            scenario_results = [
+                self._run_dcf_case(
+                    earnings=earnings,
+                    market_cap=market_cap,
+                    current_price=current_price,
+                    scenario=config,
+                )
+                for config in scenario_configs
+            ]
+            base_case = next((item for item in scenario_results if item["name"] == "base"), scenario_results[0])
 
             return {
-                "intrinsic_value": round(intrinsic_value, 2),
-                "enterprise_value": round(enterprise_value, 0),
-                "pv_fcfs": round(pv_fcfs, 0),
-                "pv_terminal": round(pv_terminal, 0),
-                "terminal_pct": round(pv_terminal / enterprise_value * 100, 1) if enterprise_value > 0 else 0,
-                "assumptions": {
-                    "wacc": round(wacc, 4),
-                    "initial_growth": round(growth_rate, 4),
-                    "terminal_growth": terminal_growth,
-                    "fcf_margin": 0.8
+                "intrinsic_value": base_case["intrinsic_value"],
+                "enterprise_value": base_case["enterprise_value"],
+                "pv_fcfs": base_case["pv_fcfs"],
+                "pv_terminal": base_case["pv_terminal"],
+                "terminal_pct": base_case["terminal_pct"],
+                "assumptions": base_case["assumptions"],
+                "projected_fcfs": base_case["projected_fcfs"],
+                "premium_discount": base_case["premium_discount"],
+                "scenarios": [
+                    {
+                        "name": item["name"],
+                        "label": item["label"],
+                        "description": item["description"],
+                        "intrinsic_value": item["intrinsic_value"],
+                        "premium_discount": item["premium_discount"],
+                        "assumptions": item["assumptions"],
+                    }
+                    for item in scenario_results
+                ],
+                "scenario_range": {
+                    "low": min(item["intrinsic_value"] for item in scenario_results if item["intrinsic_value"] is not None),
+                    "high": max(item["intrinsic_value"] for item in scenario_results if item["intrinsic_value"] is not None),
                 },
-                "projected_fcfs": projected_fcfs,
-                "premium_discount": round((current_price - intrinsic_value) / intrinsic_value * 100, 1) if intrinsic_value > 0 else None
+                "confidence_weight": 0.55,
+                "sensitivity_anchor": {
+                    "wacc": round(base_wacc, 4),
+                    "initial_growth": round(base_growth, 4),
+                    "terminal_growth": round(base_terminal_growth, 4),
+                    "fcf_margin": round(base_fcf_margin, 2),
+                },
             }
 
         except Exception as e:
             logger.error(f"DCF 估值出错: {e}")
             return {"error": str(e), "intrinsic_value": None}
 
-    def _comparable_valuation(self, fundamentals: Dict, current_price: float) -> Dict[str, Any]:
+    def _run_dcf_case(self, earnings: float, market_cap: float, current_price: float, scenario: Dict[str, Any]) -> Dict[str, Any]:
+        """Run a single DCF scenario with its own growth, discount and cash conversion assumptions."""
+        fcf = earnings * float(scenario["fcf_margin"])
+        wacc = max(float(scenario["wacc"]), float(scenario["terminal_growth"]) + 0.02)
+        terminal_growth = min(float(scenario["terminal_growth"]), wacc - 0.02)
+        initial_growth = float(scenario["initial_growth"])
+
+        pv_fcfs = 0.0
+        projected_fcfs = []
+        for year in range(1, 6):
+            decay = initial_growth * (1 - (year - 1) * 0.15)
+            yearly_growth = max(decay, terminal_growth)
+            fcf *= (1 + yearly_growth)
+            pv = fcf / ((1 + wacc) ** year)
+            pv_fcfs += pv
+            projected_fcfs.append({
+                "year": year,
+                "fcf": round(fcf, 0),
+                "growth_rate": round(yearly_growth, 4),
+                "pv": round(pv, 0),
+            })
+
+        terminal_value = fcf * (1 + terminal_growth) / (wacc - terminal_growth)
+        pv_terminal = terminal_value / ((1 + wacc) ** 5)
+        enterprise_value = pv_fcfs + pv_terminal
+        intrinsic_value = (enterprise_value / market_cap) * current_price if market_cap > 0 else 0
+
+        return {
+            "name": scenario["name"],
+            "label": scenario["label"],
+            "description": scenario["description"],
+            "intrinsic_value": round(intrinsic_value, 2),
+            "enterprise_value": round(enterprise_value, 0),
+            "pv_fcfs": round(pv_fcfs, 0),
+            "pv_terminal": round(pv_terminal, 0),
+            "terminal_pct": round(pv_terminal / enterprise_value * 100, 1) if enterprise_value > 0 else 0,
+            "assumptions": {
+                "wacc": round(wacc, 4),
+                "initial_growth": round(initial_growth, 4),
+                "terminal_growth": round(terminal_growth, 4),
+                "fcf_margin": round(float(scenario["fcf_margin"]), 2),
+            },
+            "projected_fcfs": projected_fcfs,
+            "premium_discount": round((current_price - intrinsic_value) / intrinsic_value * 100, 1) if intrinsic_value > 0 else None,
+        }
+
+    def _monte_carlo_valuation(self, fundamentals: Dict[str, Any], current_price: float, dcf_result: Dict[str, Any]) -> Dict[str, Any]:
+        """基于 DCF 锚点做轻量蒙特卡洛估值分布。"""
+        try:
+            anchor = dcf_result.get("sensitivity_anchor", {}) or {}
+            market_cap = fundamentals.get("market_cap", 0)
+            pe = fundamentals.get("pe_ratio", 0)
+            if not anchor or market_cap <= 0 or pe <= 0:
+                return {"error": "缺少 Monte Carlo 所需锚点", "distribution": []}
+
+            earnings = market_cap / pe if pe > 0 else 0
+            if earnings <= 0:
+                return {"error": "净利润为负，Monte Carlo 不适用", "distribution": []}
+
+            rng = np.random.default_rng(42)
+            sample_count = 200
+            simulations = []
+            for _ in range(sample_count):
+                scenario = {
+                    "name": "simulation",
+                    "label": "模拟",
+                    "description": "Monte Carlo simulation",
+                    "wacc": float(np.clip(rng.normal(anchor.get("wacc", 0.08), 0.008), 0.055, 0.16)),
+                    "initial_growth": float(np.clip(rng.normal(anchor.get("initial_growth", 0.10), 0.03), 0.02, 0.35)),
+                    "terminal_growth": float(np.clip(rng.normal(anchor.get("terminal_growth", 0.025), 0.004), 0.01, 0.04)),
+                    "fcf_margin": float(np.clip(rng.normal(anchor.get("fcf_margin", 0.8), 0.06), 0.5, 0.95)),
+                }
+                case = self._run_dcf_case(earnings, market_cap, current_price, scenario)
+                if case.get("intrinsic_value"):
+                    simulations.append(float(case["intrinsic_value"]))
+
+            if not simulations:
+                return {"error": "Monte Carlo 模拟失败", "distribution": []}
+
+            series = pd.Series(simulations)
+            bins = pd.cut(series, bins=10)
+            histogram = (
+                pd.DataFrame({"bucket": bins.astype(str), "value": series})
+                .groupby("bucket", observed=False)
+                .size()
+                .reset_index(name="count")
+                .to_dict("records")
+            )
+
+            return {
+                "sample_count": len(simulations),
+                "mean": round(float(series.mean()), 2),
+                "median": round(float(series.median()), 2),
+                "p10": round(float(series.quantile(0.10)), 2),
+                "p50": round(float(series.quantile(0.50)), 2),
+                "p90": round(float(series.quantile(0.90)), 2),
+                "std": round(float(series.std(ddof=0)), 2),
+                "distribution": histogram,
+            }
+        except Exception as e:
+            logger.error(f"Monte Carlo 估值出错: {e}")
+            return {"error": str(e), "distribution": []}
+
+    def _comparable_valuation(self, symbol: str, fundamentals: Dict, current_price: float) -> Dict[str, Any]:
         """
         可比公司估值法
-        使用 P/E、EV/EBITDA、P/B 倍数法
+        使用 P/E、EV/EBITDA、EV/Revenue、PEG、P/B 等倍数法
         """
         try:
             pe = fundamentals.get("pe_ratio", 0)
             forward_pe = fundamentals.get("forward_pe", 0)
+            peg = fundamentals.get("peg_ratio", 0)
             pb = fundamentals.get("price_to_book", 0)
+            ps = fundamentals.get("price_to_sales", 0)
+            ev_ebitda = fundamentals.get("enterprise_to_ebitda", 0)
+            ev_revenue = fundamentals.get("enterprise_to_revenue", 0)
             market_cap = fundamentals.get("market_cap", 0)
             sector = fundamentals.get("sector", "")
-
-            # 行业基准估值倍数 (简化版，实际应根据行业细分)
-            sector_benchmarks = {
-                "Technology": {"pe": 28, "pb": 6.0, "ev_ebitda": 20},
-                "Healthcare": {"pe": 22, "pb": 4.0, "ev_ebitda": 15},
-                "Financial Services": {"pe": 14, "pb": 1.5, "ev_ebitda": 10},
-                "Consumer Cyclical": {"pe": 20, "pb": 3.5, "ev_ebitda": 14},
-                "Consumer Defensive": {"pe": 22, "pb": 4.0, "ev_ebitda": 15},
-                "Energy": {"pe": 12, "pb": 1.8, "ev_ebitda": 7},
-                "Industrials": {"pe": 18, "pb": 3.0, "ev_ebitda": 12},
-                "Real Estate": {"pe": 30, "pb": 2.0, "ev_ebitda": 18},
-                "Utilities": {"pe": 18, "pb": 2.0, "ev_ebitda": 12},
-                "Communication Services": {"pe": 20, "pb": 3.0, "ev_ebitda": 12},
-                "Basic Materials": {"pe": 15, "pb": 2.0, "ev_ebitda": 9},
-            }
-
-            benchmark = sector_benchmarks.get(sector, {"pe": 20, "pb": 3.0, "ev_ebitda": 13})
+            benchmark = self._benchmark_for_sector(symbol, fundamentals)
 
             valuations = []
 
@@ -255,6 +402,46 @@ class ValuationModel:
                     "weight": 0.3
                 })
 
+            if ps > 0:
+                ps_fair_value = (benchmark["ps"] / ps) * current_price
+                valuations.append({
+                    "method": "P/S 倍数法",
+                    "current_multiple": round(ps, 2),
+                    "benchmark_multiple": benchmark["ps"],
+                    "fair_value": round(ps_fair_value, 2),
+                    "weight": 0.2,
+                })
+
+            if ev_ebitda > 0:
+                ev_fair_value = (benchmark["ev_ebitda"] / ev_ebitda) * current_price
+                valuations.append({
+                    "method": "EV/EBITDA 倍数法",
+                    "current_multiple": round(ev_ebitda, 2),
+                    "benchmark_multiple": benchmark["ev_ebitda"],
+                    "fair_value": round(ev_fair_value, 2),
+                    "weight": 0.25,
+                })
+
+            if ev_revenue > 0:
+                ev_revenue_fair_value = (benchmark["ev_revenue"] / ev_revenue) * current_price
+                valuations.append({
+                    "method": "EV/Revenue 倍数法",
+                    "current_multiple": round(ev_revenue, 2),
+                    "benchmark_multiple": benchmark["ev_revenue"],
+                    "fair_value": round(ev_revenue_fair_value, 2),
+                    "weight": 0.22,
+                })
+
+            if peg and peg > 0:
+                peg_fair_value = (benchmark["peg"] / peg) * current_price
+                valuations.append({
+                    "method": "PEG 倍数法",
+                    "current_multiple": round(peg, 2),
+                    "benchmark_multiple": benchmark["peg"],
+                    "fair_value": round(peg_fair_value, 2),
+                    "weight": 0.18,
+                })
+
             if not valuations:
                 return {"error": "缺少估值所需的财务指标", "fair_value": None}
 
@@ -266,7 +453,12 @@ class ValuationModel:
                 "fair_value": round(weighted_fv, 2),
                 "sector": sector,
                 "sector_benchmark": benchmark,
+                "benchmark_source": benchmark.get("source_key", "static_sector_template"),
+                "benchmark_peer_count": benchmark.get("peer_count", 0),
+                "benchmark_peer_symbols": benchmark.get("peer_symbols", []),
                 "methods": valuations,
+                "confidence_weight": round(min(0.65, 0.18 * len(valuations)), 2),
+                "warnings": self._benchmark_warnings(benchmark),
                 "premium_discount": round((current_price - weighted_fv) / weighted_fv * 100, 1) if weighted_fv > 0 else None
             }
 
@@ -274,20 +466,21 @@ class ValuationModel:
             logger.error(f"可比估值出错: {e}")
             return {"error": str(e), "fair_value": None}
 
-    def _composite_valuation(self, dcf: Dict, comparable: Dict) -> Dict[str, Any]:
+    def _composite_valuation(self, dcf: Dict, comparable: Dict, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """综合估值：整合 DCF 和可比估值"""
+        overrides = overrides or {}
         values = []
         weights = []
 
         dcf_val = dcf.get("intrinsic_value")
         if dcf_val and dcf_val > 0:
             values.append(dcf_val)
-            weights.append(0.5)
+            weights.append(float(overrides.get("dcf_weight", dcf.get("confidence_weight", 0.5))))
 
         comp_val = comparable.get("fair_value")
         if comp_val and comp_val > 0:
             values.append(comp_val)
-            weights.append(0.5)
+            weights.append(float(overrides.get("comparable_weight", comparable.get("confidence_weight", 0.5))))
 
         if not values:
             return {"mid": None, "low": None, "high": None, "method": "无可用估值数据"}
@@ -296,15 +489,149 @@ class ValuationModel:
         total_w = sum(weights)
         fair_value = sum(v * w for v, w in zip(values, weights)) / total_w
 
-        # 估值区间 (±15%)
+        dcf_scenario_values = [
+            float(item.get("intrinsic_value"))
+            for item in (dcf.get("scenarios") or [])
+            if item.get("intrinsic_value")
+        ]
+        comparable_values = [
+            float(item.get("fair_value"))
+            for item in (comparable.get("methods") or [])
+            if item.get("fair_value")
+        ]
+        range_candidates = dcf_scenario_values + comparable_values
+        if not range_candidates:
+            range_candidates = [float(fair_value)]
+
+        if len(range_candidates) == 1:
+            low = round(fair_value * 0.85, 2)
+            high = round(fair_value * 1.15, 2)
+            range_basis = "fallback_band"
+        else:
+            low = round(min(range_candidates), 2)
+            high = round(max(range_candidates), 2)
+            if dcf_scenario_values and comparable_values:
+                range_basis = "dcf_scenarios_and_multiples"
+            elif dcf_scenario_values:
+                range_basis = "dcf_scenarios"
+            elif len(comparable_values) > 1:
+                range_basis = "comparable_method_span"
+            else:
+                range_basis = "valuation_span"
+
         return {
             "mid": round(fair_value, 2),
-            "low": round(fair_value * 0.85, 2),
-            "high": round(fair_value * 1.15, 2),
+            "low": low,
+            "high": high,
             "method": "DCF + 可比估值加权" if len(values) == 2 else ("DCF" if dcf_val else "可比估值"),
-            "dcf_weight": weights[0] if dcf_val else 0,
-            "comparable_weight": weights[-1] if comp_val else 0
+            "dcf_weight": round((weights[0] / total_w), 2) if dcf_val else 0,
+            "comparable_weight": round((weights[-1] / total_w), 2) if comp_val else 0,
+            "range_basis": range_basis,
         }
+
+    def build_sensitivity_analysis(self, symbol: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        valuation = self.analyze(symbol, overrides=overrides)
+        dcf = valuation.get("dcf", {}) or {}
+        anchor = dcf.get("sensitivity_anchor", {}) or {}
+        if "error" in dcf or not anchor:
+            return {
+                "symbol": symbol,
+                "error": dcf.get("error", "DCF 估值不可用"),
+            }
+
+        wacc_anchor = float(anchor.get("wacc") or 0)
+        growth_anchor = float(anchor.get("initial_growth") or 0)
+        matrix = []
+        for growth_shift in (-0.02, 0.0, 0.02):
+            row = {
+                "growth": round(growth_anchor + growth_shift, 4),
+                "cases": [],
+            }
+            for wacc_shift in (-0.01, 0.0, 0.01):
+                case = self.analyze(
+                    symbol,
+                    overrides={
+                        **(overrides or {}),
+                        "wacc": round(wacc_anchor + wacc_shift, 4),
+                        "initial_growth": round(growth_anchor + growth_shift, 4),
+                    },
+                )
+                row["cases"].append({
+                    "wacc": round(wacc_anchor + wacc_shift, 4),
+                    "fair_value": case.get("fair_value", {}).get("mid"),
+                })
+            matrix.append(row)
+
+        return {
+            "symbol": symbol,
+            "base": valuation,
+            "applied_overrides": valuation.get("analysis_overrides", {}),
+            "sensitivity_matrix": matrix,
+        }
+
+    def _benchmark_for_sector(self, symbol: str, fundamentals: Dict[str, Any]) -> Dict[str, Any]:
+        sector = fundamentals.get("sector", "")
+        industry = fundamentals.get("industry", "")
+        static_benchmark = DEFAULT_SECTOR_BENCHMARKS.get(sector, DEFAULT_BENCHMARK)
+        metrics = {
+            "pe": [],
+            "pb": [],
+            "ps": [],
+            "ev_ebitda": [],
+            "ev_revenue": [],
+            "peg": [],
+        }
+        peer_symbols = []
+
+        for peer_symbol in DEFAULT_PEER_BENCHMARK_SYMBOLS:
+            if peer_symbol == symbol:
+                continue
+            peer = self.data_manager.get_fundamental_data(peer_symbol)
+            if "error" in peer:
+                continue
+            if sector and peer.get("sector") != sector:
+                continue
+            if industry and peer.get("industry") and peer.get("industry") != industry and len(peer_symbols) >= 5:
+                continue
+
+            peer_symbols.append(peer_symbol)
+            if float(peer.get("pe_ratio") or 0) > 0:
+                metrics["pe"].append(float(peer["pe_ratio"]))
+            if float(peer.get("price_to_book") or 0) > 0:
+                metrics["pb"].append(float(peer["price_to_book"]))
+            if float(peer.get("price_to_sales") or 0) > 0:
+                metrics["ps"].append(float(peer["price_to_sales"]))
+            if float(peer.get("enterprise_to_ebitda") or 0) > 0:
+                metrics["ev_ebitda"].append(float(peer["enterprise_to_ebitda"]))
+            if float(peer.get("enterprise_to_revenue") or 0) > 0:
+                metrics["ev_revenue"].append(float(peer["enterprise_to_revenue"]))
+            if float(peer.get("peg_ratio") or 0) > 0:
+                metrics["peg"].append(float(peer["peg_ratio"]))
+
+        dynamic = {}
+        for key, fallback in static_benchmark.items():
+            values = metrics.get(key, [])
+            if len(values) >= 3:
+                dynamic[key] = round(float(np.median(values)), 2)
+            else:
+                dynamic[key] = fallback
+
+        has_dynamic = any(len(metrics[key]) >= 3 for key in metrics)
+        return {
+            **dynamic,
+            "sector": sector or "Unknown",
+            "industry": industry or "Unknown",
+            "source_label": "Dynamic peer median" if has_dynamic else "Static sector template",
+            "source_key": "dynamic_peer_median" if has_dynamic else "static_sector_template",
+            "peer_count": len(peer_symbols),
+            "peer_symbols": peer_symbols[:6],
+        }
+
+    def _benchmark_warnings(self, benchmark: Dict[str, Any]) -> list[str]:
+        if benchmark.get("source_key") == "dynamic_peer_median":
+            peers = ", ".join(benchmark.get("peer_symbols", [])[:4])
+            return [f"行业基准倍数优先使用同行中位数；本次参考同行包括 {peers or '若干同板块标的'}。"]
+        return ["行业基准倍数当前仍采用静态模板，应结合同行数据复核。"]
 
     def _assess_valuation_status(self, current_price: float, fair_value: Dict) -> Dict[str, Any]:
         """评估估值状态"""

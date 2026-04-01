@@ -43,6 +43,12 @@ class CrossMarketTemplateContext(BaseModel):
     recommendation_tier: Optional[str] = None
     ranking_penalty: Optional[float] = None
     ranking_penalty_reason: Optional[str] = None
+    input_reliability_label: Optional[str] = None
+    input_reliability_score: Optional[float] = None
+    input_reliability_lead: Optional[str] = None
+    input_reliability_posture: Optional[str] = None
+    input_reliability_reason: Optional[str] = None
+    input_reliability_action_hint: Optional[str] = None
     bias_highlights_raw: List[str] = Field(default_factory=list)
     bias_highlights: List[str] = Field(default_factory=list)
     bias_actions: List[Dict[str, Any]] = Field(default_factory=list)

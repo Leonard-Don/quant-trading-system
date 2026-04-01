@@ -16,6 +16,21 @@ from .strategies import BaseStrategy
 logger = logging.getLogger(__name__)
 
 
+def _resolve_ohlcv(data: pd.DataFrame) -> pd.DataFrame:
+    """Normalize OHLCV column names to lowercase so strategies work with both
+    Yahoo-style (High/Low/Close/Volume) and backtester-style (high/low/close/volume)
+    DataFrames."""
+    rename_map = {}
+    for expected in ("open", "high", "low", "close", "volume"):
+        if expected not in data.columns:
+            capitalized = expected.capitalize()
+            if capitalized in data.columns:
+                rename_map[capitalized] = expected
+    if rename_map:
+        return data.rename(columns=rename_map)
+    return data
+
+
 class AdvancedTechnicalIndicators:
     """高级技术指标计算类"""
 
@@ -176,13 +191,14 @@ class IchimokuStrategy(BaseStrategy):
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         """生成交易信号"""
         try:
+            data = _resolve_ohlcv(data)
             # 计算一目均衡表指标
             ichimoku = self.indicators.ichimoku_cloud(
-                data["High"], data["Low"], data["Close"]
+                data["high"], data["low"], data["close"]
             )
 
             signals = pd.Series(0, index=data.index)
-            close = data["Close"]
+            close = data["close"]
 
             # 信号规则
             for i in range(26, len(data)):  # 从第26个数据点开始
@@ -243,9 +259,10 @@ class StochasticStrategy(BaseStrategy):
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         """生成交易信号"""
         try:
+            data = _resolve_ohlcv(data)
             # 计算随机振荡器
             k, d = self.indicators.stochastic_oscillator(
-                data["High"], data["Low"], data["Close"], self.k_period, self.d_period
+                data["high"], data["low"], data["close"], self.k_period, self.d_period
             )
 
             signals = pd.Series(0, index=data.index)
@@ -294,9 +311,10 @@ class CCIStrategy(BaseStrategy):
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         """生成交易信号"""
         try:
+            data = _resolve_ohlcv(data)
             # 计算CCI指标
             cci = self.indicators.commodity_channel_index(
-                data["High"], data["Low"], data["Close"], self.period
+                data["high"], data["low"], data["close"], self.period
             )
 
             signals = pd.Series(0, index=data.index)
@@ -339,18 +357,19 @@ class ParabolicSARStrategy(BaseStrategy):
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         """生成交易信号"""
         try:
+            data = _resolve_ohlcv(data)
             # 计算SAR指标
             sar = self.indicators.parabolic_sar(
-                data["High"],
-                data["Low"],
-                data["Close"],
+                data["high"],
+                data["low"],
+                data["close"],
                 self.af_start,
                 self.af_increment,
                 self.af_max,
             )
 
             signals = pd.Series(0, index=data.index)
-            close = data["Close"]
+            close = data["close"]
 
             # 生成信号
             for i in range(1, len(data)):
@@ -431,8 +450,9 @@ class MultiIndicatorStrategy(BaseStrategy):
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         """生成综合交易信号"""
         try:
-            close = data["Close"]
-            volume = data["Volume"]
+            data = _resolve_ohlcv(data)
+            close = data["close"]
+            volume = data["volume"]
 
             # 计算各种指标
             rsi = self._calculate_rsi(close, self.rsi_period)
@@ -492,7 +512,8 @@ class MultiIndicatorStrategy(BaseStrategy):
     def get_signal_strength(self, data: pd.DataFrame) -> pd.Series:
         """获取信号强度（0-1之间）"""
         try:
-            close = data["Close"]
+            data = _resolve_ohlcv(data)
+            close = data["close"]
 
             # 计算各种指标
             rsi = self._calculate_rsi(close, self.rsi_period)

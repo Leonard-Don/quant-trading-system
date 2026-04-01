@@ -1,5 +1,6 @@
 export const BACKTEST_WORKSPACE_DRAFT_KEY = 'backtest_workspace_draft';
 export const ADVANCED_EXPERIMENT_INTENT_KEY = 'advanced_experiment_intent';
+export const BACKTEST_WORKSPACE_DRAFT_EVENT = 'backtest-workspace-draft-updated';
 
 export const saveBacktestWorkspaceDraft = (draft) => {
   if (typeof window === 'undefined') {
@@ -8,6 +9,7 @@ export const saveBacktestWorkspaceDraft = (draft) => {
 
   try {
     window.localStorage.setItem(BACKTEST_WORKSPACE_DRAFT_KEY, JSON.stringify(draft));
+    window.dispatchEvent(new CustomEvent(BACKTEST_WORKSPACE_DRAFT_EVENT, { detail: draft }));
   } catch (error) {
     // Ignore localStorage failures so the main workflow is never blocked.
   }

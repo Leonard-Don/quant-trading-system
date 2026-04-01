@@ -16,7 +16,7 @@ import {
   Tag,
 } from 'antd';
 import { DownloadOutlined, ExperimentOutlined, PartitionOutlined, RiseOutlined } from '@ant-design/icons';
-import moment from 'moment';
+import dayjs from '../utils/dayjs';
 import {
   Bar,
   BarChart,
@@ -31,22 +31,50 @@ import {
   YAxis,
 } from 'recharts';
 
-import { compareStrategies, runBatchBacktest, runPortfolioStrategyBacktest, runWalkForwardBacktest, saveAdvancedHistoryRecord } from '../services/api';
+import { compareStrategies, runBatchBacktest, runMarketRegimeBacktest, runPortfolioStrategyBacktest, runWalkForwardBacktest, saveAdvancedHistoryRecord } from '../services/api';
 import { getStrategyName, getStrategyParameterLabel, getStrategyDetails } from '../constants/strategies';
 import { formatPercentage, formatCurrency, getValueColor } from '../utils/formatting';
 import { useSafeMessageApi } from '../utils/messageApi';
-import { consumeAdvancedExperimentIntent, loadBacktestWorkspaceDraft } from '../utils/backtestWorkspace';
+import {
+  consumeAdvancedExperimentIntent,
+  loadBacktestWorkspaceDraft,
+  saveBacktestWorkspaceDraft,
+} from '../utils/backtestWorkspace';
 import {
   buildBatchDraftState,
   buildBatchInsight,
+  buildMarketRegimeInsight,
+  buildOverfittingWarnings,
+  buildPortfolioExposureChartData,
+  buildPortfolioExposureSummary,
+  buildPortfolioPositionSnapshot,
+  buildResearchConclusion,
+  buildRobustnessScore,
   buildWalkForwardInsight,
 } from '../utils/advancedBacktestLab';
+import {
+  ADVANCED_TEMPLATE_CATEGORY_LABELS,
+  buildMainBacktestDraftFromTemplate,
+  buildAdvancedExperimentTemplatePreview,
+  buildAdvancedExperimentSnapshot,
+  buildAdvancedExperimentTemplatePayload,
+  buildExperimentComparison,
+  deleteAdvancedExperimentTemplate,
+  inferAdvancedExperimentTemplateCategory,
+  loadAdvancedExperimentSnapshots,
+  loadAdvancedExperimentTemplates,
+  saveAdvancedExperimentSnapshot,
+  saveAdvancedExperimentTemplate,
+  suggestAdvancedExperimentTemplateName,
+  toggleAdvancedExperimentTemplatePinned,
+} from '../utils/advancedExperimentTemplates';
 import {
   buildBenchmarkSummary,
   buildCostSensitivityTasks,
   buildMultiSymbolTasks,
   buildParameterOptimizationTasks,
   buildRobustnessTasks,
+  buildWalkForwardParameterCandidates,
   parseSymbolsInput,
 } from '../utils/backtestResearch';
 import {
@@ -72,8 +100,9 @@ const CHART_NEGATIVE = '#ef4444';
 const CHART_NEUTRAL = '#0ea5e9';
 
 const getMetricValue = (record, key) => Number(record?.metrics?.[key] ?? record?.[key] ?? 0);
+const formatCompactNumber = (value) => Number(value || 0).toFixed(2);
 
-function AdvancedBacktestLab({ strategies }) {
+function AdvancedBacktestLab({ strategies, onImportTemplateToMainBacktest }) {
   const message = useSafeMessageApi();
   const strategyDefinitions = useMemo(
     () => Object.fromEntries(strategies.map((strategy) => [strategy.name, strategy])),
@@ -86,8 +115,11 @@ function AdvancedBacktestLab({ strategies }) {
   const [walkResult, setWalkResult] = useState(null);
   const [benchmarkLoading, setBenchmarkLoading] = useState(false);
   const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [marketRegimeLoading, setMarketRegimeLoading] = useState(false);
   const [benchmarkResult, setBenchmarkResult] = useState(null);
+  const [benchmarkContext, setBenchmarkContext] = useState(null);
   const [portfolioStrategyResult, setPortfolioStrategyResult] = useState(null);
+  const [marketRegimeResult, setMarketRegimeResult] = useState(null);
   const [focusedBatchTaskId, setFocusedBatchTaskId] = useState('');
   const [focusedWalkWindowKey, setFocusedWalkWindowKey] = useState('');
   const [batchConfigs, setBatchConfigs] = useState({});
@@ -95,6 +127,13 @@ function AdvancedBacktestLab({ strategies }) {
   const [researchSymbolsInput, setResearchSymbolsInput] = useState('AAPL,MSFT,NVDA');
   const [optimizationDensity, setOptimizationDensity] = useState(3);
   const [portfolioObjective, setPortfolioObjective] = useState('equal_weight');
+  const [templateName, setTemplateName] = useState('');
+  const [templateNote, setTemplateNote] = useState('');
+  const [templateCategoryFilter, setTemplateCategoryFilter] = useState('all');
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [savedTemplates, setSavedTemplates] = useState([]);
+  const [savedSnapshots, setSavedSnapshots] = useState([]);
+  const [selectedSnapshotId, setSelectedSnapshotId] = useState('');
   const [batchExperimentMeta, setBatchExperimentMeta] = useState({
     title: '批量回测结果',
     description: '同一实验上下文下的多任务回测结果会集中展示在这里。',
@@ -132,6 +171,15 @@ function AdvancedBacktestLab({ strategies }) {
       ...previous,
     }));
   }, [selectedWalkStrategy, strategyDefinitions]);
+
+  useEffect(() => {
+    const templates = loadAdvancedExperimentTemplates();
+    const snapshots = loadAdvancedExperimentSnapshots();
+    setSavedTemplates(templates);
+    setSavedSnapshots(snapshots);
+    setSelectedTemplateId((previous) => previous || templates[0]?.id || '');
+    setSelectedSnapshotId((previous) => previous || snapshots[0]?.id || '');
+  }, []);
 
   const updateBatchParam = (strategyName, key, value) => {
     setBatchConfigs((previous) => ({
@@ -190,9 +238,39 @@ function AdvancedBacktestLab({ strategies }) {
   );
   const batchInsight = useMemo(() => buildBatchInsight(batchResult), [batchResult]);
   const walkInsight = useMemo(() => buildWalkForwardInsight(walkResult), [walkResult]);
+  const marketRegimeInsight = useMemo(() => buildMarketRegimeInsight(marketRegimeResult), [marketRegimeResult]);
   const benchmarkSummary = useMemo(
-    () => buildBenchmarkSummary(benchmarkResult?.data, selectedWalkStrategy),
-    [benchmarkResult, selectedWalkStrategy]
+    () => buildBenchmarkSummary(benchmarkResult?.data, benchmarkContext?.strategy),
+    [benchmarkContext, benchmarkResult]
+  );
+  const robustnessScore = useMemo(
+    () => buildRobustnessScore({
+      batchResult,
+      walkResult,
+      benchmarkSummary,
+      marketRegimeResult,
+    }),
+    [batchResult, benchmarkSummary, marketRegimeResult, walkResult]
+  );
+  const overfittingWarnings = useMemo(
+    () => buildOverfittingWarnings({
+      batchResult,
+      walkResult,
+      benchmarkSummary,
+      marketRegimeResult,
+    }),
+    [batchResult, benchmarkSummary, marketRegimeResult, walkResult]
+  );
+  const researchConclusion = useMemo(
+    () => buildResearchConclusion({
+      robustnessScore,
+      overfittingWarnings,
+      batchResult,
+      walkResult,
+      benchmarkSummary,
+      marketRegimeResult,
+    }),
+    [batchResult, benchmarkSummary, marketRegimeResult, overfittingWarnings, robustnessScore, walkResult]
   );
   const benchmarkChartData = useMemo(
     () => Object.entries(benchmarkResult?.data || {}).map(([key, value]) => ({
@@ -204,12 +282,104 @@ function AdvancedBacktestLab({ strategies }) {
     [benchmarkResult]
   );
   const portfolioChartData = useMemo(
-    () => (portfolioStrategyResult?.portfolio_history || []).map((point) => ({
-      date: point.date,
-      total: Number(point.total || 0),
-    })),
+    () => buildPortfolioExposureChartData(portfolioStrategyResult),
     [portfolioStrategyResult]
   );
+  const portfolioPositionSnapshot = useMemo(
+    () => buildPortfolioPositionSnapshot(portfolioStrategyResult),
+    [portfolioStrategyResult]
+  );
+  const portfolioExposureSummary = useMemo(
+    () => buildPortfolioExposureSummary(portfolioStrategyResult),
+    [portfolioStrategyResult]
+  );
+  const marketRegimeChartData = useMemo(
+    () => (marketRegimeResult?.regimes || []).map((item) => ({
+      key: item.regime,
+      label: item.regime,
+      strategyTotalReturn: Number(item.strategy_total_return || 0),
+      marketTotalReturn: Number(item.market_total_return || 0),
+      days: Number(item.days || 0),
+    })),
+    [marketRegimeResult]
+  );
+  const currentSnapshot = useMemo(() => buildAdvancedExperimentSnapshot({
+    batchResult,
+    walkResult,
+    benchmarkSummary,
+    benchmarkContext,
+    marketRegimeResult,
+    portfolioStrategyResult,
+    batchExperimentMeta,
+    batchValues: batchForm.getFieldsValue(),
+    walkValues: walkForm.getFieldsValue(),
+    batchConfigs,
+    walkParams,
+    researchSymbolsInput,
+    optimizationDensity,
+    portfolioObjective,
+    robustnessScore,
+  }), [
+    batchConfigs,
+    batchExperimentMeta,
+    batchForm,
+    batchResult,
+    benchmarkContext,
+    benchmarkSummary,
+    marketRegimeResult,
+    optimizationDensity,
+    portfolioObjective,
+    portfolioStrategyResult,
+    researchSymbolsInput,
+    robustnessScore,
+    walkForm,
+    walkParams,
+    walkResult,
+  ]);
+  const selectedSnapshot = useMemo(
+    () => savedSnapshots.find((snapshot) => snapshot.id === selectedSnapshotId) || null,
+    [savedSnapshots, selectedSnapshotId]
+  );
+  const selectedTemplate = useMemo(
+    () => savedTemplates.find((template) => template.id === selectedTemplateId) || null,
+    [savedTemplates, selectedTemplateId]
+  );
+  const selectedTemplatePreview = useMemo(
+    () => buildAdvancedExperimentTemplatePreview(selectedTemplate),
+    [selectedTemplate]
+  );
+  const filteredTemplates = useMemo(
+    () => (
+      templateCategoryFilter === 'all'
+        ? savedTemplates
+        : savedTemplates.filter((template) => (template.category || 'general') === templateCategoryFilter)
+    ),
+    [savedTemplates, templateCategoryFilter]
+  );
+  const groupedTemplateOptions = useMemo(() => {
+    const groups = filteredTemplates.reduce((accumulator, template) => {
+      const category = template.pinned ? 'pinned' : (template.category || 'general');
+      if (!accumulator[category]) {
+        accumulator[category] = [];
+      }
+      accumulator[category].push({
+        value: template.id,
+        label: template.pinned ? `★ ${template.name}` : template.name,
+      });
+      return accumulator;
+    }, {});
+
+    return Object.entries(groups).map(([category, options]) => ({
+      label: category === 'pinned' ? '已置顶模板' : (ADVANCED_TEMPLATE_CATEGORY_LABELS[category] || category),
+      options,
+    }));
+  }, [filteredTemplates]);
+  const experimentComparison = useMemo(() => buildExperimentComparison({
+    currentSnapshot,
+    previousSnapshot: selectedSnapshot,
+    formatPercentage,
+    formatNumber: formatCompactNumber,
+  }), [currentSnapshot, selectedSnapshot]);
 
   useEffect(() => {
     if (!batchRecords.length) {
@@ -352,7 +522,243 @@ function AdvancedBacktestLab({ strategies }) {
       key: 'max_drawdown',
       render: (value) => formatPercentage(value || 0),
     },
+    {
+      title: '训练窗优选参数',
+      dataIndex: 'selected_parameters',
+      key: 'selected_parameters',
+      render: (value) => {
+        const entries = Object.entries(value || {});
+        if (!entries.length) {
+          return '-';
+        }
+        return entries.map(([key, item]) => `${getStrategyParameterLabel(key, key)}:${item}`).join(' / ');
+      },
+    },
   ];
+
+  const refreshSavedArtifacts = useCallback(() => {
+    const templates = loadAdvancedExperimentTemplates();
+    const snapshots = loadAdvancedExperimentSnapshots();
+    setSavedTemplates(templates);
+    setSavedSnapshots(snapshots);
+    setSelectedTemplateId((previous) => previous || templates[0]?.id || '');
+    setSelectedSnapshotId((previous) => previous || snapshots[0]?.id || '');
+  }, []);
+
+  const handleSaveTemplate = useCallback(() => {
+    const batchValues = batchForm.getFieldsValue();
+    const walkValues = walkForm.getFieldsValue();
+    const resolvedName = String(templateName || '').trim()
+      || suggestAdvancedExperimentTemplateName({
+        batchValues,
+        walkValues,
+        batchExperimentMeta,
+        optimizationDensity,
+        portfolioObjective,
+      });
+
+    const savedTemplate = saveAdvancedExperimentTemplate(buildAdvancedExperimentTemplatePayload({
+      name: resolvedName,
+      category: inferAdvancedExperimentTemplateCategory({
+        batchExperimentMeta,
+        portfolioObjective,
+        marketRegimeResult,
+        benchmarkSummary,
+      }),
+      note: templateNote,
+      batchValues: {
+        ...batchValues,
+        dateRange: batchValues.dateRange?.map((value) => value?.format?.(DATE_FORMAT)),
+      },
+      walkValues: {
+        ...walkValues,
+        dateRange: walkValues.dateRange?.map((value) => value?.format?.(DATE_FORMAT)),
+      },
+      batchConfigs,
+      walkParams,
+      researchSymbolsInput,
+      optimizationDensity,
+      portfolioObjective,
+    }));
+    refreshSavedArtifacts();
+    setTemplateName(savedTemplate.name);
+    setTemplateNote(savedTemplate.note || '');
+    setSelectedTemplateId(savedTemplate.id);
+    message.success('实验模板已保存');
+  }, [
+    batchExperimentMeta,
+    batchConfigs,
+    batchForm,
+    benchmarkSummary,
+    message,
+    marketRegimeResult,
+    optimizationDensity,
+    portfolioObjective,
+    refreshSavedArtifacts,
+    researchSymbolsInput,
+    templateName,
+    templateNote,
+    walkForm,
+    walkParams,
+  ]);
+
+  const handleOverwriteTemplate = useCallback(() => {
+    const currentTemplate = savedTemplates.find((item) => item.id === selectedTemplateId);
+    if (!currentTemplate) {
+      message.warning('请先选择要覆盖的模板');
+      return;
+    }
+
+    const batchValues = batchForm.getFieldsValue();
+    const walkValues = walkForm.getFieldsValue();
+    const updatedTemplate = saveAdvancedExperimentTemplate({
+      ...buildAdvancedExperimentTemplatePayload({
+        name: String(templateName || '').trim() || currentTemplate.name,
+        category: inferAdvancedExperimentTemplateCategory({
+          batchExperimentMeta,
+          portfolioObjective,
+          marketRegimeResult,
+          benchmarkSummary,
+        }),
+        note: templateNote,
+        batchValues: {
+          ...batchValues,
+          dateRange: batchValues.dateRange?.map((value) => value?.format?.(DATE_FORMAT)),
+        },
+        walkValues: {
+          ...walkValues,
+          dateRange: walkValues.dateRange?.map((value) => value?.format?.(DATE_FORMAT)),
+        },
+        batchConfigs,
+        walkParams,
+        researchSymbolsInput,
+        optimizationDensity,
+        portfolioObjective,
+      }),
+      id: currentTemplate.id,
+      created_at: currentTemplate.created_at,
+    });
+    refreshSavedArtifacts();
+    setTemplateName(updatedTemplate.name);
+    setTemplateNote(updatedTemplate.note || '');
+    setSelectedTemplateId(updatedTemplate.id);
+    message.success('当前模板已覆盖更新');
+  }, [
+    batchConfigs,
+    batchExperimentMeta,
+    batchForm,
+    benchmarkSummary,
+    marketRegimeResult,
+    message,
+    optimizationDensity,
+    portfolioObjective,
+    refreshSavedArtifacts,
+    researchSymbolsInput,
+    savedTemplates,
+    selectedTemplateId,
+    templateName,
+    templateNote,
+    walkForm,
+    walkParams,
+  ]);
+
+  const handleSuggestTemplateName = useCallback(() => {
+    const suggested = suggestAdvancedExperimentTemplateName({
+      batchValues: batchForm.getFieldsValue(),
+      walkValues: walkForm.getFieldsValue(),
+      batchExperimentMeta,
+      optimizationDensity,
+      portfolioObjective,
+    });
+    setTemplateName(suggested);
+    message.success('已生成推荐模板名');
+  }, [batchExperimentMeta, batchForm, message, optimizationDensity, portfolioObjective, walkForm]);
+
+  const handleApplyTemplate = useCallback(() => {
+    const template = savedTemplates.find((item) => item.id === selectedTemplateId);
+    if (!template) {
+      message.warning('请先选择一个实验模板');
+      return;
+    }
+
+    const nextBatchDateRange = template.batch?.dateRange
+      ? template.batch.dateRange.map((value) => dayjs(value, DATE_FORMAT))
+      : undefined;
+    const nextWalkDateRange = template.walk?.dateRange
+      ? template.walk.dateRange.map((value) => dayjs(value, DATE_FORMAT))
+      : undefined;
+
+    batchForm.setFieldsValue({
+      ...template.batch,
+      dateRange: nextBatchDateRange,
+    });
+    walkForm.setFieldsValue({
+      ...template.walk,
+      dateRange: nextWalkDateRange,
+    });
+    setBatchConfigs(template.batch?.strategy_parameters || {});
+    setWalkParams(template.walk?.strategy_parameters || {});
+    setResearchSymbolsInput(template.researchSymbolsInput || 'AAPL,MSFT,NVDA');
+    setOptimizationDensity(Number(template.optimizationDensity || 3));
+    setPortfolioObjective(template.portfolioObjective || 'equal_weight');
+    setTemplateName(template.name || '');
+    setTemplateNote(template.note || '');
+    message.success('实验模板已带入');
+  }, [batchForm, message, savedTemplates, selectedTemplateId, walkForm]);
+
+  const handleDeleteTemplate = useCallback(() => {
+    if (!selectedTemplateId) {
+      message.warning('请先选择一个实验模板');
+      return;
+    }
+
+    deleteAdvancedExperimentTemplate(selectedTemplateId);
+    refreshSavedArtifacts();
+    setSelectedTemplateId('');
+    message.success('实验模板已删除');
+  }, [message, refreshSavedArtifacts, selectedTemplateId]);
+
+  const handleTogglePinnedTemplate = useCallback(() => {
+    if (!selectedTemplateId) {
+      message.warning('请先选择一个实验模板');
+      return;
+    }
+
+    const updatedTemplate = toggleAdvancedExperimentTemplatePinned(selectedTemplateId);
+    refreshSavedArtifacts();
+    if (updatedTemplate) {
+      setSelectedTemplateId(updatedTemplate.id);
+      message.success(updatedTemplate.pinned ? '模板已置顶' : '模板已取消置顶');
+    }
+  }, [message, refreshSavedArtifacts, selectedTemplateId]);
+
+  const handleImportTemplateToMainBacktest = useCallback(() => {
+    const template = savedTemplates.find((item) => item.id === selectedTemplateId);
+    const draft = buildMainBacktestDraftFromTemplate(template);
+    if (!draft) {
+      message.warning('当前模板缺少完整的主回测配置，暂时无法带回主回测');
+      return;
+    }
+
+    saveBacktestWorkspaceDraft(draft);
+    if (onImportTemplateToMainBacktest) {
+      onImportTemplateToMainBacktest(draft);
+    }
+    message.success(`已将模板“${template.name}”带回主回测`);
+  }, [message, onImportTemplateToMainBacktest, savedTemplates, selectedTemplateId]);
+
+  const handleSaveSnapshot = useCallback(() => {
+    if (!currentSnapshot) {
+      message.warning('当前还没有可保存的实验结果');
+      return;
+    }
+
+    const previousLatestSnapshotId = savedSnapshots[0]?.id || '';
+    const snapshot = saveAdvancedExperimentSnapshot(currentSnapshot);
+    refreshSavedArtifacts();
+    setSelectedSnapshotId(previousLatestSnapshotId || snapshot.id);
+    message.success('实验版本已保存，可用于后续对比');
+  }, [currentSnapshot, message, refreshSavedArtifacts, savedSnapshots]);
 
   const handleRunBatch = async (values) => {
     if (!values.symbol?.trim()) {
@@ -412,10 +818,17 @@ function AdvancedBacktestLab({ strategies }) {
     setWalkLoading(true);
     setWalkResult(null);
     try {
+      const walkStrategyDefinition = strategyDefinitions[values.strategy];
+      const parameterCandidates = buildWalkForwardParameterCandidates({
+        baseParameters: walkParams,
+        strategyDefinition: walkStrategyDefinition,
+        density: optimizationDensity,
+      });
       const response = await runWalkForwardBacktest({
         symbol: values.symbol.trim().toUpperCase(),
         strategy: values.strategy,
         parameters: walkParams,
+        parameter_candidates: parameterCandidates,
         start_date: values.dateRange?.[0]?.format(DATE_FORMAT),
         end_date: values.dateRange?.[1]?.format(DATE_FORMAT),
         initial_capital: values.initial_capital,
@@ -424,6 +837,10 @@ function AdvancedBacktestLab({ strategies }) {
         train_period: values.train_period,
         test_period: values.test_period,
         step_size: values.step_size,
+        optimization_metric: values.optimization_metric || 'sharpe_ratio',
+        optimization_method: values.optimization_method || 'grid',
+        optimization_budget: values.optimization_budget || undefined,
+        monte_carlo_simulations: values.monte_carlo_simulations,
       });
       if (!response.success) {
         throw new Error(response.error || '滚动前瞻分析失败');
@@ -512,6 +929,7 @@ function AdvancedBacktestLab({ strategies }) {
 
     setBenchmarkLoading(true);
     setBenchmarkResult(null);
+    setBenchmarkContext(null);
     try {
       const response = await compareStrategies({
         symbol: baseline.symbol,
@@ -529,6 +947,15 @@ function AdvancedBacktestLab({ strategies }) {
         throw new Error(response.error || '基准对照失败');
       }
       setBenchmarkResult(response);
+      setBenchmarkContext({
+        symbol: baseline.symbol,
+        strategy: baseline.strategy,
+        dateRange: baseline.dateRange,
+        initialCapital: baseline.initialCapital,
+        commission: baseline.commission,
+        slippage: baseline.slippage,
+        parameters: baseline.baseParameters,
+      });
       message.success('基准对照已完成');
     } catch (error) {
       message.error(error.message || '基准对照失败');
@@ -623,6 +1050,38 @@ function AdvancedBacktestLab({ strategies }) {
       setPortfolioLoading(false);
     }
   }, [getWalkBaseline, message, portfolioObjective, researchSymbolsInput]);
+
+  const handleRunMarketRegimeAnalysis = useCallback(async () => {
+    const baseline = getWalkBaseline();
+    if (!baseline) {
+      message.warning('请先在滚动前瞻分析里选择基准策略');
+      return;
+    }
+
+    setMarketRegimeLoading(true);
+    setMarketRegimeResult(null);
+    try {
+      const response = await runMarketRegimeBacktest({
+        symbol: baseline.symbol,
+        strategy: baseline.strategy,
+        parameters: baseline.baseParameters,
+        start_date: baseline.dateRange?.[0],
+        end_date: baseline.dateRange?.[1],
+        initial_capital: baseline.initialCapital,
+        commission: baseline.commission,
+        slippage: baseline.slippage,
+      });
+      if (!response.success) {
+        throw new Error(response.error || '市场状态分层回测失败');
+      }
+      setMarketRegimeResult(response.data);
+      message.success('市场状态分层回测已完成');
+    } catch (error) {
+      message.error(error.message || '市场状态分层回测失败');
+    } finally {
+      setMarketRegimeLoading(false);
+    }
+  }, [getWalkBaseline, message]);
 
   const handleSaveBatchHistory = async () => {
     if (!batchResult) {
@@ -776,7 +1235,7 @@ function AdvancedBacktestLab({ strategies }) {
 
     const strategyExists = Boolean(strategyDefinitions[draft.strategy]);
     const nextDateRange = draft.dateRange
-      ? [moment(draft.dateRange[0], DATE_FORMAT), moment(draft.dateRange[1], DATE_FORMAT)]
+      ? [dayjs(draft.dateRange[0], DATE_FORMAT), dayjs(draft.dateRange[1], DATE_FORMAT)]
       : undefined;
 
     batchForm.setFieldsValue({
@@ -853,6 +1312,195 @@ function AdvancedBacktestLab({ strategies }) {
       <Card className="workspace-panel" style={{ marginBottom: 20 }}>
         <div className="workspace-section__header">
           <div>
+            <div className="workspace-section__title">实验模板与版本对比</div>
+            <div className="workspace-section__description">把常用实验配置保存成模板，并将当前实验结果与上一版关键指标并排比较。</div>
+          </div>
+        </div>
+        <Row gutter={[16, 16]} align="top">
+          <Col xs={24} xl={10}>
+            <div className="workspace-field-label">模板名称</div>
+            <Input
+              value={templateName}
+              onChange={(event) => setTemplateName(event.target.value)}
+              placeholder="例如：趋势策略稳健性模板"
+            />
+            <div className="workspace-field-label" style={{ marginTop: 12 }}>模板备注</div>
+            <Input.TextArea
+              value={templateNote}
+              onChange={(event) => setTemplateNote(event.target.value)}
+              placeholder="例如：适合做趋势策略在大盘股上的参数寻优与稳健性验证"
+              rows={3}
+              maxLength={160}
+              showCount
+            />
+            <div className="workspace-field-label" style={{ marginTop: 12 }}>已保存模板</div>
+            <Select
+              value={templateCategoryFilter}
+              style={{ width: '100%', marginBottom: 12 }}
+              options={[
+                { value: 'all', label: '全部研究场景' },
+                ...Object.entries(ADVANCED_TEMPLATE_CATEGORY_LABELS).map(([value, label]) => ({ value, label })),
+              ]}
+              onChange={setTemplateCategoryFilter}
+            />
+            <Select
+              value={selectedTemplateId || undefined}
+              style={{ width: '100%' }}
+              placeholder="选择一个已保存模板"
+              options={groupedTemplateOptions}
+              onChange={setSelectedTemplateId}
+            />
+            <Space wrap style={{ marginTop: 12 }}>
+              <Button type="primary" onClick={handleSaveTemplate}>
+                保存模板
+              </Button>
+              <Button onClick={handleSuggestTemplateName}>
+                推荐命名
+              </Button>
+              <Button onClick={handleApplyTemplate} disabled={!savedTemplates.length}>
+                套用模板
+              </Button>
+              <Button onClick={handleImportTemplateToMainBacktest} disabled={!selectedTemplateId}>
+                带回主回测
+              </Button>
+              <Button onClick={handleOverwriteTemplate} disabled={!selectedTemplateId}>
+                覆盖当前模板
+              </Button>
+              <Button onClick={handleTogglePinnedTemplate} disabled={!selectedTemplateId}>
+                {selectedTemplate?.pinned ? '取消置顶' : '置顶模板'}
+              </Button>
+              <Button danger onClick={handleDeleteTemplate} disabled={!selectedTemplateId}>
+                删除模板
+              </Button>
+            </Space>
+            {selectedTemplatePreview ? (
+              <div className="workspace-section" style={{ marginTop: 16 }}>
+                <div className="workspace-section__header" style={{ marginBottom: 12 }}>
+                  <div>
+                    <div className="workspace-section__title">模板预览</div>
+                    <div className="workspace-section__description">套用前先确认这个模板对应的研究场景、标的和关键参数。</div>
+                  </div>
+                  <Space size="small">
+                    {selectedTemplate?.pinned ? <Tag color="gold">已置顶</Tag> : null}
+                    <Tag color="processing">
+                      {ADVANCED_TEMPLATE_CATEGORY_LABELS[selectedTemplatePreview.category] || selectedTemplatePreview.category}
+                    </Tag>
+                  </Space>
+                </div>
+                <div className="summary-strip" style={{ marginTop: 0 }}>
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">标的</span>
+                    <span className="summary-strip__value">{selectedTemplatePreview.symbol || '未设置'}</span>
+                  </div>
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">主策略</span>
+                    <span className="summary-strip__value">{selectedTemplatePreview.strategy ? getStrategyName(selectedTemplatePreview.strategy) : '未设置'}</span>
+                  </div>
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">策略数量</span>
+                    <span className="summary-strip__value">{selectedTemplatePreview.strategyCount || 1}</span>
+                  </div>
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">寻优密度</span>
+                    <span className="summary-strip__value">{selectedTemplatePreview.optimizationDensity}</span>
+                  </div>
+                </div>
+                <div className="workspace-section__hint">
+                  区间：{selectedTemplatePreview.dateRange?.filter(Boolean).join(' 至 ') || '未设置'}
+                </div>
+                <div className="workspace-section__hint">
+                  研究标的池：{selectedTemplatePreview.researchSymbolsInput || '未设置'}
+                </div>
+                {selectedTemplatePreview.note ? (
+                  <div className="workspace-section__hint">
+                    备注：{selectedTemplatePreview.note}
+                  </div>
+                ) : null}
+                {selectedTemplatePreview.keyParameters.length ? (
+                  <Space wrap style={{ marginTop: 12 }}>
+                    {selectedTemplatePreview.keyParameters.map((entry) => (
+                      <Tag key={entry.key} color="blue">
+                        {getStrategyParameterLabel(entry.key)}: {String(entry.value)}
+                      </Tag>
+                    ))}
+                  </Space>
+                ) : (
+                  <div className="workspace-section__hint">这个模板当前没有额外参数覆盖。</div>
+                )}
+              </div>
+            ) : null}
+          </Col>
+          <Col xs={24} xl={14}>
+            <div className="workspace-section">
+              <div className="workspace-section__header">
+                <div>
+                  <div className="workspace-section__title">实验版本对比</div>
+                  <div className="workspace-section__description">当前结果会与一条已保存实验版本对比，快速确认这次改动到底带来了什么变化。</div>
+                </div>
+                <Space wrap>
+                  <Select
+                    value={selectedSnapshotId || undefined}
+                    style={{ minWidth: 260 }}
+                    placeholder="选择一个历史版本"
+                    options={savedSnapshots.map((snapshot) => ({
+                      value: snapshot.id,
+                      label: snapshot.name,
+                    }))}
+                    onChange={setSelectedSnapshotId}
+                  />
+                  <Button onClick={handleSaveSnapshot} disabled={!currentSnapshot}>
+                    保存本次版本
+                  </Button>
+                </Space>
+              </div>
+              {experimentComparison ? (
+                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="版本对比已生成"
+                    description={experimentComparison.title}
+                  />
+                  <Table
+                    size="small"
+                    pagination={false}
+                    rowKey={(record) => record.key}
+                    dataSource={experimentComparison.rows}
+                    columns={[
+                      { title: '指标', dataIndex: 'label', key: 'label' },
+                      { title: '当前版本', dataIndex: 'current', key: 'current' },
+                      { title: '对比版本', dataIndex: 'previous', key: 'previous' },
+                      {
+                        title: '变化',
+                        dataIndex: 'delta',
+                        key: 'delta',
+                        render: (value, record) => (
+                          <span style={{
+                            color: record.direction === 'up'
+                              ? CHART_POSITIVE
+                              : record.direction === 'down'
+                                ? CHART_NEGATIVE
+                                : 'var(--text-muted)',
+                          }}
+                          >
+                            {value}
+                          </span>
+                        ),
+                      },
+                    ]}
+                  />
+                </Space>
+              ) : (
+                <Empty description="先保存至少一版实验结果，再运行或保留当前结果，这里就会显示关键指标差异。" />
+              )}
+            </div>
+          </Col>
+        </Row>
+      </Card>
+
+      <Card className="workspace-panel" style={{ marginBottom: 20 }}>
+        <div className="workspace-section__header">
+          <div>
             <div className="workspace-section__title">研究增强工具</div>
             <div className="workspace-section__description">把参数寻优、基准对照、多标的研究、成本敏感性、稳健性诊断和组合级策略回测收进同一组实验模板。</div>
           </div>
@@ -910,6 +1558,9 @@ function AdvancedBacktestLab({ strategies }) {
               <Button onClick={handleRunRobustnessDiagnostic} loading={batchLoading}>
                 稳健性诊断
               </Button>
+              <Button onClick={handleRunMarketRegimeAnalysis} loading={marketRegimeLoading}>
+                市场状态
+              </Button>
               <Button type="primary" onClick={handleRunPortfolioStrategy} loading={portfolioLoading}>
                 组合级策略回测
               </Button>
@@ -941,7 +1592,7 @@ function AdvancedBacktestLab({ strategies }) {
               initialValues={{
                 symbol: 'AAPL',
                 strategies: ['buy_and_hold', 'moving_average'],
-                dateRange: [moment().subtract(1, 'year'), moment()],
+                dateRange: [dayjs().subtract(1, 'year'), dayjs()],
                 initial_capital: DEFAULT_CAPITAL,
                 commission: DEFAULT_COMMISSION,
                 slippage: DEFAULT_SLIPPAGE,
@@ -1075,14 +1726,18 @@ function AdvancedBacktestLab({ strategies }) {
               initialValues={{
                 symbol: 'AAPL',
                 strategy: 'moving_average',
-                dateRange: [moment().subtract(2, 'year'), moment()],
-                initial_capital: DEFAULT_CAPITAL,
-                commission: DEFAULT_COMMISSION,
-                slippage: DEFAULT_SLIPPAGE,
-                train_period: 252,
-                test_period: 63,
-                step_size: 21,
-              }}
+                dateRange: [dayjs().subtract(2, 'year'), dayjs()],
+              initial_capital: DEFAULT_CAPITAL,
+              commission: DEFAULT_COMMISSION,
+              slippage: DEFAULT_SLIPPAGE,
+              train_period: 252,
+              test_period: 63,
+              step_size: 21,
+              optimization_metric: 'sharpe_ratio',
+              optimization_method: 'grid',
+              optimization_budget: 24,
+              monte_carlo_simulations: 120,
+            }}
             >
               <Row gutter={16}>
                 <Col xs={24} md={8}>
@@ -1121,6 +1776,38 @@ function AdvancedBacktestLab({ strategies }) {
                   </Form.Item>
                 </Col>
                 <Col xs={12} md={8}>
+                  <Form.Item label="优化指标" name="optimization_metric">
+                    <Select
+                      options={[
+                        { value: 'sharpe_ratio', label: '夏普比率' },
+                        { value: 'total_return', label: '总收益率' },
+                        { value: 'annualized_return', label: '年化收益率' },
+                        { value: 'calmar_ratio', label: '卡玛比率' },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={12} md={8}>
+                  <Form.Item label="优化方式" name="optimization_method">
+                    <Select
+                      options={[
+                        { value: 'grid', label: '网格穷举' },
+                        { value: 'bayesian', label: '自适应贝叶斯搜索' },
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col xs={12} md={8}>
+                  <Form.Item label="Monte Carlo 次数" name="monte_carlo_simulations">
+                    <InputNumber min={20} max={1000} precision={0} step={20} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+                <Col xs={12} md={8}>
+                  <Form.Item label="优化预算" name="optimization_budget">
+                    <InputNumber min={1} max={500} precision={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+                <Col xs={12} md={8}>
                   <Form.Item label="初始资金" name="initial_capital">
                     <InputNumber min={1000} step={1000} precision={0} style={{ width: '100%' }} />
                   </Form.Item>
@@ -1152,7 +1839,7 @@ function AdvancedBacktestLab({ strategies }) {
                   <div className="workspace-section__header">
                     <div>
                       <div className="workspace-section__title">策略参数</div>
-                      <div className="workspace-section__description">滚动前瞻分析会在每个窗口内用同一组参数进行滚动评估。</div>
+                      <div className="workspace-section__description">系统会先围绕当前参数生成候选组合，在训练窗口中挑选更优参数，再拿到测试窗口做样本外验证。</div>
                     </div>
                   </div>
                   <Row gutter={[12, 12]}>
@@ -1390,6 +2077,40 @@ function AdvancedBacktestLab({ strategies }) {
                     description={walkInsight.description}
                   />
                 ) : null}
+                {walkResult.monte_carlo?.available ? (
+                  <div className="summary-strip">
+                    <div className="summary-strip__item">
+                      <span className="summary-strip__label">模拟次数</span>
+                      <span className="summary-strip__value">{walkResult.monte_carlo.simulations}</span>
+                    </div>
+                    <div className="summary-strip__item">
+                      <span className="summary-strip__label">平均收益 P10</span>
+                      <span className="summary-strip__value">{formatPercentage(walkResult.monte_carlo.mean_return_p10 ?? 0)}</span>
+                    </div>
+                    <div className="summary-strip__item">
+                      <span className="summary-strip__label">平均收益 P50</span>
+                      <span className="summary-strip__value">{formatPercentage(walkResult.monte_carlo.mean_return_p50 ?? 0)}</span>
+                    </div>
+                    <div className="summary-strip__item">
+                      <span className="summary-strip__label">负均值概率</span>
+                      <span className="summary-strip__value">{formatPercentage(walkResult.monte_carlo.negative_mean_probability ?? 0)}</span>
+                    </div>
+                  </div>
+                ) : null}
+                {walkResult.overfitting_diagnostics ? (
+                  <Alert
+                    type={
+                      walkResult.overfitting_diagnostics.level === 'high'
+                        ? 'warning'
+                        : walkResult.overfitting_diagnostics.level === 'medium'
+                          ? 'info'
+                          : 'success'
+                    }
+                    showIcon
+                    message={`样本外过拟合诊断：${walkResult.overfitting_diagnostics.level === 'high' ? '高风险' : walkResult.overfitting_diagnostics.level === 'medium' ? '中等风险' : '低风险'}`}
+                    description={(walkResult.overfitting_diagnostics.warnings || []).join('；') || '训练窗与测试窗表现没有出现明显断裂。'}
+                  />
+                ) : null}
                 {focusedWalkRecord ? (
                   <Alert
                     type="info"
@@ -1504,17 +2225,165 @@ function AdvancedBacktestLab({ strategies }) {
       </Row>
 
       <Row gutter={[20, 20]}>
+        <Col xs={24} xl={9}>
+          <Card className="workspace-panel workspace-chart-card" title="稳健性评分">
+            {robustnessScore || overfittingWarnings.length || researchConclusion ? (
+              <Space direction="vertical" style={{ width: '100%' }} size="large">
+                {robustnessScore ? (
+                  <>
+                    <Alert
+                      type={robustnessScore.score >= 75 ? 'success' : robustnessScore.score >= 55 ? 'info' : 'warning'}
+                      showIcon
+                      message={`稳健性评分 ${robustnessScore.score} / 100`}
+                      description={`当前结论：${robustnessScore.level}稳健性。${robustnessScore.summary}`}
+                    />
+                    <div className="summary-strip">
+                      {robustnessScore.dimensions.map((dimension) => (
+                        <div className="summary-strip__item" key={dimension.key}>
+                          <span className="summary-strip__label">{dimension.label}</span>
+                          <span className="summary-strip__value">{dimension.score}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <Table
+                      size="small"
+                      pagination={false}
+                      rowKey={(record) => record.key}
+                      dataSource={robustnessScore.dimensions}
+                      columns={[
+                        { title: '维度', dataIndex: 'label', key: 'label' },
+                        { title: '得分', dataIndex: 'score', key: 'score', render: (value) => `${value}` },
+                        { title: '说明', dataIndex: 'detail', key: 'detail' },
+                      ]}
+                    />
+                  </>
+                ) : null}
+                {overfittingWarnings.length ? (
+                  <div className="workspace-section">
+                    <div className="workspace-section__header">
+                      <div>
+                        <div className="workspace-section__title">过拟合预警</div>
+                        <div className="workspace-section__description">这些信号说明当前优势可能依赖少数参数、少数窗口或少数市场状态。</div>
+                      </div>
+                    </div>
+                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                      {overfittingWarnings.map((warning) => (
+                        <Alert
+                          key={warning.key}
+                          type="warning"
+                          showIcon
+                          message={warning.title}
+                          description={warning.description}
+                        />
+                      ))}
+                    </Space>
+                  </div>
+                ) : null}
+                {researchConclusion ? (
+                  <div className="workspace-section">
+                    <div className="workspace-section__header">
+                      <div>
+                        <div className="workspace-section__title">自动研究结论</div>
+                        <div className="workspace-section__description">把当前结果压缩成结论和下一步动作，减少人工读图和读表的成本。</div>
+                      </div>
+                    </div>
+                    <Alert
+                      type={overfittingWarnings.length ? 'warning' : 'success'}
+                      showIcon
+                      message={researchConclusion.title}
+                      description={researchConclusion.summary}
+                    />
+                    <div className="summary-strip summary-strip--stack">
+                      {researchConclusion.nextActions.map((action, index) => (
+                        <div key={`${index + 1}-${action.slice(0, 12)}`} className="summary-strip__item">
+                          <span className="summary-strip__label">下一步 {index + 1}</span>
+                          <span className="summary-strip__value" style={{ whiteSpace: 'normal' }}>{action}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </Space>
+            ) : (
+              <Empty description="运行批量实验、滚动前瞻、基准对照或市场状态分析后，这里会给出稳健性评分、过拟合预警和自动研究结论。" />
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} xl={15}>
+          <Card className="workspace-panel workspace-chart-card" title="市场状态分层回测">
+            {marketRegimeResult ? (
+              <Space direction="vertical" style={{ width: '100%' }} size="large">
+                <div className="summary-strip">
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">市场状态数</span>
+                    <span className="summary-strip__value">{marketRegimeResult.summary?.regime_count ?? 0}</span>
+                  </div>
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">正收益状态</span>
+                    <span className="summary-strip__value">{marketRegimeResult.summary?.positive_regimes ?? 0}</span>
+                  </div>
+                  <div className="summary-strip__item">
+                    <span className="summary-strip__label">平均阶段收益</span>
+                    <span className="summary-strip__value">{formatPercentage(marketRegimeResult.summary?.average_regime_return ?? 0)}</span>
+                  </div>
+                </div>
+                {marketRegimeInsight ? (
+                  <Alert
+                    type={marketRegimeInsight.type}
+                    showIcon
+                    message={marketRegimeInsight.title}
+                    description={marketRegimeInsight.description}
+                  />
+                ) : null}
+                {marketRegimeChartData.length ? (
+                  <div style={{ height: 280 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={marketRegimeChartData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.18)" />
+                        <XAxis dataKey="label" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
+                        <YAxis tickFormatter={(value) => `${(Number(value || 0) * 100).toFixed(0)}%`} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
+                        <RechartsTooltip />
+                        <Legend />
+                        <Bar dataKey="strategyTotalReturn" name="策略收益" fill={CHART_POSITIVE} />
+                        <Bar dataKey="marketTotalReturn" name="市场收益" fill={CHART_NEUTRAL} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : null}
+                <Table
+                  size="small"
+                  pagination={false}
+                  rowKey={(record) => record.regime}
+                  dataSource={marketRegimeResult.regimes || []}
+                  columns={[
+                    { title: '市场状态', dataIndex: 'regime', key: 'regime' },
+                    { title: '天数', dataIndex: 'days', key: 'days' },
+                    { title: '策略收益', dataIndex: 'strategy_total_return', key: 'strategy_total_return', render: (value) => formatPercentage(value || 0) },
+                    { title: '市场收益', dataIndex: 'market_total_return', key: 'market_total_return', render: (value) => formatPercentage(value || 0) },
+                    { title: '胜率', dataIndex: 'win_rate', key: 'win_rate', render: (value) => formatPercentage(value || 0) },
+                    { title: '最大回撤', dataIndex: 'max_drawdown', key: 'max_drawdown', render: (value) => formatPercentage(value || 0) },
+                  ]}
+                />
+              </Space>
+            ) : (
+              <Empty description="运行市场状态分层回测后，这里会展示策略在不同市场状态下的表现差异。" />
+            )}
+          </Card>
+        </Col>
+      </Row>
+
+      <Row gutter={[20, 20]}>
         <Col xs={24} xl={12}>
           <Card className="workspace-panel workspace-chart-card" title="基准对照">
-            {benchmarkResult?.data && selectedWalkStrategy ? (
+            {benchmarkResult?.data && benchmarkContext?.strategy ? (
               <Space direction="vertical" style={{ width: '100%' }} size="large">
                 <Alert
                   type={benchmarkSummary?.beatBenchmark ? 'success' : 'warning'}
                   showIcon
-                  message={`${getStrategyName(selectedWalkStrategy)} vs 买入持有`}
+                  message={`${getStrategyName(benchmarkContext.strategy)} vs 买入持有`}
                   description={
                     benchmarkSummary
-                      ? `超额收益 ${formatPercentage(benchmarkSummary.excessReturn)}，夏普差值 ${benchmarkSummary.sharpeDelta.toFixed(2)}，回撤差值 ${formatPercentage(-benchmarkSummary.drawdownDelta)}`
+                      ? `${benchmarkContext.symbol} · ${benchmarkContext.dateRange?.filter(Boolean).join(' 至 ')}，超额收益 ${formatPercentage(benchmarkSummary.excessReturn)}，夏普差值 ${benchmarkSummary.sharpeDelta.toFixed(2)}，回撤差值 ${formatPercentage(-benchmarkSummary.drawdownDelta)}`
                       : '当前结果不足以生成基准对照摘要。'
                   }
                 />
@@ -1593,32 +2462,110 @@ function AdvancedBacktestLab({ strategies }) {
                         : '等权组合'
                   }。`}
                 />
-                {portfolioChartData.length ? (
-                  <div style={{ height: 260 }}>
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={portfolioChartData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.18)" />
-                        <XAxis dataKey="date" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
-                        <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
-                        <RechartsTooltip />
-                        <Line type="monotone" dataKey="total" name="组合净值" stroke={CHART_NEUTRAL} strokeWidth={2.5} dot={false} />
-                      </LineChart>
-                    </ResponsiveContainer>
+                {portfolioExposureSummary ? (
+                  <div className="summary-strip">
+                    <div className="summary-strip__item">
+                      <span className="summary-strip__label">总暴露</span>
+                      <span className="summary-strip__value">{formatPercentage(portfolioExposureSummary.grossExposure || 0)}</span>
+                    </div>
+                    <div className="summary-strip__item">
+                      <span className="summary-strip__label">净暴露</span>
+                      <span className="summary-strip__value">{formatPercentage(portfolioExposureSummary.netExposure || 0)}</span>
+                    </div>
+                    <div className="summary-strip__item">
+                      <span className="summary-strip__label">现金余额</span>
+                      <span className="summary-strip__value">{formatCurrency(portfolioExposureSummary.cash || 0)}</span>
+                    </div>
+                    <div className="summary-strip__item">
+                      <span className="summary-strip__label">活跃头寸</span>
+                      <span className="summary-strip__value">{portfolioExposureSummary.activePositions}</span>
+                    </div>
                   </div>
                 ) : null}
-                <Table
-                  size="small"
-                  pagination={false}
-                  rowKey={(record) => record.symbol}
-                  dataSource={portfolioStrategyResult.portfolio_components || []}
-                  columns={[
-                    { title: '标的', dataIndex: 'symbol', key: 'symbol' },
-                    { title: '权重', dataIndex: 'weight', key: 'weight', render: (value) => formatPercentage(value || 0) },
-                    { title: '总收益率', dataIndex: 'total_return', key: 'total_return', render: (value) => formatPercentage(value || 0) },
-                    { title: '最大回撤', dataIndex: 'max_drawdown', key: 'max_drawdown', render: (value) => formatPercentage(value || 0) },
-                    { title: '最终价值', dataIndex: 'final_value', key: 'final_value', render: (value) => formatCurrency(value || 0) },
-                  ]}
-                />
+                {portfolioChartData.length ? (
+                  <Row gutter={[16, 16]}>
+                    <Col xs={24} xl={12}>
+                      <div style={{ height: 260 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={portfolioChartData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.18)" />
+                            <XAxis dataKey="date" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
+                            <YAxis tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
+                            <RechartsTooltip />
+                            <Line type="monotone" dataKey="total" name="组合净值" stroke={CHART_NEUTRAL} strokeWidth={2.5} dot={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </Col>
+                    <Col xs={24} xl={12}>
+                      <div style={{ height: 260 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={portfolioChartData} margin={{ top: 8, right: 12, left: 8, bottom: 8 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.18)" />
+                            <XAxis dataKey="date" tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
+                            <YAxis
+                              tickFormatter={(value) => formatPercentage(Number(value || 0))}
+                              tick={{ fill: 'var(--text-muted)', fontSize: 12 }}
+                            />
+                            <RechartsTooltip formatter={(value) => formatPercentage(Number(value || 0))} />
+                            <Legend />
+                            <Line type="monotone" dataKey="grossExposure" name="总暴露" stroke={CHART_POSITIVE} strokeWidth={2.2} dot={false} />
+                            <Line type="monotone" dataKey="netExposure" name="净暴露" stroke={CHART_NEGATIVE} strokeWidth={2.2} dot={false} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </Col>
+                  </Row>
+                ) : null}
+                <Row gutter={[16, 16]}>
+                  <Col xs={24} xl={12}>
+                    <Table
+                      size="small"
+                      pagination={false}
+                      rowKey={(record) => record.symbol}
+                      dataSource={portfolioStrategyResult.portfolio_components || []}
+                      columns={[
+                        { title: '标的', dataIndex: 'symbol', key: 'symbol' },
+                        { title: '权重', dataIndex: 'weight', key: 'weight', render: (value) => formatPercentage(value || 0) },
+                        { title: '总收益率', dataIndex: 'total_return', key: 'total_return', render: (value) => formatPercentage(value || 0) },
+                        { title: '最大回撤', dataIndex: 'max_drawdown', key: 'max_drawdown', render: (value) => formatPercentage(value || 0) },
+                        { title: '最终价值', dataIndex: 'final_value', key: 'final_value', render: (value) => formatCurrency(value || 0) },
+                      ]}
+                    />
+                  </Col>
+                  <Col xs={24} xl={12}>
+                    <Table
+                      size="small"
+                      pagination={false}
+                      rowKey={(record) => record.symbol}
+                      locale={{ emptyText: '当前没有活跃头寸' }}
+                      dataSource={portfolioPositionSnapshot}
+                      columns={[
+                        { title: '标的', dataIndex: 'symbol', key: 'symbol' },
+                        {
+                          title: '方向',
+                          dataIndex: 'direction',
+                          key: 'direction',
+                          render: (value) => (
+                            <Tag color={value === '多头' ? 'green' : 'red'}>{value}</Tag>
+                          ),
+                        },
+                        {
+                          title: '持仓份额',
+                          dataIndex: 'shares',
+                          key: 'shares',
+                          render: (value) => formatCompactNumber(value),
+                        },
+                        {
+                          title: '目标权重',
+                          dataIndex: 'targetWeight',
+                          key: 'targetWeight',
+                          render: (value) => formatPercentage(value || 0),
+                        },
+                      ]}
+                    />
+                  </Col>
+                </Row>
               </Space>
             ) : (
               <Empty description="运行组合级策略回测后，这里会展示组合表现和各资产贡献。" />

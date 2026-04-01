@@ -117,6 +117,64 @@ const summarizePolicySourceShift = (macroInput = {}, overview = {}) => {
   };
 };
 
+const summarizeInputReliabilityShift = (macroInput = {}, overview = {}) => {
+  const savedReliability = macroInput?.input_reliability || {};
+  const currentReliability = overview?.input_reliability_summary || {};
+  const severityRank = { unknown: 0, robust: 1, watch: 2, fragile: 3 };
+  const savedLabel = savedReliability.label || 'unknown';
+  const currentLabel = currentReliability.label || 'unknown';
+  const savedRank = severityRank[savedLabel] || 0;
+  const currentRank = severityRank[currentLabel] || 0;
+  const labelChanged = savedLabel !== currentLabel;
+  const worsening = currentRank > savedRank;
+  const improving = currentRank < savedRank;
+  const scoreGap = Number(
+    (
+      Number(currentReliability.score || 0)
+      - Number(savedReliability.score || 0)
+    ).toFixed(3)
+  );
+
+  const enteredFragile = currentLabel === 'fragile' && savedLabel !== 'fragile';
+  const recoveredFromFragile = savedLabel === 'fragile' && currentLabel !== 'fragile';
+  const recoveredRobust = currentLabel === 'robust' && savedLabel !== 'robust';
+
+  let transition = '';
+  let actionHint = '';
+  if (enteredFragile) {
+    transition = 'enter_fragile';
+    actionHint = '建议先复核当前宏观输入可靠度，再决定是否继续沿用当前模板强度。';
+  } else if (recoveredFromFragile) {
+    transition = 'exit_fragile';
+    actionHint = '建议确认当前输入是否已恢复到可支撑更正常模板强度，再决定是否解除谨慎处理。';
+  } else if (recoveredRobust) {
+    transition = 'recover_robust';
+    actionHint = '建议确认当前宏观输入已恢复稳健，评估是否可以逐步恢复普通结果理解与模板强度。';
+  } else if (worsening || (labelChanged && currentLabel === 'watch')) {
+    transition = 'weakening';
+    actionHint = '建议先复核当前输入质量，再决定是否继续沿用现有模板和结论。';
+  } else if (improving || Math.abs(scoreGap) >= 0.12) {
+    transition = 'strength_changed';
+    actionHint = '建议重新确认当前输入质量变化是否已经足以改变模板强度判断。';
+  }
+
+  return {
+    savedLabel,
+    currentLabel,
+    labelChanged,
+    worsening,
+    improving,
+    enteredFragile,
+    recoveredFromFragile,
+    recoveredRobust,
+    scoreGap,
+    currentLead: currentReliability.lead || '',
+    currentReason: currentReliability.reason || '',
+    transition,
+    actionHint,
+  };
+};
+
 const summarizeBiasCompressionShift = (templateMeta = {}, overview = {}, allocationOverlay = {}) => {
   const currentHealth = overview?.evidence_summary?.policy_source_health_summary || {};
   const currentHealthLabel = currentHealth.label || 'unknown';
@@ -271,14 +329,24 @@ const summarizeReviewContextShift = (task = {}) => {
   const exitedReview = savedIsReview && !currentIsReview;
 
   let lead = '';
+  let actionHint = '';
+  let transition = '';
   if (enteredReview) {
     lead = '最近两版已从普通结果切到复核型结果';
+    actionHint = '建议按复核型结果重看当前判断，而不是继续沿用普通结果理解。';
+    transition = 'enter_review';
   } else if (exitedReview) {
     lead = '最近两版已从复核型结果回到普通结果';
+    actionHint = '建议确认当前主题是否已可恢复普通结果理解，不必继续沿用复核语境。';
+    transition = 'exit_review';
   } else if (changed && currentIsReview) {
     lead = `最近两版复核强度已从 ${savedLabel} 切到 ${currentLabel}`;
+    actionHint = '建议按新的复核强度重新理解这条任务，不要直接沿用上一版复核结论。';
+    transition = 'review_strength_changed';
   } else if (changed) {
     lead = `最近两版结果语境已从 ${savedLabel} 切到 ${currentLabel}`;
+    actionHint = '建议重新确认当前结果语境，避免继续沿用旧的理解方式。';
+    transition = 'context_changed';
   }
 
   return {
@@ -288,6 +356,8 @@ const summarizeReviewContextShift = (task = {}) => {
     savedLabel,
     currentLabel,
     lead,
+    actionHint,
+    transition,
   };
 };
 
@@ -366,6 +436,7 @@ const buildSummaryLines = ({
   macroShift,
   resonanceShift,
   policySourceShift,
+  inputReliabilityShift,
   biasCompressionShift,
   selectionQualityShift,
   selectionQualityRunState,
@@ -391,6 +462,14 @@ const buildSummaryLines = ({
     lines.push(`政策源从 ${policySourceShift.savedLabel} 切到 ${policySourceShift.currentLabel}`);
   } else if (policySourceShift?.addedFragileSources?.[0]) {
     lines.push(`${policySourceShift.addedFragileSources[0]} 进入政策脆弱源`);
+  }
+
+  if (inputReliabilityShift?.labelChanged) {
+    lines.push(`输入可靠度从 ${inputReliabilityShift.savedLabel} 切到 ${inputReliabilityShift.currentLabel}`);
+  } else if (Math.abs(Number(inputReliabilityShift?.scoreGap || 0)) >= 0.12) {
+    lines.push(
+      `输入可靠度 ${Number(inputReliabilityShift.scoreGap || 0) >= 0 ? '抬升' : '走弱'} ${Math.abs(Number(inputReliabilityShift.scoreGap || 0)).toFixed(2)}`
+    );
   }
 
   if (biasCompressionShift?.labelChanged) {
@@ -446,6 +525,7 @@ const determinePriorityReason = ({
   biasCompressionDriven,
   biasCompressionShift,
   policySourceDriven,
+  inputReliabilityDriven,
   macroShift,
   altShift,
   factorShift,
@@ -470,6 +550,9 @@ const determinePriorityReason = ({
   }
   if (policySourceDriven) {
     return 'policy_source';
+  }
+  if (inputReliabilityDriven) {
+    return 'input_reliability';
   }
   if (macroShift?.signalShift || Math.abs(Number(macroShift?.scoreGap || 0)) >= 0.18) {
     return 'macro';
@@ -499,6 +582,8 @@ const getPriorityWeight = (reason = '') => {
       return 3;
     case 'policy_source':
       return 2;
+    case 'input_reliability':
+      return 1.8;
     case 'macro':
       return 1;
     case 'alt_data':
@@ -549,6 +634,7 @@ export const buildResearchTaskRefreshSignals = ({
     const macroShift = summarizeMacroShift(researchInput?.macro || {}, overview);
     const resonanceShift = summarizeResonanceShift(researchInput?.macro || {}, overview);
     const policySourceShift = summarizePolicySourceShift(researchInput?.macro || {}, overview);
+    const inputReliabilityShift = summarizeInputReliabilityShift(researchInput?.macro || {}, overview);
     const allocationOverlay = extractTaskPayload(task)?.allocation_overlay || {};
     const biasCompressionShift = summarizeBiasCompressionShift(templateMeta, overview, allocationOverlay);
     const selectionQualityShift = summarizeSelectionQualityShift(templateMeta, biasCompressionShift);
@@ -565,6 +651,8 @@ export const buildResearchTaskRefreshSignals = ({
     else if (resonanceShift.addedFactors.length || resonanceShift.removedFactors.length) urgencyScore += 1;
     if (policySourceShift.worsening) urgencyScore += 2;
     else if (policySourceShift.labelChanged || policySourceShift.addedFragileSources.length) urgencyScore += 1;
+    if (inputReliabilityShift.worsening) urgencyScore += 2;
+    else if (inputReliabilityShift.labelChanged || Math.abs(inputReliabilityShift.scoreGap) >= 0.12) urgencyScore += 1;
     if (biasCompressionShift.compressed) urgencyScore += biasCompressionShift.scaleGap <= -0.2 ? 2 : 1;
     else if (biasCompressionShift.labelChanged) urgencyScore += 1;
     if (biasCompressionShift.coreLegAffected) urgencyScore += 1;
@@ -594,6 +682,7 @@ export const buildResearchTaskRefreshSignals = ({
       macroShift,
       resonanceShift,
       policySourceShift,
+      inputReliabilityShift,
       biasCompressionShift,
       selectionQualityShift,
       selectionQualityRunState,
@@ -612,6 +701,10 @@ export const buildResearchTaskRefreshSignals = ({
       policySourceShift.worsening
       || policySourceShift.labelChanged
       || policySourceShift.addedFragileSources.length > 0;
+    const inputReliabilityDriven =
+      inputReliabilityShift.worsening
+      || inputReliabilityShift.labelChanged
+      || Math.abs(inputReliabilityShift.scoreGap) >= 0.12;
     const biasCompressionDriven =
       biasCompressionShift.compressed
       || biasCompressionShift.labelChanged;
@@ -628,6 +721,7 @@ export const buildResearchTaskRefreshSignals = ({
       biasCompressionDriven,
       biasCompressionShift,
       policySourceDriven,
+      inputReliabilityDriven,
       macroShift,
       altShift,
       factorShift,
@@ -646,12 +740,14 @@ export const buildResearchTaskRefreshSignals = ({
       macroShift,
       resonanceShift,
       policySourceShift,
+      inputReliabilityShift,
       biasCompressionShift,
       selectionQualityShift,
       selectionQualityRunState,
       reviewContextShift,
       resonanceDriven,
       policySourceDriven,
+      inputReliabilityDriven,
       biasCompressionDriven,
       selectionQualityDriven,
       reviewContextDriven,
@@ -662,15 +758,29 @@ export const buildResearchTaskRefreshSignals = ({
       recommendation:
         severity === 'high'
           ? selectionQualityRunState.active
-            ? '建议优先重开研究页并更新快照，当前结果已处于降级运行状态'
-            : '建议重新打开研究页并更新快照'
+          ? '建议优先重开研究页并更新快照，当前结果已处于降级运行状态'
+            : reviewContextShift.enteredReview
+              ? '建议优先按复核型结果重看当前判断'
+              : reviewContextShift.exitedReview
+                ? '建议优先确认是否可恢复普通结果理解'
+                : inputReliabilityDriven && inputReliabilityShift.worsening
+                  ? inputReliabilityShift.actionHint || '建议优先重开研究页并重新确认当前输入可靠度'
+                  : '建议重新打开研究页并更新快照'
           : severity === 'medium'
             ? selectionQualityRunState.active
               ? '建议优先复核当前结果，当前结果已处于降级运行状态'
-              : '建议在当前工作台内复核关键输入后再推进'
+              : reviewContextShift.changed
+                ? reviewContextShift.actionHint || '建议优先复核当前结果语境'
+                : inputReliabilityDriven
+                  ? inputReliabilityShift.actionHint || '建议先复核当前宏观输入可靠度，再决定是否继续沿用当前模板'
+                  : '建议在当前工作台内复核关键输入后再推进'
             : selectionQualityRunState.active
               ? '当前结果已处于降级运行状态，建议继续观察并准备重开研究'
-              : '当前可以继续执行现有研究路线',
+              : reviewContextShift.changed
+                ? reviewContextShift.actionHint || '当前结果语境刚发生切换，建议继续观察并准备重看'
+                : inputReliabilityDriven
+                  ? inputReliabilityShift.actionHint || '当前输入可靠度已变化，建议继续观察并准备重估模板强度'
+                : '当前可以继续执行现有研究路线',
     };
   });
 

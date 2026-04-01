@@ -50,6 +50,7 @@ class SpreadZScoreStrategy(CrossMarketStrategy):
         entry_threshold = float(parameters.get("entry_threshold", 1.5))
         exit_threshold = float(parameters.get("exit_threshold", 0.5))
         construction_mode = str(parameters.get("construction_mode", "equal_weight")).strip().lower()
+        refit_interval = max(1, int(parameters.get("refit_interval", 1)))
 
         if lookback < 5:
             raise ValueError("lookback must be at least 5")
@@ -69,6 +70,7 @@ class SpreadZScoreStrategy(CrossMarketStrategy):
                 long_leg=long_leg,
                 short_leg=short_leg,
                 lookback=lookback,
+                refit_interval=refit_interval,
             )
         spread = long_leg - hedge_ratio * short_leg
 
@@ -109,12 +111,16 @@ class SpreadZScoreStrategy(CrossMarketStrategy):
         long_leg: pd.Series,
         short_leg: pd.Series,
         lookback: int,
+        refit_interval: int = 1,
     ) -> pd.Series:
         ratios = []
         last_ratio = 1.0
 
         for idx in range(len(long_leg)):
             if idx + 1 < lookback:
+                ratios.append(last_ratio)
+                continue
+            if idx > 0 and idx % refit_interval != 0:
                 ratios.append(last_ratio)
                 continue
 
@@ -133,3 +139,83 @@ class SpreadZScoreStrategy(CrossMarketStrategy):
             ratios.append(last_ratio)
 
         return pd.Series(ratios, index=long_leg.index, dtype=float)
+
+
+class CointegrationReversionStrategy(SpreadZScoreStrategy):
+    """Mean-reversion strategy gated by rolling cointegration quality."""
+
+    name = "cointegration_reversion"
+
+    def generate_cross_signals(
+        self,
+        price_matrix: pd.DataFrame,
+        asset_specs: List[AssetSpec],
+        parameters: Dict[str, float],
+    ) -> pd.DataFrame:
+        frame = super().generate_cross_signals(price_matrix, asset_specs, parameters)
+        lookback = int(parameters.get("lookback", 20))
+        p_value_threshold = float(parameters.get("p_value_threshold", 0.15))
+        refit_interval = max(1, int(parameters.get("refit_interval", 5)))
+
+        rolling_p_value = self._rolling_cointegration_p_value(
+            long_leg=frame["long_leg"],
+            short_leg=frame["short_leg"],
+            lookback=lookback,
+            refit_interval=refit_interval,
+        )
+        coint_ok = rolling_p_value <= p_value_threshold
+
+        gated_signal = frame["signal"].where(coint_ok, 0).astype(int)
+        position = pd.Series(index=frame.index, data=0, dtype=int)
+        current_position = 0
+        exit_threshold = float(parameters.get("exit_threshold", 0.5))
+
+        for idx in position.index:
+            z_val = float(frame.loc[idx, "z_score"])
+            proposed_signal = int(gated_signal.loc[idx])
+            if proposed_signal != 0:
+                current_position = proposed_signal
+            elif (not bool(coint_ok.loc[idx])) or abs(z_val) <= exit_threshold:
+                current_position = 0
+            position.loc[idx] = current_position
+
+        frame["cointegration_p_value"] = rolling_p_value
+        frame["cointegrated"] = coint_ok.astype(int)
+        frame["signal"] = gated_signal
+        frame["position"] = position
+        return frame
+
+    @staticmethod
+    def _rolling_cointegration_p_value(
+        long_leg: pd.Series,
+        short_leg: pd.Series,
+        lookback: int,
+        refit_interval: int,
+    ) -> pd.Series:
+        p_values = []
+        last_p_value = 1.0
+        try:
+            from statsmodels.tsa.stattools import coint
+        except Exception:
+            coint = None
+
+        for idx in range(len(long_leg)):
+            if idx + 1 < lookback:
+                p_values.append(last_p_value)
+                continue
+            if idx > 0 and idx % refit_interval != 0:
+                p_values.append(last_p_value)
+                continue
+
+            long_window = long_leg.iloc[idx + 1 - lookback:idx + 1].astype(float).values
+            short_window = short_leg.iloc[idx + 1 - lookback:idx + 1].astype(float).values
+
+            if coint is not None:
+                try:
+                    _, p_value, _ = coint(long_window, short_window)
+                    last_p_value = float(p_value) if np.isfinite(p_value) else last_p_value
+                except Exception:
+                    pass
+            p_values.append(last_p_value)
+
+        return pd.Series(p_values, index=long_leg.index, dtype=float)

@@ -228,6 +228,9 @@ export const formatWalkForwardForExport = (walkResult) => {
         { metric: '平均夏普比率', value: Number(walkResult.aggregate_metrics?.average_sharpe || 0).toFixed(2) },
         { metric: '正收益窗口', value: walkResult.aggregate_metrics?.positive_windows ?? 0 },
         { metric: '负收益窗口', value: walkResult.aggregate_metrics?.negative_windows ?? 0 },
+        { metric: '优化指标', value: walkResult.aggregate_metrics?.optimization_metric || walkResult.optimization_metric || 'sharpe_ratio' },
+        { metric: 'Monte Carlo P50', value: `${((walkResult.monte_carlo?.mean_return_p50 || 0) * 100).toFixed(2)}%` },
+        { metric: '过拟合风险', value: walkResult.overfitting_diagnostics?.level || 'unknown' },
     ];
 
     const windows = (walkResult.window_results || []).map((item) => ({
@@ -236,6 +239,7 @@ export const formatWalkForwardForExport = (walkResult) => {
         total_return: `${(((item.metrics?.total_return ?? item.total_return) || 0) * 100).toFixed(2)}%`,
         sharpe_ratio: Number(item.metrics?.sharpe_ratio || item.sharpe_ratio || 0).toFixed(2),
         max_drawdown: `${(((item.metrics?.max_drawdown ?? item.max_drawdown) || 0) * 100).toFixed(2)}%`,
+        selected_parameters: JSON.stringify(item.selected_parameters || {}),
     }));
 
     return { summary, windows };

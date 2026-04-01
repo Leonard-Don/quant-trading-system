@@ -835,6 +835,9 @@ def test_macro_exposes_policy_source_health_summary(monkeypatch, tmp_path):
     assert first_factor["metadata"]["policy_source_warning"] is True
     assert first_factor["metadata"]["policy_source_level"] == "fragile"
     assert macro_payload["confidence_adjustment"]["policy_source_fragile_factor_count"] >= 1
+    assert macro_payload["input_reliability_summary"]["label"] in {"watch", "fragile"}
+    assert "政策源脆弱" in " ".join(macro_payload["input_reliability_summary"]["dominant_issue_labels"])
+    assert macro_payload["input_reliability_summary"]["issue_factor_hits"] >= 1
 
 
 def test_macro_exposes_source_gap_warning(monkeypatch, tmp_path):

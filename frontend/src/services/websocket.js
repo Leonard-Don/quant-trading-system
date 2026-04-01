@@ -38,6 +38,18 @@ class WebSocketService {
         }
     }
 
+    scheduleReconnect(nextRetryInMs) {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+        }
+
+        this.reconnectTimer = setTimeout(() => {
+            this.connect().catch((error) => {
+                console.warn('WebSocket reconnect failed:', error);
+            });
+        }, nextRetryInMs);
+    }
+
     getReconnectDelay(attempt = this.reconnectAttempts) {
         const safeAttempt = Math.max(1, attempt);
         const exponentialDelay = Math.min(
@@ -184,7 +196,7 @@ class WebSocketService {
                             lastError: this.lastErrorReason,
                             nextRetryInMs,
                         });
-                        this.reconnectTimer = setTimeout(() => this.connect(), nextRetryInMs);
+                        this.scheduleReconnect(nextRetryInMs);
                     } else {
                         this.notifyListeners('connection', {
                             status: 'disconnected',

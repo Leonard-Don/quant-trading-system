@@ -51,6 +51,8 @@ const formatTimestamp = (value) => {
 
     return date.toLocaleTimeString();
 };
+const hasFinitePositiveNumber = (value) => value !== null && value !== undefined && !Number.isNaN(Number(value)) && Number(value) > 0;
+const DEFAULT_RISK_PERCENT = 2;
 
 const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = null, onCreateAlertFromPlan = null }) => {
     const [portfolio, setPortfolio] = useState(null);
@@ -62,6 +64,7 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
     const [price, setPrice] = useState(null); // Optional limit price
     const [currentQuote, setCurrentQuote] = useState(null);
     const [quoteLoading, setQuoteLoading] = useState(false);
+    const [riskPercent, setRiskPercent] = useState(DEFAULT_RISK_PERCENT);
     const currentQuoteRequestRef = useRef(0);
 
     useEffect(() => {
@@ -121,6 +124,7 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
             setAction(planDraft?.action || 'BUY');
             setQuantity(planDraft?.quantity || 100);
             setPrice(planDraft?.limitPrice ?? null);
+            setRiskPercent(DEFAULT_RISK_PERCENT);
             setCurrentQuote(null);
         }
     }, [visible, defaultSymbol, planDraft]);
@@ -327,6 +331,26 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
     ];
 
     const activePosition = portfolio?.positions?.find((item) => item.symbol === symbol) || null;
+    const referencePrice = price ?? planDraft?.suggestedEntry ?? currentQuote?.price ?? null;
+    const stopReferencePrice = planDraft?.stopLoss ?? null;
+    const riskCapital = portfolio?.total_equity && hasFinitePositiveNumber(riskPercent)
+        ? Number(portfolio.total_equity) * (Number(riskPercent) / 100)
+        : null;
+    const riskPerShare = hasFinitePositiveNumber(referencePrice) && hasFinitePositiveNumber(stopReferencePrice)
+        ? Math.abs(Number(referencePrice) - Number(stopReferencePrice))
+        : null;
+    const maxAffordableQuantity = hasFinitePositiveNumber(referencePrice) && hasFinitePositiveNumber(portfolio?.balance)
+        ? Math.floor(Number(portfolio.balance) / Number(referencePrice))
+        : null;
+    const suggestedRiskQuantity = hasFinitePositiveNumber(riskCapital) && hasFinitePositiveNumber(riskPerShare) && riskPerShare > 0
+        ? Math.floor(Number(riskCapital) / Number(riskPerShare))
+        : null;
+    const suggestedQuantity = suggestedRiskQuantity !== null && maxAffordableQuantity !== null
+        ? Math.max(0, Math.min(suggestedRiskQuantity, maxAffordableQuantity))
+        : suggestedRiskQuantity;
+    const estimatedExposure = hasFinitePositiveNumber(referencePrice) && hasFinitePositiveNumber(suggestedQuantity)
+        ? Number(referencePrice) * Number(suggestedQuantity)
+        : null;
 
     const portfolioTabItems = [
         {
@@ -538,6 +562,52 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
                                 />
                             </div>
 
+                            <div className="trade-panel-risk-card">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <Text strong>仓位建议</Text>
+                                    <Space wrap>
+                                        <Text type="secondary">风险占比</Text>
+                                        <InputNumber
+                                            min={0.5}
+                                            max={10}
+                                            step={0.5}
+                                            value={riskPercent}
+                                            onChange={setRiskPercent}
+                                            placeholder="2"
+                                        />
+                                        <Text type="secondary">%</Text>
+                                    </Space>
+                                </div>
+                                <div className="trade-panel-quote-grid" style={{ marginTop: 12 }}>
+                                    <div className="trade-panel-quote-stat">
+                                        <div className="trade-panel-quote-stat__label">风险预算</div>
+                                        <div className="trade-panel-quote-stat__value">{formatOptionalCurrency(riskCapital)}</div>
+                                    </div>
+                                    <div className="trade-panel-quote-stat">
+                                        <div className="trade-panel-quote-stat__label">每股风险</div>
+                                        <div className="trade-panel-quote-stat__value">{formatOptionalCurrency(riskPerShare)}</div>
+                                    </div>
+                                    <div className="trade-panel-quote-stat">
+                                        <div className="trade-panel-quote-stat__label">建议仓位</div>
+                                        <div className="trade-panel-quote-stat__value">{suggestedQuantity ?? '--'}</div>
+                                    </div>
+                                    <div className="trade-panel-quote-stat">
+                                        <div className="trade-panel-quote-stat__label">预计敞口</div>
+                                        <div className="trade-panel-quote-stat__value">{formatOptionalCurrency(estimatedExposure)}</div>
+                                    </div>
+                                </div>
+                                <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                                    {hasFinitePositiveNumber(stopReferencePrice) && hasFinitePositiveNumber(referencePrice)
+                                        ? `按参考入场 ${formatOptionalCurrency(referencePrice)} 与止损 ${formatOptionalCurrency(stopReferencePrice)} 计算，并自动受账户余额约束。`
+                                        : '填入交易计划或止损位后，这里会按账户总资产给出建议仓位。'}
+                                </div>
+                                {hasFinitePositiveNumber(suggestedQuantity) ? (
+                                    <Button style={{ marginTop: 10 }} onClick={() => setQuantity(suggestedQuantity)}>
+                                        使用建议仓位
+                                    </Button>
+                                ) : null}
+                            </div>
+
                             <div>
                                 <Text>价格 (留空为市价单)</Text>
                                 <InputNumber
@@ -743,6 +813,13 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
                     font-size: 15px;
                     font-weight: 700;
                     color: var(--text-primary);
+                }
+
+                .trade-panel-risk-card {
+                    padding: 14px;
+                    border-radius: 18px;
+                    border: 1px solid var(--border-color);
+                    background: color-mix(in srgb, var(--bg-primary) 90%, white 10%);
                 }
 
                 @media (max-width: 640px) {

@@ -6,7 +6,13 @@ import pytest
 import pandas as pd
 import numpy as np
 
-from src.strategy.strategies import MovingAverageCrossover, RSIStrategy, BollingerBands
+from src.strategy.strategies import (
+    MovingAverageCrossover,
+    RSIStrategy,
+    BollingerBands,
+    TurtleTradingStrategy,
+    MultiFactorStrategy,
+)
 from src.strategy.advanced_strategies import MACDStrategy, MeanReversionStrategy
 
 
@@ -96,3 +102,52 @@ class TestMeanReversionStrategy:
 
         assert len(signals) == len(sample_data)
         assert strategy.name == "MeanReversion"
+
+
+class TestTurtleTradingStrategy:
+    """海龟交易策略测试"""
+
+    def test_initialization(self):
+        strategy = TurtleTradingStrategy(entry_period=20, exit_period=10)
+        assert strategy.parameters["entry_period"] == 20
+        assert strategy.parameters["exit_period"] == 10
+        assert strategy.name == "TurtleTrading"
+
+    def test_signal_generation(self, sample_data):
+        strategy = TurtleTradingStrategy(entry_period=10, exit_period=5)
+        signals = strategy.generate_signals(sample_data)
+
+        assert len(signals) == len(sample_data)
+        unique_signals = signals.dropna().unique()
+        assert all(signal in [-1, 0, 1] for signal in unique_signals)
+
+    def test_invalid_parameters(self):
+        with pytest.raises(Exception):
+            TurtleTradingStrategy(entry_period=10, exit_period=10)
+
+
+class TestMultiFactorStrategy:
+    def test_initialization(self):
+        strategy = MultiFactorStrategy()
+        assert strategy.parameters["momentum_window"] == 20
+        assert strategy.parameters["entry_threshold"] == 0.4
+        assert strategy.name == "MultiFactor"
+
+    def test_signal_generation(self, sample_data):
+        strategy = MultiFactorStrategy(
+            momentum_window=10,
+            mean_reversion_window=3,
+            volume_window=10,
+            volatility_window=10,
+            entry_threshold=0.2,
+            exit_threshold=0.05,
+        )
+        signals = strategy.generate_signals(sample_data)
+
+        assert len(signals) == len(sample_data)
+        unique_signals = signals.dropna().unique()
+        assert all(signal in [-1, 0, 1] for signal in unique_signals)
+
+    def test_invalid_parameters(self):
+        with pytest.raises(Exception):
+            MultiFactorStrategy(entry_threshold=0.1, exit_threshold=0.2)

@@ -6,7 +6,6 @@ import {
     Empty,
     Tag,
     Button,
-    message,
     Tooltip
 } from 'antd';
 import {
@@ -15,6 +14,8 @@ import {
 } from '@ant-design/icons';
 import { getLeaderStocks, getLeaderDetail, getIndustryTrend } from '../services/api';
 import StockDetailModal from './StockDetailModal';
+import MiniSparkline from './common/MiniSparkline';
+import { useSafeMessageApi } from '../utils/messageApi';
 
 const averageOf = (items, selector) => {
     const values = items
@@ -23,6 +24,20 @@ const averageOf = (items, selector) => {
         .filter((value) => Number.isFinite(value));
     if (values.length === 0) return null;
     return values.reduce((sum, value) => sum + value, 0) / values.length;
+};
+
+const buildLeaderFallbackTrend = (record) => {
+    const change = Number(record?.change_pct || 0);
+    const cappedChange = Math.max(-8, Math.min(8, change));
+    const endPoint = 100 + cappedChange;
+    return [
+        100 - cappedChange * 0.45,
+        100 - cappedChange * 0.2,
+        100 + cappedChange * 0.08,
+        100 + cappedChange * 0.38,
+        100 + cappedChange * 0.72,
+        endPoint,
+    ];
 };
 
 /**
@@ -37,6 +52,7 @@ const LeaderStockPanel = ({
     focusIndustry = null,
     onClearFocusIndustry
 }) => {
+    const message = useSafeMessageApi();
     const normalizeIndustry = useCallback((value) => String(value || '').trim().toLowerCase(), []);
     const resolveScoreType = (record) => {
         if (record?.score_type) return record.score_type;
@@ -317,7 +333,7 @@ const LeaderStockPanel = ({
             if (detailRequestIdRef.current !== requestId) return;
             setDetailLoading(false);
         }
-    }, []);
+    }, [message]);
 
     // 表格列定义 — 含核心指标
     const columns = [
@@ -391,6 +407,19 @@ const LeaderStockPanel = ({
                 <span style={{ color: (value || 0) >= 0 ? '#cf1322' : '#3f8600', fontWeight: 700, fontSize: 12 }}>
                     {(value || 0) >= 0 ? '+' : ''}{(value || 0).toFixed(2)}%
                 </span>
+            )
+        },
+        {
+            title: '走势',
+            dataIndex: 'mini_trend',
+            key: 'mini_trend',
+            width: 96,
+            render: (points, record) => (
+                <Tooltip title={`${record.name || record.symbol} 近期价格轨迹`}>
+                    <div style={{ width: 88 }}>
+                        <MiniSparkline points={(points && points.length >= 2) ? points : buildLeaderFallbackTrend(record)} ariaLabel={`${record.name || record.symbol} 近期走势`} />
+                    </div>
+                </Tooltip>
             )
         },
         {
@@ -624,6 +653,7 @@ const LeaderStockPanel = ({
                         rowKey={getLeaderRowKey}
                         size="small"
                         loading={coreLoading}
+                        scroll={{ x: 760 }}
                         pagination={false}
                         onRow={(record) => ({
                             onClick: () => {
@@ -663,6 +693,7 @@ const LeaderStockPanel = ({
                         rowKey={getLeaderRowKey}
                         size="small"
                         loading={hotLoading}
+                        scroll={{ x: 760 }}
                         pagination={false}
                         onRow={(record) => ({
                             onClick: () => {
@@ -670,7 +701,7 @@ const LeaderStockPanel = ({
                                     onStockClick(record.symbol);
                                     return;
                                 }
-                                loadDetail(record.symbol, resolveScoreType(record));
+                                loadDetail(record.symbol, resolveScoreType(record), record);
                             },
                             style: { cursor: 'pointer' },
                             'data-testid': 'leader-stock-row',

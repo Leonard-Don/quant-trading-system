@@ -9,6 +9,8 @@ from src.strategy.strategies import (
     RSIStrategy,
     BollingerBands,
     BuyAndHold,
+    TurtleTradingStrategy,
+    MultiFactorStrategy,
 )
 from src.strategy.advanced_strategies import (
     MACDStrategy,
@@ -105,6 +107,26 @@ def _get_strategies_list():
                 "atr_multiplier": {"type": "float", "default": 2.0, "min": 1.0, "max": 5.0},
             },
         },
+        {
+            "name": "turtle_trading",
+            "description": "海龟交易 / Donchian 通道突破策略",
+            "parameters": {
+                "entry_period": {"type": "int", "default": 20, "min": 5, "max": 120},
+                "exit_period": {"type": "int", "default": 10, "min": 3, "max": 60},
+            },
+        },
+        {
+            "name": "multi_factor",
+            "description": "多因子复合择时策略",
+            "parameters": {
+                "momentum_window": {"type": "int", "default": 20, "min": 5, "max": 120},
+                "mean_reversion_window": {"type": "int", "default": 5, "min": 2, "max": 30},
+                "volume_window": {"type": "int", "default": 20, "min": 5, "max": 120},
+                "volatility_window": {"type": "int", "default": 20, "min": 5, "max": 120},
+                "entry_threshold": {"type": "float", "default": 0.4, "min": 0.05, "max": 3.0},
+                "exit_threshold": {"type": "float", "default": 0.1, "min": 0.0, "max": 1.5},
+            },
+        },
     ]
 
 
@@ -119,4 +141,3 @@ async def get_strategies():
     使用 lru_cache 缓存策略列表以提高性能
     """
     return _get_strategies_list()
-

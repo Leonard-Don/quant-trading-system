@@ -4,6 +4,7 @@ import api from '../services/api';
 
 export const REALTIME_SYMBOLS_STORAGE_KEY = 'realtime-panel:symbols';
 export const REALTIME_ACTIVE_TAB_STORAGE_KEY = 'realtime-panel:active-tab';
+export const REALTIME_SYMBOL_CATEGORIES_STORAGE_KEY = 'realtime-panel:symbol-categories';
 const REALTIME_PROFILE_STORAGE_KEY = 'realtime-panel:profile-id';
 export const REALTIME_PREFERENCES_DEBOUNCE_MS = 500;
 
@@ -65,12 +66,45 @@ export const loadPersistedActiveTab = (defaultTab) => {
   return window.localStorage.getItem(REALTIME_ACTIVE_TAB_STORAGE_KEY) || defaultTab;
 };
 
+export const loadPersistedSymbolCategories = () => {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  try {
+    const raw = window.localStorage.getItem(REALTIME_SYMBOL_CATEGORIES_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+
+    return Object.entries(parsed).reduce((result, [rawSymbol, rawCategory]) => {
+      if (typeof rawSymbol !== 'string' || typeof rawCategory !== 'string') {
+        return result;
+      }
+      const symbol = rawSymbol.trim().toUpperCase();
+      const category = rawCategory.trim();
+      if (symbol && category) {
+        result[symbol] = category;
+      }
+      return result;
+    }, {});
+  } catch (error) {
+    return {};
+  }
+};
+
 export const useRealtimePreferences = ({
   defaultSymbols,
   defaultActiveTab = 'index',
 }) => {
   const [subscribedSymbols, setSubscribedSymbols] = useState(() => loadPersistedSymbols(defaultSymbols));
   const [activeTab, setActiveTab] = useState(() => loadPersistedActiveTab(defaultActiveTab));
+  const [symbolCategoryOverrides, setSymbolCategoryOverrides] = useState(() => loadPersistedSymbolCategories());
   const [isPreferencesHydrated, setIsPreferencesHydrated] = useState(false);
 
   const lastSyncedPreferencesRef = useRef('');
@@ -95,17 +129,30 @@ export const useRealtimePreferences = ({
   }, [activeTab]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(
+      REALTIME_SYMBOL_CATEGORIES_STORAGE_KEY,
+      JSON.stringify(symbolCategoryOverrides)
+    );
+  }, [symbolCategoryOverrides]);
+
+  useEffect(() => {
     latestPreferencesRef.current = JSON.stringify({
       symbols: subscribedSymbols,
       active_tab: activeTab,
+      symbol_categories: symbolCategoryOverrides,
     });
-  }, [activeTab, subscribedSymbols]);
+  }, [activeTab, subscribedSymbols, symbolCategoryOverrides]);
 
   useEffect(() => {
     let isCancelled = false;
     const initialPreferencesSnapshot = JSON.stringify({
       symbols: subscribedSymbols,
       active_tab: activeTab,
+      symbol_categories: symbolCategoryOverrides,
     });
 
     const hydratePreferences = async () => {
@@ -130,6 +177,21 @@ export const useRealtimePreferences = ({
         const nextTab = typeof response.data.data?.active_tab === 'string'
           ? response.data.data.active_tab
           : null;
+        const nextCategories = response.data.data?.symbol_categories
+          && typeof response.data.data.symbol_categories === 'object'
+          && !Array.isArray(response.data.data.symbol_categories)
+          ? Object.entries(response.data.data.symbol_categories).reduce((result, [rawSymbol, rawCategory]) => {
+            if (typeof rawSymbol !== 'string' || typeof rawCategory !== 'string') {
+              return result;
+            }
+            const symbol = rawSymbol.trim().toUpperCase();
+            const category = rawCategory.trim();
+            if (symbol && category) {
+              result[symbol] = category;
+            }
+            return result;
+          }, {})
+          : {};
 
         if (!userChangedPreferencesDuringHydration) {
           if (nextSymbols.length > 0) {
@@ -138,10 +200,12 @@ export const useRealtimePreferences = ({
           if (nextTab) {
             setActiveTab(nextTab);
           }
+          setSymbolCategoryOverrides(nextCategories);
 
           lastSyncedPreferencesRef.current = JSON.stringify({
             symbols: nextSymbols.length > 0 ? Array.from(new Set(nextSymbols)) : subscribedSymbols,
             active_tab: nextTab || activeTab,
+            symbol_categories: nextCategories,
           });
         }
       } catch (error) {
@@ -169,6 +233,7 @@ export const useRealtimePreferences = ({
     const payload = {
       symbols: subscribedSymbols,
       active_tab: activeTab,
+      symbol_categories: symbolCategoryOverrides,
     };
     const serializedPayload = JSON.stringify(payload);
     if (serializedPayload === lastSyncedPreferencesRef.current) {
@@ -198,13 +263,15 @@ export const useRealtimePreferences = ({
         preferencesSaveTimerRef.current = null;
       }
     };
-  }, [activeTab, isPreferencesHydrated, subscribedSymbols]);
+  }, [activeTab, isPreferencesHydrated, subscribedSymbols, symbolCategoryOverrides]);
 
   return {
     activeTab,
     realtimeProfileId: realtimeProfileIdRef.current,
     setActiveTab,
+    setSymbolCategoryOverrides,
     setSubscribedSymbols,
     subscribedSymbols,
+    symbolCategoryOverrides,
   };
 };

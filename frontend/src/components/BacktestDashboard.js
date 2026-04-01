@@ -150,6 +150,10 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
         setBacktestTab('advanced');
     };
 
+    const handleImportAdvancedTemplateToMain = () => {
+        setBacktestTab('new');
+    };
+
     const tabItems = [
         {
             key: 'new',
@@ -248,7 +252,10 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
             ),
             children: (
                 <Suspense fallback={<LazyLoadFallback />}>
-                    <AdvancedBacktestLab strategies={strategies} />
+                    <AdvancedBacktestLab
+                        strategies={strategies}
+                        onImportTemplateToMainBacktest={handleImportAdvancedTemplateToMain}
+                    />
                 </Suspense>
             )
         }

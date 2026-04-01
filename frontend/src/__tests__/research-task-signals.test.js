@@ -442,4 +442,102 @@ describe('buildResearchTaskRefreshSignals', () => {
     expect(model.byTaskId.task_review_context.reviewContextShift.lead).toContain('最近两版已从普通结果切到复核型结果');
     expect(model.byTaskId.task_review_context.summary).toContain('最近两版已从普通结果切到复核型结果');
   });
+
+  it('elevates tasks when overall input reliability degrades even if policy-source health is unchanged', () => {
+    const model = buildResearchTaskRefreshSignals({
+      overview: {
+        macro_score: 0.46,
+        macro_signal: 0,
+        input_reliability_summary: {
+          label: 'fragile',
+          score: 0.41,
+          lead: '当前输入可靠度偏脆弱，主要风险来自时效偏旧与来源退化。',
+          reason: 'effective confidence 0.41 · freshness aging · 风险 时效偏旧、来源退化',
+        },
+        evidence_summary: {
+          policy_source_health_summary: {
+            label: 'healthy',
+            reason: '主要政策源正文覆盖稳定',
+            fragile_sources: [],
+            watch_sources: [],
+            healthy_sources: ['fed'],
+            avg_full_text_ratio: 0.88,
+          },
+        },
+        resonance_summary: {
+          label: 'mixed',
+          reason: '当前因子变化尚未形成明确共振',
+          positive_cluster: [],
+          negative_cluster: [],
+          weakening: [],
+          precursor: [],
+          reversed_factors: [],
+        },
+        trend: {
+          factor_deltas: {},
+        },
+      },
+      snapshot: {
+        category_summary: {},
+      },
+      researchTasks: [
+        {
+          id: 'task_input_reliability',
+          type: 'cross_market',
+          status: 'in_progress',
+          title: 'Input reliability thesis',
+          template: 'energy_vs_ai_apps',
+          snapshot: {
+            payload: {
+              research_input: {
+                macro: {
+                  macro_score: 0.45,
+                  macro_signal: 0,
+                  input_reliability: {
+                    label: 'robust',
+                    score: 0.84,
+                    lead: '当前输入可靠度整体稳健。',
+                  },
+                  policy_source_health: {
+                    label: 'healthy',
+                    reason: '主要政策源正文覆盖稳定',
+                    fragile_sources: [],
+                    watch_sources: [],
+                    healthy_sources: ['fed'],
+                    avg_full_text_ratio: 0.88,
+                  },
+                  resonance: {
+                    label: 'mixed',
+                    reason: '当前因子变化尚未形成明确共振',
+                    positive_cluster: [],
+                    negative_cluster: [],
+                    weakening: [],
+                    precursor: [],
+                    reversed_factors: [],
+                  },
+                },
+                alt_data: {
+                  top_categories: [],
+                },
+              },
+              template_meta: {
+                template_id: 'energy_vs_ai_apps',
+                bias_scale: 1,
+                bias_quality_label: 'full',
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    expect(model.byTaskId.task_input_reliability.inputReliabilityDriven).toBe(true);
+    expect(model.byTaskId.task_input_reliability.inputReliabilityShift.savedLabel).toBe('robust');
+    expect(model.byTaskId.task_input_reliability.inputReliabilityShift.currentLabel).toBe('fragile');
+    expect(model.byTaskId.task_input_reliability.inputReliabilityShift.transition).toBe('enter_fragile');
+    expect(model.byTaskId.task_input_reliability.inputReliabilityShift.actionHint).toContain('先复核当前宏观输入可靠度');
+    expect(model.byTaskId.task_input_reliability.priorityReason).toBe('input_reliability');
+    expect(model.byTaskId.task_input_reliability.summary).toContain('输入可靠度从 robust 切到 fragile');
+    expect(model.byTaskId.task_input_reliability.recommendation).toContain('先复核当前宏观输入可靠度');
+  });
 });

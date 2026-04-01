@@ -25,6 +25,7 @@ VALID_TABS = {'index', 'us', 'cn', 'crypto', 'bond', 'future', 'option', 'other'
 DEFAULT_PREFERENCES = {
     "symbols": DEFAULT_SYMBOLS,
     "active_tab": "index",
+    "symbol_categories": {},
 }
 
 
@@ -67,12 +68,24 @@ class RealtimePreferencesStore:
         payload = dict(payload or {})
         symbols = self._normalize_symbols(payload.get("symbols") or DEFAULT_PREFERENCES["symbols"])
         active_tab = payload.get("active_tab") or DEFAULT_PREFERENCES["active_tab"]
+        raw_categories = payload.get("symbol_categories") or {}
         if active_tab not in VALID_TABS:
             active_tab = DEFAULT_PREFERENCES["active_tab"]
+
+        symbol_categories: Dict[str, str] = {}
+        if isinstance(raw_categories, dict):
+            for raw_symbol, raw_category in raw_categories.items():
+                if not isinstance(raw_symbol, str) or not isinstance(raw_category, str):
+                    continue
+                symbol = raw_symbol.strip().upper()
+                category = raw_category.strip()
+                if symbol and category in VALID_TABS:
+                    symbol_categories[symbol] = category
 
         return {
             "symbols": symbols or list(DEFAULT_PREFERENCES["symbols"]),
             "active_tab": active_tab,
+            "symbol_categories": symbol_categories,
         }
 
     def _load_preferences(self, profile_id: str | None) -> Dict[str, Any]:
@@ -100,6 +113,7 @@ class RealtimePreferencesStore:
             return {
                 "symbols": list(preferences["symbols"]),
                 "active_tab": preferences["active_tab"],
+                "symbol_categories": dict(preferences.get("symbol_categories") or {}),
             }
 
     def update_preferences(self, payload: Dict[str, Any], profile_id: str | None = None) -> Dict[str, Any]:

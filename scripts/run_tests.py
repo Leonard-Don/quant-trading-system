@@ -42,7 +42,7 @@ def _check_local_service(url: str) -> bool:
             return 200 <= getattr(response, "status", 200) < 500
     except HTTPError as exc:
         return 200 <= exc.code < 500
-    except URLError:
+    except (URLError, TimeoutError, OSError):
         return False
 
 
@@ -65,6 +65,28 @@ def run_industry_e2e_tests():
         return 1
 
     cmd = ["node", "verify_industry_features.js"]
+    return subprocess.run(cmd, cwd=project_root / "tests" / "e2e").returncode
+
+
+def run_realtime_e2e_tests():
+    """运行实时行情 E2E 回归测试"""
+    print("🌐 运行实时行情 E2E 回归...")
+
+    if shutil.which("node") is None:
+        print("❌ 未找到 node，请先安装 Node.js")
+        return 1
+
+    frontend_ok = _check_local_service("http://localhost:3000")
+    backend_ok = _check_local_service("http://localhost:8000/health")
+    if not frontend_ok or not backend_ok:
+        print("❌ 实时行情 E2E 需要本地前后端服务已启动")
+        print(f"   frontend http://localhost:3000: {'OK' if frontend_ok else 'UNAVAILABLE'}")
+        print(f"   backend  http://localhost:8000/health: {'OK' if backend_ok else 'UNAVAILABLE'}")
+        print("   可先运行: python scripts/start_backend.py")
+        print("   可先运行: ./scripts/start_frontend.sh")
+        return 1
+
+    cmd = ["node", "verify_realtime_features.js"]
     return subprocess.run(cmd, cwd=project_root / "tests" / "e2e").returncode
 
 
@@ -146,6 +168,7 @@ def main():
     parser.add_argument("--integration", action="store_true", help="只运行集成测试")
     parser.add_argument("--system", action="store_true", help="只运行系统测试")
     parser.add_argument("--e2e-industry", action="store_true", help="只运行行业热度 E2E 回归（要求本地前后端已启动）")
+    parser.add_argument("--e2e-realtime", action="store_true", help="只运行实时行情 E2E 回归（要求本地前后端已启动）")
     parser.add_argument("--install-deps", action="store_true", help="安装测试依赖")
     parser.add_argument("--coverage", action="store_true", help="生成覆盖率报告")
 
@@ -174,6 +197,8 @@ def main():
         return run_system_tests()
     elif args.e2e_industry:
         return run_industry_e2e_tests()
+    elif args.e2e_realtime:
+        return run_realtime_e2e_tests()
     else:
         return run_all_tests()
 

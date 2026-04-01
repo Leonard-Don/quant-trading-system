@@ -3,6 +3,7 @@ API集成测试
 """
 
 import base64
+import time
 import pytest
 import pandas as pd
 
@@ -176,11 +177,14 @@ class TestAPIIntegration:
         }
 
         backtest_response = client.post("/backtest", json=payload)
-        compare_response = client.get(
+        compare_response = client.post(
             "/backtest/compare",
-            params={
+            json={
                 "symbol": "AAPL",
-                "strategies": "buy_and_hold,moving_average",
+                "strategy_configs": [
+                    {"name": "buy_and_hold", "parameters": {}},
+                    {"name": "moving_average", "parameters": {"fast_period": 5, "slow_period": 12}},
+                ],
                 "start_date": "2024-01-01",
                 "end_date": "2024-01-06",
                 "initial_capital": 10000,
@@ -247,6 +251,95 @@ class TestAPIIntegration:
         successful_results = [item for item in payload["data"]["results"] if item["success"]]
         assert len(successful_results) == 2
         assert successful_results[0]["metrics"]["total_trades"] == successful_results[0]["metrics"]["num_trades"]
+        assert payload["data"]["execution"]["use_processes"] is False
+
+    def test_batch_backtest_endpoint_respects_timeout(self, client, monkeypatch):
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
+        monkeypatch.setattr(
+            backtest_endpoint.data_manager,
+            "get_historical_data",
+            lambda *args, **kwargs: build_mock_backtest_data(periods=20),
+        )
+
+        def slow_run_batch(self, **kwargs):
+            time.sleep(0.05)
+            return {"summary": {}, "results": [], "ranked_results": []}
+
+        monkeypatch.setattr(backtest_endpoint.BatchBacktester, "run_batch", slow_run_batch)
+
+        response = client.post(
+            "/backtest/batch",
+            json={
+                "tasks": [
+                    {
+                        "task_id": "batch-1",
+                        "symbol": "AAPL",
+                        "strategy": "buy_and_hold",
+                        "parameters": {},
+                        "start_date": "2024-01-01",
+                        "end_date": "2024-01-20",
+                    }
+                ],
+                "timeout_seconds": 0.01,
+            },
+        )
+
+        assert response.status_code == 504
+        payload = response.json()
+        error_message = payload.get("detail") or payload.get("error") or ""
+        if isinstance(error_message, dict):
+            error_message = error_message.get("message", "")
+        assert "timed out" in str(error_message).lower()
+
+    def test_batch_backtest_endpoint_surfaces_process_mode(self, client, monkeypatch):
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+        from src.backtest.batch_backtester import BacktestResult
+
+        monkeypatch.setattr(
+            backtest_endpoint.data_manager,
+            "get_historical_data",
+            lambda *args, **kwargs: build_mock_backtest_data(periods=20),
+        )
+
+        def fake_run_batch(self, **kwargs):
+            tasks = kwargs["tasks"]
+            self.results = [
+                BacktestResult(
+                    task_id=tasks[0].task_id,
+                    symbol=tasks[0].symbol,
+                    strategy_name=tasks[0].strategy_name,
+                    parameters=tasks[0].parameters,
+                    metrics={"num_trades": 1, "total_trades": 1},
+                    success=True,
+                )
+            ]
+            return self.results
+
+        monkeypatch.setattr(backtest_endpoint.BatchBacktester, "run_batch", fake_run_batch)
+
+        response = client.post(
+            "/backtest/batch",
+            json={
+                "tasks": [
+                    {
+                        "task_id": "batch-proc",
+                        "symbol": "AAPL",
+                        "strategy": "buy_and_hold",
+                        "parameters": {},
+                        "start_date": "2024-01-01",
+                        "end_date": "2024-01-20",
+                    }
+                ],
+                "use_processes": True,
+                "timeout_seconds": 1,
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["data"]["execution"]["use_processes"] is True
 
     def test_walk_forward_endpoint_returns_window_aggregate_metrics(self, client, monkeypatch):
         from backend.app.api.v1.endpoints import backtest as backtest_endpoint
@@ -261,13 +354,21 @@ class TestAPIIntegration:
             "/backtest/walk-forward",
             json={
                 "symbol": "AAPL",
-                "strategy": "buy_and_hold",
-                "parameters": {},
+                "strategy": "moving_average",
+                "parameters": {"fast_period": 5, "slow_period": 12},
                 "start_date": "2024-01-01",
                 "end_date": "2024-02-09",
                 "train_period": 10,
                 "test_period": 5,
                 "step_size": 5,
+                "optimization_metric": "sharpe_ratio",
+                "optimization_method": "bayesian",
+                "optimization_budget": 2,
+                "monte_carlo_simulations": 40,
+                "parameter_candidates": [
+                    {"fast_period": 5, "slow_period": 12},
+                    {"fast_period": 6, "slow_period": 15},
+                ],
             },
         )
 
@@ -277,6 +378,138 @@ class TestAPIIntegration:
         assert payload["data"]["n_windows"] > 0
         assert payload["data"]["aggregate_metrics"]["average_return"] is not None
         assert len(payload["data"]["window_results"]) == payload["data"]["n_windows"]
+        assert payload["data"]["monte_carlo"]["simulations"] == 40
+        assert payload["data"]["optimization_method"] == "bayesian"
+        assert payload["data"]["optimization_budget"] == 2
+        assert "level" in payload["data"]["overfitting_diagnostics"]
+        assert "selected_parameters" in payload["data"]["window_results"][0]
+
+    def test_walk_forward_endpoint_respects_timeout(self, client, monkeypatch):
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
+        monkeypatch.setattr(
+            backtest_endpoint.data_manager,
+            "get_historical_data",
+            lambda *args, **kwargs: build_mock_backtest_data(periods=40),
+        )
+
+        def slow_analyze(self, *args, **kwargs):
+            time.sleep(0.05)
+            return {}
+
+        monkeypatch.setattr(backtest_endpoint.WalkForwardAnalyzer, "analyze", slow_analyze)
+
+        response = client.post(
+            "/backtest/walk-forward",
+            json={
+                "symbol": "AAPL",
+                "strategy": "moving_average",
+                "parameters": {"fast_period": 5, "slow_period": 12},
+                "start_date": "2024-01-01",
+                "end_date": "2024-02-09",
+                "train_period": 10,
+                "test_period": 5,
+                "step_size": 5,
+                "timeout_seconds": 0.01,
+            },
+        )
+
+        assert response.status_code == 504
+        payload = response.json()
+        error_message = payload.get("detail") or payload.get("error") or ""
+        if isinstance(error_message, dict):
+            error_message = error_message.get("message", "")
+        assert "timed out" in str(error_message).lower()
+
+    def test_backtest_endpoint_supports_fine_grained_cost_controls(self, client, monkeypatch):
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
+        monkeypatch.setattr(
+            backtest_endpoint.data_manager,
+            "get_historical_data",
+            lambda *args, **kwargs: build_mock_backtest_data(periods=12),
+        )
+
+        base_payload = {
+            "symbol": "AAPL",
+            "strategy": "moving_average",
+            "parameters": {"fast_period": 5, "slow_period": 12},
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-12",
+            "initial_capital": 10000,
+            "commission": 0.0,
+            "slippage": 0.0,
+        }
+
+        low_cost = client.post("/backtest", json=base_payload)
+        high_cost = client.post(
+            "/backtest",
+            json={
+                **base_payload,
+                "fixed_commission": 5.0,
+                "min_commission": 5.0,
+                "market_impact_bps": 25.0,
+            },
+        )
+
+        assert low_cost.status_code == 200
+        assert high_cost.status_code == 200
+        assert high_cost.json()["data"]["total_return"] <= low_cost.json()["data"]["total_return"]
+
+    def test_strategies_endpoint_includes_extended_strategy_set(self, client):
+        response = client.get("/strategies")
+
+        assert response.status_code == 200
+        payload = response.json()
+        names = {item["name"] for item in payload}
+        assert "turtle_trading" in names
+        assert "multi_factor" in names
+
+    def test_market_regime_endpoint_returns_regime_breakdown(self, client, monkeypatch):
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
+        dates = pd.date_range("2024-01-01", periods=60, freq="D")
+        close = (
+            [100 + index * 2 for index in range(20)]
+            + [140 - index * 2 for index in range(20)]
+            + [100 + (3 if index % 2 == 0 else -2) * index for index in range(20)]
+        )
+        mock_data = pd.DataFrame(
+            {
+                "open": close,
+                "high": [price + 1 for price in close],
+                "low": [price - 1 for price in close],
+                "close": close,
+                "volume": [1000] * len(close),
+            },
+            index=dates,
+        )
+
+        monkeypatch.setattr(
+            backtest_endpoint.data_manager,
+            "get_historical_data",
+            lambda *args, **kwargs: mock_data,
+        )
+
+        response = client.post(
+            "/backtest/market-regimes",
+            json={
+                "symbol": "AAPL",
+                "strategy": "buy_and_hold",
+                "parameters": {},
+                "start_date": "2024-01-01",
+                "end_date": "2024-02-29",
+                "lookback_days": 10,
+                "trend_threshold": 0.05,
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["success"] is True
+        assert payload["data"]["summary"]["regime_count"] >= 2
+        assert payload["data"]["summary"]["strongest_regime"]["regime"]
+        assert payload["data"]["regimes"]
 
     def test_portfolio_strategy_endpoint_returns_combined_portfolio_metrics(self, client, monkeypatch):
         from backend.app.api.v1.endpoints import backtest as backtest_endpoint
@@ -354,11 +587,14 @@ class TestAPIIntegration:
             lambda *args, **kwargs: build_mock_backtest_data(),
         )
 
-        response = client.get(
+        response = client.post(
             "/backtest/compare",
-            params={
+            json={
                 "symbol": "AAPL",
-                "strategies": "moving_average,macd",
+                "strategy_configs": [
+                    {"name": "moving_average", "parameters": {"fast_period": 5, "slow_period": 12}},
+                    {"name": "macd", "parameters": {"fast_period": 12, "slow_period": 26, "signal_period": 9}},
+                ],
                 "start_date": "2024-01-01",
                 "end_date": "2024-01-06",
                 "initial_capital": 10000,
@@ -391,11 +627,14 @@ class TestAPIIntegration:
         ]
 
         for left, right in strategy_pairs:
-            response = client.get(
+            response = client.post(
                 "/backtest/compare",
-                params={
+                json={
                     "symbol": "AAPL",
-                    "strategies": f"{left},{right}",
+                    "strategy_configs": [
+                        {"name": left, "parameters": {}},
+                        {"name": right, "parameters": {}},
+                    ],
                     "start_date": "2024-01-01",
                     "end_date": "2024-01-06",
                     "initial_capital": 10000,

@@ -1,10 +1,11 @@
 from datetime import datetime
 
+import numpy as np
 import pandas as pd
 import pytest
 
 from src.backtest.cross_market_backtester import CrossMarketBacktester
-from src.trading.cross_market import AssetSide, AssetUniverse, SpreadZScoreStrategy
+from src.trading.cross_market import AssetSide, AssetUniverse, SpreadZScoreStrategy, CointegrationReversionStrategy
 
 
 def _price_frame(values, start="2024-01-01"):
@@ -110,6 +111,34 @@ def test_spread_zscore_strategy_opens_and_closes_positions():
     assert signals["position"].iloc[-1] == 0
 
 
+def test_cointegration_reversion_strategy_adds_cointegration_gate():
+    dates = pd.date_range("2024-01-01", periods=18, freq="D")
+    base = pd.Series(np.linspace(100, 110, len(dates)), index=dates)
+    price_matrix = pd.DataFrame(
+        {
+            "XLU": base,
+            "QQQ": base * 0.98 + 1.5,
+        },
+        index=dates,
+    )
+    universe = AssetUniverse(
+        [
+            {"symbol": "XLU", "asset_class": "ETF", "side": "long"},
+            {"symbol": "QQQ", "asset_class": "ETF", "side": "short"},
+        ]
+    )
+
+    strategy = CointegrationReversionStrategy()
+    signals = strategy.generate_cross_signals(
+        price_matrix=price_matrix,
+        asset_specs=universe.get_assets(),
+        parameters={"lookback": 10, "entry_threshold": 1.0, "exit_threshold": 0.3, "p_value_threshold": 0.5, "refit_interval": 3},
+    )
+
+    assert "cointegration_p_value" in signals.columns
+    assert "cointegrated" in signals.columns
+
+
 def test_cross_market_backtester_returns_expected_sections():
     frames = {
         "XLU": _price_frame([100, 101, 102, 104, 108, 115, 118, 112, 109, 105, 103, 101]),
@@ -143,6 +172,12 @@ def test_cross_market_backtester_returns_expected_sections():
             "recommendation_tier": "重点跟踪",
             "ranking_penalty": 0.45,
             "ranking_penalty_reason": "核心腿 XLU 已进入压缩焦点，模板排序自动降级",
+            "input_reliability_label": "fragile",
+            "input_reliability_score": 0.41,
+            "input_reliability_lead": "当前输入可靠度偏脆弱，主要风险来自时效偏旧与来源退化。",
+            "input_reliability_posture": "输入需谨慎使用",
+            "input_reliability_reason": "effective confidence 0.41 · freshness aging · 风险 时效偏旧、来源退化",
+            "input_reliability_action_hint": "建议先复核当前宏观输入可靠度，再决定是否继续沿用当前模板强度。",
             "base_assets": [
                 {"symbol": "XLU", "asset_class": "ETF", "side": "long", "weight": 0.45},
                 {"symbol": "QQQ", "asset_class": "ETF", "side": "short", "weight": 0.55},
@@ -166,6 +201,7 @@ def test_cross_market_backtester_returns_expected_sections():
     assert "asset_universe" in results
     assert "hedge_portfolio" in results
     assert "asset_contributions" in results
+    assert "cointegration_diagnostics" in results
     assert "execution_plan" in results
     assert results["price_matrix_summary"]["asset_count"] == 2
     assert len(results["portfolio_curve"]) == 12
@@ -201,7 +237,10 @@ def test_cross_market_backtester_returns_expected_sections():
     assert results["execution_diagnostics"]["margin_level"] in {"manageable", "elevated", "aggressive"}
     assert results["execution_diagnostics"]["beta_level"] in {"balanced", "watch", "stretched", "unknown"}
     assert results["execution_diagnostics"]["calendar_level"] in {"aligned", "watch", "stretched"}
+    assert results["execution_diagnostics"]["cointegration_level"] in {"strong", "watch", "weak", "unknown"}
     assert results["execution_diagnostics"]["suggested_rebalance"] in {"weekly", "biweekly", "monthly"}
+    assert results["cointegration_diagnostics"]["pair_count"] >= 1
+    assert results["cointegration_diagnostics"]["best_pair"]["p_value"] >= 0
     assert len(results["execution_plan"]["execution_stress"]["scenarios"]) == 4
     assert results["execution_plan"]["execution_stress"]["worst_case"]["largest_batch_notional"] > 0
     assert "liquidity_level" in results["execution_plan"]["execution_stress"]["worst_case"]
@@ -220,6 +259,12 @@ def test_cross_market_backtester_returns_expected_sections():
     assert results["allocation_overlay"]["selection_quality"]["effective_recommendation_score"] == 2.65
     assert results["allocation_overlay"]["selection_quality"]["ranking_penalty"] == 0.45
     assert "核心腿" in results["allocation_overlay"]["selection_quality"]["reason"]
+    assert results["allocation_overlay"]["selection_quality"]["input_reliability_posture"] == "输入需谨慎使用"
+    assert "复核" in results["allocation_overlay"]["selection_quality"]["input_reliability_action_hint"]
+    assert results["allocation_overlay"]["input_reliability"]["label"] == "fragile"
+    assert results["allocation_overlay"]["input_reliability"]["score"] == 0.41
+    assert results["allocation_overlay"]["input_reliability"]["posture"] == "输入需谨慎使用"
+    assert "复核" in results["allocation_overlay"]["input_reliability"]["action_hint"]
     assert results["allocation_overlay"]["compressed_asset_count"] >= 1
     assert results["allocation_overlay"]["rows"][0]["raw_bias_weight"] >= 0
     assert "compression_delta" in results["allocation_overlay"]["rows"][0]
@@ -227,6 +272,37 @@ def test_cross_market_backtester_returns_expected_sections():
     assert results["allocation_overlay"]["max_delta_weight"] >= 0
     assert results["constraint_overlay"]["applied"] is False
     assert results["data_alignment"]["per_symbol"][0]["avg_daily_notional"] > 0
+    assert results["refit_summary"]["refit_interval"] == 1
+
+
+def test_cross_market_backtester_supports_cointegration_reversion_with_refit():
+    frames = {
+        "XLU": _price_frame([100, 101, 102, 104, 106, 108, 109, 111, 112, 113, 114, 115, 116, 117, 118, 119]),
+        "QQQ": _price_frame([99, 100, 101, 103, 105, 107, 108, 110, 111, 112, 113, 114, 115, 116, 117, 118]),
+    }
+    backtester = CrossMarketBacktester(data_manager=DummyDataManager(frames))
+
+    results = backtester.run(
+        assets=[
+            {"symbol": "XLU", "asset_class": "ETF", "side": "long"},
+            {"symbol": "QQQ", "asset_class": "ETF", "side": "short"},
+        ],
+        strategy_name="cointegration_reversion",
+        parameters={
+            "lookback": 10,
+            "entry_threshold": 1.0,
+            "exit_threshold": 0.2,
+            "p_value_threshold": 0.5,
+            "refit_interval": 4,
+        },
+        construction_mode="ols_hedge",
+        min_history_days=10,
+    )
+
+    assert results["strategy"] == "cointegration_reversion"
+    assert results["refit_summary"]["refit_interval"] == 4
+    assert results["refit_summary"]["dynamic_hedge"] is True
+    assert results["cointegration_diagnostics"]["available"] is True
 
 
 def test_cross_market_backtester_uses_tradable_mask():

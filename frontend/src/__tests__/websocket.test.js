@@ -4,6 +4,7 @@ describe('webSocketService', () => {
   const originalWebSocket = global.WebSocket;
   let consoleErrorSpy;
   let consoleLogSpy;
+  let consoleWarnSpy;
   let mathRandomSpy;
 
   beforeEach(() => {
@@ -12,6 +13,7 @@ describe('webSocketService', () => {
     webSocketService.reconnectAttempts = 0;
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     mathRandomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.5);
   });
 
@@ -23,6 +25,7 @@ describe('webSocketService', () => {
     jest.useRealTimers();
     consoleErrorSpy.mockRestore();
     consoleLogSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
     mathRandomSpy.mockRestore();
   });
 
@@ -126,6 +129,38 @@ describe('webSocketService', () => {
     expect(webSocketService.getReconnectDelay(3)).toBe(12000);
     expect(webSocketService.getReconnectDelay(4)).toBe(24000);
     expect(webSocketService.getReconnectDelay(5)).toBe(30000);
+  });
+
+  test('swallows reconnect promise rejections from timer-driven retries', async () => {
+    let sockets = [];
+    jest.useFakeTimers();
+
+    global.WebSocket = jest.fn().mockImplementation(() => {
+      const socketInstance = {
+        readyState: 0,
+        close: jest.fn(),
+        send: jest.fn(),
+      };
+      sockets.push(socketInstance);
+      return socketInstance;
+    });
+    global.WebSocket.OPEN = 1;
+
+    const connectPromise = webSocketService.connect();
+    sockets[0].readyState = 1;
+    sockets[0].onopen?.();
+    await connectPromise;
+
+    sockets[0].onclose?.({ code: 1006, reason: 'network lost' });
+    jest.advanceTimersByTime(webSocketService.getReconnectDelay(1));
+
+    expect(sockets).toHaveLength(2);
+
+    sockets[1].onerror?.({ message: 'retry failed' });
+    sockets[1].onclose?.({ code: 1006, reason: 'retry failed' });
+
+    await Promise.resolve();
+    expect(consoleErrorSpy).toHaveBeenCalled();
   });
 
   test('fans out snapshot payloads to quote listeners', () => {

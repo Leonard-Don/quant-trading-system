@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 import threading
 import hashlib
+import subprocess
+import sqlite3
 
 from src.utils.config import PROJECT_ROOT
 from src.utils.data_validation import ensure_json_serializable, normalize_backtest_results
@@ -31,6 +33,8 @@ SUMMARY_METRIC_FIELDS = [
     "calmar_ratio",
     "net_profit",
     "profit_factor",
+    "recovery_factor",
+    "expectancy",
     "avg_win",
     "avg_loss",
     "total_profit",
@@ -72,6 +76,7 @@ class BacktestHistory:
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
         self.history_file = self.storage_path / "history.json"
+        self.sqlite_file = self.storage_path / "history.sqlite3"
         self.max_records = max_records
         self.history: List[Dict] = []
         self._lock = threading.RLock()
@@ -101,58 +106,183 @@ class BacktestHistory:
             **result,
         }
 
+    @staticmethod
+    def _get_code_version() -> str:
+        try:
+            completed = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=str(PROJECT_ROOT),
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            return completed.stdout.strip() or "unknown"
+        except Exception:
+            return "unknown"
+
     def _load_history(self):
         """从文件加载历史记录"""
         try:
-            if self.history_file.exists():
+            self._ensure_database()
+            records = self._load_from_database()
+            changed = False
+
+            if not records and self.history_file.exists():
                 with open(self.history_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     records = data if isinstance(data, list) else data.get("history", [])
-                    repaired = []
-                    changed = False
-                    for record in records:
-                        normalized_record = dict(record)
-                        normalized_record.setdefault("record_type", "backtest")
-                        normalized_record.setdefault("title", "")
-                        original_result = record.get("result")
-                        if isinstance(original_result, dict):
-                            if normalized_record.get("record_type") == "backtest":
-                                normalized_result = ensure_json_serializable(
-                                    normalize_backtest_results(original_result)
-                                )
-                            else:
-                                normalized_result = ensure_json_serializable(original_result)
-                            if normalized_result != original_result:
-                                changed = True
-                            normalized_record["result"] = normalized_result
+                changed = True
 
-                            if normalized_record.get("record_type") == "backtest":
-                                metrics = self._merge_metric_sources(normalized_result)
-                            else:
-                                metrics = {
-                                    **self._merge_metric_sources(normalized_result),
-                                    **(normalized_record.get("metrics") or {}),
-                                }
-                            normalized_record["metrics"] = self._build_summary_metrics(metrics)
-                            if normalized_record.get("metrics") != record.get("metrics"):
-                                changed = True
-
-                        repaired.append(normalized_record)
-
-                    self.history = repaired
-                    if changed:
-                        self._persist()
+            repaired, repaired_changed = self._repair_records(records)
+            self.history = repaired
+            if changed or repaired_changed:
+                self._persist()
         except Exception as e:
             logger.warning(f"Failed to load history: {e}")
             self.history = []
+
+    def _ensure_database(self):
+        with sqlite3.connect(self.sqlite_file) as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS backtest_history (
+                    id TEXT PRIMARY KEY,
+                    timestamp TEXT NOT NULL,
+                    record_type TEXT,
+                    title TEXT,
+                    code_version TEXT,
+                    strategy_version TEXT,
+                    symbol TEXT,
+                    strategy TEXT,
+                    start_date TEXT,
+                    end_date TEXT,
+                    parameters_json TEXT,
+                    metrics_json TEXT,
+                    result_json TEXT
+                )
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_backtest_history_timestamp ON backtest_history(timestamp DESC)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_backtest_history_filters ON backtest_history(record_type, symbol, strategy)"
+            )
+            connection.commit()
+
+    def _load_from_database(self) -> List[Dict[str, Any]]:
+        if not self.sqlite_file.exists():
+            return []
+
+        with sqlite3.connect(self.sqlite_file) as connection:
+            rows = connection.execute(
+                """
+                SELECT id, timestamp, record_type, title, code_version, strategy_version,
+                       symbol, strategy, start_date, end_date, parameters_json, metrics_json, result_json
+                FROM backtest_history
+                ORDER BY timestamp DESC
+                """
+            ).fetchall()
+
+        records = []
+        for row in rows:
+            records.append(
+                {
+                    "id": row[0],
+                    "timestamp": row[1],
+                    "record_type": row[2],
+                    "title": row[3],
+                    "code_version": row[4],
+                    "strategy_version": row[5],
+                    "symbol": row[6],
+                    "strategy": row[7],
+                    "start_date": row[8],
+                    "end_date": row[9],
+                    "parameters": json.loads(row[10]) if row[10] else {},
+                    "metrics": json.loads(row[11]) if row[11] else {},
+                    "result": json.loads(row[12]) if row[12] else {},
+                }
+            )
+
+        return records
+
+    def _repair_records(self, records: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], bool]:
+        repaired = []
+        changed = False
+        for record in records:
+            normalized_record = dict(record)
+            normalized_record.setdefault("record_type", "backtest")
+            normalized_record.setdefault("title", "")
+            normalized_record.setdefault("code_version", "unknown")
+            normalized_record.setdefault("strategy_version", normalized_record.get("code_version", "unknown"))
+            original_result = record.get("result")
+            if isinstance(original_result, dict):
+                if normalized_record.get("record_type") == "backtest":
+                    normalized_result = ensure_json_serializable(
+                        normalize_backtest_results(original_result)
+                    )
+                else:
+                    normalized_result = ensure_json_serializable(original_result)
+                if normalized_result != original_result:
+                    changed = True
+                normalized_record["result"] = normalized_result
+
+                if normalized_record.get("record_type") == "backtest":
+                    metrics = self._merge_metric_sources(normalized_result)
+                else:
+                    metrics = {
+                        **self._merge_metric_sources(normalized_result),
+                        **(normalized_record.get("metrics") or {}),
+                    }
+                normalized_metrics = self._build_summary_metrics(metrics)
+                if normalized_metrics != record.get("metrics"):
+                    changed = True
+                normalized_record["metrics"] = normalized_metrics
+
+            repaired.append(normalized_record)
+        return repaired, changed
 
     def _persist(self):
         """保存历史记录到文件"""
         try:
             with open(self.history_file, 'w', encoding='utf-8') as f:
                 json.dump(self.history, f, ensure_ascii=False, indent=2, default=str)
+            self._persist_to_database()
         except Exception as e:
             logger.error(f"Failed to persist history: {e}")
+
+    def _persist_to_database(self):
+        self._ensure_database()
+        with sqlite3.connect(self.sqlite_file) as connection:
+            connection.execute("DELETE FROM backtest_history")
+            connection.executemany(
+                """
+                INSERT INTO backtest_history (
+                    id, timestamp, record_type, title, code_version, strategy_version,
+                    symbol, strategy, start_date, end_date,
+                    parameters_json, metrics_json, result_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        record.get("id"),
+                        record.get("timestamp"),
+                        record.get("record_type", "backtest"),
+                        record.get("title", ""),
+                        record.get("code_version", "unknown"),
+                        record.get("strategy_version", record.get("code_version", "unknown")),
+                        record.get("symbol", "Unknown"),
+                        record.get("strategy", "Unknown"),
+                        record.get("start_date", ""),
+                        record.get("end_date", ""),
+                        json.dumps(record.get("parameters", {}), ensure_ascii=False),
+                        json.dumps(record.get("metrics", {}), ensure_ascii=False),
+                        json.dumps(record.get("result", {}), ensure_ascii=False),
+                    )
+                    for record in self.history
+                ],
+            )
+            connection.commit()
 
     def _generate_id(self, result: Dict) -> str:
         """生成唯一ID"""
@@ -185,6 +315,8 @@ class BacktestHistory:
                 "timestamp": datetime.now().isoformat(),
                 "record_type": record_type,
                 "title": result.get("title", ""),
+                "code_version": result.get("code_version") or self._get_code_version(),
+                "strategy_version": result.get("strategy_version") or result.get("code_version") or self._get_code_version(),
                 "symbol": result.get("symbol", "Unknown"),
                 "strategy": result.get("strategy", "Unknown"),
                 "start_date": result.get("start_date", ""),

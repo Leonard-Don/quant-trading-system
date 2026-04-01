@@ -37,6 +37,11 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
                       policy source {card.policySourceHealthLabel}
                     </Tag>
                   ) : null}
+                  {card.inputReliabilityLabel && card.inputReliabilityLabel !== 'unknown' ? (
+                    <Tag color={card.inputReliabilityLabel === 'fragile' ? 'red' : card.inputReliabilityLabel === 'watch' ? 'gold' : 'green'}>
+                      input {card.inputReliabilityLabel}
+                    </Tag>
+                  ) : null}
                   {card.trendLabel ? (
                     <Tag color={card.trendTone || 'default'}>{card.trendLabel}</Tag>
                   ) : null}
@@ -57,6 +62,9 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
                   ) : null}
                   {card.taskRefreshReviewContextDriven ? (
                     <Tag color="geekblue">复核语境切换</Tag>
+                  ) : null}
+                  {card.taskRefreshInputReliabilityDriven ? (
+                    <Tag color="blue">输入可靠度变化</Tag>
                   ) : null}
                   {card.rankingPenalty ? (
                     <Tag color="orange">排序降级</Tag>
@@ -106,6 +114,11 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
                     政策源状态：{card.taskRefreshPolicySourceShift.currentReason}
                   </Paragraph>
                 ) : null}
+                {card.taskRefreshInputReliabilityShift?.currentLead ? (
+                  <Paragraph style={{ color: 'rgba(173, 216, 255, 0.92)', minHeight: 30, marginBottom: 10 }}>
+                    输入可靠度：{card.taskRefreshInputReliabilityShift.currentLead}
+                  </Paragraph>
+                ) : null}
                 {card.taskRefreshBiasCompressionShift?.currentReason ? (
                   <Paragraph style={{ color: 'rgba(255, 190, 120, 0.9)', minHeight: 30, marginBottom: 10 }}>
                     偏置收缩：{card.taskRefreshBiasCompressionShift.currentReason}
@@ -144,6 +157,17 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
                 {card.policySourceHealthReason && !card.taskRefreshPolicySourceShift?.currentReason ? (
                   <Paragraph style={{ color: 'rgba(255, 160, 120, 0.88)', minHeight: 30, marginBottom: 10 }}>
                     政策源质量：{card.policySourceHealthReason}
+                  </Paragraph>
+                ) : null}
+                {card.inputReliabilityLead ? (
+                  <Paragraph style={{ color: 'rgba(210, 229, 255, 0.88)', minHeight: 30, marginBottom: 10 }}>
+                    输入可靠度：{card.inputReliabilityLead}
+                    {card.inputReliabilityScore ? ` · score ${Number(card.inputReliabilityScore || 0).toFixed(2)}` : ''}
+                  </Paragraph>
+                ) : null}
+                {card.inputReliabilityPosture ? (
+                  <Paragraph style={{ color: 'rgba(210, 229, 255, 0.72)', minHeight: 24, marginBottom: 10 }}>
+                    使用姿势：{card.inputReliabilityPosture}
                   </Paragraph>
                 ) : null}
                 <Space wrap size={[6, 6]} style={{ display: 'flex', marginBottom: 12 }}>

@@ -99,7 +99,7 @@ api.interceptors.response.use(
       } else {
         errorMessage = '无法连接到服务器，请检查网络';
       }
-      console.error('API Network Error:', error.message);
+      console.error('API Network Error:', error.config?.url || 'unknown', error.message);
     } else {
       // 请求配置出错
       console.error('API Config Error:', error.message);
@@ -237,6 +237,11 @@ export const runWalkForwardBacktest = async (payload) => {
   return response.data;
 };
 
+export const runMarketRegimeBacktest = async (payload) => {
+  const response = await api.post('/backtest/market-regimes', payload);
+  return response.data;
+};
+
 export const runPortfolioStrategyBacktest = async (payload) => {
   const response = await api.post('/backtest/portfolio-strategy', payload);
   return response.data;
@@ -306,6 +311,58 @@ export const getPortfolio = async () => {
 
 export const getRealtimeQuote = async (symbol) => {
   const response = await api.get(`/realtime/quote/${encodeURIComponent(symbol)}`);
+  return response.data;
+};
+
+export const getRealtimeAlerts = async (profileId) => {
+  const response = await api.get('/realtime/alerts', {
+    headers: profileId
+      ? {
+          'X-Realtime-Profile': profileId,
+        }
+      : undefined,
+  });
+  return response.data;
+};
+
+export const updateRealtimeAlerts = async (alerts, profileId, alertHitHistory = []) => {
+  const response = await api.put(
+    '/realtime/alerts',
+    { alerts, alert_hit_history: alertHitHistory },
+    {
+      headers: profileId
+        ? {
+            'X-Realtime-Profile': profileId,
+          }
+        : undefined,
+    }
+  );
+  return response.data;
+};
+
+export const getRealtimeJournal = async (profileId) => {
+  const response = await api.get('/realtime/journal', {
+    headers: profileId
+      ? {
+          'X-Realtime-Profile': profileId,
+        }
+      : undefined,
+  });
+  return response.data;
+};
+
+export const updateRealtimeJournal = async (payload, profileId) => {
+  const response = await api.put(
+    '/realtime/journal',
+    payload,
+    {
+      headers: profileId
+        ? {
+            'X-Realtime-Profile': profileId,
+          }
+        : undefined,
+    }
+  );
   return response.data;
 };
 
@@ -407,6 +464,15 @@ export const getIndustryHeatmap = async (days = 5, options = {}) => {
   return response.data;
 };
 
+export const getIndustryHeatmapHistory = async (params = {}, options = {}) => {
+  const search = new URLSearchParams();
+  if (params.limit) search.set('limit', String(params.limit));
+  if (params.days) search.set('days', String(params.days));
+  const query = search.toString();
+  const response = await api.get(`/industry/industries/heatmap/history${query ? `?${query}` : ''}`, options);
+  return response.data;
+};
+
 // 获取行业趋势分析
 export const getIndustryTrend = async (industryName, days = 30, options = {}) => {
   const response = await api.get(`/industry/industries/${encodeURIComponent(industryName)}/trend?days=${days}`, options);
@@ -447,9 +513,14 @@ export const getLeaderDetail = async (symbol, scoreType = 'core', options = {}) 
 };
 
 // 获取行业轮动对比数据
-export const getIndustryRotation = async (industries, options = {}) => {
+export const getIndustryRotation = async (industries, periods = [], options = {}) => {
+  const params = new URLSearchParams();
+  params.set('industries', industries.join(','));
+  if (Array.isArray(periods) && periods.length > 0) {
+    params.set('periods', periods.join(','));
+  }
   const response = await api.get(
-    `/industry/industries/rotation?industries=${encodeURIComponent(industries.join(','))}`,
+    `/industry/industries/rotation?${params.toString()}`,
     options
   );
   return response.data;
@@ -475,9 +546,48 @@ export const getValuationAnalysis = async (symbol) => {
   return response.data;
 };
 
+export const getValuationSensitivityAnalysis = async (payload) => {
+  const response = await api.post('/pricing/valuation-sensitivity', payload);
+  return response.data;
+};
+
 // 定价差异分析（综合分析）
 export const getGapAnalysis = async (symbol, period = '1y') => {
   const response = await api.post('/pricing/gap-analysis', { symbol, period });
+  return response.data;
+};
+
+export const runPricingScreener = async (symbols, period = '1y', limit = 10) => {
+  const response = await api.post('/pricing/screener', { symbols, period, limit });
+  return response.data;
+};
+
+export const getPricingSymbolSuggestions = async (query = '', limit = 8) => {
+  const params = new URLSearchParams();
+  if (query) {
+    params.set('q', query);
+  }
+  params.set('limit', String(limit));
+  const response = await api.get(`/pricing/symbol-suggestions?${params.toString()}`);
+  return response.data;
+};
+
+export const getPricingGapHistory = async (symbol, period = '1y', points = 60) => {
+  const params = new URLSearchParams({
+    symbol,
+    period,
+    points: String(points),
+  });
+  const response = await api.get(`/pricing/gap-history?${params.toString()}`);
+  return response.data;
+};
+
+export const getPricingPeerComparison = async (symbol, limit = 5) => {
+  const params = new URLSearchParams({
+    symbol,
+    limit: String(limit),
+  });
+  const response = await api.get(`/pricing/peers?${params.toString()}`);
   return response.data;
 };
 

@@ -32,8 +32,9 @@ class TestAssetPricingEngine:
         }, index=dates)
 
     @patch("src.analytics.asset_pricing._fetch_ff_factors")
+    @patch("src.analytics.asset_pricing._fetch_ff5_factors")
     @patch("src.data.data_manager.DataManager.get_historical_data")
-    def test_capm_analysis(self, mock_get_data, mock_ff):
+    def test_capm_analysis(self, mock_get_data, mock_ff5, mock_ff):
         """测试 CAPM 分析结果结构和合理性"""
         from src.analytics.asset_pricing import AssetPricingEngine
 
@@ -50,6 +51,10 @@ class TestAssetPricingEngine:
         }, index=dates)
         mock_get_data.return_value = mock_data
         mock_ff.return_value = self._make_mock_ff_factors(days)
+        ff5 = self._make_mock_ff_factors(days)
+        ff5["RMW"] = np.random.normal(0.0001, 0.004, days)
+        ff5["CMA"] = np.random.normal(0.0001, 0.004, days)
+        mock_ff5.return_value = ff5
 
         engine = AssetPricingEngine()
         result = engine.analyze("TEST", "1y")
@@ -57,6 +62,7 @@ class TestAssetPricingEngine:
         # 验证结构
         assert "capm" in result
         assert "fama_french" in result
+        assert "fama_french_five_factor" in result
         assert "attribution" in result
         assert "summary" in result
 
@@ -70,8 +76,9 @@ class TestAssetPricingEngine:
         assert "interpretation" in capm
 
     @patch("src.analytics.asset_pricing._fetch_ff_factors")
+    @patch("src.analytics.asset_pricing._fetch_ff5_factors")
     @patch("src.data.data_manager.DataManager.get_historical_data")
-    def test_ff3_factor_loadings(self, mock_get_data, mock_ff):
+    def test_ff3_factor_loadings(self, mock_get_data, mock_ff5, mock_ff):
         """测试 FF3 因子暴露度结果"""
         from src.analytics.asset_pricing import AssetPricingEngine
 
@@ -87,10 +94,15 @@ class TestAssetPricingEngine:
         }, index=dates)
         mock_get_data.return_value = mock_data
         mock_ff.return_value = self._make_mock_ff_factors(days)
+        ff5 = self._make_mock_ff_factors(days)
+        ff5["RMW"] = np.random.normal(0.0001, 0.004, days)
+        ff5["CMA"] = np.random.normal(0.0001, 0.004, days)
+        mock_ff5.return_value = ff5
 
         engine = AssetPricingEngine()
         result = engine.analyze("TEST", "1y")
         ff3 = result["fama_french"]
+        ff5_result = result["fama_french_five_factor"]
 
         assert "error" not in ff3, f"FF3 出错: {ff3.get('error')}"
         assert "factor_loadings" in ff3
@@ -99,10 +111,14 @@ class TestAssetPricingEngine:
         assert "size" in loadings
         assert "value" in loadings
         assert "r_squared" in ff3
+        assert "error" not in ff5_result, f"FF5 出错: {ff5_result.get('error')}"
+        assert "profitability" in ff5_result["factor_loadings"]
+        assert "investment" in ff5_result["factor_loadings"]
 
     @patch("src.analytics.asset_pricing._fetch_ff_factors")
+    @patch("src.analytics.asset_pricing._fetch_ff5_factors")
     @patch("src.data.data_manager.DataManager.get_historical_data")
-    def test_aligns_tz_aware_prices_with_tz_naive_factors(self, mock_get_data, mock_ff):
+    def test_aligns_tz_aware_prices_with_tz_naive_factors(self, mock_get_data, mock_ff5, mock_ff):
         """测试时区感知价格索引与无时区因子索引可以安全对齐"""
         from src.analytics.asset_pricing import AssetPricingEngine
 
@@ -124,12 +140,21 @@ class TestAssetPricingEngine:
             "HML": np.random.normal(0.0001, 0.005, days),
             "RF": np.full(days, 0.0002)
         }, index=naive_dates)
+        mock_ff5.return_value = pd.DataFrame({
+            "Mkt-RF": np.random.normal(0.0003, 0.01, days),
+            "SMB": np.random.normal(0.0001, 0.005, days),
+            "HML": np.random.normal(0.0001, 0.005, days),
+            "RMW": np.random.normal(0.0001, 0.004, days),
+            "CMA": np.random.normal(0.0001, 0.004, days),
+            "RF": np.full(days, 0.0002)
+        }, index=naive_dates)
 
         engine = AssetPricingEngine()
         result = engine.analyze("TEST", "1y")
 
         assert "error" not in result["capm"], result["capm"].get("error")
         assert "error" not in result["fama_french"], result["fama_french"].get("error")
+        assert "error" not in result["fama_french_five_factor"], result["fama_french_five_factor"].get("error")
 
     @patch("src.data.data_manager.DataManager.get_historical_data")
     def test_insufficient_data(self, mock_get_data):
@@ -155,10 +180,14 @@ class TestValuationModel:
             "sector": "Technology",
             "industry": "Software",
             "market_cap": 1e12,
+            "enterprise_value": 1.15e12,
             "pe_ratio": 25,
             "forward_pe": 22,
             "peg_ratio": 1.5,
             "price_to_book": 8,
+            "price_to_sales": 6.2,
+            "enterprise_to_ebitda": 18.5,
+            "enterprise_to_revenue": 7.4,
             "dividend_yield": 0.005,
             "profit_margin": 0.25,
             "operating_margin": 0.30,
@@ -166,6 +195,7 @@ class TestValuationModel:
             "roa": 0.15,
             "revenue_growth": 0.12,
             "earnings_growth": 0.15,
+            "revenue": 1.55e11,
             "debt_to_equity": 60,
             "current_ratio": 1.8,
             "beta": 1.1,
@@ -187,6 +217,7 @@ class TestValuationModel:
         result = model.analyze("TEST")
 
         assert "dcf" in result
+        assert "monte_carlo" in result
         assert "comparable" in result
         assert "fair_value" in result
         assert "valuation_status" in result
@@ -210,6 +241,43 @@ class TestValuationModel:
             assert "assumptions" in dcf
             assert dcf["assumptions"]["wacc"] > 0
             assert dcf["assumptions"]["wacc"] < 0.30  # WACC 不应超过 30%
+            assert len(dcf["scenarios"]) == 3
+            assert [item["label"] for item in dcf["scenarios"]] == ["悲观", "基准", "乐观"]
+            bear_case = next(item for item in dcf["scenarios"] if item["name"] == "bear")
+            base_case = next(item for item in dcf["scenarios"] if item["name"] == "base")
+            bull_case = next(item for item in dcf["scenarios"] if item["name"] == "bull")
+            assert bear_case["intrinsic_value"] < base_case["intrinsic_value"] < bull_case["intrinsic_value"]
+            assert base_case["intrinsic_value"] == dcf["intrinsic_value"]
+            assert result["monte_carlo"]["sample_count"] > 0
+            assert result["monte_carlo"]["p10"] <= result["monte_carlo"]["p50"] <= result["monte_carlo"]["p90"]
+
+    def test_composite_valuation_uses_scenario_and_multiple_dispersion_for_range(self):
+        """测试综合估值区间优先使用情景与倍数分布，而不是固定 ±15%"""
+        from src.analytics.valuation_model import ValuationModel
+
+        model = ValuationModel()
+        fair_value = model._composite_valuation(
+            {
+                "intrinsic_value": 100,
+                "scenarios": [
+                    {"name": "bear", "intrinsic_value": 86},
+                    {"name": "base", "intrinsic_value": 100},
+                    {"name": "bull", "intrinsic_value": 121},
+                ],
+            },
+            {
+                "fair_value": 108,
+                "methods": [
+                    {"method": "P/E 倍数法", "fair_value": 102},
+                    {"method": "P/B 倍数法", "fair_value": 114},
+                ],
+            },
+        )
+
+        assert fair_value["mid"] == 104.0
+        assert fair_value["low"] == 86.0
+        assert fair_value["high"] == 121.0
+        assert fair_value["range_basis"] == "dcf_scenarios_and_multiples"
 
     @patch("src.data.data_manager.DataManager.get_latest_price")
     @patch("src.data.data_manager.DataManager.get_fundamental_data")
@@ -227,6 +295,49 @@ class TestValuationModel:
         if "error" not in comp:
             assert comp["fair_value"] > 0
             assert len(comp["methods"]) > 0
+            method_names = {item["method"] for item in comp["methods"]}
+            assert "EV/Revenue 倍数法" in method_names
+            assert "PEG 倍数法" in method_names
+
+    @patch("src.data.data_manager.DataManager.get_latest_price")
+    @patch("src.data.data_manager.DataManager.get_fundamental_data")
+    def test_comparable_valuation_prefers_dynamic_peer_benchmarks(self, mock_fund, mock_price):
+        """测试同行样本足够时优先使用动态同行中位数，而不是静态行业模板"""
+        from src.analytics.valuation_model import ValuationModel
+
+        base = self._mock_fundamentals()
+        peer_values = {
+            "AAPL": {"pe_ratio": 26, "peg_ratio": 1.7, "price_to_book": 7.2, "price_to_sales": 6.8, "enterprise_to_ebitda": 18, "enterprise_to_revenue": 7.1},
+            "MSFT": {"pe_ratio": 31, "peg_ratio": 1.9, "price_to_book": 9.1, "price_to_sales": 11.4, "enterprise_to_ebitda": 22, "enterprise_to_revenue": 11.8},
+            "NVDA": {"pe_ratio": 35, "peg_ratio": 2.1, "price_to_book": 15.0, "price_to_sales": 18.0, "enterprise_to_ebitda": 28, "enterprise_to_revenue": 19.5},
+            "AMZN": {"pe_ratio": 29, "peg_ratio": 1.6, "price_to_book": 6.0, "price_to_sales": 4.1, "enterprise_to_ebitda": 19, "enterprise_to_revenue": 4.4},
+        }
+
+        def build_fundamental(symbol):
+            if symbol == "TEST":
+                return base
+            if symbol in peer_values:
+                return {
+                    **base,
+                    "symbol": symbol,
+                    "company_name": symbol,
+                    "industry": "Software",
+                    **peer_values[symbol],
+                }
+            return {"symbol": symbol, "error": "not used"}
+
+        mock_fund.side_effect = build_fundamental
+        mock_price.return_value = {"price": 180, "symbol": "TEST"}
+
+        model = ValuationModel()
+        result = model.analyze("TEST")
+        comp = result["comparable"]
+
+        assert comp["benchmark_source"] == "dynamic_peer_median"
+        assert comp["benchmark_peer_count"] >= 3
+        assert "AAPL" in comp["benchmark_peer_symbols"]
+        assert comp["sector_benchmark"]["pe"] == 30.0
+        assert any("同行中位数" in warning for warning in comp["warnings"])
 
     @patch("src.data.data_manager.DataManager.get_historical_data")
     @patch("src.data.data_manager.DataManager.get_latest_price")
@@ -344,6 +455,10 @@ class TestPricingGapAnalyzer:
         assert implications["confidence"] == "high"
         assert implications["confidence_score"] >= 0.72
         assert implications["confidence_reasons"] == []
+        assert any(item["key"] == "gap_anchor" for item in implications["confidence_breakdown"])
+        assert implications["trade_setup"]["target_price"] == 100.0
+        assert implications["factor_alignment"]["status"] == "neutral"
+        assert implications["factor_alignment"]["label"] == "待确认"
 
     def test_implications_confidence_low_with_partial_models_and_fallback_price(self):
         """测试模型缺失且价格回退时降低置信度"""
@@ -373,6 +488,39 @@ class TestPricingGapAnalyzer:
         assert implications["confidence"] == "low"
         assert implications["confidence_score"] < 0.45
         assert any("CAPM" in reason for reason in implications["confidence_reasons"])
+        assert implications["trade_setup"]["stance"] == "关注回归风险"
+
+    def test_implications_confidence_penalizes_factor_valuation_conflict(self):
+        """测试二级因子方向与估值结论冲突时降低置信度"""
+        from src.analytics.pricing_gap_analyzer import PricingGapAnalyzer
+
+        analyzer = PricingGapAnalyzer()
+        factor = {
+            "data_points": 140,
+            "capm": {"alpha_pct": 6.4, "data_points": 140},
+            "fama_french": {"alpha_pct": 5.2, "data_points": 140},
+        }
+        valuation = {
+            "current_price_source": "live",
+            "fair_value": {"mid": 100},
+            "dcf": {"intrinsic_value": 92},
+            "comparable": {"fair_value": 112},
+            "valuation_status": {"status": "overvalued"},
+        }
+        gap = {
+            "gap_pct": 20.0,
+            "severity": "high",
+            "direction": "溢价(高估)",
+        }
+
+        implications = analyzer._derive_implications(gap, factor, valuation)
+
+        assert implications["confidence"] == "medium"
+        assert implications["confidence_score"] < 0.72
+        assert "二级因子表现与估值结论方向不一致" in implications["confidence_reasons"]
+        assert any(item["key"] == "factor_alignment" and item["delta"] < 0 for item in implications["confidence_breakdown"])
+        assert implications["factor_alignment"]["status"] == "conflict"
+        assert implications["factor_alignment"]["label"] == "冲突"
 
     def test_deviation_drivers_are_ranked_by_signal_strength(self):
         """测试主驱动按影响强度排序，而不是按拼接顺序返回"""
@@ -409,7 +557,118 @@ class TestPricingGapAnalyzer:
         assert drivers["drivers"][0]["factor"] == "P/B 倍数法溢价"
         assert drivers["drivers"][1]["factor"] == "Alpha 超额收益"
         assert drivers["primary_driver"]["signal_strength"] > drivers["drivers"][1]["signal_strength"]
-        assert drivers["primary_driver"]["ranking_reason"] == "按估值倍数偏离行业基准幅度排序"
+        assert drivers["primary_driver"]["ranking_reason"] == "相对行业基准的估值溢价最显著，说明倍数扩张是当前定价偏差的主要来源"
+
+    def test_screening_ranks_symbols_by_gap_confidence_and_alignment(self):
+        """测试批量筛选会按机会分排序并跳过失败标的"""
+        from src.analytics.pricing_gap_analyzer import PricingGapAnalyzer
+
+        analyzer = PricingGapAnalyzer()
+        fake_results = {
+            "AAPL": {
+                "symbol": "AAPL",
+                "valuation": {"company_name": "Apple", "current_price_source": "live"},
+                "gap_analysis": {"current_price": 180, "fair_value_mid": 120, "gap_pct": 50.0, "direction": "溢价(高估)", "severity": "extreme", "severity_label": "极端偏离"},
+                "deviation_drivers": {"primary_driver": {"factor": "P/E 倍数法溢价", "ranking_reason": "倍数扩张最显著"}},
+                "implications": {"primary_view": "高估", "confidence": "high", "confidence_score": 0.9, "factor_alignment": {"status": "aligned", "label": "同向", "summary": "同向"}},
+                "summary": "AAPL ranked first",
+            },
+            "MSFT": {
+                "symbol": "MSFT",
+                "valuation": {"company_name": "Microsoft", "current_price_source": "live"},
+                "gap_analysis": {"current_price": 300, "fair_value_mid": 250, "gap_pct": 20.0, "direction": "溢价(高估)", "severity": "high", "severity_label": "显著偏离"},
+                "deviation_drivers": {"primary_driver": {"factor": "Alpha 超额收益", "ranking_reason": "超额收益最显著"}},
+                "implications": {"primary_view": "高估", "confidence": "medium", "confidence_score": 0.55, "factor_alignment": {"status": "conflict", "label": "冲突", "summary": "冲突"}},
+                "summary": "MSFT ranked second",
+            },
+            "FAIL": {
+                "symbol": "FAIL",
+                "error": "analysis failed",
+            },
+        }
+
+        with patch.object(PricingGapAnalyzer, "analyze", side_effect=lambda symbol, period: fake_results[symbol]):
+            result = analyzer.screen(["AAPL", "MSFT", "AAPL", "FAIL"], period="1y", limit=5)
+
+        assert result["total_input"] == 3
+        assert result["analyzed_count"] == 2
+        assert result["result_count"] == 2
+        assert result["results"][0]["symbol"] == "AAPL"
+        assert result["results"][0]["rank"] == 1
+        assert result["results"][0]["screening_score"] > result["results"][1]["screening_score"]
+        assert result["results"][1]["symbol"] == "MSFT"
+        assert result["failures"] == [{"symbol": "FAIL", "error": "analysis failed"}]
+
+    def test_peer_comparison_prefers_same_industry_and_similar_size(self):
+        """测试同行对比优先选同细分行业且体量更接近的标的"""
+        from src.analytics.pricing_gap_analyzer import PricingGapAnalyzer
+
+        analyzer = PricingGapAnalyzer()
+        fundamentals_map = {
+            "AAPL": {
+                "symbol": "AAPL",
+                "company_name": "Apple",
+                "sector": "Technology",
+                "industry": "Consumer Electronics",
+                "market_cap": 3000,
+                "pe_ratio": 28,
+                "price_to_sales": 7.5,
+            },
+            "MSFT": {
+                "symbol": "MSFT",
+                "company_name": "Microsoft",
+                "sector": "Technology",
+                "industry": "Software",
+                "market_cap": 3100,
+                "pe_ratio": 34,
+                "price_to_sales": 12.0,
+            },
+            "SONY": {
+                "symbol": "SONY",
+                "company_name": "Sony",
+                "sector": "Technology",
+                "industry": "Consumer Electronics",
+                "market_cap": 120,
+                "pe_ratio": 19,
+                "price_to_sales": 1.8,
+            },
+            "DELL": {
+                "symbol": "DELL",
+                "company_name": "Dell",
+                "sector": "Technology",
+                "industry": "Consumer Electronics",
+                "market_cap": 90,
+                "pe_ratio": 17,
+                "price_to_sales": 0.9,
+            },
+            "XOM": {
+                "symbol": "XOM",
+                "company_name": "Exxon Mobil",
+                "sector": "Energy",
+                "industry": "Oil & Gas",
+                "market_cap": 420,
+                "pe_ratio": 13,
+                "price_to_sales": 1.3,
+            },
+        }
+        valuation_map = {
+            symbol: {
+                "current_price": 100 + index * 10,
+                "fair_value": {"mid": 110 + index * 10},
+            }
+            for index, symbol in enumerate(fundamentals_map.keys())
+        }
+
+        analyzer.valuation_model.data_manager.get_fundamental_data = MagicMock(side_effect=lambda symbol: fundamentals_map.get(symbol, {"error": "missing"}))
+        analyzer.valuation_model.analyze = MagicMock(side_effect=lambda symbol: valuation_map[symbol])
+
+        result = analyzer.build_peer_comparison("AAPL", ["MSFT", "SONY", "DELL", "XOM"], limit=3)
+
+        assert result["target"]["symbol"] == "AAPL"
+        assert result["peers"][0]["symbol"] in {"SONY", "DELL"}
+        assert all(item["symbol"] != "XOM" for item in result["peers"])
+        assert result["summary"]["same_industry_count"] >= 2
+        assert result["candidate_count"] == 4
 
 
 if __name__ == "__main__":

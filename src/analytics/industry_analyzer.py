@@ -719,6 +719,117 @@ class IndustryAnalyzer:
         if cache_key:
             self._update_cache(cache_key, result)
         return result
+
+    def _load_industry_trend_series(
+        self,
+        industry_name: str,
+        days: int = 30
+    ) -> List[Dict[str, Any]]:
+        """加载行业指数趋势序列，用于详情页走势展示。"""
+        if self.provider is None or not hasattr(self.provider, "get_industry_classification") or not hasattr(self.provider, "get_industry_index"):
+            return []
+
+        try:
+            normalized_name = str(industry_name or "").strip()
+            trend_aliases = {
+                "半导体": "电子",
+                "半导体及元件": "电子",
+                "消费电子": "电子",
+                "光学光电子": "电子",
+                "元件": "电子",
+                "软件开发": "计算机",
+                "计算机应用": "计算机",
+                "计算机设备": "计算机",
+                "通信设备": "通信",
+                "白色家电": "家用电器",
+                "小家电": "家用电器",
+                "饮料制造": "食品饮料",
+                "食品加工制造": "食品饮料",
+                "证券": "非银金融",
+                "保险": "非银金融",
+            }
+
+            def resolve_industry_code() -> str:
+                candidate_frames = []
+                primary_df = self.provider.get_industry_classification()
+                if primary_df is not None and not primary_df.empty:
+                    candidate_frames.append(primary_df)
+                akshare_provider = getattr(self.provider, "akshare", None)
+                if akshare_provider is not None and hasattr(akshare_provider, "get_industry_classification"):
+                    akshare_df = akshare_provider.get_industry_classification()
+                    if akshare_df is not None and not akshare_df.empty:
+                        candidate_frames.insert(0, akshare_df)
+
+                search_names = [normalized_name]
+                aliased_name = trend_aliases.get(normalized_name)
+                if aliased_name and aliased_name not in search_names:
+                    search_names.append(aliased_name)
+
+                for frame in candidate_frames:
+                    if "industry_name" not in frame.columns or "industry_code" not in frame.columns:
+                        continue
+                    working_df = frame.copy()
+                    working_df["industry_name"] = working_df["industry_name"].astype(str).str.strip()
+                    for search_name in search_names:
+                        exact_match = working_df[working_df["industry_name"] == search_name]
+                        if not exact_match.empty:
+                            return str(exact_match.iloc[0].get("industry_code", "")).strip()
+                    for search_name in search_names:
+                        contains_match = working_df[working_df["industry_name"].str.contains(search_name, na=False)]
+                        if not contains_match.empty:
+                            return str(contains_match.iloc[0].get("industry_code", "")).strip()
+                return ""
+
+            industry_code = resolve_industry_code()
+            if not industry_code:
+                return []
+
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=max(int(days) * 3, 60))
+            hist_df = self.provider.get_industry_index(
+                industry_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            if hist_df is None or hist_df.empty or "close" not in hist_df.columns:
+                return []
+
+            normalized_hist = hist_df.copy().sort_index()
+            normalized_hist = normalized_hist.tail(max(int(days), 20))
+            close_series = pd.to_numeric(normalized_hist["close"], errors="coerce")
+            if close_series.dropna().empty:
+                return []
+
+            result = []
+            prev_close = None
+            for idx, row in normalized_hist.iterrows():
+                close_value = pd.to_numeric(pd.Series([row.get("close")]), errors="coerce").iloc[0]
+                if pd.isna(close_value):
+                    continue
+
+                open_value = pd.to_numeric(pd.Series([row.get("open")]), errors="coerce").iloc[0] if "open" in normalized_hist.columns else np.nan
+                high_value = pd.to_numeric(pd.Series([row.get("high")]), errors="coerce").iloc[0] if "high" in normalized_hist.columns else np.nan
+                low_value = pd.to_numeric(pd.Series([row.get("low")]), errors="coerce").iloc[0] if "low" in normalized_hist.columns else np.nan
+                volume_value = pd.to_numeric(pd.Series([row.get("volume")]), errors="coerce").iloc[0] if "volume" in normalized_hist.columns else np.nan
+                amount_value = pd.to_numeric(pd.Series([row.get("amount")]), errors="coerce").iloc[0] if "amount" in normalized_hist.columns else np.nan
+                change_pct = ((float(close_value) / float(prev_close) - 1) * 100) if prev_close not in (None, 0) else None
+
+                result.append({
+                    "date": idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx),
+                    "open": None if pd.isna(open_value) else round(float(open_value), 2),
+                    "high": None if pd.isna(high_value) else round(float(high_value), 2),
+                    "low": None if pd.isna(low_value) else round(float(low_value), 2),
+                    "close": round(float(close_value), 2),
+                    "volume": None if pd.isna(volume_value) else float(volume_value),
+                    "amount": None if pd.isna(amount_value) else float(amount_value),
+                    "change_pct": None if change_pct is None else round(float(change_pct), 2),
+                })
+                prev_close = float(close_value)
+
+            return result
+        except Exception as e:
+            logger.debug(f"Failed to load industry trend series for {industry_name}: {e}")
+            return []
     
     def calculate_industry_momentum(
         self,
@@ -1086,6 +1197,8 @@ class IndustryAnalyzer:
         # 直接使用 analyze_money_flow() 的聚合数据，避免逐行业获取成分股
         use_fast_path = hasattr(self.provider, "get_industry_money_flow")
         
+        mini_trend_lookup = self._build_industry_mini_trend_lookup(max_days=5)
+
         if use_fast_path:
             # 快速路径：直接使用 provider 的行业列表数据（包含涨跌幅）
             df_fast = self.analyze_money_flow(days=lookback_days)
@@ -1133,6 +1246,7 @@ class IndustryAnalyzer:
                             "stock_count": int(row.get("stock_count", 0)),
                             "total_market_cap": row.get("total_market_cap", 0),
                             "market_cap_source": row.get("market_cap_source", "unknown"),
+                            "mini_trend": mini_trend_lookup.get(row.get("industry_name", ""), []),
                         })
                     # [性能优化] 不再阻塞获取 stock_count，直接返回已有数据
                     self._update_cache(cache_key, result)
@@ -1192,10 +1306,66 @@ class IndustryAnalyzer:
                 "pe_ttm": float(row.get("pe_ttm")) if pd.notna(row.get("pe_ttm")) and row.get("pe_ttm") != 0 else None,
                 "pb": float(row.get("pb")) if pd.notna(row.get("pb")) and row.get("pb") != 0 else None,
                 "dividend_yield": float(row.get("dividend_yield")) if pd.notna(row.get("dividend_yield")) and row.get("dividend_yield") != 0 else None,
+                "mini_trend": mini_trend_lookup.get(row.get("industry_name", ""), []),
             })
         
         self._update_cache(cache_key, result)
         return result
+
+    @staticmethod
+    def _build_relative_trend_points_from_cumulative_changes(cumulative_changes: List[float]) -> List[float]:
+        if not cumulative_changes:
+            return []
+
+        points = []
+        ordered_changes = list(cumulative_changes)
+        for change in reversed(ordered_changes):
+            try:
+                denominator = 1 + (float(change) / 100.0)
+            except (TypeError, ValueError):
+                return []
+            if denominator <= 0:
+                return []
+            points.append(round(100.0 / denominator, 3))
+        points.append(100.0)
+        return points
+
+    def _build_industry_mini_trend_lookup(self, max_days: int = 5) -> Dict[str, List[float]]:
+        max_days = max(2, int(max_days or 5))
+        trend_frames = []
+        for day in range(1, max_days + 1):
+            try:
+                day_df = self.analyze_money_flow(days=day)
+            except Exception as exc:
+                logger.warning("Failed to build industry mini trend for %s-day lookback: %s", day, exc)
+                continue
+            if day_df.empty or "industry_name" not in day_df.columns or "change_pct" not in day_df.columns:
+                continue
+            trend_frames.append(
+                day_df[["industry_name", "change_pct"]]
+                .rename(columns={"change_pct": f"change_pct_{day}"})
+            )
+
+        if not trend_frames:
+            return {}
+
+        merged_trends = trend_frames[0]
+        for frame in trend_frames[1:]:
+            merged_trends = merged_trends.merge(frame, on="industry_name", how="outer")
+
+        trend_lookup: Dict[str, List[float]] = {}
+        for _, row in merged_trends.iterrows():
+            industry_name = row.get("industry_name", "")
+            changes = []
+            for day in range(1, max_days + 1):
+                value = row.get(f"change_pct_{day}")
+                if pd.isna(value):
+                    changes = []
+                    break
+                changes.append(float(value))
+            if len(changes) >= 2:
+                trend_lookup[industry_name] = self._build_relative_trend_points_from_cumulative_changes(changes)
+        return trend_lookup
     
     def get_industry_heatmap_data(self, days: int = 5) -> Dict[str, Any]:
         """
@@ -1349,6 +1519,9 @@ class IndustryAnalyzer:
             fallback_avg_pe = 0.0
             fallback_volatility = 0.0
             fallback_volatility_source = "unavailable"
+            fallback_market_cap_source = "unknown"
+            fallback_valuation_source = "unavailable"
+            fallback_valuation_quality = "unavailable"
 
             industry_flow_df = self.analyze_money_flow(days=days)
             matched_flow_row = None
@@ -1362,6 +1535,9 @@ class IndustryAnalyzer:
                     fallback_avg_pe = float(matched_flow_row.get("pe_ttm", 0) or 0)
                     fallback_volatility = float(matched_flow_row.get("industry_volatility", 0) or 0)
                     fallback_volatility_source = matched_flow_row.get("industry_volatility_source", "unavailable")
+                    fallback_market_cap_source = matched_flow_row.get("market_cap_source", "unknown")
+                    fallback_valuation_source = matched_flow_row.get("valuation_source", "unavailable")
+                    fallback_valuation_quality = matched_flow_row.get("valuation_quality", "unavailable")
 
             historical_vol_df = self.calculate_industry_historical_volatility(
                 lookback=days,
@@ -1372,6 +1548,8 @@ class IndustryAnalyzer:
                 fallback_volatility = float(hist_row.get("industry_volatility", 0) or 0)
                 fallback_volatility_source = "historical_index"
 
+            trend_series = self._load_industry_trend_series(industry_name, days=days)
+
             raw_stocks = self.provider.get_stock_list_by_industry(industry_name)
             stocks = build_enriched_industry_stocks(
                 self.provider,
@@ -1379,6 +1557,7 @@ class IndustryAnalyzer:
                 provider_stocks=raw_stocks,
             )
             expected_count = int(matched_flow_row.get("stock_count", 0) or 0) if matched_flow_row is not None else 0
+            expected_count_base = max(expected_count, 1)
             
             if not stocks:
                 # 混合数据源下，行业名称可能能在行业热度数据中找到，但无法稳定映射到成分股。
@@ -1387,6 +1566,7 @@ class IndustryAnalyzer:
                     return {
                         "industry_name": industry_name,
                         "stock_count": int(matched_flow_row.get("stock_count", 0) or 0),
+                        "expected_stock_count": expected_count,
                         "total_market_cap": fallback_market_cap,
                         "avg_pe": round(fallback_avg_pe, 2) if fallback_avg_pe > 0 else 0,
                         "industry_volatility": round(fallback_volatility, 4),
@@ -1399,6 +1579,16 @@ class IndustryAnalyzer:
                         "rise_count": 0,
                         "fall_count": 0,
                         "flat_count": 0,
+                        "stock_coverage_ratio": 0.0,
+                        "change_coverage_ratio": 0.0,
+                        "market_cap_coverage_ratio": 0.0,
+                        "pe_coverage_ratio": 0.0,
+                        "total_market_cap_fallback": fallback_market_cap > 0,
+                        "avg_pe_fallback": fallback_avg_pe > 0,
+                        "market_cap_source": fallback_market_cap_source,
+                        "valuation_source": fallback_valuation_source,
+                        "valuation_quality": fallback_valuation_quality,
+                        "trend_series": trend_series,
                         "degraded": True,
                         "note": "当前仅能返回行业聚合数据，成分股明细暂不可用。",
                         "update_time": update_time,
@@ -1433,28 +1623,40 @@ class IndustryAnalyzer:
             ]
 
             total_market_cap = sum(valid_market_caps)
+            total_market_cap_fallback = False
             if valid_pe_weighted_pairs:
                 total_pe_market_cap = sum(float(market_cap) for market_cap, _ in valid_pe_weighted_pairs)
                 total_earnings_proxy = sum(float(market_cap) / float(pe_ratio) for market_cap, pe_ratio in valid_pe_weighted_pairs if float(pe_ratio) > 0)
                 avg_pe = (total_pe_market_cap / total_earnings_proxy) if total_pe_market_cap > 0 and total_earnings_proxy > 0 else np.nan
             else:
                 avg_pe = np.mean(valid_pe_ratios) if valid_pe_ratios else np.nan
+            avg_pe_fallback = False
             if fallback_market_cap > 0:
                 if not valid_market_caps:
                     total_market_cap = fallback_market_cap
+                    total_market_cap_fallback = True
                 elif expected_count > 10:
                     cap_coverage = len(valid_market_caps) / max(expected_count, 1)
                     if cap_coverage < 0.35 or total_market_cap < fallback_market_cap * 0.25:
                         total_market_cap = fallback_market_cap
+                        total_market_cap_fallback = True
 
             if fallback_avg_pe > 0:
                 pe_coverage_base = len(valid_pe_weighted_pairs) if valid_pe_weighted_pairs else len(valid_pe_ratios)
                 if pe_coverage_base == 0:
                     avg_pe = fallback_avg_pe
+                    avg_pe_fallback = True
                 elif expected_count > 10:
                     pe_coverage = pe_coverage_base / max(expected_count, 1)
                     if pe_coverage < 0.35:
                         avg_pe = fallback_avg_pe
+                        avg_pe_fallback = True
+
+            stock_coverage_ratio = min(len(stocks) / expected_count_base, 1.0) if expected_count > 0 else (1.0 if len(stocks) > 0 else 0.0)
+            change_coverage_ratio = min(len(valid_change_stocks) / expected_count_base, 1.0) if expected_count > 0 else (1.0 if len(valid_change_stocks) > 0 else 0.0)
+            market_cap_coverage_ratio = min(len(valid_market_caps) / expected_count_base, 1.0) if expected_count > 0 else (1.0 if len(valid_market_caps) > 0 else 0.0)
+            pe_coverage_base = len(valid_pe_weighted_pairs) if valid_pe_weighted_pairs else len(valid_pe_ratios)
+            pe_coverage_ratio = min(pe_coverage_base / expected_count_base, 1.0) if expected_count > 0 else (1.0 if pe_coverage_base > 0 else 0.0)
 
             industry_volatility = float(fallback_volatility or 0)
             industry_volatility_source = fallback_volatility_source
@@ -1482,6 +1684,7 @@ class IndustryAnalyzer:
             return {
                 "industry_name": industry_name,
                 "stock_count": len(stocks),
+                "expected_stock_count": expected_count,
                 "total_market_cap": total_market_cap,
                 "avg_pe": round(avg_pe, 2) if not np.isnan(avg_pe) else 0,
                 "industry_volatility": round(industry_volatility, 4),
@@ -1494,6 +1697,16 @@ class IndustryAnalyzer:
                 "rise_count": rise_count,
                 "fall_count": fall_count,
                 "flat_count": flat_count,
+                "stock_coverage_ratio": round(stock_coverage_ratio, 4),
+                "change_coverage_ratio": round(change_coverage_ratio, 4),
+                "market_cap_coverage_ratio": round(market_cap_coverage_ratio, 4),
+                "pe_coverage_ratio": round(pe_coverage_ratio, 4),
+                "total_market_cap_fallback": total_market_cap_fallback,
+                "avg_pe_fallback": avg_pe_fallback,
+                "market_cap_source": fallback_market_cap_source,
+                "valuation_source": fallback_valuation_source,
+                "valuation_quality": fallback_valuation_quality,
+                "trend_series": trend_series,
                 "degraded": degraded,
                 "note": note,
                 "update_time": update_time,

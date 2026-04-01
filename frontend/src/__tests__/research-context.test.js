@@ -54,4 +54,20 @@ describe('researchContext workbench deep links', () => {
     expect(parsed.workbenchReason).toBe('policy_source');
     expect(parsed.task).toBe('rw_123');
   });
+
+  it('preserves pricing period when syncing the pricing view url', () => {
+    const url = buildViewUrlForCurrentState(
+      'pricing',
+      '?view=pricing&symbol=AAPL&period=2y&source=research_workbench&note=reopen'
+    );
+
+    expect(url).toContain('view=pricing');
+    expect(url).toContain('symbol=AAPL');
+    expect(url).toContain('period=2y');
+
+    const parsed = readResearchContext(url.split('?')[1] ? `?${url.split('?')[1]}` : '');
+    expect(parsed.view).toBe('pricing');
+    expect(parsed.symbol).toBe('AAPL');
+    expect(parsed.period).toBe('2y');
+  });
 });
