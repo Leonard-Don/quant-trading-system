@@ -32,7 +32,7 @@ import {
     Radar,
     Cell
 } from 'recharts';
-import moment from 'moment';
+import dayjs from '../utils/dayjs';
 import { compareStrategies } from '../services/api';
 import { getStrategyName, getStrategyParameterLabel, getStrategyDetails } from '../constants/strategies';
 import { normalizeBacktestResult } from '../utils/backtest';
@@ -54,7 +54,7 @@ const StrategyComparison = ({ strategies }) => {
     const [params, setParams] = useState({
         symbol: 'AAPL',
         selectedStrategies: [],
-        dateRange: [moment().subtract(1, 'year'), moment()],
+        dateRange: [dayjs().subtract(1, 'year'), dayjs()],
         initialCapital: 10000,
         commission: 0.1,
         slippage: 0.1,

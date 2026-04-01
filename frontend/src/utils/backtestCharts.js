@@ -1,4 +1,4 @@
-import moment from 'moment';
+import dayjs from './dayjs';
 
 import { calculateBollinger, calculateEMA, calculateSMA } from './indicators';
 
@@ -28,7 +28,7 @@ const parsePointDate = (point, fallbackIndex = 0) => {
     return null;
   }
 
-  const parsed = rawValue ? moment.parseZone(rawValue) : moment.invalid();
+  const parsed = rawValue ? dayjs(rawValue) : dayjs('');
 
   if (parsed.isValid()) {
     return parsed;

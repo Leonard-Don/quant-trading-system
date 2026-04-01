@@ -46,6 +46,11 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
                 reason: '主要政策源正文覆盖稳定',
                 avg_full_text_ratio: 0.88,
               },
+              input_reliability: {
+                label: 'robust',
+                score: 0.84,
+                lead: '当前输入可靠度整体稳健。',
+              },
               resonance: {
                 label: 'fading_cluster',
                 reason: '多个因子同步衰减，共振正在减弱',
@@ -161,6 +166,11 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
                 reason: '正文抓取脆弱源 ndrc',
                 avg_full_text_ratio: 0.43,
               },
+              input_reliability: {
+                label: 'fragile',
+                score: 0.41,
+                lead: '当前输入可靠度偏脆弱，主要风险来自时效偏旧与来源退化。',
+              },
               resonance: {
                 label: 'bullish_cluster',
                 reason: '多个宏观因子同时强化正向扭曲，形成上行共振',
@@ -261,6 +271,9 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
     expect(comparison.rows.some((row) => row.label === 'Macro Δ')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Macro Resonance')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Policy Source')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Input Reliability')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Input Reliability Score')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Input Reliability Lead')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Policy Full Text')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Policy Source Reason')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Macro Signal Change')).toBe(true);

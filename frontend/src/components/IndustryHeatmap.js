@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Card, Spin, Empty, Tooltip, Typography, Tag, Row, Col, Statistic, message, Button, Input, Radio, Select, Space, Progress } from 'antd';
+import { Card, Spin, Empty, Tooltip, Typography, Tag, Row, Col, Statistic, message, Button, Input, Radio, Select, Space, Progress, Slider } from 'antd';
 import {
     RiseOutlined,
     FallOutlined,
@@ -9,7 +9,9 @@ import {
     DashboardOutlined,
     BarChartOutlined,
     BgColorsOutlined,
-    SearchOutlined
+    SearchOutlined,
+    FullscreenOutlined,
+    FullscreenExitOutlined
 } from '@ant-design/icons';
 import { getIndustryHeatmap } from '../services/api';
 
@@ -193,8 +195,12 @@ const IndustryHeatmap = ({
     onColorMetricChange,
     onDisplayCountChange,
     onSearchTermChange,
+    legendRangeValue,
+    onLegendRangeChange,
     focusControlKey,
     showStats = true,
+    onToggleFullscreen,
+    isFullscreen = false,
 }) => {
     const [refreshSec, setRefreshSec] = useState(60);
     const [data, setData] = useState(null);
@@ -426,6 +432,37 @@ const IndustryHeatmap = ({
         }
     }, []);
 
+    const legendMeta = useMemo(() => {
+        if (colorMetric === 'net_inflow_ratio') {
+            return { min: -3, max: 3, step: 0.1, leftLabel: '净流出', rightLabel: '净流入', suffix: '%' };
+        }
+        if (colorMetric === 'turnover_rate') {
+            return { min: 0, max: 8, step: 0.1, leftLabel: '低换手', rightLabel: '高换手', suffix: '%' };
+        }
+        if (colorMetric === 'pe_ttm') {
+            return { min: 0, max: 80, step: 1, leftLabel: '低估值', rightLabel: '高估值', suffix: 'x' };
+        }
+        if (colorMetric === 'pb') {
+            return { min: 0, max: 10, step: 0.1, leftLabel: '低PB', rightLabel: '高PB', suffix: 'x' };
+        }
+        const maxAbs = data?.max_value !== undefined
+            ? Math.max(Math.abs(data.max_value || 0), Math.abs(data.min_value || 0), 5)
+            : 5;
+        return { min: -maxAbs, max: maxAbs, step: 0.1, leftLabel: '跌/出', rightLabel: '涨/入', suffix: '%' };
+    }, [colorMetric, data]);
+
+    const effectiveLegendRange = useMemo(() => {
+        if (
+            Array.isArray(legendRangeValue)
+            && legendRangeValue.length === 2
+            && Number.isFinite(Number(legendRangeValue[0]))
+            && Number.isFinite(Number(legendRangeValue[1]))
+        ) {
+            return [Number(legendRangeValue[0]), Number(legendRangeValue[1])];
+        }
+        return [legendMeta.min, legendMeta.max];
+    }, [legendMeta.max, legendMeta.min, legendRangeValue]);
+
     // 计算颜色
     const getColor = useCallback((value, metric, dynamicMax = 5) => {
         if (metric === 'change_pct') {
@@ -653,13 +690,24 @@ const IndustryHeatmap = ({
         const searchScoped = searchTerm
             ? sourceScoped.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
             : sourceScoped;
-        const displayedBase = searchScoped;
+        const legendScoped = searchScoped.filter((item) => {
+            let metricValue = 0;
+            if (colorMetric === 'change_pct') metricValue = Number(item.value || 0);
+            else if (colorMetric === 'net_inflow_ratio') metricValue = Number(item.netInflowRatio || 0);
+            else if (colorMetric === 'turnover_rate') metricValue = Number(item.turnoverRate || 0);
+            else if (colorMetric === 'pe_ttm') metricValue = Number(item.pe_ttm || 0);
+            else if (colorMetric === 'pb') metricValue = Number(item.pb || 0);
+            return metricValue >= effectiveLegendRange[0] && metricValue <= effectiveLegendRange[1];
+        });
+        const displayedBase = legendScoped;
         const displayed = displayCount > 0 ? displayedBase.slice(0, displayCount) : displayedBase;
 
         if (displayed.length === 0) {
             const emptyDescription = searchTerm
                 ? (marketCapFilter !== 'all' ? '当前筛选条件下未找到匹配行业' : '未找到匹配的行业')
-                : '当前市值来源筛选下暂无行业';
+                : legendRangeValue
+                    ? '当前色阶区间下暂无匹配行业'
+                    : '当前市值来源筛选下暂无行业';
             return (
                 <div
                     ref={setContainerNode}
@@ -689,6 +737,15 @@ const IndustryHeatmap = ({
                                 }}
                             >
                                 清除搜索
+                            </Button>
+                        )}
+                        {legendRangeValue && (
+                            <Button
+                                size="small"
+                                style={{ marginRight: 8 }}
+                                onClick={() => onLegendRangeChange?.(null)}
+                            >
+                                清除色阶筛选
                             </Button>
                         )}
                         {onClearMarketCapFilter && (
@@ -1090,7 +1147,7 @@ const IndustryHeatmap = ({
                                             <Text
                                                 style={{
                                                     color: textColor,
-                                                fontSize: isLargeBlock ? 15 : isMediumBlock ? 12 : 9,
+                                                    fontSize: isLargeBlock ? 15 : isMediumBlock ? 12 : 9,
                                                     fontWeight: 'bold',
                                                     lineHeight: 1.3,
                                                     textShadow: TILE_TEXT_SHADOW,
@@ -1112,22 +1169,114 @@ const IndustryHeatmap = ({
                                                         : `${displayValue >= 0 ? '+' : ''}${displayValue.toFixed(2)}%`}
                                             </Text>
                                         )}
+
+                                        {isMediumBlock && item.stockCount > 0 && (
+                                            <Text
+                                                style={{
+                                                    color: 'color-mix(in srgb, var(--text-primary) 76%, transparent)',
+                                                    fontSize: isLargeBlock ? 11 : 10,
+                                                    lineHeight: 1.2,
+                                                    marginTop: 2,
+                                                    maxWidth: '95%',
+                                                    whiteSpace: 'nowrap',
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    textShadow: TILE_TEXT_SHADOW,
+                                                }}
+                                            >
+                                                {item.stockCount} 只成分股
+                                            </Text>
+                                        )}
+
+                                        {isLargeBlock && item.leadingStock && (
+                                            <div
+                                                onClick={(event) => {
+                                                    if (onLeadingStockClick) {
+                                                        event.stopPropagation();
+                                                        onLeadingStockClick(item.leadingStock);
+                                                    }
+                                                }}
+                                                style={{
+                                                    marginTop: 4,
+                                                    padding: '2px 6px',
+                                                    borderRadius: 999,
+                                                    background: 'rgba(255,255,255,0.18)',
+                                                    maxWidth: '95%',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    gap: 4,
+                                                    cursor: onLeadingStockClick ? 'pointer' : 'default',
+                                                }}
+                                            >
+                                                <span style={{
+                                                    color: textColor,
+                                                    fontSize: 10,
+                                                    opacity: 0.86,
+                                                    whiteSpace: 'nowrap',
+                                                }}>
+                                                    龙头
+                                                </span>
+                                                <span style={{
+                                                    color: textColor,
+                                                    fontSize: 11,
+                                                    fontWeight: 700,
+                                                    whiteSpace: 'nowrap',
+                                                    overflow: 'hidden',
+                                                    textOverflow: 'ellipsis',
+                                                    textShadow: TILE_TEXT_SHADOW,
+                                                }}>
+                                                    {item.leadingStock}
+                                                </span>
+                                                {Number.isFinite(Number(item.leadingStockChange)) && item.leadingStockChange !== 0 && (
+                                                    <span style={{
+                                                        color: item.leadingStockChange >= 0 ? HEATMAP_POSITIVE : HEATMAP_NEGATIVE,
+                                                        fontSize: 10,
+                                                        fontWeight: 700,
+                                                        whiteSpace: 'nowrap',
+                                                    }}>
+                                                        {item.leadingStockChange >= 0 ? '+' : ''}{Number(item.leadingStockChange).toFixed(1)}%
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
                                     </>
                                 )}
 
                                 {/* 大块：市值 */}
                                 {isLargeBlock && (
-                                    <Text
-                                        style={{
-                                            color: 'color-mix(in srgb, var(--text-primary) 68%, transparent)',
-                                            fontSize: 11,
-                                            lineHeight: 1.2,
-                                            textShadow: '0 1px 2px rgba(15, 23, 42, 0.24)',
-                                        }}
-                                    >
-                                        {sizeMetric === 'market_cap' && (item.size > 0 ? `${(item.size / 100000000).toFixed(0)} 亿` : '')}
-                                        {sizeMetric === 'net_inflow' && formatBillion(Math.abs(item.moneyFlow))}
-                                    </Text>
+                                    <div style={{
+                                        marginTop: 4,
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'center',
+                                        gap: 8,
+                                        flexWrap: 'wrap',
+                                        maxWidth: '96%',
+                                    }}>
+                                        <Text
+                                            style={{
+                                                color: 'color-mix(in srgb, var(--text-primary) 68%, transparent)',
+                                                fontSize: 11,
+                                                lineHeight: 1.2,
+                                                textShadow: '0 1px 2px rgba(15, 23, 42, 0.24)',
+                                            }}
+                                        >
+                                            {sizeMetric === 'market_cap' && (item.size > 0 ? `${(item.size / 100000000).toFixed(0)} 亿` : '')}
+                                            {sizeMetric === 'net_inflow' && formatBillion(Math.abs(item.moneyFlow))}
+                                        </Text>
+                                        {item.stockCount > 0 && (
+                                            <Text
+                                                style={{
+                                                    color: 'color-mix(in srgb, var(--text-primary) 62%, transparent)',
+                                                    fontSize: 10,
+                                                    lineHeight: 1.2,
+                                                    textShadow: '0 1px 2px rgba(15, 23, 42, 0.24)',
+                                                }}
+                                            >
+                                                {item.stockCount} 只
+                                            </Text>
+                                        )}
+                                    </div>
                                 )}
                             </div>
                         </Tooltip >
@@ -1153,7 +1302,10 @@ const IndustryHeatmap = ({
         colorMetric,
         marketCapFilter,
         matchesMarketCapFilter,
+        effectiveLegendRange,
+        legendRangeValue,
         loadData,
+        onLegendRangeChange,
     ]);
 
     // 计算资金流入 TOP3（用于图例横幅，来自内存数据无需新 API）
@@ -1180,7 +1332,7 @@ const IndustryHeatmap = ({
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <BgColorsOutlined />
                     <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                        {colorMetric === 'turnover_rate' ? '低换手' : '跌/出'}
+                        {legendMeta.leftLabel}
                     </Text>
                     <div style={{
                         width: 120,
@@ -1191,8 +1343,34 @@ const IndustryHeatmap = ({
                         borderRadius: 4
                     }} />
                     <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                        {colorMetric === 'turnover_rate' ? '高换手' : '涨/入'}
+                        {legendMeta.rightLabel}
                     </Text>
+                </div>
+                <div style={{ minWidth: 280, maxWidth: 380, flex: '1 1 280px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                        <Text style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                            色阶区间刷选
+                        </Text>
+                        <Text style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                            {effectiveLegendRange[0].toFixed(colorMetric === 'pe_ttm' ? 0 : 1)}
+                            {legendMeta.suffix}
+                            {' '}~{' '}
+                            {effectiveLegendRange[1].toFixed(colorMetric === 'pe_ttm' ? 0 : 1)}
+                            {legendMeta.suffix}
+                        </Text>
+                    </div>
+                    <div data-testid="heatmap-legend-slider">
+                        <Slider
+                            range
+                            min={legendMeta.min}
+                            max={legendMeta.max}
+                            step={legendMeta.step}
+                            value={effectiveLegendRange}
+                            onChange={(value) => onLegendRangeChange?.(value)}
+                            onChangeComplete={(value) => onLegendRangeChange?.(value)}
+                            tooltip={{ open: false }}
+                        />
+                    </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                     <BarChartOutlined />
@@ -1234,6 +1412,151 @@ const IndustryHeatmap = ({
         </div>
     );
 
+    const renderControls = (
+        <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 8,
+            alignItems: 'flex-end'
+        }}>
+            <Space size={8} wrap>
+                <Radio.Group
+                    className="heatmap-control-timeframe"
+                    value={timeframe}
+                    onChange={e => {
+                        setTimeframe(e.target.value);
+                        onTimeframeChange?.(e.target.value);
+                    }}
+                    size="small"
+                    optionType="button"
+                    buttonStyle="solid"
+                    style={{
+                        boxShadow: focusControlKey === 'timeframe' ? 'var(--industry-focus-ring)' : 'none',
+                        borderRadius: 8,
+                    }}
+                >
+                    <Radio value={1}>1日</Radio>
+                    <Radio value={5}>5日</Radio>
+                    <Radio value={10}>10日</Radio>
+                    <Radio value={20}>20日</Radio>
+                    <Radio value={60}>60日</Radio>
+                </Radio.Group>
+                <Select
+                    className="heatmap-control-size-metric"
+                    value={sizeMetric}
+                    onChange={(value) => {
+                        setSizeMetric(value);
+                        onSizeMetricChange?.(value);
+                    }}
+                    size="small"
+                    style={{
+                        width: 100,
+                        boxShadow: focusControlKey === 'size_metric' ? 'var(--industry-focus-ring)' : 'none',
+                        borderRadius: 8,
+                    }}
+                    options={[
+                        { value: 'market_cap', label: '按市值' },
+                        { value: 'net_inflow', label: '按净流入' },
+                        { value: 'turnover', label: '按成交额(估)' },
+                    ]}
+                />
+                <Select
+                    className="heatmap-control-color-metric"
+                    value={colorMetric}
+                    onChange={(value) => {
+                        setColorMetric(value);
+                        onColorMetricChange?.(value);
+                    }}
+                    size="small"
+                    style={{
+                        width: 110,
+                        boxShadow: focusControlKey === 'color_metric' ? 'var(--industry-focus-ring)' : 'none',
+                        borderRadius: 8,
+                    }}
+                    options={[
+                        { value: 'change_pct', label: '看涨跌' },
+                        { value: 'net_inflow_ratio', label: '看净流入%' },
+                        { value: 'turnover_rate', label: '看换手率' },
+                        { value: 'pe_ttm', label: '看市盈率' },
+                        { value: 'pb', label: '看市净率' },
+                    ]}
+                />
+            </Space>
+            <Space size={8} wrap>
+                {replaySnapshot?.data && (
+                    <Tag color="processing" style={{ margin: 0, borderRadius: 999 }}>
+                        回放中 {replaySnapshot?.timeframe ? `${replaySnapshot.timeframe}日` : ''}
+                    </Tag>
+                )}
+                <Radio.Group
+                    className="heatmap-control-display-count"
+                    value={displayCount}
+                    onChange={e => {
+                        setDisplayCount(e.target.value);
+                        onDisplayCountChange?.(e.target.value);
+                    }}
+                    size="small"
+                    buttonStyle="solid"
+                    style={{
+                        boxShadow: focusControlKey === 'display_count' ? 'var(--industry-focus-ring)' : 'none',
+                        borderRadius: 8,
+                    }}
+                >
+                    <Radio.Button value={30}>Top 30</Radio.Button>
+                    <Radio.Button value={50}>Top 50</Radio.Button>
+                    <Radio.Button value={0}>全部</Radio.Button>
+                </Radio.Group>
+                <Input
+                    className="heatmap-control-search"
+                    placeholder="行业筛选..."
+                    value={searchTerm}
+                    prefix={<SearchOutlined style={{ color: 'var(--text-muted)' }} />}
+                    onChange={e => {
+                        setSearchTerm(e.target.value);
+                        onSearchTermChange?.(e.target.value);
+                    }}
+                    style={{
+                        width: 150,
+                        borderRadius: 4,
+                        backgroundColor: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-color)',
+                        color: 'var(--text-primary)',
+                        boxShadow: focusControlKey === 'search' ? 'var(--industry-focus-ring)' : 'none',
+                    }}
+                    allowClear
+                    size="small"
+                />
+                <Select
+                    value={refreshSec}
+                    onChange={setRefreshSec}
+                    size="small"
+                    style={{ width: 100 }}
+                    options={[
+                        { value: 0, label: '不自动刷新' },
+                        { value: 60, label: '⏱ 60秒' },
+                        { value: 120, label: '⏱ 2分钟' },
+                        { value: 300, label: '⏱ 5分钟' },
+                    ]}
+                />
+                <Button
+                    type="text"
+                    data-testid="heatmap-fullscreen-toggle"
+                    icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                    onClick={onToggleFullscreen}
+                    style={{ color: 'var(--text-secondary)' }}
+                />
+                <Button
+                    type="text"
+                    icon={<ReloadOutlined />}
+                    onClick={loadData}
+                    loading={loading}
+                    disabled={Boolean(replaySnapshot?.data)}
+                    style={{ color: 'var(--text-secondary)' }}
+                />
+            </Space>
+        </div>
+    );
+
     if (loading) {
         // 骨架屏：模拟热力图方块布局，减少等待焦虑
         const skeletonBlocks = [
@@ -1242,7 +1565,10 @@ const IndustryHeatmap = ({
             { w: '20%', h: 55 }, { w: '30%', h: 55 }, { w: '25%', h: 55 }, { w: '25%', h: 55 },
         ];
         return (
-            <Card title={<span><FireOutlined style={{ marginRight: 8, color: 'var(--accent-danger)' }} />行业热力图</span>}>
+            <Card
+                title={<span><FireOutlined style={{ marginRight: 8, color: 'var(--accent-danger)' }} />行业热力图</span>}
+                extra={renderControls}
+            >
                 <div style={{
                     display: 'flex', flexWrap: 'wrap', gap: 3,
                     background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-primary) 18%) 0%, var(--bg-secondary) 100%)', borderRadius: 8, padding: 3,
@@ -1295,146 +1621,7 @@ const IndustryHeatmap = ({
                     行业热力图
                 </span>
             }
-            extra={
-                <div style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                    alignItems: 'flex-end'
-                }}>
-                    {/* 第一行：API状态 + 时间维度 + 大小/颜色指标 */}
-                    <Space size={8} wrap>
-
-                        <Radio.Group
-                            className="heatmap-control-timeframe"
-                            value={timeframe}
-                            onChange={e => {
-                                setTimeframe(e.target.value);
-                                onTimeframeChange?.(e.target.value);
-                            }}
-                            size="small"
-                            optionType="button"
-                            buttonStyle="solid"
-                            style={{
-                                boxShadow: focusControlKey === 'timeframe' ? 'var(--industry-focus-ring)' : 'none',
-                                borderRadius: 8,
-                            }}
-                        >
-                            <Radio value={1}>1日</Radio>
-                            <Radio value={5}>5日</Radio>
-                            <Radio value={10}>10日</Radio>
-                            <Radio value={20}>20日</Radio>
-                            <Radio value={60}>60日</Radio>
-                        </Radio.Group>
-                        <Select
-                            className="heatmap-control-size-metric"
-                            value={sizeMetric}
-                            onChange={(value) => {
-                                setSizeMetric(value);
-                                onSizeMetricChange?.(value);
-                            }}
-                            size="small"
-                            style={{
-                                width: 100,
-                                boxShadow: focusControlKey === 'size_metric' ? 'var(--industry-focus-ring)' : 'none',
-                                borderRadius: 8,
-                            }}
-                            options={[
-                                { value: 'market_cap', label: '按市值' },
-                                { value: 'net_inflow', label: '按净流入' },
-                                { value: 'turnover', label: '按成交额(估)' },
-                            ]}
-                        />
-                        <Select
-                            className="heatmap-control-color-metric"
-                            value={colorMetric}
-                            onChange={(value) => {
-                                setColorMetric(value);
-                                onColorMetricChange?.(value);
-                            }}
-                            size="small"
-                            style={{
-                                width: 110,
-                                boxShadow: focusControlKey === 'color_metric' ? 'var(--industry-focus-ring)' : 'none',
-                                borderRadius: 8,
-                            }}
-                            options={[
-                                { value: 'change_pct', label: '看涨跌' },
-                                { value: 'net_inflow_ratio', label: '看净流入%' },
-                                { value: 'turnover_rate', label: '看换手率' },
-                                { value: 'pe_ttm', label: '看市盈率' },
-                                { value: 'pb', label: '看市净率' },
-                            ]}
-                        />
-                    </Space>
-                    {/* 第二行：显示数量 + 搜索 + 刷新 */}
-                    <Space size={8} wrap>
-                        {replaySnapshot?.data && (
-                            <Tag color="processing" style={{ margin: 0, borderRadius: 999 }}>
-                                回放中 {replaySnapshot?.timeframe ? `${replaySnapshot.timeframe}日` : ''}
-                            </Tag>
-                        )}
-                        <Radio.Group
-                            className="heatmap-control-display-count"
-                            value={displayCount}
-                            onChange={e => {
-                                setDisplayCount(e.target.value);
-                                onDisplayCountChange?.(e.target.value);
-                            }}
-                            size="small"
-                            buttonStyle="solid"
-                            style={{
-                                boxShadow: focusControlKey === 'display_count' ? 'var(--industry-focus-ring)' : 'none',
-                                borderRadius: 8,
-                            }}
-                        >
-                            <Radio.Button value={30}>Top 30</Radio.Button>
-                            <Radio.Button value={50}>Top 50</Radio.Button>
-                            <Radio.Button value={0}>全部</Radio.Button>
-                        </Radio.Group>
-                        <Input
-                            className="heatmap-control-search"
-                            placeholder="行业筛选..."
-                            value={searchTerm}
-                            prefix={<SearchOutlined style={{ color: 'var(--text-muted)' }} />}
-                            onChange={e => {
-                                setSearchTerm(e.target.value);
-                                onSearchTermChange?.(e.target.value);
-                            }}
-                            style={{
-                                width: 150,
-                                borderRadius: 4,
-                                backgroundColor: 'var(--bg-secondary)',
-                                border: '1px solid var(--border-color)',
-                                color: 'var(--text-primary)',
-                                boxShadow: focusControlKey === 'search' ? 'var(--industry-focus-ring)' : 'none',
-                            }}
-                            allowClear
-                            size="small"
-                        />
-                        <Select
-                            value={refreshSec}
-                            onChange={setRefreshSec}
-                            size="small"
-                            style={{ width: 100 }}
-                            options={[
-                                { value: 0, label: '不自动刷新' },
-                                { value: 60, label: '⏱ 60秒' },
-                                { value: 120, label: '⏱ 2分钟' },
-                                { value: 300, label: '⏱ 5分钟' },
-                            ]}
-                        />
-                        <Button
-                            type="text"
-                            icon={<ReloadOutlined />}
-                            onClick={loadData}
-                            loading={loading}
-                            disabled={Boolean(replaySnapshot?.data)}
-                            style={{ color: 'var(--text-secondary)' }}
-                        />
-                    </Space>
-                </div>
-            }
+            extra={renderControls}
         >
             {showStats && renderStats}
             {renderTreemap}

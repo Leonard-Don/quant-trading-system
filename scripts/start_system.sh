@@ -21,6 +21,8 @@ BACKEND_PID=""
 FRONTEND_PID=""
 STARTED_BACKEND=0
 STARTED_FRONTEND=0
+BACKEND_HEALTH_FAILURES=0
+BACKEND_HEALTH_FAILURE_THRESHOLD=3
 
 usage() {
     cat <<'EOF'
@@ -322,7 +324,7 @@ ensure_port_available "$BACKEND_PORT" "后端服务" "$BACKEND_PID_FILE"
 ensure_port_available "$FRONTEND_PORT" "前端服务" "$FRONTEND_PID_FILE"
 
 log_info "🔧 启动后端服务..."
-python3 "$PROJECT_ROOT/scripts/start_backend.py" >"$LOG_DIR/backend.log" 2>&1 &
+API_RELOAD=false python3 "$PROJECT_ROOT/scripts/start_backend.py" >"$LOG_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
 STARTED_BACKEND=1
 echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
@@ -368,8 +370,14 @@ while true; do
     sleep 10
 
     if ! curl -fsS "http://${BACKEND_HOST}:${BACKEND_PORT}/health" >/dev/null 2>&1; then
-        log_error "❌ 后端服务意外停止（健康检查失败）"
-        exit 1
+        BACKEND_HEALTH_FAILURES=$((BACKEND_HEALTH_FAILURES + 1))
+        log_error "⚠️  后端健康检查失败 (${BACKEND_HEALTH_FAILURES}/${BACKEND_HEALTH_FAILURE_THRESHOLD})"
+        if [[ "$BACKEND_HEALTH_FAILURES" -ge "$BACKEND_HEALTH_FAILURE_THRESHOLD" ]]; then
+            log_error "❌ 后端服务意外停止（健康检查连续失败）"
+            exit 1
+        fi
+    else
+        BACKEND_HEALTH_FAILURES=0
     fi
 
     if ! process_alive "$FRONTEND_PID"; then

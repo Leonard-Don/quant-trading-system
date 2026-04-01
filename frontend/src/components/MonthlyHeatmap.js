@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Tooltip } from 'antd';
-import moment from 'moment';
+import dayjs from '../utils/dayjs';
 
 const MONTH_LABELS = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
 
@@ -19,7 +19,7 @@ const parsePointDate = (item) => {
         return null;
     }
 
-    const parsed = typeof rawDate === 'string' ? moment.parseZone(rawDate) : moment(rawDate);
+    const parsed = typeof rawDate === 'string' ? dayjs(rawDate) : dayjs(rawDate);
     return parsed.isValid() ? parsed : null;
 };
 

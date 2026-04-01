@@ -10,6 +10,8 @@ from src.strategy.strategies import (
     RSIStrategy,
     BollingerBands,
     BuyAndHold,
+    TurtleTradingStrategy,
+    MultiFactorStrategy,
 )
 from src.strategy.advanced_strategies import (
     MACDStrategy,
@@ -35,6 +37,8 @@ STRATEGIES = {
     "momentum": MomentumStrategy,
     "stochastic": StochasticOscillator,
     "atr_trailing_stop": ATRTrailingStop,
+    "turtle_trading": TurtleTradingStrategy,
+    "multi_factor": MultiFactorStrategy,
 }
 
 @router.get("/status", summary="系统状态检查", deprecated=True)

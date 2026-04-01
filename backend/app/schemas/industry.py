@@ -21,6 +21,7 @@ class IndustryRankResponse(BaseModel):
     stock_count: int = Field(0, description="成分股数量")
     total_market_cap: float = Field(0, description="总市值")
     marketCapSource: str = Field("unknown", description="行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*")
+    mini_trend: List[float] = Field(default_factory=list, description="近5日相对走势火花线数据")
 
 
 class StockResponse(BaseModel):
@@ -49,6 +50,7 @@ class LeaderStockResponse(BaseModel):
     pe_ratio: float = Field(0, description="市盈率")
     change_pct: float = Field(0, description="涨跌幅")
     dimension_scores: Dict[str, Any] = Field(default_factory=dict, description="各维度得分")
+    mini_trend: List[float] = Field(default_factory=list, description="近期价格走势火花线数据")
 
 
 class LeaderDetailResponse(BaseModel):
@@ -104,10 +106,39 @@ class HeatmapResponse(BaseModel):
     update_time: str = Field(..., description="更新时间")
 
 
+class HeatmapHistoryItem(BaseModel):
+    """热力图历史快照"""
+    snapshot_id: str = Field(..., description="快照ID")
+    days: int = Field(..., description="分析周期（天）")
+    captured_at: str = Field(..., description="服务端记录时间")
+    update_time: str = Field(..., description="快照更新时间")
+    max_value: float = Field(0, description="最大值")
+    min_value: float = Field(0, description="最小值")
+    industries: List[HeatmapDataItem] = Field(default_factory=list, description="行业数据")
+
+
+class HeatmapHistoryResponse(BaseModel):
+    """热力图历史响应"""
+    items: List[HeatmapHistoryItem] = Field(default_factory=list, description="历史快照列表")
+
+
+class IndustryTrendPoint(BaseModel):
+    """行业趋势序列点"""
+    date: str = Field(..., description="日期")
+    open: Optional[float] = Field(None, description="开盘价")
+    high: Optional[float] = Field(None, description="最高价")
+    low: Optional[float] = Field(None, description="最低价")
+    close: Optional[float] = Field(None, description="收盘价")
+    volume: Optional[float] = Field(None, description="成交量")
+    amount: Optional[float] = Field(None, description="成交额")
+    change_pct: Optional[float] = Field(None, description="相对前一交易日涨跌幅")
+
+
 class IndustryTrendResponse(BaseModel):
     """行业趋势响应"""
     industry_name: str = Field(..., description="行业名称")
     stock_count: int = Field(0, description="成分股数量")
+    expected_stock_count: int = Field(0, description="预期成分股数量")
     total_market_cap: float = Field(0, description="总市值")
     avg_pe: float = Field(0, description="平均市盈率")
     industry_volatility: float = Field(0, description="行业区间波动率(%)")
@@ -120,6 +151,16 @@ class IndustryTrendResponse(BaseModel):
     rise_count: int = Field(0, description="上涨股票数")
     fall_count: int = Field(0, description="下跌股票数")
     flat_count: int = Field(0, description="平盘股票数")
+    stock_coverage_ratio: float = Field(0, description="成分股覆盖率")
+    change_coverage_ratio: float = Field(0, description="涨跌幅覆盖率")
+    market_cap_coverage_ratio: float = Field(0, description="市值覆盖率")
+    pe_coverage_ratio: float = Field(0, description="市盈率覆盖率")
+    total_market_cap_fallback: bool = Field(False, description="总市值是否回退到行业聚合口径")
+    avg_pe_fallback: bool = Field(False, description="平均市盈率是否回退到行业聚合口径")
+    market_cap_source: str = Field("unknown", description="市值来源")
+    valuation_source: str = Field("unavailable", description="估值来源")
+    valuation_quality: str = Field("unavailable", description="估值质量")
+    trend_series: List[IndustryTrendPoint] = Field(default_factory=list, description="行业指数趋势序列")
     degraded: bool = Field(False, description="是否为降级数据")
     note: Optional[str] = Field(None, description="降级或补充说明")
     update_time: str = Field(..., description="更新时间")

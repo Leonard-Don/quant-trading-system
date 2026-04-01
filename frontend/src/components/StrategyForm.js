@@ -17,10 +17,14 @@ import {
   Alert,
 } from 'antd';
 import { PlayCircleOutlined, SaveOutlined, FolderOpenOutlined, DeleteOutlined, DownOutlined } from '@ant-design/icons';
-import moment from 'moment';
+import dayjs from '../utils/dayjs';
 import { getStrategyName, getStrategyParameterLabel, getStrategyDetails } from '../constants/strategies';
 import { useSafeMessageApi } from '../utils/messageApi';
-import { saveBacktestWorkspaceDraft } from '../utils/backtestWorkspace';
+import {
+  BACKTEST_WORKSPACE_DRAFT_EVENT,
+  loadBacktestWorkspaceDraft,
+  saveBacktestWorkspaceDraft,
+} from '../utils/backtestWorkspace';
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
@@ -62,6 +66,46 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       }
     }
   }, [selectedStrategy, strategies]);
+
+  useEffect(() => {
+    const applyWorkspaceDraft = () => {
+      const draft = loadBacktestWorkspaceDraft();
+      if (!draft?.symbol || !draft?.strategy || !draft?.dateRange?.[0] || !draft?.dateRange?.[1]) {
+        return;
+      }
+
+      const strategy = strategies.find((item) => item.name === draft.strategy);
+      const resolvedStrategy = strategy || strategies[0] || null;
+      if (resolvedStrategy) {
+        setSelectedStrategy(resolvedStrategy);
+        const defaultParams = Object.fromEntries(
+          Object.entries(resolvedStrategy.parameters || {}).map(([key, config]) => [key, config.default])
+        );
+        setStrategyParams({
+          ...defaultParams,
+          ...(draft.parameters || {}),
+        });
+      }
+
+      form.setFieldsValue({
+        symbol: draft.symbol,
+        strategy: draft.strategy,
+        dateRange: [dayjs(draft.dateRange[0], DATE_FORMAT), dayjs(draft.dateRange[1], DATE_FORMAT)],
+        initial_capital: draft.initial_capital ?? 10000,
+        commission: draft.commission ?? 0.1,
+        slippage: draft.slippage ?? 0.1,
+      });
+    };
+
+    applyWorkspaceDraft();
+    const handleWorkspaceDraftEvent = (event) => {
+      if (event?.detail?.source === 'advanced_template') {
+        applyWorkspaceDraft();
+      }
+    };
+    window.addEventListener(BACKTEST_WORKSPACE_DRAFT_EVENT, handleWorkspaceDraftEvent);
+    return () => window.removeEventListener(BACKTEST_WORKSPACE_DRAFT_EVENT, handleWorkspaceDraftEvent);
+  }, [form, strategies]);
 
   useEffect(() => {
     if (!watchedValues?.symbol && !watchedValues?.strategy && !selectedStrategy) {
@@ -116,7 +160,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
     form.setFieldsValue({
       symbol: data.symbol,
       strategy: data.strategy,
-      dateRange: data.dateRange ? [moment(data.dateRange[0]), moment(data.dateRange[1])] : null,
+      dateRange: data.dateRange ? [dayjs(data.dateRange[0]), dayjs(data.dateRange[1])] : null,
       initial_capital: data.initial_capital,
       commission: data.commission,
       slippage: data.slippage
@@ -261,7 +305,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
         initialValues={{
           symbol: 'AAPL',
           strategy: strategies[0]?.name,
-          dateRange: [moment().subtract(1, 'year'), moment()],
+          dateRange: [dayjs().subtract(1, 'year'), dayjs()],
           initial_capital: 10000,
           commission: 0.1,
           slippage: 0.1

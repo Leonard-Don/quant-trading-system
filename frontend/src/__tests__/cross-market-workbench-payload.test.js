@@ -57,6 +57,15 @@ describe('buildCrossMarketWorkbenchPayload', () => {
           macro_signal: 1,
           confidence: 0.82,
           snapshot_timestamp: '2026-03-20T10:00:00',
+          input_reliability_summary: {
+            label: 'watch',
+            score: 0.63,
+            lead: '当前输入可靠度需要持续观察，主要受政策源质量波动影响。',
+            posture: '当前宏观输入更适合作为研究排序与提示信号。',
+            reason: 'effective confidence 0.63 · freshness recent · policy source watch',
+            dominant_issue_labels: ['政策源脆弱'],
+            dominant_support_labels: ['跨源确认'],
+          },
           evidence_summary: {
             policy_source_health_summary: {
               label: 'watch',
@@ -119,7 +128,12 @@ describe('buildCrossMarketWorkbenchPayload', () => {
     expect(payload.context.research_input.macro.macro_signal_changed).toBe(true);
     expect(payload.context.research_input.macro.policy_source_health.label).toBe('watch');
     expect(payload.context.research_input.macro.policy_source_health.reason).toContain('ndrc');
+    expect(payload.context.research_input.macro.input_reliability.label).toBe('watch');
+    expect(payload.context.research_input.macro.input_reliability.lead).toContain('输入可靠度需要持续观察');
+    expect(payload.context.research_input.macro.input_reliability.posture).toContain('研究排序与提示信号');
     expect(payload.context.research_input.alt_data.top_categories).toHaveLength(2);
+    expect(payload.context.input_reliability.label).toBe('watch');
+    expect(payload.context.input_reliability.posture).toContain('研究排序与提示信号');
     expect(payload.snapshot.payload.template_meta.theme).toBe(payload.context.theme);
     expect(payload.snapshot.payload.template_meta.base_recommendation_tier).toBe('优先部署');
     expect(payload.snapshot.payload.template_meta.recommendation_tier).toBe('优先部署');
@@ -142,6 +156,9 @@ describe('buildCrossMarketWorkbenchPayload', () => {
     expect(payload.snapshot.payload.research_input.macro.macro_score_delta).toBe(0.18);
     expect(payload.snapshot.payload.research_input.macro.resonance.label).toBe('bullish_cluster');
     expect(payload.snapshot.payload.research_input.macro.policy_source_health.avg_full_text_ratio).toBe(0.68);
+    expect(payload.snapshot.payload.research_input.macro.input_reliability.score).toBe(0.63);
+    expect(payload.snapshot.payload.template_meta.input_reliability.label).toBe('watch');
+    expect(payload.snapshot.payload.template_meta.input_reliability.posture).toContain('研究排序与提示信号');
     expect(payload.snapshot.payload.research_input.alt_data.top_categories[0].category).toBe('policy');
   });
 

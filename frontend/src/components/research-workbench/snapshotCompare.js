@@ -157,6 +157,13 @@ const extractPricingMetrics = (snapshot) => {
     confidence: implications.confidence || '-',
     confidenceScore: implications.confidence_score ?? null,
     scenarioSpread,
+    ff5Alpha: factorModel.ff5_alpha_pct ?? null,
+    profitability: factorModel.ff5_profitability ?? null,
+    investment: factorModel.ff5_investment ?? null,
+    monteCarloMedian: payload.monte_carlo?.p50 ?? payload.monte_carlo?.median ?? null,
+    monteCarloP90: payload.monte_carlo?.p90 ?? null,
+    auditPriceSource: payload.audit_trail?.price_source || payload.current_price_source || '',
+    auditBenchmarkSource: payload.audit_trail?.comparable_benchmark_source || payload.comparable?.benchmark_source || '-',
   };
 };
 
@@ -168,6 +175,7 @@ const extractCrossMarketMetrics = (snapshot) => {
   const alignment = payload.data_alignment || {};
   const overlay = payload.allocation_overlay || {};
   const selectionQuality = overlay.selection_quality || templateMeta.selection_quality || {};
+  const inputReliabilityOverlay = overlay.input_reliability || templateMeta.input_reliability || {};
   const constraintOverlay = payload.constraint_overlay || {};
   const hedgePortfolio = payload.hedge_portfolio || {};
   const researchInput = payload.research_input || {};
@@ -196,6 +204,11 @@ const extractCrossMarketMetrics = (snapshot) => {
     policySourceHealth: researchInput.macro?.policy_source_health?.label || '-',
     policySourceReason: researchInput.macro?.policy_source_health?.reason || '-',
     policySourceFullTextRatio: researchInput.macro?.policy_source_health?.avg_full_text_ratio ?? null,
+    inputReliability: researchInput.macro?.input_reliability?.label || '-',
+    inputReliabilityScore: researchInput.macro?.input_reliability?.score ?? null,
+    inputReliabilityLead: researchInput.macro?.input_reliability?.lead || '-',
+    inputReliabilityPosture: inputReliabilityOverlay.posture || researchInput.macro?.input_reliability?.posture || '-',
+    inputReliabilityActionHint: inputReliabilityOverlay.action_hint || templateMeta.input_reliability?.action_hint || '-',
     altTrendHeadline: (researchInput.alt_data?.top_categories || [])
       .slice(0, 2)
       .map((item) => `${item.category}:${item.momentum}`)
@@ -356,6 +369,48 @@ export const buildSnapshotComparison = (taskType, baseSnapshot, targetSnapshot) 
           left: formatNumber(base.confidenceScore),
           right: formatNumber(target.confidenceScore),
           delta: formatSignedDelta(base.confidenceScore, target.confidenceScore, (value) => formatNumber(value)),
+        },
+        {
+          key: 'ff5-alpha',
+          label: 'FF5 Alpha',
+          left: formatNumber(base.ff5Alpha),
+          right: formatNumber(target.ff5Alpha),
+          delta: formatSignedDelta(base.ff5Alpha, target.ff5Alpha, (value) => formatNumber(value)),
+        },
+        {
+          key: 'profitability',
+          label: 'Profitability',
+          left: formatNumber(base.profitability),
+          right: formatNumber(target.profitability),
+          delta: formatSignedDelta(base.profitability, target.profitability, (value) => formatNumber(value)),
+        },
+        {
+          key: 'investment',
+          label: 'Investment',
+          left: formatNumber(base.investment),
+          right: formatNumber(target.investment),
+          delta: formatSignedDelta(base.investment, target.investment, (value) => formatNumber(value)),
+        },
+        {
+          key: 'monte-carlo-median',
+          label: 'Monte Carlo P50',
+          left: formatNumber(base.monteCarloMedian),
+          right: formatNumber(target.monteCarloMedian),
+          delta: formatSignedDelta(base.monteCarloMedian, target.monteCarloMedian, (value) => formatNumber(value)),
+        },
+        {
+          key: 'monte-carlo-p90',
+          label: 'Monte Carlo P90',
+          left: formatNumber(base.monteCarloP90),
+          right: formatNumber(target.monteCarloP90),
+          delta: formatSignedDelta(base.monteCarloP90, target.monteCarloP90, (value) => formatNumber(value)),
+        },
+        {
+          key: 'benchmark-source',
+          label: 'Benchmark Source',
+          left: base.auditBenchmarkSource,
+          right: target.auditBenchmarkSource,
+          delta: base.auditBenchmarkSource === target.auditBenchmarkSource ? '不变' : `${base.auditBenchmarkSource} -> ${target.auditBenchmarkSource}`,
         },
       ],
     };
@@ -584,6 +639,41 @@ export const buildSnapshotComparison = (taskType, baseSnapshot, targetSnapshot) 
         left: base.policySourceReason,
         right: target.policySourceReason,
         delta: base.policySourceReason === target.policySourceReason ? '不变' : '政策源状态已变化',
+      },
+      {
+        key: 'input-reliability',
+        label: 'Input Reliability',
+        left: base.inputReliability,
+        right: target.inputReliability,
+        delta: base.inputReliability === target.inputReliability ? '不变' : `${base.inputReliability} -> ${target.inputReliability}`,
+      },
+      {
+        key: 'input-reliability-score',
+        label: 'Input Reliability Score',
+        left: formatNumber(base.inputReliabilityScore),
+        right: formatNumber(target.inputReliabilityScore),
+        delta: formatSignedDelta(base.inputReliabilityScore, target.inputReliabilityScore, (value) => formatNumber(value)),
+      },
+      {
+        key: 'input-reliability-lead',
+        label: 'Input Reliability Lead',
+        left: base.inputReliabilityLead,
+        right: target.inputReliabilityLead,
+        delta: base.inputReliabilityLead === target.inputReliabilityLead ? '不变' : '输入可靠度判断已变化',
+      },
+      {
+        key: 'input-reliability-posture',
+        label: 'Input Reliability Posture',
+        left: base.inputReliabilityPosture,
+        right: target.inputReliabilityPosture,
+        delta: base.inputReliabilityPosture === target.inputReliabilityPosture ? '不变' : '输入处理姿势已变化',
+      },
+      {
+        key: 'input-reliability-action',
+        label: 'Input Reliability Action',
+        left: base.inputReliabilityActionHint,
+        right: target.inputReliabilityActionHint,
+        delta: base.inputReliabilityActionHint === target.inputReliabilityActionHint ? '不变' : '输入复核动作已变化',
       },
       {
         key: 'alt-trend-headline',

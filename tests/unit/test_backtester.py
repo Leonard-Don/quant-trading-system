@@ -22,6 +22,10 @@ class DummyStrategy:
         return pd.Series(self._signals, index=data.index)
 
 
+class DummyTargetStrategy(DummyStrategy):
+    """返回目标仓位信号的测试策略。"""
+
+
 class TestBacktester:
     """回测引擎测试"""
 
@@ -228,3 +232,60 @@ class TestBacktester:
         assert results["num_trades"] == 1
         assert results["final_value"] == pytest.approx(1300)
         assert results["total_return"] == pytest.approx(0.3)
+
+    def test_target_exposure_signals_support_partial_rebalances(self):
+        """目标仓位信号应支持分批建仓和减仓，而不只是全进全出。"""
+        dates = pd.date_range("2024-01-01", periods=4, freq="D")
+        data = pd.DataFrame({"close": [100, 110, 120, 120]}, index=dates)
+
+        results = Backtester(
+            initial_capital=1000,
+            commission=0,
+            slippage=0,
+        ).run(DummyTargetStrategy([0.5, 1.0, 0.5, 0.0]), data)
+
+        portfolio = results["portfolio"]
+        assert results["num_trades"] == 4
+        assert results["total_completed_trades"] >= 2
+        assert portfolio["position"].iloc[0] == pytest.approx(5.0)
+        assert portfolio["position"].iloc[1] == pytest.approx(9.0)
+        assert portfolio["position"].iloc[2] == pytest.approx(4.0)
+        assert portfolio["position"].iloc[3] == pytest.approx(0.0)
+        assert results["final_value"] == pytest.approx(portfolio["total"].iloc[-1])
+
+    def test_fractional_share_mode_keeps_decimal_position_sizes(self):
+        """允许小数份额时，目标仓位执行应保留非整数头寸。"""
+        dates = pd.date_range("2024-01-01", periods=3, freq="D")
+        data = pd.DataFrame({"close": [300, 315, 330]}, index=dates)
+
+        results = Backtester(
+            initial_capital=1000,
+            commission=0,
+            slippage=0,
+            allow_fractional_shares=True,
+        ).run(DummyTargetStrategy([0.25, 0.25, 0.0]), data)
+
+        portfolio = results["portfolio"]
+        assert portfolio["position"].iloc[0] == pytest.approx(1000 * 0.25 / 300)
+        assert results["num_trades"] == 3
+        assert (
+            portfolio["holdings"].iloc[1] / portfolio["total"].iloc[1]
+        ) == pytest.approx(0.25)
+
+    def test_execution_diagnostics_include_resolved_signal_mode(self):
+        """回测结果应显式包含执行语义诊断信息。"""
+        dates = pd.date_range("2024-01-01", periods=3, freq="D")
+        data = pd.DataFrame({"close": [100, 110, 120]}, index=dates)
+
+        results = Backtester(
+            initial_capital=1000,
+            commission=0,
+            slippage=0,
+            allow_fractional_shares=True,
+        ).run(DummyTargetStrategy([0.5, 1.0, 0.0]), data)
+
+        diagnostics = results["execution_diagnostics"]
+        assert diagnostics["configured_signal_mode"] == "auto"
+        assert diagnostics["resolved_signal_mode"] == "target"
+        assert diagnostics["allow_fractional_shares"] is True
+        assert diagnostics["position_sizer"] == "FixedFractionSizer"

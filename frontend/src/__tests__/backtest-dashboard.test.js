@@ -11,7 +11,14 @@ jest.mock('../components/CrossMarketBacktestPanel', () => () => <div>CrossMarket
 jest.mock('../components/BacktestHistory', () => () => <div>BacktestHistory</div>);
 jest.mock('../components/StrategyComparison', () => () => <div>StrategyComparison</div>);
 jest.mock('../components/PortfolioOptimizer', () => () => <div>PortfolioOptimizer</div>);
-jest.mock('../components/AdvancedBacktestLab', () => () => <div>AdvancedBacktestLab</div>);
+jest.mock('../components/AdvancedBacktestLab', () => ({ onImportTemplateToMainBacktest }) => (
+  <div>
+    <div>AdvancedBacktestLab</div>
+    <button type="button" onClick={() => onImportTemplateToMainBacktest?.({ symbol: 'AAPL' })}>
+      import-template
+    </button>
+  </div>
+));
 
 jest.mock('antd', () => {
   const React = require('react');
@@ -112,5 +119,25 @@ describe('BacktestDashboard', () => {
     );
 
     expect(await screen.findByText('AdvancedBacktestLab')).toBeInTheDocument();
+  });
+
+  test('returns to the main backtest tab when importing a template from advanced experiments', async () => {
+    window.history.replaceState(null, '', '/?tab=advanced');
+
+    render(
+      <BacktestDashboard
+        strategies={[{ name: 'buy_and_hold' }]}
+        onSubmit={jest.fn()}
+        loading={false}
+        results={null}
+      />
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'import-template' }));
+
+    await waitFor(() => {
+      expect(window.location.search).not.toContain('tab=advanced');
+      expect(screen.getByText('StrategyForm')).toBeInTheDocument();
+    });
   });
 });

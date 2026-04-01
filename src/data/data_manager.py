@@ -517,10 +517,14 @@ class DataManager:
                 "sector": info.get("sector", ""),
                 "industry": info.get("industry", ""),
                 "market_cap": info.get("marketCap", 0),
+                "enterprise_value": info.get("enterpriseValue", 0),
                 "pe_ratio": info.get("trailingPE", 0),
                 "forward_pe": info.get("forwardPE", 0),
                 "peg_ratio": info.get("pegRatio", 0),
                 "price_to_book": info.get("priceToBook", 0),
+                "price_to_sales": info.get("priceToSalesTrailing12Months", 0),
+                "enterprise_to_ebitda": info.get("enterpriseToEbitda", 0),
+                "enterprise_to_revenue": info.get("enterpriseToRevenue", 0),
                 "dividend_yield": info.get("dividendYield", 0),
                 "profit_margin": info.get("profitMargins", 0),
                 "operating_margin": info.get("operatingMargins", 0),
@@ -528,15 +532,26 @@ class DataManager:
                 "roa": info.get("returnOnAssets", 0),
                 "revenue_growth": info.get("revenueGrowth", 0),
                 "earnings_growth": info.get("earningsGrowth", 0),
+                "revenue": info.get("totalRevenue", 0),
+                "ebitda": info.get("ebitda", 0),
                 "debt_to_equity": info.get("debtToEquity", 0),
                 "current_ratio": info.get("currentRatio", 0),
                 "quick_ratio": info.get("quickRatio", 0),
                 "beta": info.get("beta", 0),
+                "current_price": info.get("currentPrice", 0),
+                "regular_market_price": info.get("regularMarketPrice", 0),
+                "previous_close": info.get("previousClose", 0),
                 "52w_high": info.get("fiftyTwoWeekHigh", 0),
                 "52w_low": info.get("fiftyTwoWeekLow", 0),
                 "analyst_rating": info.get("recommendationKey", ""),
                 "target_price": info.get("targetMeanPrice", 0),
             }
+
+            if not fundamentals.get("enterprise_to_revenue"):
+                enterprise_value = float(fundamentals.get("enterprise_value") or 0)
+                revenue = float(fundamentals.get("revenue") or 0)
+                if enterprise_value > 0 and revenue > 0:
+                    fundamentals["enterprise_to_revenue"] = enterprise_value / revenue
 
             return fundamentals
 

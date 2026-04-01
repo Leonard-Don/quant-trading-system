@@ -4,7 +4,10 @@
 """
 
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import numpy as np
+import pandas as pd
 
 from .asset_pricing import AssetPricingEngine
 from .valuation_model import ValuationModel
@@ -73,6 +76,63 @@ class PricingGapAnalyzer:
                 "summary": f"分析失败: {e}"
             }
 
+    def screen(self, symbols: Iterable[str], period: str = "1y", limit: int = 10, max_workers: int = 4) -> Dict[str, Any]:
+        """Run pricing analysis for a candidate universe and return ranked opportunities."""
+        normalized_symbols = []
+        seen = set()
+        for raw_symbol in symbols or []:
+            symbol = str(raw_symbol or "").strip().upper()
+            if not symbol or symbol in seen:
+                continue
+            seen.add(symbol)
+            normalized_symbols.append(symbol)
+
+        results = []
+        failures = []
+        with ThreadPoolExecutor(max_workers=max(1, min(int(max_workers or 1), 8))) as executor:
+            future_map = {
+                executor.submit(self.analyze, symbol, period): symbol
+                for symbol in normalized_symbols
+            }
+            for future in as_completed(future_map):
+                symbol = future_map[future]
+                try:
+                    analysis = future.result()
+                except Exception as exc:
+                    failures.append({"symbol": symbol, "error": str(exc)})
+                    continue
+
+                row = self._build_screening_row(analysis, period)
+                if row.get("error"):
+                    failures.append({
+                        "symbol": symbol,
+                        "error": row["error"],
+                    })
+                    continue
+                results.append(row)
+
+        ranked_results = sorted(
+            results,
+            key=lambda item: (
+                float(item.get("screening_score") or 0),
+                abs(float(item.get("gap_pct") or 0)),
+                str(item.get("symbol") or ""),
+            ),
+            reverse=True,
+        )[: max(int(limit or 0), 0)]
+
+        for index, item in enumerate(ranked_results, start=1):
+            item["rank"] = index
+
+        return {
+            "period": period,
+            "total_input": len(normalized_symbols),
+            "analyzed_count": len(results),
+            "result_count": len(ranked_results),
+            "results": ranked_results,
+            "failures": failures,
+        }
+
     def _analyze_gap(self, factor: Dict, valuation: Dict) -> Dict[str, Any]:
         """
         分析市价与内在价值之间的差距
@@ -129,6 +189,181 @@ class PricingGapAnalyzer:
             "severity_label": severity_label,
             "valuation_label": val_status.get("label", ""),
             "in_fair_range": val_status.get("in_fair_range", False)
+        }
+
+    def build_gap_history(self, symbol: str, period: str = "1y", points: int = 60) -> Dict[str, Any]:
+        """Build a historical series of market price versus current fair value anchor."""
+        analysis = self.analyze(symbol, period)
+        gap = analysis.get("gap_analysis", {}) or {}
+        fair_value_mid = gap.get("fair_value_mid")
+        if not fair_value_mid:
+            return {
+                "symbol": symbol,
+                "period": period,
+                "history": [],
+                "error": "缺少公允价值锚点，无法构建历史偏差序列",
+            }
+
+        days = {"6mo": 180, "1y": 365, "2y": 730, "3y": 1095}.get(period, 365)
+        history = self.pricing_engine.data_manager.get_historical_data(symbol, period=period or "1y")
+        if history.empty or "close" not in history.columns:
+            return {
+                "symbol": symbol,
+                "period": period,
+                "history": [],
+                "error": "缺少价格历史数据",
+            }
+
+        close_series = history["close"].dropna()
+        if close_series.empty:
+            return {
+                "symbol": symbol,
+                "period": period,
+                "history": [],
+                "error": "缺少有效收盘价序列",
+            }
+
+        sampled = close_series if len(close_series) <= points else close_series.iloc[
+            pd.Index(np.linspace(0, len(close_series) - 1, points).astype(int)).unique()
+        ]
+        gap_history = []
+        for index, price in sampled.items():
+            gap_pct = ((float(price) - float(fair_value_mid)) / float(fair_value_mid)) * 100
+            gap_history.append({
+                "date": pd.Timestamp(index).strftime("%Y-%m-%d"),
+                "price": round(float(price), 2),
+                "fair_value_mid": round(float(fair_value_mid), 2),
+                "gap_pct": round(gap_pct, 2),
+            })
+
+        return {
+            "symbol": symbol,
+            "period": period,
+            "history": gap_history,
+            "summary": {
+                "max_gap_pct": max(item["gap_pct"] for item in gap_history),
+                "min_gap_pct": min(item["gap_pct"] for item in gap_history),
+                "latest_gap_pct": gap_history[-1]["gap_pct"],
+            },
+        }
+
+    def build_peer_comparison(
+        self,
+        symbol: str,
+        candidate_symbols: Iterable[str],
+        limit: int = 5,
+    ) -> Dict[str, Any]:
+        """Build a lightweight peer set using sector/industry similarity and valuation context."""
+        data_manager = self.valuation_model.data_manager
+        target_fundamentals = data_manager.get_fundamental_data(symbol)
+        if "error" in target_fundamentals:
+            return {
+                "symbol": symbol,
+                "peers": [],
+                "error": target_fundamentals["error"],
+            }
+
+        target_sector = target_fundamentals.get("sector", "")
+        target_industry = target_fundamentals.get("industry", "")
+
+        target_market_cap = float(target_fundamentals.get("market_cap") or 0)
+
+        def build_row(peer_symbol: str) -> Optional[Dict[str, Any]]:
+            peer_symbol = str(peer_symbol or "").strip().upper()
+            if not peer_symbol:
+                return None
+
+            fundamentals = target_fundamentals if peer_symbol == symbol else data_manager.get_fundamental_data(peer_symbol)
+            if "error" in fundamentals:
+                return None
+
+            same_sector = not target_sector or fundamentals.get("sector") == target_sector
+            same_industry = target_industry and fundamentals.get("industry") == target_industry
+            if peer_symbol != symbol and not same_sector and not same_industry:
+                return None
+
+            valuation = self.valuation_model.analyze(peer_symbol)
+            fair_value = valuation.get("fair_value", {}) or {}
+            current_price = valuation.get("current_price")
+            fair_value_mid = fair_value.get("mid")
+            premium_discount = None
+            if fair_value_mid and current_price:
+                premium_discount = round(((float(current_price) - float(fair_value_mid)) / float(fair_value_mid)) * 100, 1)
+
+            market_cap = fundamentals.get("market_cap")
+            market_cap_value = float(market_cap or 0)
+            same_sector = fundamentals.get("sector", "") == target_sector if target_sector else True
+            same_industry = fundamentals.get("industry", "") == target_industry if target_industry else False
+            size_distance = 99.0
+            if target_market_cap > 0 and market_cap_value > 0:
+                size_distance = abs(np.log(market_cap_value / target_market_cap))
+
+            return {
+                "symbol": peer_symbol,
+                "company_name": fundamentals.get("company_name", ""),
+                "sector": fundamentals.get("sector", ""),
+                "industry": fundamentals.get("industry", ""),
+                "market_cap": market_cap,
+                "current_price": current_price,
+                "fair_value": fair_value_mid,
+                "premium_discount": premium_discount,
+                "pe_ratio": fundamentals.get("pe_ratio"),
+                "price_to_book": fundamentals.get("price_to_book"),
+                "price_to_sales": fundamentals.get("price_to_sales"),
+                "enterprise_to_ebitda": fundamentals.get("enterprise_to_ebitda"),
+                "is_target": peer_symbol == symbol,
+                "same_sector": same_sector,
+                "same_industry": same_industry,
+                "size_distance": round(float(size_distance), 4) if size_distance != 99.0 else None,
+            }
+
+        normalized = []
+        seen = set()
+        for raw_symbol in [symbol, *(candidate_symbols or [])]:
+            peer_symbol = str(raw_symbol or "").strip().upper()
+            if not peer_symbol or peer_symbol in seen:
+                continue
+            seen.add(peer_symbol)
+            normalized.append(peer_symbol)
+
+        rows = []
+        with ThreadPoolExecutor(max_workers=max(1, min(len(normalized), 6))) as executor:
+            future_map = {executor.submit(build_row, peer_symbol): peer_symbol for peer_symbol in normalized}
+            for future in as_completed(future_map):
+                row = future.result()
+                if row:
+                    rows.append(row)
+
+        peers = sorted(
+            [row for row in rows if not row.get("is_target")],
+            key=lambda item: (
+                int(bool(item.get("same_industry"))),
+                int(bool(item.get("same_sector"))),
+                -(float(item.get("size_distance")) if item.get("size_distance") is not None else 999.0),
+                float(item.get("market_cap") or 0),
+                item.get("symbol", ""),
+            ),
+            reverse=True,
+        )[: max(int(limit or 0), 0)]
+        target_row = next((row for row in rows if row.get("is_target")), build_row(symbol))
+
+        return {
+            "symbol": symbol,
+            "target": target_row,
+            "peers": peers,
+            "sector": target_sector,
+            "industry": target_industry,
+            "summary": {
+                "peer_count": len(peers),
+                "median_peer_pe": round(float(pd.Series([item.get("pe_ratio") for item in peers]).dropna().median()), 2)
+                if peers and pd.Series([item.get("pe_ratio") for item in peers]).dropna().size
+                else None,
+                "median_peer_ps": round(float(pd.Series([item.get("price_to_sales") for item in peers]).dropna().median()), 2)
+                if peers and pd.Series([item.get("price_to_sales") for item in peers]).dropna().size
+                else None,
+                "same_industry_count": sum(1 for item in peers if item.get("same_industry")),
+            },
+            "candidate_count": len(normalized) - 1 if normalized else 0,
         }
 
     def _analyze_deviation_drivers(self, factor: Dict, valuation: Dict) -> Dict[str, Any]:
@@ -223,6 +458,70 @@ class PricingGapAnalyzer:
             "driver_count": len(sorted_drivers)
         }
 
+    def _build_screening_row(self, analysis: Dict[str, Any], period: str) -> Dict[str, Any]:
+        """Create a compact screener row from a full pricing analysis result."""
+        if analysis.get("error"):
+            return {
+                "symbol": analysis.get("symbol"),
+                "error": analysis.get("error"),
+            }
+
+        gap = analysis.get("gap_analysis", {}) or {}
+        implications = analysis.get("implications", {}) or {}
+        valuation = analysis.get("valuation", {}) or {}
+        drivers_meta = analysis.get("deviation_drivers", {}) or {}
+        primary_driver = drivers_meta.get("primary_driver") or {}
+        alignment = implications.get("factor_alignment", {}) or {}
+        confidence_score = float(implications.get("confidence_score") or 0)
+        gap_pct = gap.get("gap_pct")
+        score = self._screening_score(
+            gap_pct=gap_pct,
+            confidence_score=confidence_score,
+            primary_view=implications.get("primary_view"),
+            alignment_status=alignment.get("status"),
+        )
+
+        return {
+            "symbol": analysis.get("symbol"),
+            "company_name": valuation.get("company_name"),
+            "period": period,
+            "screening_score": score,
+            "current_price": gap.get("current_price"),
+            "fair_value": gap.get("fair_value_mid"),
+            "gap_pct": gap_pct,
+            "direction": gap.get("direction"),
+            "severity": gap.get("severity"),
+            "severity_label": gap.get("severity_label"),
+            "primary_view": implications.get("primary_view"),
+            "confidence": implications.get("confidence"),
+            "confidence_score": confidence_score,
+            "factor_alignment_status": alignment.get("status"),
+            "factor_alignment_label": alignment.get("label"),
+            "factor_alignment_summary": alignment.get("summary"),
+            "price_source": valuation.get("current_price_source"),
+            "primary_driver": primary_driver.get("factor"),
+            "primary_driver_reason": primary_driver.get("ranking_reason"),
+            "summary": analysis.get("summary"),
+        }
+
+    def _screening_score(
+        self,
+        gap_pct: Optional[float],
+        confidence_score: float,
+        primary_view: Optional[str],
+        alignment_status: Optional[str],
+    ) -> float:
+        """Estimate how actionable a pricing opportunity is for rank ordering."""
+        base_score = abs(float(gap_pct or 0)) * max(float(confidence_score or 0), 0.2)
+        alignment_bonus = {
+            "aligned": 4.0,
+            "partial": 1.5,
+            "neutral": 0.0,
+            "conflict": -4.0,
+        }.get(alignment_status, 0.0)
+        actionable_bonus = 2.0 if primary_view in {"高估", "低估"} else 0.0
+        return round(max(base_score + alignment_bonus + actionable_bonus, 0.0), 2)
+
     def _sort_drivers(self, drivers):
         """Sort candidate drivers by impact strength instead of insertion order."""
         if not drivers:
@@ -269,17 +568,24 @@ class PricingGapAnalyzer:
         return round(score, 4)
 
     def _driver_ranking_reason(self, driver: Dict[str, Any]) -> str:
-        """Explain the dimension used to rank this driver."""
+        """Return a user-facing explanation for why this driver is primary."""
         impact = driver.get("impact")
+        factor = driver.get("factor", "该因素")
         if impact in {"positive", "negative"}:
-            return "按 Alpha 绝对值排序"
+            if impact == "positive":
+                return "Alpha 贡献最显著，说明超额收益是当前定价偏差的主要来源"
+            return "负 Alpha 拖累最明显，说明风险调整后收益承压是当前定价偏差的主要来源"
         if impact in {"risk", "defensive"}:
-            return "按 Beta 偏离 1 的幅度排序"
+            if impact == "risk":
+                return "Beta 明显高于市场中性水平，说明系统性风险溢价是当前定价偏差的核心来源"
+            return "Beta 明显低于市场中性水平，说明防御属性带来的安全溢价是当前定价偏差的核心来源"
         if impact == "style":
-            return "按风格因子暴露绝对值排序"
+            return f"{factor} 暴露最突出，说明风格定价是当前偏差的主要来源"
         if impact in {"overvalued", "undervalued"}:
-            return "按估值倍数偏离行业基准幅度排序"
-        return "按信号幅度排序"
+            if impact == "overvalued":
+                return "相对行业基准的估值溢价最显著，说明倍数扩张是当前定价偏差的主要来源"
+            return "相对行业基准的估值折价最显著，说明倍数压缩是当前定价偏差的主要来源"
+        return "该信号的影响幅度最大，因此被识别为当前定价偏差的主要来源"
 
     def _derive_implications(self, gap: Dict, factor: Dict, valuation: Dict) -> Dict[str, Any]:
         """推导投资含义和建议"""
@@ -327,6 +633,8 @@ class PricingGapAnalyzer:
             insights.append("一级市场视角（基本面估值）认为当前价格偏高")
 
         confidence_meta = self._assess_confidence(gap, factor, valuation)
+        alignment_meta = self._build_alignment_meta(gap, factor, valuation)
+        trade_setup = self._build_trade_setup(gap, valuation, alignment_meta, confidence_meta)
 
         return {
             "insights": insights,
@@ -335,30 +643,48 @@ class PricingGapAnalyzer:
             "confidence": confidence_meta["level"],
             "confidence_score": confidence_meta["score"],
             "confidence_reasons": confidence_meta["reasons"],
+            "confidence_breakdown": confidence_meta["components"],
+            "factor_alignment": alignment_meta,
+            "trade_setup": trade_setup,
         }
 
     def _assess_confidence(self, gap: Dict, factor: Dict, valuation: Dict) -> Dict[str, Any]:
         """Estimate confidence from data quality, model coverage and valuation consistency."""
         score = 0.0
         reasons = []
+        components = []
+
+        def add_component(key: str, label: str, delta: float, status: str, detail: str) -> None:
+            nonlocal score
+            score += delta
+            components.append({
+                "key": key,
+                "label": label,
+                "delta": round(delta, 2),
+                "status": status,
+                "detail": detail,
+            })
 
         fair_value = valuation.get("fair_value", {}) or {}
         if gap.get("gap_pct") is not None and fair_value.get("mid"):
-            score += 0.15
+            add_component("gap_anchor", "价格偏差锚点", 0.15, "positive", "当前价格和公允价值中枢都可用")
         else:
             reasons.append("缺少完整的价格偏差锚点")
+            add_component("gap_anchor", "价格偏差锚点", 0.0, "negative", "缺少完整的价格偏差锚点")
 
         capm = factor.get("capm", {}) or {}
         ff3 = factor.get("fama_french", {}) or {}
         if "error" not in capm:
-            score += 0.12
+            add_component("capm", "CAPM 覆盖", 0.12, "positive", "CAPM 模型可用")
         else:
             reasons.append("CAPM 模型不可用")
+            add_component("capm", "CAPM 覆盖", 0.0, "negative", "CAPM 模型不可用")
 
         if "error" not in ff3:
-            score += 0.12
+            add_component("ff3", "FF3 覆盖", 0.12, "positive", "Fama-French 三因子模型可用")
         else:
             reasons.append("FF3 模型不可用")
+            add_component("ff3", "FF3 覆盖", 0.0, "negative", "FF3 模型不可用")
 
         factor_points = max(
             int(factor.get("data_points") or 0),
@@ -366,14 +692,15 @@ class PricingGapAnalyzer:
             int(ff3.get("data_points") or 0),
         )
         if factor_points >= 180:
-            score += 0.16
+            add_component("sample_window", "因子样本量", 0.16, "positive", f"样本数 {factor_points}，覆盖充足")
         elif factor_points >= 120:
-            score += 0.12
+            add_component("sample_window", "因子样本量", 0.12, "positive", f"样本数 {factor_points}，覆盖较充分")
         elif factor_points >= 60:
-            score += 0.08
+            add_component("sample_window", "因子样本量", 0.08, "warning", f"样本数 {factor_points}，窗口偏短")
             reasons.append("因子样本窗口偏短")
         else:
             reasons.append("因子样本不足")
+            add_component("sample_window", "因子样本量", 0.0, "negative", f"样本数 {factor_points}，不足以稳定支撑结论")
 
         dcf = valuation.get("dcf", {}) or {}
         comparable = valuation.get("comparable", {}) or {}
@@ -384,35 +711,49 @@ class PricingGapAnalyzer:
         valuation_methods = int(bool(dcf_ok)) + int(bool(comparable_ok))
 
         if valuation_methods == 2:
-            score += 0.16
+            add_component("valuation_coverage", "估值方法覆盖", 0.16, "positive", "DCF 与可比估值均可用")
         elif valuation_methods == 1:
-            score += 0.08
+            add_component("valuation_coverage", "估值方法覆盖", 0.08, "warning", "仅有单一估值方法支撑")
             reasons.append("仅有单一估值方法支撑")
         else:
             reasons.append("缺少可用估值方法")
+            add_component("valuation_coverage", "估值方法覆盖", 0.0, "negative", "缺少可用估值方法")
 
         price_source = valuation.get("current_price_source", "unavailable")
         if price_source == "live":
-            score += 0.09
+            add_component("price_source", "现价来源", 0.09, "positive", "当前价格来自实时行情")
         elif price_source in {"fundamental_current_price", "fundamental_regular_market_price"}:
-            score += 0.07
+            add_component("price_source", "现价来源", 0.07, "positive", "当前价格来自基本面快照字段")
         elif price_source in {"fundamental_previous_close", "historical_close"}:
-            score += 0.04
+            add_component("price_source", "现价来源", 0.04, "warning", "当前价格使用回退值")
             reasons.append("当前价格使用回退值")
         else:
             reasons.append("当前价格来源不可确认")
+            add_component("price_source", "现价来源", 0.0, "negative", "当前价格来源不可确认")
 
         if dcf_ok and comparable_ok:
             midpoint = (float(dcf_value) + float(comparable_value)) / 2
             divergence = abs(float(dcf_value) - float(comparable_value)) / midpoint if midpoint > 0 else None
             if divergence is not None:
                 if divergence <= 0.15:
-                    score += 0.10
+                    add_component("valuation_consistency", "估值一致性", 0.10, "positive", "DCF 与可比估值基本一致")
                 elif divergence <= 0.30:
-                    score += 0.05
+                    add_component("valuation_consistency", "估值一致性", 0.05, "warning", "DCF 与可比估值存在一定分歧")
                     reasons.append("DCF 与可比估值存在一定分歧")
                 else:
                     reasons.append("DCF 与可比估值分歧较大")
+                    add_component("valuation_consistency", "估值一致性", 0.0, "negative", "DCF 与可比估值分歧较大")
+        else:
+            add_component("valuation_consistency", "估值一致性", 0.0, "warning", "估值方法不足，无法比较一致性")
+
+        alignment = self._assess_factor_valuation_alignment(gap, factor, valuation)
+        if alignment == "aligned":
+            add_component("factor_alignment", "证据共振", 0.08, "positive", "因子信号与估值结论同向")
+        elif alignment == "conflict":
+            add_component("factor_alignment", "证据共振", -0.12, "negative", "二级因子表现与估值结论方向不一致")
+            reasons.append("二级因子表现与估值结论方向不一致")
+        else:
+            add_component("factor_alignment", "证据共振", 0.0, "warning", "当前缺少明确的同向或冲突信号")
 
         score = max(0.0, min(score, 1.0))
         if score >= 0.72:
@@ -426,6 +767,187 @@ class PricingGapAnalyzer:
             "level": level,
             "score": round(score, 2),
             "reasons": reasons[:3],
+            "components": components,
+        }
+
+    def _build_trade_setup(
+        self,
+        gap: Dict,
+        valuation: Dict,
+        alignment_meta: Dict[str, Any],
+        confidence_meta: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Build a research-style scenario with target, risk boundary and reward ratio."""
+        current_price = gap.get("current_price")
+        fair_value_mid = gap.get("fair_value_mid")
+        fair_value_low = gap.get("fair_value_low")
+        fair_value_high = gap.get("fair_value_high")
+        if (current_price is None or fair_value_mid is None) and valuation.get("fair_value"):
+            fair_value_meta = valuation.get("fair_value", {}) or {}
+            fair_value_mid = fair_value_mid or fair_value_meta.get("mid")
+            fair_value_low = fair_value_low or fair_value_meta.get("low")
+            fair_value_high = fair_value_high or fair_value_meta.get("high")
+        if current_price is None and fair_value_mid and gap.get("gap_pct") is not None:
+            current_price = float(fair_value_mid) * (1 + (float(gap.get("gap_pct")) / 100))
+        primary_view = "低估" if gap.get("gap_pct") is not None and gap.get("gap_pct") < -10 else "高估" if gap.get("gap_pct") is not None and gap.get("gap_pct") > 10 else "合理"
+
+        if not current_price or not fair_value_mid:
+            return {
+                "stance": "观察",
+                "summary": "缺少足够价格锚点，暂不生成交易情景",
+            }
+
+        current_price = float(current_price)
+        fair_value_mid = float(fair_value_mid)
+        fair_value_low = float(fair_value_low or fair_value_mid)
+        fair_value_high = float(fair_value_high or fair_value_mid)
+        alignment_status = alignment_meta.get("status")
+
+        if primary_view == "低估":
+            stop_loss = round(min(current_price * 0.92, fair_value_low * 0.98), 2)
+            target_price = round(fair_value_mid, 2)
+            stretch_target = round(fair_value_high, 2)
+            upside_pct = round(((target_price - current_price) / current_price) * 100, 1, )
+            stretch_upside_pct = round(((stretch_target - current_price) / current_price) * 100, 1)
+            risk_pct = round(((current_price - stop_loss) / current_price) * 100, 1) if stop_loss < current_price else 0.0
+            risk_reward = round(upside_pct / risk_pct, 2) if risk_pct > 0 else None
+            summary = "若按低估回归处理，可观察价格向公允价值中枢修复的空间。"
+        elif primary_view == "高估":
+            stop_loss = round(max(current_price * 1.08, fair_value_high * 1.02), 2)
+            target_price = round(fair_value_mid, 2)
+            stretch_target = round(fair_value_low, 2)
+            upside_pct = round(((current_price - target_price) / current_price) * 100, 1)
+            stretch_upside_pct = round(((current_price - stretch_target) / current_price) * 100, 1)
+            risk_pct = round(((stop_loss - current_price) / current_price) * 100, 1) if stop_loss > current_price else 0.0
+            risk_reward = round(upside_pct / risk_pct, 2) if risk_pct > 0 else None
+            summary = "若按高估回归处理，可观察价格回落至公允价值中枢的空间。"
+        else:
+            return {
+                "stance": "观察",
+                "summary": "当前偏差不大，更适合继续观察而非依赖单次估值信号交易。",
+                "target_price": round(fair_value_mid, 2),
+                "reference_range": {
+                    "low": round(fair_value_low, 2),
+                    "high": round(fair_value_high, 2),
+                },
+            }
+
+        quality_note = {
+            "aligned": "因子与估值同向，情景可信度更高。",
+            "conflict": "因子与估值冲突，建议降低仓位假设。",
+        }.get(alignment_status, "因子与估值尚未形成强共振，建议结合更多证据。")
+
+        return {
+            "stance": "关注做多修复" if primary_view == "低估" else "关注回归风险",
+            "summary": summary,
+            "target_price": target_price,
+            "stretch_target": stretch_target,
+            "stop_loss": stop_loss,
+            "upside_pct": upside_pct,
+            "stretch_upside_pct": stretch_upside_pct,
+            "risk_pct": risk_pct,
+            "risk_reward": risk_reward,
+            "reference_range": {
+                "low": round(fair_value_low, 2),
+                "high": round(fair_value_high, 2),
+            },
+            "confidence_level": confidence_meta.get("level"),
+            "quality_note": quality_note,
+        }
+
+    def _assess_factor_valuation_alignment(self, gap: Dict, factor: Dict, valuation: Dict) -> Optional[str]:
+        """Check whether factor signal direction supports the valuation conclusion."""
+        valuation_view = self._resolve_valuation_view(gap, valuation)
+        factor_view = self._resolve_factor_view(factor)
+
+        if not valuation_view or valuation_view == "fair":
+            return None
+        if not factor_view:
+            return None
+        if valuation_view == "overvalued":
+            return "aligned" if factor_view == "bearish" else "conflict"
+        if valuation_view == "undervalued":
+            return "aligned" if factor_view == "bullish" else "conflict"
+        return None
+
+    def _resolve_valuation_view(self, gap: Dict, valuation: Dict) -> Optional[str]:
+        status = valuation.get("valuation_status", {}).get("status", "")
+        if status in {"overvalued", "severely_overvalued"}:
+            return "overvalued"
+        if status in {"undervalued", "severely_undervalued"}:
+            return "undervalued"
+
+        gap_pct = gap.get("gap_pct")
+        if gap_pct is None:
+            return None
+        if gap_pct >= 10:
+            return "overvalued"
+        if gap_pct <= -10:
+            return "undervalued"
+        return "fair"
+
+    def _resolve_factor_view(self, factor: Dict) -> Optional[str]:
+        capm = factor.get("capm", {}) or {}
+        ff3 = factor.get("fama_french", {}) or {}
+        signals = []
+
+        for model in (capm, ff3):
+            if "error" in model:
+                continue
+            alpha_pct = model.get("alpha_pct")
+            if alpha_pct is None:
+                continue
+            numeric = float(alpha_pct)
+            if abs(numeric) < 3:
+                continue
+            signals.append("bullish" if numeric > 0 else "bearish")
+
+        if not signals:
+            return None
+        bullish = signals.count("bullish")
+        bearish = signals.count("bearish")
+        if bullish > bearish:
+            return "bullish"
+        if bearish > bullish:
+            return "bearish"
+        return None
+
+    def _build_alignment_meta(self, gap: Dict, factor: Dict, valuation: Dict) -> Dict[str, str]:
+        alignment = self._assess_factor_valuation_alignment(gap, factor, valuation)
+        valuation_view = self._resolve_valuation_view(gap, valuation)
+        factor_view = self._resolve_factor_view(factor)
+
+        if alignment == "aligned":
+            if valuation_view == "overvalued":
+                return {
+                    "status": "aligned",
+                    "label": "同向",
+                    "summary": "因子信号与高估判断同向，证据互相印证",
+                }
+            return {
+                "status": "aligned",
+                "label": "同向",
+                "summary": "因子信号与低估判断同向，证据互相印证",
+            }
+
+        if alignment == "conflict":
+            return {
+                "status": "conflict",
+                "label": "冲突",
+                "summary": "因子信号与估值结论相反，结论需要谨慎解释",
+            }
+
+        if factor_view:
+            return {
+                "status": "partial",
+                "label": "待确认",
+                "summary": "因子方向已有偏向，但估值结论暂未形成明确同向关系",
+            }
+
+        return {
+            "status": "neutral",
+            "label": "待确认",
+            "summary": "当前缺少足够清晰的同向证据，建议结合更多样本复核",
         }
 
     def _generate_summary(self, gap: Dict, valuation: Dict) -> str:

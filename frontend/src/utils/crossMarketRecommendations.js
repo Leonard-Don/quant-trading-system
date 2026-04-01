@@ -77,6 +77,19 @@ const buildPolicySourceHealthMeta = (overview = {}) => {
   };
 };
 
+const buildInputReliabilityMeta = (overview = {}) => {
+  const summary = overview?.input_reliability_summary || {};
+  return {
+    label: summary.label || 'unknown',
+    score: Number(summary.score || 0),
+    lead: summary.lead || '',
+    posture: summary.posture || '',
+    reason: summary.reason || '',
+    dominantIssueLabels: summary.dominant_issue_labels || [],
+    dominantSupportLabels: summary.dominant_support_labels || [],
+  };
+};
+
 export const CROSS_MARKET_FACTOR_LABELS = FACTOR_LABELS;
 export const CROSS_MARKET_DIMENSION_LABELS = Object.fromEntries(
   Object.entries(DIMENSION_META).map(([key, meta]) => [key, meta.label])
@@ -119,19 +132,21 @@ const buildSignalContext = (overview = {}, snapshot = {}) => {
   };
 };
 
-const buildBiasQualityMeta = (policySourceHealth = {}) => {
-  if (policySourceHealth.label === 'fragile') {
+const buildBiasQualityMeta = (policySourceHealth = {}, inputReliability = {}) => {
+  if (policySourceHealth.label === 'fragile' || inputReliability.label === 'fragile') {
+    const reasons = [policySourceHealth.reason, inputReliability.lead || inputReliability.reason].filter(Boolean);
     return {
-      scale: 0.55,
+      scale: policySourceHealth.label === 'fragile' ? 0.55 : 0.72,
       label: 'compressed',
-      reason: policySourceHealth.reason || '政策源正文抓取脆弱，宏观偏置已收缩到更保守的幅度',
+      reason: reasons.join(' · ') || '整体输入可靠度偏脆弱，宏观偏置已收缩到更保守的幅度',
     };
   }
-  if (policySourceHealth.label === 'watch') {
+  if (policySourceHealth.label === 'watch' || inputReliability.label === 'watch') {
+    const reasons = [policySourceHealth.reason, inputReliability.lead || inputReliability.reason].filter(Boolean);
     return {
-      scale: 0.78,
+      scale: policySourceHealth.label === 'watch' ? 0.78 : 0.88,
       label: 'cautious',
-      reason: policySourceHealth.reason || '政策源正文覆盖下降，宏观偏置已适度收缩',
+      reason: reasons.join(' · ') || '整体输入可靠度需要观察，宏观偏置已适度收缩',
     };
   }
   return {
@@ -357,6 +372,7 @@ export const buildCrossMarketCards = (payload = {}, overview = {}, snapshot = {}
   const signalContext = buildSignalContext(overview, snapshot);
   const resonanceMeta = buildResonanceMeta(overview);
   const policySourceHealth = buildPolicySourceHealthMeta(overview);
+  const inputReliability = buildInputReliabilityMeta(overview);
 
   return templates
     .map((template) => {
@@ -478,9 +494,29 @@ export const buildCrossMarketCards = (payload = {}, overview = {}, snapshot = {}
         recommendationScore += 0.06;
       }
 
+      if (inputReliability.label === 'fragile') {
+        recommendationScore = Math.max(0, recommendationScore - 0.28);
+        matchedDrivers.push({
+          key: `input-reliability-${template.id}`,
+          label: '输入可靠度偏脆弱',
+          detail: inputReliability.lead || inputReliability.reason || '宏观输入质量整体偏脆弱，模板排序继续下调',
+          type: 'quality',
+        });
+      } else if (inputReliability.label === 'watch') {
+        recommendationScore = Math.max(0, recommendationScore - 0.14);
+        matchedDrivers.push({
+          key: `input-reliability-${template.id}`,
+          label: '输入可靠度需观察',
+          detail: inputReliability.lead || inputReliability.reason || '宏观输入质量存在波动，模板排序适度下调',
+          type: 'quality',
+        });
+      } else if (inputReliability.label === 'robust') {
+        recommendationScore += 0.05;
+      }
+
       const roundedScore = Number(recommendationScore.toFixed(2));
       const recommendationTier = buildRecommendationTier(roundedScore);
-      const biasQuality = buildBiasQualityMeta(policySourceHealth);
+      const biasQuality = buildBiasQualityMeta(policySourceHealth, inputReliability);
       const allocationBias = buildAdjustedAssets(template, signalContext, biasQuality);
       const prioritizedDrivers = [...matchedDrivers].sort((a, b) => {
         const priority = { resonance: 0, quality: 1, factor: 2, alert: 3, dimension: 4 };
@@ -510,6 +546,11 @@ export const buildCrossMarketCards = (payload = {}, overview = {}, snapshot = {}
         resonanceFactors: resonanceMatches,
         policySourceHealthLabel: policySourceHealth.label,
         policySourceHealthReason: policySourceHealth.reason,
+        inputReliabilityLabel: inputReliability.label,
+        inputReliabilityScore: inputReliability.score,
+        inputReliabilityLead: inputReliability.lead,
+        inputReliabilityPosture: inputReliability.posture,
+        inputReliabilityReason: inputReliability.reason,
         adjustedAssets: allocationBias.adjustedAssets,
         biasSummary: allocationBias.biasSummary,
         biasStrength: allocationBias.biasStrength,

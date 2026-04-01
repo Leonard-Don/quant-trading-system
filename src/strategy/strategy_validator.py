@@ -261,6 +261,82 @@ class StrategyValidator:
                 description="ATR 倍数",
             ),
         ],
+        "turtle_trading": [
+            ParameterRule(
+                name="entry_period",
+                type=int,
+                default=20,
+                min_value=5,
+                max_value=120,
+                required=True,
+                description="突破入场周期",
+            ),
+            ParameterRule(
+                name="exit_period",
+                type=int,
+                default=10,
+                min_value=3,
+                max_value=60,
+                required=True,
+                description="退出通道周期",
+            ),
+        ],
+        "multi_factor": [
+            ParameterRule(
+                name="momentum_window",
+                type=int,
+                default=20,
+                min_value=5,
+                max_value=120,
+                required=True,
+                description="动量窗口",
+            ),
+            ParameterRule(
+                name="mean_reversion_window",
+                type=int,
+                default=5,
+                min_value=2,
+                max_value=30,
+                required=True,
+                description="均值回归窗口",
+            ),
+            ParameterRule(
+                name="volume_window",
+                type=int,
+                default=20,
+                min_value=5,
+                max_value=120,
+                required=True,
+                description="成交量窗口",
+            ),
+            ParameterRule(
+                name="volatility_window",
+                type=int,
+                default=20,
+                min_value=5,
+                max_value=120,
+                required=True,
+                description="波动率窗口",
+            ),
+            ParameterRule(
+                name="entry_threshold",
+                type=float,
+                default=0.4,
+                min_value=0.05,
+                max_value=3.0,
+                required=True,
+                description="入场阈值",
+            ),
+            ParameterRule(
+                name="exit_threshold",
+                type=float,
+                default=0.1,
+                min_value=0.0,
+                max_value=1.5,
+                required=True,
+                description="离场阈值",
+            ),
+        ],
     }
 
     @classmethod
@@ -350,6 +426,12 @@ class StrategyValidator:
         elif strategy_name == "stochastic":
             if params["oversold"] >= params["overbought"]:
                 return "超卖阈值必须小于超买阈值"
+        elif strategy_name == "turtle_trading":
+            if params["entry_period"] <= params["exit_period"]:
+                return "突破入场周期必须大于退出通道周期"
+        elif strategy_name == "multi_factor":
+            if params["exit_threshold"] >= params["entry_threshold"]:
+                return "离场阈值必须小于入场阈值"
 
         return None
 

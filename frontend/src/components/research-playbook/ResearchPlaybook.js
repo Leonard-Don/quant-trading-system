@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Col, Empty, Row, Space, Typography } from 'antd';
 
 import ResearchSummaryBanner from './ResearchSummaryBanner';
@@ -16,11 +16,22 @@ function ResearchPlaybook({
   updateLabel = '更新当前任务快照',
   saving = false,
 }) {
+  const saveHandler = onSaveTask || onSave;
+  const [checkedTaskIds, setCheckedTaskIds] = useState([]);
+  const tasks = useMemo(() => playbook?.tasks || [], [playbook]);
+  const taskIds = useMemo(() => tasks.map((task) => task.id), [tasks]);
+  const taskSignature = useMemo(() => taskIds.join('|'), [taskIds]);
+
+  useEffect(() => {
+    setCheckedTaskIds([]);
+  }, [playbook?.headline, taskSignature]);
+
   if (!playbook) {
     return null;
   }
 
-  const saveHandler = onSaveTask || onSave;
+  const completedCount = checkedTaskIds.length;
+  const totalTasks = taskIds.length;
 
   return (
     <Card
@@ -29,15 +40,16 @@ function ResearchPlaybook({
       extra={(
         <Space>
           {saveHandler ? (
-            <Button size="small" onClick={saveHandler} loading={saving}>
+            <Button data-testid="research-playbook-save-task" size="small" onClick={saveHandler} loading={saving}>
               {saveLabel}
             </Button>
           ) : null}
           {onUpdateSnapshot ? (
-            <Button size="small" onClick={onUpdateSnapshot} loading={saving}>
+            <Button data-testid="research-playbook-update-snapshot" size="small" onClick={onUpdateSnapshot} loading={saving}>
               {updateLabel}
             </Button>
           ) : null}
+          {totalTasks ? <Text type="secondary">{`已勾选 ${completedCount}/${totalTasks}`}</Text> : null}
           {playbook.stageLabel ? <Text type="secondary">{playbook.stageLabel}</Text> : null}
         </Space>
       )}
@@ -53,11 +65,22 @@ function ResearchPlaybook({
         onAction={onAction}
       />
 
-      {playbook.tasks?.length ? (
+      {tasks.length ? (
         <Row gutter={[12, 12]}>
-          {playbook.tasks.map((task) => (
+          {tasks.map((task) => (
             <Col xs={24} md={12} key={task.id}>
-              <ResearchTaskCard task={task} onAction={onAction} />
+              <ResearchTaskCard
+                task={task}
+                onAction={onAction}
+                checked={checkedTaskIds.includes(task.id)}
+                onToggle={(taskId, checked) => {
+                  setCheckedTaskIds((prev) => (
+                    checked
+                      ? [...prev, taskId].filter((value, index, array) => array.indexOf(value) === index)
+                      : prev.filter((item) => item !== taskId)
+                  ));
+                }}
+              />
             </Col>
           ))}
         </Row>

@@ -1741,20 +1741,28 @@ class SinaIndustryAdapter:
 
         return {"symbol": symbol, "error": "Quote not found"}
     
-    def get_industry_index(self, industry_code: str) -> pd.DataFrame:
+    def get_industry_index(self, industry_code: str, start_date=None, end_date=None) -> pd.DataFrame:
         """
         获取行业指数历史数据
-        
-        Note: 新浪财经不直接提供行业指数历史，返回空 DataFrame
-        
+
+        优先委托给 AKShare 的申万行业指数接口；新浪侧暂无稳定行业指数历史时，
+        这里直接走 AKShare，避免上层分析器拿不到行业走势和真实波动率。
+
         Args:
             industry_code: 行业代码
             
         Returns:
-            空 DataFrame（该功能暂不支持）
+            行业指数 OHLCV 数据；失败时返回空 DataFrame
         """
-        logger.warning("Industry index history not available from Sina Finance")
-        return pd.DataFrame()
+        try:
+            return self.akshare.get_industry_index(
+                industry_code,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except Exception as e:
+            logger.warning(f"Industry index history not available for {industry_code}: {e}")
+            return pd.DataFrame()
 
     def get_stock_valuation(self, symbol: str) -> Dict[str, Any]:
         """

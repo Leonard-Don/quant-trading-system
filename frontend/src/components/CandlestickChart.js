@@ -376,7 +376,7 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
 
     return (
         <Card
-            bordered={!embedMode}
+            variant={embedMode ? 'borderless' : 'outlined'}
             title={
                 embedMode ? null : (
                     <Space>

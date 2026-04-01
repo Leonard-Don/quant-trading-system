@@ -9,6 +9,7 @@ import {
   getBacktestHistoryStats,
   getBacktestRecord,
   downloadBacktestReport,
+  runMarketRegimeBacktest,
 } from '../services/api';
 
 jest.mock('../services/api', () => ({
@@ -17,6 +18,7 @@ jest.mock('../services/api', () => ({
   getBacktestRecord: jest.fn(),
   deleteBacktestRecord: jest.fn(),
   downloadBacktestReport: jest.fn(),
+  runMarketRegimeBacktest: jest.fn(),
 }));
 
 jest.mock('../components/PerformanceChart', () => () => <div>PerformanceChart</div>);
@@ -62,6 +64,33 @@ describe('ResultsDisplay', () => {
   test('renders top-level metrics and normalizes compatibility trade fields', async () => {
     const onOpenHistoryRecord = jest.fn();
     const onContinueAdvancedExperiment = jest.fn();
+    runMarketRegimeBacktest.mockResolvedValue({
+      success: true,
+      data: {
+        summary: {
+          regime_count: 4,
+          positive_regimes: 3,
+          strongest_regime: {
+            regime: '上涨趋势',
+            strategy_total_return: 0.14,
+          },
+          weakest_regime: {
+            regime: '下跌趋势',
+            strategy_total_return: -0.03,
+          },
+        },
+        regimes: [
+          {
+            regime: '上涨趋势',
+            days: 24,
+            strategy_total_return: 0.14,
+            market_total_return: 0.12,
+            win_rate: 0.67,
+            max_drawdown: -0.05,
+          },
+        ],
+      },
+    });
     render(
       <ResultsDisplay
         onOpenHistoryRecord={onOpenHistoryRecord}
@@ -79,6 +108,20 @@ describe('ResultsDisplay', () => {
           profit_factor: 2.5,
           net_profit: 1000,
           history_record_id: 'bt_123',
+          start_date: '2024-01-01',
+          end_date: '2024-03-31',
+          initial_capital: 10000,
+          commission: 0.001,
+          slippage: 0.001,
+          execution_diagnostics: {
+            configured_signal_mode: 'auto',
+            resolved_signal_mode: 'target',
+            allow_fractional_shares: true,
+            position_sizer: 'FixedFractionSizer',
+            risk_manager: null,
+            stop_loss_pct: null,
+            take_profit_pct: null,
+          },
           trades: [
             {
               date: '2024-01-01',
@@ -103,10 +146,25 @@ describe('ResultsDisplay', () => {
     expect(screen.getByText('最终价值')).toBeInTheDocument();
     expect(screen.getByText('$11,000.00')).toBeInTheDocument();
     expect(screen.getByText(/首日建仓后持续持有到回测结束/)).toBeInTheDocument();
+    expect(screen.getByText(/执行诊断/)).toBeInTheDocument();
+    expect(screen.getByText('目标仓位')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /查看历史记录/ }));
     expect(onOpenHistoryRecord).toHaveBeenCalledWith('bt_123');
     fireEvent.click(screen.getByRole('button', { name: /继续做高级实验/ }));
     expect(onContinueAdvancedExperiment).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: /分析市场状态/ }));
+
+    await waitFor(() => {
+      expect(runMarketRegimeBacktest).toHaveBeenCalledWith(expect.objectContaining({
+        symbol: 'AAPL',
+        strategy: 'buy_and_hold',
+        start_date: '2024-01-01',
+        end_date: '2024-03-31',
+      }));
+      expect(screen.getByText(/最适合的市场状态/)).toBeInTheDocument();
+      expect(screen.getAllByText(/上涨趋势/).length).toBeGreaterThan(0);
+    });
 
     fireEvent.click(screen.getByRole('tab', { name: '交易记录' }));
 
@@ -114,7 +172,7 @@ describe('ResultsDisplay', () => {
       expect(screen.getByText('买入')).toBeInTheDocument();
       expect(screen.getByText('$500.00')).toBeInTheDocument();
     });
-  });
+  }, 10000);
 });
 
 describe('BacktestHistory', () => {

@@ -167,7 +167,10 @@ register_exception_handlers(app)
 @app.middleware("http")
 async def rate_limit_middleware(request, call_next):
     """速率限制中间件"""
-    # 跳过健康检查端点和WebSocket
+    # 跳过预检请求、健康检查端点和 WebSocket
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     if request.url.path in ["/health", "/system/status", "/docs", "/openapi.json"] or request.url.path.startswith("/ws"):
         return await call_next(request)
 

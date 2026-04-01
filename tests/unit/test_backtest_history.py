@@ -1,4 +1,5 @@
 import json
+import sqlite3
 
 from src.backtest.history import BacktestHistory
 
@@ -199,6 +200,8 @@ def test_history_persists_extended_metrics_summary(tmp_path):
                 "win_rate": 0.6,
                 "num_trades": 4,
                 "final_value": 11000,
+                "recovery_factor": 1250,
+                "expectancy": 82.5,
                 "avg_win": 300,
                 "avg_loss": -120,
                 "total_profit": 900,
@@ -214,6 +217,8 @@ def test_history_persists_extended_metrics_summary(tmp_path):
     saved = history.get_by_id(record_id)
 
     assert saved is not None
+    assert saved["metrics"]["recovery_factor"] == 1250
+    assert saved["metrics"]["expectancy"] == 82.5
     assert saved["metrics"]["avg_win"] == 300
     assert saved["metrics"]["avg_loss"] == -120
     assert saved["metrics"]["total_profit"] == 900
@@ -222,6 +227,29 @@ def test_history_persists_extended_metrics_summary(tmp_path):
     assert saved["metrics"]["avg_holding_days"] == 6.5
     assert saved["metrics"]["total_completed_trades"] == 2
     assert saved["metrics"]["has_open_position"] is True
+
+
+def test_history_persists_code_version_metadata(tmp_path):
+    history = BacktestHistory(storage_path=tmp_path, max_records=10)
+
+    record_id = history.save(
+        {
+            "symbol": "AAPL",
+            "strategy": "moving_average",
+            "performance_metrics": {
+                "total_return": 0.1,
+                "num_trades": 2,
+                "final_value": 11000,
+            },
+            "code_version": "abc1234",
+        }
+    )
+
+    saved = history.get_by_id(record_id)
+
+    assert saved is not None
+    assert saved["code_version"] == "abc1234"
+    assert saved["strategy_version"] == "abc1234"
 
 
 def test_history_persists_advanced_experiment_records_without_backtest_normalization(tmp_path):
@@ -304,3 +332,69 @@ def test_history_statistics_support_record_type_filter(tmp_path):
     assert stats["record_types"]["batch_backtest"] == 1
     assert len(records) == 1
     assert records[0]["record_type"] == "batch_backtest"
+
+
+def test_history_persists_sqlite_mirror(tmp_path):
+    history = BacktestHistory(storage_path=tmp_path, max_records=10)
+
+    history.save(
+        {
+            "symbol": "AAPL",
+            "strategy": "buy_and_hold",
+            "performance_metrics": {
+                "total_return": 0.05,
+                "num_trades": 1,
+                "final_value": 10500,
+            },
+        }
+    )
+
+    sqlite_file = tmp_path / "history.sqlite3"
+    assert sqlite_file.exists()
+
+    with sqlite3.connect(sqlite_file) as connection:
+        count = connection.execute("SELECT COUNT(*) FROM backtest_history").fetchone()[0]
+
+    assert count == 1
+
+
+def test_history_migrates_existing_json_records_into_sqlite(tmp_path):
+    history_file = tmp_path / "history.json"
+    history_file.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "bt_existing",
+                    "timestamp": "2026-03-30T10:00:00",
+                    "symbol": "AAPL",
+                    "strategy": "buy_and_hold",
+                    "start_date": "2025-01-01",
+                    "end_date": "2025-06-30",
+                    "parameters": {},
+                    "metrics": {"total_return": 0.12, "num_trades": 1, "total_trades": 1, "final_value": 11200},
+                    "result": {
+                        "symbol": "AAPL",
+                        "strategy": "buy_and_hold",
+                        "initial_capital": 10000,
+                        "final_value": 11200,
+                        "total_return": 0.12,
+                        "num_trades": 1,
+                        "trades": [],
+                        "portfolio_history": [],
+                    },
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    history = BacktestHistory(storage_path=tmp_path, max_records=10)
+    saved = history.get_by_id("bt_existing")
+
+    assert saved is not None
+    with sqlite3.connect(tmp_path / "history.sqlite3") as connection:
+        count = connection.execute("SELECT COUNT(*) FROM backtest_history").fetchone()[0]
+        record_id = connection.execute("SELECT id FROM backtest_history").fetchone()[0]
+
+    assert count == 1
+    assert record_id == "bt_existing"

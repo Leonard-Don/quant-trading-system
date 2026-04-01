@@ -9,7 +9,7 @@ import logging
 import time
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 
 from src.data.providers.sina_ths_adapter import map_ths_to_sina
@@ -26,6 +26,8 @@ from backend.app.schemas.industry import (
     LeaderStockResponse,
     LeaderDetailResponse,
     HeatmapResponse,
+    HeatmapHistoryItem,
+    HeatmapHistoryResponse,
     HeatmapDataItem,
     IndustryTrendResponse,
     ClusterResponse,
@@ -47,10 +49,66 @@ _ENDPOINT_CACHE_TTL = 180  # 3分钟
 _stocks_full_build_executor = ThreadPoolExecutor(max_workers=2)
 _stocks_full_build_lock = threading.Lock()
 _stocks_full_build_inflight: set[str] = set()
+_heatmap_history_lock = threading.Lock()
+_heatmap_history: list[dict] = []
+_HEATMAP_HISTORY_MAX_ITEMS = 48
 
 # 独立的 Parity 缓存（评分一致性保障，TTL 更长）
 _parity_cache: dict = {}  # {key: {"data": ..., "ts": float}}
 _PARITY_CACHE_TTL = 1800  # 30分钟（评分在交易日内变化缓慢）
+
+
+def _normalize_sparkline_points(points: list[float], max_points: int = 20) -> list[float]:
+    normalized = []
+    for point in points or []:
+        try:
+            value = float(point)
+        except (TypeError, ValueError):
+            continue
+        if value > 0:
+            normalized.append(round(value, 3))
+    if len(normalized) <= max_points:
+        return normalized
+    step = max(1, len(normalized) // max_points)
+    sampled = normalized[::step][:max_points]
+    if sampled[-1] != normalized[-1]:
+        sampled[-1] = normalized[-1]
+    return sampled
+
+
+def _load_symbol_mini_trend(symbol: str) -> list[float]:
+    scorer = get_leader_scorer()
+    provider = getattr(scorer, "provider", None)
+    if provider is None or not hasattr(provider, "get_historical_data"):
+        return []
+
+    try:
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=45)
+        hist_data = provider.get_historical_data(symbol, start_date, end_date)
+        if hist_data is None or hist_data.empty or "close" not in hist_data.columns:
+            return []
+        return _normalize_sparkline_points(hist_data["close"].tail(20).tolist(), max_points=20)
+    except Exception as exc:
+        logger.warning("Failed to load mini trend for leader %s: %s", symbol, exc)
+        return []
+
+
+def _attach_leader_mini_trends(leaders: list[LeaderStockResponse]) -> list[LeaderStockResponse]:
+    if not leaders:
+        return leaders
+
+    symbols = [leader.symbol for leader in leaders if re.fullmatch(r"\d{6}", leader.symbol or "")]
+    if not symbols:
+        return leaders
+
+    with ThreadPoolExecutor(max_workers=min(6, len(symbols))) as executor:
+        trend_values = list(executor.map(_load_symbol_mini_trend, symbols))
+
+    trend_map = {symbol: trend for symbol, trend in zip(symbols, trend_values)}
+    for leader in leaders:
+        leader.mini_trend = trend_map.get(leader.symbol, [])
+    return leaders
 
 
 def _get_endpoint_cache(key: str):
@@ -112,6 +170,43 @@ def _get_stale_parity_cache(symbol: str, score_type: str):
     key = f"{symbol}:{score_type}"
     entry = _parity_cache.get(key)
     return entry["data"] if entry else None
+
+
+def _model_to_dict(model):
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    if hasattr(model, "dict"):
+        return model.dict()
+    return model
+
+
+def _append_heatmap_history(days: int, result: HeatmapResponse):
+    if not result or not getattr(result, "industries", None):
+        return
+
+    entry = {
+        "snapshot_id": f"{days}:{result.update_time}",
+        "days": days,
+        "captured_at": datetime.now().isoformat(),
+        "update_time": result.update_time,
+        "max_value": result.max_value,
+        "min_value": result.min_value,
+        "industries": [_model_to_dict(item) for item in result.industries],
+    }
+
+    with _heatmap_history_lock:
+        existing_index = next(
+            (
+                index for index, item in enumerate(_heatmap_history)
+                if item.get("days") == days and item.get("update_time") == result.update_time
+            ),
+            -1,
+        )
+        if existing_index >= 0:
+            _heatmap_history[existing_index] = entry
+        else:
+            _heatmap_history.insert(0, entry)
+            del _heatmap_history[_HEATMAP_HISTORY_MAX_ITEMS:]
 
 def _resolve_symbol_with_provider(symbol_or_name: str) -> str:
     """允许详情接口和龙头列表同时接受代码或股票名。"""
@@ -382,7 +477,7 @@ def get_hot_industries(
     """
     try:
         # 端点级缓存
-        cache_key = f"hot:{top_n}:{lookback_days}:{sort_by}:{order}"
+        cache_key = f"hot:v2:{top_n}:{lookback_days}:{sort_by}:{order}"
         cached = _get_endpoint_cache(cache_key)
         if cached is not None:
             return cached
@@ -410,6 +505,7 @@ def get_hot_industries(
                 stock_count=ind.get("stock_count", 0),
                 total_market_cap=ind.get("total_market_cap", 0),
                 marketCapSource=ind.get("market_cap_source", "unknown"),
+                mini_trend=ind.get("mini_trend", []),
             )
             for ind in hot_industries
         ]
@@ -544,6 +640,7 @@ def get_industry_heatmap(
         # 不缓存空结果，避免 API 临时故障导致持续返回空数据
         if result.industries:
             _set_endpoint_cache(cache_key, result)
+            _append_heatmap_history(days, result)
         return result
     except HTTPException:
         raise
@@ -556,6 +653,40 @@ def get_industry_heatmap(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/industries/heatmap/history", response_model=HeatmapHistoryResponse)
+def get_industry_heatmap_history(
+    limit: int = Query(10, ge=1, le=50, description="返回快照数量"),
+    days: Optional[int] = Query(None, ge=1, le=90, description="按周期过滤"),
+) -> HeatmapHistoryResponse:
+    """
+    获取行业热力图历史快照。
+
+    用于行业热度模块的历史回放。当前返回服务端近期保留的快照窗口。
+    """
+    with _heatmap_history_lock:
+        items = list(_heatmap_history)
+
+    if days is not None:
+        items = [item for item in items if int(item.get("days", 0) or 0) == days]
+
+    history_items = [
+        HeatmapHistoryItem(
+            snapshot_id=item.get("snapshot_id", ""),
+            days=item.get("days", 0),
+            captured_at=item.get("captured_at", ""),
+            update_time=item.get("update_time", ""),
+            max_value=item.get("max_value", 0),
+            min_value=item.get("min_value", 0),
+            industries=[
+                HeatmapDataItem(**industry_item)
+                for industry_item in item.get("industries", [])
+            ],
+        )
+        for item in items[:limit]
+    ]
+    return HeatmapHistoryResponse(items=history_items)
+
+
 @router.get("/industries/{industry_name}/trend", response_model=IndustryTrendResponse)
 def get_industry_trend(
     industry_name: str,
@@ -566,7 +697,7 @@ def get_industry_trend(
     
     返回指定行业的详细趋势分析，包括涨幅/跌幅前5的股票。
     """
-    cache_key = f"trend:v3:{industry_name}:{days}"
+    cache_key = f"trend:v4:{industry_name}:{days}"
     try:
         # 1. 检查有效缓存
         cached = _get_endpoint_cache(cache_key)
@@ -582,6 +713,7 @@ def get_industry_trend(
         result = IndustryTrendResponse(
             industry_name=trend_data.get("industry_name", ""),
             stock_count=trend_data.get("stock_count", 0),
+            expected_stock_count=trend_data.get("expected_stock_count", 0),
             total_market_cap=trend_data.get("total_market_cap", 0),
             avg_pe=trend_data.get("avg_pe", 0),
             industry_volatility=trend_data.get("industry_volatility", 0),
@@ -594,6 +726,16 @@ def get_industry_trend(
             rise_count=trend_data.get("rise_count", 0),
             fall_count=trend_data.get("fall_count", 0),
             flat_count=trend_data.get("flat_count", 0),
+            stock_coverage_ratio=trend_data.get("stock_coverage_ratio", 0),
+            change_coverage_ratio=trend_data.get("change_coverage_ratio", 0),
+            market_cap_coverage_ratio=trend_data.get("market_cap_coverage_ratio", 0),
+            pe_coverage_ratio=trend_data.get("pe_coverage_ratio", 0),
+            total_market_cap_fallback=trend_data.get("total_market_cap_fallback", False),
+            avg_pe_fallback=trend_data.get("avg_pe_fallback", False),
+            market_cap_source=trend_data.get("market_cap_source", "unknown"),
+            valuation_source=trend_data.get("valuation_source", "unavailable"),
+            valuation_quality=trend_data.get("valuation_quality", "unavailable"),
+            trend_series=trend_data.get("trend_series", []),
             degraded=trend_data.get("degraded", False),
             note=trend_data.get("note"),
             update_time=trend_data.get("update_time", ""),
@@ -650,6 +792,7 @@ def get_industry_clusters(
 @router.get("/industries/rotation", response_model=IndustryRotationResponse)
 def get_industry_rotation(
     industries: str = Query(..., description="行业名称列表，逗号分隔"),
+    periods: Optional[str] = Query(None, description="统计周期列表，逗号分隔，如 1,5,20"),
 ) -> IndustryRotationResponse:
     """
     获取行业轮动对比数据
@@ -665,8 +808,20 @@ def get_industry_rotation(
         if len(industry_list) > 5:
             industry_list = industry_list[:5]
         
+        requested_periods = None
+        if periods:
+            requested_periods = []
+            for raw in periods.split(","):
+                raw_value = raw.strip()
+                if not raw_value:
+                    continue
+                try:
+                    requested_periods.append(max(int(raw_value), 1))
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=f"非法周期参数: {raw_value}") from exc
+
         analyzer = get_industry_analyzer()
-        rotation_data = analyzer.get_industry_rotation(industry_list)
+        rotation_data = analyzer.get_industry_rotation(industry_list, requested_periods)
         
         if "error" in rotation_data:
             raise HTTPException(status_code=500, detail=rotation_data["error"])
@@ -699,7 +854,7 @@ def get_leader_stocks(
     """
     try:
         # 端点级缓存
-        cache_key = f"leaders:{list_type}:{top_n}:{top_industries}:{per_industry}"
+        cache_key = f"leaders:v3:{list_type}:{top_n}:{top_industries}:{per_industry}"
         cached = _get_endpoint_cache(cache_key)
         if cached is not None:
             return cached
@@ -812,6 +967,7 @@ def get_leader_stocks(
                             pe_ratio=sd.get("raw_data", {}).get("pe_ttm", snapshot.get("pe_ratio", 0)),
                             change_pct=sd.get("raw_data", {}).get("change_pct", snapshot.get("change_pct", 0)),
                             dimension_scores=ds,
+                            mini_trend=[],
                         ))
 
                     ind_core_list.sort(key=lambda x: x.total_score, reverse=True)
@@ -939,6 +1095,7 @@ def get_leader_stocks(
                     pe_ratio=pe_ratio,
                     change_pct=change_pct,
                     dimension_scores=dimension_scores,
+                    mini_trend=[],
                 )
 
             import concurrent.futures
@@ -983,6 +1140,7 @@ def get_leader_stocks(
                         pe_ratio=l.get("pe_ratio", 0),
                         change_pct=l.get("change_pct", 0),
                         dimension_scores=l.get("dimension_scores", {}),
+                        mini_trend=l.get("mini_trend", []),
                     )
                     for l in supplemental
                 ]
@@ -1015,6 +1173,7 @@ def get_leader_stocks(
                 pe_ratio=l.get("pe_ratio", 0),
                 change_pct=l.get("change_pct", 0),
                 dimension_scores=l.get("dimension_scores", {}),
+                mini_trend=l.get("mini_trend", []),
             )
             for l in leaders
         ]

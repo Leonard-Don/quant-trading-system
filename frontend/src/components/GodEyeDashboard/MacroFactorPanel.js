@@ -123,6 +123,12 @@ const policySourceColor = {
   unknown: 'default',
 };
 
+const reliabilityColor = {
+  robust: 'green',
+  watch: 'gold',
+  fragile: 'red',
+};
+
 function MacroFactorPanel({ model = {}, onNavigate }) {
   const topFactors = model.topFactors || [];
   const factors = model.factors || [];
@@ -131,6 +137,7 @@ function MacroFactorPanel({ model = {}, onNavigate }) {
   const macroTrend = model.macroTrend || {};
   const resonanceSummary = model.resonanceSummary || {};
   const overallEvidence = model.evidenceSummary || {};
+  const inputReliabilitySummary = model.inputReliabilitySummary || {};
   const clusterLabels = {
     positive_cluster: '正向共振',
     negative_cluster: '负向共振',
@@ -152,6 +159,53 @@ function MacroFactorPanel({ model = {}, onNavigate }) {
     >
       {factors.length ? (
         <>
+          {inputReliabilitySummary?.label ? (
+            <div
+              style={{
+                borderRadius: 14,
+                padding: 14,
+                background: 'rgba(11, 30, 44, 0.72)',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <Space wrap>
+                  <Tag color={reliabilityColor[inputReliabilitySummary.label] || 'blue'}>
+                    input {inputReliabilitySummary.label}
+                  </Tag>
+                  <Text type="secondary">
+                    score {Number(inputReliabilitySummary.score || 0).toFixed(2)}
+                  </Text>
+                  <Text type="secondary">
+                    risk hits {Number(inputReliabilitySummary.issue_factor_hits || 0)}
+                  </Text>
+                  <Text type="secondary">
+                    support hits {Number(inputReliabilitySummary.support_factor_hits || 0)}
+                  </Text>
+                </Space>
+                {inputReliabilitySummary?.dominant_issue_labels?.length ? (
+                  <Text type="secondary">
+                    主要风险 {inputReliabilitySummary.dominant_issue_labels.join('，')}
+                  </Text>
+                ) : null}
+              </div>
+              {inputReliabilitySummary.lead ? (
+                <div style={{ marginTop: 8 }}>
+                  <Text style={{ color: '#f5f8fc' }}>{inputReliabilitySummary.lead}</Text>
+                </div>
+              ) : null}
+              {inputReliabilitySummary.posture ? (
+                <div style={{ marginTop: 6 }}>
+                  <Text type="secondary">{inputReliabilitySummary.posture}</Text>
+                </div>
+              ) : null}
+              {inputReliabilitySummary.reason ? (
+                <div style={{ marginTop: 6 }}>
+                  <Text type="secondary">{inputReliabilitySummary.reason}</Text>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <Row gutter={[12, 12]}>
             {topFactors.map((factor) => (
               <Col xs={24} md={8} key={factor.name}>

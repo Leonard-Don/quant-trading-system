@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { App as AntdApp, Layout, Typography, Menu, Space, Button, Tooltip, Spin } from 'antd';
+import { App as AntdApp, Layout, Typography, Menu, Space, Button, Tooltip, Spin, Badge } from 'antd';
 import {
   DashboardOutlined,
   BarChartOutlined,
@@ -47,6 +47,8 @@ const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
 const VIEW_QUERY_KEY = 'view';
 const VALID_VIEWS = new Set(['backtest', 'realtime', 'industry', 'pricing', 'godsEye', 'workbench']);
+const INDUSTRY_ALERT_BADGE_STORAGE_KEY = 'industry_alert_badge_count_v1';
+const INDUSTRY_ALERT_BADGE_EVENT = 'industry-alert-badge-update';
 
 const readViewStateFromLocation = (search = window.location.search) => {
   const params = new URLSearchParams(search);
@@ -81,6 +83,11 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
   const [viewState, setViewState] = useState(() => readViewStateFromLocation());
+  const [industryAlertBadgeCount, setIndustryAlertBadgeCount] = useState(() => {
+    const value = window.localStorage.getItem(INDUSTRY_ALERT_BADGE_STORAGE_KEY);
+    const numericValue = Number(value || 0);
+    return Number.isFinite(numericValue) ? Math.max(0, numericValue) : 0;
+  });
   const { currentView, realtimeAuxIntent } = viewState;
 
   const loadStrategies = useCallback(async () => {
@@ -104,6 +111,22 @@ function App() {
     applyViewFromUrl();
     window.addEventListener('popstate', applyViewFromUrl);
     return () => window.removeEventListener('popstate', applyViewFromUrl);
+  }, []);
+
+  useEffect(() => {
+    const syncIndustryAlertBadge = () => {
+      const value = window.localStorage.getItem(INDUSTRY_ALERT_BADGE_STORAGE_KEY);
+      const numericValue = Number(value || 0);
+      setIndustryAlertBadgeCount(Number.isFinite(numericValue) ? Math.max(0, numericValue) : 0);
+    };
+
+    syncIndustryAlertBadge();
+    window.addEventListener(INDUSTRY_ALERT_BADGE_EVENT, syncIndustryAlertBadge);
+    window.addEventListener('storage', syncIndustryAlertBadge);
+    return () => {
+      window.removeEventListener(INDUSTRY_ALERT_BADGE_EVENT, syncIndustryAlertBadge);
+      window.removeEventListener('storage', syncIndustryAlertBadge);
+    };
   }, []);
 
   useEffect(() => {
@@ -159,7 +182,17 @@ function App() {
     {
       key: 'industry',
       icon: <FireOutlined />,
-      label: '行业热度',
+      label: (
+        <Badge
+          count={industryAlertBadgeCount}
+          size="small"
+          overflowCount={99}
+          offset={[10, 0]}
+          styles={{ indicator: { boxShadow: 'none' } }}
+        >
+          <span style={{ paddingRight: industryAlertBadgeCount > 0 ? 16 : 0 }}>行业热度</span>
+        </Badge>
+      ),
     },
     {
       key: 'pricing',

@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from src.backtest.base_backtester import BaseBacktester
 from src.backtest.metrics import (
     calculate_annualized_return,
     calculate_max_drawdown,
@@ -23,14 +24,16 @@ from src.trading.cross_market import (
     ExecutionRouter,
     HedgePortfolioBuilder,
     SpreadZScoreStrategy,
+    CointegrationReversionStrategy,
 )
 
 
-class CrossMarketBacktester:
+class CrossMarketBacktester(BaseBacktester):
     """Backtest long-short cross-market baskets on daily data."""
 
     STRATEGIES = {
         "spread_zscore": SpreadZScoreStrategy,
+        "cointegration_reversion": CointegrationReversionStrategy,
     }
 
     def __init__(
@@ -40,10 +43,12 @@ class CrossMarketBacktester:
         commission: float = 0.001,
         slippage: float = 0.001,
     ):
+        super().__init__(
+            initial_capital=initial_capital,
+            commission=commission,
+            slippage=slippage,
+        )
         self.data_manager = data_manager or DataManager()
-        self.initial_capital = float(initial_capital)
-        self.commission = float(commission)
-        self.slippage = float(slippage)
 
     def run(
         self,
@@ -95,6 +100,8 @@ class CrossMarketBacktester:
             price_matrix=price_matrix,
             signal_frame=signal_frame,
             data_alignment=alignment,
+            strategy_name=strategy_name,
+            parameters=parameters or {},
             construction_mode=construction_mode,
             constraint_overlay=constraint_overlay,
         )
@@ -329,6 +336,12 @@ class CrossMarketBacktester:
         )
         ranking_penalty = float(template_context.get("ranking_penalty") or 0.0)
         ranking_penalty_reason = template_context.get("ranking_penalty_reason") or ""
+        input_reliability_label = template_context.get("input_reliability_label") or "unknown"
+        input_reliability_score = float(template_context.get("input_reliability_score") or 0.0)
+        input_reliability_lead = template_context.get("input_reliability_lead") or ""
+        input_reliability_posture = template_context.get("input_reliability_posture") or ""
+        input_reliability_reason = template_context.get("input_reliability_reason") or ""
+        input_reliability_action_hint = template_context.get("input_reliability_action_hint") or ""
 
         return {
             "template_id": template_context.get("template_id") or "",
@@ -390,6 +403,16 @@ class CrossMarketBacktester:
                 "effective_recommendation_tier": template_context.get("recommendation_tier") or "",
                 "ranking_penalty": ranking_penalty,
                 "reason": ranking_penalty_reason,
+                "input_reliability_posture": input_reliability_posture,
+                "input_reliability_action_hint": input_reliability_action_hint,
+            },
+            "input_reliability": {
+                "label": input_reliability_label,
+                "score": input_reliability_score,
+                "lead": input_reliability_lead,
+                "posture": input_reliability_posture,
+                "reason": input_reliability_reason,
+                "action_hint": input_reliability_action_hint,
             },
             "side_bias_summary": {
                 "long_raw_weight": round(long_raw_total, 6),
@@ -523,6 +546,8 @@ class CrossMarketBacktester:
         price_matrix: pd.DataFrame,
         signal_frame: pd.DataFrame,
         data_alignment: Dict[str, Any],
+        strategy_name: str,
+        parameters: Dict[str, Any],
         construction_mode: str,
         constraint_overlay: Dict[str, Any],
     ) -> Dict[str, Any]:
@@ -594,8 +619,14 @@ class CrossMarketBacktester:
 
         spread_series = signal_frame.copy()
         spread_series["date"] = spread_series.index.strftime("%Y-%m-%d")
+        refit_interval = int(parameters.get("refit_interval", 1))
 
         correlation_matrix = returns[price_matrix.columns].corr().fillna(0.0)
+        cointegration_diagnostics = self._build_cointegration_diagnostics(
+            price_matrix=price_matrix,
+            long_assets=long_assets,
+            short_assets=short_assets,
+        )
 
         execution_diagnostics = {
             "construction_mode": construction_mode,
@@ -638,6 +669,8 @@ class CrossMarketBacktester:
                 "concentration_reason",
                 "",
             ),
+            "cointegration_level": cointegration_diagnostics.get("level", "unknown"),
+            "cointegration_reason": cointegration_diagnostics.get("reason", ""),
         }
 
         results = {
@@ -674,12 +707,137 @@ class CrossMarketBacktester:
             "execution_plan": execution_plan,
             "hedge_portfolio": hedge_summary,
             "asset_contributions": asset_contributions,
+            "cointegration_diagnostics": cointegration_diagnostics,
+            "refit_summary": {
+                "refit_interval": refit_interval,
+                "estimated_refits": max(1, int(np.ceil(len(price_matrix) / max(refit_interval, 1)))),
+                "dynamic_hedge": construction_mode == "ols_hedge" or strategy_name == "cointegration_reversion",
+            },
         }
         if construction_mode == "ols_hedge":
             results["hedge_ratio_series"] = _dataframe_to_records(
                 spread_series[["date", "hedge_ratio"]]
             )
         return results
+
+    def _build_cointegration_diagnostics(
+        self,
+        *,
+        price_matrix: pd.DataFrame,
+        long_assets: List[Any],
+        short_assets: List[Any],
+    ) -> Dict[str, Any]:
+        rows: List[Dict[str, Any]] = []
+        long_symbols = [asset.symbol for asset in long_assets]
+        short_symbols = [asset.symbol for asset in short_assets]
+
+        for long_symbol in long_symbols:
+            for short_symbol in short_symbols:
+                if long_symbol not in price_matrix.columns or short_symbol not in price_matrix.columns:
+                    continue
+                diagnosis = self._estimate_cointegration(
+                    price_matrix[long_symbol],
+                    price_matrix[short_symbol],
+                )
+                if diagnosis is None:
+                    continue
+                rows.append(
+                    {
+                        "long_symbol": long_symbol,
+                        "short_symbol": short_symbol,
+                        **diagnosis,
+                    }
+                )
+
+        if not rows:
+            return {
+                "available": False,
+                "level": "unknown",
+                "reason": "有效样本不足，暂时无法评估协整关系。",
+                "pair_count": 0,
+                "cointegrated_pair_count": 0,
+                "rows": [],
+                "best_pair": None,
+            }
+
+        rows.sort(key=lambda item: (item["p_value"], -item["sample_size"], item["long_symbol"], item["short_symbol"]))
+        best_pair = rows[0]
+        cointegrated_count = sum(1 for item in rows if item["p_value"] < 0.05)
+
+        if best_pair["p_value"] < 0.05:
+            level = "strong"
+            reason = f"最佳配对 {best_pair['long_symbol']}/{best_pair['short_symbol']} 通过协整检验，p 值为 {best_pair['p_value']:.4f}。"
+        elif best_pair["p_value"] < 0.15:
+            level = "watch"
+            reason = f"最佳配对 {best_pair['long_symbol']}/{best_pair['short_symbol']} 只有弱协整迹象，p 值为 {best_pair['p_value']:.4f}。"
+        else:
+            level = "weak"
+            reason = f"当前多空腿之间没有明显协整关系，最佳配对 p 值为 {best_pair['p_value']:.4f}。"
+
+        return {
+            "available": True,
+            "level": level,
+            "reason": reason,
+            "pair_count": len(rows),
+            "cointegrated_pair_count": cointegrated_count,
+            "rows": rows,
+            "best_pair": best_pair,
+        }
+
+    @staticmethod
+    def _estimate_cointegration(series_a: pd.Series, series_b: pd.Series) -> Optional[Dict[str, Any]]:
+        aligned = pd.concat(
+            [
+                pd.to_numeric(series_a, errors="coerce"),
+                pd.to_numeric(series_b, errors="coerce"),
+            ],
+            axis=1,
+        ).dropna()
+        if len(aligned) < 10:
+            return None
+
+        y1 = aligned.iloc[:, 0].astype(float).values
+        y2 = aligned.iloc[:, 1].astype(float).values
+        hedge_ratio = float(np.linalg.lstsq(y1.reshape(-1, 1), y2, rcond=None)[0][0]) if len(y1) else 1.0
+
+        try:
+            from statsmodels.tsa.stattools import coint
+
+            statistic, p_value, _ = coint(y1, y2)
+            method = "engle_granger"
+            score = float(statistic)
+        except Exception:
+            spread = y2 - hedge_ratio * y1
+            diff_spread = np.diff(spread)
+            lagged_spread = spread[:-1]
+            if len(diff_spread) < 5:
+                return None
+            x = np.column_stack([np.ones(len(lagged_spread)), lagged_spread])
+            beta = np.linalg.lstsq(x, diff_spread, rcond=None)[0]
+            residuals = diff_spread - x @ beta
+            degrees_of_freedom = max(len(residuals) - 2, 1)
+            residual_std = np.sqrt(np.sum(residuals ** 2) / degrees_of_freedom)
+            denominator = residual_std / np.sqrt(max(np.sum(lagged_spread ** 2), 1e-9))
+            test_stat = float(beta[1] / denominator) if denominator > 0 else 0.0
+            try:
+                from scipy import stats as scipy_stats
+
+                p_value = float(2 * (1 - scipy_stats.t.cdf(abs(test_stat), degrees_of_freedom)))
+            except Exception:
+                p_value = 1.0
+            method = "heuristic_adf"
+            score = test_stat
+
+        if np.isnan(p_value):
+            p_value = 1.0
+
+        return {
+            "method": method,
+            "test_statistic": round(float(score), 6),
+            "p_value": round(float(p_value), 6),
+            "sample_size": int(len(aligned)),
+            "hedge_ratio": round(float(hedge_ratio), 6),
+        }
 
     @staticmethod
     def _extract_liquidity_stats(data: pd.DataFrame) -> Dict[str, float]:

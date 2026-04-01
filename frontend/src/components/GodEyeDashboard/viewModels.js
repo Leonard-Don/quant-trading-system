@@ -128,6 +128,35 @@ const buildWorkbenchAction = (taskId, source, note, reason = '', label = '打开
       }
     : null;
 
+const getReviewContextActionLabel = (reviewContextShift = null) => {
+  if (reviewContextShift?.enteredReview) {
+    return '按复核结果重看';
+  }
+  if (reviewContextShift?.exitedReview) {
+    return '确认恢复普通结果';
+  }
+  if (reviewContextShift?.changed) {
+    return '重新确认结果语境';
+  }
+  return '优先重看任务';
+};
+
+const getInputReliabilityActionLabel = (inputReliabilityShift = null) => {
+  if (inputReliabilityShift?.enteredFragile) {
+    return '先复核输入可靠度';
+  }
+  if (inputReliabilityShift?.recoveredRobust) {
+    return '确认恢复正常强度';
+  }
+  if (inputReliabilityShift?.recoveredFromFragile) {
+    return '确认解除谨慎处理';
+  }
+  if (inputReliabilityShift?.labelChanged || Math.abs(Number(inputReliabilityShift?.scoreGap || 0)) >= 0.12) {
+    return '重新确认输入质量';
+  }
+  return '打开任务';
+};
+
 const extractTemplateMeta = (task = {}) =>
   task?.snapshot?.payload?.template_meta
   || task?.snapshot_history?.[0]?.payload?.template_meta
@@ -500,6 +529,7 @@ export const buildFactorPanelModel = (overview = {}, snapshot = {}) => {
     resonanceSummary: overview?.resonance_summary || {},
     evidenceSummary: overview?.evidence_summary || snapshot?.evidence_summary || {},
     confidenceAdjustment: overview?.confidence_adjustment || {},
+    inputReliabilitySummary: overview?.input_reliability_summary || snapshot?.input_reliability_summary || {},
     primaryAction: topFactors[0]?.action || null,
   };
 };
@@ -651,6 +681,9 @@ export const buildHunterModel = ({ snapshot = {}, overview = {}, status = {}, re
           item.summary,
           recentComparisonLead ? `最近两版：${recentComparisonLead}` : '',
           item.reviewContextDriven && item.reviewContextShift?.lead ? item.reviewContextShift.lead : '',
+          item.inputReliabilityDriven && item.inputReliabilityShift?.currentLead
+            ? `输入可靠度 ${item.inputReliabilityShift.savedLabel}→${item.inputReliabilityShift.currentLabel}，${item.inputReliabilityShift.currentLead}`
+            : '',
           runStateSummary
             ? `${runStateSummary}，当前结果已在降级强度下运行，应优先重看`
             : '',
@@ -668,15 +701,33 @@ export const buildHunterModel = ({ snapshot = {}, overview = {}, status = {}, re
                 'alert_hunter',
                 runStateSummary
                   ? `${item.title || formatTemplateName(item.templateId)} 当前结果已在降级强度下运行，建议优先直接打开对应任务重看判断。`
+                  : item.reviewContextDriven && item.reviewContextShift?.actionHint
+                    ? `${item.title || formatTemplateName(item.templateId)} ${item.reviewContextShift.actionHint}`
+                  : item.inputReliabilityDriven && item.inputReliabilityShift?.actionHint
+                    ? `${item.title || formatTemplateName(item.templateId)} ${item.inputReliabilityShift.actionHint}`
+                  : item.inputReliabilityDriven && item.inputReliabilityShift?.currentLead
+                    ? `${item.title || formatTemplateName(item.templateId)} ${item.inputReliabilityShift.currentLead}`
                   : `${item.title || formatTemplateName(item.templateId)} 当前研究输入已经变化，建议直接打开对应任务更新判断。`,
                 item.priorityReason || '',
-                item.selectionQualityRunState?.active ? '优先重看任务' : '打开任务'
+                item.selectionQualityRunState?.active
+                  ? '优先重看任务'
+                  : item.reviewContextDriven
+                    ? getReviewContextActionLabel(item.reviewContextShift)
+                    : item.inputReliabilityDriven
+                      ? getInputReliabilityActionLabel(item.inputReliabilityShift)
+                    : '打开任务'
               )
             : buildCrossMarketAction(
                 item.templateId,
                 'alert_hunter',
                 runStateSummary
                   ? `${item.title || formatTemplateName(item.templateId)} 当前结果已在降级强度下运行，建议重新打开跨市场剧本优先重看。`
+                  : item.reviewContextDriven && item.reviewContextShift?.actionHint
+                    ? `${item.title || formatTemplateName(item.templateId)} ${item.reviewContextShift.actionHint}`
+                  : item.inputReliabilityDriven && item.inputReliabilityShift?.actionHint
+                    ? `${item.title || formatTemplateName(item.templateId)} ${item.inputReliabilityShift.actionHint}`
+                  : item.inputReliabilityDriven && item.inputReliabilityShift?.currentLead
+                    ? `${item.title || formatTemplateName(item.templateId)} ${item.inputReliabilityShift.currentLead}`
                   : `${item.title || formatTemplateName(item.templateId)} 当前研究输入已经变化，建议重新打开跨市场剧本更新判断。`
               ),
       });
@@ -722,6 +773,8 @@ export const buildCrossMarketCards = (
           ? 0.3
         : refreshMeta?.reviewContextDriven
           ? 0.24
+        : refreshMeta?.inputReliabilityDriven
+          ? 0.16
         : refreshMeta?.selectionQualityDriven
           ? 0.2
           : 0;
@@ -739,6 +792,8 @@ export const buildCrossMarketCards = (
               ? `当前结果已按 ${refreshMeta?.selectionQualityRunState?.label || 'degraded'} 强度运行，模板排序进一步下调`
             : refreshMeta?.reviewContextDriven
               ? `复核语境切换：${refreshMeta?.reviewContextShift?.lead || '最近两版已发生复核语境切换，模板排序谨慎下调'}`
+            : refreshMeta?.inputReliabilityDriven
+              ? `输入可靠度变化：${refreshMeta?.inputReliabilityShift?.currentLead || '整体输入可靠度下降，模板排序适度下调'}`
             : `当前主题已进入自动降级处理，模板排序谨慎下调`
           : '',
         recommendationScore: adjustedScore,
@@ -754,6 +809,7 @@ export const buildCrossMarketCards = (
               taskRefreshSummary: refreshMeta.summary,
               taskRefreshResonanceDriven: refreshMeta.resonanceDriven,
               taskRefreshPolicySourceDriven: refreshMeta.policySourceDriven,
+              taskRefreshInputReliabilityDriven: refreshMeta.inputReliabilityDriven,
               taskRefreshBiasCompressionDriven: refreshMeta.biasCompressionDriven,
               taskRefreshSelectionQualityDriven: refreshMeta.selectionQualityDriven,
               taskRefreshSelectionQualityShift: refreshMeta.selectionQualityShift,
@@ -765,6 +821,7 @@ export const buildCrossMarketCards = (
               taskRefreshBiasCompressionCore: refreshMeta.biasCompressionShift?.coreLegAffected || false,
               taskRefreshTopCompressedAsset: refreshMeta.biasCompressionShift?.topCompressedAsset || '',
               taskRefreshPolicySourceShift: refreshMeta.policySourceShift,
+              taskRefreshInputReliabilityShift: refreshMeta.inputReliabilityShift,
               taskRecentComparisonLead: recentComparisonLead,
               taskAction:
                 refreshMeta.severity === 'high'
@@ -775,9 +832,19 @@ export const buildCrossMarketCards = (
                         ? `${card.name} 当前结果已在降级强度下运行，更适合直接打开对应任务优先重看。`
                         : refreshMeta.reviewContextDriven
                           ? `${card.name} 最近两版已发生复核语境切换，更适合直接打开对应任务优先重看。`
+                        : refreshMeta.inputReliabilityDriven && refreshMeta.inputReliabilityShift?.actionHint
+                          ? `${card.name} ${refreshMeta.inputReliabilityShift.actionHint}`
+                        : refreshMeta.inputReliabilityDriven
+                          ? `${card.name} 当前整体输入可靠度已经变化，更适合直接打开对应任务优先复核。`
                         : `${card.name} 当前更适合直接打开对应任务处理。`,
                       refreshMeta.priorityReason || '',
-                      (refreshMeta.selectionQualityRunState?.active || refreshMeta.reviewContextDriven) ? '优先重看任务' : '打开任务'
+                      refreshMeta.selectionQualityRunState?.active
+                        ? '优先重看任务'
+                        : refreshMeta.reviewContextDriven
+                          ? getReviewContextActionLabel(refreshMeta.reviewContextShift)
+                          : refreshMeta.inputReliabilityDriven
+                            ? getInputReliabilityActionLabel(refreshMeta.inputReliabilityShift)
+                          : '打开任务'
                     )
                   : null,
             }

@@ -9,6 +9,8 @@
   },
   "scripts": {
     "verify:industry": "node verify_industry_features.js",
+    "verify:realtime": "node verify_realtime_features.js",
+    "verify:pricing": "node verify_pricing_research.js",
     "test": "npm run verify:industry"
   },
   "keywords": [],

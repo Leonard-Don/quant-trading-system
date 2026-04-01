@@ -4,29 +4,476 @@ Backtest engine for testing trading strategies
 
 import pandas as pd
 import numpy as np
-from typing import Dict, Any, List
+from dataclasses import dataclass
+from typing import Dict, Any, List, Optional
 import logging
+from .base_backtester import BaseBacktester
+from .signal_adapter import SignalAdapter
+from .risk_manager import RiskManager, RiskContext, RiskAction
+from .position_sizer import (
+    BasePositionSizer,
+    FixedFractionSizer,
+    SizingContext,
+)
 from .metrics import (
     calculate_annualized_return,
     calculate_sharpe_ratio, 
     calculate_sortino_ratio,
     calculate_max_drawdown,
+    calculate_max_drawdown_duration,
     calculate_calmar_ratio,
     calculate_volatility,
-    calculate_var
+    calculate_var,
+    calculate_cvar,
+    calculate_omega_ratio,
+    calculate_recovery_factor,
+    calculate_expectancy,
 )
 
 logger = logging.getLogger(__name__)
 
 
-class Backtester:
-    """Simple backtesting engine"""
+@dataclass
+class ExecutionConfig:
+    """Configuration for the single-asset execution engine."""
+
+    allow_fractional_shares: bool = False
+    signal_mode: str = "auto"  # auto | event | target
+    fixed_commission: float = 0.0
+    min_commission: float = 0.0
+    market_impact_bps: float = 0.0
+
+
+class SingleAssetExecutionEngine:
+    """Execute single-asset strategy signals into a portfolio path.
+
+    The engine supports two signal semantics:
+    - ``event``: legacy buy/hold/sell events in ``{-1, 0, 1}``
+    - ``target``: target long exposure in ``[0, 1]`` per bar
+    """
+
+    def __init__(
+        self,
+        *,
+        initial_capital: float,
+        commission: float,
+        slippage: float,
+        config: ExecutionConfig,
+    ):
+        self.initial_capital = float(initial_capital)
+        self.commission = float(commission)
+        self.slippage = float(slippage)
+        self.config = config
+
+    def execute(
+        self,
+        *,
+        data: pd.DataFrame,
+        signals: pd.Series,
+        sizer: BasePositionSizer,
+        risk_mgr: Optional[RiskManager],
+        stop_loss_pct: Optional[float],
+        take_profit_pct: Optional[float],
+        max_holding_days: Optional[int],
+    ) -> Dict[str, Any]:
+        signal_mode = self._resolve_signal_mode(signals)
+        if signal_mode == "target":
+            execution = self._execute_target_exposure(
+                data=data,
+                signals=signals,
+                sizer=sizer,
+                risk_mgr=risk_mgr,
+                max_holding_days=max_holding_days,
+            )
+        else:
+            execution = self._execute_event_signals(
+                data=data,
+                signals=signals,
+                sizer=sizer,
+                risk_mgr=risk_mgr,
+                stop_loss_pct=stop_loss_pct,
+                take_profit_pct=take_profit_pct,
+                max_holding_days=max_holding_days,
+            )
+        execution["resolved_signal_mode"] = signal_mode
+        return execution
+
+    def _resolve_signal_mode(self, signals: pd.Series) -> str:
+        if self.config.signal_mode in {"event", "target"}:
+            return self.config.signal_mode
+
+        clean = pd.Series(signals).dropna()
+        if clean.empty:
+            return "event"
+
+        unique_values = set(np.round(clean.astype(float), 8).tolist())
+        if unique_values.issubset({-1.0, 0.0, 1.0}):
+            return "event"
+        return "target"
+
+    def _normalize_shares(self, shares: float) -> float:
+        if shares <= 0:
+            return 0.0
+        if self.config.allow_fractional_shares:
+            return float(shares)
+        return float(int(shares))
+
+    def _effective_slippage(self) -> float:
+        return float(self.slippage + (self.config.market_impact_bps / 10_000.0))
+
+    def _commission_cost(self, notional: float) -> float:
+        if notional <= 0:
+            return 0.0
+        commission_cost = (notional * self.commission) + float(self.config.fixed_commission or 0.0)
+        return float(max(commission_cost, float(self.config.min_commission or 0.0)))
+
+    def _build_portfolio(
+        self,
+        *,
+        data: pd.DataFrame,
+        signal_array: np.ndarray,
+        price_array: np.ndarray,
+        position_array: np.ndarray,
+        cash_array: np.ndarray,
+        holdings_array: np.ndarray,
+        total_array: np.ndarray,
+    ) -> pd.DataFrame:
+        portfolio = pd.DataFrame(
+            {
+                "price": price_array,
+                "signal": signal_array,
+                "position": position_array,
+                "cash": cash_array,
+                "holdings": holdings_array,
+                "total": total_array,
+            },
+            index=data.index,
+        )
+        portfolio["returns"] = portfolio["total"].pct_change()
+        return portfolio
+
+    def _execute_event_signals(
+        self,
+        *,
+        data: pd.DataFrame,
+        signals: pd.Series,
+        sizer: BasePositionSizer,
+        risk_mgr: Optional[RiskManager],
+        stop_loss_pct: Optional[float],
+        take_profit_pct: Optional[float],
+        max_holding_days: Optional[int],
+    ) -> Dict[str, Any]:
+        price_array = data["close"].astype(float).to_numpy()
+        signal_array = signals.astype(int).to_numpy()
+        bar_count = len(price_array)
+        position_array = np.zeros(bar_count, dtype=float)
+        cash_array = np.zeros(bar_count, dtype=float)
+        holdings_array = np.zeros(bar_count, dtype=float)
+        total_array = np.zeros(bar_count, dtype=float)
+
+        trades: List[Dict[str, Any]] = []
+        trade_pnls: List[float] = []
+        current_position = 0.0
+        current_cash = self.initial_capital
+        avg_cost_basis = 0.0
+        current_entry_date = None
+        peak_equity = self.initial_capital
+        prev_total = self.initial_capital
+        effective_slippage = self._effective_slippage()
+
+        for i, (price, signal) in enumerate(zip(price_array, signal_array)):
+            current_equity = current_cash + current_position * price
+            daily_ret = (
+                (current_equity - prev_total) / prev_total if prev_total > 0 else 0.0
+            )
+            peak_equity = max(peak_equity, current_equity)
+
+            if risk_mgr is not None:
+                risk_ctx = RiskContext(
+                    bar_index=i,
+                    current_price=price,
+                    current_date=data.index[i],
+                    position_size=float(current_position),
+                    entry_price=avg_cost_basis,
+                    entry_date=current_entry_date,
+                    current_equity=current_equity,
+                    peak_equity=peak_equity,
+                    initial_capital=self.initial_capital,
+                    daily_return=daily_ret,
+                    recent_trade_pnls=trade_pnls.copy(),
+                )
+                decision = risk_mgr.evaluate(risk_ctx)
+                if decision.action == RiskAction.FORCE_EXIT and current_position > 0:
+                    signal = -1
+                elif decision.action == RiskAction.BLOCK_ENTRY and signal == 1:
+                    signal = 0
+            else:
+                if current_position > 0 and avg_cost_basis > 0:
+                    unrealized_return = (price - avg_cost_basis) / avg_cost_basis
+                    if stop_loss_pct is not None and unrealized_return <= -stop_loss_pct:
+                        signal = -1
+                    elif (
+                        current_entry_date is not None
+                        and max_holding_days is not None
+                        and (data.index[i] - current_entry_date).days >= max_holding_days
+                    ):
+                        signal = -1
+                    elif (
+                        take_profit_pct is not None
+                        and unrealized_return >= take_profit_pct
+                    ):
+                        signal = -1
+
+            if signal == 1 and current_position == 0:
+                sizing_ctx = SizingContext(
+                    current_equity=current_equity,
+                    current_price=price,
+                    signal_strength=1.0,
+                    commission=self.commission,
+                    slippage=self.slippage,
+                    risk_scale_factor=(
+                        risk_mgr.get_position_scale() if risk_mgr else 1.0
+                    ),
+                    allow_fractional=self.config.allow_fractional_shares,
+                )
+                sizing_result = sizer.calculate(sizing_ctx)
+                shares = self._normalize_shares(sizing_result.shares)
+
+                if shares > 0:
+                    gross_cost = shares * price * (1 + effective_slippage)
+                    commission_cost = self._commission_cost(gross_cost)
+                    total_cost = gross_cost + commission_cost
+                    if total_cost <= current_cash:
+                        current_cash -= total_cost
+                        current_position = shares
+                        current_entry_date = data.index[i]
+                        avg_cost_basis = total_cost / shares if shares else 0.0
+                        trades.append(
+                            {
+                                "date": data.index[i],
+                                "type": "BUY",
+                                "price": price,
+                                "shares": shares,
+                                "cost": total_cost,
+                                "pnl": 0.0,
+                            }
+                        )
+            elif signal == -1 and current_position > 0:
+                gross_revenue = current_position * price * (1 - effective_slippage)
+                commission_cost = self._commission_cost(gross_revenue)
+                total_revenue = gross_revenue - commission_cost
+                total_cost_basis = current_position * avg_cost_basis
+                pnl = total_revenue - total_cost_basis
+                current_cash += total_revenue
+                trade_pnls.append(pnl)
+                trades.append(
+                    {
+                        "date": data.index[i],
+                        "type": "SELL",
+                        "price": price,
+                        "shares": current_position,
+                        "revenue": total_revenue,
+                        "pnl": pnl,
+                    }
+                )
+                current_position = 0.0
+                avg_cost_basis = 0.0
+                current_entry_date = None
+
+            position_array[i] = float(current_position)
+            cash_array[i] = float(current_cash)
+            holdings_array[i] = float(current_position * price)
+            total_array[i] = float(current_cash + current_position * price)
+            prev_total = total_array[i]
+
+        return {
+            "portfolio": self._build_portfolio(
+                data=data,
+                signal_array=signal_array,
+                price_array=price_array,
+                position_array=position_array,
+                cash_array=cash_array,
+                holdings_array=holdings_array,
+                total_array=total_array,
+            ),
+            "trades": trades,
+        }
+
+    def _execute_target_exposure(
+        self,
+        *,
+        data: pd.DataFrame,
+        signals: pd.Series,
+        sizer: BasePositionSizer,
+        risk_mgr: Optional[RiskManager],
+        max_holding_days: Optional[int],
+    ) -> Dict[str, Any]:
+        price_array = data["close"].astype(float).to_numpy()
+        signal_array = signals.astype(float).to_numpy()
+        bar_count = len(price_array)
+        position_array = np.zeros(bar_count, dtype=float)
+        cash_array = np.zeros(bar_count, dtype=float)
+        holdings_array = np.zeros(bar_count, dtype=float)
+        total_array = np.zeros(bar_count, dtype=float)
+
+        trades: List[Dict[str, Any]] = []
+        trade_pnls: List[float] = []
+        current_position = 0.0
+        current_cash = self.initial_capital
+        avg_cost_basis = 0.0
+        current_entry_date = None
+        peak_equity = self.initial_capital
+        prev_total = self.initial_capital
+        effective_slippage = self._effective_slippage()
+
+        for i, (price, raw_signal) in enumerate(zip(price_array, signal_array)):
+            current_equity = current_cash + current_position * price
+            daily_ret = (
+                (current_equity - prev_total) / prev_total if prev_total > 0 else 0.0
+            )
+            peak_equity = max(peak_equity, current_equity)
+
+            target_exposure = float(np.clip(raw_signal, 0.0, 1.0))
+            current_exposure = (
+                (current_position * price) / current_equity
+                if current_equity > 0 and price > 0
+                else 0.0
+            )
+
+            if risk_mgr is not None:
+                risk_ctx = RiskContext(
+                    bar_index=i,
+                    current_price=price,
+                    current_date=data.index[i],
+                    position_size=float(current_position),
+                    entry_price=avg_cost_basis,
+                    entry_date=current_entry_date,
+                    current_equity=current_equity,
+                    peak_equity=peak_equity,
+                    initial_capital=self.initial_capital,
+                    daily_return=daily_ret,
+                    recent_trade_pnls=trade_pnls.copy(),
+                )
+                decision = risk_mgr.evaluate(risk_ctx)
+                if decision.action == RiskAction.FORCE_EXIT:
+                    target_exposure = 0.0
+                elif decision.action == RiskAction.BLOCK_ENTRY:
+                    target_exposure = min(target_exposure, current_exposure)
+
+            if (
+                max_holding_days is not None
+                and current_position > 0
+                and current_entry_date is not None
+                and (data.index[i] - current_entry_date).days >= max_holding_days
+            ):
+                target_exposure = 0.0
+
+            sizing_ctx = SizingContext(
+                current_equity=current_equity,
+                current_price=price,
+                signal_strength=target_exposure,
+                commission=self.commission,
+                slippage=self.slippage,
+                risk_scale_factor=(risk_mgr.get_position_scale() if risk_mgr else 1.0),
+                allow_fractional=self.config.allow_fractional_shares,
+            )
+            desired_position = self._normalize_shares(sizer.calculate(sizing_ctx).shares)
+            position_delta = desired_position - current_position
+
+            if position_delta > 0:
+                shares_to_buy = position_delta
+                gross_cost = shares_to_buy * price * (1 + effective_slippage)
+                commission_cost = self._commission_cost(gross_cost)
+                total_cost = gross_cost + commission_cost
+                if total_cost <= current_cash and shares_to_buy > 0:
+                    previous_position = current_position
+                    current_cash -= total_cost
+                    current_position += shares_to_buy
+                    if previous_position <= 0:
+                        current_entry_date = data.index[i]
+                    previous_cost_basis = previous_position * avg_cost_basis
+                    avg_cost_basis = (
+                        (previous_cost_basis + total_cost) / current_position
+                        if current_position > 0
+                        else 0.0
+                    )
+                    trades.append(
+                        {
+                            "date": data.index[i],
+                            "type": "BUY",
+                            "price": price,
+                            "shares": shares_to_buy,
+                            "cost": total_cost,
+                            "pnl": 0.0,
+                        }
+                    )
+            elif position_delta < 0 and current_position > 0:
+                shares_to_sell = min(abs(position_delta), current_position)
+                gross_revenue = shares_to_sell * price * (1 - effective_slippage)
+                commission_cost = self._commission_cost(gross_revenue)
+                total_revenue = gross_revenue - commission_cost
+                pnl = total_revenue - (shares_to_sell * avg_cost_basis)
+                current_cash += total_revenue
+                current_position -= shares_to_sell
+                trade_pnls.append(pnl)
+                trades.append(
+                    {
+                        "date": data.index[i],
+                        "type": "SELL",
+                        "price": price,
+                        "shares": shares_to_sell,
+                        "revenue": total_revenue,
+                        "pnl": pnl,
+                    }
+                )
+                if current_position <= 0:
+                    current_position = 0.0
+                    avg_cost_basis = 0.0
+                    current_entry_date = None
+
+            position_array[i] = float(current_position)
+            cash_array[i] = float(current_cash)
+            holdings_array[i] = float(current_position * price)
+            total_array[i] = float(current_cash + current_position * price)
+            prev_total = total_array[i]
+
+        return {
+            "portfolio": self._build_portfolio(
+                data=data,
+                signal_array=signal_array,
+                price_array=price_array,
+                position_array=position_array,
+                cash_array=cash_array,
+                holdings_array=holdings_array,
+                total_array=total_array,
+            ),
+            "trades": trades,
+        }
+
+
+class Backtester(BaseBacktester):
+    """Single-asset event-driven backtesting engine.
+
+    Supports optional *RiskManager* and *PositionSizer* components.  When
+    not provided, the engine falls back to the legacy behaviour (fixed
+    fraction sizing, simple stop-loss/take-profit).
+    """
 
     def __init__(
         self,
         initial_capital: float = 100000,
         commission: float = 0.001,
         slippage: float = 0.001,
+        stop_loss_pct: Optional[float] = None,
+        take_profit_pct: Optional[float] = None,
+        risk_manager: Optional[RiskManager] = None,
+        position_sizer: Optional[BasePositionSizer] = None,
+        allow_fractional_shares: bool = False,
+        signal_mode: str = "auto",
+        fixed_commission: float = 0.0,
+        min_commission: float = 0.0,
+        market_impact_bps: float = 0.0,
+        max_holding_days: Optional[int] = None,
     ):
         """
         Initialize backtester
@@ -35,11 +482,34 @@ class Backtester:
             initial_capital: Starting capital
             commission: Commission rate (e.g., 0.001 = 0.1%)
             slippage: Slippage rate
+            stop_loss_pct: Stop-loss percentage (legacy shortcut; ignored
+                           when a *risk_manager* is supplied).
+            take_profit_pct: Take-profit percentage (legacy shortcut).
+            risk_manager: Optional :class:`RiskManager` for advanced risk
+                          control.  When provided, ``stop_loss_pct`` and
+                          ``take_profit_pct`` are ignored.
+            position_sizer: Optional :class:`BasePositionSizer`.  When
+                            ``None``, a :class:`FixedFractionSizer` using
+                            the ``position_size`` argument of :meth:`run`
+                            is created on each call.
         """
-        self.initial_capital = initial_capital
-        self.commission = commission
-        self.slippage = slippage
-        self.results = {}
+        super().__init__(
+            initial_capital=initial_capital,
+            commission=commission,
+            slippage=slippage,
+        )
+        self.stop_loss_pct = stop_loss_pct
+        self.take_profit_pct = take_profit_pct
+        self.risk_manager = risk_manager
+        self.position_sizer = position_sizer
+        self.max_holding_days = max_holding_days
+        self.execution_config = ExecutionConfig(
+            allow_fractional_shares=allow_fractional_shares,
+            signal_mode=signal_mode,
+            fixed_commission=fixed_commission,
+            min_commission=min_commission,
+            market_impact_bps=market_impact_bps,
+        )
 
     def run(
         self, strategy: Any, data: pd.DataFrame, position_size: float = 1.0
@@ -64,106 +534,76 @@ class Backtester:
             logger.error("No valid price data remaining after cleaning")
             return {}
 
-        # Generate signals
-        signals = strategy.generate_signals(data)
+        # Generate and normalize signals
+        signals = SignalAdapter.normalize_single_asset(
+            strategy.generate_signals(data),
+            index=data.index,
+            signal_mode=self.execution_config.signal_mode,
+        )
 
-        # Initialize portfolio with proper data types
-        portfolio = pd.DataFrame(index=data.index)
-        portfolio["price"] = data["close"].astype(float)
-        portfolio["signal"] = signals.astype(int)
-        portfolio["position"] = 0.0
-        portfolio["cash"] = 0.0
-        portfolio["holdings"] = 0.0
-        portfolio["total"] = 0.0
-        portfolio["returns"] = 0.0
+        # Prepare sizer (use run-time position_size when no explicit sizer)
+        sizer = self.position_sizer or FixedFractionSizer(fraction=position_size)
 
-        # Track trades
-        trades = []
-        current_position = 0
-        current_cash = self.initial_capital
-        buy_price = 0  # Track buy price for PnL calculation
+        # Prepare risk manager
+        risk_mgr = self.risk_manager
+        if risk_mgr is not None:
+            risk_mgr.reset()
 
-        for i in range(len(portfolio)):
-            price = portfolio["price"].iloc[i]
-            signal = portfolio["signal"].iloc[i]
+        execution = self._execute_signals(
+            data=data,
+            signals=signals.values,
+            sizer=sizer,
+            risk_mgr=risk_mgr,
+        )
 
-            # Process signals
-            if signal == 1 and current_position == 0:  # Buy
-                # Calculate position size
-                position_value = current_cash * position_size
-                execution_multiplier = (1 + self.slippage) * (1 + self.commission)
-                shares = int(position_value / (price * execution_multiplier))
-
-                if shares > 0:
-                    cost = shares * price * (1 + self.slippage)
-                    commission_cost = cost * self.commission
-                    total_cost = cost + commission_cost
-
-                    if total_cost <= current_cash:
-                        current_cash -= total_cost
-                        current_position = shares
-                        buy_price = price * (
-                            1 + self.slippage
-                        )  # Include slippage in buy price
-
-                        trades.append(
-                            {
-                                "date": portfolio.index[i],
-                                "type": "BUY",
-                                "price": price,
-                                "shares": shares,
-                                "cost": total_cost,
-                                "pnl": 0,  # Buy trades have no PnL
-                            }
-                        )
-
-            elif signal == -1 and current_position > 0:  # Sell
-                revenue = current_position * price * (1 - self.slippage)
-                commission_cost = revenue * self.commission
-                total_revenue = revenue - commission_cost
-
-                # Calculate PnL for this trade
-                total_cost = current_position * buy_price + (
-                    current_position * buy_price * self.commission
-                )
-                pnl = total_revenue - total_cost
-
-                current_cash += total_revenue
-
-                trades.append(
-                    {
-                        "date": portfolio.index[i],
-                        "type": "SELL",
-                        "price": price,
-                        "shares": current_position,
-                        "revenue": total_revenue,
-                        "pnl": pnl,
-                    }
-                )
-
-                current_position = 0
-                buy_price = 0
-
-            # Update portfolio after processing each bar, including the first bar.
-            portfolio.loc[portfolio.index[i], "position"] = current_position
-            portfolio.loc[portfolio.index[i], "cash"] = float(current_cash)
-            portfolio.loc[portfolio.index[i], "holdings"] = float(
-                current_position * price
-            )
-            portfolio.loc[portfolio.index[i], "total"] = float(
-                current_cash + (current_position * price)
-            )
-
-        # Calculate returns
-        portfolio["returns"] = portfolio["total"].pct_change()
+        portfolio = execution["portfolio"]
+        trades = execution["trades"]
 
         # Calculate metrics
         results = self._calculate_metrics(portfolio, trades)
         results["portfolio"] = portfolio
         results["trades"] = trades
+        results["execution_diagnostics"] = {
+            "configured_signal_mode": self.execution_config.signal_mode,
+            "resolved_signal_mode": execution.get("resolved_signal_mode", self.execution_config.signal_mode),
+            "allow_fractional_shares": self.execution_config.allow_fractional_shares,
+            "risk_manager": type(risk_mgr).__name__ if risk_mgr is not None else None,
+            "position_sizer": type(sizer).__name__ if sizer is not None else None,
+            "stop_loss_pct": self.stop_loss_pct,
+            "take_profit_pct": self.take_profit_pct,
+            "max_holding_days": self.max_holding_days,
+            "fixed_commission": self.execution_config.fixed_commission,
+            "min_commission": self.execution_config.min_commission,
+            "market_impact_bps": self.execution_config.market_impact_bps,
+        }
 
         self.results = results
         return results
+
+    def _execute_signals(
+        self,
+        *,
+        data: pd.DataFrame,
+        signals: pd.Series,
+        sizer: BasePositionSizer,
+        risk_mgr: Optional[RiskManager],
+    ) -> Dict[str, Any]:
+        """Run the execution loop against a precomputed signal series."""
+        engine = SingleAssetExecutionEngine(
+            initial_capital=self.initial_capital,
+            commission=self.commission,
+            slippage=self.slippage,
+            config=self.execution_config,
+        )
+        return engine.execute(
+            data=data,
+            signals=signals,
+            sizer=sizer,
+            risk_mgr=risk_mgr,
+            stop_loss_pct=self.stop_loss_pct,
+            take_profit_pct=self.take_profit_pct,
+            max_holding_days=self.max_holding_days,
+        )
 
     def _prepare_market_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Drop incomplete bars so NaN market data cannot zero out the portfolio."""
@@ -214,52 +654,9 @@ class Backtester:
         buy_trades = [t for t in trades if t["type"] == "BUY"]
         sell_trades = [t for t in trades if t["type"] == "SELL"]
 
-        # Calculate trade-based metrics from completed BUY -> SELL pairs only
-        completed_trade_pnls: List[float] = []
-        completed_trade_returns: List[float] = []
-        has_open_position = False
-
-        i = 0
-        while i < len(trades):
-            if trades[i]["type"] == "BUY":
-                if i + 1 < len(trades) and trades[i + 1]["type"] == "SELL":
-                    buy_trade = trades[i]
-                    sell_trade = trades[i + 1]
-
-                    entry_value = buy_trade.get("cost") or (
-                        buy_trade["price"] * buy_trade["shares"]
-                    )
-                    trade_pnl = sell_trade.get("pnl")
-                    if trade_pnl is None:
-                        exit_value = sell_trade.get("revenue") or (
-                            sell_trade["price"] * sell_trade["shares"]
-                        )
-                        trade_pnl = exit_value - entry_value
-
-                    trade_return = trade_pnl / entry_value if entry_value else 0.0
-
-                    completed_trade_pnls.append(float(trade_pnl))
-                    completed_trade_returns.append(float(trade_return))
-
-                    i += 2
-                else:
-                    has_open_position = True
-                    buy_trade = trades[i]
-                    current_price = float(portfolio["price"].iloc[-1])
-                    unrealized_pnl = (current_price - buy_trade["price"]) * buy_trade[
-                        "shares"
-                    ]
-
-                    logger.info(
-                        "检测到未平仓头寸: 买入价格=%.2f, 当前价格=%.2f, 未实现盈亏=%.2f",
-                        buy_trade["price"],
-                        current_price,
-                        unrealized_pnl,
-                    )
-                    i += 1
-            else:
-                logger.warning(f"发现非BUY起始的交易: {trades[i]}")
-                i += 1
+        completed_trade_pnls, completed_trade_returns, has_open_position = (
+            self._extract_completed_trade_statistics(trades, portfolio)
+        )
 
         winning_trades = [pnl for pnl in completed_trade_pnls if pnl > 0]
         losing_trades = [pnl for pnl in completed_trade_pnls if pnl < 0]
@@ -315,6 +712,7 @@ class Backtester:
             if completed_trade_pnls
             else 0
         )
+        expectancy = calculate_expectancy(completed_trade_pnls)
 
         # Calculate Sortino ratio (downside deviation)
         sortino_ratio = calculate_sortino_ratio(returns)
@@ -328,6 +726,18 @@ class Backtester:
         # Calculate Value at Risk (95% confidence)
         var_95 = calculate_var(returns)
 
+        # Calculate CVaR / Expected Shortfall (95% confidence)
+        cvar_95 = calculate_cvar(returns)
+
+        # Calculate Omega Ratio
+        omega_ratio = calculate_omega_ratio(returns)
+
+        # Calculate max drawdown duration
+        max_dd_duration, max_underwater = calculate_max_drawdown_duration(
+            portfolio_values
+        )
+        recovery_factor = calculate_recovery_factor(net_profit, max_drawdown)
+
         metrics = {
             "initial_capital": self.initial_capital,
             "final_value": portfolio["total"].iloc[-1],
@@ -338,7 +748,11 @@ class Backtester:
             "sortino_ratio": sortino_ratio,
             "calmar_ratio": calmar_ratio,
             "max_drawdown": max_drawdown,
+            "max_drawdown_duration": max_dd_duration,
+            "max_underwater_period": max_underwater,
             "var_95": var_95,
+            "cvar_95": cvar_95,
+            "omega_ratio": omega_ratio,
             "num_trades": num_trades,
             "num_buy_trades": len(buy_trades),
             "num_sell_trades": len(sell_trades),
@@ -350,6 +764,8 @@ class Backtester:
             "gross_profit": gross_profit,
             "gross_loss": gross_loss,
             "avg_trade": avg_trade,
+            "expectancy": expectancy,
+            "recovery_factor": recovery_factor,
             "max_consecutive_wins": max_consecutive_wins,
             "max_consecutive_losses": max_consecutive_losses,
             "total_completed_trades": total_completed_trades,
@@ -357,6 +773,74 @@ class Backtester:
         }
 
         return metrics
+
+    def _extract_completed_trade_statistics(
+        self, trades: List[Dict[str, Any]], portfolio: pd.DataFrame
+    ) -> tuple[List[float], List[float], bool]:
+        """Match BUY and SELL lots so partial rebalances produce correct trade stats."""
+        open_lots: List[Dict[str, float]] = []
+        completed_trade_pnls: List[float] = []
+        completed_trade_returns: List[float] = []
+
+        for trade in trades:
+            trade_type = str(trade.get("type", "")).upper()
+            shares = float(trade.get("shares", 0) or 0)
+            if shares <= 0:
+                continue
+
+            if trade_type == "BUY":
+                entry_value = float(
+                    trade.get("cost")
+                    or (float(trade.get("price", 0) or 0) * shares)
+                )
+                open_lots.append(
+                    {
+                        "shares": shares,
+                        "cost_per_share": entry_value / shares if shares else 0.0,
+                    }
+                )
+                continue
+
+            if trade_type != "SELL":
+                logger.warning("发现未知交易类型: %s", trade)
+                continue
+
+            revenue_value = float(
+                trade.get("revenue")
+                or (float(trade.get("price", 0) or 0) * shares)
+            )
+            exit_price_per_share = revenue_value / shares if shares else 0.0
+            remaining = shares
+
+            while remaining > 1e-12 and open_lots:
+                lot = open_lots[0]
+                matched = min(remaining, lot["shares"])
+                entry_value = matched * lot["cost_per_share"]
+                exit_value = matched * exit_price_per_share
+                pnl = exit_value - entry_value
+                completed_trade_pnls.append(float(pnl))
+                completed_trade_returns.append(
+                    float(pnl / entry_value) if entry_value else 0.0
+                )
+
+                lot["shares"] -= matched
+                remaining -= matched
+                if lot["shares"] <= 1e-12:
+                    open_lots.pop(0)
+
+        has_open_position = any(lot["shares"] > 1e-12 for lot in open_lots)
+        if has_open_position and not portfolio.empty:
+            current_price = float(portfolio["price"].iloc[-1])
+            unrealized_pnl = sum(
+                lot["shares"] * (current_price - lot["cost_per_share"])
+                for lot in open_lots
+            )
+            logger.info(
+                "检测到未平仓头寸: 当前价格=%.2f, 未实现盈亏=%.2f",
+                current_price,
+                unrealized_pnl,
+            )
+        return completed_trade_pnls, completed_trade_returns, has_open_position
 
     def plot_results(self, show: bool = True):
         """Plot backtest results"""
@@ -452,7 +936,11 @@ class Backtester:
         print(f"Sortino Ratio:         {metrics['sortino_ratio']:.2f}")
         print(f"Calmar Ratio:          {metrics['calmar_ratio']:.2f}")
         print(f"Max Drawdown:          {metrics['max_drawdown']:.2%}")
+        print(f"Max DD Duration:       {metrics.get('max_drawdown_duration', 0)} bars")
+        print(f"Max Underwater:        {metrics.get('max_underwater_period', 0)} bars")
         print(f"Value at Risk (95%):   {metrics['var_95']:.2%}")
+        print(f"CVaR / ES (95%):       {metrics.get('cvar_95', 0):.2%}")
+        print(f"Omega Ratio:           {metrics.get('omega_ratio', 0):.2f}")
         print("-" * 60)
         print("TRADE STATISTICS")
         print("-" * 60)
