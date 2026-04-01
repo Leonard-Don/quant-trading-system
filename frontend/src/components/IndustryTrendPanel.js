@@ -254,17 +254,6 @@ const IndustryTrendPanel = ({
         };
     }, [loadTrend]);
 
-    if (!industryName) {
-        return (
-            <Card>
-                <Empty
-                    description="请先从热力图或排行榜中选择一个行业"
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                />
-            </Card>
-        );
-    }
-
     const formatMarketCap = (value) => {
         if (!value) return '-';
         const yi = value / 100000000;
@@ -288,6 +277,72 @@ const IndustryTrendPanel = ({
     const loadingTotalMarketCap = stockDerivedTotalMarketCap > 0 ? stockDerivedTotalMarketCap : snapshotTotalMarketCap;
     const loadingAvgPe = stockDerivedAvgPe || (snapshotAvgPe > 0 ? snapshotAvgPe : null);
     const loadingStockCount = (stocks?.length || 0) > 0 ? (stocks?.length || 0) : snapshotStockCount;
+    const handleExportStocks = () => {
+        if (!stocks || stocks.length === 0) {
+            message.warning('当前没有可导出的成分股数据');
+            return;
+        }
+
+        const escapeCsv = (value) => {
+            const stringValue = value === null || value === undefined ? '' : String(value);
+            if (/[",\n]/.test(stringValue)) {
+                return `"${stringValue.replace(/"/g, '""')}"`;
+            }
+            return stringValue;
+        };
+
+        const rows = [
+            ['排名', '代码', '名称', '得分', '涨跌幅', '主力净流入', '换手率', '市值(亿)', 'PE'],
+            ...stocks.map((stock, index) => {
+                const turnoverValue = stock?.turnover_rate ?? stock?.turnover ?? '';
+                return [
+                    stock?.rank ?? index + 1,
+                    stock?.symbol || '',
+                    stock?.name || '',
+                    stock?.total_score != null ? Number(stock.total_score).toFixed(1) : '',
+                    stock?.change_pct != null ? Number(stock.change_pct).toFixed(2) : '',
+                    stock?.money_flow != null ? Number(stock.money_flow).toFixed(2) : '',
+                    turnoverValue !== '' ? Number(turnoverValue).toFixed(2) : '',
+                    stock?.market_cap != null ? (Number(stock.market_cap) / 100000000).toFixed(2) : '',
+                    stock?.pe_ratio != null && Number(stock.pe_ratio) > 0 ? Number(stock.pe_ratio).toFixed(2) : '',
+                ];
+            }),
+        ];
+
+        const csv = rows.map((row) => row.map(escapeCsv).join(',')).join('\n');
+        const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${industryName || 'industry'}-stocks.csv`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+        message.success('成分股 CSV 已导出');
+    };
+
+    const renderPanelActions = () => (
+        <Space>
+            <Button className="industry-inline-link" onClick={handleExportStocks} size="small" disabled={!stocks || stocks.length === 0}>
+                导出 CSV
+            </Button>
+            <Button className="industry-inline-link" onClick={loadTrend} icon={<ReloadOutlined />} size="small">
+                刷新
+            </Button>
+        </Space>
+    );
+
+    if (!industryName) {
+        return (
+            <Card>
+                <Empty
+                    description="请先从热力图或排行榜中选择一个行业"
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                />
+            </Card>
+        );
+    }
 
     const renderStocksSection = () => (
         <div style={{ marginTop: 16 }}>
@@ -334,11 +389,7 @@ const IndustryTrendPanel = ({
                         {industryName} 行业概览
                     </span>
                 }
-                extra={
-                    <Button className="industry-inline-link" onClick={loadTrend} icon={<ReloadOutlined />} size="small">
-                        刷新
-                    </Button>
-                }
+                extra={renderPanelActions()}
             >
                 <div style={{ textAlign: 'center', padding: '12px 0 20px' }}>
                     <Spin />
@@ -392,7 +443,7 @@ const IndustryTrendPanel = ({
                         {industryName} 行业概览
                     </span>
                 }
-                extra={<Button className="industry-empty-action" onClick={loadTrend} icon={<ReloadOutlined />} size="small">重试</Button>}
+                extra={renderPanelActions()}
             >
                 <Empty description={error} />
                 {renderAiInsightPlaceholder('暂不可用', '当前行业趋势接口暂时失败，AI 洞察稍后会在重试成功后恢复。')}
@@ -481,11 +532,7 @@ const IndustryTrendPanel = ({
                     {industryName} 行业概览
                 </span>
             }
-            extra={
-                <Button className="industry-inline-link" onClick={loadTrend} icon={<ReloadOutlined />} size="small">
-                    刷新
-                </Button>
-            }
+            extra={renderPanelActions()}
         >
             {trendData.degraded && (
                 <Alert

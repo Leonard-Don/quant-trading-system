@@ -41,7 +41,7 @@ const RealtimeReviewSummaryCard = ({
       <div>
         <div className="realtime-block-title">复盘快照</div>
         <div className="realtime-block-subtitle">
-          保存当前分组、焦点标的、异动和链路状态，方便盘后回看当时看到的市场切片。
+          保存当前分组、焦点标的、异动、价格快照和链路状态，方便盘后回看更完整的市场切片。
         </div>
       </div>
       <Space>

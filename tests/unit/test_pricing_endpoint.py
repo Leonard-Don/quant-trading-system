@@ -25,8 +25,8 @@ def test_pricing_screener_endpoint_returns_ranked_results(monkeypatch):
                 "failures": [],
             }
 
-    monkeypatch.setattr(pricing, "_get_gap_analyzer", lambda: FakeAnalyzer())
     client = _build_client(monkeypatch)
+    client.app.dependency_overrides[pricing._get_gap_analyzer] = lambda: FakeAnalyzer()
 
     response = client.post(
         "/pricing/screener",
@@ -79,8 +79,8 @@ def test_pricing_valuation_sensitivity_endpoint(monkeypatch):
                 "sensitivity_matrix": [],
             }
 
-    monkeypatch.setattr(pricing, "_get_valuation_model", lambda: FakeModel())
     client = _build_client(monkeypatch)
+    client.app.dependency_overrides[pricing._get_valuation_model] = lambda: FakeModel()
 
     response = client.post(
         "/pricing/valuation-sensitivity",
@@ -108,8 +108,8 @@ def test_pricing_gap_history_endpoint(monkeypatch):
                 "points": points,
             }
 
-    monkeypatch.setattr(pricing, "_get_gap_analyzer", lambda: FakeAnalyzer())
     client = _build_client(monkeypatch)
+    client.app.dependency_overrides[pricing._get_gap_analyzer] = lambda: FakeAnalyzer()
 
     response = client.get("/pricing/gap-history?symbol=AAPL&period=1y&points=24")
 
@@ -136,8 +136,8 @@ def test_pricing_peers_endpoint(monkeypatch):
                 "candidate_count": len(candidate_symbols),
             }
 
-    monkeypatch.setattr(pricing, "_get_gap_analyzer", lambda: FakeAnalyzer())
     client = _build_client(monkeypatch)
+    client.app.dependency_overrides[pricing._get_gap_analyzer] = lambda: FakeAnalyzer()
 
     response = client.get("/pricing/peers?symbol=AAPL&limit=1")
 

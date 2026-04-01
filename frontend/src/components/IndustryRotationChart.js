@@ -15,8 +15,9 @@ import {
     ReloadOutlined
 } from '@ant-design/icons';
 import {
-    LineChart,
+    ComposedChart,
     Line,
+    Area,
     XAxis,
     YAxis,
     CartesianGrid,
@@ -37,6 +38,50 @@ const PERIOD_PRESETS = [
     { key: 'standard', label: '标准', periods: [1, 5, 20] },
     { key: 'swing', label: '波段', periods: [5, 20, 60] },
 ];
+
+const formatFlowYi = (value) => {
+    const numeric = Number(value || 0);
+    return `${numeric >= 0 ? '+' : ''}${numeric.toFixed(2)}亿`;
+};
+
+const buildCorrelationMatrix = (rows, industryNames) => {
+    const getSeries = (name) => rows.map((item) => Number(item[name] || 0));
+    const pearson = (leftSeries, rightSeries) => {
+        const length = Math.min(leftSeries.length, rightSeries.length);
+        if (length < 2) return 0;
+
+        const left = leftSeries.slice(0, length);
+        const right = rightSeries.slice(0, length);
+        const leftMean = left.reduce((sum, value) => sum + value, 0) / length;
+        const rightMean = right.reduce((sum, value) => sum + value, 0) / length;
+
+        let numerator = 0;
+        let leftVariance = 0;
+        let rightVariance = 0;
+        for (let index = 0; index < length; index += 1) {
+            const leftDelta = left[index] - leftMean;
+            const rightDelta = right[index] - rightMean;
+            numerator += leftDelta * rightDelta;
+            leftVariance += leftDelta ** 2;
+            rightVariance += rightDelta ** 2;
+        }
+
+        const denominator = Math.sqrt(leftVariance * rightVariance);
+        if (!denominator) return 0;
+        return numerator / denominator;
+    };
+
+    return industryNames.map((rowName) => {
+        const rowSeries = getSeries(rowName);
+        return {
+            name: rowName,
+            values: industryNames.map((columnName) => ({
+                name: columnName,
+                value: pearson(rowSeries, getSeries(columnName)),
+            })),
+        };
+    });
+};
 
 /**
  * 行业轮动对比图组件
@@ -167,13 +212,32 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
     };
 
     // 图表数据
-    const chartData = (rotationData?.data || []).map(item => ({
-        ...item,
-        periodLabel: PERIOD_LABELS[item.period] || `${item.period}日`
-    }));
+    const chartData = (rotationData?.data || []).map((item) => {
+        const nextItem = {
+            ...item,
+            periodLabel: PERIOD_LABELS[item.period] || `${item.period}日`,
+        };
+        selectedIndustries.forEach((name) => {
+            nextItem[`${name}__flowYi`] = Number(item[`${name}__flow`] || 0) / 100000000;
+        });
+        return nextItem;
+    });
+    const correlationMatrix = chartData.length >= 2
+        ? buildCorrelationMatrix(chartData, selectedIndustries)
+        : [];
     const strongestIndustry = chartData.length > 0
         ? selectedIndustries.reduce((best, name) => {
             const values = chartData.map((item) => Number(item[name] || 0));
+            const score = values.reduce((sum, value) => sum + value, 0);
+            if (!best || score > best.score) {
+                return { name, score, latest: values[values.length - 1] || 0 };
+            }
+            return best;
+        }, null)
+        : null;
+    const strongestFlowIndustry = chartData.length > 0
+        ? selectedIndustries.reduce((best, name) => {
+            const values = chartData.map((item) => Number(item[`${name}__flowYi`] || 0));
             const score = values.reduce((sum, value) => sum + value, 0);
             if (!best || score > best.score) {
                 return { name, score, latest: values[values.length - 1] || 0 };
@@ -279,7 +343,7 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
                 />
             </div>
 
-            {(strongestIndustry || weakestIndustry) && (
+            {(strongestIndustry || weakestIndustry || strongestFlowIndustry) && (
                 <div style={{
                     marginBottom: 16,
                     display: 'flex',
@@ -316,6 +380,21 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
                             </div>
                         </div>
                     )}
+                    {strongestFlowIndustry && (
+                        <div style={{
+                            padding: '10px 12px',
+                            borderRadius: 12,
+                            background: 'linear-gradient(180deg, rgba(24,144,255,0.08) 0%, rgba(24,144,255,0.02) 100%)',
+                            border: '1px solid rgba(24,144,255,0.14)',
+                            minWidth: 180,
+                        }}>
+                            <div style={{ fontSize: 11, color: '#1890ff', fontWeight: 700, marginBottom: 4 }}>资金最强</div>
+                            <div style={{ fontSize: 14, fontWeight: 700 }}>{strongestFlowIndustry.name}</div>
+                            <div style={{ fontSize: 12, color: '#595959' }}>
+                                最近周期 {formatFlowYi(strongestFlowIndustry.latest)}
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -336,35 +415,122 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
             ) : (
                 <div data-testid="industry-rotation-chart">
                     <ResponsiveContainer width="100%" height={320}>
-                        <LineChart data={chartData}>
+                        <ComposedChart data={chartData}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                             <XAxis
                                 dataKey="periodLabel"
                                 tick={{ fontSize: 12 }}
                             />
                             <YAxis
+                                yAxisId="price"
                                 tick={{ fontSize: 12 }}
                                 tickFormatter={(v) => `${v}%`}
                             />
+                            <YAxis
+                                yAxisId="flow"
+                                orientation="right"
+                                tick={{ fontSize: 12 }}
+                                tickFormatter={(value) => `${Number(value || 0).toFixed(1)}亿`}
+                            />
                             <RechartsTooltip
-                                formatter={(value, name) => [`${value.toFixed(2)}%`, name]}
+                                formatter={(value, name) => {
+                                    const numeric = Number(value || 0);
+                                    return String(name).includes('资金流')
+                                        ? [formatFlowYi(numeric), name]
+                                        : [`${numeric.toFixed(2)}%`, name];
+                                }}
                                 labelFormatter={(label) => `周期: ${label}`}
                             />
                             <Legend />
-                            <ReferenceLine y={0} stroke="#d9d9d9" strokeDasharray="3 3" />
+                            <ReferenceLine yAxisId="price" y={0} stroke="#d9d9d9" strokeDasharray="3 3" />
+                            {selectedIndustries.map((name, idx) => (
+                                <Area
+                                    key={`${name}-flow`}
+                                    yAxisId="flow"
+                                    type="monotone"
+                                    dataKey={`${name}__flowYi`}
+                                    name={`${name} 资金流`}
+                                    stroke={COLORS[idx]}
+                                    fill={COLORS[idx]}
+                                    fillOpacity={0.08}
+                                    strokeOpacity={0.18}
+                                    isAnimationActive={false}
+                                />
+                            ))}
                             {selectedIndustries.map((name, idx) => (
                                 <Line
                                     key={name}
+                                    yAxisId="price"
                                     type="monotone"
                                     dataKey={name}
+                                    name={`${name} 涨跌幅`}
                                     stroke={COLORS[idx]}
                                     strokeWidth={2}
                                     dot={{ r: 4 }}
                                     activeDot={{ r: 6 }}
                                 />
                             ))}
-                        </LineChart>
+                        </ComposedChart>
                     </ResponsiveContainer>
+
+                    <div
+                        data-testid="industry-rotation-correlation"
+                        style={{
+                            marginTop: 18,
+                            padding: 12,
+                            borderRadius: 12,
+                            border: '1px solid var(--border-color)',
+                            background: 'var(--bg-secondary)',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
+                            <Text strong>走势相关性矩阵</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                                基于当前对比周期的涨跌幅序列计算 Pearson 相关系数
+                            </Text>
+                        </div>
+                        {correlationMatrix.length === 0 ? (
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                                至少需要两个有效周期，相关性矩阵才有意义。
+                            </Text>
+                        ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: `120px repeat(${selectedIndustries.length}, minmax(72px, 1fr))`, gap: 6, alignItems: 'stretch' }}>
+                                <div />
+                                {selectedIndustries.map((name) => (
+                                    <div key={`header-${name}`} style={{ fontSize: 12, fontWeight: 600, textAlign: 'center' }}>{name}</div>
+                                ))}
+                                {correlationMatrix.map((row) => (
+                                    <React.Fragment key={row.name}>
+                                        <div style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center' }}>{row.name}</div>
+                                        {row.values.map((cell) => {
+                                            const opacity = Math.min(1, Math.abs(cell.value));
+                                            const background = cell.value >= 0
+                                                ? `rgba(207, 19, 34, ${0.08 + opacity * 0.2})`
+                                                : `rgba(56, 158, 13, ${0.08 + opacity * 0.2})`;
+                                            return (
+                                                <div
+                                                    key={`${row.name}-${cell.name}`}
+                                                    style={{
+                                                        minHeight: 44,
+                                                        borderRadius: 10,
+                                                        display: 'flex',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        fontWeight: 700,
+                                                        color: cell.value >= 0 ? '#cf1322' : '#237804',
+                                                        background,
+                                                        border: '1px solid rgba(0,0,0,0.05)',
+                                                    }}
+                                                >
+                                                    {cell.value >= 0 ? '+' : ''}{cell.value.toFixed(2)}
+                                                </div>
+                                            );
+                                        })}
+                                    </React.Fragment>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
             )}
 

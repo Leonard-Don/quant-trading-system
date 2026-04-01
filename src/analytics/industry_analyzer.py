@@ -1762,9 +1762,12 @@ class IndustryAnalyzer:
                 for name in industry_names:
                     row = money_flow_df[money_flow_df["industry_name"] == name]
                     if not row.empty:
-                        period_data[name] = round(float(row.iloc[0].get("change_pct", 0) or 0), 2)
+                        matched = row.iloc[0]
+                        period_data[name] = round(float(matched.get("change_pct", 0) or 0), 2)
+                        period_data[f"{name}__flow"] = float(matched.get("main_net_inflow", 0) or 0)
                     else:
                         period_data[name] = 0
+                        period_data[f"{name}__flow"] = 0.0
                 return period, period_data
 
             period_map: Dict[int, Dict[str, Any]] = {}

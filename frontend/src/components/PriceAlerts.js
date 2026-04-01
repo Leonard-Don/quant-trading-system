@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
     Alert,
     Button,
@@ -114,6 +114,10 @@ const PriceAlerts = ({
     ));
     const [modalVisible, setModalVisible] = useState(false);
     const [isAlertsHydrated, setIsAlertsHydrated] = useState(false);
+    const [selectedAlertIds, setSelectedAlertIds] = useState([]);
+    const [symbolFilter, setSymbolFilter] = useState('');
+    const [statusFilter, setStatusFilter] = useState('all');
+    const [conditionFilter, setConditionFilter] = useState('all');
     const [form] = Form.useForm();
     const [notificationsEnabled, setNotificationsEnabled] = useState(false);
     const triggeredAlertIdsRef = useRef(new Set());
@@ -125,6 +129,41 @@ const PriceAlerts = ({
     const [triggeredAlerts, setTriggeredAlerts] = useState([]);
     const watchedCondition = Form.useWatch('condition', form) || DEFAULT_CONDITION;
     const selectedCondition = CONDITION_OPTIONS.find((item) => item.value === watchedCondition) || CONDITION_OPTIONS[0];
+    const conditionCounts = useMemo(() => alerts.reduce((result, item) => {
+        const key = item?.condition || 'unknown';
+        result[key] = (result[key] || 0) + 1;
+        return result;
+    }, {}), [alerts]);
+    const filteredAlerts = useMemo(() => {
+        const normalizedQuery = symbolFilter.trim().toUpperCase();
+
+        return alerts.filter((item) => {
+            if (normalizedQuery && !item.symbol?.toUpperCase().includes(normalizedQuery)) {
+                return false;
+            }
+
+            if (statusFilter === 'armed' && (!item.active || item.triggered)) {
+                return false;
+            }
+
+            if (statusFilter === 'paused' && (item.active || item.triggered)) {
+                return false;
+            }
+
+            if (statusFilter === 'triggered' && !item.triggered) {
+                return false;
+            }
+
+            if (conditionFilter !== 'all' && item.condition !== conditionFilter) {
+                return false;
+            }
+
+            return true;
+        });
+    }, [alerts, conditionFilter, statusFilter, symbolFilter]);
+    const selectedAlerts = useMemo(() => alerts.filter((item) => selectedAlertIds.includes(item.id)), [alerts, selectedAlertIds]);
+    const selectedTriggeredCount = selectedAlerts.filter((item) => item.triggered).length;
+    const selectedPausedCount = selectedAlerts.filter((item) => !item.active && !item.triggered).length;
 
     useEffect(() => {
         const saved = localStorage.getItem(STORAGE_KEY);
@@ -279,6 +318,10 @@ const PriceAlerts = ({
         triggeredAlertIdsRef.current = new Set(
             alerts.filter((item) => item?.triggered && item?.id).map((item) => item.id)
         );
+    }, [alerts]);
+
+    useEffect(() => {
+        setSelectedAlertIds((prev) => prev.filter((id) => alerts.some((item) => item.id === id)));
     }, [alerts]);
 
     useEffect(() => {
@@ -464,6 +507,7 @@ const PriceAlerts = ({
     const deleteAlert = (id) => {
         triggeredAlertIdsRef.current.delete(id);
         setAlerts((prev) => prev.filter((item) => item.id !== id));
+        setSelectedAlertIds((prev) => prev.filter((item) => item !== id));
         message.success('提醒已删除');
     };
 
@@ -495,6 +539,72 @@ const PriceAlerts = ({
                 : item
         ));
         message.success('提醒已重置，并进入冷却期');
+    };
+
+    const clearSelectedAlerts = () => {
+        setSelectedAlertIds([]);
+    };
+
+    const pauseSelectedAlerts = () => {
+        if (selectedAlertIds.length === 0) {
+            return;
+        }
+
+        setAlerts((prev) => prev.map((item) => (
+            selectedAlertIds.includes(item.id)
+                ? { ...item, active: false }
+                : item
+        )));
+        message.success(`已暂停 ${selectedAlertIds.length} 条提醒`);
+    };
+
+    const resumeSelectedAlerts = () => {
+        if (selectedAlertIds.length === 0) {
+            return;
+        }
+
+        setAlerts((prev) => prev.map((item) => (
+            selectedAlertIds.includes(item.id)
+                ? {
+                    ...item,
+                    active: true,
+                    armedAt: new Date(Date.now() + Math.max(5000, (item.cooldownMinutes || DEFAULT_ALERT_COOLDOWN_MINUTES) * 60 * 1000)).toISOString(),
+                  }
+                : item
+        )));
+        message.success(`已恢复 ${selectedAlertIds.length} 条提醒`);
+    };
+
+    const resetSelectedAlerts = () => {
+        if (selectedAlertIds.length === 0) {
+            return;
+        }
+
+        selectedAlertIds.forEach((id) => triggeredAlertIdsRef.current.delete(id));
+        setAlerts((prev) => prev.map((item) => (
+            selectedAlertIds.includes(item.id)
+                ? {
+                    ...item,
+                    triggered: false,
+                    triggerValue: null,
+                    triggerTime: null,
+                    active: true,
+                    armedAt: new Date(Date.now() + Math.max(5000, (item.cooldownMinutes || DEFAULT_ALERT_COOLDOWN_MINUTES) * 60 * 1000)).toISOString(),
+                  }
+                : item
+        )));
+        message.success(`已重置 ${selectedAlertIds.length} 条提醒，并重新进入冷却期`);
+    };
+
+    const deleteSelectedAlerts = () => {
+        if (selectedAlertIds.length === 0) {
+            return;
+        }
+
+        selectedAlertIds.forEach((id) => triggeredAlertIdsRef.current.delete(id));
+        setAlerts((prev) => prev.filter((item) => !selectedAlertIds.includes(item.id)));
+        setSelectedAlertIds([]);
+        message.success(`已删除 ${selectedAlertIds.length} 条提醒`);
     };
 
     const columns = [
@@ -576,6 +686,84 @@ const PriceAlerts = ({
                 添加提醒
             </Button>
         </Space>
+    );
+
+    const managementToolbar = (
+        <div
+            style={{
+                display: 'grid',
+                gap: 12,
+                marginBottom: 16,
+                padding: 16,
+                borderRadius: 18,
+                border: '1px solid var(--border-color)',
+                background: 'color-mix(in srgb, var(--bg-secondary) 92%, white 8%)',
+            }}
+        >
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                <div>
+                    <Title level={5} style={{ margin: 0 }}>提醒规则管理</Title>
+                    <Text type="secondary" style={{ display: 'block', marginTop: 6 }}>
+                        通过条件分组、状态筛选和批量操作管理较多提醒，不用逐条翻找。
+                    </Text>
+                </div>
+                <Space wrap>
+                    <Tag color="blue">已选 {selectedAlertIds.length}</Tag>
+                    <Tag>筛选结果 {filteredAlerts.length}</Tag>
+                    <Tag color="error">已触发 {selectedTriggeredCount}</Tag>
+                    <Tag>已暂停 {selectedPausedCount}</Tag>
+                </Space>
+            </div>
+
+            <Space wrap>
+                <Input
+                    allowClear
+                    placeholder="筛选提醒代码"
+                    value={symbolFilter}
+                    onChange={(event) => setSymbolFilter(event.target.value)}
+                    style={{ width: 180 }}
+                />
+                <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 160 }}>
+                    <Option value="all">全部状态</Option>
+                    <Option value="armed">监控中</Option>
+                    <Option value="triggered">已触发</Option>
+                    <Option value="paused">已暂停</Option>
+                </Select>
+                <Select value={conditionFilter} onChange={setConditionFilter} style={{ width: 220 }}>
+                    <Option value="all">全部条件</Option>
+                    {CONDITION_OPTIONS.map((option) => (
+                        <Option key={option.value} value={option.value}>
+                            {option.label}
+                        </Option>
+                    ))}
+                </Select>
+                <Button onClick={clearSelectedAlerts}>清空选择</Button>
+                <Button onClick={pauseSelectedAlerts} disabled={selectedAlertIds.length === 0}>批量暂停</Button>
+                <Button onClick={resumeSelectedAlerts} disabled={selectedAlertIds.length === 0}>批量启用</Button>
+                <Button onClick={resetSelectedAlerts} disabled={selectedAlertIds.length === 0}>批量重置</Button>
+                <Button danger onClick={deleteSelectedAlerts} disabled={selectedAlertIds.length === 0}>批量删除</Button>
+            </Space>
+
+            <Space wrap>
+                <Tag
+                    color={conditionFilter === 'all' ? 'blue' : 'default'}
+                    style={{ borderRadius: 999, cursor: 'pointer', paddingInline: 10 }}
+                    onClick={() => setConditionFilter('all')}
+                >
+                    全部条件 {alerts.length}
+                </Tag>
+                {CONDITION_OPTIONS.map((option) => (
+                    <Tag
+                        key={option.value}
+                        color={conditionFilter === option.value ? 'processing' : 'default'}
+                        style={{ borderRadius: 999, cursor: 'pointer', paddingInline: 10 }}
+                        onClick={() => setConditionFilter(option.value)}
+                    >
+                        {option.label} {conditionCounts[option.value] || 0}
+                    </Tag>
+                ))}
+            </Space>
+        </div>
     );
 
     const content = (
@@ -682,11 +870,17 @@ const PriceAlerts = ({
                 )}
             </div>
 
+            {managementToolbar}
+
             <Table
-                dataSource={alerts}
+                dataSource={filteredAlerts}
                 columns={columns}
                 rowKey="id"
-                pagination={{ pageSize: 6 }}
+                rowSelection={{
+                    selectedRowKeys: selectedAlertIds,
+                    onChange: (keys) => setSelectedAlertIds(keys),
+                }}
+                pagination={{ pageSize: 8 }}
                 locale={{ emptyText: '暂无实时提醒' }}
             />
 

@@ -304,4 +304,109 @@ describe('pricing playbook percent formatting', () => {
 
     expect(screen.getByText('已勾选 2/4')).toBeTruthy();
   });
+
+  it('escalates to cross-market when structured signals conflict even without macro keywords', () => {
+    const playbook = buildPricingPlaybook(
+      { symbol: 'XOM', source: 'manual' },
+      {
+        ...pricingResult,
+        symbol: 'XOM',
+        gap_analysis: {
+          ...pricingResult.gap_analysis,
+          severity: 'moderate',
+          severity_label: '中度偏离',
+          direction: '折价(低估)',
+        },
+        valuation: {
+          ...pricingResult.valuation,
+          comparables: {
+            sector: 'Energy',
+          },
+        },
+        factor_model: {
+          ...pricingResult.factor_model,
+          factor_source: { is_proxy: true },
+          five_factor_source: { is_proxy: false },
+        },
+        deviation_drivers: {
+          primary_driver: {
+            factor: 'Beta 暴露',
+            description: '系统性风险溢价抬升',
+          },
+          drivers: [
+            {
+              factor: 'Beta 暴露',
+              description: '系统性风险溢价抬升',
+            },
+          ],
+        },
+        implications: {
+          ...pricingResult.implications,
+          confidence: 'low',
+          risk_level: 'high',
+          factor_alignment: {
+            label: '冲突',
+            status: 'conflict',
+            summary: '二级因子表现与低估判断方向不一致',
+          },
+          insights: ['单标的结论需要更多验证'],
+        },
+      }
+    );
+
+    expect(playbook.thesis).toContain('跨市场模板');
+    expect(playbook.tasks[3].status).toBe('warning');
+    expect(playbook.tasks[3].description).toContain('因子信号与估值结论存在冲突');
+    expect(playbook.next_actions[0].target).toBe('cross-market');
+  });
+
+  it('does not switch to cross-market from keywords alone when signals are otherwise healthy', () => {
+    const playbook = buildPricingPlaybook(
+      { symbol: 'NVDA', source: 'manual' },
+      {
+        ...pricingResult,
+        symbol: 'NVDA',
+        gap_analysis: {
+          ...pricingResult.gap_analysis,
+          severity: 'mild',
+          severity_label: '轻度偏离',
+        },
+        valuation: {
+          ...pricingResult.valuation,
+          comparables: {
+            sector: 'Technology',
+          },
+        },
+        factor_model: {
+          ...pricingResult.factor_model,
+          factor_source: { is_proxy: false },
+          five_factor_source: { is_proxy: false },
+        },
+        deviation_drivers: {
+          ...pricingResult.deviation_drivers,
+          drivers: [
+            {
+              factor: '需求预期',
+              description: '算力需求提升带来估值扩张',
+            },
+          ],
+        },
+        implications: {
+          ...pricingResult.implications,
+          confidence: 'high',
+          risk_level: 'low',
+          factor_alignment: {
+            label: '同向',
+            status: 'aligned',
+            summary: '因子信号与高估判断同向',
+          },
+          insights: ['算力周期仍在扩张'],
+        },
+      }
+    );
+
+    expect(playbook.thesis).toContain('继续留在单标的定价研究框架内');
+    expect(playbook.tasks[3].status).toBe('complete');
+    expect(playbook.next_actions.some((item) => item?.target === 'cross-market')).toBe(false);
+  });
 });

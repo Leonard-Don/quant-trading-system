@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Row, Col, Tag, Empty, Typography, Button } from 'antd';
 import {
     ClockCircleOutlined,
@@ -524,6 +524,7 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
         () => (compareTimelineMap && typeof compareTimelineMap === 'object' ? compareTimelineMap : {}),
         [compareTimelineMap]
     );
+    const compareSelectionMemoryRef = useRef({});
     const displaySymbol = symbol || quote?.symbol || '--';
     const displayName = getDisplayName(displaySymbol);
     const categoryLabel = getCategoryLabel(displaySymbol);
@@ -575,10 +576,14 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
             return;
         }
 
-        const nextTargets = safeCompareCandidates
+        const availableTargets = safeCompareCandidates
             .filter((item) => item?.symbol && item.symbol !== displaySymbol)
-            .slice(0, 2)
             .map((item) => item.symbol);
+        const rememberedTargets = Array.isArray(compareSelectionMemoryRef.current[displaySymbol])
+            ? compareSelectionMemoryRef.current[displaySymbol].filter((item) => availableTargets.includes(item))
+            : [];
+        const nextTargets = (rememberedTargets.length > 0 ? rememberedTargets : availableTargets.slice(0, 2)).slice(0, 3);
+        compareSelectionMemoryRef.current[displaySymbol] = nextTargets;
         setSelectedCompareSymbols((prev) => (isSameSymbolList(prev, nextTargets) ? prev : nextTargets));
     }, [displaySymbol, open, safeCompareCandidates]);
 
@@ -591,11 +596,14 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
 
     const toggleCompareSymbol = (targetSymbol) => {
         setSelectedCompareSymbols((prev) => {
+            let nextSelection;
             if (prev.includes(targetSymbol)) {
-                return prev.filter((item) => item !== targetSymbol);
+                nextSelection = prev.filter((item) => item !== targetSymbol);
+            } else {
+                nextSelection = [...prev, targetSymbol].slice(0, 3);
             }
-
-            return [...prev, targetSymbol].slice(0, 3);
+            compareSelectionMemoryRef.current[displaySymbol] = nextSelection;
+            return nextSelection;
         });
     };
 
