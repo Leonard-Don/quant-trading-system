@@ -14,9 +14,9 @@
     - 🔌 **WebSocket支持**: 实时股票报价推送
 
     ### API版本
-    - **当前版本**: v3.8.0
+    - **当前版本**: v3.9.0
     - **API版本**: v1
-    - **最后更新**: 2026-04-01
+    - **最后更新**: 2026-04-02
 
     ### 认证
     当前版本无需认证，生产环境建议添加API密钥认证。
@@ -27,7 +27,7 @@
     - 并发回测: 最多10个
     
 
-**版本**: 3.8.0
+**版本**: 3.9.0
 
 ## 基础信息
 
@@ -135,6 +135,9 @@
 - `hot_cluster` (integer): 热门簇索引
 - `cluster_stats` (object): 各簇统计
 - `points` (array): 聚类散点数据
+- `selected_cluster_count` (integer): 自动选择的聚类数
+- `silhouette_score` (unknown): 最佳聚类轮廓系数
+- `cluster_candidates` (object): 候选聚类数的轮廓系数
 
 ### CompareRequest
 
@@ -335,6 +338,14 @@
 - `min_value` (number): 最小值
 - `update_time` (string): 更新时间
 
+### IndustryPreferencesResponse
+
+**字段: **
+
+- `watchlist_industries` (array): 观察列表
+- `saved_views` (array): 保存视图
+- `alert_thresholds` (object): 行业提醒阈值
+
 ### IndustryRankResponse
 
 行业排名响应
@@ -354,6 +365,7 @@
 - `total_market_cap` (number): 总市值
 - `marketCapSource` (string): 行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*
 - `mini_trend` (array): 近5日相对走势火花线数据
+- `score_breakdown` (array): 后端统一评分拆解数据
 
 ### IndustryRotationResponse
 
@@ -365,6 +377,17 @@
 - `periods` (array): 统计周期
 - `data` (array): 轮动数据
 - `update_time` (string): 更新时间
+
+### IndustryStockBuildStatusResponse
+
+**字段: **
+
+- `industry_name` (string): 行业名称
+- `top_n` (integer): 返回条数
+- `status` (string): 构建状态: idle/building/ready/failed
+- `rows` (integer): 已构建条数
+- `message` (unknown): 状态说明
+- `updated_at` (string): 状态更新时间
 
 ### IndustryTrendPoint
 
@@ -631,6 +654,8 @@
 - `market_cap` (unknown): 市值
 - `pe_ratio` (unknown): 市盈率
 - `change_pct` (unknown): 涨跌幅
+- `money_flow` (unknown): 主力净流入
+- `turnover_rate` (unknown): 换手率
 - `industry` (string): 所属行业
 
 ### StrategyInfo

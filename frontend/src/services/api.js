@@ -458,6 +458,11 @@ export const getIndustryStocks = async (industryName, topN = 20, options = {}) =
   return response.data;
 };
 
+export const getIndustryStockBuildStatus = async (industryName, topN = 20, options = {}) => {
+  const response = await api.get(`/industry/industries/${encodeURIComponent(industryName)}/stocks/status?top_n=${topN}`, options);
+  return response.data;
+};
+
 // 获取行业热力图数据
 export const getIndustryHeatmap = async (days = 5, options = {}) => {
   const response = await api.get(`/industry/industries/heatmap?days=${days}`, options);
@@ -470,6 +475,26 @@ export const getIndustryHeatmapHistory = async (params = {}, options = {}) => {
   if (params.days) search.set('days', String(params.days));
   const query = search.toString();
   const response = await api.get(`/industry/industries/heatmap/history${query ? `?${query}` : ''}`, options);
+  return response.data;
+};
+
+export const getIndustryPreferences = async (options = {}) => {
+  const response = await api.get('/industry/preferences', options);
+  return response.data;
+};
+
+export const updateIndustryPreferences = async (payload, options = {}) => {
+  const response = await api.put('/industry/preferences', payload, options);
+  return response.data;
+};
+
+export const exportIndustryPreferences = async (options = {}) => {
+  const response = await api.get('/industry/preferences/export', options);
+  return response.data;
+};
+
+export const importIndustryPreferences = async (payload, options = {}) => {
+  const response = await api.post('/industry/preferences/import', payload, options);
   return response.data;
 };
 

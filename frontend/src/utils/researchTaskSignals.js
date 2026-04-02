@@ -3,6 +3,9 @@ const formatFactorName = (name = '') => {
     bureaucratic_friction: '官僚摩擦',
     tech_dilution: '技术稀释',
     baseload_mismatch: '基荷错配',
+    rate_curve_pressure: '利率曲线压力',
+    credit_spread_stress: '信用利差压力',
+    fx_mismatch: '汇率错配',
   };
   return mapping[name] || name.replace(/_/g, ' ');
 };

@@ -38,31 +38,48 @@ import RealtimeSnapshotDrawer from './realtime/RealtimeSnapshotDrawer';
 import { STOCK_DATABASE } from '../constants/stocks';
 import api from '../services/api';
 import { useRealtimeDiagnostics } from '../hooks/useRealtimeDiagnostics';
+import { useRealtimeDerivedState } from '../hooks/useRealtimeDerivedState';
 import { useRealtimeFeed } from '../hooks/useRealtimeFeed';
+import { useRealtimeMetadata } from '../hooks/useRealtimeMetadata';
 import { useRealtimePreferences } from '../hooks/useRealtimePreferences';
 import {
   ALERT_HIT_HISTORY_STORAGE_KEY,
   loadAlertHitHistory,
   MAX_ALERT_HIT_HISTORY,
-  summarizeAlertHitFollowThrough,
-  summarizeAlertHitHistory,
   buildAlertDraftFromAnomaly,
   buildRealtimeAnomalyFeed,
   buildTradePlanDraftFromAnomaly,
-  buildRealtimeActionPosture,
 } from '../utils/realtimeSignals';
+import {
+  QUOTE_FRESH_MS,
+  QUOTE_DELAYED_MS,
+  buildMiniTrendSeries,
+  buildSparklinePoints,
+  formatPercent,
+  formatPrice,
+  formatRelativeAge,
+  formatVolume,
+  hasNumericValue,
+  inferSymbolCategory,
+} from '../utils/realtimeFormatters';
+import {
+  buildRealtimeShareDocument,
+  formatReviewSnapshotMarkdown,
+  formatReviewSnapshotShareHtml,
+  formatReviewSummaryMarkdown,
+  formatReviewSummaryShareHtml,
+} from '../utils/realtimeShareTemplates';
 
 const { Text } = Typography;
-const DEFAULT_PRICE_TEXT = '--';
 const EMPTY_NUMERIC_TEXT = '--';
-const QUOTE_FRESH_MS = 45 * 1000;
-const QUOTE_DELAYED_MS = 3 * 60 * 1000;
-const HOUR_MS = 60 * 60 * 1000;
 const REVIEW_SNAPSHOT_STORAGE_KEY = 'realtime-review-snapshots';
 const REALTIME_TIMELINE_STORAGE_KEY = 'realtime-timeline-events';
+const REALTIME_DIAGNOSTICS_STORAGE_KEY = 'realtime-panel:diagnostics-enabled';
 const MAX_REVIEW_SNAPSHOTS = 48;
 const MAX_TIMELINE_EVENTS = 120;
 const REALTIME_JOURNAL_DEBOUNCE_MS = 500;
+const REVIEW_SNAPSHOT_VERSION = 2;
+const REALTIME_EXPORT_VERSION = 1;
 const QUOTE_SORT_OPTIONS = [
   { key: 'change_desc', label: '涨跌幅' },
   { key: 'range_desc', label: '振幅' },
@@ -113,54 +130,60 @@ const TradePanel = lazy(() => import('./TradePanel'));
 const RealtimeStockDetailModal = lazy(() => import('./RealtimeStockDetailModal'));
 const PriceAlerts = lazy(() => import('./PriceAlerts'));
 
-const hasNumericValue = (value) => value !== undefined && value !== null && !Number.isNaN(Number(value));
-const formatRelativeAge = (ageMs, options = {}) => {
-  const { prefix = '', suffix = '' } = options;
-  const safeAge = Math.max(0, ageMs);
-
-  if (safeAge <= QUOTE_FRESH_MS) {
-    return `${prefix}刚刚更新${suffix}`;
+const normalizeReviewSnapshot = (snapshot) => {
+  if (!snapshot || typeof snapshot !== 'object' || !snapshot.id) {
+    return null;
   }
 
-  if (safeAge < HOUR_MS) {
-    const seconds = Math.max(1, Math.floor(safeAge / 1000));
-    if (seconds < 60) {
-      return `${prefix}${seconds} 秒前${suffix}`;
-    }
-
-    return `${prefix}${Math.max(1, Math.floor(seconds / 60))} 分钟前${suffix}`;
-  }
-
-  return `${prefix}${Math.max(1, Math.floor(safeAge / HOUR_MS))} 小时前${suffix}`;
+  return {
+    version: snapshot.version || 1,
+    ...snapshot,
+  };
 };
-const DIAGNOSTICS_ENABLED = process.env.NODE_ENV !== 'production';
 
-const inferSymbolCategory = (symbol) => {
-  const type = STOCK_DATABASE[symbol]?.type;
-  if (type) {
-    return type;
+const normalizeTimelineEvent = (event) => {
+  if (!event || typeof event !== 'object' || !event.id || !event.symbol) {
+    return null;
   }
 
-  if (/^\d{6}\.(SS|SZ|BJ)$/i.test(symbol)) {
-    return 'cn';
+  return {
+    version: event.version || 1,
+    ...event,
+  };
+};
+
+const loadDiagnosticsEnabled = () => {
+  if (typeof window === 'undefined') {
+    return process.env.NODE_ENV !== 'production';
   }
 
-  if (/^-?[A-Z0-9]+-USD$/i.test(symbol)) {
-    return 'crypto';
+  const query = new URLSearchParams(window.location.search);
+  const queryValue = query.get('realtimeDiagnostics');
+  if (queryValue === '1') {
+    window.localStorage.setItem(REALTIME_DIAGNOSTICS_STORAGE_KEY, '1');
+    return true;
+  }
+  if (queryValue === '0') {
+    window.localStorage.setItem(REALTIME_DIAGNOSTICS_STORAGE_KEY, '0');
+    return false;
   }
 
-  if (/=F$/i.test(symbol)) {
-    return 'future';
+  const persisted = window.localStorage.getItem(REALTIME_DIAGNOSTICS_STORAGE_KEY);
+  if (persisted === '1') {
+    return true;
+  }
+  if (persisted === '0') {
+    return false;
   }
 
-  if (symbol.startsWith('^')) {
-    return /^(?:\^TNX|\^TYX|\^FVX|\^IRX)$/i.test(symbol) ? 'bond' : 'index';
-  }
-
-  return 'us';
+  return process.env.NODE_ENV !== 'production';
 };
 
 const loadReviewSnapshots = () => {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
   try {
     const rawValue = window.localStorage.getItem(REVIEW_SNAPSHOT_STORAGE_KEY);
     if (!rawValue) {
@@ -168,7 +191,9 @@ const loadReviewSnapshots = () => {
     }
 
     const parsed = JSON.parse(rawValue);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed)
+      ? parsed.map(normalizeReviewSnapshot).filter(Boolean)
+      : [];
   } catch (error) {
     console.warn('Failed to load realtime review snapshots:', error);
     return [];
@@ -187,7 +212,9 @@ const loadRealtimeTimelineEvents = () => {
     }
 
     const parsedValue = JSON.parse(rawValue);
-    return Array.isArray(parsedValue) ? parsedValue : [];
+    return Array.isArray(parsedValue)
+      ? parsedValue.map(normalizeTimelineEvent).filter(Boolean)
+      : [];
   } catch (error) {
     console.warn('Failed to load realtime timeline events:', error);
     return [];
@@ -291,130 +318,6 @@ const buildRealtimeDetailTimeline = ({ symbol, anomalyFeed = [], reviewSnapshots
 };
 
 const getSnapshotOutcomeMeta = (outcome) => SNAPSHOT_OUTCOME_OPTIONS[outcome] || null;
-const escapeHtml = (value) => String(value ?? '')
-  .replaceAll('&', '&amp;')
-  .replaceAll('<', '&lt;')
-  .replaceAll('>', '&gt;')
-  .replaceAll('"', '&quot;')
-  .replaceAll("'", '&#39;');
-
-const formatReviewSnapshotMarkdown = (snapshot) => {
-  const outcomeMeta = getSnapshotOutcomeMeta(snapshot?.outcome);
-  const anomalies = Array.isArray(snapshot?.anomalies) ? snapshot.anomalies : [];
-  const watchedSymbols = Array.isArray(snapshot?.watchedSymbols) ? snapshot.watchedSymbols : [];
-  const quoteSnapshots = Array.isArray(snapshot?.quoteSnapshots) ? snapshot.quoteSnapshots : [];
-
-  return [
-    `## 复盘快照 - ${snapshot?.spotlightName || snapshot?.spotlightSymbol || '未记录焦点标的'}`,
-    '',
-    `- 时间: ${snapshot?.createdAt || '--'}`,
-    `- 分组: ${snapshot?.activeTabLabel || snapshot?.activeTab || '--'}`,
-    `- 焦点标的: ${snapshot?.spotlightSymbol || '--'}`,
-    `- 链路模式: ${snapshot?.transportModeLabel || '--'}`,
-    `- 结果: ${outcomeMeta?.label || '未标记'}`,
-    `- 异动数量: ${snapshot?.anomalyCount ?? 0}`,
-    `- 覆盖情况: ${snapshot?.loadedCount ?? 0}/${snapshot?.totalCount ?? 0}`,
-    snapshot?.note ? `- 备注: ${snapshot.note}` : null,
-    '',
-    '### 跟踪标的',
-    watchedSymbols.length ? watchedSymbols.map((item) => `- ${item}`).join('\n') : '- --',
-    '',
-    '### 当时价格快照',
-    quoteSnapshots.length
-      ? quoteSnapshots.map((item) => `- ${item.symbol}: 价格 ${item.price ?? '--'} | 涨跌幅 ${item.changePercent ?? '--'} | 成交量 ${item.volume ?? '--'}`).join('\n')
-      : '- --',
-    '',
-    '### 当时异动',
-    anomalies.length
-      ? anomalies.map((item) => `- ${item.title} | ${item.symbol}: ${item.description}`).join('\n')
-      : '- 无显著异动',
-  ].filter(Boolean).join('\n');
-};
-
-const formatReviewSummaryMarkdown = ({ scopeLabel, filteredReviewSnapshots, reviewOutcomeSummary, validationRate, reviewAttribution }) => [
-  `## 实时行情复盘摘要 - ${scopeLabel}`,
-  '',
-  `- 样本数: ${filteredReviewSnapshots.length}`,
-  `- 已复盘: ${reviewOutcomeSummary.validated + reviewOutcomeSummary.invalidated}/${filteredReviewSnapshots.length}`,
-  `- 验证有效: ${reviewOutcomeSummary.validated}`,
-  `- 观察失效: ${reviewOutcomeSummary.invalidated}`,
-  `- 持续观察: ${reviewOutcomeSummary.watching}`,
-  `- 有效率: ${validationRate}`,
-  `- 最强分组: ${reviewAttribution.topValidatedMarket}`,
-  `- 常失效异动: ${reviewAttribution.topInvalidatedSignal}`,
-  `- 高频焦点: ${reviewAttribution.topSpotlightSymbol}`,
-].join('\n');
-const formatReviewSnapshotShareHtml = (snapshot) => {
-  const outcomeMeta = getSnapshotOutcomeMeta(snapshot?.outcome);
-  const anomalies = Array.isArray(snapshot?.anomalies) ? snapshot.anomalies : [];
-  const watchedSymbols = Array.isArray(snapshot?.watchedSymbols) ? snapshot.watchedSymbols : [];
-  const quoteSnapshots = Array.isArray(snapshot?.quoteSnapshots) ? snapshot.quoteSnapshots : [];
-
-  return `
-    <section class="share-card">
-      <div class="eyebrow">Realtime Review Snapshot</div>
-      <h1>${escapeHtml(snapshot?.spotlightName || snapshot?.spotlightSymbol || '未记录焦点标的')}</h1>
-      <p class="subtitle">${escapeHtml(snapshot?.transportModeLabel || '--')}</p>
-      <div class="chips">
-        <span class="chip">${escapeHtml(snapshot?.activeTabLabel || snapshot?.activeTab || '--')}</span>
-        <span class="chip">${escapeHtml(outcomeMeta?.label || '未标记')}</span>
-        <span class="chip">${escapeHtml(snapshot?.createdAt || '--')}</span>
-      </div>
-      <div class="metrics">
-        <div class="metric"><span>焦点标的</span><strong>${escapeHtml(snapshot?.spotlightSymbol || '--')}</strong></div>
-        <div class="metric"><span>异动数量</span><strong>${escapeHtml(snapshot?.anomalyCount ?? 0)}</strong></div>
-        <div class="metric"><span>覆盖情况</span><strong>${escapeHtml(`${snapshot?.loadedCount ?? 0}/${snapshot?.totalCount ?? 0}`)}</strong></div>
-      </div>
-      ${snapshot?.note ? `<div class="note"><strong>备注</strong><p>${escapeHtml(snapshot.note)}</p></div>` : ''}
-      <div class="section">
-        <h2>跟踪标的</h2>
-        <div class="list">${watchedSymbols.length ? watchedSymbols.map((item) => `<span class="pill">${escapeHtml(item)}</span>`).join('') : '<span class="muted">--</span>'}</div>
-      </div>
-      <div class="section">
-        <h2>当时价格快照</h2>
-        ${quoteSnapshots.length ? quoteSnapshots.map((item) => `
-          <div class="anomaly">
-            <strong>${escapeHtml(item.symbol)}</strong>
-            <p>价格 ${escapeHtml(item.price ?? '--')} · 涨跌幅 ${escapeHtml(item.changePercent ?? '--')} · 成交量 ${escapeHtml(item.volume ?? '--')}</p>
-          </div>
-        `).join('') : '<p class="muted">--</p>'}
-      </div>
-      <div class="section">
-        <h2>当时异动</h2>
-        ${anomalies.length ? anomalies.map((item) => `
-          <div class="anomaly">
-            <strong>${escapeHtml(item.title)} · ${escapeHtml(item.symbol)}</strong>
-            <p>${escapeHtml(item.description)}</p>
-          </div>
-        `).join('') : '<p class="muted">无显著异动</p>'}
-      </div>
-    </section>
-  `;
-};
-
-const formatReviewSummaryShareHtml = ({ scopeLabel, filteredReviewSnapshots, reviewOutcomeSummary, validationRate, reviewAttribution }) => `
-  <section class="share-card">
-    <div class="eyebrow">Realtime Review Summary</div>
-    <h1>实时行情复盘摘要</h1>
-    <p class="subtitle">${escapeHtml(scopeLabel)}</p>
-    <div class="metrics">
-      <div class="metric"><span>样本数</span><strong>${escapeHtml(filteredReviewSnapshots.length)}</strong></div>
-      <div class="metric"><span>已复盘</span><strong>${escapeHtml(`${reviewOutcomeSummary.validated + reviewOutcomeSummary.invalidated}/${filteredReviewSnapshots.length}`)}</strong></div>
-      <div class="metric"><span>验证有效</span><strong>${escapeHtml(reviewOutcomeSummary.validated)}</strong></div>
-      <div class="metric"><span>观察失效</span><strong>${escapeHtml(reviewOutcomeSummary.invalidated)}</strong></div>
-      <div class="metric"><span>持续观察</span><strong>${escapeHtml(reviewOutcomeSummary.watching)}</strong></div>
-      <div class="metric"><span>有效率</span><strong>${escapeHtml(validationRate)}</strong></div>
-    </div>
-    <div class="section">
-      <h2>归因结果</h2>
-      <div class="metrics">
-        <div class="metric"><span>最强分组</span><strong>${escapeHtml(reviewAttribution.topValidatedMarket)}</strong></div>
-        <div class="metric"><span>常失效异动</span><strong>${escapeHtml(reviewAttribution.topInvalidatedSignal)}</strong></div>
-        <div class="metric"><span>高频焦点</span><strong>${escapeHtml(reviewAttribution.topSpotlightSymbol)}</strong></div>
-      </div>
-    </div>
-  </section>
-`;
 const filterReviewSnapshots = (snapshots = [], scope = 'all', activeTab = '') => {
   if (scope === 'recent20') {
     return snapshots.slice(0, 20);
@@ -510,6 +413,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
   const [isSnapshotDrawerVisible, setIsSnapshotDrawerVisible] = useState(false);
   const [reviewSnapshots, setReviewSnapshots] = useState(loadReviewSnapshots);
   const [timelineEvents, setTimelineEvents] = useState(loadRealtimeTimelineEvents);
+  const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(loadDiagnosticsEnabled);
   const [isJournalHydrated, setIsJournalHydrated] = useState(false);
   const [alertHitHistory, setAlertHitHistory] = useState(loadAlertHitHistory);
   const [reviewScope, setReviewScope] = useState('all');
@@ -536,6 +440,13 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
   }, [timelineEvents]);
 
   useEffect(() => {
+    window.localStorage.setItem(
+      REALTIME_DIAGNOSTICS_STORAGE_KEY,
+      diagnosticsEnabled ? '1' : '0'
+    );
+  }, [diagnosticsEnabled]);
+
+  useEffect(() => {
     window.localStorage.setItem(ALERT_HIT_HISTORY_STORAGE_KEY, JSON.stringify(alertHitHistory));
   }, [alertHitHistory]);
 
@@ -556,6 +467,12 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     symbolCategoryOverrides,
   } = useRealtimePreferences({
     defaultSymbols: DEFAULT_SUBSCRIBED_SYMBOLS,
+  });
+  const {
+    metadataMap,
+    fetchMetadata,
+  } = useRealtimeMetadata({
+    subscribedSymbols,
   });
 
   useEffect(() => {
@@ -589,10 +506,16 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         const currentJournalSnapshot = latestJournalRef.current || initialJournalSnapshot;
         const userChangedJournalDuringHydration = currentJournalSnapshot !== initialJournalSnapshot;
         const nextReviewSnapshots = Array.isArray(response.data.data?.review_snapshots)
-          ? response.data.data.review_snapshots.slice(0, MAX_REVIEW_SNAPSHOTS)
+          ? response.data.data.review_snapshots
+              .map(normalizeReviewSnapshot)
+              .filter(Boolean)
+              .slice(0, MAX_REVIEW_SNAPSHOTS)
           : [];
         const nextTimelineEvents = Array.isArray(response.data.data?.timeline_events)
-          ? response.data.data.timeline_events.slice(0, MAX_TIMELINE_EVENTS)
+          ? response.data.data.timeline_events
+              .map(normalizeTimelineEvent)
+              .filter(Boolean)
+              .slice(0, MAX_TIMELINE_EVENTS)
           : [];
         const backendJournalEmpty = nextReviewSnapshots.length === 0 && nextTimelineEvents.length === 0;
         const localJournalHasEntries = (
@@ -712,8 +635,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
   }, [realtimeProfileId]);
 
   const resolveSymbolCategory = useCallback((symbol) => {
-    return symbolCategoryOverrides[symbol] || inferSymbolCategory(symbol);
-  }, [symbolCategoryOverrides]);
+    return symbolCategoryOverrides[symbol] || metadataMap[symbol]?.type || inferSymbolCategory(symbol);
+  }, [metadataMap, symbolCategoryOverrides]);
 
   const getSymbolsByCategory = useCallback((category) => {
     return subscribedSymbols.filter(symbol => {
@@ -751,7 +674,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     diagnosticsLastLoadedAt,
     refreshDiagnostics,
   } = useRealtimeDiagnostics({
-    enabled: DIAGNOSTICS_ENABLED,
+    enabled: diagnosticsEnabled,
     isConnected,
     reconnectAttempts,
   });
@@ -764,6 +687,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     const nextEvent = {
       id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       createdAt: new Date().toISOString(),
+      version: 1,
       ...event,
     };
 
@@ -831,39 +755,20 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     }
     clearMissingQuoteRequests([newSymbol]);
     fetchQuotes([newSymbol]);
+    if (!STOCK_DATABASE[newSymbol]) {
+      fetchMetadata([newSymbol]);
+    }
     setSearchSymbol('');
     setAutoCompleteOptions([]);
   }, [
     clearMissingQuoteRequests,
+    fetchMetadata,
     fetchQuotes,
     setActiveTab,
     subscribeSymbol,
     subscribedSymbols,
     resolveSymbolCategory,
   ]);
-
-  const formatPrice = (price, fallback = DEFAULT_PRICE_TEXT) => {
-    if (!hasNumericValue(price)) return fallback;
-    return typeof price === 'number' ? price.toFixed(2) : parseFloat(price).toFixed(2);
-  };
-
-  const formatPercent = (percent, fallback = EMPTY_NUMERIC_TEXT) => {
-    if (!hasNumericValue(percent)) return fallback;
-    return typeof percent === 'number' ? percent.toFixed(2) + '%' : parseFloat(percent).toFixed(2) + '%';
-  };
-
-  const formatVolume = (volume) => {
-    if (volume === undefined || volume === null || Number.isNaN(Number(volume))) {
-      return EMPTY_NUMERIC_TEXT;
-    }
-
-    if (volume >= 1000000) {
-      return (volume / 1000000).toFixed(1) + 'M';
-    } else if (volume >= 1000) {
-      return (volume / 1000).toFixed(1) + 'K';
-    }
-    return volume.toString();
-  };
 
   const handleOpenTrade = useCallback((symbol, draft = null) => {
     setSelectedSymbol(symbol);
@@ -893,12 +798,16 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
   }, []);
 
   const getDisplayName = useCallback((symbol) => {
+    const metadata = metadataMap[symbol];
+    if (metadata) {
+      return metadata.cn || metadata.en || symbol;
+    }
     const info = STOCK_DATABASE[symbol];
     if (info) {
       return info.cn || info.en || symbol;
     }
     return symbol;
-  }, []);
+  }, [metadataMap]);
 
   const handleShowDetail = useCallback((symbol) => {
     setDetailSymbol(symbol);
@@ -996,7 +905,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     const query = input.toLowerCase().trim();
     const trackedResults = subscribedSymbols
       .filter((code) => {
-        const info = STOCK_DATABASE[code];
+        const info = metadataMap[code] || STOCK_DATABASE[code];
         return code.toLowerCase().includes(query)
           || info?.en?.toLowerCase?.().includes(query)
           || info?.cn?.includes(query);
@@ -1004,7 +913,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       .map((code) => ({
         code,
         tracked: true,
-        info: STOCK_DATABASE[code] || { en: code, cn: code, type: resolveSymbolCategory(code) },
+        info: metadataMap[code] || STOCK_DATABASE[code] || { en: code, cn: code, type: resolveSymbolCategory(code) },
         priority: code.toLowerCase() === query ? 0 : 1,
       }));
 
@@ -1017,45 +926,10 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     return [...trackedResults, ...addableResults]
       .sort((left, right) => left.priority - right.priority)
       .slice(0, 12);
-  }, [findMatchingSymbols, resolveSymbolCategory, subscribedSymbols]);
+  }, [findMatchingSymbols, metadataMap, resolveSymbolCategory, subscribedSymbols]);
 
   const currentTabSymbols = getSymbolsByCategory(activeTab);
-  const currentTabQuotes = currentTabSymbols.map(symbol => quotes[symbol]).filter(Boolean);
   const selectedCurrentTabSymbols = selectedQuoteSymbols.filter((symbol) => currentTabSymbols.includes(symbol));
-  const risingCount = currentTabQuotes.filter(q => q?.change > 0).length;
-  const fallingCount = currentTabQuotes.filter(q => q?.change < 0).length;
-  const flatCount = currentTabQuotes.filter((q) => q?.change === 0).length;
-  const loadedQuotesCount = Object.values(quotes).filter(Boolean).length;
-  const spotlightSymbol = currentTabSymbols
-    .filter(symbol => quotes[symbol])
-    .sort((left, right) => Math.abs(Number(quotes[right]?.change_percent || 0)) - Math.abs(Number(quotes[left]?.change_percent || 0)))[0] || null;
-  const marketSentiment = (() => {
-    const activeCount = risingCount + fallingCount;
-    if (!activeCount) {
-      return {
-        label: '待观察',
-        detail: '当前分组还没有足够的涨跌样本',
-      };
-    }
-
-    const breadth = risingCount / activeCount;
-    if (breadth >= 0.66) {
-      return {
-        label: '偏强',
-        detail: `上涨 ${risingCount} / 下跌 ${fallingCount}`,
-      };
-    }
-    if (breadth <= 0.34) {
-      return {
-        label: '偏弱',
-        detail: `上涨 ${risingCount} / 下跌 ${fallingCount}`,
-      };
-    }
-    return {
-      label: '中性',
-      detail: `上涨 ${risingCount} / 下跌 ${fallingCount}${flatCount > 0 ? ` / 平 ${flatCount}` : ''}`,
-    };
-  })();
 
   const toggleQuoteSelection = useCallback((symbol) => {
     setSelectedQuoteSymbols((prev) => (
@@ -1168,7 +1042,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     }
 
     if (subscribedSymbols.includes(normalized)) {
-      setActiveTab(inferSymbolCategory(normalized));
+      setActiveTab(resolveSymbolCategory(normalized));
       handleShowDetail(normalized);
       messageApi.success(`已跳转到 ${normalized} 的实时详情`);
     } else {
@@ -1177,7 +1051,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
     setGlobalJumpQuery('');
     setGlobalJumpOptions([]);
-  }, [addSymbol, handleShowDetail, messageApi, setActiveTab, subscribedSymbols]);
+  }, [addSymbol, handleShowDetail, messageApi, resolveSymbolCategory, setActiveTab, subscribedSymbols]);
 
   const getCategoryLabel = (type) => {
     switch (type) {
@@ -1233,37 +1107,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       return Number(rightValue) - Number(leftValue);
     });
   }, [getQuoteSortValue, quoteSortMode, quotes]);
-  const buildMiniTrendSeries = useCallback((quote) => {
-    const candidates = [
-      Number(quote?.previous_close),
-      Number(quote?.open),
-      Number(quote?.low),
-      Number(quote?.price),
-      Number(quote?.high),
-    ].filter((value) => Number.isFinite(value) && value > 0);
-
-    if (candidates.length < 2) {
-      return null;
-    }
-
-    return candidates;
-  }, []);
-  const buildSparklinePoints = useCallback((series, width = 144, height = 44, padding = 4) => {
-    if (!Array.isArray(series) || series.length < 2) {
-      return null;
-    }
-
-    const min = Math.min(...series);
-    const max = Math.max(...series);
-    const span = max - min || 1;
-
-    return series.map((value, index) => {
-      const x = padding + (index * (width - padding * 2)) / (series.length - 1);
-      const y = height - padding - (((value - min) / span) * (height - padding * 2));
-      return `${x},${y}`;
-    }).join(' ');
-  }, []);
-
   const formatQuoteTime = (value) => {
     if (!value) return '--';
 
@@ -1353,14 +1196,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     };
   }, [freshnessNow]);
 
-  const freshnessSummary = currentTabQuotes.reduce((summary, quote) => {
-    const freshness = getQuoteFreshness(quote);
-    if (freshness.state === 'fresh') summary.fresh += 1;
-    else if (freshness.state === 'aging') summary.aging += 1;
-    else if (freshness.state === 'delayed') summary.delayed += 1;
-    else summary.pending += 1;
-    return summary;
-  }, { fresh: 0, aging: 0, delayed: 0, pending: 0 });
   const transportModeLabel = !isAutoUpdate
     ? '手动刷新'
     : isConnected
@@ -1456,30 +1291,30 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
   const filteredReviewSnapshots = filterReviewSnapshots(reviewSnapshots, reviewScope, activeTab);
   const reviewScopeLabel = REVIEW_SCOPE_OPTIONS.find((option) => option.key === reviewScope)?.label || '全部';
   const latestSnapshots = filteredReviewSnapshots.slice(0, 3);
-  const reviewOutcomeSummary = filteredReviewSnapshots.reduce((summary, snapshot) => {
-    if (snapshot.outcome === 'validated') {
-      summary.validated += 1;
-    } else if (snapshot.outcome === 'invalidated') {
-      summary.invalidated += 1;
-    } else if (snapshot.outcome === 'watching') {
-      summary.watching += 1;
-    }
-    return summary;
-  }, { validated: 0, invalidated: 0, watching: 0 });
-  const resolvedSnapshotCount = reviewOutcomeSummary.validated + reviewOutcomeSummary.invalidated;
-  const validationRate = resolvedSnapshotCount > 0
-    ? `${Math.round((reviewOutcomeSummary.validated / resolvedSnapshotCount) * 100)}%`
-    : '--';
-  const reviewAttribution = summarizeReviewAttribution(filteredReviewSnapshots);
-  const currentTabAlertHitSummary = summarizeAlertHitHistory(alertHitHistory, currentTabSymbols);
-  const currentTabAlertFollowThrough = summarizeAlertHitFollowThrough(alertHitHistory, quotes, currentTabSymbols);
-  const realtimeActionPosture = buildRealtimeActionPosture({
+  const {
+    currentTabAlertFollowThrough,
+    currentTabAlertHitSummary,
+    currentTabQuotes,
+    fallingCount,
     freshnessSummary,
-    alertHitSummary: currentTabAlertHitSummary,
-    alertFollowThrough: currentTabAlertFollowThrough,
-    anomalyCount: anomalyFeed.length,
-    symbolCount: currentTabSymbols.length,
+    loadedQuotesCount,
+    marketSentiment,
+    realtimeActionPosture,
+    resolvedSnapshotCount,
+    reviewAttribution,
+    reviewOutcomeSummary,
+    risingCount,
     spotlightSymbol,
+    validationRate,
+  } = useRealtimeDerivedState({
+    alertHitHistory,
+    anomalyFeed,
+    currentTabSymbols,
+    filteredReviewSnapshots,
+    freshnessNow,
+    getQuoteFreshness,
+    quotes,
+    summarizeReviewAttribution,
   });
   const detailEventTimeline = buildRealtimeDetailTimeline({
     symbol: detailSymbol,
@@ -1512,6 +1347,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     const snapshot = {
       id: `snapshot_${Date.now()}`,
       createdAt: new Date().toISOString(),
+      version: REVIEW_SNAPSHOT_VERSION,
       activeTab,
       activeTabLabel: getCategoryLabel(activeTab),
       transportModeLabel,
@@ -1625,159 +1461,14 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       return;
     }
 
-    shareWindow.document.write(`<!DOCTYPE html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(title)}</title>
-    <style>
-      :root {
-        color-scheme: light;
-        --bg: #f8fafc;
-        --panel: rgba(255, 255, 255, 0.92);
-        --panel-border: rgba(148, 163, 184, 0.24);
-        --text-primary: #0f172a;
-        --text-secondary: #475569;
-        --text-muted: #64748b;
-        --accent: #2563eb;
-        --accent-soft: rgba(37, 99, 235, 0.1);
-        --chip-bg: rgba(15, 23, 42, 0.06);
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-height: 100vh;
-        font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
-        background:
-          radial-gradient(circle at top left, rgba(59, 130, 246, 0.16), transparent 32%),
-          radial-gradient(circle at top right, rgba(16, 185, 129, 0.14), transparent 30%),
-          linear-gradient(180deg, #f8fbff 0%, var(--bg) 100%);
-        color: var(--text-primary);
-        padding: 32px;
-      }
-      .share-shell {
-        max-width: 920px;
-        margin: 0 auto;
-      }
-      .share-card {
-        background: var(--panel);
-        border: 1px solid var(--panel-border);
-        border-radius: 28px;
-        box-shadow: 0 28px 60px rgba(15, 23, 42, 0.12);
-        padding: 32px;
-        backdrop-filter: blur(12px);
-      }
-      .eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 999px;
-        background: var(--accent-soft);
-        color: var(--accent);
-        font-size: 12px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-      h1 {
-        margin: 18px 0 8px;
-        font-size: clamp(28px, 4vw, 40px);
-        line-height: 1.08;
-      }
-      .subtitle {
-        margin: 0;
-        font-size: 15px;
-        color: var(--text-secondary);
-      }
-      .chips, .list {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-top: 18px;
-      }
-      .chip, .pill {
-        display: inline-flex;
-        align-items: center;
-        border-radius: 999px;
-        padding: 8px 12px;
-        background: var(--chip-bg);
-        color: var(--text-primary);
-        font-size: 13px;
-        font-weight: 600;
-      }
-      .metrics {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
-        gap: 12px;
-        margin-top: 22px;
-      }
-      .metric {
-        border-radius: 20px;
-        padding: 16px 18px;
-        background: rgba(255, 255, 255, 0.74);
-        border: 1px solid rgba(148, 163, 184, 0.18);
-        min-height: 92px;
-      }
-      .metric span {
-        display: block;
-        font-size: 12px;
-        color: var(--text-muted);
-        margin-bottom: 8px;
-      }
-      .metric strong {
-        font-size: 20px;
-        line-height: 1.2;
-      }
-      .section, .note {
-        margin-top: 24px;
-        padding-top: 20px;
-        border-top: 1px solid rgba(148, 163, 184, 0.18);
-      }
-      .section h2, .note strong {
-        display: block;
-        margin: 0 0 12px;
-        font-size: 15px;
-      }
-      .note p, .anomaly p {
-        margin: 8px 0 0;
-        color: var(--text-secondary);
-        line-height: 1.6;
-      }
-      .anomaly {
-        padding: 14px 0;
-      }
-      .anomaly + .anomaly {
-        border-top: 1px dashed rgba(148, 163, 184, 0.2);
-      }
-      .muted {
-        color: var(--text-muted);
-      }
-      @media (max-width: 640px) {
-        body {
-          padding: 18px;
-        }
-        .share-card {
-          padding: 22px;
-          border-radius: 22px;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <main class="share-shell">
-      ${bodyHtml}
-    </main>
-  </body>
-</html>`);
+    shareWindow.document.write(buildRealtimeShareDocument(title, bodyHtml));
     shareWindow.document.close();
   }, [messageApi]);
 
   const openSnapshotShareCard = useCallback((snapshot) => {
     openShareWindow(
       `Realtime Review Snapshot - ${snapshot?.spotlightName || snapshot?.spotlightSymbol || '未记录焦点标的'}`,
-      formatReviewSnapshotShareHtml(snapshot)
+      formatReviewSnapshotShareHtml(snapshot, getSnapshotOutcomeMeta)
     );
   }, [openShareWindow]);
 
@@ -1802,9 +1493,14 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
   ]);
 
   const exportReviewSnapshots = useCallback(() => {
-    const payload = JSON.stringify(reviewSnapshots, null, 2);
+    const payload = JSON.stringify({
+      version: REALTIME_EXPORT_VERSION,
+      exported_at: new Date().toISOString(),
+      review_snapshots: reviewSnapshots,
+      timeline_events: timelineEvents,
+    }, null, 2);
     copyTextToClipboard(payload, '复盘快照 JSON 已复制');
-  }, [copyTextToClipboard, reviewSnapshots]);
+  }, [copyTextToClipboard, reviewSnapshots, timelineEvents]);
 
   const triggerSnapshotImport = useCallback(() => {
     snapshotImportInputRef.current?.click();
@@ -1820,16 +1516,31 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     reader.onload = () => {
       try {
         const parsed = JSON.parse(String(reader.result || '[]'));
-        if (!Array.isArray(parsed)) {
+        const snapshotPayload = Array.isArray(parsed)
+          ? parsed
+          : parsed?.review_snapshots;
+        const timelinePayload = Array.isArray(parsed)
+          ? []
+          : parsed?.timeline_events;
+
+        if (!Array.isArray(snapshotPayload)) {
           throw new Error('invalid payload');
         }
 
-        const normalized = parsed
-          .filter((item) => item && typeof item === 'object' && item.id)
+        const normalized = snapshotPayload
+          .map(normalizeReviewSnapshot)
+          .filter(Boolean)
           .sort((left, right) => new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime())
           .slice(0, MAX_REVIEW_SNAPSHOTS);
+        const normalizedTimeline = Array.isArray(timelinePayload)
+          ? timelinePayload
+              .map(normalizeTimelineEvent)
+              .filter(Boolean)
+              .slice(0, MAX_TIMELINE_EVENTS)
+          : [];
 
         setReviewSnapshots(normalized);
+        setTimelineEvents(normalizedTimeline);
         messageApi.success(`已导入 ${normalized.length} 条复盘快照`);
       } catch (error) {
         messageApi.error('复盘快照导入失败，请检查 JSON 格式');
@@ -1956,6 +1667,10 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
             <Button onClick={() => setIsSnapshotDrawerVisible(true)} size="large">
               复盘快照
+            </Button>
+
+            <Button onClick={() => setDiagnosticsEnabled((prev) => !prev)} size="large">
+              {diagnosticsEnabled ? '隐藏诊断' : '显示诊断'}
             </Button>
 
             <Button onClick={saveReviewSnapshot} size="large">
@@ -2147,7 +1862,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         exportReviewSnapshots={exportReviewSnapshots}
         filteredReviewSnapshots={filteredReviewSnapshots}
         formatQuoteTime={formatQuoteTime}
-        formatReviewSnapshotMarkdown={formatReviewSnapshotMarkdown}
+        formatReviewSnapshotMarkdown={(snapshot) => formatReviewSnapshotMarkdown(snapshot, getSnapshotOutcomeMeta)}
         formatReviewSummaryMarkdown={formatReviewSummaryMarkdown}
         getCategoryLabel={getCategoryLabel}
         getSnapshotOutcomeMeta={getSnapshotOutcomeMeta}
@@ -2176,7 +1891,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         onChange={handleImportReviewSnapshots}
       />
 
-      {DIAGNOSTICS_ENABLED && (
+      {diagnosticsEnabled && (
         <RealtimeDiagnosticsCard
           diagnosticsCache={diagnosticsCache}
           diagnosticsFetch={diagnosticsFetch}
@@ -2219,7 +1934,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       <RealtimeSnapshotDrawer
         filteredReviewSnapshots={filteredReviewSnapshots}
         formatQuoteTime={formatQuoteTime}
-        formatReviewSnapshotMarkdown={formatReviewSnapshotMarkdown}
+        formatReviewSnapshotMarkdown={(snapshot) => formatReviewSnapshotMarkdown(snapshot, getSnapshotOutcomeMeta)}
         getCategoryLabel={getCategoryLabel}
         getSnapshotOutcomeMeta={getSnapshotOutcomeMeta}
         isOpen={isSnapshotDrawerVisible}

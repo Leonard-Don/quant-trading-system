@@ -534,9 +534,17 @@ class DataManager:
                 "earnings_growth": info.get("earningsGrowth", 0),
                 "revenue": info.get("totalRevenue", 0),
                 "ebitda": info.get("ebitda", 0),
+                "free_cash_flow": info.get("freeCashflow", 0),
+                "operating_cash_flow": info.get("operatingCashflow", 0),
+                "capital_expenditure": info.get("capitalExpenditures", 0),
                 "debt_to_equity": info.get("debtToEquity", 0),
+                "total_debt": info.get("totalDebt", 0),
+                "total_cash": info.get("totalCash", 0),
                 "current_ratio": info.get("currentRatio", 0),
                 "quick_ratio": info.get("quickRatio", 0),
+                "current_assets": info.get("totalCurrentAssets", 0),
+                "current_liabilities": info.get("totalCurrentLiabilities", 0),
+                "shares_outstanding": info.get("sharesOutstanding", 0),
                 "beta": info.get("beta", 0),
                 "current_price": info.get("currentPrice", 0),
                 "regular_market_price": info.get("regularMarketPrice", 0),
@@ -552,6 +560,12 @@ class DataManager:
                 revenue = float(fundamentals.get("revenue") or 0)
                 if enterprise_value > 0 and revenue > 0:
                     fundamentals["enterprise_to_revenue"] = enterprise_value / revenue
+
+            if not fundamentals.get("free_cash_flow"):
+                operating_cash_flow = float(fundamentals.get("operating_cash_flow") or 0)
+                capital_expenditure = abs(float(fundamentals.get("capital_expenditure") or 0))
+                if operating_cash_flow > 0 and capital_expenditure > 0:
+                    fundamentals["free_cash_flow"] = operating_cash_flow - capital_expenditure
 
             return fundamentals
 

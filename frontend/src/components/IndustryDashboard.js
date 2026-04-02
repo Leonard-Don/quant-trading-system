@@ -51,8 +51,12 @@ import {
     getHotIndustries,
     getIndustryHeatmapHistory,
     getIndustryStocks,
+    getIndustryPreferences,
+    getIndustryStockBuildStatus,
     getIndustryClusters,
-    getLeaderDetail
+    getLeaderDetail,
+    updateIndustryPreferences,
+    importIndustryPreferences,
 } from '../services/api';
 import { useSafeMessageApi } from '../utils/messageApi';
 import {
@@ -65,6 +69,7 @@ import {
     INDUSTRY_ALERT_DESKTOP_STORAGE_KEY,
     INDUSTRY_WATCHLIST_STORAGE_KEY,
     INDUSTRY_SAVED_VIEWS_STORAGE_KEY,
+    DEFAULT_INDUSTRY_ALERT_THRESHOLDS,
     formatIndustryAlertMoneyFlow,
     getIndustryScoreTone,
     formatIndustryAlertSeenLabel,
@@ -148,6 +153,7 @@ const MAX_HEATMAP_REPLAY_SNAPSHOTS = 10;
 const INDUSTRY_REPLAY_STORAGE_KEY = 'industry_heatmap_replay_snapshots_v1';
 const INDUSTRY_REPLAY_SELECTION_KEY = 'industry_heatmap_replay_selected_v1';
 const HEATMAP_REPLAY_RETENTION_MS = 24 * 60 * 60 * 1000;
+const INDUSTRY_API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
 const HEATMAP_REPLAY_WINDOW_OPTIONS = [
     { value: '1h', label: '近1小时' },
     { value: '6h', label: '近6小时' },
@@ -421,8 +427,11 @@ const IndustryDashboard = () => {
     const [desktopAlertNotifications, setDesktopAlertNotifications] = useState(false);
     const [watchlistIndustries, setWatchlistIndustries] = useState([]);
     const [watchlistHydrated, setWatchlistHydrated] = useState(false);
+    const [industryAlertThresholds, setIndustryAlertThresholds] = useState(DEFAULT_INDUSTRY_ALERT_THRESHOLDS);
     const [savedViewDraftName, setSavedViewDraftName] = useState('');
     const [savedIndustryViews, setSavedIndustryViews] = useState([]);
+    const savedViewImportInputRef = useRef(null);
+    const industryPreferencesHydratedRef = useRef(false);
     const [heatmapReplaySnapshots, setHeatmapReplaySnapshots] = useState([]);
     const [selectedReplaySnapshotId, setSelectedReplaySnapshotId] = useState(null);
     const [latestLiveHeatmapData, setLatestLiveHeatmapData] = useState(null);
@@ -441,6 +450,7 @@ const IndustryDashboard = () => {
     const hotIndustriesAbortRef = useRef(null);
     const clustersAbortRef = useRef(null);
     const industryStocksAbortRef = useRef(null);
+    const industryStocksStreamRef = useRef(null);
     const stockDetailAbortRef = useRef(null);
     const industryStocksRequestIdRef = useRef(0);
     const stockDetailRequestIdRef = useRef(0);
@@ -698,6 +708,71 @@ const IndustryDashboard = () => {
         message.success('已删除保存视图');
     }, [message]);
 
+    const handleExportSavedViews = useCallback(() => {
+        try {
+            const payload = {
+                watchlist_industries: watchlistIndustries,
+                saved_views: savedIndustryViews,
+                alert_thresholds: industryAlertThresholds,
+                exported_at: new Date().toISOString(),
+                version: 1,
+            };
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+            const url = window.URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `industry-preferences-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            document.body.removeChild(anchor);
+            window.URL.revokeObjectURL(url);
+            message.success('已导出行业视图与提醒配置');
+        } catch (error) {
+            console.error('Failed to export industry preferences:', error);
+            message.error('导出行业配置失败');
+        }
+    }, [industryAlertThresholds, message, savedIndustryViews, watchlistIndustries]);
+
+    const handleImportSavedViewsClick = useCallback(() => {
+        savedViewImportInputRef.current?.click();
+    }, []);
+
+    const handleImportSavedViews = useCallback(async (event) => {
+        const file = event?.target?.files?.[0];
+        if (!file) return;
+        try {
+            const text = await file.text();
+            const payload = JSON.parse(text);
+            const normalizedWatchlist = Array.isArray(payload?.watchlist_industries)
+                ? payload.watchlist_industries.filter((item) => typeof item === 'string' && item.trim()).slice(0, MAX_WATCHLIST_INDUSTRIES)
+                : [];
+            const normalizedViews = Array.isArray(payload?.saved_views)
+                ? payload.saved_views.filter((item) => item?.id && item?.state)
+                : [];
+            const normalizedThresholds = {
+                ...DEFAULT_INDUSTRY_ALERT_THRESHOLDS,
+                ...(payload?.alert_thresholds || {}),
+            };
+
+            setWatchlistIndustries(normalizedWatchlist);
+            setSavedIndustryViews(normalizedViews);
+            setIndustryAlertThresholds(normalizedThresholds);
+            await importIndustryPreferences({
+                watchlist_industries: normalizedWatchlist,
+                saved_views: normalizedViews,
+                alert_thresholds: normalizedThresholds,
+            });
+            message.success('已导入行业视图与提醒配置');
+        } catch (error) {
+            console.error('Failed to import industry preferences:', error);
+            message.error('导入配置失败，请检查文件格式');
+        } finally {
+            if (event?.target) {
+                event.target.value = '';
+            }
+        }
+    }, [message]);
+
     useEffect(() => {
         let isActive = true;
 
@@ -755,20 +830,49 @@ const IndustryDashboard = () => {
     }, []);
 
     useEffect(() => {
-        try {
-            const storedWatchlist = window.localStorage.getItem(INDUSTRY_WATCHLIST_STORAGE_KEY);
-            if (!storedWatchlist) return;
-            const parsedWatchlist = JSON.parse(storedWatchlist);
-            if (Array.isArray(parsedWatchlist)) {
-                setWatchlistIndustries(
-                    Array.from(new Set(parsedWatchlist.filter((item) => typeof item === 'string' && item.trim()))).slice(0, MAX_WATCHLIST_INDUSTRIES)
-                );
+        let isActive = true;
+        const hydrateIndustryPreferences = async () => {
+            try {
+                const [backendPreferences] = await Promise.all([
+                    getIndustryPreferences().catch(() => null),
+                ]);
+
+                const storedWatchlist = window.localStorage.getItem(INDUSTRY_WATCHLIST_STORAGE_KEY);
+                const storedSavedViews = window.localStorage.getItem(INDUSTRY_SAVED_VIEWS_STORAGE_KEY);
+                const localWatchlist = storedWatchlist ? JSON.parse(storedWatchlist) : [];
+                const localViews = storedSavedViews ? JSON.parse(storedSavedViews) : [];
+
+                const mergedWatchlist = Array.from(new Set([
+                    ...((backendPreferences?.watchlist_industries || []).filter((item) => typeof item === 'string' && item.trim())),
+                    ...((Array.isArray(localWatchlist) ? localWatchlist : []).filter((item) => typeof item === 'string' && item.trim())),
+                ])).slice(0, MAX_WATCHLIST_INDUSTRIES);
+
+                const mergedViewsMap = new Map();
+                [...(Array.isArray(localViews) ? localViews : []), ...((backendPreferences?.saved_views || []))]
+                    .filter((item) => item?.id && item?.state)
+                    .forEach((item) => mergedViewsMap.set(item.id, item));
+
+                if (!isActive) return;
+                setWatchlistIndustries(mergedWatchlist);
+                setSavedIndustryViews(Array.from(mergedViewsMap.values()));
+                setIndustryAlertThresholds({
+                    ...DEFAULT_INDUSTRY_ALERT_THRESHOLDS,
+                    ...(backendPreferences?.alert_thresholds || {}),
+                });
+            } catch (error) {
+                console.warn('Failed to hydrate industry preferences:', error);
+            } finally {
+                if (isActive) {
+                    industryPreferencesHydratedRef.current = true;
+                    setWatchlistHydrated(true);
+                }
             }
-        } catch (error) {
-            console.warn('Failed to hydrate industry watchlist:', error);
-        } finally {
-            setWatchlistHydrated(true);
-        }
+        };
+
+        hydrateIndustryPreferences();
+        return () => {
+            isActive = false;
+        };
     }, []);
 
     useEffect(() => {
@@ -800,19 +904,6 @@ const IndustryDashboard = () => {
             setDesktopAlertNotifications(storedDesktopNotifications === 'true');
         } catch (error) {
             console.warn('Failed to hydrate industry desktop notifications:', error);
-        }
-    }, []);
-
-    useEffect(() => {
-        try {
-            const storedSavedViews = window.localStorage.getItem(INDUSTRY_SAVED_VIEWS_STORAGE_KEY);
-            if (!storedSavedViews) return;
-            const parsedViews = JSON.parse(storedSavedViews);
-            if (Array.isArray(parsedViews)) {
-                setSavedIndustryViews(parsedViews.filter((item) => item?.id && item?.state));
-            }
-        } catch (error) {
-            console.warn('Failed to hydrate industry saved views:', error);
         }
     }, []);
 
@@ -914,6 +1005,20 @@ const IndustryDashboard = () => {
             console.warn('Failed to persist industry saved views:', error);
         }
     }, [savedIndustryViews]);
+
+    useEffect(() => {
+        if (!industryPreferencesHydratedRef.current) return undefined;
+        const timeoutId = window.setTimeout(() => {
+            updateIndustryPreferences({
+                watchlist_industries: watchlistIndustries,
+                saved_views: savedIndustryViews,
+                alert_thresholds: industryAlertThresholds,
+            }).catch((error) => {
+                console.warn('Failed to sync industry preferences:', error);
+            });
+        }, 450);
+        return () => window.clearTimeout(timeoutId);
+    }, [industryAlertThresholds, savedIndustryViews, watchlistIndustries]);
 
     const applyHeatmapSnapshot = useCallback((data) => {
         if (!data?.industries?.length) return;
@@ -1317,6 +1422,10 @@ const IndustryDashboard = () => {
         if (industryStocksAbortRef.current) {
             industryStocksAbortRef.current.abort();
         }
+        if (industryStocksStreamRef.current) {
+            industryStocksStreamRef.current.close();
+            industryStocksStreamRef.current = null;
+        }
         const currentAbort = new AbortController();
         industryStocksAbortRef.current = currentAbort;
         const requestId = industryStocksRequestIdRef.current + 1;
@@ -1353,8 +1462,7 @@ const IndustryDashboard = () => {
             }
 
             setStocksRefining(true);
-            for (let attempt = 0; attempt < INDUSTRY_STOCK_FULL_POLL_ATTEMPTS; attempt += 1) {
-                await waitForAbortableDelay(currentAbort.signal, INDUSTRY_STOCK_FULL_POLL_INTERVAL_MS);
+            const fetchAndApplyRefinedRows = async (displayReadyGrace = false) => {
                 const refinedResult = await getIndustryStocks(industryName, 20, {
                     signal: currentAbort.signal
                 });
@@ -1362,7 +1470,7 @@ const IndustryDashboard = () => {
                     industryStocksAbortRef.current !== currentAbort ||
                     industryStocksRequestIdRef.current !== requestId
                 ) {
-                    return;
+                    return false;
                 }
 
                 const refinedRows = refinedResult || [];
@@ -1371,11 +1479,94 @@ const IndustryDashboard = () => {
                 }
                 const refinedStage = getIndustryStockScoreStage(refinedRows);
                 setStocksScoreStage(refinedStage);
-                setStocksDisplayReady(refinedStage === 'full' || (attempt >= 1 && hasDisplayReadyIndustryStockDetails(refinedRows)));
-                if (refinedStage === 'full') {
-                    setStocksRefining(false);
-                    return;
+                setStocksDisplayReady(
+                    refinedStage === 'full'
+                    || (displayReadyGrace && hasDisplayReadyIndustryStockDetails(refinedRows))
+                );
+                return refinedStage === 'full';
+            };
+
+            const pollForFullBuild = async () => {
+                for (let attempt = 0; attempt < INDUSTRY_STOCK_FULL_POLL_ATTEMPTS; attempt += 1) {
+                    await waitForAbortableDelay(currentAbort.signal, INDUSTRY_STOCK_FULL_POLL_INTERVAL_MS);
+                    const buildStatus = await getIndustryStockBuildStatus(industryName, 20, {
+                        signal: currentAbort.signal
+                    });
+                    if (
+                        industryStocksAbortRef.current !== currentAbort ||
+                        industryStocksRequestIdRef.current !== requestId
+                    ) {
+                        return false;
+                    }
+
+                    if (buildStatus?.status === 'ready') {
+                        return fetchAndApplyRefinedRows(true);
+                    }
+                    if (buildStatus?.status === 'failed') {
+                        await fetchAndApplyRefinedRows(attempt >= 1);
+                        return false;
+                    }
                 }
+                await fetchAndApplyRefinedRows(true);
+                return false;
+            };
+
+            let streamHandled = false;
+            if (typeof window !== 'undefined' && typeof window.EventSource === 'function') {
+                const streamUrl = `${INDUSTRY_API_BASE_URL}/industry/industries/${encodeURIComponent(industryName)}/stocks/stream?top_n=20`;
+                streamHandled = await new Promise((resolve) => {
+                    let timeoutId = null;
+                    const stream = new window.EventSource(streamUrl);
+                    industryStocksStreamRef.current = stream;
+
+                    const closeStream = () => {
+                        if (timeoutId != null) {
+                            window.clearTimeout(timeoutId);
+                            timeoutId = null;
+                        }
+                        if (industryStocksStreamRef.current === stream) {
+                            industryStocksStreamRef.current = null;
+                        }
+                        stream.close();
+                    };
+
+                    const settle = async (status) => {
+                        closeStream();
+                        if (status === 'ready') {
+                            const completed = await fetchAndApplyRefinedRows(true);
+                            resolve(completed);
+                            return;
+                        }
+                        resolve(false);
+                    };
+
+                    timeoutId = window.setTimeout(() => {
+                        closeStream();
+                        resolve(false);
+                    }, 12000);
+
+                    stream.onmessage = async (event) => {
+                        try {
+                            const payload = JSON.parse(event.data || '{}');
+                            if (payload?.status === 'ready' || payload?.status === 'failed') {
+                                await settle(payload.status);
+                            }
+                        } catch (streamError) {
+                            console.warn('Failed to parse industry stocks SSE payload:', streamError);
+                            closeStream();
+                            resolve(false);
+                        }
+                    };
+
+                    stream.onerror = () => {
+                        closeStream();
+                        resolve(false);
+                    };
+                });
+            }
+
+            if (!streamHandled) {
+                await pollForFullBuild();
             }
             setStocksRefining(false);
         } catch (err) {
@@ -1488,6 +1679,7 @@ const IndustryDashboard = () => {
         if (hotIndustriesAbortRef.current) hotIndustriesAbortRef.current.abort();
         if (clustersAbortRef.current) clustersAbortRef.current.abort();
         if (industryStocksAbortRef.current) industryStocksAbortRef.current.abort();
+        if (industryStocksStreamRef.current) industryStocksStreamRef.current.close();
         if (stockDetailAbortRef.current) stockDetailAbortRef.current.abort();
     }, []);
 
@@ -1953,8 +2145,19 @@ const IndustryDashboard = () => {
             const moneyFlow = Number(item.money_flow || 0);
             const volatility = Number(item.industryVolatility || 0);
             const turnoverRate = Number(item.turnoverRate || 0);
+            const resonanceScore = Number(industryAlertThresholds.resonance_score || DEFAULT_INDUSTRY_ALERT_THRESHOLDS.resonance_score);
+            const resonanceChange = Number(industryAlertThresholds.resonance_change_pct || DEFAULT_INDUSTRY_ALERT_THRESHOLDS.resonance_change_pct);
+            const resonanceFlow = Number(industryAlertThresholds.resonance_money_flow_yi || DEFAULT_INDUSTRY_ALERT_THRESHOLDS.resonance_money_flow_yi) * 1e8;
+            const capitalInflow = Number(industryAlertThresholds.capital_inflow_yi || DEFAULT_INDUSTRY_ALERT_THRESHOLDS.capital_inflow_yi) * 1e8;
+            const capitalChange = Number(industryAlertThresholds.capital_inflow_change_pct || DEFAULT_INDUSTRY_ALERT_THRESHOLDS.capital_inflow_change_pct);
+            const riskOutflow = Number(industryAlertThresholds.risk_release_outflow_yi || DEFAULT_INDUSTRY_ALERT_THRESHOLDS.risk_release_outflow_yi) * 1e8;
+            const riskChange = Number(industryAlertThresholds.risk_release_change_pct || DEFAULT_INDUSTRY_ALERT_THRESHOLDS.risk_release_change_pct);
+            const highVolatilityThreshold = Number(industryAlertThresholds.high_volatility_threshold || DEFAULT_INDUSTRY_ALERT_THRESHOLDS.high_volatility_threshold);
+            const highVolatilityChange = Number(industryAlertThresholds.high_volatility_change_pct || DEFAULT_INDUSTRY_ALERT_THRESHOLDS.high_volatility_change_pct);
+            const rotationTurnover = Number(industryAlertThresholds.rotation_turnover_threshold || DEFAULT_INDUSTRY_ALERT_THRESHOLDS.rotation_turnover_threshold);
+            const rotationChange = Number(industryAlertThresholds.rotation_change_pct || DEFAULT_INDUSTRY_ALERT_THRESHOLDS.rotation_change_pct);
 
-            if (score >= 80 && change >= 2 && moneyFlow > 0) {
+            if (score >= resonanceScore && change >= resonanceChange && moneyFlow >= resonanceFlow) {
                 upsertAlert({
                     industry_name: name,
                     kind: 'resonance',
@@ -1968,7 +2171,7 @@ const IndustryDashboard = () => {
                 return;
             }
 
-            if (moneyFlow >= 8e8 && change >= 0.5) {
+            if (moneyFlow >= capitalInflow && change >= capitalChange) {
                 upsertAlert({
                     industry_name: name,
                     kind: 'capital_inflow',
@@ -1981,7 +2184,7 @@ const IndustryDashboard = () => {
                 });
             }
 
-            if (moneyFlow <= -8e8 && change <= -1) {
+            if (moneyFlow <= -riskOutflow && change <= -riskChange) {
                 upsertAlert({
                     industry_name: name,
                     kind: 'risk_release',
@@ -1994,7 +2197,7 @@ const IndustryDashboard = () => {
                 });
             }
 
-            if (volatility >= 4.5 && Math.abs(change) >= 2) {
+            if (volatility >= highVolatilityThreshold && Math.abs(change) >= highVolatilityChange) {
                 upsertAlert({
                     industry_name: name,
                     kind: 'high_volatility',
@@ -2007,7 +2210,7 @@ const IndustryDashboard = () => {
                 });
             }
 
-            if (turnoverRate >= 3.5 && Math.abs(change) >= 1) {
+            if (turnoverRate >= rotationTurnover && Math.abs(change) >= rotationChange) {
                 upsertAlert({
                     industry_name: name,
                     kind: 'rotation_heatup',
@@ -2024,7 +2227,7 @@ const IndustryDashboard = () => {
         return Array.from(bestByIndustry.values())
             .sort((a, b) => b.priority - a.priority)
             .slice(0, 6);
-    }, [industryAlertSnapshots]);
+    }, [industryAlertSnapshots, industryAlertThresholds]);
 
     const watchlistAlertByIndustry = useMemo(
         () => new Map(rawIndustryAlerts.map((item) => [item.industry_name, item])),
@@ -3129,6 +3332,8 @@ const IndustryDashboard = () => {
                         industryAlertKindOptions={INDUSTRY_ALERT_KIND_OPTIONS}
                         industryAlertRecencyOptions={INDUSTRY_ALERT_RECENCY_OPTIONS}
                         setIndustryAlertSubscription={setIndustryAlertSubscription}
+                        industryAlertThresholds={industryAlertThresholds}
+                        setIndustryAlertThresholds={setIndustryAlertThresholds}
                         requestDesktopAlertPermission={requestDesktopAlertPermission}
                         toggleWatchlistIndustry={toggleWatchlistIndustry}
                         watchlistIndustries={watchlistIndustries}
@@ -3161,6 +3366,15 @@ const IndustryDashboard = () => {
                         onApply={applySavedIndustryView}
                         onOverwrite={overwriteSavedIndustryView}
                         onRemove={removeSavedIndustryView}
+                        onExport={handleExportSavedViews}
+                        onImportClick={handleImportSavedViewsClick}
+                    />
+                    <input
+                        ref={savedViewImportInputRef}
+                        type="file"
+                        accept="application/json,.json"
+                        onChange={handleImportSavedViews}
+                        style={{ display: 'none' }}
                     />
 
                     <Tabs

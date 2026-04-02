@@ -18,6 +18,8 @@ from .providers.provider_factory import get_data_factory
 
 
 logger = logging.getLogger(__name__)
+PROVIDER_FAILURE_THRESHOLD = 3
+PROVIDER_COOLDOWN_SECONDS = 60
 QUOTE_QUALITY_FIELDS = [
     "price",
     "change",
@@ -86,6 +88,7 @@ class RealTimeDataManager(BaseComponent):
         self._lock = threading.RLock()
         self.bundle_cache_ttl = min(self.cache_ttl, 2)
         self._quotes_bundle_cache: Dict[Tuple[str, ...], Tuple[float, Dict[str, Dict[str, Any]]]] = {}
+        self.provider_health: Dict[str, Dict[str, Any]] = {}
         self.runtime_stats: Dict[str, Any] = {
             "bundle_cache_hits": 0,
             "bundle_cache_misses": 0,
@@ -275,6 +278,67 @@ class RealTimeDataManager(BaseComponent):
             source=str(payload.get("source") or default_source or "unknown"),
         )
 
+    def _ensure_provider_health(self, provider_name: str) -> Dict[str, Any]:
+        with self._lock:
+            return self.provider_health.setdefault(provider_name, {
+                "successes": 0,
+                "failures": 0,
+                "consecutive_failures": 0,
+                "skipped": 0,
+                "last_success_at": None,
+                "last_failure_at": None,
+                "circuit_open_until": 0.0,
+            })
+
+    def _mark_provider_success(self, provider_name: str) -> None:
+        stats = self._ensure_provider_health(provider_name)
+        with self._lock:
+            stats["successes"] += 1
+            stats["consecutive_failures"] = 0
+            stats["last_success_at"] = datetime.now().isoformat()
+            stats["circuit_open_until"] = 0.0
+
+    def _mark_provider_failure(self, provider_name: str, reason: str = "") -> None:
+        stats = self._ensure_provider_health(provider_name)
+        with self._lock:
+            stats["failures"] += 1
+            stats["consecutive_failures"] += 1
+            stats["last_failure_at"] = datetime.now().isoformat()
+            if stats["consecutive_failures"] >= PROVIDER_FAILURE_THRESHOLD:
+                stats["circuit_open_until"] = time.time() + PROVIDER_COOLDOWN_SECONDS
+        if reason:
+            logger.warning("Realtime provider failure recorded: provider=%s reason=%s", provider_name, reason)
+
+    def _mark_provider_skipped(self, provider_name: str) -> None:
+        stats = self._ensure_provider_health(provider_name)
+        with self._lock:
+            stats["skipped"] += 1
+
+    def _get_provider_fetch_order(self) -> List[BaseDataProvider]:
+        providers = self.provider_factory.get_sorted_providers()
+        now = time.time()
+        available: List[BaseDataProvider] = []
+        cooling_down: List[BaseDataProvider] = []
+
+        for provider in providers:
+            stats = self._ensure_provider_health(provider.name)
+            if stats["circuit_open_until"] and stats["circuit_open_until"] > now:
+                self._mark_provider_skipped(provider.name)
+                cooling_down.append(provider)
+            else:
+                available.append(provider)
+
+        ranked_available = sorted(
+            available,
+            key=lambda provider: (
+                self._ensure_provider_health(provider.name)["consecutive_failures"],
+                provider.priority,
+                provider.name,
+            ),
+        )
+
+        return ranked_available + cooling_down
+
     def subscribe_symbol(self, symbol: str, callback: Optional[Callable[[RealTimeQuote], None]] = None) -> bool:
         """订阅股票实时数据。"""
         canonical = self._normalize_symbol(symbol)
@@ -382,14 +446,25 @@ class RealTimeDataManager(BaseComponent):
     def _fetch_provider_quotes(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
         pending = self._normalize_symbols(symbols)
         resolved: Dict[str, Dict[str, Any]] = {}
+        now = time.time()
 
-        for provider in self.provider_factory.get_sorted_providers():
+        for provider in self._get_provider_fetch_order():
             if not pending:
                 break
+
+            health = self._ensure_provider_health(provider.name)
+            if health["circuit_open_until"] and health["circuit_open_until"] > now:
+                logger.info(
+                    "Skipping realtime provider due to open circuit: provider=%s cooldown_remaining_ms=%s",
+                    provider.name,
+                    round((health["circuit_open_until"] - now) * 1000, 2),
+                )
+                continue
 
             try:
                 provider_results = self._fetch_with_provider(provider, pending)
             except Exception as exc:
+                self._mark_provider_failure(provider.name, str(exc))
                 logger.warning("Provider %s batch fetch failed: %s", provider.name, exc)
                 continue
 
@@ -405,12 +480,19 @@ class RealTimeDataManager(BaseComponent):
                 else:
                     next_pending.append(symbol)
 
+            resolved_count = len(pending) - len(next_pending)
+            if resolved_count > 0:
+                self._mark_provider_success(provider.name)
+            else:
+                self._mark_provider_failure(provider.name, "provider returned no usable quotes")
+
             logger.info(
-                "Realtime provider fetch: provider=%s requested=%s resolved=%s remaining=%s",
+                "Realtime provider fetch: provider=%s requested=%s resolved=%s remaining=%s consecutive_failures=%s",
                 provider.name,
                 len(pending),
-                len(pending) - len(next_pending),
+                resolved_count,
                 len(next_pending),
+                self._ensure_provider_health(provider.name)["consecutive_failures"],
             )
             pending = next_pending
 
@@ -564,6 +646,10 @@ class RealTimeDataManager(BaseComponent):
                     "bundle_prewarm_calls": self.runtime_stats["bundle_prewarm_calls"],
                     "last_bundle_cache_key": self.runtime_stats["last_bundle_cache_key"],
                     "last_fetch_stats": self.runtime_stats["last_fetch_stats"],
+                },
+                "provider_health": {
+                    name: stats.copy()
+                    for name, stats in self.provider_health.items()
                 },
             }
 

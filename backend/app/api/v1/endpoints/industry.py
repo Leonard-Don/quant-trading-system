@@ -3,14 +3,17 @@
 提供热门行业识别和龙头股遴选功能
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, StreamingResponse
 from typing import List, Literal, Optional
 import logging
 import time
 import re
 import threading
+import json
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from src.data.providers.sina_ths_adapter import map_ths_to_sina
 from src.analytics.industry_stock_details import (
@@ -19,6 +22,11 @@ from src.analytics.industry_stock_details import (
     has_meaningful_numeric,
     normalize_symbol,
 )
+from backend.app.services.industry_preferences import (
+    industry_preferences_store,
+    DEFAULT_ALERT_THRESHOLDS,
+)
+from src.utils.config import PROJECT_ROOT
 
 from backend.app.schemas.industry import (
     IndustryRankResponse,
@@ -32,6 +40,8 @@ from backend.app.schemas.industry import (
     IndustryTrendResponse,
     ClusterResponse,
     IndustryRotationResponse,
+    IndustryStockBuildStatusResponse,
+    IndustryPreferencesResponse,
 )
 
 # 延迟导入分析模块，避免启动时错误
@@ -49,9 +59,13 @@ _ENDPOINT_CACHE_TTL = 180  # 3分钟
 _stocks_full_build_executor = ThreadPoolExecutor(max_workers=2)
 _stocks_full_build_lock = threading.Lock()
 _stocks_full_build_inflight: set[str] = set()
+_stocks_full_build_status: dict[str, dict] = {}
 _heatmap_history_lock = threading.Lock()
 _heatmap_history: list[dict] = []
+_heatmap_history_loaded = False
 _HEATMAP_HISTORY_MAX_ITEMS = 48
+_HEATMAP_HISTORY_MAX_FILE_BYTES = 2 * 1024 * 1024
+_HEATMAP_HISTORY_FILE = PROJECT_ROOT / "data" / "industry" / "heatmap_history.json"
 
 # 独立的 Parity 缓存（评分一致性保障，TTL 更长）
 _parity_cache: dict = {}  # {key: {"data": ..., "ts": float}}
@@ -180,9 +194,113 @@ def _model_to_dict(model):
     return model
 
 
+def _format_storage_size(num_bytes: int) -> str:
+    if num_bytes < 1024:
+        return f"{num_bytes} B"
+    if num_bytes < 1024 * 1024:
+        return f"{num_bytes / 1024:.1f} KB"
+    return f"{num_bytes / (1024 * 1024):.2f} MB"
+
+
+def _trim_heatmap_history_payload(payload: list[dict]) -> list[dict]:
+    trimmed = list(payload[:_HEATMAP_HISTORY_MAX_ITEMS])
+    while trimmed:
+        encoded = json.dumps(trimmed, ensure_ascii=False, indent=2).encode("utf-8")
+        if len(encoded) <= _HEATMAP_HISTORY_MAX_FILE_BYTES:
+            break
+        trimmed = trimmed[:-1]
+    return trimmed
+
+
+def _resolve_industry_profile(request: Request | None) -> str:
+    if request is None:
+        return "default"
+    return request.headers.get("X-Industry-Profile", "default")
+
+
+def _get_stock_status_key(industry_name: str, top_n: int) -> str:
+    return f"{industry_name}:{top_n}"
+
+
+def _set_stock_build_status(industry_name: str, top_n: int, status: str, rows: int = 0, message: Optional[str] = None) -> None:
+    _stocks_full_build_status[_get_stock_status_key(industry_name, top_n)] = {
+        "industry_name": industry_name,
+        "top_n": top_n,
+        "status": status,
+        "rows": int(rows or 0),
+        "message": message,
+        "updated_at": datetime.now().isoformat(),
+    }
+
+
+def _get_stock_build_status(industry_name: str, top_n: int) -> dict:
+    _, full_cache_key = _get_stock_cache_keys(industry_name, top_n)
+    cached = _get_endpoint_cache(full_cache_key)
+    if cached is not None:
+        return {
+            "industry_name": industry_name,
+            "top_n": top_n,
+            "status": "ready",
+            "rows": len(cached),
+            "message": "完整版成分股缓存已就绪",
+            "updated_at": datetime.now().isoformat(),
+        }
+    return _stocks_full_build_status.get(
+        _get_stock_status_key(industry_name, top_n),
+        {
+            "industry_name": industry_name,
+            "top_n": top_n,
+            "status": "idle",
+            "rows": 0,
+            "message": "当前尚未开始构建完整版成分股缓存",
+            "updated_at": datetime.now().isoformat(),
+        },
+    )
+
+
+def _load_heatmap_history_from_disk() -> None:
+    global _heatmap_history_loaded
+    with _heatmap_history_lock:
+        if _heatmap_history_loaded:
+            return
+        try:
+            if _HEATMAP_HISTORY_FILE.exists():
+                file_size = _HEATMAP_HISTORY_FILE.stat().st_size
+                with open(_HEATMAP_HISTORY_FILE, "r", encoding="utf-8") as file:
+                    payload = json.load(file)
+                    if isinstance(payload, list):
+                        _heatmap_history[:] = _trim_heatmap_history_payload(payload)
+                logger.info(
+                    "Loaded heatmap history snapshots from disk (%s, snapshots=%s)",
+                    _format_storage_size(file_size),
+                    len(_heatmap_history),
+                )
+        except Exception as exc:
+            logger.warning("Failed to load heatmap history from disk: %s", exc)
+        _heatmap_history_loaded = True
+
+
+def _persist_heatmap_history_to_disk() -> None:
+    try:
+        _HEATMAP_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        payload = _trim_heatmap_history_payload(_heatmap_history)
+        _heatmap_history[:] = payload
+        serialized = json.dumps(payload, ensure_ascii=False, indent=2)
+        with open(_HEATMAP_HISTORY_FILE, "w", encoding="utf-8") as file:
+            file.write(serialized)
+        logger.info(
+            "Persisted heatmap history snapshots (%s, snapshots=%s)",
+            _format_storage_size(len(serialized.encode('utf-8'))),
+            len(payload),
+        )
+    except Exception as exc:
+        logger.warning("Failed to persist heatmap history: %s", exc)
+
+
 def _append_heatmap_history(days: int, result: HeatmapResponse):
     if not result or not getattr(result, "industries", None):
         return
+    _load_heatmap_history_from_disk()
 
     entry = {
         "snapshot_id": f"{days}:{result.update_time}",
@@ -207,6 +325,7 @@ def _append_heatmap_history(days: int, result: HeatmapResponse):
         else:
             _heatmap_history.insert(0, entry)
             del _heatmap_history[_HEATMAP_HISTORY_MAX_ITEMS:]
+        _persist_heatmap_history_to_disk()
 
 def _resolve_symbol_with_provider(symbol_or_name: str) -> str:
     """允许详情接口和龙头列表同时接受代码或股票名。"""
@@ -250,6 +369,8 @@ def _build_stock_responses(
                 market_cap=detail_fields.get("market_cap"),
                 pe_ratio=detail_fields.get("pe_ratio"),
                 change_pct=detail_fields.get("change_pct"),
+                money_flow=detail_fields.get("money_flow"),
+                turnover_rate=detail_fields.get("turnover_rate") or detail_fields.get("turnover"),
                 industry=industry_name,
             )
         )
@@ -339,6 +460,7 @@ def _schedule_full_stock_cache_build(
         if full_cache_key in _stocks_full_build_inflight:
             return
         _stocks_full_build_inflight.add(full_cache_key)
+        _set_stock_build_status(industry_name, top_n, "building", rows=0, message="完整版成分股缓存构建中")
 
     def _task():
         started_at = time.time()
@@ -351,6 +473,13 @@ def _schedule_full_stock_cache_build(
             result = _build_full_industry_stock_response(industry_name, top_n)
             if result:
                 _set_endpoint_cache(full_cache_key, result)
+                _set_stock_build_status(
+                    industry_name,
+                    top_n,
+                    "ready",
+                    rows=len(result),
+                    message="完整版成分股缓存构建完成",
+                )
                 logger.info(
                     "Built full stock cache for %s (top_n=%s, rows=%s, elapsed=%.2fs)",
                     industry_name,
@@ -359,6 +488,13 @@ def _schedule_full_stock_cache_build(
                     time.time() - started_at,
                 )
             else:
+                _set_stock_build_status(
+                    industry_name,
+                    top_n,
+                    "failed",
+                    rows=0,
+                    message="完整版成分股缓存构建返回空结果",
+                )
                 logger.warning(
                     "Full stock cache build returned empty for %s (top_n=%s, elapsed=%.2fs)",
                     industry_name,
@@ -366,6 +502,13 @@ def _schedule_full_stock_cache_build(
                     time.time() - started_at,
                 )
         except Exception as e:
+            _set_stock_build_status(
+                industry_name,
+                top_n,
+                "failed",
+                rows=0,
+                message=f"构建失败: {e}",
+            )
             logger.warning(f"Failed to build full stock cache for {industry_name}: {e}")
         finally:
             with _stocks_full_build_lock:
@@ -477,7 +620,7 @@ def get_hot_industries(
     """
     try:
         # 端点级缓存
-        cache_key = f"hot:v2:{top_n}:{lookback_days}:{sort_by}:{order}"
+        cache_key = f"hot:v3:{top_n}:{lookback_days}:{sort_by}:{order}"
         cached = _get_endpoint_cache(cache_key)
         if cached is not None:
             return cached
@@ -506,6 +649,7 @@ def get_hot_industries(
                 total_market_cap=ind.get("total_market_cap", 0),
                 marketCapSource=ind.get("market_cap_source", "unknown"),
                 mini_trend=ind.get("mini_trend", []),
+                score_breakdown=analyzer.build_rank_score_breakdown(ind),
             )
             for ind in hot_industries
         ]
@@ -577,6 +721,39 @@ def get_industry_stocks(
             )
             return stale
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/industries/{industry_name}/stocks/status", response_model=IndustryStockBuildStatusResponse)
+def get_industry_stock_build_status(
+    industry_name: str,
+    top_n: int = Query(20, ge=1, le=100, description="返回前N只股票"),
+) -> IndustryStockBuildStatusResponse:
+    status = _get_stock_build_status(industry_name, top_n)
+    return IndustryStockBuildStatusResponse(**status)
+
+
+@router.get("/industries/{industry_name}/stocks/stream")
+async def stream_industry_stock_build_status(
+    industry_name: str,
+    top_n: int = Query(20, ge=1, le=100, description="返回前N只股票"),
+):
+    async def event_generator():
+        emitted = None
+        started_at = time.time()
+        while True:
+            status = _get_stock_build_status(industry_name, top_n)
+            payload = json.dumps(status, ensure_ascii=False)
+            if payload != emitted:
+                emitted = payload
+                yield f"data: {payload}\n\n"
+
+            if status.get("status") in {"ready", "failed"}:
+                break
+            if (time.time() - started_at) > 30:
+                break
+            await __import__("asyncio").sleep(0.75)
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.get("/industries/heatmap", response_model=HeatmapResponse)
@@ -663,6 +840,7 @@ def get_industry_heatmap_history(
 
     用于行业热度模块的历史回放。当前返回服务端近期保留的快照窗口。
     """
+    _load_heatmap_history_from_disk()
     with _heatmap_history_lock:
         items = list(_heatmap_history)
 
@@ -685,6 +863,32 @@ def get_industry_heatmap_history(
         for item in items[:limit]
     ]
     return HeatmapHistoryResponse(items=history_items)
+
+
+@router.get("/preferences", response_model=IndustryPreferencesResponse)
+def get_industry_preferences(request: Request) -> IndustryPreferencesResponse:
+    profile_id = _resolve_industry_profile(request)
+    return IndustryPreferencesResponse(**industry_preferences_store.get_preferences(profile_id=profile_id))
+
+
+@router.put("/preferences", response_model=IndustryPreferencesResponse)
+def update_industry_preferences(payload: IndustryPreferencesResponse, request: Request) -> IndustryPreferencesResponse:
+    profile_id = _resolve_industry_profile(request)
+    data = industry_preferences_store.update_preferences(payload.model_dump(), profile_id=profile_id)
+    return IndustryPreferencesResponse(**data)
+
+
+@router.get("/preferences/export")
+def export_industry_preferences(request: Request):
+    profile_id = _resolve_industry_profile(request)
+    return JSONResponse(content=industry_preferences_store.get_preferences(profile_id=profile_id))
+
+
+@router.post("/preferences/import", response_model=IndustryPreferencesResponse)
+def import_industry_preferences(payload: IndustryPreferencesResponse, request: Request) -> IndustryPreferencesResponse:
+    profile_id = _resolve_industry_profile(request)
+    data = industry_preferences_store.update_preferences(payload.model_dump(), profile_id=profile_id)
+    return IndustryPreferencesResponse(**data)
 
 
 @router.get("/industries/{industry_name}/trend", response_model=IndustryTrendResponse)
@@ -781,6 +985,9 @@ def get_industry_clusters(
             hot_cluster=cluster_data.get("hot_cluster", -1),
             cluster_stats=cluster_data.get("cluster_stats", {}),
             points=cluster_data.get("points", []),
+            selected_cluster_count=cluster_data.get("selected_cluster_count", n_clusters),
+            silhouette_score=cluster_data.get("silhouette_score"),
+            cluster_candidates=cluster_data.get("cluster_candidates", {}),
         )
     except HTTPException:
         raise

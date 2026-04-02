@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "量化交易系统API",
-    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.8.0\n    - **API版本**: v1\n    - **最后更新**: 2026-04-01\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
+    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.9.0\n    - **API版本**: v1\n    - **最后更新**: 2026-04-02\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
     "termsOfService": "https://example.com/terms/",
     "contact": {
       "name": "量化交易系统支持",
@@ -13,7 +13,7 @@
       "name": "MIT License",
       "url": "https://opensource.org/licenses/MIT"
     },
-    "version": "3.8.0"
+    "version": "3.9.0"
   },
   "paths": {
     "/market-data/": {
@@ -941,6 +941,46 @@
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/realtime/metadata": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "获取实时标的元数据",
+        "operationId": "get_realtime_metadata_realtime_metadata_get",
+        "parameters": [
+          {
+            "name": "symbols",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Symbols"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -2216,6 +2256,116 @@
         }
       }
     },
+    "/industry/industries/{industry_name}/stocks/status": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Industry Stock Build Status",
+        "operationId": "get_industry_stock_build_status_industry_industries__industry_name__stocks_status_get",
+        "parameters": [
+          {
+            "name": "industry_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Industry Name"
+            }
+          },
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "返回前N只股票",
+              "default": 20,
+              "title": "Top N"
+            },
+            "description": "返回前N只股票"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndustryStockBuildStatusResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/industries/{industry_name}/stocks/stream": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Stream Industry Stock Build Status",
+        "operationId": "stream_industry_stock_build_status_industry_industries__industry_name__stocks_stream_get",
+        "parameters": [
+          {
+            "name": "industry_name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Industry Name"
+            }
+          },
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "返回前N只股票",
+              "default": 20,
+              "title": "Top N"
+            },
+            "description": "返回前N只股票"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/industry/industries/heatmap": {
       "get": {
         "tags": [
@@ -2315,6 +2465,126 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HeatmapHistoryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/preferences": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Industry Preferences",
+        "operationId": "get_industry_preferences_industry_preferences_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndustryPreferencesResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Update Industry Preferences",
+        "operationId": "update_industry_preferences_industry_preferences_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndustryPreferencesResponse"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndustryPreferencesResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/preferences/export": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Export Industry Preferences",
+        "operationId": "export_industry_preferences_industry_preferences_export_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/preferences/import": {
+      "post": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Import Industry Preferences",
+        "operationId": "import_industry_preferences_industry_preferences_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndustryPreferencesResponse"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndustryPreferencesResponse"
                 }
               }
             }
@@ -4483,6 +4753,32 @@
             "type": "array",
             "title": "Points",
             "description": "聚类散点数据"
+          },
+          "selected_cluster_count": {
+            "type": "integer",
+            "title": "Selected Cluster Count",
+            "description": "自动选择的聚类数",
+            "default": 0
+          },
+          "silhouette_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silhouette Score",
+            "description": "最佳聚类轮廓系数"
+          },
+          "cluster_candidates": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Cluster Candidates",
+            "description": "候选聚类数的轮廓系数"
           }
         },
         "type": "object",
@@ -5537,6 +5833,36 @@
         "title": "HeatmapResponse",
         "description": "热力图响应"
       },
+      "IndustryPreferencesResponse": {
+        "properties": {
+          "watchlist_industries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Watchlist Industries",
+            "description": "观察列表"
+          },
+          "saved_views": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Saved Views",
+            "description": "保存视图"
+          },
+          "alert_thresholds": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Alert Thresholds",
+            "description": "行业提醒阈值"
+          }
+        },
+        "type": "object",
+        "title": "IndustryPreferencesResponse"
+      },
       "IndustryRankResponse": {
         "properties": {
           "rank": {
@@ -5615,6 +5941,14 @@
             "type": "array",
             "title": "Mini Trend",
             "description": "近5日相对走势火花线数据"
+          },
+          "score_breakdown": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Score Breakdown",
+            "description": "后端统一评分拆解数据"
           }
         },
         "type": "object",
@@ -5664,6 +5998,56 @@
         ],
         "title": "IndustryRotationResponse",
         "description": "行业轮动对比响应"
+      },
+      "IndustryStockBuildStatusResponse": {
+        "properties": {
+          "industry_name": {
+            "type": "string",
+            "title": "Industry Name",
+            "description": "行业名称"
+          },
+          "top_n": {
+            "type": "integer",
+            "title": "Top N",
+            "description": "返回条数"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "构建状态: idle/building/ready/failed"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows",
+            "description": "已构建条数",
+            "default": 0
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message",
+            "description": "状态说明"
+          },
+          "updated_at": {
+            "type": "string",
+            "title": "Updated At",
+            "description": "状态更新时间"
+          }
+        },
+        "type": "object",
+        "required": [
+          "industry_name",
+          "top_n",
+          "status",
+          "updated_at"
+        ],
+        "title": "IndustryStockBuildStatusResponse"
       },
       "IndustryTrendPoint": {
         "properties": {
@@ -6908,6 +7292,30 @@
             ],
             "title": "Change Pct",
             "description": "涨跌幅"
+          },
+          "money_flow": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Money Flow",
+            "description": "主力净流入"
+          },
+          "turnover_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turnover Rate",
+            "description": "换手率"
           },
           "industry": {
             "type": "string",

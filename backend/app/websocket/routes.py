@@ -4,6 +4,7 @@ WebSocket路由端点
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from backend.app.websocket.connection_manager import manager
@@ -13,6 +14,15 @@ from src.data.realtime_manager import realtime_manager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def _is_authorized_websocket(websocket: WebSocket) -> bool:
+    expected_token = os.getenv("REALTIME_WS_TOKEN")
+    if not expected_token:
+        return True
+
+    provided_token = websocket.query_params.get("token")
+    return bool(provided_token) and provided_token == expected_token
 
 
 @router.websocket("/ws/quotes")
@@ -25,6 +35,10 @@ async def websocket_quotes(websocket: WebSocket):
     - 取消订阅: {"action": "unsubscribe", "symbol": "AAPL"}
     - 心跳: {"action": "ping"}
     """
+    if not _is_authorized_websocket(websocket):
+        await websocket.close(code=1008, reason="Unauthorized realtime websocket")
+        return
+
     await manager.connect(websocket)
     
     try:
@@ -122,6 +136,10 @@ async def websocket_trades(websocket: WebSocket):
     """
     WebSocket端点用于实时交易通知
     """
+    if not _is_authorized_websocket(websocket):
+        await websocket.close(code=1008, reason="Unauthorized trade websocket")
+        return
+
     await trade_ws_manager.connect(websocket)
     
     try:

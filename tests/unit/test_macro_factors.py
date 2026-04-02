@@ -58,7 +58,9 @@ def test_macro_factor_registry_and_combiner():
     results = registry.compute_all(context)
     combined = FactorCombiner().combine(results)
 
-    assert len(results) == 3
+    factor_names = {result.name for result in results}
+    assert len(results) == 6
+    assert {"bureaucratic_friction", "tech_dilution", "baseload_mismatch", "rate_curve_pressure", "credit_spread_stress", "fx_mismatch"} <= factor_names
     assert combined["signal"] in {-1, 0, 1}
     assert combined["score"] != 0
     assert all("metadata" in result.to_dict() for result in results)

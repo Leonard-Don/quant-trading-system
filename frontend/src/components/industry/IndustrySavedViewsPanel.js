@@ -1,6 +1,6 @@
 import React from 'react';
 import { Card, Button, Empty, Input, Space, Tag } from 'antd';
-import { SaveOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons';
+import { SaveOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import { buildSavedIndustryViewLabel } from './industryShared';
 
 const IndustrySavedViewsPanel = ({
@@ -11,6 +11,8 @@ const IndustrySavedViewsPanel = ({
     onApply,
     onOverwrite,
     onRemove,
+    onExport,
+    onImportClick,
 }) => (
     <Card
         size="small"
@@ -29,6 +31,12 @@ const IndustrySavedViewsPanel = ({
                 />
                 <Button size="small" type="primary" icon={<SaveOutlined />} onClick={onSave} data-testid="industry-saved-view-save-button">
                     保存
+                </Button>
+                <Button size="small" icon={<DownloadOutlined />} onClick={onExport}>
+                    导出
+                </Button>
+                <Button size="small" icon={<UploadOutlined />} onClick={onImportClick}>
+                    导入
                 </Button>
             </Space>
         )}

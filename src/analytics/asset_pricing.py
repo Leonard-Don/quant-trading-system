@@ -6,29 +6,29 @@
 import logging
 import numpy as np
 import pandas as pd
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from datetime import datetime, timedelta
-from scipy import stats as scipy_stats
 
-from src.data.data_manager import DataManager
-
+from src.analytics.asset_pricing_support import (
+    empty_asset_pricing_result,
+    fetch_ff5_factors,
+    fetch_ff_factors,
+    factor_source_meta,
+    generate_factor_summary,
+    normalize_daily_index,
+    period_to_days,
+    estimate_ff5_factors as estimate_ff5_factors_support,
+    estimate_ff_factors as estimate_ff_factors_support,
+    interpret_capm,
+    interpret_ff3,
+    interpret_ff5,
+    ols_statistics,
+    safe_regression_metrics,
+)
 logger = logging.getLogger(__name__)
 
 # Fama-French 因子数据的本地缓存
 _ff_cache: Dict[str, Any] = {}
-
-
-def _normalize_daily_index(data: pd.Series | pd.DataFrame) -> pd.Series | pd.DataFrame:
-    """Normalize market time series to a tz-naive daily DatetimeIndex."""
-    if data is None or data.empty:
-        return data
-
-    normalized = data.copy()
-    index = pd.to_datetime(normalized.index)
-    if getattr(index, "tz", None) is not None:
-        index = index.tz_localize(None)
-    normalized.index = index.normalize()
-    return normalized.sort_index()
 
 
 def _fetch_ff_factors(period: str = "1y") -> pd.DataFrame:
@@ -40,135 +40,29 @@ def _fetch_ff_factors(period: str = "1y") -> pd.DataFrame:
     Returns:
         DataFrame with columns: Mkt-RF, SMB, HML, RF (日频, 百分比已转为小数)
     """
-    cache_key = f"ff3_{period}"
-    if cache_key in _ff_cache:
-        cached = _ff_cache[cache_key]
-        if (datetime.now() - cached["ts"]).total_seconds() < 86400:
-            return cached["data"]
-
-    try:
-        import pandas_datareader.data as web
-
-        ff = web.DataReader("F-F_Research_Data_Factors_daily", "famafrench",
-                            start=datetime.now() - timedelta(days=_period_to_days(period)))
-        df = ff[0] / 100.0  # 百分比 -> 小数
-        df.index = pd.to_datetime(df.index)
-        df = _normalize_daily_index(df)
-        df.attrs["source"] = {
-            "type": "kenneth_french_library",
-            "label": "Kenneth French Data Library",
-            "is_proxy": False,
-            "warning": "",
-        }
-        _ff_cache[cache_key] = {"data": df, "ts": datetime.now()}
-        logger.info(f"Fetched Fama-French factors: {len(df)} days")
-        return df
-    except Exception as e:
-        logger.warning(f"无法从 Kenneth French Library 获取因子数据: {e}")
-        return _estimate_ff_factors(period)
+    return fetch_ff_factors(_ff_cache, period, logger)
 
 
 def _fetch_ff5_factors(period: str = "1y") -> pd.DataFrame:
     """获取 Fama-French 五因子数据，失败时回退到代理估算。"""
-    cache_key = f"ff5_{period}"
-    if cache_key in _ff_cache:
-        cached = _ff_cache[cache_key]
-        if (datetime.now() - cached["ts"]).total_seconds() < 86400:
-            return cached["data"]
-
-    try:
-        import pandas_datareader.data as web
-
-        ff = web.DataReader(
-            "F-F_Research_Data_5_Factors_2x3_daily",
-            "famafrench",
-            start=datetime.now() - timedelta(days=_period_to_days(period))
-        )
-        df = ff[0] / 100.0
-        df.index = pd.to_datetime(df.index)
-        df = _normalize_daily_index(df)
-        df.attrs["source"] = {
-            "type": "kenneth_french_library",
-            "label": "Kenneth French 5-Factor Library",
-            "is_proxy": False,
-            "warning": "",
-        }
-        _ff_cache[cache_key] = {"data": df, "ts": datetime.now()}
-        return df
-    except Exception as e:
-        logger.warning(f"无法从 Kenneth French Library 获取五因子数据: {e}")
-        return _estimate_ff5_factors(period)
+    return fetch_ff5_factors(_ff_cache, period, logger)
 
 
 def _estimate_ff_factors(period: str = "1y") -> pd.DataFrame:
     """
     若网络获取失败，使用市场指数代理估算因子
     """
-    dm = DataManager()
-    days = _period_to_days(period)
-    start = datetime.now() - timedelta(days=days)
-
-    try:
-        sp500 = dm.get_historical_data("^GSPC", start_date=start)
-        if sp500.empty:
-            return pd.DataFrame()
-
-        mkt_rf = sp500["close"].pct_change().dropna()
-        rf = 0.05 / 252  # 近似日无风险利率
-        short_momentum = mkt_rf.rolling(5, min_periods=1).mean()
-        medium_momentum = mkt_rf.rolling(20, min_periods=1).mean()
-        long_momentum = mkt_rf.rolling(60, min_periods=1).mean()
-        smb_proxy = ((short_momentum - medium_momentum) * 0.6).clip(-0.02, 0.02)
-        hml_proxy = ((medium_momentum - long_momentum) * -0.5).clip(-0.02, 0.02)
-
-        df = pd.DataFrame({
-            "Mkt-RF": mkt_rf - rf,
-            "SMB": smb_proxy,
-            "HML": hml_proxy,
-            "RF": rf
-        }, index=mkt_rf.index)
-        df = _normalize_daily_index(df)
-        df.attrs["source"] = {
-            "type": "market_proxy",
-            "label": "市场代理估算",
-            "is_proxy": True,
-            "warning": "SMB/HML 采用市场动量代理构造，结果仅供参考。",
-        }
-
-        logger.info("Using proxy FF factors (estimated)")
-        return df
-    except Exception as e:
-        logger.error(f"因子数据估算失败: {e}")
-        return pd.DataFrame()
+    return estimate_ff_factors_support(period, logger)
 
 
 def _estimate_ff5_factors(period: str = "1y") -> pd.DataFrame:
     """五因子代理估算，保证结果可复现并显式标注为代理值。"""
-    ff3 = _estimate_ff_factors(period)
-    if ff3.empty:
-        return pd.DataFrame()
-
-    market = ff3["Mkt-RF"]
-    short_term = market.rolling(5, min_periods=1).mean()
-    long_term = market.rolling(40, min_periods=1).mean()
-    rmw_proxy = ((long_term - short_term) * 0.35).clip(-0.015, 0.015)
-    cma_proxy = ((short_term - long_term) * 0.25).clip(-0.015, 0.015)
-    df = ff3.copy()
-    df["RMW"] = rmw_proxy
-    df["CMA"] = cma_proxy
-    df.attrs["source"] = {
-        "type": "market_proxy",
-        "label": "五因子代理估算",
-        "is_proxy": True,
-        "warning": "RMW/CMA 采用市场趋势代理构造，结果仅供研究参考。",
-    }
-    return df
+    return estimate_ff5_factors_support(period, logger)
 
 
 def _period_to_days(period: str) -> int:
     """将 period 字符串转换为天数"""
-    mapping = {"6mo": 180, "1y": 365, "2y": 730, "3y": 1095, "5y": 1825}
-    return mapping.get(period, 365)
+    return period_to_days(period)
 
 
 class AssetPricingEngine:
@@ -178,6 +72,8 @@ class AssetPricingEngine:
     """
 
     def __init__(self):
+        from src.data.data_manager import DataManager
+
         self.data_manager = DataManager()
 
     def analyze(self, symbol: str, period: str = "1y") -> Dict[str, Any]:
@@ -195,10 +91,10 @@ class AssetPricingEngine:
             days = _period_to_days(period)
             start = datetime.now() - timedelta(days=days)
             stock_data = self.data_manager.get_historical_data(symbol, start_date=start)
-            stock_data = _normalize_daily_index(stock_data)
+            stock_data = normalize_daily_index(stock_data)
 
             if stock_data.empty or len(stock_data) < 60:
-                return self._empty_result("数据不足，至少需要60个交易日")
+                return empty_asset_pricing_result("数据不足，至少需要60个交易日")
 
             stock_returns = stock_data["close"].pct_change().dropna()
 
@@ -212,8 +108,8 @@ class AssetPricingEngine:
             # 因子归因
             attribution = self._factor_attribution(capm_result, ff3_result)
             ff_factors = _fetch_ff_factors(period)
-            factor_source = self._factor_source_meta(ff_factors)
-            ff5_source = self._factor_source_meta(_fetch_ff5_factors(period))
+            factor_source = factor_source_meta(ff_factors)
+            ff5_source = factor_source_meta(_fetch_ff5_factors(period))
 
             return {
                 "symbol": symbol,
@@ -225,12 +121,12 @@ class AssetPricingEngine:
                 "fama_french": ff3_result,
                 "fama_french_five_factor": ff5_result,
                 "attribution": attribution,
-                "summary": self._generate_summary(capm_result, ff3_result, ff5_result)
+                "summary": generate_factor_summary(capm_result, ff3_result, ff5_result)
             }
 
         except Exception as e:
             logger.error(f"因子模型分析出错 {symbol}: {e}", exc_info=True)
-            return self._empty_result(str(e))
+            return empty_asset_pricing_result(str(e))
 
     def _run_capm(self, stock_returns: pd.Series, period: str) -> Dict[str, Any]:
         """CAPM 回归: R_i - R_f = alpha + beta * (R_m - R_f) + epsilon"""
@@ -259,17 +155,13 @@ class AssetPricingEngine:
             beta = coeffs[1]
 
             # R² 计算
-            y_pred = X_with_const @ coeffs
-            ss_res = np.sum((y.values - y_pred) ** 2)
-            ss_tot = np.sum((y.values - y.values.mean()) ** 2)
-            r_squared = 1 - ss_res / ss_tot if ss_tot > 0 else 0
-            stats_meta = self._ols_statistics(y.values, X_with_const, coeffs)
+            _, residuals, r_squared = safe_regression_metrics(y.values, X_with_const, coeffs)
+            stats_meta = ols_statistics(y.values, X_with_const, coeffs)
 
             # 年化 Alpha
             alpha_annual = alpha_daily * 252
 
             # 残差标准差 (特质风险)
-            residuals = y.values - y_pred
             idiosyncratic_risk = np.std(residuals) * np.sqrt(252)
 
             return {
@@ -287,7 +179,7 @@ class AssetPricingEngine:
                     "beta_p_value": round(float(stats_meta["p_values"][1]), 4),
                 },
                 "residual_diagnostics": stats_meta["residual_diagnostics"],
-                "interpretation": self._interpret_capm(alpha_annual, beta, r_squared)
+                "interpretation": interpret_capm(alpha_annual, beta, r_squared)
             }
 
         except Exception as e:
@@ -324,13 +216,10 @@ class AssetPricingEngine:
             beta_hml = coeffs[3]
 
             # R²
-            y_pred = X_with_const @ coeffs
-            ss_res = np.sum((y.values - y_pred) ** 2)
-            ss_tot = np.sum((y.values - y.values.mean()) ** 2)
-            r_squared = 1 - ss_res / ss_tot if ss_tot > 0 else 0
+            _, _, r_squared = safe_regression_metrics(y.values, X_with_const, coeffs)
 
             alpha_annual = alpha_daily * 252
-            stats_meta = self._ols_statistics(y.values, X_with_const, coeffs)
+            stats_meta = ols_statistics(y.values, X_with_const, coeffs)
 
             return {
                 "alpha_daily": round(float(alpha_daily), 6),
@@ -354,7 +243,7 @@ class AssetPricingEngine:
                     "value_p_value": round(float(stats_meta["p_values"][3]), 4),
                 },
                 "residual_diagnostics": stats_meta["residual_diagnostics"],
-                "interpretation": self._interpret_ff3(alpha_annual, beta_mkt, beta_smb, beta_hml)
+                "interpretation": interpret_ff3(alpha_annual, beta_mkt, beta_smb, beta_hml)
             }
 
         except Exception as e:
@@ -385,12 +274,9 @@ class AssetPricingEngine:
             X = aligned[["mkt_rf", "smb", "hml", "rmw", "cma"]].values
             X_with_const = np.column_stack([np.ones(len(X)), X])
             coeffs = np.linalg.lstsq(X_with_const, y.values, rcond=None)[0]
-            y_pred = X_with_const @ coeffs
-            ss_res = np.sum((y.values - y_pred) ** 2)
-            ss_tot = np.sum((y.values - y.values.mean()) ** 2)
-            r_squared = 1 - ss_res / ss_tot if ss_tot > 0 else 0
+            _, _, r_squared = safe_regression_metrics(y.values, X_with_const, coeffs)
             alpha_annual = coeffs[0] * 252
-            stats_meta = self._ols_statistics(y.values, X_with_const, coeffs)
+            stats_meta = ols_statistics(y.values, X_with_const, coeffs)
 
             return {
                 "alpha_daily": round(float(coeffs[0]), 6),
@@ -411,7 +297,7 @@ class AssetPricingEngine:
                     "investment_p_value": round(float(stats_meta["p_values"][5]), 4),
                 },
                 "residual_diagnostics": stats_meta["residual_diagnostics"],
-                "interpretation": self._interpret_ff5(
+                "interpretation": interpret_ff5(
                     alpha_annual,
                     coeffs[1],
                     coeffs[2],
@@ -469,174 +355,4 @@ class AssetPricingEngine:
                     "label": "价值因子贡献"
                 }
             }
-        }
-
-    def _interpret_capm(self, alpha: float, beta: float, r2: float) -> Dict[str, str]:
-        """CAPM 结果解读"""
-        # Alpha 解读
-        if alpha > 0.05:
-            alpha_desc = "显著正Alpha，说明该股票相对市场有超额收益能力"
-        elif alpha > 0:
-            alpha_desc = "正Alpha，略跑赢市场基准"
-        elif alpha > -0.05:
-            alpha_desc = "负Alpha，略跑输市场基准"
-        else:
-            alpha_desc = "显著负Alpha，持续跑输市场"
-
-        # Beta 解读
-        if beta > 1.5:
-            beta_desc = "高Beta(>1.5)，波动远大于市场，进攻型股票"
-        elif beta > 1:
-            beta_desc = "Beta>1，波动略大于市场，具有一定攻击性"
-        elif beta > 0.5:
-            beta_desc = "Beta在0.5-1之间，波动小于市场，偏防御"
-        else:
-            beta_desc = "低Beta(<0.5)，波动远小于市场，防御型或特殊资产"
-
-        # R² 解读
-        if r2 > 0.7:
-            r2_desc = "R²高，收益主要由市场系统性风险驱动"
-        elif r2 > 0.4:
-            r2_desc = "R²中等，市场因素解释部分收益波动"
-        else:
-            r2_desc = "R²低，收益主要由个股特质因素驱动"
-
-        return {"alpha": alpha_desc, "beta": beta_desc, "r_squared": r2_desc}
-
-    def _interpret_ff3(self, alpha: float, mkt: float, smb: float, hml: float) -> Dict[str, str]:
-        """FF3 结果解读"""
-        interpretations = {}
-
-        # 市场因子
-        if mkt > 1.2:
-            interpretations["market"] = "高市场敏感度，牛市跑赢、熊市跑输"
-        elif mkt < 0.8:
-            interpretations["market"] = "低市场敏感度，受大盘影响较小"
-        else:
-            interpretations["market"] = "市场敏感度适中，基本跟随大盘"
-
-        # 规模因子
-        if smb > 0.3:
-            interpretations["size"] = "偏小盘风格，受小盘股溢价驱动"
-        elif smb < -0.3:
-            interpretations["size"] = "偏大盘风格，体现大盘股特征"
-        else:
-            interpretations["size"] = "规模因子暴露中性"
-
-        # 价值因子
-        if hml > 0.3:
-            interpretations["value"] = "偏价值风格，受高账面市值比因子驱动"
-        elif hml < -0.3:
-            interpretations["value"] = "偏成长风格，表现类似低账面市值比股票"
-        else:
-            interpretations["value"] = "价值/成长风格中性"
-
-        # Alpha
-        if alpha > 0.03:
-            interpretations["alpha"] = "三因子模型下仍有显著正Alpha，存在额外收益来源"
-        elif alpha < -0.03:
-            interpretations["alpha"] = "三因子模型下Alpha为负，风险调整后表现不佳"
-        else:
-            interpretations["alpha"] = "Alpha接近零，收益可被三因子充分解释"
-
-        return interpretations
-
-    def _interpret_ff5(self, alpha: float, mkt: float, smb: float, hml: float, rmw: float, cma: float) -> Dict[str, str]:
-        interpretations = self._interpret_ff3(alpha, mkt, smb, hml)
-        if rmw > 0.2:
-            interpretations["profitability"] = "盈利能力因子暴露为正，更接近高质量/高盈利企业特征"
-        elif rmw < -0.2:
-            interpretations["profitability"] = "盈利能力因子暴露为负，更接近低质量或盈利波动较大的企业"
-        else:
-            interpretations["profitability"] = "盈利能力因子暴露中性"
-
-        if cma > 0.2:
-            interpretations["investment"] = "投资因子暴露为正，更接近保守投资风格"
-        elif cma < -0.2:
-            interpretations["investment"] = "投资因子暴露为负，更接近激进扩张风格"
-        else:
-            interpretations["investment"] = "投资因子暴露中性"
-
-        return interpretations
-
-    def _generate_summary(self, capm: Dict, ff3: Dict, ff5: Optional[Dict[str, Any]] = None) -> str:
-        """生成因子模型分析摘要"""
-        parts = []
-
-        if "error" not in capm:
-            beta = capm.get("beta", 1)
-            alpha_pct = capm.get("alpha_pct", 0)
-            if beta > 1:
-                parts.append(f"Beta={beta:.2f}(高于市场)")
-            else:
-                parts.append(f"Beta={beta:.2f}(低于市场)")
-            parts.append(f"CAPM Alpha={alpha_pct:.1f}%")
-
-        if "error" not in ff3:
-            loadings = ff3.get("factor_loadings", {})
-            if loadings.get("size", 0) > 0.2:
-                parts.append("偏小盘风格")
-            elif loadings.get("size", 0) < -0.2:
-                parts.append("偏大盘风格")
-            if loadings.get("value", 0) > 0.2:
-                parts.append("偏价值风格")
-            elif loadings.get("value", 0) < -0.2:
-                parts.append("偏成长风格")
-            ff3_alpha = ff3.get("alpha_pct", 0)
-            parts.append(f"FF3 Alpha={ff3_alpha:.1f}%")
-
-        if ff5 and "error" not in ff5:
-            loadings = ff5.get("factor_loadings", {})
-            if abs(float(loadings.get("profitability", 0))) > 0.2:
-                parts.append("盈利能力暴露显著")
-            if abs(float(loadings.get("investment", 0))) > 0.2:
-                parts.append("投资风格暴露显著")
-
-        return "，".join(parts) if parts else "因子分析数据不足"
-
-    def _factor_source_meta(self, ff_factors: pd.DataFrame) -> Dict[str, Any]:
-        source = ff_factors.attrs.get("source", {}) if ff_factors is not None else {}
-        return {
-            "type": source.get("type", "unknown"),
-            "label": source.get("label", "来源未知"),
-            "is_proxy": bool(source.get("is_proxy")),
-            "warning": source.get("warning", ""),
-        }
-
-    def _ols_statistics(self, y: np.ndarray, design_matrix: np.ndarray, coeffs: np.ndarray) -> Dict[str, Any]:
-        residuals = y - design_matrix @ coeffs
-        sample_size = len(y)
-        param_count = design_matrix.shape[1]
-        degrees_of_freedom = max(sample_size - param_count, 1)
-        sigma_squared = float(np.sum(residuals ** 2) / degrees_of_freedom)
-
-        xtx_inv = np.linalg.pinv(design_matrix.T @ design_matrix)
-        standard_errors = np.sqrt(np.clip(np.diag(sigma_squared * xtx_inv), a_min=1e-12, a_max=None))
-        t_stats = np.divide(coeffs, standard_errors, out=np.zeros_like(coeffs), where=standard_errors > 0)
-        p_values = 2 * (1 - scipy_stats.t.cdf(np.abs(t_stats), degrees_of_freedom))
-        lagged = residuals[:-1]
-        shifted = residuals[1:]
-        autocorr = float(np.corrcoef(lagged, shifted)[0, 1]) if len(residuals) > 2 and np.std(residuals) > 0 else 0.0
-        durbin_watson = float(np.sum(np.diff(residuals) ** 2) / np.sum(residuals ** 2)) if np.sum(residuals ** 2) > 0 else 0.0
-
-        return {
-            "standard_errors": standard_errors,
-            "t_stats": t_stats,
-            "p_values": p_values,
-            "residual_diagnostics": {
-                "autocorr_lag1": round(autocorr, 4),
-                "durbin_watson": round(durbin_watson, 4),
-            },
-        }
-
-    def _empty_result(self, reason: str) -> Dict[str, Any]:
-        return {
-            "symbol": "",
-            "period": "",
-            "data_points": 0,
-            "capm": {"error": reason},
-            "fama_french": {"error": reason},
-            "fama_french_five_factor": {"error": reason},
-            "attribution": {"error": reason},
-            "summary": reason
         }

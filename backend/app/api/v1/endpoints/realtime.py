@@ -52,6 +52,63 @@ def _compat_subscription_response(action: str, symbols: List[str]) -> dict:
     }
 
 
+def _infer_symbol_category(symbol: str) -> str:
+    normalized = str(symbol or "").strip().upper()
+    if not normalized:
+        return "other"
+    if normalized.startswith("^"):
+        return "index"
+    if normalized.endswith((".SS", ".SZ")):
+        return "cn"
+    if normalized.endswith("-USD"):
+        return "crypto"
+    if normalized.endswith("=F"):
+        return "future"
+    if normalized in {"SPY", "QQQ", "IWM", "DIA", "UVXY", "VXX", "FXI", "EEM", "HYG"}:
+        return "option"
+    if normalized in {"TLT", "IEF", "SHY", "AGG", "BND", "LQD"} or normalized.startswith("^T"):
+        return "bond"
+    if normalized.isalpha() and len(normalized) <= 5:
+        return "us"
+    return "other"
+
+
+def _build_symbol_metadata(symbol: str) -> dict:
+    normalized = realtime_manager._normalize_symbol(symbol)
+    display_name = normalized
+    source = "fallback"
+
+    quote = realtime_manager.get_quote_dict(normalized, use_cache=True) or {}
+    for field in ("short_name", "long_name", "display_name", "name"):
+        value = quote.get(field)
+        if isinstance(value, str) and value.strip():
+            display_name = value.strip()
+            source = quote.get("source") or "quote"
+            break
+
+    if display_name == normalized:
+        try:
+            fundamental = realtime_manager.provider_factory.get_fundamental_data(normalized) or {}
+            company_name = (
+                fundamental.get("company_name")
+                or fundamental.get("name")
+                or fundamental.get("short_name")
+            )
+            if isinstance(company_name, str) and company_name.strip():
+                display_name = company_name.strip()
+                source = fundamental.get("source") or "fundamental"
+        except Exception:
+            pass
+
+    return {
+        "symbol": normalized,
+        "en": display_name,
+        "cn": display_name,
+        "type": _infer_symbol_category(normalized),
+        "source": source,
+    }
+
+
 @router.get("/quote/{symbol}", summary="获取实时报价")
 async def get_quote(symbol: str):
     """获取股票的统一实时报价信息。"""
@@ -84,6 +141,18 @@ async def get_realtime_summary():
         "active_symbols": len(manager.active_connections),
     }
     return {"success": True, "data": summary}
+
+
+@router.get("/metadata", summary="获取实时标的元数据")
+async def get_realtime_metadata(symbols: str):
+    symbol_list = realtime_manager._normalize_symbols(
+        [raw_symbol for raw_symbol in symbols.split(",") if raw_symbol.strip()]
+    )
+    data = {
+        symbol: _build_symbol_metadata(symbol)
+        for symbol in symbol_list
+    }
+    return {"success": True, "data": data}
 
 
 def _resolve_realtime_profile(request: Request) -> str:

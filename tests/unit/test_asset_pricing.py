@@ -6,6 +6,7 @@
 import pytest
 import numpy as np
 import pandas as pd
+import warnings
 from unittest.mock import patch, MagicMock
 from datetime import datetime, timedelta
 
@@ -155,6 +156,38 @@ class TestAssetPricingEngine:
         assert "error" not in result["capm"], result["capm"].get("error")
         assert "error" not in result["fama_french"], result["fama_french"].get("error")
         assert "error" not in result["fama_french_five_factor"], result["fama_french_five_factor"].get("error")
+
+    @patch("src.analytics.asset_pricing._fetch_ff_factors")
+    @patch("src.analytics.asset_pricing._fetch_ff5_factors")
+    @patch("src.data.data_manager.DataManager.get_historical_data")
+    def test_factor_analysis_avoids_runtime_warnings(self, mock_get_data, mock_ff5, mock_ff):
+        """测试因子分析主路径不会触发 runtime warning 噪音"""
+        from src.analytics.asset_pricing import AssetPricingEngine
+
+        days = 200
+        dates = pd.date_range(start="2024-01-01", periods=days)
+        close_prices = 100 + np.cumsum(np.random.normal(0.1, 1, days))
+        mock_get_data.return_value = pd.DataFrame({
+            "open": close_prices * 0.99,
+            "high": close_prices * 1.01,
+            "low": close_prices * 0.98,
+            "close": close_prices,
+            "volume": np.random.randint(1000000, 5000000, days)
+        }, index=dates)
+        mock_ff.return_value = self._make_mock_ff_factors(days)
+        ff5 = self._make_mock_ff_factors(days)
+        ff5["RMW"] = np.random.normal(0.0001, 0.004, days)
+        ff5["CMA"] = np.random.normal(0.0001, 0.004, days)
+        mock_ff5.return_value = ff5
+
+        engine = AssetPricingEngine()
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always")
+            result = engine.analyze("TEST", "1y")
+
+        runtime_warnings = [item for item in captured if issubclass(item.category, RuntimeWarning)]
+        assert not runtime_warnings, [str(item.message) for item in runtime_warnings]
+        assert "error" not in result["capm"], result["capm"].get("error")
 
     @patch("src.data.data_manager.DataManager.get_historical_data")
     def test_insufficient_data(self, mock_get_data):

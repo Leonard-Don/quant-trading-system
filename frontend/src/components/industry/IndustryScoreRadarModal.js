@@ -4,6 +4,18 @@ import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Responsi
 import { clampNumeric, formatIndustryAlertMoneyFlow, getIndustryScoreTone } from './industryShared';
 
 const buildRadarData = (record, snapshot) => {
+    if (Array.isArray(record?.score_breakdown) && record.score_breakdown.length > 0) {
+        return record.score_breakdown.map((item) => ({
+            dimension: item.dimension,
+            value: Number(item.value || 0),
+            fullMark: 100,
+            weight: Number(item.weight || 0),
+            metric: item.metric,
+            metricLabel: item.metric_label,
+            source: 'backend',
+        }));
+    }
+
     if (!record && !snapshot) {
         return [];
     }
@@ -120,6 +132,11 @@ const IndustryScoreRadarModal = ({
                                     {item.dimension} {item.value}
                                 </Tag>
                             ))}
+                        {radarData.some((item) => item.source === 'backend') && (
+                            <Tag color="blue" style={{ margin: 0, borderRadius: 999 }}>
+                                使用后端统一评分口径
+                            </Tag>
+                        )}
                     </div>
                 </>
             )}

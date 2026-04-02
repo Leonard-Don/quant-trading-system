@@ -1,4 +1,5 @@
 from datetime import datetime
+import time
 
 from src.data.realtime_manager import RealTimeDataManager
 
@@ -258,3 +259,20 @@ def test_market_summary_exposes_cache_runtime_stats():
     assert any(item["field"] == "price" and item["coverage_ratio"] == 1.0 for item in summary["quality"]["field_coverage"])
     assert any(item["field"] == "bid" and item["missing"] == 1 for item in summary["quality"]["field_coverage"])
     assert summary["quality"]["most_incomplete_symbols"][0]["symbol"] == "MSFT"
+
+
+def test_provider_health_opens_short_circuit_after_repeated_failures():
+    manager = RealTimeDataManager()
+
+    try:
+        manager._mark_provider_failure("failing", "boom")
+        manager._mark_provider_failure("failing", "boom")
+        manager._mark_provider_failure("failing", "boom")
+        manager._mark_provider_success("healthy")
+        summary = manager.get_market_summary()
+    finally:
+        manager.cleanup()
+
+    assert summary["provider_health"]["failing"]["consecutive_failures"] == 3
+    assert summary["provider_health"]["failing"]["circuit_open_until"] > time.time()
+    assert summary["provider_health"]["healthy"]["successes"] == 1
