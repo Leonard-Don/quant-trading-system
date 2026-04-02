@@ -32,7 +32,19 @@
 
 > 当前不提供公开在线 Demo。请在本地同时启动后端和前端后体验完整功能。
 
-![产品预览](docs/screenshots/product-tour-v2.png)
+<div align="center">
+  <img src="docs/screenshots/product-tour-v2.png" alt="产品预览" />
+  <br />
+  <sub>静态总览 · 聚合宏观研究、实时行情、行业热图、定价分析与研究工作台的核心界面</sub>
+</div>
+
+<br />
+
+<div align="center">
+  <img src="docs/screenshots/product-tour.gif" alt="产品动态演示" width="880" />
+  <br />
+  <sub>动态演示 · 本地启动后的主要页面流转与交互预览</sub>
+</div>
 
 ### 30 秒体验
 
