@@ -172,9 +172,6 @@ class LeaderStockScorer:
             "source": quote.get("source", "unknown"),
             "updated_at": updated_at,
         }
-        self._cache: Dict[str, Any] = {}
-        self._cache_time: Optional[datetime] = None
-        self._cache_ttl = timedelta(minutes=60)  # 财务数据缓存1小时
         
     def set_provider(self, provider):
         """设置数据提供器"""
@@ -797,7 +794,80 @@ class LeaderStockScorer:
         historical_returns: pd.DataFrame,
         target: str
     ) -> float:
-        """评估权重组合的表现（需要实际回测实现）"""
-        # 简化实现：返回随机分数
-        # 实际应用中需要基于历史数据进行回测
-        return np.random.random()
+        """基于历史因子与未来收益评估权重组合表现。"""
+        if historical_returns is None or historical_returns.empty:
+            return float("-inf")
+
+        df = historical_returns.copy()
+        candidate_target_cols = [
+            target,
+            "forward_return",
+            "future_return",
+            "next_return",
+            "total_return",
+            "return",
+        ]
+        target_col = next((column for column in candidate_target_cols if column in df.columns), None)
+        if not target_col:
+            return float("-inf")
+
+        factor_aliases = {
+            "market_cap": ["market_cap", "market_cap_score"],
+            "roe": ["roe", "profitability", "profitability_score"],
+            "revenue_growth": ["revenue_growth", "growth", "growth_score"],
+            "profit_growth": ["profit_growth", "momentum", "momentum_score"],
+            "volatility": ["volatility", "volatility_score"],
+            "liquidity": ["liquidity", "activity", "activity_score"],
+        }
+
+        score = pd.Series(0.0, index=df.index, dtype=float)
+        used_factor = False
+
+        for weight_key, weight in weights.items():
+            factor_col = next((column for column in factor_aliases.get(weight_key, []) if column in df.columns), None)
+            if not factor_col:
+                continue
+            factor_values = pd.to_numeric(df[factor_col], errors="coerce")
+            if factor_values.dropna().empty:
+                continue
+            mean = factor_values.mean()
+            std = factor_values.std(ddof=0) or 1.0
+            standardized = ((factor_values - mean) / std).fillna(0.0)
+            score += standardized * float(weight)
+            used_factor = True
+
+        if not used_factor:
+            return float("-inf")
+
+        target_values = pd.to_numeric(df[target_col], errors="coerce").fillna(0.0)
+        score_df = pd.DataFrame({
+            "score": score,
+            "target": target_values,
+            "date": df["date"] if "date" in df.columns else "all",
+        })
+
+        bucket_returns = []
+        for _, group in score_df.groupby("date"):
+            if group.empty:
+                continue
+            threshold = group["score"].quantile(0.8)
+            selected = group[group["score"] >= threshold]
+            if selected.empty:
+                continue
+            bucket_returns.append(float(selected["target"].mean()))
+
+        if not bucket_returns:
+            return float("-inf")
+
+        returns = pd.Series(bucket_returns, dtype=float)
+        mean_return = float(returns.mean())
+        std_return = float(returns.std(ddof=0) or 0.0)
+        equity_curve = (1 + returns).cumprod()
+        running_peak = equity_curve.cummax()
+        drawdown = ((equity_curve / running_peak) - 1).min() if not equity_curve.empty else 0.0
+
+        if target == "sharpe":
+            return mean_return / std_return if std_return > 0 else float("-inf")
+        if target == "max_drawdown":
+            return -float(drawdown)
+        return mean_return

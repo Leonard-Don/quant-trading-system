@@ -1,7 +1,21 @@
 import React from 'react';
 import { Modal, Spin, Empty, Tag, Row, Col, Progress, Button, Tooltip } from 'antd';
 import { ReloadOutlined, StarFilled } from '@ant-design/icons';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer } from 'recharts';
+import {
+    LineChart,
+    Line,
+    XAxis,
+    YAxis,
+    CartesianGrid,
+    Tooltip as RechartsTooltip,
+    ResponsiveContainer,
+    RadarChart,
+    Radar,
+    PolarGrid,
+    PolarAngleAxis,
+    PolarRadiusAxis,
+    Legend,
+} from 'recharts';
 
 const DETAIL_MODAL_BODY_BG = 'linear-gradient(180deg, color-mix(in srgb, var(--bg-primary) 88%, #ffffff 12%) 0%, var(--bg-primary) 140px)';
 const DETAIL_HERO_BG = 'linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 18%, var(--bg-secondary) 82%) 0%, color-mix(in srgb, var(--accent-secondary) 16%, var(--bg-secondary) 84%) 100%)';
@@ -10,6 +24,35 @@ const DETAIL_HERO_SHADOW = '0 10px 30px rgba(15, 23, 42, 0.14)';
 const DETAIL_HERO_TEXT = 'var(--text-primary)';
 const DETAIL_HERO_MUTED = 'var(--text-secondary)';
 const DETAIL_HERO_SUBTLE = 'var(--text-muted)';
+
+const buildPeerRadarData = (scores, recommendationContext) => {
+    if (!scores || !recommendationContext?.industryDimensionAverages) {
+        return [];
+    }
+
+    const isSurge = scores.score_type === 'hot' || scores.score_type === 'surge';
+    const dimensions = [
+        { key: 'market_cap', label: '规模' },
+        { key: 'valuation', label: '估值' },
+        { key: 'profitability', label: '盈利' },
+        { key: 'growth', label: '成长' },
+        { key: 'momentum', label: isSurge ? '动量' : '价格' },
+        ...(isSurge ? [{ key: 'money_flow', label: '资金' }] : []),
+        { key: 'activity', label: '活跃' },
+    ];
+
+    return dimensions.map((dimension) => {
+        const selfValue = Number(scores?.[dimension.key] || 0);
+        const industryValue = Number(recommendationContext?.industryDimensionAverages?.[dimension.key] || 0);
+        const marketValue = Number(recommendationContext?.marketDimensionAverages?.[dimension.key] || 0);
+        return {
+            dimension: dimension.label,
+            current: Math.round((selfValue <= 1 ? selfValue * 100 : selfValue) || 0),
+            industry: Math.round((industryValue <= 1 ? industryValue * 100 : industryValue) || 0),
+            market: Math.round((marketValue <= 1 ? marketValue * 100 : marketValue) || 0),
+        };
+    });
+};
 
 const renderDimensionScores = (scores) => {
     if (!scores) return null;
@@ -258,6 +301,37 @@ const renderRecommendationSection = (recommendationContext) => {
     );
 };
 
+const renderPeerRadarSection = (scores, recommendationContext) => {
+    const radarData = buildPeerRadarData(scores, recommendationContext);
+    if (radarData.length === 0) {
+        return null;
+    }
+
+    return renderDetailSection(
+        '同业对比雷达',
+        recommendationContext?.industryName
+            ? `对比 ${recommendationContext.industryName} 龙头均值与当前榜单均值`
+            : '对比同口径龙头均值',
+        '#13c2c2',
+        (
+            <div data-testid="stock-peer-radar">
+                <ResponsiveContainer width="100%" height={280}>
+                    <RadarChart data={radarData} outerRadius="70%">
+                        <PolarGrid stroke="var(--border-color)" />
+                        <PolarAngleAxis dataKey="dimension" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} />
+                        <PolarRadiusAxis domain={[0, 100]} tick={{ fill: 'var(--text-muted)', fontSize: 10 }} />
+                        <Radar name="当前个股" dataKey="current" stroke="#f5222d" fill="#f5222d" fillOpacity={0.18} strokeWidth={2} />
+                        <Radar name="行业均值" dataKey="industry" stroke="#1890ff" fill="#1890ff" fillOpacity={0.12} strokeWidth={2} />
+                        <Radar name="全榜均值" dataKey="market" stroke="#52c41a" fill="#52c41a" fillOpacity={0.08} strokeWidth={2} />
+                        <Legend />
+                        <RechartsTooltip formatter={(value, name) => [`${Number(value || 0).toFixed(0)}分`, name]} />
+                    </RadarChart>
+                </ResponsiveContainer>
+            </div>
+        )
+    );
+};
+
 const formatMetricNumber = (value, digits = 2, fallback = '-') => {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
         return fallback;
@@ -423,6 +497,7 @@ const StockDetailModal = ({
                 </div>
 
                 {renderRecommendationSection(recommendationContext)}
+                {renderPeerRadarSection(detailData.dimension_scores, recommendationContext)}
 
                 {detailData.raw_data && (
                     renderDetailSection('实时快照', '当前报价与盘口摘要', '#fa8c16', (

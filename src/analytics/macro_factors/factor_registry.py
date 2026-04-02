@@ -9,6 +9,9 @@ from typing import Dict, Iterable, List, Optional
 from .base_factor import MacroFactor
 from .baseload_mismatch import BaseloadMismatchFactor
 from .bureaucratic_friction import BureaucraticFrictionFactor
+from .credit_spread_stress import CreditSpreadStressFactor
+from .fx_mismatch import FXMismatchFactor
+from .rate_curve_pressure import RateCurvePressureFactor
 from .tech_dilution import TechDilutionFactor
 
 
@@ -39,5 +42,8 @@ def build_default_registry() -> FactorRegistry:
             BureaucraticFrictionFactor(),
             TechDilutionFactor(),
             BaseloadMismatchFactor(),
+            RateCurvePressureFactor(),
+            CreditSpreadStressFactor(),
+            FXMismatchFactor(),
         ]
     )

@@ -122,4 +122,12 @@ describe('tradeWebSocketService', () => {
     expect(tradeWebSocketService.getReconnectDelay(3)).toBe(8000);
     expect(tradeWebSocketService.getReconnectDelay(4)).toBe(16000);
   });
+
+  test('appends the realtime websocket token for trade streams when configured', () => {
+    process.env.REACT_APP_REALTIME_WS_TOKEN = 'secret-token';
+
+    expect(tradeWebSocketService.getWebSocketUrl()).toContain('token=secret-token');
+
+    delete process.env.REACT_APP_REALTIME_WS_TOKEN;
+  });
 });

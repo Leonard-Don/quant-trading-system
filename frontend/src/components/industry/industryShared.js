@@ -17,6 +17,19 @@ export const INDUSTRY_ALERT_KIND_OPTIONS = [
 export const INDUSTRY_ALERT_DESKTOP_STORAGE_KEY = 'industry_alert_desktop_notifications_v1';
 export const INDUSTRY_WATCHLIST_STORAGE_KEY = 'industry_watchlist_v1';
 export const INDUSTRY_SAVED_VIEWS_STORAGE_KEY = 'industry_saved_views_v1';
+export const DEFAULT_INDUSTRY_ALERT_THRESHOLDS = {
+    resonance_score: 80,
+    resonance_change_pct: 2,
+    resonance_money_flow_yi: 0,
+    capital_inflow_yi: 8,
+    capital_inflow_change_pct: 0.5,
+    risk_release_outflow_yi: 8,
+    risk_release_change_pct: -1,
+    high_volatility_threshold: 4.5,
+    high_volatility_change_pct: 2,
+    rotation_turnover_threshold: 3.5,
+    rotation_change_pct: 1,
+};
 
 export const formatIndustryAlertMoneyFlow = (value) => {
     const numericValue = Number(value || 0);

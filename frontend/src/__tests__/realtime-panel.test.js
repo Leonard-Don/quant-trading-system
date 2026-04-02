@@ -1172,6 +1172,49 @@ describe('RealTimePanel', () => {
     expect(clipboardWriteText.mock.calls[0][0]).toContain('^GSPC: 价格 5123.45');
   });
 
+  test('exports versioned review snapshot JSON payloads', async () => {
+    window.localStorage.setItem(REVIEW_SNAPSHOT_STORAGE_KEY, JSON.stringify([
+      {
+        id: 'snapshot-export',
+        version: 2,
+        createdAt: '2026-03-27T12:00:00.000Z',
+        activeTab: 'index',
+        activeTabLabel: '指数',
+        spotlightSymbol: '^GSPC',
+        spotlightName: '标普500',
+        transportModeLabel: 'WebSocket 实时',
+        watchedSymbols: ['^GSPC'],
+        loadedCount: 1,
+        totalCount: 6,
+        anomalyCount: 0,
+        anomalies: [],
+        freshnessSummary: { fresh: 1, aging: 0, delayed: 0, pending: 0 },
+      },
+    ]));
+
+    await renderRealtimePanel();
+
+    fireEvent.click(screen.getByRole('button', { name: '展开复盘快照' }));
+    fireEvent.click(screen.getByRole('button', { name: '导出 JSON' }));
+
+    await waitFor(() => {
+      expect(clipboardWriteText).toHaveBeenCalled();
+    });
+    expect(clipboardWriteText.mock.calls[0][0]).toContain('"version": 1');
+    expect(clipboardWriteText.mock.calls[0][0]).toContain('"review_snapshots"');
+    expect(clipboardWriteText.mock.calls[0][0]).toContain('"timeline_events"');
+  });
+
+  test('toggles the diagnostics panel visibility', async () => {
+    await renderRealtimePanel();
+
+    expect(screen.getByText('开发诊断')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '隐藏诊断' }));
+    expect(screen.queryByText('开发诊断')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '显示诊断' }));
+    expect(screen.getByText('开发诊断')).toBeInTheDocument();
+  });
+
   test('opens a visual share card for a saved review snapshot', async () => {
     window.localStorage.setItem(REVIEW_SNAPSHOT_STORAGE_KEY, JSON.stringify([
       {

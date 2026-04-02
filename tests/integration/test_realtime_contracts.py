@@ -97,6 +97,22 @@ def test_realtime_summary_endpoint_returns_cache_and_websocket_stats(client):
     get_market_summary.assert_called_once_with()
 
 
+def test_realtime_metadata_endpoint_returns_dynamic_symbol_payload(client):
+    with patch.object(realtime_manager, "get_quote_dict", return_value={"symbol": "AAPL", "source": "test"}), \
+         patch.object(realtime_manager.provider_factory, "get_fundamental_data", return_value={
+             "company_name": "Apple Inc.",
+             "source": "fundamental",
+         }):
+        response = client.get("/realtime/metadata?symbols=AAPL,BTC-USD")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["data"]["AAPL"]["en"] == "Apple Inc."
+    assert payload["data"]["AAPL"]["type"] == "us"
+    assert payload["data"]["BTC-USD"]["type"] == "crypto"
+
+
 def test_realtime_compat_subscription_endpoints(client):
     subscribe_response = client.post("/realtime/subscribe", json={"symbols": ["aapl", "msft"]})
     unsubscribe_response = client.post("/realtime/unsubscribe", json={"symbol": "aapl"})

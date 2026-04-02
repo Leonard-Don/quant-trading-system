@@ -1,8 +1,12 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Button, Space, Tabs, Typography, Tag } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, BellOutlined, DollarOutlined } from '@ant-design/icons';
 
 const { Text } = Typography;
+const VIRTUALIZATION_THRESHOLD = 50;
+const VIRTUAL_LIST_HEIGHT = 920;
+const VIRTUAL_LIST_ITEM_HEIGHT = 246;
+const VIRTUAL_LIST_OVERSCAN = 4;
 
 const RealtimeQuoteBoard = ({
   EMPTY_NUMERIC_TEXT,
@@ -47,6 +51,26 @@ const RealtimeQuoteBoard = ({
   getSymbolsByCategory,
   quoteSortOptions,
 }) => {
+  const [virtualScrollByTab, setVirtualScrollByTab] = useState({});
+
+  useEffect(() => {
+    setVirtualScrollByTab({});
+  }, [activeTab, quoteSortMode, quoteViewMode]);
+
+  const getVirtualRange = useMemo(() => (symbols) => {
+    const scrollTop = virtualScrollByTab[activeTab] || 0;
+    const startIndex = Math.max(0, Math.floor(scrollTop / VIRTUAL_LIST_ITEM_HEIGHT) - VIRTUAL_LIST_OVERSCAN);
+    const visibleCount = Math.ceil(VIRTUAL_LIST_HEIGHT / VIRTUAL_LIST_ITEM_HEIGHT) + VIRTUAL_LIST_OVERSCAN * 2;
+    const endIndex = Math.min(symbols.length, startIndex + visibleCount);
+    return {
+      startIndex,
+      endIndex,
+      offsetY: startIndex * VIRTUAL_LIST_ITEM_HEIGHT,
+      totalHeight: symbols.length * VIRTUAL_LIST_ITEM_HEIGHT,
+      visibleSymbols: symbols.slice(startIndex, endIndex),
+    };
+  }, [activeTab, virtualScrollByTab]);
+
   const renderQuoteCard = (symbol, quote) => {
     const hasChange = hasNumericValue(quote.change);
     const isListMode = quoteViewMode === 'list';
@@ -277,6 +301,8 @@ const RealtimeQuoteBoard = ({
     const symbols = getSymbolsByCategory(key);
     const sortedSymbols = sortSymbolsForDisplay(symbols);
     const manuallyMovedCount = symbols.filter((symbol) => resolveSymbolCategory(symbol) !== inferSymbolCategory(symbol)).length;
+    const shouldVirtualizeList = quoteViewMode === 'list' && sortedSymbols.length > VIRTUALIZATION_THRESHOLD;
+    const virtualRange = shouldVirtualizeList ? getVirtualRange(sortedSymbols) : null;
     return {
       key,
       label: (
@@ -292,6 +318,34 @@ const RealtimeQuoteBoard = ({
       children: symbols.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '56px 20px' }}>
           <Text type="secondary">暂无{label}数据，请添加</Text>
+        </div>
+      ) : shouldVirtualizeList ? (
+        <div
+          className="realtime-quote-grid realtime-quote-grid--list"
+          style={{ height: VIRTUAL_LIST_HEIGHT, overflowY: 'auto' }}
+          onScroll={(event) => {
+            const nextScrollTop = event.currentTarget.scrollTop;
+            setVirtualScrollByTab((prev) => ({ ...prev, [key]: nextScrollTop }));
+          }}
+        >
+          <div style={{ height: virtualRange.totalHeight, position: 'relative' }}>
+            <div style={{ transform: `translateY(${virtualRange.offsetY}px)` }}>
+              {virtualRange.visibleSymbols.map((symbol) => {
+                const quote = quotes[symbol];
+                return quote ? renderQuoteCard(symbol, quote) : (
+                  <Card
+                    key={symbol}
+                    loading
+                    style={{
+                      minHeight: 220,
+                      borderRadius: 22,
+                      border: '1px solid var(--border-color)',
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
         </div>
       ) : (
         <div className={`realtime-quote-grid realtime-quote-grid--${quoteViewMode}`}>

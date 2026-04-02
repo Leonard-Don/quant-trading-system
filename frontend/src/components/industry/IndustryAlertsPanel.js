@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Tag, Space, Radio, Select, Checkbox, Button, Row, Col, Empty } from 'antd';
+import { Card, Tag, Space, Radio, Select, Checkbox, Button, Row, Col, Empty, InputNumber } from 'antd';
 import { NotificationOutlined, StarFilled, BranchesOutlined } from '@ant-design/icons';
 
 const { Option } = Select;
@@ -18,6 +18,8 @@ const IndustryAlertsPanel = ({
     industryAlertKindOptions,
     industryAlertRecencyOptions,
     setIndustryAlertSubscription,
+    industryAlertThresholds,
+    setIndustryAlertThresholds,
     requestDesktopAlertPermission,
     toggleWatchlistIndustry,
     watchlistIndustries,
@@ -102,6 +104,112 @@ const IndustryAlertsPanel = ({
                         {desktopAlertNotifications ? '重检通知权限' : '开启桌面通知'}
                     </Button>
                 </Space>
+            </div>
+
+            <div
+                style={{
+                    marginBottom: 12,
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    background: 'rgba(255,255,255,0.56)',
+                    border: '1px dashed color-mix(in srgb, var(--border-color) 82%, transparent 18%)',
+                }}
+                data-testid="industry-alert-thresholds-panel"
+            >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.04em' }}>提醒阈值</span>
+                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>按自己的研究节奏调节提醒门槛，设置会自动保存。</span>
+                </div>
+                <Row gutter={[10, 10]}>
+                    <Col xs={12} md={8} lg={4}>
+                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>强势共振分数</span>
+                        <InputNumber
+                            size="small"
+                            min={50}
+                            max={100}
+                            value={industryAlertThresholds.resonance_score}
+                            style={{ width: '100%' }}
+                            onChange={(value) => setIndustryAlertThresholds((current) => ({
+                                ...current,
+                                resonance_score: Number(value || 0),
+                            }))}
+                        />
+                    </Col>
+                    <Col xs={12} md={8} lg={4}>
+                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>资金突入阈值(亿)</span>
+                        <InputNumber
+                            size="small"
+                            min={1}
+                            max={50}
+                            value={Number(industryAlertThresholds.capital_inflow_yi || 0)}
+                            style={{ width: '100%' }}
+                            onChange={(value) => setIndustryAlertThresholds((current) => ({
+                                ...current,
+                                capital_inflow_yi: Number(value || 0),
+                            }))}
+                        />
+                    </Col>
+                    <Col xs={12} md={8} lg={4}>
+                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>风险释放阈值(亿)</span>
+                        <InputNumber
+                            size="small"
+                            min={1}
+                            max={50}
+                            value={Number(industryAlertThresholds.risk_release_outflow_yi || 0)}
+                            style={{ width: '100%' }}
+                            onChange={(value) => setIndustryAlertThresholds((current) => ({
+                                ...current,
+                                risk_release_outflow_yi: Number(value || 0),
+                            }))}
+                        />
+                    </Col>
+                    <Col xs={12} md={8} lg={4}>
+                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>高波动阈值(%)</span>
+                        <InputNumber
+                            size="small"
+                            min={1}
+                            max={10}
+                            step={0.1}
+                            value={Number(industryAlertThresholds.high_volatility_threshold || 0)}
+                            style={{ width: '100%' }}
+                            onChange={(value) => setIndustryAlertThresholds((current) => ({
+                                ...current,
+                                high_volatility_threshold: Number(value || 0),
+                            }))}
+                        />
+                    </Col>
+                    <Col xs={12} md={8} lg={4}>
+                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>轮动换手阈值(%)</span>
+                        <InputNumber
+                            size="small"
+                            min={1}
+                            max={10}
+                            step={0.1}
+                            value={Number(industryAlertThresholds.rotation_turnover_threshold || 0)}
+                            style={{ width: '100%' }}
+                            onChange={(value) => setIndustryAlertThresholds((current) => ({
+                                ...current,
+                                rotation_turnover_threshold: Number(value || 0),
+                            }))}
+                        />
+                    </Col>
+                    <Col xs={12} md={8} lg={4}>
+                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>价格确认阈值(%)</span>
+                        <InputNumber
+                            size="small"
+                            min={0}
+                            max={10}
+                            step={0.1}
+                            value={Number(industryAlertThresholds.capital_inflow_change_pct || 0)}
+                            style={{ width: '100%' }}
+                            onChange={(value) => setIndustryAlertThresholds((current) => ({
+                                ...current,
+                                capital_inflow_change_pct: Number(value || 0),
+                                risk_release_change_pct: Number(value || 0),
+                            }))}
+                        />
+                    </Col>
+                </Row>
             </div>
 
             {industryAlertsWithSeverity.length > 0 ? (

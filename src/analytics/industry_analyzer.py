@@ -5,19 +5,48 @@
 
 import pandas as pd
 import numpy as np
+import json
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 from src.analytics.industry_stock_details import (
     build_enriched_industry_stocks,
     extract_stock_detail_fields,
     has_meaningful_numeric,
 )
+from src.utils.config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
+_TREND_ALIAS_CACHE: Optional[Dict[str, str]] = None
+
+
+def _load_trend_aliases() -> Dict[str, str]:
+    global _TREND_ALIAS_CACHE
+    if _TREND_ALIAS_CACHE is not None:
+        return _TREND_ALIAS_CACHE
+
+    alias_file = PROJECT_ROOT / "data" / "industry" / "trend_aliases.json"
+    try:
+        with open(alias_file, "r", encoding="utf-8") as file:
+            payload = json.load(file)
+            if isinstance(payload, dict):
+                _TREND_ALIAS_CACHE = {
+                    str(key).strip(): str(value).strip()
+                    for key, value in payload.items()
+                    if key and value
+                }
+                return _TREND_ALIAS_CACHE
+    except FileNotFoundError:
+        logger.warning("Industry trend alias file not found: %s", alias_file)
+    except Exception as exc:
+        logger.warning("Failed to load industry trend aliases: %s", exc)
+
+    _TREND_ALIAS_CACHE = {}
+    return _TREND_ALIAS_CACHE
 
 
 class IndustryAnalyzer:
@@ -181,6 +210,71 @@ class IndustryAnalyzer:
             return pd.Series(50.0, index=df.index, dtype=float)
 
         return self._scale_rank_score(raw_score)
+
+    def build_rank_score_breakdown(self, record: Dict[str, Any]) -> List[Dict[str, Any]]:
+        if not record:
+            return []
+
+        change_pct = float(record.get("change_pct", record.get("momentum", 0)) or 0)
+        flow_strength = float(record.get("flow_strength", 0) or 0)
+        money_flow = float(record.get("money_flow", record.get("main_net_inflow", 0)) or 0)
+        turnover_rate = float(record.get("turnover_rate", 0) or 0)
+        avg_volume = float(record.get("avg_volume", 0) or 0)
+        industry_volatility = float(record.get("industry_volatility", record.get("industryVolatility", 0)) or 0)
+        total_market_cap = float(record.get("total_market_cap", 0) or 0)
+        score_value = float(record.get("score", record.get("total_score", 0)) or 0)
+
+        volume_source = avg_volume if avg_volume > 0 else turnover_rate
+        return [
+            {
+                "dimension": "价格动量",
+                "key": "momentum",
+                "value": int(round(np.clip((change_pct + 5) / 10 * 100, 0, 100))),
+                "weight": float(self.weights.get("momentum", 0)),
+                "metric": round(change_pct, 2),
+                "metric_label": "涨跌幅%",
+            },
+            {
+                "dimension": "资金承接",
+                "key": "money_flow",
+                "value": int(round(np.clip(50 + flow_strength * 18 + np.clip(money_flow / 1e8, -20, 20), 0, 100))),
+                "weight": float(self.weights.get("money_flow", 0)),
+                "metric": round(money_flow / 1e8, 2),
+                "metric_label": "主力净流入(亿)",
+            },
+            {
+                "dimension": "交易活跃",
+                "key": "volume_change",
+                "value": int(round(np.clip(35 + np.log10(max(volume_source, 1)) * 12 if volume_source > 0 else 35, 0, 100))),
+                "weight": float(self.weights.get("volume_change", 0)),
+                "metric": round(turnover_rate, 2),
+                "metric_label": "换手率%",
+            },
+            {
+                "dimension": "波动稳定",
+                "key": "volatility",
+                "value": int(round(np.clip(95 - abs(industry_volatility - 2.5) * 16 if industry_volatility > 0 else 48, 0, 100))),
+                "weight": abs(float(self.weights.get("volatility", 0))),
+                "metric": round(industry_volatility, 2),
+                "metric_label": "波动率%",
+            },
+            {
+                "dimension": "板块体量",
+                "key": "scale",
+                "value": int(round(np.clip(30 + np.log10(max(total_market_cap / 1e8, 1)) * 16 if total_market_cap > 0 else 35, 0, 100))),
+                "weight": 0.0,
+                "metric": round(total_market_cap / 1e8, 2),
+                "metric_label": "总市值(亿)",
+            },
+            {
+                "dimension": "综合得分",
+                "key": "total_score",
+                "value": int(round(np.clip(score_value, 0, 100))),
+                "weight": 1.0,
+                "metric": round(score_value, 2),
+                "metric_label": "评分",
+            },
+        ]
 
     @staticmethod
     def _weighted_std(values: np.ndarray, weights: np.ndarray) -> float:
@@ -731,23 +825,7 @@ class IndustryAnalyzer:
 
         try:
             normalized_name = str(industry_name or "").strip()
-            trend_aliases = {
-                "半导体": "电子",
-                "半导体及元件": "电子",
-                "消费电子": "电子",
-                "光学光电子": "电子",
-                "元件": "电子",
-                "软件开发": "计算机",
-                "计算机应用": "计算机",
-                "计算机设备": "计算机",
-                "通信设备": "通信",
-                "白色家电": "家用电器",
-                "小家电": "家用电器",
-                "饮料制造": "食品饮料",
-                "食品加工制造": "食品饮料",
-                "证券": "非银金融",
-                "保险": "非银金融",
-            }
+            trend_aliases = _load_trend_aliases()
 
             def resolve_industry_code() -> str:
                 candidate_frames = []
@@ -1028,9 +1106,17 @@ class IndustryAnalyzer:
         # 获取动量数据
         momentum_df = self.calculate_industry_momentum()
         
-        if momentum_df.empty or len(momentum_df) < n_clusters:
+        if momentum_df.empty or len(momentum_df) < 3:
             logger.warning("Not enough data for clustering")
-            return {"clusters": {}, "hot_cluster": -1, "cluster_stats": {}, "points": []}
+            return {
+                "clusters": {},
+                "hot_cluster": -1,
+                "cluster_stats": {},
+                "points": [],
+                "selected_cluster_count": 0,
+                "silhouette_score": None,
+                "cluster_candidates": {},
+            }
         
         # 获取资金流向数据
         money_flow_df = self.analyze_money_flow()
@@ -1078,13 +1164,35 @@ class IndustryAnalyzer:
         scaler = StandardScaler()
         features_scaled = scaler.fit_transform(features)
         
+        min_clusters = max(2, min(int(n_clusters or 4), len(merged_df) - 1))
+        max_clusters = min(max(min_clusters, int(n_clusters or 4) + 2), max(2, len(merged_df) - 1), 8)
+        selected_clusters = min_clusters
+        selected_silhouette = None
+        cluster_candidates: Dict[int, float] = {}
+
+        if len(merged_df) >= 4:
+            for candidate in range(min_clusters, max_clusters + 1):
+                if candidate >= len(merged_df):
+                    continue
+                candidate_model = KMeans(n_clusters=candidate, random_state=42, n_init=10)
+                labels = candidate_model.fit_predict(features_scaled)
+                if len(set(labels)) < 2:
+                    continue
+                try:
+                    cluster_candidates[candidate] = float(silhouette_score(features_scaled, labels))
+                except Exception:
+                    continue
+
+            if cluster_candidates:
+                selected_clusters, selected_silhouette = max(cluster_candidates.items(), key=lambda item: item[1])
+
         # K-Means 聚类
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+        kmeans = KMeans(n_clusters=selected_clusters, random_state=42, n_init=10)
         merged_df["cluster"] = kmeans.fit_predict(features_scaled)
         
         # 识别热门行业簇（平均动量最高的簇）
         cluster_stats = {}
-        for i in range(n_clusters):
+        for i in range(selected_clusters):
             cluster_data = merged_df[merged_df["cluster"] == i]
             avg_momentum = cluster_data["weighted_change"].mean() if len(cluster_data) > 0 else 0
             avg_flow = cluster_data["flow_strength"].mean() if len(cluster_data) > 0 else 0
@@ -1096,8 +1204,7 @@ class IndustryAnalyzer:
             }
         
         # 找出平均动量最高的簇作为热门簇
-        hot_cluster = max(cluster_stats.keys(), 
-                         key=lambda k: cluster_stats[k]["avg_momentum"])
+        hot_cluster = max(cluster_stats.keys(), key=lambda k: cluster_stats[k]["avg_momentum"])
         
         clean_df = merged_df.replace([np.inf, -np.inf], np.nan).fillna(0)
         points = []
@@ -1121,6 +1228,9 @@ class IndustryAnalyzer:
             "hot_cluster": hot_cluster,
             "cluster_stats": cluster_stats,
             "points": points,
+            "selected_cluster_count": selected_clusters,
+            "silhouette_score": selected_silhouette,
+            "cluster_candidates": cluster_candidates,
         }
     
     def _enrich_stock_counts(self, result: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

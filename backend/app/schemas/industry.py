@@ -22,6 +22,7 @@ class IndustryRankResponse(BaseModel):
     total_market_cap: float = Field(0, description="总市值")
     marketCapSource: str = Field("unknown", description="行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*")
     mini_trend: List[float] = Field(default_factory=list, description="近5日相对走势火花线数据")
+    score_breakdown: List[Dict[str, Any]] = Field(default_factory=list, description="后端统一评分拆解数据")
 
 
 class StockResponse(BaseModel):
@@ -34,6 +35,8 @@ class StockResponse(BaseModel):
     market_cap: Optional[float] = Field(None, description="市值")
     pe_ratio: Optional[float] = Field(None, description="市盈率")
     change_pct: Optional[float] = Field(None, description="涨跌幅")
+    money_flow: Optional[float] = Field(None, description="主力净流入")
+    turnover_rate: Optional[float] = Field(None, description="换手率")
     industry: str = Field("", description="所属行业")
 
 
@@ -172,6 +175,9 @@ class ClusterResponse(BaseModel):
     hot_cluster: int = Field(-1, description="热门簇索引")
     cluster_stats: Dict[int, Dict[str, Any]] = Field(default_factory=dict, description="各簇统计")
     points: List[Dict[str, Any]] = Field(default_factory=list, description="聚类散点数据")
+    selected_cluster_count: int = Field(0, description="自动选择的聚类数")
+    silhouette_score: Optional[float] = Field(None, description="最佳聚类轮廓系数")
+    cluster_candidates: Dict[int, float] = Field(default_factory=dict, description="候选聚类数的轮廓系数")
 
 
 class IndustryRotationResponse(BaseModel):
@@ -180,3 +186,18 @@ class IndustryRotationResponse(BaseModel):
     periods: List[int] = Field(default_factory=list, description="统计周期")
     data: List[Dict[str, Any]] = Field(default_factory=list, description="轮动数据")
     update_time: str = Field(..., description="更新时间")
+
+
+class IndustryStockBuildStatusResponse(BaseModel):
+    industry_name: str = Field(..., description="行业名称")
+    top_n: int = Field(..., description="返回条数")
+    status: str = Field(..., description="构建状态: idle/building/ready/failed")
+    rows: int = Field(0, description="已构建条数")
+    message: Optional[str] = Field(None, description="状态说明")
+    updated_at: str = Field(..., description="状态更新时间")
+
+
+class IndustryPreferencesResponse(BaseModel):
+    watchlist_industries: List[str] = Field(default_factory=list, description="观察列表")
+    saved_views: List[Dict[str, Any]] = Field(default_factory=list, description="保存视图")
+    alert_thresholds: Dict[str, float] = Field(default_factory=dict, description="行业提醒阈值")

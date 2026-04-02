@@ -221,4 +221,12 @@ describe('webSocketService', () => {
       symbols: ['AAPL', 'MSFT'],
     }));
   });
+
+  test('appends the realtime websocket token when configured', () => {
+    process.env.REACT_APP_REALTIME_WS_TOKEN = 'secret-token';
+
+    expect(webSocketService.getWebSocketUrl()).toContain('token=secret-token');
+
+    delete process.env.REACT_APP_REALTIME_WS_TOKEN;
+  });
 });

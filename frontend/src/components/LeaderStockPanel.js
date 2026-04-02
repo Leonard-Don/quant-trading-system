@@ -26,6 +26,14 @@ const averageOf = (items, selector) => {
     return values.reduce((sum, value) => sum + value, 0) / values.length;
 };
 
+const averageDimensionScores = (items, keys) => keys.reduce((result, key) => {
+    const average = averageOf(items, (item) => item?.dimension_scores?.[key]);
+    if (average != null) {
+        result[key] = average;
+    }
+    return result;
+}, {});
+
 const buildLeaderFallbackTrend = (record) => {
     const change = Number(record?.change_pct || 0);
     const cappedChange = Math.max(-8, Math.min(8, change));
@@ -213,6 +221,12 @@ const LeaderStockPanel = ({
         const industryAvgCap = Number(detailIndustryTrend?.total_market_cap || 0) > 0 && Number(detailIndustryTrend?.stock_count || 0) > 0
             ? Number(detailIndustryTrend.total_market_cap) / Number(detailIndustryTrend.stock_count)
             : averageOf(industryPeersExSelf, (item) => item?.market_cap);
+        const dimensionKeys = ['market_cap', 'valuation', 'profitability', 'growth', 'momentum', 'activity'];
+        if (selectedScoreType === 'hot') {
+            dimensionKeys.splice(5, 0, 'money_flow');
+        }
+        const industryDimensionAverages = averageDimensionScores(industryPeersExSelf, dimensionKeys);
+        const marketDimensionAverages = averageDimensionScores(peerPoolExSelf, dimensionKeys);
 
         const reasons = [];
         if (selectedStockRecord.industry_rank === 1) {
@@ -276,6 +290,8 @@ const LeaderStockPanel = ({
             industryAvgScore,
             marketAvgScore,
             industryAvgPe,
+            industryDimensionAverages,
+            marketDimensionAverages,
             reasons: reasons.slice(0, 4),
         };
     }, [activeLeaderPool, detailData, detailIndustryTrend, normalizeIndustry, selectedScoreType, selectedStockRecord]);

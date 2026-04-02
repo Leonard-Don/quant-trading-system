@@ -77,6 +77,7 @@ const IndustryRankingPanel = ({
                         <span style={{ fontSize: 10, color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.04em' }}>排序视图</span>
                         <Select
                             className="ranking-control-sort-by"
+                            data-testid="ranking-control-sort-by"
                             value={sortBy}
                             onChange={onSortByChange}
                             size="small"
@@ -94,6 +95,7 @@ const IndustryRankingPanel = ({
                         </Select>
                         <Select
                             className="ranking-control-lookback"
+                            data-testid="ranking-control-lookback"
                             value={lookbackDays}
                             onChange={onLookbackDaysChange}
                             size="small"
@@ -110,6 +112,7 @@ const IndustryRankingPanel = ({
                         </Select>
                         <Select
                             className="ranking-control-volatility"
+                            data-testid="ranking-control-volatility"
                             value={volatilityFilter}
                             onChange={onVolatilityFilterChange}
                             size="small"
@@ -127,6 +130,7 @@ const IndustryRankingPanel = ({
                         </Select>
                         <Select
                             className="ranking-control-market-cap"
+                            data-testid="ranking-control-market-cap"
                             value={rankingMarketCapFilter}
                             onChange={onRankingMarketCapFilterChange}
                             size="small"
@@ -159,6 +163,7 @@ const IndustryRankingPanel = ({
         >
             {hasActiveRankingState && (
                 <div
+                    data-testid="ranking-state-bar"
                     style={{
                         marginBottom: 12,
                         padding: '10px 14px',
@@ -176,6 +181,8 @@ const IndustryRankingPanel = ({
                                     key={item.key}
                                     color="purple"
                                     closable
+                                    data-testid={`ranking-state-tag-${item.key}`}
+                                    closeIcon={<span data-testid={`ranking-state-tag-close-${item.key}`}>×</span>}
                                     className={`ranking-state-tag-${item.key} industry-state-tag`}
                                     onClick={() => onFocusRankingControl(item.key)}
                                     onClose={(event) => {
@@ -188,7 +195,7 @@ const IndustryRankingPanel = ({
                                 </Tag>
                             ))}
                         </div>
-                        <Button className="industry-reset-button" size="small" type="text" onClick={onResetRankingViewState}>
+                        <Button data-testid="ranking-reset-button" className="industry-reset-button" size="small" type="text" onClick={onResetRankingViewState}>
                             恢复默认榜单
                         </Button>
                     </div>
