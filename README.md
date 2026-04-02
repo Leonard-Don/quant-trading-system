@@ -94,6 +94,14 @@ graph LR
 
 ## 👀 界面预览
 
+<div align="center">
+  <img src="docs/screenshots/github-social-preview-v3.9.0.png" alt="GitHub Social Preview" />
+  <br />
+  <sub>GitHub 仓库分享图 · 聚合实时行情、行业研究、定价分析与研究工作台的核心界面</sub>
+</div>
+
+<br />
+
 <table>
   <tr>
     <td align="center" width="50%">
