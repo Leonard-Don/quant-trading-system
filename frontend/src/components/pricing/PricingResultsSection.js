@@ -7,7 +7,13 @@ import {
   PeerComparisonCard,
   SensitivityAnalysisCard,
 } from './PricingOverviewSections';
-import { DriversCard, ImplicationsCard } from './PricingInsightCards';
+import {
+  DriversCard,
+  ImplicationsCard,
+  MacroMispricingThesisCard,
+  PeopleLayerCard,
+  StructuralDecayCard,
+} from './PricingInsightCards';
 import { FactorModelCard, ValuationCard } from './PricingModelCards';
 
 const PricingResultsSection = ({
@@ -17,6 +23,7 @@ const PricingResultsSection = ({
   gapHistoryLoading,
   handleAnalyze,
   handleInspectScreeningResult,
+  handleOpenMacroMispricingDraft,
   handleRunSensitivity,
   peerComparison,
   peerComparisonError,
@@ -54,6 +61,27 @@ const PricingResultsSection = ({
             factorModel={data.factor_model}
             gapAnalysis={data.gap_analysis}
             onRetry={handleAnalyze}
+          />
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} lg={12}>
+          <PeopleLayerCard
+            data={data.people_layer}
+            overlay={data.people_governance_overlay || data.implications?.people_governance_overlay}
+          />
+        </Col>
+        <Col xs={24} lg={12}>
+          <StructuralDecayCard data={data.structural_decay || data.implications?.structural_decay} />
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24}>
+          <MacroMispricingThesisCard
+            data={data.macro_mispricing_thesis || data.implications?.macro_mispricing_thesis}
+            onOpenDraft={handleOpenMacroMispricingDraft}
           />
         </Col>
       </Row>

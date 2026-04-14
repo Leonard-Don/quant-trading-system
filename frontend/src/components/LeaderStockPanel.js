@@ -6,7 +6,8 @@ import {
     Empty,
     Tag,
     Button,
-    Tooltip
+    Tooltip,
+    Tabs
 } from 'antd';
 import {
     CrownOutlined,
@@ -83,6 +84,7 @@ const LeaderStockPanel = ({
     const [modalVisible, setModalVisible] = useState(false);
     const [selectedStockRecord, setSelectedStockRecord] = useState(null);
     const [detailIndustryTrend, setDetailIndustryTrend] = useState(null);
+    const [activeBoard, setActiveBoard] = useState('core');
 
     // AbortController refs
     const hotLeadersAbortRef = useRef(null);
@@ -295,6 +297,34 @@ const LeaderStockPanel = ({
             reasons: reasons.slice(0, 4),
         };
     }, [activeLeaderPool, detailData, detailIndustryTrend, normalizeIndustry, selectedScoreType, selectedStockRecord]);
+
+    useEffect(() => {
+        if (focusIndustry && focusedCoreLeaders.length === 0 && focusedHotLeaders.length > 0) {
+            setActiveBoard('hot');
+            return;
+        }
+        if (focusIndustry && focusedCoreLeaders.length > 0) {
+            setActiveBoard('core');
+        }
+    }, [focusIndustry, focusedCoreLeaders.length, focusedHotLeaders.length]);
+
+    useEffect(() => {
+        if (focusIndustry) return;
+        if (activeBoard === 'core' && displayedCoreLeaders.length === 0 && !hotLoading && displayedHotLeaders.length > 0) {
+            setActiveBoard('hot');
+            return;
+        }
+        if (activeBoard === 'hot' && displayedHotLeaders.length === 0 && !coreLoading && displayedCoreLeaders.length > 0) {
+            setActiveBoard('core');
+        }
+    }, [
+        activeBoard,
+        coreLoading,
+        displayedCoreLeaders.length,
+        displayedHotLeaders.length,
+        focusIndustry,
+        hotLoading,
+    ]);
 
     // 加载股票详情
     const loadDetail = useCallback(async (symbol, scoreType = 'core', record = null) => {
@@ -648,86 +678,102 @@ const LeaderStockPanel = ({
                     </div>
                 )}
 
-                <div style={{
-                    marginBottom: 18,
-                    padding: '12px 12px 6px',
-                    borderRadius: 12,
-                    background: 'linear-gradient(180deg, rgba(24,144,255,0.05) 0%, rgba(24,144,255,0.015) 100%)',
-                    border: '1px solid rgba(24,144,255,0.10)'
-                }} data-testid="leader-stock-table-core">
-                    {renderSectionHeader(
-                        '核心资产',
-                        focusIndustry && focusedCoreLeaders.length > 0 ? `${focusIndustry} 行业内偏长期基本面与流动性中军` : '偏长期基本面与流动性中军',
-                        '#1890ff',
-                        displayedCoreLeaders.length,
-                        focusIndustry && focusedCoreLeaders.length > 0 ? '行业内综合评分' : '综合评分'
-                    )}
-                    <Table
-                        className="leader-stock-table leader-stock-table-core"
-                        dataSource={displayedCoreLeaders}
-                        columns={columns}
-                        rowKey={getLeaderRowKey}
-                        size="small"
-                        loading={coreLoading}
-                        scroll={{ x: 760 }}
-                        pagination={false}
-                        onRow={(record) => ({
-                            onClick: () => {
-                                if (onStockClick) {
-                                    onStockClick(record.symbol);
-                                    return;
-                                }
-                                loadDetail(record.symbol, resolveScoreType(record), record);
-                            },
-                            style: { cursor: 'pointer' },
-                            'data-testid': 'leader-stock-row',
-                            'data-symbol': record.symbol || '',
-                            'data-score-type': resolveScoreType(record),
-                        })}
-                        style={{ background: 'transparent' }}
-                        locale={{ emptyText: coreLoading ? '正在加载核心资产...' : (focusIndustry ? '当前行业暂无可用核心资产标的' : '当前暂无可用核心资产标的') }}
-                    />
-                </div>
-                
-                <div style={{
-                    padding: '12px 12px 6px',
-                    borderRadius: 12,
-                    background: 'linear-gradient(180deg, rgba(235,47,150,0.05) 0%, rgba(235,47,150,0.015) 100%)',
-                    border: '1px solid rgba(235,47,150,0.10)'
-                }} data-testid="leader-stock-table-hot">
-                    {renderSectionHeader(
-                        '热点先锋',
-                        focusIndustry && focusedHotLeaders.length > 0 ? `${focusIndustry} 行业内偏短线涨势与资金关注度` : '偏短线涨势与资金关注度',
-                        '#eb2f96',
-                        displayedHotLeaders.length,
-                        focusIndustry && focusedHotLeaders.length > 0 ? '行业内动量评分' : '动量评分'
-                    )}
-                    <Table
-                        className="leader-stock-table leader-stock-table-hot"
-                        dataSource={displayedHotLeaders}
-                        columns={columns}
-                        rowKey={getLeaderRowKey}
-                        size="small"
-                        loading={hotLoading}
-                        scroll={{ x: 760 }}
-                        pagination={false}
-                        onRow={(record) => ({
-                            onClick: () => {
-                                if (onStockClick) {
-                                    onStockClick(record.symbol);
-                                    return;
-                                }
-                                loadDetail(record.symbol, resolveScoreType(record), record);
-                            },
-                            style: { cursor: 'pointer' },
-                            'data-testid': 'leader-stock-row',
-                            'data-symbol': record.symbol || '',
-                            'data-score-type': resolveScoreType(record),
-                        })}
-                        style={{ background: 'transparent' }}
-                        locale={{ emptyText: hotLoading ? '正在加载热点先锋...' : (focusIndustry ? '当前行业暂无可用热点先锋标的' : '当前暂无可用热点先锋标的') }}
-                    />
-                </div>
+                <Tabs
+                    activeKey={activeBoard}
+                    onChange={setActiveBoard}
+                    items={[
+                        {
+                            key: 'core',
+                            label: `核心资产 ${displayedCoreLeaders.length}`,
+                            children: (
+                                <div style={{
+                                    padding: '12px 12px 6px',
+                                    borderRadius: 12,
+                                    background: 'linear-gradient(180deg, rgba(24,144,255,0.05) 0%, rgba(24,144,255,0.015) 100%)',
+                                    border: '1px solid rgba(24,144,255,0.10)'
+                                }} data-testid="leader-stock-table-core">
+                                    {renderSectionHeader(
+                                        '核心资产',
+                                        focusIndustry && focusedCoreLeaders.length > 0 ? `${focusIndustry} 行业内偏长期基本面与流动性中军` : '偏长期基本面与流动性中军',
+                                        '#1890ff',
+                                        displayedCoreLeaders.length,
+                                        focusIndustry && focusedCoreLeaders.length > 0 ? '行业内综合评分' : '综合评分'
+                                    )}
+                                    <Table
+                                        className="leader-stock-table leader-stock-table-core"
+                                        dataSource={displayedCoreLeaders}
+                                        columns={columns}
+                                        rowKey={getLeaderRowKey}
+                                        size="small"
+                                        loading={coreLoading}
+                                        scroll={{ x: 760 }}
+                                        pagination={false}
+                                        onRow={(record) => ({
+                                            onClick: () => {
+                                                if (onStockClick) {
+                                                    onStockClick(record.symbol);
+                                                    return;
+                                                }
+                                                loadDetail(record.symbol, resolveScoreType(record), record);
+                                            },
+                                            style: { cursor: 'pointer' },
+                                            'data-testid': 'leader-stock-row',
+                                            'data-symbol': record.symbol || '',
+                                            'data-score-type': resolveScoreType(record),
+                                        })}
+                                        style={{ background: 'transparent' }}
+                                        locale={{ emptyText: coreLoading ? '正在加载核心资产...' : (focusIndustry ? '当前行业暂无可用核心资产标的' : '当前暂无可用核心资产标的') }}
+                                    />
+                                </div>
+                            ),
+                        },
+                        {
+                            key: 'hot',
+                            label: `热点先锋 ${displayedHotLeaders.length}`,
+                            children: (
+                                <div style={{
+                                    padding: '12px 12px 6px',
+                                    borderRadius: 12,
+                                    background: 'linear-gradient(180deg, rgba(235,47,150,0.05) 0%, rgba(235,47,150,0.015) 100%)',
+                                    border: '1px solid rgba(235,47,150,0.10)'
+                                }} data-testid="leader-stock-table-hot">
+                                    {renderSectionHeader(
+                                        '热点先锋',
+                                        focusIndustry && focusedHotLeaders.length > 0 ? `${focusIndustry} 行业内偏短线涨势与资金关注度` : '偏短线涨势与资金关注度',
+                                        '#eb2f96',
+                                        displayedHotLeaders.length,
+                                        focusIndustry && focusedHotLeaders.length > 0 ? '行业内动量评分' : '动量评分'
+                                    )}
+                                    <Table
+                                        className="leader-stock-table leader-stock-table-hot"
+                                        dataSource={displayedHotLeaders}
+                                        columns={columns}
+                                        rowKey={getLeaderRowKey}
+                                        size="small"
+                                        loading={hotLoading}
+                                        scroll={{ x: 760 }}
+                                        pagination={false}
+                                        onRow={(record) => ({
+                                            onClick: () => {
+                                                if (onStockClick) {
+                                                    onStockClick(record.symbol);
+                                                    return;
+                                                }
+                                                loadDetail(record.symbol, resolveScoreType(record), record);
+                                            },
+                                            style: { cursor: 'pointer' },
+                                            'data-testid': 'leader-stock-row',
+                                            'data-symbol': record.symbol || '',
+                                            'data-score-type': resolveScoreType(record),
+                                        })}
+                                        style={{ background: 'transparent' }}
+                                        locale={{ emptyText: hotLoading ? '正在加载热点先锋...' : (focusIndustry ? '当前行业暂无可用热点先锋标的' : '当前暂无可用热点先锋标的') }}
+                                    />
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
             </Card>
             {renderDetailModal()}
         </>

@@ -1,7 +1,11 @@
 from datetime import datetime
 import time
 
+import pandas as pd
+
+import src.data.realtime_manager as realtime_manager_module
 from src.data.realtime_manager import RealTimeDataManager
+from src.data.providers.base_provider import BaseDataProvider
 
 
 def test_build_quote_preserves_missing_numeric_fields():
@@ -49,6 +53,25 @@ def test_build_quote_derives_previous_close_and_percent_when_possible():
     assert quote is not None
     assert quote.previous_close == 100.0
     assert round(quote.change_percent, 2) == 5.0
+
+
+def test_build_quote_normalizes_timezone_aware_timestamp():
+    manager = RealTimeDataManager()
+    try:
+        quote = manager._build_quote(
+            "TEST",
+            {
+                "symbol": "TEST",
+                "price": 100.0,
+                "timestamp": "2026-04-09T00:00:00+08:00",
+            },
+            default_source="test",
+        )
+    finally:
+        manager.cleanup()
+
+    assert quote is not None
+    assert quote.timestamp.tzinfo is None
 
 
 def test_get_quotes_dict_reuses_recent_bundle_cache():
@@ -276,3 +299,105 @@ def test_provider_health_opens_short_circuit_after_repeated_failures():
     assert summary["provider_health"]["failing"]["consecutive_failures"] == 3
     assert summary["provider_health"]["failing"]["circuit_open_until"] > time.time()
     assert summary["provider_health"]["healthy"]["successes"] == 1
+
+
+class _SlowQuoteProvider(BaseDataProvider):
+    name = "slow-single"
+    priority = 1
+
+    def get_historical_data(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def get_latest_quote(self, symbol):
+        time.sleep(0.05)
+        return {"symbol": symbol, "price": 100.0, "timestamp": datetime.now().isoformat()}
+
+
+class _SlowBatchProvider(BaseDataProvider):
+    name = "slow-batch"
+    priority = 1
+
+    def get_historical_data(self, *args, **kwargs):
+        raise NotImplementedError
+
+    def get_latest_quote(self, symbol):
+        raise NotImplementedError
+
+    def get_multiple_quotes(self, symbols):
+        time.sleep(0.05)
+        return {
+            symbol: {"symbol": symbol, "price": 100.0, "timestamp": datetime.now().isoformat()}
+            for symbol in symbols
+        }
+
+
+def test_fetch_with_provider_times_out_slow_single_quotes(monkeypatch):
+    manager = RealTimeDataManager()
+    monkeypatch.setattr(realtime_manager_module, "PROVIDER_FETCH_TIMEOUT_SECONDS", 0.01)
+
+    try:
+        results = manager._fetch_with_provider(_SlowQuoteProvider(), ["AAPL", "MSFT"])
+    finally:
+        manager.cleanup()
+
+    assert "timeout" in results["AAPL"]["error"]
+    assert "timeout" in results["MSFT"]["error"]
+
+
+def test_fetch_with_provider_times_out_slow_batch_quotes(monkeypatch):
+    manager = RealTimeDataManager()
+    monkeypatch.setattr(realtime_manager_module, "PROVIDER_FETCH_TIMEOUT_SECONDS", 0.01)
+
+    try:
+        try:
+            manager._fetch_with_provider(_SlowBatchProvider(), ["AAPL", "MSFT"])
+            assert False, "Expected batch fetch timeout"
+        except TimeoutError as exc:
+            assert "timed out" in str(exc)
+    finally:
+        manager.cleanup()
+
+
+def test_fetch_real_time_data_falls_back_to_historical_snapshot_when_live_quotes_fail():
+    manager = RealTimeDataManager()
+
+    class _HistoricalFallback:
+        def get_cross_market_historical_data(self, symbol, asset_class, start_date=None, end_date=None, interval="1d"):
+            frame = pd.DataFrame(
+                [
+                    {
+                        "date": datetime(2026, 4, 8),
+                        "open": 100.0,
+                        "high": 101.0,
+                        "low": 99.0,
+                        "close": 100.0,
+                        "volume": 1000,
+                    },
+                    {
+                        "date": datetime(2026, 4, 9),
+                        "open": 101.0,
+                        "high": 103.0,
+                        "low": 100.5,
+                        "close": 102.5,
+                        "volume": 1250,
+                    },
+                ]
+            )
+            return {"data": frame, "provider": "test_history"}
+
+    manager.data_manager = _HistoricalFallback()
+    manager._fetch_provider_quotes = lambda symbols: {}
+
+    try:
+        quotes, stats = manager._fetch_real_time_data(["^GSPC"], use_cache=False)
+    finally:
+        manager.cleanup()
+
+    assert "^GSPC" in quotes
+    assert quotes["^GSPC"].price == 102.5
+    assert quotes["^GSPC"].previous_close == 100.0
+    assert round(quotes["^GSPC"].change, 2) == 2.5
+    assert round(quotes["^GSPC"].change_percent, 2) == 2.5
+    assert quotes["^GSPC"].source == "history_fallback:test_history"
+    assert stats["fetched"] == 1
+    assert stats["misses"] == 0

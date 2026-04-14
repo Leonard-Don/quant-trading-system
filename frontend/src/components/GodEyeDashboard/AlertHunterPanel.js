@@ -13,9 +13,9 @@ function AlertHunterPanel({ alerts = [], onNavigate }) {
   return (
     <Card
       title="Alert Hunter Panel"
-      bordered={false}
+      variant="borderless"
       extra={<Tag color="magenta">{alerts.length} candidates</Tag>}
-      bodyStyle={{ minHeight: 320 }}
+      styles={{ body: { minHeight: 320 } }}
     >
       <List
         dataSource={alerts}

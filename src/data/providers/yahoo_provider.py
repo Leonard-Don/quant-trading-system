@@ -87,19 +87,78 @@ class YahooFinanceProvider(BaseDataProvider):
         """获取最新报价"""
         try:
             ticker = self._get_ticker(symbol)
-            info = ticker.info
-            
+            fast_info = getattr(ticker, "fast_info", {}) or {}
+            info = None
+
+            def pick_number(*values, default=0):
+                for value in values:
+                    if value not in (None, ""):
+                        return value
+                return default
+
+            def pick_number_lazy(*suppliers, default=0):
+                for supplier in suppliers:
+                    value = supplier()
+                    if value not in (None, ""):
+                        return value
+                return default
+
+            def info_value(key):
+                nonlocal info
+                if info is None:
+                    info = ticker.info
+                return info.get(key)
+
+            # 先走 fast_info，只有关键信息缺失时才访问更慢的 info。
+            price = pick_number(
+                fast_info.get("lastPrice"),
+                default=None,
+            )
+            if price is None:
+                price = pick_number(info_value("regularMarketPrice"), default=0)
+
             return {
                 "symbol": symbol,
-                "price": info.get("regularMarketPrice", 0),
-                "change": info.get("regularMarketChange", 0),
-                "change_percent": info.get("regularMarketChangePercent", 0),
-                "volume": info.get("regularMarketVolume", 0),
-                "high": info.get("dayHigh", 0),
-                "low": info.get("dayLow", 0),
-                "open": info.get("regularMarketOpen", 0),
-                "previous_close": info.get("previousClose", 0),
-                "market_cap": info.get("marketCap", 0),
+                "price": price,
+                "change": pick_number_lazy(
+                    lambda: fast_info.get("regularMarketChange"),
+                    lambda: info_value("regularMarketChange"),
+                ),
+                "change_percent": pick_number_lazy(
+                    lambda: fast_info.get("regularMarketChangePercent"),
+                    lambda: info_value("regularMarketChangePercent"),
+                ),
+                "volume": pick_number_lazy(
+                    lambda: fast_info.get("lastVolume"),
+                    lambda: info_value("regularMarketVolume"),
+                ),
+                "high": pick_number_lazy(
+                    lambda: fast_info.get("dayHigh"),
+                    lambda: info_value("dayHigh"),
+                ),
+                "low": pick_number_lazy(
+                    lambda: fast_info.get("dayLow"),
+                    lambda: info_value("dayLow"),
+                ),
+                "open": pick_number_lazy(
+                    lambda: fast_info.get("open"),
+                    lambda: info_value("regularMarketOpen"),
+                ),
+                "previous_close": pick_number_lazy(
+                    lambda: fast_info.get("previousClose"),
+                    lambda: info_value("previousClose"),
+                ),
+                "bid": pick_number_lazy(
+                    lambda: fast_info.get("bid"),
+                    lambda: info_value("bid"),
+                    default=None,
+                ),
+                "ask": pick_number_lazy(
+                    lambda: fast_info.get("ask"),
+                    lambda: info_value("ask"),
+                    default=None,
+                ),
+                "market_cap": pick_number(info.get("marketCap"), default=0) if info is not None else 0,
                 "timestamp": datetime.now(),
                 "source": self.name
             }
@@ -157,8 +216,8 @@ class YahooFinanceProvider(BaseDataProvider):
                 try:
                     ticker = tickers.tickers.get(symbol)
                     if ticker:
-                        info = ticker.info
                         fast_info = getattr(ticker, "fast_info", {}) or {}
+                        info = None
 
                         def pick_number(*values, default=0):
                             for value in values:
@@ -166,52 +225,67 @@ class YahooFinanceProvider(BaseDataProvider):
                                     return value
                             return default
 
+                        def pick_number_lazy(*suppliers, default=0):
+                            for supplier in suppliers:
+                                value = supplier()
+                                if value not in (None, ""):
+                                    return value
+                            return default
+
+                        def info_value(key):
+                            nonlocal info
+                            if info is None:
+                                info = ticker.info
+                            return info.get(key)
+
+                        price = pick_number(
+                            fast_info.get("lastPrice"),
+                            default=None,
+                        )
+                        if price is None:
+                            price = pick_number(
+                                info_value("regularMarketPrice"),
+                                default=0,
+                            )
+
                         results[symbol] = {
                             "symbol": symbol,
-                            "price": pick_number(
-                                info.get("regularMarketPrice"),
-                                fast_info.get("lastPrice"),
+                            "price": price,
+                            "change": pick_number_lazy(
+                                lambda: fast_info.get("regularMarketChange"),
+                                lambda: info_value("regularMarketChange"),
                             ),
-                            "change": pick_number(
-                                info.get("regularMarketChange"),
-                                fast_info.get("regularMarketChange"),
+                            "change_percent": pick_number_lazy(
+                                lambda: fast_info.get("regularMarketChangePercent"),
+                                lambda: info_value("regularMarketChangePercent"),
                             ),
-                            "change_percent": pick_number(
-                                info.get("regularMarketChangePercent"),
-                                fast_info.get("regularMarketChangePercent"),
+                            "volume": pick_number_lazy(
+                                lambda: fast_info.get("lastVolume"),
+                                lambda: info_value("regularMarketVolume"),
                             ),
-                            "volume": pick_number(
-                                info.get("regularMarketVolume"),
-                                fast_info.get("lastVolume"),
-                            ),
-                            "high": pick_number(
-                                info.get("dayHigh"),
-                                fast_info.get("dayHigh"),
+                            "high": pick_number_lazy(
+                                lambda: fast_info.get("dayHigh"),
+                                lambda: info_value("dayHigh"),
                                 default=None,
                             ),
-                            "low": pick_number(
-                                info.get("dayLow"),
-                                fast_info.get("dayLow"),
+                            "low": pick_number_lazy(
+                                lambda: fast_info.get("dayLow"),
+                                lambda: info_value("dayLow"),
                                 default=None,
                             ),
-                            "open": pick_number(
-                                info.get("regularMarketOpen"),
-                                fast_info.get("open"),
+                            "open": pick_number_lazy(
+                                lambda: fast_info.get("open"),
+                                lambda: info_value("regularMarketOpen"),
                                 default=None,
                             ),
-                            "previous_close": pick_number(
-                                info.get("previousClose"),
-                                fast_info.get("previousClose"),
+                            "previous_close": pick_number_lazy(
+                                lambda: fast_info.get("previousClose"),
+                                lambda: info_value("previousClose"),
                                 default=None,
                             ),
-                            "bid": pick_number(
-                                info.get("bid"),
-                                default=None,
-                            ),
-                            "ask": pick_number(
-                                info.get("ask"),
-                                default=None,
-                            ),
+                            # 批量报价优先追求速度，盘口数据留给详情按需补充。
+                            "bid": None,
+                            "ask": None,
                             "timestamp": datetime.now(),
                             "source": self.name
                         }

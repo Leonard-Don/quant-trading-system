@@ -15,6 +15,19 @@ from scipy import stats as scipy_stats
 from src.data.data_manager import DataManager
 
 
+DEFAULT_FACTOR_PREMIA = {
+    "market": 0.06,
+    "size": 0.02,
+    "value": 0.03,
+}
+
+FACTOR_PREMIUM_BOUNDS = {
+    "market": (-0.12, 0.18),
+    "size": (-0.08, 0.08),
+    "value": (-0.08, 0.08),
+}
+
+
 def normalize_daily_index(data: pd.Series | pd.DataFrame) -> pd.Series | pd.DataFrame:
     """Normalize market time series to a tz-naive daily DatetimeIndex."""
     if data is None or data.empty:
@@ -291,6 +304,50 @@ def factor_source_meta(ff_factors: pd.DataFrame) -> Dict[str, Any]:
         "label": source.get("label", "来源未知"),
         "is_proxy": bool(source.get("is_proxy")),
         "warning": source.get("warning", ""),
+    }
+
+
+def annualized_factor_premia(ff_factors: Optional[pd.DataFrame], trading_days: int = 252) -> Dict[str, Any]:
+    """
+    基于当前窗口的因子数据动态估算年化因子溢价。
+
+    优先使用真实 Kenneth French 因子；若当前窗口数据不足或仅有代理值，则回退到长期默认假设。
+    """
+    source_meta = factor_source_meta(ff_factors)
+    fallback = {
+        "values": DEFAULT_FACTOR_PREMIA.copy(),
+        "source": "long_term_defaults",
+        "label": "长期默认因子溢价",
+        "window_days": 0,
+        "is_proxy": bool(source_meta.get("is_proxy")),
+    }
+    if ff_factors is None or ff_factors.empty or source_meta.get("is_proxy"):
+        return fallback
+
+    columns = {
+        "market": "Mkt-RF",
+        "size": "SMB",
+        "value": "HML",
+    }
+    clean = ff_factors[[column for column in columns.values() if column in ff_factors.columns]].dropna()
+    if len(clean) < 30:
+        return fallback
+
+    values = {}
+    for key, column in columns.items():
+        if column not in clean.columns:
+            values[key] = DEFAULT_FACTOR_PREMIA[key]
+            continue
+        annualized = float(clean[column].mean() * trading_days)
+        low, high = FACTOR_PREMIUM_BOUNDS[key]
+        values[key] = float(np.clip(annualized, low, high))
+
+    return {
+        "values": values,
+        "source": "rolling_realized_window",
+        "label": "滚动窗口年化因子溢价",
+        "window_days": int(len(clean)),
+        "is_proxy": False,
     }
 
 

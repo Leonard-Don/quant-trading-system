@@ -9,12 +9,52 @@ import {
 import { buildRefreshCounts } from './navigationHelpers';
 import {
   buildCrossMarketCards,
+  buildDecayWatchModel,
   buildFactorPanelModel,
   buildHeatmapModel,
   buildHunterModel,
   buildRadarModel,
+  buildTradeThesisWatchModel,
   buildTimelineModel,
 } from './viewModels';
+import { buildResearchTaskRefreshSignals } from '../../utils/researchTaskSignals';
+
+const DASHBOARD_REQUEST_TIMEOUT_MS = 20000;
+
+const withSoftTimeout = async (promise, fallback, source, timeoutMs = DASHBOARD_REQUEST_TIMEOUT_MS) => {
+  let timerId = null;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise).then((data) => ({
+        data,
+        degraded: null,
+      })),
+      new Promise((resolve) => {
+        timerId = window.setTimeout(() => {
+          resolve({
+            data: fallback,
+            degraded: {
+              source,
+              reason: 'timeout',
+            },
+          });
+        }, timeoutMs);
+      }),
+    ]);
+  } catch (error) {
+    return {
+      data: fallback,
+      degraded: {
+        source,
+        reason: error?.userMessage || error?.message || 'request_failed',
+      },
+    };
+  } finally {
+    if (timerId) {
+      window.clearTimeout(timerId);
+    }
+  }
+};
 
 export async function fetchGodEyeDashboardPayload(refresh = false) {
   const [
@@ -26,23 +66,36 @@ export async function fetchGodEyeDashboardPayload(refresh = false) {
     templateData,
     researchTaskData,
   ] = await Promise.all([
-    getMacroOverview(refresh),
-    getAltDataSnapshot(refresh),
-    getAltDataStatus(),
-    getAltDataHistory({ limit: 120 }),
-    getAltDataHistory({ category: 'policy', limit: 16 }),
-    getCrossMarketTemplates(),
-    getResearchTasks({ limit: 40, type: 'cross_market' }),
+    withSoftTimeout(getMacroOverview(refresh), {}, 'macro_overview'),
+    withSoftTimeout(getAltDataSnapshot(refresh), {}, 'alt_snapshot'),
+    withSoftTimeout(getAltDataStatus(), {}, 'alt_status'),
+    withSoftTimeout(getAltDataHistory({ limit: 120 }), {}, 'alt_history'),
+    withSoftTimeout(getAltDataHistory({ category: 'policy', limit: 16 }), {}, 'policy_history'),
+    withSoftTimeout(getCrossMarketTemplates(), {}, 'cross_market_templates'),
+    withSoftTimeout(getResearchTasks({ limit: 60 }), { data: [] }, 'research_tasks'),
   ]);
 
+  const degradedSources = [
+    macroData,
+    altData,
+    statusData,
+    historyData,
+    policyData,
+    templateData,
+    researchTaskData,
+  ]
+    .map((item) => item?.degraded)
+    .filter(Boolean);
+
   return {
-    crossMarketTemplates: templateData,
-    historyPayload: historyData,
-    overview: macroData,
-    policyHistory: policyData,
-    researchTasks: researchTaskData?.data || [],
-    snapshot: altData,
-    status: statusData,
+    crossMarketTemplates: templateData?.data || {},
+    degradedSources,
+    historyPayload: historyData?.data || {},
+    overview: macroData?.data || {},
+    policyHistory: policyData?.data || {},
+    researchTasks: researchTaskData?.data?.data || researchTaskData?.data || [],
+    snapshot: altData?.data || {},
+    status: statusData?.data || {},
   };
 }
 
@@ -81,17 +134,23 @@ export function buildGodEyeDerivedState({
   const radarData = buildRadarModel(overview);
   const factorPanelModel = buildFactorPanelModel(overview, snapshot);
   const timelineItems = buildTimelineModel(policyHistory);
+  const refreshSignals = buildResearchTaskRefreshSignals({ researchTasks, overview, snapshot });
   const hunterAlerts = buildHunterModel({ snapshot, overview, status, researchTasks });
+  const decayWatchModel = buildDecayWatchModel(researchTasks);
+  const tradeThesisWatchModel = buildTradeThesisWatchModel(researchTasks, refreshSignals.prioritized || []);
   const crossMarketCards = buildCrossMarketCards(crossMarketTemplates, overview, snapshot, researchTasks);
 
   return {
     crossMarketCards,
+    decayWatchModel,
     dashboardStatus: buildDashboardStatus(snapshot, status),
     factorPanelModel,
     heatmapModel,
     hunterAlerts,
     radarData,
-    refreshCounts: buildRefreshCounts(crossMarketCards),
+    refreshCounts: buildRefreshCounts(refreshSignals.prioritized || []),
+    refreshSignals: refreshSignals.prioritized || [],
+    tradeThesisWatchModel,
     timelineItems,
   };
 }

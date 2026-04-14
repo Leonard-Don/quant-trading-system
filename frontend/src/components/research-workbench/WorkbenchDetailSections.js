@@ -28,9 +28,11 @@ const { Text } = Typography;
 const { TextArea } = Input;
 
 export const WorkbenchTaskSummarySection = ({
+  handleCopyViewLink,
   latestSnapshotComparison,
   selectedTask,
   selectedTaskRefreshSignal,
+  workbenchViewSummary,
 }) => (
   <>
     {latestSnapshotComparison?.lead ? (
@@ -44,32 +46,32 @@ export const WorkbenchTaskSummarySection = ({
 
     <Row gutter={[12, 12]}>
       <Col xs={24} md={12}>
-        <Card size="small" bordered={false}>
+        <Card size="small" variant="borderless">
           <Text type="secondary">类型</Text>
           <div><Text strong>{selectedTask.type}</Text></div>
         </Card>
       </Col>
       <Col xs={24} md={12}>
-        <Card size="small" bordered={false}>
+        <Card size="small" variant="borderless">
           <Text type="secondary">来源</Text>
           <div><Text strong>{selectedTask.sourceLabel}</Text></div>
         </Card>
       </Col>
       <Col xs={24} md={12}>
-        <Card size="small" bordered={false}>
+        <Card size="small" variant="borderless">
           <Text type="secondary">Symbol</Text>
           <div><Text strong>{selectedTask.symbol || '-'}</Text></div>
         </Card>
       </Col>
       <Col xs={24} md={12}>
-        <Card size="small" bordered={false}>
+        <Card size="small" variant="borderless">
           <Text type="secondary">Template</Text>
           <div><Text strong>{selectedTask.template || '-'}</Text></div>
         </Card>
       </Col>
     </Row>
 
-    <Card size="small" title="任务上下文" bordered={false}>
+    <Card size="small" title="任务上下文" variant="borderless">
       <Space wrap>
         {Object.entries(selectedTask.context || {}).map(([key, value]) => (
           <Tag key={key}>
@@ -79,15 +81,37 @@ export const WorkbenchTaskSummarySection = ({
       </Space>
     </Card>
 
-    {selectedTask.type === 'cross_market' ? (
+    {workbenchViewSummary ? (
+      <Card size="small" title="当前共享视图上下文" variant="borderless">
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Space wrap>
+            <Tag color={workbenchViewSummary.hasActiveFilters ? 'blue' : 'default'}>
+              {workbenchViewSummary.hasActiveFilters ? '已带筛选视角' : '完整工作台视图'}
+            </Tag>
+            <Text strong>{workbenchViewSummary.headline}</Text>
+            {workbenchViewSummary.scopedTaskLabel ? (
+              <Tag color="processing">{workbenchViewSummary.scopedTaskLabel}</Tag>
+            ) : null}
+          </Space>
+          <Text type="secondary">{workbenchViewSummary.note}</Text>
+          {handleCopyViewLink ? (
+            <Button type="link" size="small" onClick={handleCopyViewLink} style={{ alignSelf: 'flex-start', paddingInline: 0 }}>
+              复制当前视图链接
+            </Button>
+          ) : null}
+        </Space>
+      </Card>
+    ) : null}
+
+    {selectedTask.type === 'cross_market' || selectedTask.type === 'macro_mispricing' || selectedTask.type === 'trade_thesis' ? (
       <SelectedTaskRefreshPanel selectedTaskRefreshSignal={selectedTaskRefreshSignal} />
     ) : null}
 
-    <Card size="small" title="当前快照" bordered={false}>
+    <Card size="small" title="当前快照" variant="borderless">
       <SnapshotSummary task={selectedTask} />
     </Card>
 
-    <Card size="small" title="历史快照" bordered={false}>
+    <Card size="small" title="历史快照" variant="borderless">
       {latestSnapshotComparison?.lead ? (
         <Alert
           type={latestSnapshotComparison.summary?.[0]?.includes('复核型结果') ? 'warning' : 'info'}
@@ -110,7 +134,7 @@ export const WorkbenchTaskEditorSection = ({
   setTitleDraft,
   titleDraft,
 }) => (
-  <Card size="small" title="任务信息" bordered={false}>
+  <Card size="small" title="任务信息" variant="borderless">
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
       <Input value={titleDraft} onChange={(event) => setTitleDraft(event.target.value)} placeholder="任务标题" />
       <TextArea
@@ -134,6 +158,7 @@ export const WorkbenchTaskActivitySection = ({
   handleStatusUpdate,
   saving,
   selectedTask,
+  selectedTaskPriorityMeta,
   setCommentDraft,
   setShowAllTimeline,
   showAllTimeline,
@@ -141,6 +166,20 @@ export const WorkbenchTaskActivitySection = ({
   timelineItems,
 }) => (
   <>
+    {selectedTaskPriorityMeta ? (
+      <Alert
+        type={selectedTaskPriorityMeta.alertType}
+        showIcon
+        message={`当前自动排序原因：${selectedTaskPriorityMeta.reasonLabel}`}
+        description={(
+          <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <Text>{selectedTaskPriorityMeta.lead}</Text>
+            {selectedTaskPriorityMeta.detail ? <Text type="secondary">{selectedTaskPriorityMeta.detail}</Text> : null}
+          </Space>
+        )}
+      />
+    ) : null}
+
     <Card
       size="small"
       title={(
@@ -156,7 +195,7 @@ export const WorkbenchTaskActivitySection = ({
           </Button>
         ) : null
       }
-      bordered={false}
+      variant="borderless"
     >
       {timeline.length ? (
         <Timeline
@@ -168,9 +207,24 @@ export const WorkbenchTaskActivitySection = ({
                 <Space wrap>
                   <Text strong>{event.children.label}</Text>
                   <Tag color={event.children.color}>{event.children.type}</Tag>
+                  {event.children.changeLabel ? (
+                    <Tag color={event.children.changeColor}>{event.children.changeLabel}</Tag>
+                  ) : null}
+                  {event.children.snapshotViewSummary ? (
+                    <Tag color="green">研究视角</Tag>
+                  ) : null}
                   <Text type="secondary">{new Date(event.children.createdAt).toLocaleString()}</Text>
                 </Space>
                 {event.children.detail ? <Text type="secondary">{event.children.detail}</Text> : null}
+                {event.children.snapshotViewSummary ? (
+                  <Text type="secondary">工作台视角 {event.children.snapshotViewSummary}</Text>
+                ) : null}
+                {event.children.snapshotViewFocus ? (
+                  <Text type="secondary">{event.children.snapshotViewFocus}</Text>
+                ) : null}
+                {event.children.snapshotViewNote ? (
+                  <Text type="secondary">{event.children.snapshotViewNote}</Text>
+                ) : null}
               </Space>
             ),
           }))}
@@ -188,7 +242,7 @@ export const WorkbenchTaskActivitySection = ({
           <span>评论</span>
         </Space>
       )}
-      bordered={false}
+      variant="borderless"
     >
       <Space direction="vertical" size={12} style={{ width: '100%' }}>
         <TextArea
@@ -244,7 +298,7 @@ export const WorkbenchTaskActivitySection = ({
       </Space>
     </Card>
 
-    <Card size="small" title="状态流转" bordered={false}>
+    <Card size="small" title="状态流转" variant="borderless">
       <Space wrap>
         {selectedTask.status === 'archived' ? (
           <Button type="primary" onClick={() => handleRestoreArchived(selectedTask.id)} loading={saving}>

@@ -24,14 +24,14 @@ function RiskPremiumRadar({ data = [], macroScore = 0, confidence = 0, macroSign
   return (
     <Card
       title="Risk Premium Radar"
-      bordered={false}
+      variant="borderless"
       extra={
         <Space>
           <Tag color={signalColor[macroSignal]}>{getSignalLabel(macroSignal)}</Tag>
           <Tag color="blue">conf {Number(confidence || 0).toFixed(2)}</Tag>
         </Space>
       }
-      bodyStyle={{ minHeight: 360 }}
+      styles={{ body: { minHeight: 360 } }}
     >
       {data.length ? (
         <>

@@ -15,6 +15,7 @@ const RealtimeDiagnosticsCard = ({
   formatTransportDecision,
   isExpanded,
   onRefresh,
+  onDisable,
   onToggleExpanded,
   transportDecisions,
   weakestFields,
@@ -48,6 +49,9 @@ const RealtimeDiagnosticsCard = ({
         <Text type="secondary" style={{ fontSize: '12px' }}>
           最近拉取：{formatQuoteTime(diagnosticsLastLoadedAt)}
         </Text>
+        <Button size="small" onClick={onDisable}>
+          隐藏诊断
+        </Button>
         <Button size="small" onClick={onRefresh} loading={diagnosticsLoading}>
           刷新诊断
         </Button>

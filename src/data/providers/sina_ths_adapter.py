@@ -276,6 +276,17 @@ class SinaIndustryAdapter:
     _history_cache: Dict[str, Any] = {}
     _history_cache_loaded: bool = False
     _market_cap_snapshot_stale_after_hours: int = 24
+    _akshare_valuation_snapshot_cache: pd.DataFrame | None = None
+    _akshare_valuation_snapshot_cache_time: float = 0
+    _akshare_valuation_snapshot_failure_at: float = 0
+    _akshare_valuation_snapshot_ttl_seconds: int = 4 * 60 * 60
+    _akshare_valuation_snapshot_cooldown_seconds: int = 5 * 60
+
+    @staticmethod
+    def _numeric_series_or_default(df: pd.DataFrame, column: str, default: float = 0.0) -> pd.Series:
+        if column in df.columns:
+            return pd.to_numeric(df[column], errors="coerce").fillna(default)
+        return pd.Series(default, index=df.index, dtype="float64")
 
     @staticmethod
     def _build_name_aliases(raw_name: str) -> List[str]:
@@ -477,7 +488,7 @@ class SinaIndustryAdapter:
             if df.empty or "industry_code" not in df.columns:
                 return
 
-            caps = pd.to_numeric(df.get("total_market_cap", 0), errors="coerce").fillna(0)
+            caps = cls._numeric_series_or_default(df, "total_market_cap", 0.0)
             sources = df.get("market_cap_source", pd.Series("unknown", index=df.index)).astype(str)
             valid_mask = (
                 df["industry_code"].astype(str).str.strip().ne("")
@@ -543,7 +554,7 @@ class SinaIndustryAdapter:
         if "market_cap_snapshot_is_stale" not in df.columns:
             df["market_cap_snapshot_is_stale"] = False
 
-        caps = pd.to_numeric(df.get("total_market_cap", 0), errors="coerce").fillna(0)
+        caps = self._numeric_series_or_default(df, "total_market_cap", 0.0)
         sources = df["market_cap_source"].astype(str).fillna("unknown")
         fill_mask = (
             df["industry_code"].astype(str).map(lambda code: str(code).strip() in snapshot)
@@ -1147,17 +1158,20 @@ class SinaIndustryAdapter:
                 logger.warning(f"Failed to enrich with AKShare metadata: {e}")
                 
             # ========== 第三步：Sina & 启发式辅助（市值兜底） ==========
-            if "total_market_cap" not in result.columns or pd.to_numeric(result.get("total_market_cap", 0), errors='coerce').fillna(0).max() <= 1:
+            total_market_caps = self._numeric_series_or_default(result, "total_market_cap", 0.0)
+            if "total_market_cap" not in result.columns or total_market_caps.max() <= 1:
                 self._apply_persistent_market_cap_snapshot(result)
                 logger.info("Falling back to Sina/Heuristics for market cap...")
                 sina_df = self.sina.get_industry_money_flow()
-                if pd.to_numeric(result.get("total_market_cap", 0), errors='coerce').fillna(0).max() > 1:
+                total_market_caps = self._numeric_series_or_default(result, "total_market_cap", 0.0)
+                if total_market_caps.max() > 1:
                     pass
                 elif not sina_df.empty:
                     self._compute_industry_market_caps(result)
                     self._persist_market_cap_snapshot(result)
                     # 检查是否成功由于没有抛错机制
-                    if "total_market_cap" not in result.columns or pd.to_numeric(result.get("total_market_cap", 0), errors='coerce').fillna(0).max() <= 1:
+                    total_market_caps = self._numeric_series_or_default(result, "total_market_cap", 0.0)
+                    if "total_market_cap" not in result.columns or total_market_caps.max() <= 1:
                         result["total_market_cap"] = self._estimate_market_cap_from_flow(result)
                         result["is_estimated_cap"] = True
                         result["market_cap_source"] = "estimated_from_flow"
@@ -1226,16 +1240,16 @@ class SinaIndustryAdapter:
         self._ensure_flow_strength(result)
 
         # ========== 第六步：换手率兜底（AKShare 被拦截时用成交额/市值估算） ==========
-        turnover_rate = pd.to_numeric(result.get("turnover_rate", 0), errors="coerce").fillna(0)
+        turnover_rate = self._numeric_series_or_default(result, "turnover_rate", 0.0)
         mask = (turnover_rate.isna()) | (turnover_rate <= 0)
         if mask.any():
             is_estimated = result.get("is_estimated_cap", pd.Series(False, index=result.index))
             valid_for_turnover = mask & (~is_estimated)
             
             if valid_for_turnover.any():
-                inflow = pd.to_numeric(result.get("total_inflow", 0), errors="coerce").fillna(0)
-                outflow = pd.to_numeric(result.get("total_outflow", 0), errors="coerce").fillna(0)
-                cap = pd.to_numeric(result.get("total_market_cap", 0), errors="coerce").fillna(0)
+                inflow = self._numeric_series_or_default(result, "total_inflow", 0.0)
+                outflow = self._numeric_series_or_default(result, "total_outflow", 0.0)
+                cap = self._numeric_series_or_default(result, "total_market_cap", 0.0)
                 # 流入+流出≈总成交额(亿元)，市值(元)；换手率=(成交额/市值)*100
                 vol_yi = inflow + outflow
                 
@@ -1273,7 +1287,7 @@ class SinaIndustryAdapter:
         if df.empty:
             return
 
-        inflow = pd.to_numeric(df.get("main_net_inflow", 0), errors="coerce").fillna(0)
+        inflow = self._numeric_series_or_default(df, "main_net_inflow", 0.0)
         if "flow_strength" in df.columns:
             flow_strength = pd.to_numeric(df["flow_strength"], errors="coerce").fillna(0)
         else:
@@ -1285,7 +1299,7 @@ class SinaIndustryAdapter:
             df["flow_strength"] = flow_strength.astype(float)
             return
 
-        main_net_ratio = pd.to_numeric(df.get("main_net_ratio", 0), errors="coerce").fillna(0)
+        main_net_ratio = self._numeric_series_or_default(df, "main_net_ratio", 0.0)
         if (main_net_ratio.abs() > 1e-9).any():
             df["flow_strength"] = (main_net_ratio / 100.0).clip(-1.0, 1.0)
             return
@@ -1341,26 +1355,56 @@ class SinaIndustryAdapter:
 
         return self._attach_industry_codes(result)
 
-    def _enrich_with_akshare(self, df: pd.DataFrame) -> pd.DataFrame:
+    @classmethod
+    def _get_akshare_valuation_snapshot(cls) -> pd.DataFrame:
+        now = time.time()
+        if (
+            cls._akshare_valuation_snapshot_cache is not None
+            and now - cls._akshare_valuation_snapshot_cache_time < cls._akshare_valuation_snapshot_ttl_seconds
+        ):
+            return cls._akshare_valuation_snapshot_cache
+
+        if (
+            cls._akshare_valuation_snapshot_failure_at
+            and now - cls._akshare_valuation_snapshot_failure_at < cls._akshare_valuation_snapshot_cooldown_seconds
+        ):
+            logger.info("Skipping AKShare industry valuation snapshot refresh during cooldown")
+            return pd.DataFrame()
+
+        try:
+            valuation_df = ak.sw_index_first_info()
+            if valuation_df is None or valuation_df.empty:
+                cls._akshare_valuation_snapshot_failure_at = now
+                return pd.DataFrame()
+            cls._akshare_valuation_snapshot_cache = valuation_df.copy()
+            cls._akshare_valuation_snapshot_cache_time = now
+            cls._akshare_valuation_snapshot_failure_at = 0
+            return cls._akshare_valuation_snapshot_cache
+        except Exception as exc:
+            cls._akshare_valuation_snapshot_failure_at = now
+            logger.warning(f"Valuation snapshot refresh failed: {exc}")
+            return pd.DataFrame()
+
+    def _enrich_with_akshare(self, df: pd.DataFrame, include_leader_valuation_fallback: bool = False) -> pd.DataFrame:
         """使用 AKShare 数据增强总市值、换手率和估值指标"""
-        import akshare as ak
-        
         df["match_key"] = df["industry_name"].apply(self._normalize_industry_join_key)
         
         # 1. 补充行业源数据（总市值、换手率）
         try:
-            from .akshare_provider import AKShareProvider
-            ak_provider = AKShareProvider()
+            ak_provider = self.akshare
             meta_df = ak_provider._get_industry_metadata()
             if not meta_df.empty:
                 meta_df = meta_df.copy()
                 meta_df["match_key"] = meta_df["industry_name"].apply(self._normalize_industry_join_key)
                 meta_df = meta_df.drop_duplicates(subset=["match_key"], keep="first")
                 
+                meta_merge_df = meta_df[["match_key", "total_market_cap", "turnover_rate", "market_cap_source"]].rename(
+                    columns={"market_cap_source": "metadata_market_cap_source"}
+                )
                 df = pd.merge(
-                    df, 
-                    meta_df[["match_key", "total_market_cap", "turnover_rate"]], 
-                    on="match_key", 
+                    df,
+                    meta_merge_df,
+                    on="match_key",
                     how="left"
                 )
                 
@@ -1369,14 +1413,16 @@ class SinaIndustryAdapter:
                 df["turnover_rate"] = pd.to_numeric(df["turnover_rate"], errors="coerce")
                 matched_cap = df["total_market_cap"].notna() & (df["total_market_cap"] > 0)
                 if matched_cap.any():
-                    df.loc[matched_cap, "market_cap_source"] = "akshare_metadata"
+                    source_series = df.loc[matched_cap, "metadata_market_cap_source"].astype(str).replace({"": "akshare_metadata", "nan": "akshare_metadata"})
+                    df.loc[matched_cap, "market_cap_source"] = source_series.where(source_series.ne("unknown"), "akshare_metadata")
                     self._append_data_source(df, matched_cap, "akshare")
+                df = df.drop(columns=["metadata_market_cap_source"], errors="ignore")
         except Exception as e:
             logger.warning(f"Metadata Enrichment failed: {e}")
 
         # 2. 补充申万行业估值指标 (PE/PB等)
         try:
-            ak_sw = ak.sw_index_first_info()
+            ak_sw = self._get_akshare_valuation_snapshot()
             if not ak_sw.empty:
                 ak_sw = ak_sw.copy()
                 ak_sw = ak_sw.rename(columns={
@@ -1406,7 +1452,7 @@ class SinaIndustryAdapter:
         has_no_pe = "pe_ttm" not in df.columns or df["pe_ttm"].isna().all()
         has_zero_pe = not has_no_pe and (df["pe_ttm"] == 0).all()
         
-        if has_no_pe or has_zero_pe:
+        if include_leader_valuation_fallback and (has_no_pe or has_zero_pe):
             logger.info(f"Using Tencent fallback (reason: {'missing' if has_no_pe else 'zero'}) to fetch representative PE/PB from leading stocks...")
             import requests
             pe_list, pb_list = [], []
@@ -1489,11 +1535,6 @@ class SinaIndustryAdapter:
                     if total_cap > 0:
                         return code, total_cap, resolved_source
 
-                ak_stocks = self.akshare.get_stock_list_by_industry(self._normalize_to_ths_industry_name(name))
-                ak_total_cap = sum(float(s.get("market_cap", 0) or 0) for s in ak_stocks)
-                if ak_total_cap > 0:
-                    return code, ak_total_cap, "akshare_stock_sum"
-
                 return code, 0, "unknown"
             except Exception as e:
                 logger.debug(f"Failed to get stocks for {name}: {e}")
@@ -1515,8 +1556,6 @@ class SinaIndustryAdapter:
                     df.loc[df["industry_code"] == code, "market_cap_source"] = source
                     if source in {"sina_stock_sum", "sina_proxy_stock_sum"}:
                         self._append_data_source(df, df["industry_code"] == code, "sina")
-                    elif source == "akshare_stock_sum":
-                        self._append_data_source(df, df["industry_code"] == code, "akshare")
         
         # 应用市值数据
         df["total_market_cap"] = df["industry_code"].map(mktcap_map).fillna(0)

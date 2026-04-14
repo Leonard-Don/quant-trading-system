@@ -5,7 +5,7 @@ import { ArrowUpOutlined, ArrowDownOutlined, BellOutlined, DollarOutlined } from
 const { Text } = Typography;
 const VIRTUALIZATION_THRESHOLD = 50;
 const VIRTUAL_LIST_HEIGHT = 920;
-const VIRTUAL_LIST_ITEM_HEIGHT = 246;
+const VIRTUAL_LIST_ITEM_HEIGHT_DEFAULT = 246;
 const VIRTUAL_LIST_OVERSCAN = 4;
 
 const RealtimeQuoteBoard = ({
@@ -57,19 +57,21 @@ const RealtimeQuoteBoard = ({
     setVirtualScrollByTab({});
   }, [activeTab, quoteSortMode, quoteViewMode]);
 
+  const itemHeight = VIRTUAL_LIST_ITEM_HEIGHT_DEFAULT;
+
   const getVirtualRange = useMemo(() => (symbols) => {
     const scrollTop = virtualScrollByTab[activeTab] || 0;
-    const startIndex = Math.max(0, Math.floor(scrollTop / VIRTUAL_LIST_ITEM_HEIGHT) - VIRTUAL_LIST_OVERSCAN);
-    const visibleCount = Math.ceil(VIRTUAL_LIST_HEIGHT / VIRTUAL_LIST_ITEM_HEIGHT) + VIRTUAL_LIST_OVERSCAN * 2;
+    const startIndex = Math.max(0, Math.floor(scrollTop / itemHeight) - VIRTUAL_LIST_OVERSCAN);
+    const visibleCount = Math.ceil(VIRTUAL_LIST_HEIGHT / itemHeight) + VIRTUAL_LIST_OVERSCAN * 2;
     const endIndex = Math.min(symbols.length, startIndex + visibleCount);
     return {
       startIndex,
       endIndex,
-      offsetY: startIndex * VIRTUAL_LIST_ITEM_HEIGHT,
-      totalHeight: symbols.length * VIRTUAL_LIST_ITEM_HEIGHT,
+      offsetY: startIndex * itemHeight,
+      totalHeight: symbols.length * itemHeight,
       visibleSymbols: symbols.slice(startIndex, endIndex),
     };
-  }, [activeTab, virtualScrollByTab]);
+  }, [activeTab, itemHeight, virtualScrollByTab]);
 
   const renderQuoteCard = (symbol, quote) => {
     const hasChange = hasNumericValue(quote.change);
@@ -97,8 +99,8 @@ const RealtimeQuoteBoard = ({
     const isDragging = draggingSymbol === symbol;
 
     return (
+      <div key={symbol}>
       <Card
-        key={symbol}
         className={`realtime-quote-card realtime-quote-card--${quoteViewMode}`}
         style={{
           border: isSelected
@@ -294,6 +296,7 @@ const RealtimeQuoteBoard = ({
           </div>
         </div>
       </Card>
+      </div>
     );
   };
 

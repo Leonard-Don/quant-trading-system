@@ -1,5 +1,26 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  buildPricingActionPosture,
+  buildRecentPricingResearchEntries,
+  mergePricingSuggestions,
+  parsePricingUniverseInput,
+  resolveAnalysisSymbol,
+} from '../utils/pricingResearch';
+import PricingResearch, { DriversCard, FactorModelCard, GapOverview, ImplicationsCard, PeopleLayerCard, StructuralDecayCard, ValuationCard } from '../components/PricingResearch';
+import { MacroMispricingThesisCard } from '../components/pricing/PricingInsightCards';
+import usePricingResearchData from '../components/pricing/usePricingResearchData';
+import {
+  getGapAnalysis,
+  getPricingGapHistory,
+  getPricingPeerComparison,
+  getResearchTasks,
+  getPricingSymbolSuggestions,
+} from '../services/api';
+import {
+  buildAppUrl,
+  readResearchContext,
+} from '../utils/researchContext';
 
 jest.mock('recharts', () => {
   const React = require('react');
@@ -73,15 +94,6 @@ jest.mock('antd', () => {
   };
 });
 
-import {
-  buildPricingActionPosture,
-  buildRecentPricingResearchEntries,
-  mergePricingSuggestions,
-  parsePricingUniverseInput,
-  resolveAnalysisSymbol,
-} from '../utils/pricingResearch';
-import PricingResearch, { DriversCard, FactorModelCard, GapOverview, ImplicationsCard, ValuationCard } from '../components/PricingResearch';
-
 const mockNavigateByResearchAction = jest.fn();
 
 jest.mock('../utils/researchContext', () => ({
@@ -102,10 +114,19 @@ jest.mock('../services/api', () => ({
   getValuationSensitivityAnalysis: jest.fn(),
 }));
 
-const {
-  getResearchTasks,
-  getPricingSymbolSuggestions,
-} = require('../services/api');
+const mockMessageApi = {
+  success: jest.fn(),
+  info: jest.fn(),
+  warning: jest.fn(),
+  error: jest.fn(),
+  loading: jest.fn(),
+  open: jest.fn(),
+  destroy: jest.fn(),
+};
+
+jest.mock('../utils/messageApi', () => ({
+  useSafeMessageApi: () => mockMessageApi,
+}));
 
 beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', {
@@ -125,9 +146,22 @@ beforeAll(() => {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  readResearchContext.mockReturnValue({});
+  getGapAnalysis.mockResolvedValue({});
+  getPricingGapHistory.mockResolvedValue({ history: [] });
+  getPricingPeerComparison.mockResolvedValue({ peers: [] });
   getResearchTasks.mockResolvedValue({ data: [] });
   getPricingSymbolSuggestions.mockResolvedValue({ data: [] });
 });
+
+afterEach(() => {
+  window.history.replaceState(null, '', '/');
+});
+
+function PricingResearchDataHarness() {
+  usePricingResearchData({ navigateByResearchAction: mockNavigateByResearchAction });
+  return <div data-testid="pricing-research-data-harness">harness</div>;
+}
 
 describe('pricingResearch symbol normalization', () => {
   it('uses the fallback symbol when button click passes an event object', () => {
@@ -323,7 +357,7 @@ describe('pricingResearch symbol normalization', () => {
 
     render(<PricingResearch />);
 
-    await waitFor(() => expect(screen.getByTestId('pricing-recent-research-shortcuts')).toBeTruthy());
+    await screen.findByTestId('pricing-recent-research-shortcuts');
     expect(screen.getAllByText('同向').length).toBeGreaterThan(0);
     expect(screen.getByText('主驱动 P/E 倍数法折价')).toBeTruthy();
     fireEvent.click(screen.getByText('AAPL 定价研究剧本'));
@@ -335,6 +369,120 @@ describe('pricingResearch symbol normalization', () => {
       reason: 'recent_pricing_search',
       taskId: 'rw_123',
     });
+  });
+
+  it('preserves workbench view context when syncing pricing urls', async () => {
+    readResearchContext.mockReturnValue({
+      view: 'pricing',
+      symbol: 'AAPL',
+      period: '1y',
+      source: 'pricing_playbook',
+      workbenchRefresh: 'high',
+      workbenchType: 'pricing',
+      workbenchSource: 'pricing_playbook',
+      workbenchReason: 'priority_escalated',
+      workbenchSnapshotView: 'filtered',
+      workbenchSnapshotFingerprint: 'wv_pricing_focus',
+      workbenchSnapshotSummary: '快速视图：自动排序升档 · 类型：Pricing',
+      workbenchKeyword: 'hedge',
+      workbenchQueueMode: 'pricing',
+      workbenchQueueAction: 'next_same_type',
+      task: 'rw_123',
+    });
+
+    render(<PricingResearchDataHarness />);
+
+    await waitFor(() => expect(buildAppUrl).toHaveBeenCalledWith(expect.objectContaining({
+      view: 'pricing',
+      symbol: 'AAPL',
+      period: '1y',
+      source: 'pricing_playbook',
+      workbenchRefresh: 'high',
+      workbenchType: 'pricing',
+      workbenchSource: 'pricing_playbook',
+      workbenchReason: 'priority_escalated',
+      workbenchSnapshotView: 'filtered',
+      workbenchSnapshotFingerprint: 'wv_pricing_focus',
+      workbenchSnapshotSummary: '快速视图：自动排序升档 · 类型：Pricing',
+      workbenchKeyword: 'hedge',
+      workbenchQueueMode: 'pricing',
+      workbenchQueueAction: 'next_same_type',
+      task: 'rw_123',
+    })));
+  });
+
+  it('returns to the next pricing workbench task from the research page', async () => {
+    window.history.replaceState(
+      null,
+      '',
+      '/?view=pricing&symbol=AAPL&period=1y&source=research_workbench&workbench_refresh=high&workbench_type=pricing&workbench_source=research_workbench&workbench_reason=priority_escalated&workbench_snapshot_view=filtered&workbench_snapshot_fingerprint=wv_pricing_focus&workbench_snapshot_summary=%E5%BF%AB%E9%80%9F%E8%A7%86%E5%9B%BE%EF%BC%9A%E8%87%AA%E5%8A%A8%E6%8E%92%E5%BA%8F%E5%8D%87%E6%A1%A3%20%C2%B7%20%E7%B1%BB%E5%9E%8B%EF%BC%9APricing&workbench_keyword=hedge&workbench_queue_mode=pricing&task=rw_123'
+    );
+    readResearchContext.mockReturnValue({
+      view: 'pricing',
+      symbol: 'AAPL',
+      period: '1y',
+      source: 'research_workbench',
+      note: '从工作台继续复盘',
+      workbenchRefresh: 'high',
+      workbenchType: 'pricing',
+      workbenchSource: 'research_workbench',
+      workbenchReason: 'priority_escalated',
+      workbenchSnapshotView: 'filtered',
+      workbenchSnapshotFingerprint: 'wv_pricing_focus',
+      workbenchSnapshotSummary: '快速视图：自动排序升档 · 类型：Pricing',
+      workbenchKeyword: 'hedge',
+      workbenchQueueMode: 'pricing',
+      task: 'rw_123',
+    });
+    getGapAnalysis.mockResolvedValueOnce({
+      symbol: 'AAPL',
+      implications: {},
+      deviation_drivers: {},
+    });
+
+    render(<PricingResearch />);
+
+    const button = await screen.findByRole('button', { name: '回到工作台下一条 Pricing 任务' });
+    fireEvent.click(button);
+
+    expect(mockNavigateByResearchAction).toHaveBeenCalledWith(
+      {
+        target: 'workbench',
+        refresh: 'high',
+        type: 'pricing',
+        sourceFilter: 'research_workbench',
+        reason: 'priority_escalated',
+        snapshotView: 'filtered',
+        snapshotFingerprint: 'wv_pricing_focus',
+        snapshotSummary: '快速视图：自动排序升档 · 类型：Pricing',
+        keyword: 'hedge',
+        queueMode: 'pricing',
+        queueAction: 'next_same_type',
+        taskId: 'rw_123',
+      },
+      expect.stringContaining('view=pricing')
+    );
+  });
+
+  it('shows update snapshot when reopening an existing workbench pricing task', async () => {
+    readResearchContext.mockReturnValue({
+      view: 'pricing',
+      symbol: 'AAPL',
+      period: '1y',
+      source: 'research_workbench',
+      note: '从工作台继续复盘',
+      workbenchQueueMode: 'pricing',
+      task: 'rw_existing_pricing',
+    });
+    getGapAnalysis.mockResolvedValueOnce({
+      symbol: 'AAPL',
+      implications: {},
+      deviation_drivers: {},
+    });
+
+    render(<PricingResearch />);
+
+    await screen.findByRole('button', { name: '更新当前任务快照' });
   });
 
   it('renders DCF scenario analysis on the valuation card', () => {
@@ -551,5 +699,122 @@ describe('pricingResearch symbol normalization', () => {
     expect(screen.getByText('驱动瀑布视图')).toBeTruthy();
     expect(screen.getAllByText('P/B 倍数法溢价').length).toBeGreaterThan(0);
     expect(screen.getAllByText('判断依据：相对行业基准的估值溢价最显著，说明倍数扩张是当前定价偏差的主要来源').length).toBeGreaterThan(0);
+  });
+
+  it('renders people layer risk and management context', () => {
+    render(
+      <PeopleLayerCard
+        data={{
+          stance: 'fragile',
+          risk_level: 'high',
+          confidence: 0.71,
+          summary: '阿里巴巴的人事层结论偏脆弱，组织质量 0.38 / 脆弱度 0.67。',
+          flags: ['财务与平台治理议题占比高', '技术组织被商业目标稀释的风险偏高'],
+          notes: ['内部人交易偏减持，说明管理层对当前定价的安全边际未给出强背书。'],
+          executive_profile: {
+            technical_authority_score: 0.34,
+            capital_markets_pressure: 0.62,
+            leadership_balance: '商业/财务主导',
+            average_tenure_years: 4.8,
+          },
+          insider_flow: {
+            label: '内部人减持偏谨慎',
+            net_action: 'selling',
+            transaction_count: 3,
+            summary: '阿里巴巴 近端内部人交易呈 selling，净额 -18.0M 美元。',
+          },
+          hiring_signal: {
+            signal: 'bearish',
+            dilution_ratio: 1.72,
+            tech_ratio: 0.29,
+            alert_message: '⚠️ 阿里巴巴 技术高管稀释度 1.72 超过警戒线 1.5',
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByText('人的维度 / 治理折扣')).toBeTruthy();
+    expect(screen.getByText('组织姿态 脆弱')).toBeTruthy();
+    expect(screen.getByText('组织风险 high')).toBeTruthy();
+    expect(screen.getByText('招聘稀释度')).toBeTruthy();
+    expect(screen.getByText('内部人减持偏谨慎')).toBeTruthy();
+  });
+
+  it('renders structural decay score and evidence breakdown', () => {
+    render(
+      <StructuralDecayCard
+        data={{
+          score: 0.78,
+          label: '结构性衰败警报',
+          action: 'structural_short',
+          reversibility: '低',
+          horizon: '长期',
+          dominant_failure_label: '组织与治理稀释',
+          summary: '结构性衰败警报，主导失效模式偏向 组织与治理稀释。',
+          evidence: ['人的维度已进入高脆弱区间', '招聘稀释度 1.72', '内部人交易偏减持'],
+          components: [
+            { key: 'people_fragility', label: '组织脆弱度', delta: 0.28, status: 'positive', detail: '人的维度已进入高脆弱区间' },
+            { key: 'hiring_dilution', label: '技术稀释', delta: 0.14, status: 'positive', detail: '招聘稀释度 1.72，组织重心向非技术侧偏移' },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText('Structural Decay')).toBeTruthy();
+    expect(screen.getByText('结构性衰败警报')).toBeTruthy();
+    expect(screen.getByText('主导失效模式')).toBeTruthy();
+    expect(screen.getByText('组织与治理稀释')).toBeTruthy();
+    expect(screen.getByText('衰败拆解')).toBeTruthy();
+  });
+
+  it('renders macro mispricing thesis with legs and kill conditions', () => {
+    render(
+      <MacroMispricingThesisCard
+        data={{
+          thesis_type: 'relative_short',
+          stance: '结构性做空',
+          score: 0.81,
+          horizon: '中长期',
+          people_risk: 'high',
+          summary: 'BABA 更像组织与叙事共同劣化导致的长期错误定价。',
+          primary_leg: {
+            symbol: 'BABA',
+            side: 'short',
+            role: 'primary',
+            rationale: '组织与治理稀释',
+          },
+          hedge_leg: {
+            symbol: 'KWEB',
+            side: 'long',
+            role: 'hedge',
+            rationale: '对冲中国互联网 Beta',
+          },
+          target_price: 82.5,
+          risk_boundary: 108.0,
+          risk_reward: 2.3,
+          kill_conditions: [
+            '人的维度风险从 high/fragile 明显修复到 medium 或以下',
+            '结构性衰败评分回落到 0.50 以下',
+          ],
+          trade_legs: [
+            { symbol: 'BABA', side: 'short', role: 'core_expression', weight: 0.5, thesis: '组织与治理稀释' },
+            { symbol: 'KWEB', side: 'long', role: 'beta_hedge', weight: 0.3, thesis: '对冲中国互联网 Beta' },
+            { symbol: 'GLD', side: 'long', role: 'stress_hedge', weight: 0.2, thesis: '保留系统性冲击防御' },
+          ],
+          execution_notes: ['优先表达 idiosyncratic 错价，避免把系统性方向误当 thesis 收益来源'],
+        }}
+      />,
+    );
+
+    expect(screen.getByText('Macro Mispricing Thesis')).toBeTruthy();
+    expect(screen.getByText('结构性做空')).toBeTruthy();
+    expect(screen.getByText('主腿')).toBeTruthy();
+    expect(screen.getByText('BABA · short')).toBeTruthy();
+    expect(screen.getByText('KWEB · long')).toBeTruthy();
+    expect(screen.getByText('组合腿')).toBeTruthy();
+    expect(screen.getByText('GLD')).toBeTruthy();
+    expect(screen.getByText('执行备注')).toBeTruthy();
+    expect(screen.getByText('Kill Conditions')).toBeTruthy();
+    expect(screen.getByText('结构性衰败评分回落到 0.50 以下')).toBeTruthy();
   });
 });

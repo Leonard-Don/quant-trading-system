@@ -11,6 +11,7 @@ from typing import Optional, Dict, Any, List
 import logging
 import requests
 from pathlib import Path
+import threading
 
 from .base_provider import BaseDataProvider, DataProviderError
 
@@ -87,6 +88,12 @@ class AKShareProvider(BaseDataProvider):
         "美容护理": "801980",
     }
     _industry_meta_cache_path = Path(__file__).resolve().parents[3] / "cache" / "industry_metadata_cache.json"
+    _industry_meta_heatmap_fallback_path = Path(__file__).resolve().parents[3] / "data" / "industry" / "heatmap_history.json"
+    _shared_industry_meta_cache: pd.DataFrame | None = None
+    _shared_industry_meta_cache_time: datetime | None = None
+    _shared_industry_meta_failure_at: datetime | None = None
+    _industry_meta_failure_cooldown_seconds: int = 300
+    _industry_meta_lock = threading.Lock()
     
     def __init__(self, api_key: Optional[str] = None, config: Dict[str, Any] = None):
         """初始化 AKShare 提供器"""
@@ -137,12 +144,57 @@ class AKShareProvider(BaseDataProvider):
             if not rows:
                 return None, None
             df = pd.DataFrame(rows)
+            if "market_cap_source" not in df.columns:
+                df["market_cap_source"] = "akshare_metadata"
             updated_at = datetime.fromisoformat(updated_at_raw) if updated_at_raw else None
             logger.info("Loaded persistent industry metadata cache with %s industries", len(df))
             return df, updated_at
         except Exception as e:
             logger.warning(f"Failed to load persistent industry metadata cache: {e}")
             return None, None
+
+    @classmethod
+    def _load_heatmap_history_metadata_fallback(cls) -> tuple[pd.DataFrame | None, datetime | None]:
+        history_path = cls._industry_meta_heatmap_fallback_path
+        if not history_path.exists():
+            return None, None
+
+        try:
+            payload = json.loads(history_path.read_text(encoding="utf-8"))
+            if not isinstance(payload, list) or not payload:
+                return None, None
+
+            for snapshot in payload:
+                industries = snapshot.get("industries") or []
+                rows = []
+                for item in industries:
+                    source = str(item.get("marketCapSource", "unknown") or "unknown").strip()
+                    total_market_cap = pd.to_numeric(item.get("size"), errors="coerce")
+                    turnover_rate = pd.to_numeric(item.get("turnoverRate"), errors="coerce")
+                    industry_name = str(item.get("name") or "").strip()
+                    if not industry_name or not pd.notna(total_market_cap) or float(total_market_cap) <= 0:
+                        continue
+                    if source == "unknown" or source.startswith("estimated") or source == "constant_fallback":
+                        continue
+
+                    rows.append({
+                        "industry_name": industry_name,
+                        "original_name": industry_name,
+                        "total_market_cap": float(total_market_cap),
+                        "turnover_rate": float(turnover_rate) if pd.notna(turnover_rate) else 0.0,
+                        "market_cap_source": source,
+                    })
+
+                if rows:
+                    updated_at_raw = snapshot.get("captured_at") or snapshot.get("update_time")
+                    updated_at = datetime.fromisoformat(updated_at_raw) if updated_at_raw else None
+                    df = pd.DataFrame(rows).drop_duplicates(subset=["industry_name"], keep="first")
+                    logger.info("Loaded heatmap-history metadata fallback with %s industries", len(df))
+                    return df, updated_at
+        except Exception as e:
+            logger.warning(f"Failed to load heatmap-history metadata fallback: {e}")
+
+        return None, None
 
     @classmethod
     def _persist_industry_metadata(cls, df_meta: pd.DataFrame, updated_at: datetime) -> None:
@@ -478,86 +530,147 @@ class AKShareProvider(BaseDataProvider):
         """
         import time
         
+        cls = self.__class__
+
         # Lazy init cache
         if not hasattr(self, '_industry_meta_cache'):
             logger.info("Initializing industry metadata cache (lazy)")
-            self._industry_meta_cache = None
-            self._industry_meta_cache_time = None
-            persistent_df, persistent_time = self._load_persistent_industry_metadata()
-            if persistent_df is not None and not persistent_df.empty:
-                self._industry_meta_cache = persistent_df
-                self._industry_meta_cache_time = persistent_time or datetime.now() - timedelta(days=1)
+            self._industry_meta_cache = cls._shared_industry_meta_cache
+            self._industry_meta_cache_time = cls._shared_industry_meta_cache_time
+            if self._industry_meta_cache is None:
+                persistent_df, persistent_time = self._load_persistent_industry_metadata()
+                if persistent_df is not None and not persistent_df.empty:
+                    self._industry_meta_cache = persistent_df
+                    self._industry_meta_cache_time = persistent_time or datetime.now() - timedelta(days=1)
+                    cls._shared_industry_meta_cache = persistent_df
+                    cls._shared_industry_meta_cache_time = self._industry_meta_cache_time
             
         current_time = datetime.now()
+
+        # Check shared cache first so repeated provider instances reuse the same snapshot.
+        if (
+            cls._shared_industry_meta_cache is not None
+            and cls._shared_industry_meta_cache_time
+            and current_time - cls._shared_industry_meta_cache_time < timedelta(hours=4)
+        ):
+            self._industry_meta_cache = cls._shared_industry_meta_cache
+            self._industry_meta_cache_time = cls._shared_industry_meta_cache_time
+            return cls._shared_industry_meta_cache
         
         # Check cache (valid for 4 hours as metadata is slow changing)
         if (self._industry_meta_cache is not None and 
             self._industry_meta_cache_time and 
             current_time - self._industry_meta_cache_time < timedelta(hours=4)):
             return self._industry_meta_cache
+
+        # Fast-fail during a recent upstream outage to avoid re-triggering dozens of retries
+        # from parallel cold-start requests.
+        if (
+            cls._shared_industry_meta_failure_at is not None
+            and current_time - cls._shared_industry_meta_failure_at
+            < timedelta(seconds=cls._industry_meta_failure_cooldown_seconds)
+        ):
+            if self._industry_meta_cache is not None:
+                logger.info("Skipping AKShare metadata refresh during cooldown; using in-memory snapshot")
+                return self._industry_meta_cache
+            persistent_df, persistent_time = self._load_persistent_industry_metadata()
+            if persistent_df is not None and not persistent_df.empty:
+                self._industry_meta_cache = persistent_df
+                self._industry_meta_cache_time = persistent_time or datetime.now() - timedelta(days=1)
+                cls._shared_industry_meta_cache = persistent_df
+                cls._shared_industry_meta_cache_time = self._industry_meta_cache_time
+                logger.info("Skipping AKShare metadata refresh during cooldown; using persistent snapshot")
+                return persistent_df
+            heatmap_df, heatmap_time = self._load_heatmap_history_metadata_fallback()
+            if heatmap_df is not None and not heatmap_df.empty:
+                self._industry_meta_cache = heatmap_df
+                self._industry_meta_cache_time = heatmap_time or datetime.now() - timedelta(hours=6)
+                cls._shared_industry_meta_cache = heatmap_df
+                cls._shared_industry_meta_cache_time = self._industry_meta_cache_time
+                logger.info("Skipping AKShare metadata refresh during cooldown; using heatmap-history snapshot")
+                return heatmap_df
+            logger.info("Skipping AKShare metadata refresh during cooldown; no fallback snapshot available")
+            return pd.DataFrame()
         
         # Try to refresh with 1 retry
         last_error = None
-        for attempt in range(2):
-            try:
-                if attempt > 0:
-                    time.sleep(1)  # 重试前等待 1 秒
-                logger.info(f"Fetching industry metadata from AKShare (attempt {attempt + 1})...")
-                df_meta = ak.stock_board_industry_name_em()
-                if df_meta.empty:
-                    continue
-                    
-                # [Filter Duplicate Industries]
-                # Logic: 
-                # 1. Remove names ending with 'III' (usually redundant L3)
-                # 2. Remove names ending with 'II' ONLY IF the base name exists
-                
-                df_meta['base_name'] = df_meta['板块名称'].astype(str)
-                all_names = set(df_meta['base_name'].tolist())
-                
-                filter_indices = []
-                for idx, row in df_meta.iterrows():
-                    name = row['base_name']
-                    keep = True
-                    
-                    if name.endswith('Ⅲ'):
-                        keep = False
-                    elif name.endswith('Ⅱ'):
-                        base = name[:-1]
-                        if base in all_names:
-                            keep = False
-                            
-                    if keep:
-                        filter_indices.append(idx)
+        with cls._industry_meta_lock:
+            # Another request may have already refreshed the shared cache while we waited.
+            if (
+                cls._shared_industry_meta_cache is not None
+                and cls._shared_industry_meta_cache_time
+                and current_time - cls._shared_industry_meta_cache_time < timedelta(hours=4)
+            ):
+                self._industry_meta_cache = cls._shared_industry_meta_cache
+                self._industry_meta_cache_time = cls._shared_industry_meta_cache_time
+                return cls._shared_industry_meta_cache
+
+            for attempt in range(2):
+                try:
+                    if attempt > 0:
+                        time.sleep(1)  # 重试前等待 1 秒
+                    logger.info(f"Fetching industry metadata from AKShare (attempt {attempt + 1})...")
+                    df_meta = ak.stock_board_industry_name_em()
+                    if df_meta.empty:
+                        continue
                         
-                df_meta = df_meta.loc[filter_indices].drop(columns=['base_name'])
+                    # [Filter Duplicate Industries]
+                    # Logic: 
+                    # 1. Remove names ending with 'III' (usually redundant L3)
+                    # 2. Remove names ending with 'II' ONLY IF the base name exists
+                    
+                    df_meta['base_name'] = df_meta['板块名称'].astype(str)
+                    all_names = set(df_meta['base_name'].tolist())
+                    
+                    filter_indices = []
+                    for idx, row in df_meta.iterrows():
+                        name = row['base_name']
+                        keep = True
+                        
+                        if name.endswith('Ⅲ'):
+                            keep = False
+                        elif name.endswith('Ⅱ'):
+                            base = name[:-1]
+                            if base in all_names:
+                                keep = False
+                                
+                        if keep:
+                            filter_indices.append(idx)
+                            
+                    df_meta = df_meta.loc[filter_indices].drop(columns=['base_name'])
 
-                # Preserve original name for matching
-                df_meta['original_name'] = df_meta['板块名称']
+                    # Preserve original name for matching
+                    df_meta['original_name'] = df_meta['板块名称']
 
-                # [Clean Names] Remove Roman numerals from the display name
-                # e.g., "白酒Ⅱ" -> "白酒", "证券Ⅱ" -> "证券"
-                df_meta['板块名称'] = df_meta['板块名称'].str.replace(r'[ⅡⅢⅢ]$', '', regex=True)
+                    # [Clean Names] Remove Roman numerals from the display name
+                    # e.g., "白酒Ⅱ" -> "白酒", "证券Ⅱ" -> "证券"
+                    df_meta['板块名称'] = df_meta['板块名称'].str.replace(r'[ⅡⅢⅢ]$', '', regex=True)
 
-                # Rename columns to match for merge
-                df_meta = df_meta.rename(columns={
-                    "板块名称": "industry_name",
-                    "总市值": "total_market_cap",
-                    "换手率": "turnover_rate",
-                    "涨跌幅": "change_pct_meta"  # Avoid conflict
-                })
-                
-                # Update Cache
-                self._industry_meta_cache = df_meta
-                self._industry_meta_cache_time = current_time
-                self._persist_industry_metadata(df_meta, current_time)
-                logger.info(f"Industry metadata fetched successfully: {len(df_meta)} industries")
-                
-                return df_meta
-                
-            except Exception as e:
-                last_error = e
-                logger.warning(f"_get_industry_metadata attempt {attempt + 1} failed: {e}")
+                    # Rename columns to match for merge
+                    df_meta = df_meta.rename(columns={
+                        "板块名称": "industry_name",
+                        "总市值": "total_market_cap",
+                        "换手率": "turnover_rate",
+                        "涨跌幅": "change_pct_meta"  # Avoid conflict
+                    })
+                    if "market_cap_source" not in df_meta.columns:
+                        df_meta["market_cap_source"] = "akshare_metadata"
+                    
+                    # Update Cache
+                    self._industry_meta_cache = df_meta
+                    self._industry_meta_cache_time = current_time
+                    cls._shared_industry_meta_cache = df_meta
+                    cls._shared_industry_meta_cache_time = current_time
+                    cls._shared_industry_meta_failure_at = None
+                    self._persist_industry_metadata(df_meta, current_time)
+                    logger.info(f"Industry metadata fetched successfully: {len(df_meta)} industries")
+                    
+                    return df_meta
+                    
+                except Exception as e:
+                    last_error = e
+                    logger.warning(f"_get_industry_metadata attempt {attempt + 1} failed: {e}")
+            cls._shared_industry_meta_failure_at = current_time
         
         # All retries failed - use stale cache as fallback
         if self._industry_meta_cache is not None:
@@ -568,8 +681,18 @@ class AKShareProvider(BaseDataProvider):
         if persistent_df is not None and not persistent_df.empty:
             self._industry_meta_cache = persistent_df
             self._industry_meta_cache_time = persistent_time or datetime.now() - timedelta(days=1)
+            cls._shared_industry_meta_cache = persistent_df
+            cls._shared_industry_meta_cache_time = self._industry_meta_cache_time
             logger.warning(f"Using persistent metadata snapshot as fallback (last error: {last_error})")
             return persistent_df
+        heatmap_df, heatmap_time = self._load_heatmap_history_metadata_fallback()
+        if heatmap_df is not None and not heatmap_df.empty:
+            self._industry_meta_cache = heatmap_df
+            self._industry_meta_cache_time = heatmap_time or datetime.now() - timedelta(hours=6)
+            cls._shared_industry_meta_cache = heatmap_df
+            cls._shared_industry_meta_cache_time = self._industry_meta_cache_time
+            logger.warning(f"Using heatmap-history metadata snapshot as fallback (last error: {last_error})")
+            return heatmap_df
         
         logger.error(f"_get_industry_metadata failed with no cache fallback: {last_error}")
         return pd.DataFrame()

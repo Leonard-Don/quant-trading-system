@@ -1,6 +1,6 @@
 {
   "name": "quantitative-trading-frontend",
-  "version": "3.9.0",
+  "version": "4.0.0",
   "description": "量化交易系统前端",
   "private": true,
   "dependencies": {
@@ -45,5 +45,5 @@
       "last 1 safari version"
     ]
   },
-  "proxy": "http://localhost:8000"
+  "proxy": "http://127.0.0.1:8000"
 }

@@ -5,12 +5,13 @@
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
-from typing import List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 import logging
 import time
 import re
 import threading
 import json
+import math
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -70,6 +71,29 @@ _HEATMAP_HISTORY_FILE = PROJECT_ROOT / "data" / "industry" / "heatmap_history.js
 # 独立的 Parity 缓存（评分一致性保障，TTL 更长）
 _parity_cache: dict = {}  # {key: {"data": ..., "ts": float}}
 _PARITY_CACHE_TTL = 1800  # 30分钟（评分在交易日内变化缓慢）
+
+INDUSTRY_ETF_MAP: Dict[str, List[Dict[str, str]]] = {
+    "半导体": [{"symbol": "SOXX", "market": "US"}, {"symbol": "512760.SS", "market": "CN"}],
+    "芯片": [{"symbol": "SOXX", "market": "US"}, {"symbol": "159995.SZ", "market": "CN"}],
+    "人工智能": [{"symbol": "AIQ", "market": "US"}, {"symbol": "CHAT", "market": "US"}],
+    "软件": [{"symbol": "IGV", "market": "US"}, {"symbol": "515230.SS", "market": "CN"}],
+    "新能源": [{"symbol": "ICLN", "market": "US"}, {"symbol": "516160.SS", "market": "CN"}],
+    "光伏": [{"symbol": "TAN", "market": "US"}, {"symbol": "515790.SS", "market": "CN"}],
+    "电池": [{"symbol": "LIT", "market": "US"}, {"symbol": "159755.SZ", "market": "CN"}],
+    "医药": [{"symbol": "XLV", "market": "US"}, {"symbol": "512010.SS", "market": "CN"}],
+    "医疗": [{"symbol": "XLV", "market": "US"}, {"symbol": "159883.SZ", "market": "CN"}],
+    "消费": [{"symbol": "XLY", "market": "US"}, {"symbol": "159928.SZ", "market": "CN"}],
+    "白酒": [{"symbol": "512690.SS", "market": "CN"}],
+    "金融": [{"symbol": "XLF", "market": "US"}, {"symbol": "510230.SS", "market": "CN"}],
+    "银行": [{"symbol": "KBE", "market": "US"}, {"symbol": "512800.SS", "market": "CN"}],
+    "证券": [{"symbol": "KCE", "market": "US"}, {"symbol": "512880.SS", "market": "CN"}],
+    "地产": [{"symbol": "VNQ", "market": "US"}, {"symbol": "512200.SS", "market": "CN"}],
+    "军工": [{"symbol": "ITA", "market": "US"}, {"symbol": "512660.SS", "market": "CN"}],
+    "能源": [{"symbol": "XLE", "market": "US"}, {"symbol": "159930.SZ", "market": "CN"}],
+    "煤炭": [{"symbol": "KOL", "market": "US"}, {"symbol": "515220.SS", "market": "CN"}],
+    "有色": [{"symbol": "XME", "market": "US"}, {"symbol": "512400.SS", "market": "CN"}],
+    "汽车": [{"symbol": "CARZ", "market": "US"}, {"symbol": "516110.SS", "market": "CN"}],
+}
 
 
 def _normalize_sparkline_points(points: list[float], max_points: int = 20) -> list[float]:
@@ -184,6 +208,90 @@ def _get_stale_parity_cache(symbol: str, score_type: str):
     key = f"{symbol}:{score_type}"
     entry = _parity_cache.get(key)
     return entry["data"] if entry else None
+
+
+def _map_industry_etfs(industry_name: str) -> List[Dict[str, str]]:
+    normalized = str(industry_name or "")
+    matches: List[Dict[str, str]] = []
+    for keyword, etfs in INDUSTRY_ETF_MAP.items():
+        if keyword in normalized:
+            matches.extend(etfs)
+    if not matches:
+        matches = [{"symbol": "SPY", "market": "US"}, {"symbol": "510300.SS", "market": "CN"}]
+    seen = set()
+    result = []
+    for item in matches:
+        key = item["symbol"]
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append({**item, "reason": f"{industry_name} ETF proxy"})
+    return result
+
+
+def _classify_industry_lifecycle(row: Dict[str, Any]) -> Dict[str, Any]:
+    score = float(row.get("score") or row.get("total_score") or 0)
+    momentum = float(row.get("momentum") or 0)
+    change_pct = float(row.get("change_pct") or 0)
+    flow = float(row.get("money_flow") or row.get("flow_strength") or 0)
+    volatility = abs(float(row.get("industry_volatility") or 0))
+
+    if score >= 75 and momentum > 0 and flow >= 0:
+        stage = "成长期"
+        confidence = min(0.95, 0.55 + score / 200)
+    elif score >= 60 and abs(momentum) <= 8 and volatility < 8:
+        stage = "成熟期"
+        confidence = min(0.9, 0.5 + score / 220)
+    elif change_pct < -3 or momentum < -8:
+        stage = "衰退期"
+        confidence = min(0.9, 0.55 + abs(momentum) / 50)
+    else:
+        stage = "导入期"
+        confidence = 0.55
+
+    return {
+        "stage": stage,
+        "confidence": round(float(confidence), 3),
+        "drivers": {
+            "score": round(score, 3),
+            "momentum": round(momentum, 3),
+            "change_pct": round(change_pct, 3),
+            "money_flow": round(flow, 3),
+            "volatility": round(volatility, 3),
+        },
+    }
+
+
+def _build_industry_events(industry_name: str) -> List[Dict[str, Any]]:
+    now = datetime.now()
+    base_events = [
+        {"name": "财报密集披露窗口", "offset_days": 14, "type": "earnings", "impact": "fundamental"},
+        {"name": "月度宏观/行业数据窗口", "offset_days": 20, "type": "macro_data", "impact": "demand"},
+        {"name": "政策/监管观察窗口", "offset_days": 35, "type": "policy", "impact": "valuation"},
+    ]
+    if any(keyword in industry_name for keyword in ("新能源", "光伏", "电池", "汽车")):
+        base_events.append({"name": "新能源产业链价格与装机数据", "offset_days": 10, "type": "industry_data", "impact": "margin"})
+    if any(keyword in industry_name for keyword in ("半导体", "芯片", "人工智能", "软件")):
+        base_events.append({"name": "科技产品发布/供应链景气跟踪", "offset_days": 21, "type": "product_cycle", "impact": "growth"})
+    return [
+        {
+            "date": (now + timedelta(days=item["offset_days"])).strftime("%Y-%m-%d"),
+            "title": item["name"],
+            "event_type": item["type"],
+            "expected_impact": item["impact"],
+            "industry_name": industry_name,
+        }
+        for item in base_events
+    ]
+
+
+def _cosine_similarity(left: List[float], right: List[float]) -> float:
+    numerator = sum(a * b for a, b in zip(left, right))
+    left_norm = math.sqrt(sum(a * a for a in left))
+    right_norm = math.sqrt(sum(b * b for b in right))
+    if left_norm == 0 or right_norm == 0:
+        return 0.0
+    return numerator / (left_norm * right_norm)
 
 
 def _model_to_dict(model):
@@ -1046,6 +1154,138 @@ def get_industry_rotation(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/industries/intelligence", summary="行业生命周期、ETF 映射与事件日历")
+def get_industry_intelligence(
+    top_n: int = Query(12, ge=1, le=30, description="分析前 N 个热门行业"),
+    lookback_days: int = Query(5, ge=1, le=30, description="热度回看周期"),
+):
+    cache_key = f"industry_intelligence:v1:{top_n}:{lookback_days}"
+    cached = _get_endpoint_cache(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        analyzer = get_industry_analyzer()
+        rows = analyzer.rank_industries(
+            top_n=top_n,
+            sort_by="total_score",
+            ascending=False,
+            lookback_days=lookback_days,
+        )
+        industries = []
+        for row in rows:
+            industry_name = row.get("industry_name", "")
+            industries.append(
+                {
+                    "industry_name": industry_name,
+                    "rank": row.get("rank", 0),
+                    "score": row.get("score", row.get("total_score", 0)),
+                    "change_pct": row.get("change_pct", 0),
+                    "money_flow": row.get("money_flow", 0),
+                    "lifecycle": _classify_industry_lifecycle(row),
+                    "etf_mapping": _map_industry_etfs(industry_name),
+                    "event_calendar": _build_industry_events(industry_name),
+                }
+            )
+        result = {
+            "success": True,
+            "data": {
+                "lookback_days": lookback_days,
+                "industries": industries,
+                "generated_at": datetime.now().isoformat(),
+            },
+        }
+        _set_endpoint_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.error(f"Error building industry intelligence: {e}", exc_info=True)
+        stale = _get_stale_endpoint_cache(cache_key)
+        if stale is not None:
+            return stale
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/industries/network", summary="行业相关性网络图")
+def get_industry_network(
+    top_n: int = Query(18, ge=4, le=50, description="网络节点数量"),
+    lookback_days: int = Query(5, ge=1, le=30, description="热度回看周期"),
+    min_similarity: float = Query(0.92, ge=0.0, le=1.0, description="最小相似度"),
+):
+    cache_key = f"industry_network:v1:{top_n}:{lookback_days}:{min_similarity}"
+    cached = _get_endpoint_cache(cache_key)
+    if cached is not None:
+        return cached
+    try:
+        analyzer = get_industry_analyzer()
+        rows = analyzer.rank_industries(
+            top_n=top_n,
+            sort_by="total_score",
+            ascending=False,
+            lookback_days=lookback_days,
+        )
+        nodes = []
+        vectors = {}
+        for row in rows:
+            name = row.get("industry_name", "")
+            score = float(row.get("score", row.get("total_score", 0)) or 0)
+            momentum = float(row.get("momentum", 0) or 0)
+            change_pct = float(row.get("change_pct", 0) or 0)
+            flow = float(row.get("money_flow", row.get("flow_strength", 0)) or 0)
+            volatility = float(row.get("industry_volatility", 0) or 0)
+            vectors[name] = [
+                score / 100,
+                momentum / 100,
+                change_pct / 20,
+                flow / max(abs(flow), 1_000_000_000),
+                volatility / 20,
+            ]
+            nodes.append(
+                {
+                    "id": name,
+                    "label": name,
+                    "score": round(score, 3),
+                    "stage": _classify_industry_lifecycle(row)["stage"],
+                    "etfs": _map_industry_etfs(name)[:2],
+                }
+            )
+
+        edges = []
+        names = list(vectors.keys())
+        for left_index, left_name in enumerate(names):
+            for right_name in names[left_index + 1 :]:
+                similarity = _cosine_similarity(vectors[left_name], vectors[right_name])
+                if similarity >= min_similarity:
+                    edges.append(
+                        {
+                            "source": left_name,
+                            "target": right_name,
+                            "weight": round(float(similarity), 4),
+                            "relationship": "factor_similarity",
+                        }
+                    )
+        edges.sort(key=lambda item: item["weight"], reverse=True)
+        result = {
+            "success": True,
+            "data": {
+                "nodes": nodes,
+                "edges": edges[:120],
+                "metadata": {
+                    "top_n": top_n,
+                    "lookback_days": lookback_days,
+                    "min_similarity": min_similarity,
+                    "generated_at": datetime.now().isoformat(),
+                },
+            },
+        }
+        _set_endpoint_cache(cache_key, result)
+        return result
+    except Exception as e:
+        logger.error(f"Error building industry network: {e}", exc_info=True)
+        stale = _get_stale_endpoint_cache(cache_key)
+        if stale is not None:
+            return stale
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/leaders", response_model=List[LeaderStockResponse])
 def get_leader_stocks(
     top_n: int = Query(20, ge=1, le=100, description="返回龙头股数量"),
@@ -1130,12 +1370,13 @@ def get_leader_stocks(
 
                     logger.info(f"For {ind_name}, selected {len(valid_stocks)} valid core candidates.")
                     candidate_map = {item["symbol"]: item for item in candidate_pool}
+                    industry_stats = scorer.calculate_industry_stats(candidate_pool)
 
                     # 阶段一：无网络 I/O 的快速本地评分（筛选候选）
                     fast_results = []
                     for sym in valid_stocks[:max(5, int(per_industry * 1.5))]:
                         snapshot = candidate_map.get(sym, {"symbol": sym, "name": sym})
-                        sd = scorer.score_stock_from_snapshot(snapshot, enrich_financial=False)
+                        sd = scorer.score_stock_from_snapshot(snapshot, industry_stats=industry_stats, enrich_financial=False)
                         ds = sd.get("dimension_scores", {})
                         roe = sd.get("raw_data", {}).get("roe")
                         if roe is not None and roe < 0:
@@ -1146,17 +1387,22 @@ def get_leader_stocks(
                     fast_results.sort(key=lambda x: x[1], reverse=True)
                     top_syms = [sym for sym, _, _ in fast_results[:per_industry]]
 
-                    # 阶段二：仅对精选候选请求 AKShare 财务数据
+                    # 阶段二：仅复用已有财务缓存，榜单请求不主动触发新的财务网络 I/O
                     ind_core_list = []
                     for sym in top_syms:
                         snapshot = candidate_map.get(sym, {"symbol": sym, "name": sym})
                         sd = None
                         try:
-                            sd = scorer.score_stock_from_snapshot(snapshot, enrich_financial=True)
+                            sd = scorer.score_stock_from_snapshot(
+                                snapshot,
+                                industry_stats=industry_stats,
+                                enrich_financial=True,
+                                cached_only=True,
+                            )
                         except Exception:
                             pass
                         if not sd or "error" in sd:
-                            sd = scorer.score_stock_from_snapshot(snapshot, enrich_financial=False)
+                            sd = scorer.score_stock_from_snapshot(snapshot, industry_stats=industry_stats, enrich_financial=False)
                         ds = sd.get("dimension_scores", {})
                         roe = sd.get("raw_data", {}).get("roe")
                         if roe is not None and roe < 0:

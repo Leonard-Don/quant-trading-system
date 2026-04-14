@@ -13,9 +13,9 @@ function SupplyChainHeatmap({ cells = [], anomalies = [] }) {
   return (
     <Card
       title="Supply Chain Heatmap"
-      bordered={false}
+      variant="borderless"
       extra={<Tag color="blue">{cells.length} heat zones</Tag>}
-      bodyStyle={{ display: 'flex', flexDirection: 'column', gap: 18 }}
+      styles={{ body: { display: 'flex', flexDirection: 'column', gap: 18 } }}
     >
       {cells.length ? (
         <Row gutter={[12, 12]}>

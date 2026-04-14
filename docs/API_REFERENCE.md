@@ -14,9 +14,9 @@
     - 🔌 **WebSocket支持**: 实时股票报价推送
 
     ### API版本
-    - **当前版本**: v3.9.0
+    - **当前版本**: v4.0.0
     - **API版本**: v1
-    - **最后更新**: 2026-04-02
+    - **最后更新**: 2026-04-14
 
     ### 认证
     当前版本无需认证，生产环境建议添加API密钥认证。
@@ -27,7 +27,7 @@
     - 并发回测: 最多10个
     
 
-**版本**: 3.9.0
+**版本**: 4.0.0
 
 ## 基础信息
 
@@ -61,6 +61,55 @@
 - `metrics` (object): 无描述
 - `result` (object): 无描述
 
+### AlertEventPublishRequest
+
+**字段: **
+
+- `source_module` (string): 无描述
+- `rule_name` (string): 无描述
+- `symbol` (string): 无描述
+- `severity` (string): 无描述
+- `message` (string): 无描述
+- `condition_summary` (string): 无描述
+- `condition` (unknown): 无描述
+- `trigger_value` (unknown): 无描述
+- `threshold` (unknown): 无描述
+- `rule_ids` (array): 无描述
+- `notify_channels` (array): 无描述
+- `create_workbench_task` (boolean): 无描述
+- `workbench_task_type` (string): 无描述
+- `workbench_status` (string): 无描述
+- `persist_event_record` (boolean): 无描述
+- `cascade_actions` (array): 无描述
+
+### AlertOrchestrationUpdateRequest
+
+**字段: **
+
+- `composite_rules` (array): 无描述
+- `channels` (array): 无描述
+- `module_alerts` (array): 无描述
+- `history_entry` (unknown): 无描述
+- `history_updates` (array): 无描述
+
+### AuthPolicyRequest
+
+**字段: **
+
+- `required` (boolean): 无描述
+
+### AuthUserRequest
+
+**字段: **
+
+- `subject` (string): 无描述
+- `password` (unknown): 无描述
+- `role` (string): 无描述
+- `display_name` (string): 无描述
+- `enabled` (boolean): 无描述
+- `scopes` (array): 无描述
+- `metadata` (object): 无描述
+
 ### BacktestRequest
 
 **字段: **
@@ -76,6 +125,10 @@
 - `fixed_commission` (number): 无描述
 - `min_commission` (number): 无描述
 - `market_impact_bps` (number): 无描述
+- `market_impact_model` (string): 无描述
+- `impact_reference_notional` (number): 无描述
+- `impact_coefficient` (number): 无描述
+- `permanent_impact_bps` (number): 无描述
 - `max_holding_days` (unknown): 无描述
 
 ### BacktestResponse
@@ -115,7 +168,21 @@
 - `fixed_commission` (number): 无描述
 - `min_commission` (number): 无描述
 - `market_impact_bps` (number): 无描述
+- `market_impact_model` (string): 无描述
+- `impact_reference_notional` (number): 无描述
+- `impact_coefficient` (number): 无描述
+- `permanent_impact_bps` (number): 无描述
 - `max_holding_days` (unknown): 无描述
+
+### Body_issue_oauth_token_infrastructure_oauth_token_post
+
+**字段: **
+
+- `grant_type` (string): 无描述
+- `username` (unknown): 无描述
+- `password` (unknown): 无描述
+- `refresh_token` (unknown): 无描述
+- `scope` (string): 无描述
 
 ### Body_optimize_portfolio_optimization_optimize_post
 
@@ -154,6 +221,10 @@
 - `fixed_commission` (number): 无描述
 - `min_commission` (number): 无描述
 - `market_impact_bps` (number): 无描述
+- `market_impact_model` (string): 无描述
+- `impact_reference_notional` (number): 无描述
+- `impact_coefficient` (number): 无描述
+- `permanent_impact_bps` (number): 无描述
 - `max_holding_days` (unknown): 无描述
 
 ### CompareStrategyConfig
@@ -162,6 +233,24 @@
 
 - `name` (string): 无描述
 - `parameters` (object): 无描述
+
+### ConfigRestoreRequest
+
+**字段: **
+
+- `config_type` (string): 无描述
+- `config_key` (string): 无描述
+- `version` (integer): 无描述
+- `owner_id` (string): 无描述
+
+### ConfigVersionRequest
+
+**字段: **
+
+- `config_type` (string): 无描述
+- `config_key` (string): 无描述
+- `payload` (object): 无描述
+- `owner_id` (string): 无描述
 
 ### CorrelationRequest
 
@@ -247,6 +336,31 @@
 - `input_reliability_posture` (unknown): 无描述
 - `input_reliability_reason` (unknown): 无描述
 - `input_reliability_action_hint` (unknown): 无描述
+- `department_chaos_label` (unknown): 无描述
+- `department_chaos_score` (unknown): 无描述
+- `department_chaos_top_department` (unknown): 无描述
+- `department_chaos_reason` (unknown): 无描述
+- `department_chaos_risk_budget_scale` (unknown): 无描述
+- `policy_execution_label` (unknown): 无描述
+- `policy_execution_score` (unknown): 无描述
+- `policy_execution_top_department` (unknown): 无描述
+- `policy_execution_reason` (unknown): 无描述
+- `policy_execution_risk_budget_scale` (unknown): 无描述
+- `people_fragility_label` (unknown): 无描述
+- `people_fragility_score` (unknown): 无描述
+- `people_fragility_focus` (unknown): 无描述
+- `people_fragility_reason` (unknown): 无描述
+- `people_fragility_risk_budget_scale` (unknown): 无描述
+- `source_mode_label` (unknown): 无描述
+- `source_mode_dominant` (unknown): 无描述
+- `source_mode_reason` (unknown): 无描述
+- `source_mode_risk_budget_scale` (unknown): 无描述
+- `structural_decay_radar_label` (unknown): 无描述
+- `structural_decay_radar_display_label` (unknown): 无描述
+- `structural_decay_radar_score` (unknown): 无描述
+- `structural_decay_radar_action_hint` (unknown): 无描述
+- `structural_decay_radar_risk_budget_scale` (unknown): 无描述
+- `structural_decay_radar_top_signals` (array): 无描述
 - `bias_highlights_raw` (array): 无描述
 - `bias_highlights` (array): 无描述
 - `bias_actions` (array): 无描述
@@ -257,6 +371,7 @@
 - `support_legs` (array): 无描述
 - `theme_core` (unknown): 无描述
 - `theme_support` (unknown): 无描述
+- `execution_posture` (unknown): 无描述
 - `base_assets` (array): 无描述
 - `raw_bias_assets` (array): 无描述
 
@@ -265,6 +380,15 @@
 **字段: **
 
 - `symbol` (string): 无描述
+
+### FactorExpressionRequest
+
+**字段: **
+
+- `symbol` (string): 无描述
+- `expression` (string): 无描述
+- `period` (string): 无描述
+- `preview_rows` (integer): 无描述
 
 ### HTTPValidationError
 
@@ -366,6 +490,20 @@
 - `marketCapSource` (string): 行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*
 - `mini_trend` (array): 近5日相对走势火花线数据
 - `score_breakdown` (array): 后端统一评分拆解数据
+
+### IndustryRotationLabRequest
+
+**字段: **
+
+- `start_date` (string): 无描述
+- `end_date` (string): 无描述
+- `rebalance_freq` (string): 无描述
+- `top_industries` (integer): 无描述
+- `stocks_per_industry` (integer): 无描述
+- `weight_method` (string): 无描述
+- `initial_capital` (number): 无描述
+- `commission` (number): 无描述
+- `slippage` (number): 无描述
 
 ### IndustryRotationResponse
 
@@ -473,6 +611,15 @@
 - `dimension_scores` (object): 各维度得分
 - `mini_trend` (array): 近期价格走势火花线数据
 
+### LoginRequest
+
+**字段: **
+
+- `subject` (string): 无描述
+- `password` (string): 无描述
+- `expires_in_seconds` (integer): 无描述
+- `refresh_expires_in_seconds` (integer): 无描述
+
 ### MarketDataRequest
 
 **字段: **
@@ -482,6 +629,40 @@
 - `end_date` (unknown): 无描述
 - `interval` (string): 无描述
 - `period` (unknown): 无描述
+
+### MarketImpactAnalysisRequest
+
+**字段: **
+
+- `symbol` (string): 无描述
+- `strategy` (string): 无描述
+- `parameters` (object): 无描述
+- `start_date` (unknown): 无描述
+- `end_date` (unknown): 无描述
+- `initial_capital` (number): 无描述
+- `commission` (number): 无描述
+- `slippage` (number): 无描述
+- `fixed_commission` (number): 无描述
+- `min_commission` (number): 无描述
+- `market_impact_bps` (number): 无描述
+- `market_impact_model` (string): 无描述
+- `impact_reference_notional` (number): 无描述
+- `impact_coefficient` (number): 无描述
+- `permanent_impact_bps` (number): 无描述
+- `max_holding_days` (unknown): 无描述
+- `scenarios` (unknown): 无描述
+- `sample_trade_values` (array): 无描述
+
+### MarketImpactScenarioConfig
+
+**字段: **
+
+- `label` (unknown): 无描述
+- `market_impact_model` (string): 无描述
+- `market_impact_bps` (number): 无描述
+- `impact_reference_notional` (unknown): 无描述
+- `impact_coefficient` (number): 无描述
+- `permanent_impact_bps` (number): 无描述
 
 ### MarketRegimeRequest
 
@@ -498,9 +679,136 @@
 - `fixed_commission` (number): 无描述
 - `min_commission` (number): 无描述
 - `market_impact_bps` (number): 无描述
+- `market_impact_model` (string): 无描述
+- `impact_reference_notional` (number): 无描述
+- `impact_coefficient` (number): 无描述
+- `permanent_impact_bps` (number): 无描述
 - `max_holding_days` (unknown): 无描述
 - `lookback_days` (integer): 无描述
 - `trend_threshold` (number): 无描述
+
+### MonteCarloBacktestRequest
+
+**字段: **
+
+- `symbol` (string): 无描述
+- `strategy` (string): 无描述
+- `parameters` (object): 无描述
+- `start_date` (unknown): 无描述
+- `end_date` (unknown): 无描述
+- `initial_capital` (number): 无描述
+- `commission` (number): 无描述
+- `slippage` (number): 无描述
+- `fixed_commission` (number): 无描述
+- `min_commission` (number): 无描述
+- `market_impact_bps` (number): 无描述
+- `market_impact_model` (string): 无描述
+- `impact_reference_notional` (number): 无描述
+- `impact_coefficient` (number): 无描述
+- `permanent_impact_bps` (number): 无描述
+- `max_holding_days` (unknown): 无描述
+- `simulations` (integer): 无描述
+- `horizon_days` (unknown): 无描述
+- `seed` (unknown): 无描述
+
+### MultiPeriodBacktestRequest
+
+**字段: **
+
+- `symbol` (string): 无描述
+- `strategy` (string): 无描述
+- `parameters` (object): 无描述
+- `start_date` (unknown): 无描述
+- `end_date` (unknown): 无描述
+- `initial_capital` (number): 无描述
+- `commission` (number): 无描述
+- `slippage` (number): 无描述
+- `fixed_commission` (number): 无描述
+- `min_commission` (number): 无描述
+- `market_impact_bps` (number): 无描述
+- `market_impact_model` (string): 无描述
+- `impact_reference_notional` (number): 无描述
+- `impact_coefficient` (number): 无描述
+- `permanent_impact_bps` (number): 无描述
+- `max_holding_days` (unknown): 无描述
+- `intervals` (array): 无描述
+
+### NotificationChannelRequest
+
+**字段: **
+
+- `id` (string): 无描述
+- `type` (string): 无描述
+- `label` (string): 无描述
+- `enabled` (boolean): 无描述
+- `settings` (object): 无描述
+
+### NotificationRequest
+
+**字段: **
+
+- `channel` (string): 无描述
+- `payload` (object): 无描述
+
+### OAuthAuthorizationRequest
+
+**字段: **
+
+- `frontend_origin` (string): 无描述
+- `redirect_uri` (string): 无描述
+
+### OAuthExchangeRequest
+
+**字段: **
+
+- `code` (string): 无描述
+- `state` (string): 无描述
+- `redirect_uri` (string): 无描述
+- `expires_in_seconds` (integer): 无描述
+- `refresh_expires_in_seconds` (integer): 无描述
+
+### OAuthProviderRequest
+
+**字段: **
+
+- `provider_id` (string): 无描述
+- `label` (string): 无描述
+- `provider_type` (string): 无描述
+- `enabled` (boolean): 无描述
+- `client_id` (string): 无描述
+- `client_secret` (unknown): 无描述
+- `auth_url` (unknown): 无描述
+- `token_url` (unknown): 无描述
+- `userinfo_url` (unknown): 无描述
+- `redirect_uri` (string): 无描述
+- `frontend_origin` (string): 无描述
+- `scopes` (array): 无描述
+- `auto_create_user` (boolean): 无描述
+- `default_role` (string): 无描述
+- `default_scopes` (array): 无描述
+- `subject_field` (string): 无描述
+- `display_name_field` (string): 无描述
+- `email_field` (string): 无描述
+- `extra_params` (object): 无描述
+- `metadata` (object): 无描述
+
+### PersistenceBootstrapRequest
+
+**字段: **
+
+- `enable_timescale_schema` (boolean): 无描述
+
+### PersistenceMigrationRequest
+
+**字段: **
+
+- `sqlite_path` (unknown): 无描述
+- `dry_run` (boolean): 无描述
+- `include_records` (boolean): 无描述
+- `include_timeseries` (boolean): 无描述
+- `dedupe_timeseries` (boolean): 无描述
+- `record_limit` (unknown): 无描述
+- `timeseries_limit` (unknown): 无描述
 
 ### PortfolioStrategyRequest
 
@@ -519,6 +827,10 @@
 - `fixed_commission` (number): 无描述
 - `min_commission` (number): 无描述
 - `market_impact_bps` (number): 无描述
+- `market_impact_model` (string): 无描述
+- `impact_reference_notional` (number): 无描述
+- `impact_coefficient` (number): 无描述
+- `permanent_impact_bps` (number): 无描述
 - `min_trade_value` (number): 无描述
 - `min_rebalance_weight_delta` (number): 无描述
 - `max_turnover_per_rebalance` (unknown): 无描述
@@ -538,6 +850,34 @@
 - `period` (string): 分析周期: 6mo, 1y, 2y, 3y, 5y
 - `limit` (integer): 返回前 N 个结果
 - `max_workers` (integer): 并行执行数
+
+### RateLimitRuleRequest
+
+**字段: **
+
+- `id` (unknown): 无描述
+- `pattern` (string): 无描述
+- `requests_per_minute` (integer): 无描述
+- `burst_size` (integer): 无描述
+- `enabled` (boolean): 无描述
+
+### RateLimitUpdateRequest
+
+**字段: **
+
+- `default_requests_per_minute` (integer): 无描述
+- `default_burst_size` (integer): 无描述
+- `rules` (array): 无描述
+
+### RealtimeAlertHitRequest
+
+**字段: **
+
+- `entry` (object): 无描述
+- `notify_channels` (array): 无描述
+- `create_workbench_task` (boolean): 无描述
+- `persist_event_record` (boolean): 无描述
+- `severity` (string): 无描述
 
 ### RealtimeAlertsRequest
 
@@ -560,6 +900,24 @@
 - `symbols` (array): 无描述
 - `active_tab` (string): 无描述
 - `symbol_categories` (object): 无描述
+- `watch_groups` (array): 无描述
+
+### RecordRequest
+
+**字段: **
+
+- `record_type` (string): 无描述
+- `record_key` (string): 无描述
+- `payload` (object): 无描述
+- `record_id` (unknown): 无描述
+
+### RefreshRequest
+
+**字段: **
+
+- `refresh_token` (string): 无描述
+- `expires_in_seconds` (integer): 无描述
+- `refresh_expires_in_seconds` (integer): 无描述
 
 ### ReportRequest
 
@@ -576,6 +934,15 @@
 - `initial_capital` (number): 无描述
 - `commission` (number): 无描述
 - `slippage` (number): 无描述
+
+### ResearchTaskBulkUpdateRequest
+
+**字段: **
+
+- `task_ids` (array): 无描述
+- `status` (unknown): 无描述
+- `comment` (string): 无描述
+- `author` (string): 无描述
 
 ### ResearchTaskCommentCreateRequest
 
@@ -598,6 +965,21 @@
 - `board_order` (unknown): 无描述
 - `context` (object): 无描述
 - `snapshot` (unknown): 无描述
+- `refresh_priority_event` (unknown): 无描述
+
+### ResearchTaskRefreshPriorityEvent
+
+**字段: **
+
+- `reason_key` (string): 无描述
+- `reason_label` (string): 无描述
+- `severity` (string): 无描述
+- `lead` (string): 无描述
+- `detail` (string): 无描述
+- `urgency_score` (unknown): 无描述
+- `priority_weight` (unknown): 无描述
+- `recommendation` (string): 无描述
+- `summary` (string): 无描述
 
 ### ResearchTaskReorderItem
 
@@ -606,6 +988,7 @@
 - `task_id` (string): 无描述
 - `status` (string): 无描述
 - `board_order` (integer): 无描述
+- `refresh_priority_event` (unknown): 无描述
 
 ### ResearchTaskSnapshot
 
@@ -622,6 +1005,7 @@
 **字段: **
 
 - `snapshot` (unknown): 无描述
+- `refresh_priority_event` (unknown): 无描述
 
 ### ResearchTaskUpdateRequest
 
@@ -633,12 +1017,45 @@
 - `board_order` (unknown): 无描述
 - `context` (unknown): 无描述
 - `snapshot` (unknown): 无描述
+- `refresh_priority_event` (unknown): 无描述
 
 ### ResearchWorkbenchReorderRequest
 
 **字段: **
 
 - `items` (array): 无描述
+
+### RiskCenterRequest
+
+**字段: **
+
+- `symbols` (array): 无描述
+- `weights` (unknown): 无描述
+- `period` (string): 无描述
+
+### SignificanceCompareRequest
+
+**字段: **
+
+- `symbol` (string): 无描述
+- `strategies` (unknown): 无描述
+- `strategy_configs` (unknown): 无描述
+- `start_date` (unknown): 无描述
+- `end_date` (unknown): 无描述
+- `initial_capital` (number): 无描述
+- `commission` (number): 无描述
+- `slippage` (number): 无描述
+- `fixed_commission` (number): 无描述
+- `min_commission` (number): 无描述
+- `market_impact_bps` (number): 无描述
+- `market_impact_model` (string): 无描述
+- `impact_reference_notional` (number): 无描述
+- `impact_coefficient` (number): 无描述
+- `permanent_impact_bps` (number): 无描述
+- `max_holding_days` (unknown): 无描述
+- `baseline_strategy` (unknown): 无描述
+- `bootstrap_samples` (integer): 无描述
+- `seed` (unknown): 无描述
 
 ### StockResponse
 
@@ -666,6 +1083,29 @@
 - `description` (string): 无描述
 - `parameters` (object): 无描述
 
+### StrategyOptimizationRequest
+
+**字段: **
+
+- `symbol` (string): 无描述
+- `strategy` (string): 无描述
+- `parameters` (object): 无描述
+- `parameter_grid` (unknown): 无描述
+- `start_date` (unknown): 无描述
+- `end_date` (unknown): 无描述
+- `initial_capital` (number): 无描述
+- `commission` (number): 无描述
+- `slippage` (number): 无描述
+- `density` (integer): 无描述
+- `optimization_metric` (string): 无描述
+- `optimization_method` (string): 无描述
+- `optimization_budget` (unknown): 无描述
+- `run_walk_forward` (boolean): 无描述
+- `train_period` (integer): 无描述
+- `test_period` (integer): 无描述
+- `step_size` (integer): 无描述
+- `monte_carlo_simulations` (integer): 无描述
+
 ### SubscriptionRequest
 
 兼容层订阅请求。
@@ -675,6 +1115,33 @@
 - `symbol` (unknown): 无描述
 - `symbols` (array): 无描述
 
+### TaskRequest
+
+**字段: **
+
+- `name` (string): 无描述
+- `payload` (object): 无描述
+- `execution_backend` (string): 无描述
+
+### TimeSeriesRequest
+
+**字段: **
+
+- `series_name` (string): 无描述
+- `symbol` (string): 无描述
+- `timestamp` (string): 无描述
+- `value` (unknown): 无描述
+- `payload` (object): 无描述
+
+### TokenRequest
+
+**字段: **
+
+- `subject` (string): 无描述
+- `role` (string): 无描述
+- `expires_in_seconds` (integer): 无描述
+- `refresh_expires_in_seconds` (integer): 无描述
+
 ### TradeRequest
 
 **字段: **
@@ -683,6 +1150,13 @@
 - `action` (string): 无描述
 - `quantity` (integer): 无描述
 - `price` (unknown): 无描述
+
+### TradingJournalUpdateRequest
+
+**字段: **
+
+- `notes` (object): 无描述
+- `strategy_lifecycle` (array): 无描述
 
 ### TrendAnalysisRequest
 
@@ -720,6 +1194,15 @@
 - `msg` (string): 无描述
 - `type` (string): 无描述
 
+### ValuationLabRequest
+
+**字段: **
+
+- `symbol` (string): 无描述
+- `period` (string): 无描述
+- `peer_symbols` (array): 无描述
+- `peer_limit` (integer): 无描述
+
 ### ValuationRequest
 
 **字段: **
@@ -755,6 +1238,10 @@
 - `fixed_commission` (number): 无描述
 - `min_commission` (number): 无描述
 - `market_impact_bps` (number): 无描述
+- `market_impact_model` (string): 无描述
+- `impact_reference_notional` (number): 无描述
+- `impact_coefficient` (number): 无描述
+- `permanent_impact_bps` (number): 无描述
 - `max_holding_days` (unknown): 无描述
 - `train_period` (integer): 无描述
 - `test_period` (integer): 无描述

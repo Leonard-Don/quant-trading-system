@@ -50,6 +50,8 @@ class DataManager:
         self.cache_size = cache_size
         self.executor = ThreadPoolExecutor(max_workers=10)
         self._cache_key_template = "{symbol}_{start_date}_{end_date}_{interval}"
+        self._inflight_requests: Dict[str, threading.Event] = {}
+        self._inflight_lock = threading.RLock()
         
         # 多数据源支持
         self.use_provider_factory = use_provider_factory
@@ -143,6 +145,22 @@ class DataManager:
             logger.debug(f"Returning cached data for {symbol}")
             return cached_data
 
+        wait_event: Optional[threading.Event] = None
+        owns_fetch = False
+        with self._inflight_lock:
+            wait_event = self._inflight_requests.get(cache_key)
+            if wait_event is None:
+                wait_event = threading.Event()
+                self._inflight_requests[cache_key] = wait_event
+                owns_fetch = True
+
+        if not owns_fetch and wait_event is not None:
+            wait_event.wait(timeout=15)
+            cached_after_wait = self.cache.get(cache_key)
+            if cached_after_wait is not None:
+                logger.debug(f"Returning in-flight cached data for {symbol}")
+                return cached_after_wait
+
         try:
             # Fetch from Yahoo Finance
             ticker = yf.Ticker(symbol)
@@ -173,6 +191,11 @@ class DataManager:
             logger.error(f"Error fetching data for {symbol}: {e}", exc_info=True)
             # Return empty DataFrame with proper structure
             return pd.DataFrame(columns=["open", "high", "low", "close", "volume"])
+        finally:
+            if owns_fetch and wait_event is not None:
+                with self._inflight_lock:
+                    self._inflight_requests.pop(cache_key, None)
+                wait_event.set()
 
     def get_cross_market_historical_data(
         self,

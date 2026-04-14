@@ -11,6 +11,8 @@ from .baseload_mismatch import BaseloadMismatchFactor
 from .bureaucratic_friction import BureaucraticFrictionFactor
 from .credit_spread_stress import CreditSpreadStressFactor
 from .fx_mismatch import FXMismatchFactor
+from .people_fragility import PeopleFragilityFactor
+from .policy_execution_disorder import PolicyExecutionDisorderFactor
 from .rate_curve_pressure import RateCurvePressureFactor
 from .tech_dilution import TechDilutionFactor
 
@@ -41,6 +43,8 @@ def build_default_registry() -> FactorRegistry:
         [
             BureaucraticFrictionFactor(),
             TechDilutionFactor(),
+            PeopleFragilityFactor(),
+            PolicyExecutionDisorderFactor(),
             BaseloadMismatchFactor(),
             RateCurvePressureFactor(),
             CreditSpreadStressFactor(),

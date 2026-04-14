@@ -32,7 +32,7 @@ function SnapshotComparePanel({ task }) {
 
   if (history.length < 2) {
     return (
-      <Card data-testid="workbench-snapshot-compare" size="small" title="版本对比" bordered={false}>
+      <Card data-testid="workbench-snapshot-compare" size="small" title="版本对比" variant="borderless">
         <Empty description="至少需要两个快照版本才能开始对比" image={Empty.PRESENTED_IMAGE_SIMPLE} />
       </Card>
     );
@@ -52,7 +52,7 @@ function SnapshotComparePanel({ task }) {
           ) : null}
         </Space>
       )}
-      bordered={false}
+      variant="borderless"
       extra={(
         <Space wrap>
           <Select

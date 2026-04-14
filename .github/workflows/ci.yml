@@ -59,7 +59,81 @@ jobs:
 
       - name: Run frontend regression suite
         run: |
-          CI=1 npm test -- --runInBand --watch=false src/__tests__/backtest-ui.test.js src/__tests__/realtime-panel.test.js src/__tests__/realtime-stock-detail-modal.test.js src/__tests__/trade-panel.test.js
+          CI=1 npm test -- --runInBand --watch=false \
+            src/__tests__/backtest-ui.test.js \
+            src/__tests__/realtime-panel.test.js \
+            src/__tests__/realtime-stock-detail-modal.test.js \
+            src/__tests__/trade-panel.test.js \
+            src/__tests__/pricing-governance-card.test.js \
+            src/__tests__/godeye-panels.test.js \
+            src/__tests__/godeye-hunter-model.test.js \
+            src/__tests__/godeye-cross-market-cards.test.js \
+            src/__tests__/cross-market-recommendations.test.js \
+            src/__tests__/cross-market-workbench-payload.test.js \
+            src/__tests__/snapshot-compare-cross-market.test.js \
+            src/__tests__/research-task-signals.test.js \
+            src/__tests__/use-pricing-workbench-actions.test.js \
+            src/__tests__/use-research-workbench-data.test.js \
+            src/__tests__/research-workbench-copy-link.test.js \
+            src/__tests__/pricing-research.test.js \
+            src/__tests__/cross-market-backtest-panel.test.js
 
       - name: Build frontend
         run: npm run build
+
+  research-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            tests/e2e/package-lock.json
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci --legacy-peer-deps
+
+      - name: Install research E2E dependencies
+        working-directory: tests/e2e
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: tests/e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run research E2E suite
+        working-directory: tests/e2e
+        run: npm run verify:research
+
+      - name: Upload research E2E artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: research-e2e-artifacts
+          if-no-files-found: ignore
+          path: |
+            output/playwright/**
+            logs/**

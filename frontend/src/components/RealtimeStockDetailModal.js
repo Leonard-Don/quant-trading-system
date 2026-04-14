@@ -10,6 +10,7 @@ import MarketAnalysis from './MarketAnalysis';
 import { STOCK_DATABASE } from '../constants/stocks';
 import { getKlines } from '../services/api';
 import { evaluateAlertHitFollowThrough } from '../utils/realtimeSignals';
+import { getCategoryLabel as getCategoryLabelForType, inferSymbolCategory } from '../utils/realtimeFormatters';
 
 const { Text } = Typography;
 
@@ -22,43 +23,7 @@ const getDisplayName = (symbol) => {
     return info?.cn || info?.en || symbol || '未知标的';
 };
 
-const getCategoryLabel = (symbol) => {
-    const knownType = STOCK_DATABASE[symbol]?.type;
-    let type = knownType;
-
-    if (!type) {
-        if (/^\d{6}\.(SS|SZ|BJ)$/i.test(symbol)) {
-            type = 'cn';
-        } else if (/^-?[A-Z0-9]+-USD$/i.test(symbol)) {
-            type = 'crypto';
-        } else if (/=F$/i.test(symbol)) {
-            type = 'future';
-        } else if (symbol?.startsWith('^')) {
-            type = /^(?:\^TNX|\^TYX|\^FVX|\^IRX)$/i.test(symbol) ? 'bond' : 'index';
-        } else {
-            type = 'us';
-        }
-    }
-
-    switch (type) {
-        case 'index':
-            return '指数';
-        case 'us':
-            return '美股';
-        case 'cn':
-            return 'A股';
-        case 'crypto':
-            return '加密货币';
-        case 'bond':
-            return '债券';
-        case 'future':
-            return '期货';
-        case 'option':
-            return '期权';
-        default:
-            return '实时行情';
-    }
-};
+const getCategoryLabel = (symbol) => getCategoryLabelForType(inferSymbolCategory(symbol));
 
 const formatNumber = (value, digits = 2, fallback = '--') => {
     if (value === null || value === undefined || Number.isNaN(Number(value))) {
@@ -496,20 +461,20 @@ const renderMetricCard = (label, value, subtle, accentColor) => (
     <div
         style={{
             height: '100%',
-            padding: '14px 16px',
-            borderRadius: 14,
+            padding: '12px 14px',
+            borderRadius: 13,
             background: SNAPSHOT_CARD_BG,
             border: `1px solid ${accentColor || 'var(--border-color)'}`,
-            boxShadow: '0 10px 24px rgba(15, 23, 42, 0.05)',
+            boxShadow: '0 8px 20px rgba(15, 23, 42, 0.045)',
         }}
     >
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.04em', marginBottom: 8 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.06em', marginBottom: 6 }}>
             {label}
         </div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.15 }}>
+        <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1.12 }}>
             {value}
         </div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8, minHeight: 18 }}>
+        <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 6, minHeight: 16, lineHeight: 1.5 }}>
             {subtle || '\u00A0'}
         </div>
     </div>
@@ -617,23 +582,23 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
                                 <FundOutlined style={{ marginRight: 8, color: '#1677ff' }} />
                                 {displayName} 深度详情
                             </span>
-                            <Tag color="blue" style={{ margin: 0, borderRadius: 999, paddingInline: 10, fontWeight: 700 }}>
+                            <Tag color="blue" style={{ margin: 0, borderRadius: 999, paddingInline: 9, fontWeight: 700 }}>
                                 {categoryLabel}
                             </Tag>
-                            <Tag color={quote ? 'success' : 'default'} style={{ margin: 0, borderRadius: 999, paddingInline: 10, fontWeight: 700 }}>
+                            <Tag color={quote ? 'success' : 'default'} style={{ margin: 0, borderRadius: 999, paddingInline: 9, fontWeight: 700 }}>
                                 {displaySymbol}
                             </Tag>
                         </div>
-                        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-                            实时快照与多维分析合并展示，适合直接在行情工作台里快速研判。
+                        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.55 }}>
+                            把实时快照、盘中信号和全维分析压缩到一个弹窗里，便于快速研判。
                         </div>
                     </div>
 
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10, paddingBlock: 4, fontWeight: 700 }}>
+                        <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 9, paddingBlock: 3, fontWeight: 700 }}>
                             日内振幅 {rangePercent}
                         </Tag>
-                        <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10, paddingBlock: 4, fontWeight: 700 }}>
+                        <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 9, paddingBlock: 3, fontWeight: 700 }}>
                             点差 {spreadValue}
                         </Tag>
                     </div>
@@ -655,7 +620,7 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
             <div style={{ display: 'grid', gap: 18 }}>
                 <section
                     style={{
-                        padding: 18,
+                        padding: 16,
                         borderRadius: 18,
                         background: SNAPSHOT_PANEL_BG,
                         border: '1px solid color-mix(in srgb, var(--accent-primary) 24%, var(--border-color) 76%)',
@@ -675,10 +640,10 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
                             </div>
 
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                                <Tag style={{ margin: 0, borderRadius: 999, borderColor: 'transparent', background: 'rgba(255,255,255,0.72)' }}>
+                                <Tag style={{ margin: 0, borderRadius: 999, borderColor: 'transparent', background: 'rgba(255,255,255,0.72)', paddingInline: 8 }}>
                                     数据源 {quote?.source || '--'}
                                 </Tag>
-                                <Tag style={{ margin: 0, borderRadius: 999, borderColor: 'transparent', background: 'rgba(255,255,255,0.72)' }}>
+                                <Tag style={{ margin: 0, borderRadius: 999, borderColor: 'transparent', background: 'rgba(255,255,255,0.72)', paddingInline: 8 }}>
                                     更新时间 {formatTimestamp(quote?.timestamp)}
                                 </Tag>
                             </div>
@@ -701,8 +666,8 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
                             data-testid="detail-snapshot-trend"
                             style={{
                                 marginBottom: 14,
-                                padding: '12px 14px',
-                                borderRadius: 16,
+                                padding: '10px 12px',
+                                borderRadius: 15,
                                 background: 'rgba(255,255,255,0.72)',
                                 border: '1px solid rgba(148, 163, 184, 0.18)',
                             }}
@@ -717,8 +682,8 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
                             </div>
                             <svg
                                 width="100%"
-                                height="92"
-                                viewBox="0 0 320 92"
+                                height="82"
+                                viewBox="0 0 320 82"
                                 preserveAspectRatio="none"
                                 role="img"
                                 aria-label={`${displaySymbol} 盘中走势线`}
@@ -732,7 +697,7 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
                                     points={intradayTrendPolyline || snapshotTrendPolyline}
                                 />
                             </svg>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
                                 {(intradayTrendPolyline ? [
                                     intradayTrendSeries[0],
                                     intradayTrendSeries[Math.max(0, Math.floor(intradayTrendSeries.length / 2))],
@@ -740,7 +705,7 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
                                 ] : snapshotTrendSeries).filter(Boolean).map((item) => (
                                     <span
                                         key={`${displaySymbol}-${item.label}-${item.value}`}
-                                        style={{ fontSize: 11, color: 'var(--text-secondary)' }}
+                                        style={{ fontSize: 10, color: 'var(--text-secondary)' }}
                                     >
                                         {intradayTrendPolyline ? `${formatTimestamp(item.label)} ${formatNumber(item.value)}` : `${item.label} ${formatNumber(item.value)}`}
                                     </span>
@@ -796,26 +761,26 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
                         borderRadius: 18,
                         border: '1px solid var(--border-color)',
                         background: 'var(--bg-secondary)',
-                        padding: 18,
+                        padding: 16,
                         boxShadow: '0 8px 26px rgba(15, 23, 42, 0.06)',
                     }}
                     data-testid="detail-signal-summary"
                 >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 14 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)', fontWeight: 700 }}>
                                 <RiseOutlined />
                                 信号总表
                             </div>
-                            <Text type="secondary" style={{ fontSize: 12 }}>
-                                把动能、波动、流动性和事件方向收成一屏，帮助你先做快判断，再决定往下看哪一块分析。
+                            <Text type="secondary" style={{ fontSize: 11 }}>
+                                先用一屏判断强弱，再决定往下展开哪块分析。
                             </Text>
                         </div>
                         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <Tag color="blue" style={{ margin: 0, borderRadius: 999, paddingInline: 10, fontWeight: 700 }}>
+                            <Tag color="blue" style={{ margin: 0, borderRadius: 999, paddingInline: 9, fontWeight: 700 }}>
                                 综合分 {signalSummary.totalScore}
                             </Tag>
-                            <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10, fontWeight: 700 }}>
+                            <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 9, fontWeight: 700 }}>
                                 {signalSummary.conviction}
                             </Tag>
                             {onQuickTrade && quickTradeDraft ? (

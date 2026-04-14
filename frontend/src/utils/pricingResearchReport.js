@@ -92,6 +92,7 @@ export const buildPricingResearchReportHtml = ({
   const dcfScenarios = valuation?.dcf?.scenarios || [];
   const comparableMethods = valuation?.comparable?.methods || [];
   const confidenceBreakdown = implications?.confidence_breakdown || [];
+  const thesis = analysis?.macro_mispricing_thesis || implications?.macro_mispricing_thesis || snapshot?.macro_mispricing_thesis || {};
   const historyRows = (history?.history || []).slice(-8).reverse();
   const peerRows = [peerComparison?.target, ...(peerComparison?.peers || [])].filter(Boolean);
   const generatedTime = generatedAt || new Date().toLocaleString();
@@ -350,6 +351,25 @@ export const buildPricingResearchReportHtml = ({
           </div>
         </div>
       </div>
+
+      ${(thesis?.primary_leg?.symbol || thesis?.hedge_leg?.symbol) ? `
+        <div class="section-title">Macro Mispricing Thesis</div>
+        <div class="driver-grid">
+          <div class="panel">
+            <div class="section-kicker">主腿 / 对冲腿</div>
+            <div class="kv">
+              <div class="kv-item"><strong>主腿</strong>${escapeHtml(`${thesis?.primary_leg?.symbol || '—'} ${thesis?.primary_leg?.side || ''}`)}</div>
+              <div class="kv-item"><strong>对冲腿</strong>${escapeHtml(`${thesis?.hedge_leg?.symbol || '—'} ${thesis?.hedge_leg?.side || ''}`)}</div>
+              <div class="kv-item"><strong>姿态</strong>${escapeHtml(thesis?.stance || '观察')}</div>
+              <div class="kv-item"><strong>观察期</strong>${escapeHtml(thesis?.horizon || '—')}</div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="section-kicker">Kill Conditions</div>
+            <div class="summary">${escapeHtml((thesis?.kill_conditions || []).slice(0, 3).join('；') || '暂无')}</div>
+          </div>
+        </div>
+      ` : ''}
 
       <div class="section-title">置信度拆解</div>
       ${renderTable(

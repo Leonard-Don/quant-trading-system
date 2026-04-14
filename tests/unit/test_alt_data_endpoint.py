@@ -8,7 +8,13 @@ from src.analytics.macro_factors.history import MacroHistoryStore
 from src.data.alternative.alt_data_manager import AltDataManager
 from src.data.alternative.base_alt_provider import AltDataCategory, AltDataRecord, BaseAltDataProvider
 from src.data.alternative.governance import AltDataSnapshotStore
-from tests.unit.test_alt_data_pipeline import DummyAltProvider, FailingAltProvider
+from src.data.alternative.people import PeopleLayerProvider
+from src.data.alternative.policy_radar import PolicyExecutionProvider
+from tests.unit.test_alt_data_pipeline import (
+    DummyAltProvider,
+    DummyPolicyRadarProvider,
+    FailingAltProvider,
+)
 
 
 def _build_client(monkeypatch, manager, scheduler_status=None, history_store=None):
@@ -838,6 +844,9 @@ def test_macro_exposes_policy_source_health_summary(monkeypatch, tmp_path):
     assert macro_payload["input_reliability_summary"]["label"] in {"watch", "fragile"}
     assert "政策源脆弱" in " ".join(macro_payload["input_reliability_summary"]["dominant_issue_labels"])
     assert macro_payload["input_reliability_summary"]["issue_factor_hits"] >= 1
+    assert macro_payload["people_layer_summary"]["label"] in {"watch", "fragile", "stable"}
+    assert macro_payload["people_layer_summary"]["watchlist"]
+    assert "avg_fragility_score" in macro_payload["people_layer_summary"]
 
 
 def test_macro_exposes_source_gap_warning(monkeypatch, tmp_path):
@@ -926,6 +935,62 @@ def test_macro_exposes_reversal_warning(monkeypatch, tmp_path):
     assert first_factor["metadata"]["reversal_warning"] is True
     assert first_factor["metadata"]["reversal_level"] == "high"
     assert macro_payload["confidence_adjustment"]["reversing_factor_count"] >= 1
+
+
+def test_macro_exposes_department_chaos_summary(monkeypatch, tmp_path):
+    manager = AltDataManager(
+        providers={"reversal_policy": ReversalPolicyProvider()},
+        snapshot_store=AltDataSnapshotStore(tmp_path / "alt_data"),
+    )
+    history_store = MacroHistoryStore(tmp_path / "macro_history")
+    client = _build_client(monkeypatch, manager, history_store=history_store)
+
+    macro_response = client.get("/macro/overview?refresh=true")
+    assert macro_response.status_code == 200
+    macro_payload = macro_response.json()
+    summary = macro_payload["department_chaos_summary"]
+    assert summary["department_count"] >= 2
+    assert summary["chaotic_department_count"] >= 1
+    top_department = summary["top_departments"][0]
+    assert top_department["department"] in {"ndrc", "nea"}
+    assert top_department["label"] == "chaotic"
+    assert top_department["policy_reversal_count"] >= 1
+    assert top_department["chaos_score"] >= 0.6
+
+
+def test_alt_snapshot_and_macro_include_people_policy_and_source_mode_summaries(monkeypatch, tmp_path):
+    policy_provider = DummyPolicyRadarProvider()
+    manager = AltDataManager(
+        providers={
+            "policy_radar": policy_provider,
+            "people_layer": PeopleLayerProvider(),
+            "policy_execution": PolicyExecutionProvider(policy_provider=policy_provider),
+        },
+        snapshot_store=AltDataSnapshotStore(tmp_path / "alt_data"),
+    )
+    history_store = MacroHistoryStore(tmp_path / "macro_history")
+    client = _build_client(monkeypatch, manager, history_store=history_store)
+
+    snapshot_response = client.get("/alt-data/snapshot?refresh=true")
+    assert snapshot_response.status_code == 200
+    snapshot_payload = snapshot_response.json()
+    assert "people_layer" in snapshot_payload["signals"]
+    assert "policy_execution" in snapshot_payload["signals"]
+    assert snapshot_payload["signals"]["people_layer"]["watchlist"]
+    assert snapshot_payload["signals"]["policy_execution"]["department_board"]
+    assert snapshot_payload["source_mode_summary"]["counts"]
+    assert snapshot_payload["provider_health"]["people_layer"]["source_mode_summary"]["counts"]
+    assert snapshot_payload["provider_health"]["policy_execution"]["source_mode_summary"]["counts"]
+
+    macro_response = client.get("/macro/overview?refresh=false")
+    assert macro_response.status_code == 200
+    macro_payload = macro_response.json()
+    factor_names = {item["name"] for item in macro_payload["factors"]}
+    assert "people_fragility" in factor_names
+    assert "policy_execution_disorder" in factor_names
+    assert macro_payload["people_layer_summary"]["watchlist"]
+    assert macro_payload["department_chaos_summary"]["top_departments"]
+    assert macro_payload["source_mode_summary"]["counts"]
 
 
 def test_macro_exposes_reversal_precursor_warning(monkeypatch, tmp_path):

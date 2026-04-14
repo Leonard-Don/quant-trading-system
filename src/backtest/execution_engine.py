@@ -8,6 +8,11 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from .impact_model import (
+    estimate_market_impact_rate,
+    normalize_market_impact_model,
+)
+
 
 @dataclass
 class PortfolioExecutionConfig:
@@ -19,6 +24,10 @@ class PortfolioExecutionConfig:
     fixed_commission: float = 0.0
     min_commission: float = 0.0
     market_impact_bps: float = 0.0
+    market_impact_model: str = "constant"
+    impact_reference_notional: float = 100000.0
+    impact_coefficient: float = 1.0
+    permanent_impact_bps: float = 0.0
 
 
 class PortfolioExecutionEngine:
@@ -41,10 +50,12 @@ class PortfolioExecutionEngine:
         self.commission = float(commission)
         self.slippage = float(slippage)
         self.config = config or PortfolioExecutionConfig()
+        self.config.market_impact_model = normalize_market_impact_model(self.config.market_impact_model)
 
     def execute(self, *, price_data: pd.DataFrame, target_weights: pd.DataFrame) -> Dict[str, Any]:
         prices = price_data.astype(float).copy()
         weights = target_weights.reindex(index=prices.index, columns=prices.columns).fillna(0.0)
+        market_context = self._build_market_context(prices)
 
         positions = pd.Series(0.0, index=prices.columns, dtype=float)
         cash = float(self.initial_capital)
@@ -91,7 +102,14 @@ class PortfolioExecutionEngine:
                 if shares_to_sell <= 0 or (shares_to_sell * price) < self.config.min_trade_value:
                     continue
 
-                proceeds = shares_to_sell * price * (1 - self._effective_slippage())
+                execution_cost = self._execution_cost_profile(
+                    price=price,
+                    shares=shares_to_sell,
+                    timestamp=timestamp,
+                    asset=asset,
+                    market_context=market_context,
+                )
+                proceeds = shares_to_sell * price * (1 - float(execution_cost["total_slippage_rate"]))
                 commission_cost = self._commission_cost(proceeds)
                 cash += proceeds - commission_cost
                 positions[asset] -= shares_to_sell
@@ -103,6 +121,14 @@ class PortfolioExecutionEngine:
                         "shares": float(shares_to_sell),
                         "price": float(price),
                         "value": float(proceeds - commission_cost),
+                        "market_impact_rate": execution_cost["impact_rate"],
+                        "execution_slippage_rate": execution_cost["total_slippage_rate"],
+                        "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
+                        "estimated_total_slippage_cost": execution_cost["estimated_total_slippage_cost"],
+                        "impact_model": execution_cost["model"],
+                        "participation_rate": execution_cost["participation_rate"],
+                        "impact_liquidity_proxy": execution_cost["liquidity_proxy"],
+                        "impact_volatility_estimate": execution_cost["volatility_estimate"],
                     }
                 )
 
@@ -115,18 +141,32 @@ class PortfolioExecutionEngine:
                 if shares_to_buy <= 0 or (shares_to_buy * price) < self.config.min_trade_value:
                     continue
 
-                gross_cost = shares_to_buy * price * (1 + self._effective_slippage())
+                execution_cost = self._execution_cost_profile(
+                    price=price,
+                    shares=shares_to_buy,
+                    timestamp=timestamp,
+                    asset=asset,
+                    market_context=market_context,
+                )
+                gross_cost = shares_to_buy * price * (1 + float(execution_cost["total_slippage_rate"]))
                 commission_cost = self._commission_cost(gross_cost)
                 total_cost = gross_cost + commission_cost
 
                 if total_cost > cash and price > 0:
                     affordable = cash / (
                         price
-                        * (1 + self._effective_slippage())
+                        * (1 + float(execution_cost["total_slippage_rate"]))
                         * (1 + self.commission)
                     )
                     shares_to_buy = self._normalize_shares(affordable)
-                    gross_cost = shares_to_buy * price * (1 + self._effective_slippage())
+                    execution_cost = self._execution_cost_profile(
+                        price=price,
+                        shares=shares_to_buy,
+                        timestamp=timestamp,
+                        asset=asset,
+                        market_context=market_context,
+                    )
+                    gross_cost = shares_to_buy * price * (1 + float(execution_cost["total_slippage_rate"]))
                     commission_cost = self._commission_cost(gross_cost)
                     total_cost = gross_cost + commission_cost
 
@@ -143,6 +183,14 @@ class PortfolioExecutionEngine:
                         "shares": float(shares_to_buy),
                         "price": float(price),
                         "value": float(total_cost),
+                        "market_impact_rate": execution_cost["impact_rate"],
+                        "execution_slippage_rate": execution_cost["total_slippage_rate"],
+                        "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
+                        "estimated_total_slippage_cost": execution_cost["estimated_total_slippage_cost"],
+                        "impact_model": execution_cost["model"],
+                        "participation_rate": execution_cost["participation_rate"],
+                        "impact_liquidity_proxy": execution_cost["liquidity_proxy"],
+                        "impact_volatility_estimate": execution_cost["volatility_estimate"],
                     }
                 )
 
@@ -198,8 +246,51 @@ class PortfolioExecutionEngine:
             return float(shares)
         return float(np.trunc(shares))
 
-    def _effective_slippage(self) -> float:
-        return float(self.slippage + (self.config.market_impact_bps / 10_000.0))
+    def _build_market_context(self, prices: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+        returns = prices.pct_change().replace([np.inf, -np.inf], np.nan)
+        fallback_volatility = returns.std().replace([np.inf, -np.inf], np.nan).fillna(0.02).clip(lower=0.005)
+        rolling_volatility = returns.rolling(20, min_periods=2).std()
+        rolling_volatility = rolling_volatility.fillna(method="ffill").fillna(fallback_volatility)
+        reference_notional = max(float(self.config.impact_reference_notional or 100000.0), 1.0)
+        avg_daily_notional = pd.DataFrame(
+            reference_notional,
+            index=prices.index,
+            columns=prices.columns,
+            dtype=float,
+        )
+        return {
+            "volatility": rolling_volatility,
+            "avg_daily_notional": avg_daily_notional,
+        }
+
+    def _execution_cost_profile(
+        self,
+        *,
+        price: float,
+        shares: float,
+        timestamp: Any,
+        asset: str,
+        market_context: Dict[str, pd.DataFrame],
+    ) -> Dict[str, float | str]:
+        impact = estimate_market_impact_rate(
+            abs(float(price or 0.0) * float(shares or 0.0)),
+            market_impact_bps=self.config.market_impact_bps,
+            model=self.config.market_impact_model,
+            avg_daily_notional=float(market_context["avg_daily_notional"].loc[timestamp, asset]),
+            volatility=float(market_context["volatility"].loc[timestamp, asset]),
+            impact_coefficient=self.config.impact_coefficient,
+            permanent_impact_bps=self.config.permanent_impact_bps,
+            reference_notional=self.config.impact_reference_notional,
+        )
+        trade_notional = abs(float(price or 0.0) * float(shares or 0.0))
+        total_slippage_rate = float(self.slippage) + float(impact["impact_rate"])
+        return {
+            **impact,
+            "trade_notional": trade_notional,
+            "total_slippage_rate": total_slippage_rate,
+            "estimated_market_impact_cost": trade_notional * float(impact["impact_rate"]),
+            "estimated_total_slippage_cost": trade_notional * total_slippage_rate,
+        }
 
     def _commission_cost(self, notional: float) -> float:
         if not np.isfinite(notional) or notional <= 0:

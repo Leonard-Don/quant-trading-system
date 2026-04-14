@@ -306,6 +306,8 @@ class AltDataScheduler:
         "policy_radar": 60,
         "supply_chain": 360,
         "macro_hf": 180,
+        "people_layer": 360,
+        "policy_execution": 120,
     }
 
     def __init__(self, manager: "AltDataManager"):

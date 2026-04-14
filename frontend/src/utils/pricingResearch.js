@@ -82,7 +82,28 @@ const CONFIDENCE_LABELS = {
 
 export const getConfidenceLabel = (value = '') => CONFIDENCE_LABELS[String(value || '').toLowerCase()] || '';
 
-export const buildScreeningScore = ({ gapPct, confidenceScore, alignmentStatus, primaryView }) => {
+export const getSourceModeLabel = (summary = {}) => {
+  const label = String(summary?.label || '').trim().toLowerCase();
+  if (label === 'official-led') {
+    return '官方/披露主导';
+  }
+  if (label === 'fallback-heavy') {
+    return '回退源偏多';
+  }
+  if (label === 'mixed') {
+    return '混合来源';
+  }
+  return summary?.dominant || '来源待确认';
+};
+
+export const buildScreeningScore = ({
+  gapPct,
+  confidenceScore,
+  alignmentStatus,
+  primaryView,
+  governanceDiscountPct,
+  governanceConfidence,
+}) => {
   const baseScore = Math.abs(Number(gapPct || 0)) * Math.max(Number(confidenceScore || 0), 0.2);
   const alignmentBonus = {
     aligned: 4,
@@ -90,7 +111,15 @@ export const buildScreeningScore = ({ gapPct, confidenceScore, alignmentStatus, 
     neutral: 0,
     conflict: -4,
   }[alignmentStatus] || 0;
-  const viewBonus = primaryView === '高估' || primaryView === '低估' ? 2 : 0;
+  let viewBonus = primaryView === '高估' || primaryView === '低估' ? 2 : 0;
+  const governancePenalty = Math.max(Number(governanceDiscountPct || 0), 0) * Math.max(Number(governanceConfidence || 0), 0.2) * 0.18;
+  const governanceSupport = Math.abs(Math.min(Number(governanceDiscountPct || 0), 0)) * Math.max(Number(governanceConfidence || 0), 0.2) * 0.12;
+  if (primaryView === '高估') {
+    viewBonus += governancePenalty;
+  } else if (primaryView === '低估') {
+    viewBonus -= governancePenalty;
+    viewBonus += governanceSupport;
+  }
   return Number(Math.max(baseScore + alignmentBonus + viewBonus, 0).toFixed(2));
 };
 
@@ -170,6 +199,7 @@ export const buildScreeningRowFromAnalysis = (analysis, period = '1y') => {
   const valuation = analysis?.valuation || {};
   const primaryDriver = analysis?.deviation_drivers?.primary_driver || null;
   const factorAlignment = implications.factor_alignment || {};
+  const governanceOverlay = analysis?.people_governance_overlay || {};
   return {
     symbol: analysis?.symbol || '',
     company_name: valuation.company_name || '',
@@ -190,12 +220,18 @@ export const buildScreeningRowFromAnalysis = (analysis, period = '1y') => {
     price_source: valuation.current_price_source,
     primary_driver: primaryDriver?.factor || '',
     primary_driver_reason: primaryDriver?.ranking_reason || '',
+    people_governance_discount_pct: governanceOverlay.governance_discount_pct,
+    people_governance_confidence: governanceOverlay.confidence,
+    people_governance_label: governanceOverlay.label || '',
+    people_governance_summary: governanceOverlay.summary || '',
     summary: analysis?.summary || '',
     screening_score: buildScreeningScore({
       gapPct: gap.gap_pct,
       confidenceScore: implications.confidence_score,
       alignmentStatus: factorAlignment.status,
       primaryView: implications.primary_view,
+      governanceDiscountPct: governanceOverlay.governance_discount_pct,
+      governanceConfidence: governanceOverlay.confidence,
     }),
   };
 };

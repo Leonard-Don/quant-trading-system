@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Card, Spin, Alert, Typography, Empty,
+  Card, Spin, Alert, Typography, Empty, Button,
   Skeleton
 } from 'antd';
 import { FundOutlined } from '@ant-design/icons';
@@ -12,7 +12,7 @@ import {
   PricingScreenerCard,
   SensitivityAnalysisCard,
 } from './pricing/PricingOverviewSections';
-import { DriversCard, ImplicationsCard } from './pricing/PricingInsightCards';
+import { DriversCard, ImplicationsCard, PeopleLayerCard, StructuralDecayCard } from './pricing/PricingInsightCards';
 import { FactorModelCard, ValuationCard } from './pricing/PricingModelCards';
 import PricingResultsSection from './pricing/PricingResultsSection';
 import PricingSearchPanel from './pricing/PricingSearchPanel';
@@ -40,7 +40,9 @@ const PricingResearch = () => {
     handleExportScreening,
     handleInspectScreeningResult,
     handleKeyPress,
+    handleOpenMacroMispricingDraft,
     handleOpenRecentResearchTask,
+    handleReturnToWorkbenchNextTask,
     handleRunScreener,
     handleRunSensitivity,
     handleSaveTask,
@@ -55,8 +57,11 @@ const PricingResearch = () => {
     playbook,
     recentResearchShortcutCards,
     researchContext,
+    canReturnToWorkbenchQueue,
+    queueResumeHint,
     savedTaskId,
     savingTask,
+    updatingSnapshot,
     screeningError,
     screeningFilter,
     screeningLoading,
@@ -107,6 +112,40 @@ const PricingResearch = () => {
         />
       ) : null}
 
+      {canReturnToWorkbenchQueue ? (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="success"
+          showIcon
+          message="当前任务来自工作台复盘队列"
+          description="分析完成后，可以直接回到工作台并切到下一条 Pricing 任务，保持同类型连续复盘节奏。"
+          action={(
+            <Button type="primary" size="small" onClick={handleReturnToWorkbenchNextTask}>
+              回到工作台下一条 Pricing 任务
+            </Button>
+          )}
+        />
+      ) : null}
+
+      {canReturnToWorkbenchQueue && queueResumeHint ? (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="success"
+          showIcon
+          message={queueResumeHint === 'snapshot' ? '当前复盘快照已更新' : '当前复盘任务已保存'}
+          description={
+            queueResumeHint === 'snapshot'
+              ? '这条 Pricing 任务的最新判断已经写回工作台，可以继续推进到同类型队列的下一条。'
+              : '这条 Pricing 任务已经落到工作台，可以继续推进到同类型队列的下一条。'
+          }
+          action={(
+            <Button type="primary" size="small" onClick={handleReturnToWorkbenchNextTask}>
+              完成当前复盘并继续下一条
+            </Button>
+          )}
+        />
+      ) : null}
+
       {playbook ? (
         <div style={{ marginBottom: 16 }}>
           <ResearchPlaybook
@@ -114,7 +153,8 @@ const PricingResearch = () => {
             onAction={(action) => navigateByResearchAction(action)}
             onSaveTask={handleSaveTask}
             onUpdateSnapshot={data && savedTaskId ? handleUpdateSnapshot : null}
-            saving={savingTask}
+            saveLoading={savingTask}
+            updateLoading={updatingSnapshot}
           />
         </div>
       ) : null}
@@ -184,6 +224,7 @@ const PricingResearch = () => {
           gapHistoryLoading={gapHistoryLoading}
           handleAnalyze={handleAnalyze}
           handleInspectScreeningResult={handleInspectScreeningResult}
+          handleOpenMacroMispricingDraft={handleOpenMacroMispricingDraft}
           handleRunSensitivity={handleRunSensitivity}
           peerComparison={peerComparison}
           peerComparisonError={peerComparisonError}
@@ -214,6 +255,8 @@ export {
   GapOverview,
   DriversCard,
   ImplicationsCard,
+  PeopleLayerCard,
+  StructuralDecayCard,
   PeerComparisonCard,
   PricingScreenerCard,
   SensitivityAnalysisCard,

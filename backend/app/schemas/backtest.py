@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 
 class BacktestRequest(BaseModel):
@@ -13,6 +13,10 @@ class BacktestRequest(BaseModel):
     fixed_commission: float = 0.0
     min_commission: float = 0.0
     market_impact_bps: float = 0.0
+    market_impact_model: str = "constant"
+    impact_reference_notional: float = 100000.0
+    impact_coefficient: float = 1.0
+    permanent_impact_bps: float = 0.0
     max_holding_days: Optional[int] = None
 
 class BacktestResponse(BaseModel):
@@ -35,17 +39,21 @@ class BatchBacktestTaskRequest(BaseModel):
     fixed_commission: float = 0.0
     min_commission: float = 0.0
     market_impact_bps: float = 0.0
+    market_impact_model: str = "constant"
+    impact_reference_notional: float = 100000.0
+    impact_coefficient: float = 1.0
+    permanent_impact_bps: float = 0.0
     max_holding_days: Optional[int] = None
 
 
 class BatchBacktestRequest(BaseModel):
-    tasks: List[BatchBacktestTaskRequest]
+    tasks: List[BatchBacktestTaskRequest] = Field(..., min_length=1, max_length=50)
     ranking_metric: str = "sharpe_ratio"
     ascending: bool = False
     top_n: Optional[int] = None
-    max_workers: int = 4
+    max_workers: int = Field(default=4, ge=1, le=8)
     use_processes: bool = False
-    timeout_seconds: float = 60.0
+    timeout_seconds: float = Field(default=60.0, gt=0, le=600)
 
 
 class WalkForwardRequest(BaseModel):
@@ -62,6 +70,10 @@ class WalkForwardRequest(BaseModel):
     fixed_commission: float = 0.0
     min_commission: float = 0.0
     market_impact_bps: float = 0.0
+    market_impact_model: str = "constant"
+    impact_reference_notional: float = 100000.0
+    impact_coefficient: float = 1.0
+    permanent_impact_bps: float = 0.0
     max_holding_days: Optional[int] = None
     train_period: int = 252
     test_period: int = 63
@@ -69,8 +81,8 @@ class WalkForwardRequest(BaseModel):
     optimization_metric: str = "sharpe_ratio"
     optimization_method: str = "grid"
     optimization_budget: Optional[int] = None
-    monte_carlo_simulations: int = 250
-    timeout_seconds: float = 60.0
+    monte_carlo_simulations: int = Field(default=250, ge=10, le=10000)
+    timeout_seconds: float = Field(default=60.0, gt=0, le=600)
 
 
 class MarketRegimeRequest(BaseModel):
@@ -85,6 +97,10 @@ class MarketRegimeRequest(BaseModel):
     fixed_commission: float = 0.0
     min_commission: float = 0.0
     market_impact_bps: float = 0.0
+    market_impact_model: str = "constant"
+    impact_reference_notional: float = 100000.0
+    impact_coefficient: float = 1.0
+    permanent_impact_bps: float = 0.0
     max_holding_days: Optional[int] = None
     lookback_days: int = 20
     trend_threshold: float = 0.03
@@ -104,6 +120,10 @@ class PortfolioStrategyRequest(BaseModel):
     fixed_commission: float = 0.0
     min_commission: float = 0.0
     market_impact_bps: float = 0.0
+    market_impact_model: str = "constant"
+    impact_reference_notional: float = 100000.0
+    impact_coefficient: float = 1.0
+    permanent_impact_bps: float = 0.0
     min_trade_value: float = 0.0
     min_rebalance_weight_delta: float = 0.0
     max_turnover_per_rebalance: Optional[float] = None

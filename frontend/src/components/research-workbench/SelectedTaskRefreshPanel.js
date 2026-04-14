@@ -8,7 +8,7 @@ function SelectedTaskRefreshPanel({ selectedTaskRefreshSignal }) {
     <Card
       size="small"
       title="输入变化与更新建议"
-      bordered={false}
+      variant="borderless"
       extra={
         selectedTaskRefreshSignal ? (
           <Space wrap>
@@ -20,6 +20,11 @@ function SelectedTaskRefreshPanel({ selectedTaskRefreshSignal }) {
             {selectedTaskRefreshSignal.selectionQualityDriven ? <Tag color="orange">自动降级</Tag> : null}
             {selectedTaskRefreshSignal.selectionQualityRunState?.active ? <Tag color="gold">降级运行</Tag> : null}
             {selectedTaskRefreshSignal.reviewContextDriven ? <Tag color="geekblue">复核语境切换</Tag> : null}
+            {selectedTaskRefreshSignal.structuralDecayRadarDriven ? <Tag color="volcano">系统衰败雷达</Tag> : null}
+            {selectedTaskRefreshSignal.structuralDecayDriven ? <Tag color="volcano">结构性衰败</Tag> : null}
+            {selectedTaskRefreshSignal.tradeThesisDriven ? <Tag color="cyan">交易 Thesis 漂移</Tag> : null}
+            {selectedTaskRefreshSignal.peopleLayerDriven ? <Tag color="purple">人的维度</Tag> : null}
+            {selectedTaskRefreshSignal.departmentChaosDriven ? <Tag color="volcano">部门混乱</Tag> : null}
             {selectedTaskRefreshSignal.inputReliabilityDriven ? <Tag color="blue">输入可靠度</Tag> : null}
             {selectedTaskRefreshSignal.policySourceDriven ? <Tag color="red">政策源驱动</Tag> : null}
             {selectedTaskRefreshSignal.biasCompressionDriven ? <Tag color="orange">偏置收缩</Tag> : null}
@@ -70,6 +75,25 @@ function SelectedTaskRefreshPanel({ selectedTaskRefreshSignal }) {
               {selectedTaskRefreshSignal.inputReliabilityShift.actionHint}
             </Text>
           ) : null}
+          {selectedTaskRefreshSignal.departmentChaosShift ? (
+            <Text type="secondary">
+              部门混乱 {selectedTaskRefreshSignal.departmentChaosShift.savedLabel}→{selectedTaskRefreshSignal.departmentChaosShift.currentLabel}
+              {selectedTaskRefreshSignal.departmentChaosShift.scoreGap
+                ? ` · score ${selectedTaskRefreshSignal.departmentChaosShift.scoreGap >= 0 ? '+' : ''}${Number(selectedTaskRefreshSignal.departmentChaosShift.scoreGap || 0).toFixed(2)}`
+                : ''}
+              {selectedTaskRefreshSignal.departmentChaosShift.topDepartmentLabel
+                ? ` · 焦点 ${selectedTaskRefreshSignal.departmentChaosShift.topDepartmentLabel}`
+                : ''}
+              {selectedTaskRefreshSignal.departmentChaosShift.topDepartmentReason
+                ? ` · ${selectedTaskRefreshSignal.departmentChaosShift.topDepartmentReason}`
+                : ''}
+            </Text>
+          ) : null}
+          {selectedTaskRefreshSignal.departmentChaosShift?.actionHint ? (
+            <Text strong style={{ color: '#d4380d' }}>
+              {selectedTaskRefreshSignal.departmentChaosShift.actionHint}
+            </Text>
+          ) : null}
           {selectedTaskRefreshSignal.selectionQualityShift ? (
             <Text type="secondary">
               自动降级 {selectedTaskRefreshSignal.selectionQualityShift.savedLabel}→{selectedTaskRefreshSignal.selectionQualityShift.currentLabel}
@@ -111,6 +135,99 @@ function SelectedTaskRefreshPanel({ selectedTaskRefreshSignal }) {
           {selectedTaskRefreshSignal.reviewContextShift?.actionHint ? (
             <Text strong style={{ color: '#1d39c4' }}>
               {selectedTaskRefreshSignal.reviewContextShift.actionHint}
+            </Text>
+          ) : null}
+          {selectedTaskRefreshSignal.structuralDecayRadarShift ? (
+            <Text type="secondary">
+              系统衰败雷达 {selectedTaskRefreshSignal.structuralDecayRadarShift.savedLabel}→{selectedTaskRefreshSignal.structuralDecayRadarShift.currentLabel}
+              {selectedTaskRefreshSignal.structuralDecayRadarShift.scoreGap
+                ? ` · score ${selectedTaskRefreshSignal.structuralDecayRadarShift.scoreGap >= 0 ? '+' : ''}${Number(selectedTaskRefreshSignal.structuralDecayRadarShift.scoreGap || 0).toFixed(2)}`
+                : ''}
+              {selectedTaskRefreshSignal.structuralDecayRadarShift.criticalAxisGap
+                ? ` · 关键轴 ${selectedTaskRefreshSignal.structuralDecayRadarShift.criticalAxisGap >= 0 ? '+' : ''}${Number(selectedTaskRefreshSignal.structuralDecayRadarShift.criticalAxisGap || 0)}`
+                : ''}
+              {selectedTaskRefreshSignal.structuralDecayRadarShift.topSignalSummary
+                ? ` · ${selectedTaskRefreshSignal.structuralDecayRadarShift.topSignalSummary}`
+                : ''}
+              {selectedTaskRefreshSignal.structuralDecayRadarShift.currentSummary
+                ? ` · ${selectedTaskRefreshSignal.structuralDecayRadarShift.currentSummary}`
+                : ''}
+            </Text>
+          ) : null}
+          {selectedTaskRefreshSignal.structuralDecayRadarShift?.actionHint ? (
+            <Text strong style={{ color: '#d4380d' }}>
+              {selectedTaskRefreshSignal.structuralDecayRadarShift.actionHint}
+            </Text>
+          ) : null}
+          {selectedTaskRefreshSignal.structuralDecayShift ? (
+            <Text type="secondary">
+              衰败判断 {selectedTaskRefreshSignal.structuralDecayShift.savedAction}→{selectedTaskRefreshSignal.structuralDecayShift.currentAction}
+              {selectedTaskRefreshSignal.structuralDecayShift.scoreGap
+                ? ` · score ${selectedTaskRefreshSignal.structuralDecayShift.scoreGap >= 0 ? '+' : ''}${Number(selectedTaskRefreshSignal.structuralDecayShift.scoreGap || 0).toFixed(2)}`
+                : ''}
+              {selectedTaskRefreshSignal.structuralDecayShift.currentFailure
+                ? ` · ${selectedTaskRefreshSignal.structuralDecayShift.currentFailure}`
+                : ''}
+              {selectedTaskRefreshSignal.structuralDecayShift.currentSummary
+                ? ` · ${selectedTaskRefreshSignal.structuralDecayShift.currentSummary}`
+                : ''}
+            </Text>
+          ) : null}
+          {selectedTaskRefreshSignal.structuralDecayShift?.evidenceSummary ? (
+            <Text type="secondary">
+              衰败证据 {selectedTaskRefreshSignal.structuralDecayShift.evidenceSummary}
+            </Text>
+          ) : null}
+          {selectedTaskRefreshSignal.structuralDecayShift?.actionHint ? (
+            <Text strong style={{ color: '#cf1322' }}>
+              {selectedTaskRefreshSignal.structuralDecayShift.actionHint}
+            </Text>
+          ) : null}
+          {selectedTaskRefreshSignal.tradeThesisShift ? (
+            <Text type="secondary">
+              交易 Thesis
+              {selectedTaskRefreshSignal.tradeThesisShift.savedStance
+                ? ` ${selectedTaskRefreshSignal.tradeThesisShift.savedStance}→${selectedTaskRefreshSignal.tradeThesisShift.currentStance}`
+                : ''}
+              {selectedTaskRefreshSignal.tradeThesisShift.savedLeadLeg && selectedTaskRefreshSignal.tradeThesisShift.currentLeadLeg
+                ? ` · 主腿 ${selectedTaskRefreshSignal.tradeThesisShift.savedLeadLeg}→${selectedTaskRefreshSignal.tradeThesisShift.currentLeadLeg}`
+                : ''}
+              {selectedTaskRefreshSignal.tradeThesisShift.currentSummary
+                ? ` · ${selectedTaskRefreshSignal.tradeThesisShift.currentSummary}`
+                : ''}
+            </Text>
+          ) : null}
+          {selectedTaskRefreshSignal.tradeThesisShift?.evidenceSummary ? (
+            <Text type="secondary">
+              Thesis 证据 {selectedTaskRefreshSignal.tradeThesisShift.evidenceSummary}
+            </Text>
+          ) : null}
+          {selectedTaskRefreshSignal.tradeThesisShift?.actionHint ? (
+            <Text strong style={{ color: '#08979c' }}>
+              {selectedTaskRefreshSignal.tradeThesisShift.actionHint}
+            </Text>
+          ) : null}
+          {selectedTaskRefreshSignal.peopleLayerShift ? (
+            <Text type="secondary">
+              人的维度 {selectedTaskRefreshSignal.peopleLayerShift.savedRiskLevel}→{selectedTaskRefreshSignal.peopleLayerShift.currentRiskLevel}
+              {' · '}
+              stance {selectedTaskRefreshSignal.peopleLayerShift.savedStance}→{selectedTaskRefreshSignal.peopleLayerShift.currentStance}
+              {selectedTaskRefreshSignal.peopleLayerShift.fragilityGap
+                ? ` · fragility ${selectedTaskRefreshSignal.peopleLayerShift.fragilityGap >= 0 ? '+' : ''}${Number(selectedTaskRefreshSignal.peopleLayerShift.fragilityGap || 0).toFixed(2)}`
+                : ''}
+              {selectedTaskRefreshSignal.peopleLayerShift.currentSummary
+                ? ` · ${selectedTaskRefreshSignal.peopleLayerShift.currentSummary}`
+                : ''}
+            </Text>
+          ) : null}
+          {selectedTaskRefreshSignal.peopleLayerShift?.evidenceSummary ? (
+            <Text type="secondary">
+              人事证据 {selectedTaskRefreshSignal.peopleLayerShift.evidenceSummary}
+            </Text>
+          ) : null}
+          {selectedTaskRefreshSignal.peopleLayerShift?.actionHint ? (
+            <Text strong style={{ color: '#722ed1' }}>
+              {selectedTaskRefreshSignal.peopleLayerShift.actionHint}
             </Text>
           ) : null}
           {selectedTaskRefreshSignal.biasCompressionShift ? (

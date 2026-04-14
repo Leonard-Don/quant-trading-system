@@ -1,8 +1,16 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Tag, Space, Radio, Select, Checkbox, Button, Row, Col, Empty, InputNumber } from 'antd';
 import { NotificationOutlined, StarFilled, BranchesOutlined } from '@ant-design/icons';
+import { normalizeIndustryAlertThresholds } from './industryShared';
 
 const { Option } = Select;
+const INDUSTRY_ALERT_THRESHOLD_DEBOUNCE_MS = 360;
+
+const areIndustryAlertThresholdsEqual = (left, right) => {
+    const normalizedLeft = normalizeIndustryAlertThresholds(left);
+    const normalizedRight = normalizeIndustryAlertThresholds(right);
+    return Object.keys(normalizedLeft).every((key) => Number(normalizedLeft[key] || 0) === Number(normalizedRight[key] || 0));
+};
 
 const IndustryAlertsPanel = ({
     industryAlertsWithSeverity,
@@ -30,8 +38,50 @@ const IndustryAlertsPanel = ({
     alertTimelineEntries,
     formatIndustryAlertSeenLabel,
     message,
-}) => (
-    (industryAlertsWithSeverity.length > 0 || rawIndustryAlerts.length > 0 || focusIndustrySuggestions.length > 0) ? (
+}) => {
+    const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+    const [showTimeline, setShowTimeline] = useState(false);
+    const [showAllAlerts, setShowAllAlerts] = useState(false);
+    const [draftThresholds, setDraftThresholds] = useState(() => normalizeIndustryAlertThresholds(industryAlertThresholds));
+
+    const visibleAlerts = useMemo(
+        () => (showAllAlerts ? industryAlertsWithSeverity : industryAlertsWithSeverity.slice(0, 4)),
+        [industryAlertsWithSeverity, showAllAlerts]
+    );
+
+    useEffect(() => {
+        const normalizedThresholds = normalizeIndustryAlertThresholds(industryAlertThresholds);
+        setDraftThresholds((current) => (
+            areIndustryAlertThresholdsEqual(current, normalizedThresholds) ? current : normalizedThresholds
+        ));
+    }, [industryAlertThresholds]);
+
+    useEffect(() => {
+        if (areIndustryAlertThresholdsEqual(draftThresholds, industryAlertThresholds)) {
+            return undefined;
+        }
+        const timeoutId = window.setTimeout(() => {
+            setIndustryAlertThresholds((current) => (
+                areIndustryAlertThresholdsEqual(current, draftThresholds) ? current : draftThresholds
+            ));
+        }, INDUSTRY_ALERT_THRESHOLD_DEBOUNCE_MS);
+        return () => window.clearTimeout(timeoutId);
+    }, [draftThresholds, industryAlertThresholds, setIndustryAlertThresholds]);
+
+    const updateDraftThreshold = (key, value, extraPatch = {}) => {
+        const nextValue = Number(value || 0);
+        setDraftThresholds((current) => ({
+            ...current,
+            [key]: nextValue,
+            ...extraPatch,
+        }));
+    };
+
+    if (!(industryAlertsWithSeverity.length > 0 || rawIndustryAlerts.length > 0 || focusIndustrySuggestions.length > 0)) {
+        return null;
+    }
+
+    return (
         <Card
             size="small"
             data-testid="industry-alerts-card"
@@ -57,6 +107,9 @@ const IndustryAlertsPanel = ({
                     <Tag color={desktopAlertNotifications ? 'processing' : 'default'} style={{ margin: 0, borderRadius: 999 }}>
                         {desktopAlertNotifications ? '桌面通知已开' : '桌面通知未开'}
                     </Tag>
+                    <Button size="small" type="text" onClick={() => setShowAdvancedSettings((current) => !current)}>
+                        {showAdvancedSettings ? '收起高级设置' : '高级设置'}
+                    </Button>
                 </Space>
             </div>
 
@@ -87,134 +140,123 @@ const IndustryAlertsPanel = ({
                         <Radio.Button value="all">全部行业</Radio.Button>
                         <Radio.Button value="watchlist">观察列表</Radio.Button>
                     </Radio.Group>
-
-                    <Checkbox.Group
-                        value={industryAlertSubscription.kinds}
-                        options={industryAlertKindOptions}
-                        onChange={(values) => {
-                            const nextKinds = values.filter((item) => industryAlertKindOptions.some((option) => option.value === item));
-                            if (nextKinds.length === 0) {
-                                message.warning('至少保留一种提醒规则');
-                                return;
-                            }
-                            setIndustryAlertSubscription((current) => ({ ...current, kinds: nextKinds }));
-                        }}
-                    />
-                    <Button size="small" icon={<NotificationOutlined />} onClick={requestDesktopAlertPermission}>
-                        {desktopAlertNotifications ? '重检通知权限' : '开启桌面通知'}
-                    </Button>
                 </Space>
             </div>
 
-            <div
-                style={{
-                    marginBottom: 12,
-                    padding: '10px 12px',
-                    borderRadius: 12,
-                    background: 'rgba(255,255,255,0.56)',
-                    border: '1px dashed color-mix(in srgb, var(--border-color) 82%, transparent 18%)',
-                }}
-                data-testid="industry-alert-thresholds-panel"
-            >
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 10 }}>
-                    <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.04em' }}>提醒阈值</span>
-                    <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>按自己的研究节奏调节提醒门槛，设置会自动保存。</span>
+            {showAdvancedSettings && (
+                <div
+                    style={{
+                        marginBottom: 12,
+                        padding: '10px 12px',
+                        borderRadius: 12,
+                        background: 'rgba(255,255,255,0.56)',
+                        border: '1px dashed color-mix(in srgb, var(--border-color) 82%, transparent 18%)',
+                    }}
+                    data-testid="industry-alert-thresholds-panel"
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.04em' }}>提醒阈值</span>
+                            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>按自己的研究节奏调节提醒门槛，停止输入后会自动保存。</span>
+                        </div>
+                        <Space size={[8, 8]} wrap>
+                            <Checkbox.Group
+                                value={industryAlertSubscription.kinds}
+                                options={industryAlertKindOptions}
+                                onChange={(values) => {
+                                    const nextKinds = values.filter((item) => industryAlertKindOptions.some((option) => option.value === item));
+                                    if (nextKinds.length === 0) {
+                                        message.warning('至少保留一种提醒规则');
+                                        return;
+                                    }
+                                    setIndustryAlertSubscription((current) => ({ ...current, kinds: nextKinds }));
+                                }}
+                            />
+                            <Button size="small" icon={<NotificationOutlined />} onClick={requestDesktopAlertPermission}>
+                                {desktopAlertNotifications ? '重检通知权限' : '开启桌面通知'}
+                            </Button>
+                        </Space>
+                    </div>
+                    <Row gutter={[10, 10]}>
+                        <Col xs={12} md={8} lg={4}>
+                            <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>强势共振分数</span>
+                            <InputNumber
+                                size="small"
+                                min={50}
+                                max={100}
+                                value={draftThresholds.resonance_score}
+                                style={{ width: '100%' }}
+                                onChange={(value) => updateDraftThreshold('resonance_score', value)}
+                            />
+                        </Col>
+                        <Col xs={12} md={8} lg={4}>
+                            <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>资金突入阈值(亿)</span>
+                            <InputNumber
+                                size="small"
+                                min={1}
+                                max={50}
+                                value={Number(draftThresholds.capital_inflow_yi || 0)}
+                                style={{ width: '100%' }}
+                                onChange={(value) => updateDraftThreshold('capital_inflow_yi', value)}
+                            />
+                        </Col>
+                        <Col xs={12} md={8} lg={4}>
+                            <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>风险释放阈值(亿)</span>
+                            <InputNumber
+                                size="small"
+                                min={1}
+                                max={50}
+                                value={Number(draftThresholds.risk_release_outflow_yi || 0)}
+                                style={{ width: '100%' }}
+                                onChange={(value) => updateDraftThreshold('risk_release_outflow_yi', value)}
+                            />
+                        </Col>
+                        <Col xs={12} md={8} lg={4}>
+                            <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>高波动阈值(%)</span>
+                            <InputNumber
+                                size="small"
+                                min={1}
+                                max={10}
+                                step={0.1}
+                                value={Number(draftThresholds.high_volatility_threshold || 0)}
+                                style={{ width: '100%' }}
+                                onChange={(value) => updateDraftThreshold('high_volatility_threshold', value)}
+                            />
+                        </Col>
+                        <Col xs={12} md={8} lg={4}>
+                            <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>轮动换手阈值(%)</span>
+                            <InputNumber
+                                size="small"
+                                min={1}
+                                max={10}
+                                step={0.1}
+                                value={Number(draftThresholds.rotation_turnover_threshold || 0)}
+                                style={{ width: '100%' }}
+                                onChange={(value) => updateDraftThreshold('rotation_turnover_threshold', value)}
+                            />
+                        </Col>
+                        <Col xs={12} md={8} lg={4}>
+                            <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>价格确认阈值(%)</span>
+                            <InputNumber
+                                size="small"
+                                min={0}
+                                max={10}
+                                step={0.1}
+                                value={Number(draftThresholds.capital_inflow_change_pct || 0)}
+                                style={{ width: '100%' }}
+                                onChange={(value) => updateDraftThreshold('capital_inflow_change_pct', value, {
+                                    risk_release_change_pct: Number(value || 0),
+                                })}
+                            />
+                        </Col>
+                    </Row>
                 </div>
-                <Row gutter={[10, 10]}>
-                    <Col xs={12} md={8} lg={4}>
-                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>强势共振分数</span>
-                        <InputNumber
-                            size="small"
-                            min={50}
-                            max={100}
-                            value={industryAlertThresholds.resonance_score}
-                            style={{ width: '100%' }}
-                            onChange={(value) => setIndustryAlertThresholds((current) => ({
-                                ...current,
-                                resonance_score: Number(value || 0),
-                            }))}
-                        />
-                    </Col>
-                    <Col xs={12} md={8} lg={4}>
-                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>资金突入阈值(亿)</span>
-                        <InputNumber
-                            size="small"
-                            min={1}
-                            max={50}
-                            value={Number(industryAlertThresholds.capital_inflow_yi || 0)}
-                            style={{ width: '100%' }}
-                            onChange={(value) => setIndustryAlertThresholds((current) => ({
-                                ...current,
-                                capital_inflow_yi: Number(value || 0),
-                            }))}
-                        />
-                    </Col>
-                    <Col xs={12} md={8} lg={4}>
-                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>风险释放阈值(亿)</span>
-                        <InputNumber
-                            size="small"
-                            min={1}
-                            max={50}
-                            value={Number(industryAlertThresholds.risk_release_outflow_yi || 0)}
-                            style={{ width: '100%' }}
-                            onChange={(value) => setIndustryAlertThresholds((current) => ({
-                                ...current,
-                                risk_release_outflow_yi: Number(value || 0),
-                            }))}
-                        />
-                    </Col>
-                    <Col xs={12} md={8} lg={4}>
-                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>高波动阈值(%)</span>
-                        <InputNumber
-                            size="small"
-                            min={1}
-                            max={10}
-                            step={0.1}
-                            value={Number(industryAlertThresholds.high_volatility_threshold || 0)}
-                            style={{ width: '100%' }}
-                            onChange={(value) => setIndustryAlertThresholds((current) => ({
-                                ...current,
-                                high_volatility_threshold: Number(value || 0),
-                            }))}
-                        />
-                    </Col>
-                    <Col xs={12} md={8} lg={4}>
-                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>轮动换手阈值(%)</span>
-                        <InputNumber
-                            size="small"
-                            min={1}
-                            max={10}
-                            step={0.1}
-                            value={Number(industryAlertThresholds.rotation_turnover_threshold || 0)}
-                            style={{ width: '100%' }}
-                            onChange={(value) => setIndustryAlertThresholds((current) => ({
-                                ...current,
-                                rotation_turnover_threshold: Number(value || 0),
-                            }))}
-                        />
-                    </Col>
-                    <Col xs={12} md={8} lg={4}>
-                        <span style={{ display: 'block', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>价格确认阈值(%)</span>
-                        <InputNumber
-                            size="small"
-                            min={0}
-                            max={10}
-                            step={0.1}
-                            value={Number(industryAlertThresholds.capital_inflow_change_pct || 0)}
-                            style={{ width: '100%' }}
-                            onChange={(value) => setIndustryAlertThresholds((current) => ({
-                                ...current,
-                                capital_inflow_change_pct: Number(value || 0),
-                                risk_release_change_pct: Number(value || 0),
-                            }))}
-                        />
-                    </Col>
-                </Row>
-            </div>
+            )}
 
             {industryAlertsWithSeverity.length > 0 ? (
-                <Row gutter={[10, 10]}>
-                    {industryAlertsWithSeverity.map((alert) => (
+                <>
+                    <Row gutter={[10, 10]}>
+                        {visibleAlerts.map((alert) => (
                         <Col xs={24} md={12} key={`${alert.industry_name}-${alert.title}`}>
                             <div
                                 data-testid="industry-alert-item"
@@ -272,8 +314,16 @@ const IndustryAlertsPanel = ({
                                 </Space>
                             </div>
                         </Col>
-                    ))}
-                </Row>
+                        ))}
+                    </Row>
+                    {industryAlertsWithSeverity.length > visibleAlerts.length && (
+                        <div style={{ marginTop: 10, display: 'flex', justifyContent: 'center' }}>
+                            <Button size="small" type="text" onClick={() => setShowAllAlerts((current) => !current)}>
+                                {showAllAlerts ? '收起更多提醒' : `展开其余 ${industryAlertsWithSeverity.length - visibleAlerts.length} 条提醒`}
+                            </Button>
+                        </div>
+                    )}
+                </>
             ) : (
                 <Empty
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -298,26 +348,32 @@ const IndustryAlertsPanel = ({
 
             {alertTimelineEntries.length > 0 && (
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed color-mix(in srgb, var(--border-color) 82%, transparent 18%)' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: 10, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginBottom: showTimeline ? 10 : 0, flexWrap: 'wrap' }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                             <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.04em' }}>提醒时间线</span>
                             <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>按最近触发排序，保留会话内与本地持久化的提醒命中轨迹</span>
                         </div>
-                        <Tag color="default" style={{ margin: 0, borderRadius: 999 }}>最近 {alertTimelineEntries.length} 条</Tag>
+                        <Space size={8} wrap>
+                            <Tag color="default" style={{ margin: 0, borderRadius: 999 }}>最近 {alertTimelineEntries.length} 条</Tag>
+                            <Button size="small" type="text" onClick={() => setShowTimeline((current) => !current)}>
+                                {showTimeline ? '收起时间线' : '展开时间线'}
+                            </Button>
+                        </Space>
                     </div>
 
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {alertTimelineEntries.map((entry) => (
-                            <div
-                                key={`${entry.industry_name}:${entry.kind}`}
-                                style={{
-                                    position: 'relative',
-                                    padding: '10px 12px 10px 18px',
-                                    borderRadius: 10,
-                                    background: 'rgba(255,255,255,0.48)',
-                                    border: '1px solid color-mix(in srgb, var(--border-color) 85%, transparent 15%)',
-                                }}
-                            >
+                    {showTimeline && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {alertTimelineEntries.map((entry) => (
+                                <div
+                                    key={`${entry.industry_name}:${entry.kind}`}
+                                    style={{
+                                        position: 'relative',
+                                        padding: '10px 12px 10px 18px',
+                                        borderRadius: 10,
+                                        background: 'rgba(255,255,255,0.48)',
+                                        border: '1px solid color-mix(in srgb, var(--border-color) 85%, transparent 15%)',
+                                    }}
+                                >
                                 <div
                                     style={{
                                         position: 'absolute',
@@ -370,9 +426,10 @@ const IndustryAlertsPanel = ({
                                         </Button>
                                     </Space>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
@@ -380,7 +437,7 @@ const IndustryAlertsPanel = ({
                 当前为截面异动提醒；订阅设置会保留，下次进入页面仍按你的观察范围和规则显示。“新增”仍基于本页会话内首次出现时间判断。
             </div>
         </Card>
-    ) : null
-);
+    );
+};
 
 export default IndustryAlertsPanel;

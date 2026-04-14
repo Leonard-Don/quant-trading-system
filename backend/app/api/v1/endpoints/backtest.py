@@ -16,8 +16,10 @@ from backend.app.schemas.backtest import (
     PortfolioStrategyRequest,
     AdvancedHistorySaveRequest,
 )
+from backend.app.core.task_queue import task_queue_manager
 from src.backtest.history import backtest_history
 from src.backtest.batch_backtester import BatchBacktester, BacktestTask, WalkForwardAnalyzer
+from src.backtest.impact_model import estimate_market_impact_rate, normalize_market_impact_model
 from src.data.data_manager import DataManager
 from src.strategy.strategies import (
     MovingAverageCrossover,
@@ -196,6 +198,10 @@ def run_backtest_pipeline(
     fixed_commission: float = 0.0,
     min_commission: float = 0.0,
     market_impact_bps: float = 0.0,
+    market_impact_model: str = "constant",
+    impact_reference_notional: float = 100000.0,
+    impact_coefficient: float = 1.0,
+    permanent_impact_bps: float = 0.0,
     max_holding_days: Optional[int] = None,
     data=None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -231,6 +237,10 @@ def run_backtest_pipeline(
         fixed_commission=fixed_commission,
         min_commission=min_commission,
         market_impact_bps=market_impact_bps,
+        market_impact_model=market_impact_model,
+        impact_reference_notional=impact_reference_notional,
+        impact_coefficient=impact_coefficient,
+        permanent_impact_bps=permanent_impact_bps,
         max_holding_days=max_holding_days,
     )
     results = backtester.run(strategy, data)
@@ -249,6 +259,10 @@ def run_backtest_pipeline(
             "fixed_commission": fixed_commission,
             "min_commission": min_commission,
             "market_impact_bps": market_impact_bps,
+            "market_impact_model": normalize_market_impact_model(market_impact_model),
+            "impact_reference_notional": impact_reference_notional,
+            "impact_coefficient": impact_coefficient,
+            "permanent_impact_bps": permanent_impact_bps,
             "max_holding_days": max_holding_days,
             "parameters": cleaned_params,
         }
@@ -314,7 +328,8 @@ def _series_from_portfolio_history(results: Dict[str, Any]) -> pd.Series:
         return pd.Series(dtype="float64")
 
     frame = frame.copy()
-    frame["date"] = pd.to_datetime(frame.get("date"))
+    frame["date"] = pd.to_datetime(frame.get("date"), utc=True, errors="coerce")
+    frame["date"] = frame["date"].dt.tz_localize(None)
     frame = frame.dropna(subset=["date"]).sort_values("date")
     if frame.empty:
         return pd.Series(dtype="float64")
@@ -338,8 +353,173 @@ def _returns_from_portfolio_history(results: Dict[str, Any]) -> pd.Series:
         return pd.Series(dtype="float64")
 
     returns = values.pct_change().replace([np.inf, -np.inf], np.nan).fillna(0)
-    returns.index = pd.to_datetime(returns.index)
+    returns.index = pd.to_datetime(returns.index, utc=True, errors="coerce").tz_localize(None)
+    returns = returns[~returns.index.isna()]
     return returns.astype(float)
+
+
+def _equity_curve_from_returns(
+    returns: np.ndarray,
+    initial_value: float,
+) -> np.ndarray:
+    return initial_value * np.cumprod(1 + returns)
+
+
+def _max_drawdown_from_array(values: np.ndarray) -> float:
+    if values.size == 0:
+        return 0.0
+    running_max = np.maximum.accumulate(values)
+    drawdown = (values - running_max) / np.where(running_max == 0, np.nan, running_max)
+    drawdown = np.nan_to_num(drawdown, nan=0.0, posinf=0.0, neginf=0.0)
+    return float(np.min(drawdown))
+
+
+def _simulate_monte_carlo_paths(
+    returns: pd.Series,
+    *,
+    initial_value: float,
+    simulations: int,
+    horizon_days: Optional[int] = None,
+    seed: Optional[int] = 42,
+) -> Dict[str, Any]:
+    clean_returns = pd.Series(returns).replace([np.inf, -np.inf], np.nan).dropna()
+    clean_returns = clean_returns[clean_returns.index.notna()]
+    if clean_returns.empty:
+        raise HTTPException(status_code=400, detail="Insufficient return series for Monte Carlo simulation")
+
+    horizon = max(5, min(int(horizon_days or len(clean_returns)), 756))
+    sample_count = max(50, min(int(simulations or 1000), 10000))
+    rng = np.random.default_rng(seed)
+    source = clean_returns.to_numpy(dtype="float64")
+
+    terminal_values = np.empty(sample_count, dtype="float64")
+    path_returns = np.empty(sample_count, dtype="float64")
+    max_drawdowns = np.empty(sample_count, dtype="float64")
+    sampled_paths = []
+    percentile_source = []
+
+    for index in range(sample_count):
+        sampled_returns = rng.choice(source, size=horizon, replace=True)
+        equity = _equity_curve_from_returns(sampled_returns, initial_value)
+        terminal_values[index] = equity[-1]
+        path_returns[index] = (equity[-1] / initial_value) - 1
+        max_drawdowns[index] = _max_drawdown_from_array(equity)
+        if index < 40:
+            sampled_paths.append([round(float(value), 2) for value in equity])
+        if index < min(sample_count, 1500):
+            percentile_source.append(equity)
+
+    percentile_frame = np.vstack(percentile_source)
+    fan_chart = []
+    for day_index in range(horizon):
+        day_values = percentile_frame[:, day_index]
+        if day_index == 0 or day_index == horizon - 1 or day_index % max(1, horizon // 40) == 0:
+            fan_chart.append(
+                {
+                    "step": day_index + 1,
+                    "p10": round(float(np.percentile(day_values, 10)), 2),
+                    "p50": round(float(np.percentile(day_values, 50)), 2),
+                    "p90": round(float(np.percentile(day_values, 90)), 2),
+                }
+            )
+
+    return {
+        "simulations": sample_count,
+        "horizon_days": horizon,
+        "initial_value": round(float(initial_value), 2),
+        "terminal_value": {
+            "p05": round(float(np.percentile(terminal_values, 5)), 2),
+            "p10": round(float(np.percentile(terminal_values, 10)), 2),
+            "p50": round(float(np.percentile(terminal_values, 50)), 2),
+            "p90": round(float(np.percentile(terminal_values, 90)), 2),
+            "p95": round(float(np.percentile(terminal_values, 95)), 2),
+        },
+        "return_distribution": {
+            "mean": round(float(np.mean(path_returns)), 6),
+            "median": round(float(np.median(path_returns)), 6),
+            "p05": round(float(np.percentile(path_returns, 5)), 6),
+            "p95": round(float(np.percentile(path_returns, 95)), 6),
+            "probability_of_loss": round(float(np.mean(path_returns < 0)), 4),
+            "var_95": round(float(np.percentile(path_returns, 5)), 6),
+            "cvar_95": round(float(path_returns[path_returns <= np.percentile(path_returns, 5)].mean()), 6),
+        },
+        "drawdown_distribution": {
+            "median": round(float(np.median(max_drawdowns)), 6),
+            "p05": round(float(np.percentile(max_drawdowns, 5)), 6),
+            "worst": round(float(np.min(max_drawdowns)), 6),
+        },
+        "fan_chart": fan_chart,
+        "sample_paths": sampled_paths,
+    }
+
+
+def _safe_sharpe(returns: pd.Series) -> float:
+    values = pd.Series(returns).replace([np.inf, -np.inf], np.nan).dropna()
+    if values.empty or float(values.std(ddof=0)) == 0:
+        return 0.0
+    return float(values.mean() / values.std(ddof=0) * np.sqrt(252))
+
+
+def _compare_return_significance(
+    baseline: pd.Series,
+    challenger: pd.Series,
+    *,
+    bootstrap_samples: int = 1000,
+    seed: Optional[int] = 42,
+) -> Dict[str, Any]:
+    aligned = pd.concat([baseline.rename("baseline"), challenger.rename("challenger")], axis=1).dropna()
+    if aligned.empty or len(aligned) < 10:
+        return {"status": "insufficient_data", "sample_size": int(len(aligned))}
+
+    diff = aligned["challenger"] - aligned["baseline"]
+    observed_mean_delta = float(diff.mean())
+    observed_sharpe_delta = _safe_sharpe(aligned["challenger"]) - _safe_sharpe(aligned["baseline"])
+
+    try:
+        from scipy import stats
+
+        t_stat, p_value = stats.ttest_rel(aligned["challenger"], aligned["baseline"], nan_policy="omit")
+        t_stat = float(0 if np.isnan(t_stat) else t_stat)
+        p_value = float(1 if np.isnan(p_value) else p_value)
+    except Exception:
+        std = float(diff.std(ddof=1))
+        t_stat = float(observed_mean_delta / (std / np.sqrt(len(diff)))) if std > 0 else 0.0
+        p_value = 1.0
+
+    rng = np.random.default_rng(seed)
+    sample_count = max(100, min(int(bootstrap_samples or 1000), 10000))
+    boot_deltas = np.empty(sample_count, dtype="float64")
+    raw = diff.to_numpy(dtype="float64")
+    for index in range(sample_count):
+        boot_deltas[index] = float(rng.choice(raw, size=len(raw), replace=True).mean())
+
+    if observed_mean_delta >= 0:
+        bootstrap_p = float(2 * min(np.mean(boot_deltas <= 0), np.mean(boot_deltas >= 0)))
+    else:
+        bootstrap_p = float(2 * min(np.mean(boot_deltas >= 0), np.mean(boot_deltas <= 0)))
+    bootstrap_p = min(max(bootstrap_p, 0.0), 1.0)
+
+    return {
+        "status": "ok",
+        "sample_size": int(len(aligned)),
+        "observed_mean_daily_delta": round(observed_mean_delta, 8),
+        "observed_annualized_delta": round(float(observed_mean_delta * 252), 6),
+        "observed_sharpe_delta": round(float(observed_sharpe_delta), 6),
+        "paired_t_test": {
+            "t_stat": round(float(t_stat), 6),
+            "p_value": round(float(p_value), 6),
+            "significant_95": bool(p_value < 0.05),
+        },
+        "bootstrap": {
+            "samples": sample_count,
+            "p_value": round(float(bootstrap_p), 6),
+            "ci_95": [
+                round(float(np.percentile(boot_deltas, 2.5)), 8),
+                round(float(np.percentile(boot_deltas, 97.5)), 8),
+            ],
+            "significant_95": bool(bootstrap_p < 0.05),
+        },
+    }
 
 
 def _classify_market_regimes(
@@ -350,7 +530,9 @@ def _classify_market_regimes(
     if close_prices is None or close_prices.empty:
         return pd.DataFrame(columns=["date", "regime", "market_return"])
 
-    prices = close_prices.astype(float).dropna()
+    prices = close_prices.astype(float).dropna().copy()
+    prices.index = pd.to_datetime(prices.index, utc=True, errors="coerce").tz_localize(None)
+    prices = prices[~prices.index.isna()]
     if prices.empty:
         return pd.DataFrame(columns=["date", "regime", "market_return"])
 
@@ -377,7 +559,7 @@ def _classify_market_regimes(
         return "低波动整理"
 
     frame = pd.DataFrame({
-        "date": pd.to_datetime(prices.index),
+        "date": pd.to_datetime(prices.index, utc=True, errors="coerce").tz_localize(None),
         "market_return": market_returns.values,
     })
     frame["regime"] = frame["date"].apply(_label_regime)
@@ -401,7 +583,437 @@ class CompareRequest(BaseModel):
     fixed_commission: float = 0.0
     min_commission: float = 0.0
     market_impact_bps: float = 0.0
+    market_impact_model: str = "constant"
+    impact_reference_notional: float = 100000.0
+    impact_coefficient: float = 1.0
+    permanent_impact_bps: float = 0.0
     max_holding_days: Optional[int] = None
+
+
+class MonteCarloBacktestRequest(BacktestRequest):
+    simulations: int = 1000
+    horizon_days: Optional[int] = None
+    seed: Optional[int] = 42
+
+
+class SignificanceCompareRequest(CompareRequest):
+    baseline_strategy: Optional[str] = None
+    bootstrap_samples: int = 1000
+    seed: Optional[int] = 42
+
+
+class MultiPeriodBacktestRequest(BacktestRequest):
+    intervals: List[str] = ["1d", "1wk", "1mo"]
+
+
+class MarketImpactScenarioConfig(BaseModel):
+    label: Optional[str] = None
+    market_impact_model: str = "constant"
+    market_impact_bps: float = 0.0
+    impact_reference_notional: Optional[float] = None
+    impact_coefficient: float = 1.0
+    permanent_impact_bps: float = 0.0
+
+
+class MarketImpactAnalysisRequest(BacktestRequest):
+    scenarios: Optional[List[MarketImpactScenarioConfig]] = None
+    sample_trade_values: List[float] = [10000, 50000, 100000, 250000]
+
+
+def _submit_async_backtest_task(task_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    task = task_queue_manager.submit(
+        name=task_name,
+        payload={
+            **payload,
+            "task_origin": "backtest",
+        },
+        backend="auto",
+    )
+    return {
+        "task": task,
+        "execution_backend": task.get("execution_backend"),
+        "message": "backtest task queued",
+    }
+
+
+def run_backtest_monte_carlo_sync(
+    request: MonteCarloBacktestRequest | Dict[str, Any],
+) -> Dict[str, Any]:
+    if isinstance(request, dict):
+        request = MonteCarloBacktestRequest(**request)
+    results, cleaned_params = run_backtest_pipeline(
+        symbol=request.symbol,
+        strategy_name=request.strategy,
+        parameters=request.parameters,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        initial_capital=request.initial_capital,
+        commission=request.commission,
+        slippage=request.slippage,
+        fixed_commission=request.fixed_commission,
+        min_commission=request.min_commission,
+        market_impact_bps=request.market_impact_bps,
+        market_impact_model=request.market_impact_model,
+        impact_reference_notional=request.impact_reference_notional,
+        impact_coefficient=request.impact_coefficient,
+        permanent_impact_bps=request.permanent_impact_bps,
+        max_holding_days=request.max_holding_days,
+    )
+    returns = _returns_from_portfolio_history(results)
+    simulation = _simulate_monte_carlo_paths(
+        returns,
+        initial_value=float(results.get("final_value") or request.initial_capital),
+        simulations=request.simulations,
+        horizon_days=request.horizon_days,
+        seed=request.seed,
+    )
+    return ensure_json_serializable(
+        {
+            "success": True,
+            "data": {
+                "symbol": request.symbol,
+                "strategy": request.strategy,
+                "parameters": cleaned_params,
+                "base_metrics": _build_comparison_entry(results),
+                "monte_carlo": simulation,
+            },
+        }
+    )
+
+
+def compare_strategy_significance_sync(
+    request: SignificanceCompareRequest | Dict[str, Any],
+) -> Dict[str, Any]:
+    if isinstance(request, dict):
+        request = SignificanceCompareRequest(**request)
+    configs = _normalize_compare_configs(
+        strategies=request.strategies,
+        strategy_configs=request.strategy_configs,
+    )
+    if len(configs) < 2:
+        raise HTTPException(status_code=400, detail="At least two strategies are required for significance testing")
+
+    data = _fetch_backtest_data(request.symbol, request.start_date, request.end_date)
+    strategy_results = []
+    for config in configs:
+        result, cleaned_params = run_backtest_pipeline(
+            symbol=request.symbol,
+            strategy_name=config["name"],
+            parameters=config.get("parameters") or {},
+            start_date=request.start_date,
+            end_date=request.end_date,
+            initial_capital=request.initial_capital,
+            commission=request.commission,
+            slippage=request.slippage,
+            fixed_commission=request.fixed_commission,
+            min_commission=request.min_commission,
+            market_impact_bps=request.market_impact_bps,
+            market_impact_model=request.market_impact_model,
+            impact_reference_notional=request.impact_reference_notional,
+            impact_coefficient=request.impact_coefficient,
+            permanent_impact_bps=request.permanent_impact_bps,
+            max_holding_days=request.max_holding_days,
+            data=data,
+        )
+        strategy_results.append(
+            {
+                "name": config["name"],
+                "parameters": cleaned_params,
+                "metrics": _build_comparison_entry(result),
+                "returns": _returns_from_portfolio_history(result),
+            }
+        )
+
+    baseline_name = request.baseline_strategy or strategy_results[0]["name"]
+    baseline = next((item for item in strategy_results if item["name"] == baseline_name), strategy_results[0])
+    comparisons = []
+    for item in strategy_results:
+        if item["name"] == baseline["name"]:
+            continue
+        comparisons.append(
+            {
+                "baseline": baseline["name"],
+                "challenger": item["name"],
+                "baseline_metrics": baseline["metrics"],
+                "challenger_metrics": item["metrics"],
+                "significance": _compare_return_significance(
+                    baseline["returns"],
+                    item["returns"],
+                    bootstrap_samples=request.bootstrap_samples,
+                    seed=request.seed,
+                ),
+            }
+        )
+
+    return ensure_json_serializable(
+        {
+            "success": True,
+            "data": {
+                "symbol": request.symbol,
+                "baseline_strategy": baseline["name"],
+                "comparisons": comparisons,
+            },
+        }
+    )
+
+
+def run_multi_period_backtest_sync(
+    request: MultiPeriodBacktestRequest | Dict[str, Any],
+) -> Dict[str, Any]:
+    if isinstance(request, dict):
+        request = MultiPeriodBacktestRequest(**request)
+    allowed_intervals = {"1d", "1wk", "1mo"}
+    intervals = []
+    for interval in request.intervals or ["1d", "1wk", "1mo"]:
+        normalized_interval = str(interval).strip()
+        if normalized_interval not in allowed_intervals:
+            raise HTTPException(status_code=400, detail=f"Unsupported interval: {normalized_interval}")
+        if normalized_interval not in intervals:
+            intervals.append(normalized_interval)
+    if not intervals:
+        raise HTTPException(status_code=400, detail="At least one interval is required")
+
+    start_dt, end_dt = _resolve_date_range(request.start_date, request.end_date)
+    rows = []
+    for interval in intervals:
+        data = data_manager.get_historical_data(
+            symbol=request.symbol,
+            start_date=start_dt,
+            end_date=end_dt,
+            interval=interval,
+        )
+        if data.empty:
+            rows.append({"interval": interval, "success": False, "error": "No data"})
+            continue
+        result, cleaned_params = run_backtest_pipeline(
+            symbol=request.symbol,
+            strategy_name=request.strategy,
+            parameters=request.parameters,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            initial_capital=request.initial_capital,
+            commission=request.commission,
+            slippage=request.slippage,
+            fixed_commission=request.fixed_commission,
+            min_commission=request.min_commission,
+            market_impact_bps=request.market_impact_bps,
+            market_impact_model=request.market_impact_model,
+            impact_reference_notional=request.impact_reference_notional,
+            impact_coefficient=request.impact_coefficient,
+            permanent_impact_bps=request.permanent_impact_bps,
+            max_holding_days=request.max_holding_days,
+            data=data,
+        )
+        entry = _build_comparison_entry(result)
+        rows.append(
+            {
+                "interval": interval,
+                "success": True,
+                "data_points": int(len(data)),
+                "parameters": cleaned_params,
+                "metrics": entry,
+            }
+        )
+
+    successful_rows = [row for row in rows if row.get("success")]
+    best = max(
+        successful_rows,
+        key=lambda row: float(row["metrics"].get("sharpe_ratio") or 0),
+        default=None,
+    )
+    return ensure_json_serializable(
+        {
+            "success": True,
+            "data": {
+                "symbol": request.symbol,
+                "strategy": request.strategy,
+                "intervals": rows,
+                "summary": {
+                    "successful_intervals": len(successful_rows),
+                    "best_by_sharpe": best,
+                    "average_return": float(np.mean([row["metrics"].get("total_return", 0) for row in successful_rows])) if successful_rows else 0.0,
+                },
+            },
+        }
+    )
+
+
+def run_market_impact_analysis_sync(
+    request: MarketImpactAnalysisRequest | Dict[str, Any],
+) -> Dict[str, Any]:
+    if isinstance(request, dict):
+        request = MarketImpactAnalysisRequest(**request)
+    data = _fetch_backtest_data(request.symbol, request.start_date, request.end_date)
+    scenario_specs = request.scenarios or []
+    scenarios = [
+        {
+            "label": scenario.label or f"scenario_{index}",
+            "market_impact_model": normalize_market_impact_model(scenario.market_impact_model),
+            "market_impact_bps": float(scenario.market_impact_bps or 0.0),
+            "impact_reference_notional": float(
+                scenario.impact_reference_notional or request.impact_reference_notional
+            ),
+            "impact_coefficient": float(scenario.impact_coefficient or 1.0),
+            "permanent_impact_bps": float(scenario.permanent_impact_bps or 0.0),
+        }
+        for index, scenario in enumerate(scenario_specs, start=1)
+    ] or _default_market_impact_scenarios(request)
+
+    scenario_results = []
+    for scenario in scenarios:
+        result, cleaned_params = run_backtest_pipeline(
+            symbol=request.symbol,
+            strategy_name=request.strategy,
+            parameters=request.parameters,
+            start_date=request.start_date,
+            end_date=request.end_date,
+            initial_capital=request.initial_capital,
+            commission=request.commission,
+            slippage=request.slippage,
+            fixed_commission=request.fixed_commission,
+            min_commission=request.min_commission,
+            market_impact_bps=scenario["market_impact_bps"],
+            market_impact_model=scenario["market_impact_model"],
+            impact_reference_notional=scenario["impact_reference_notional"],
+            impact_coefficient=scenario["impact_coefficient"],
+            permanent_impact_bps=scenario["permanent_impact_bps"],
+            max_holding_days=request.max_holding_days,
+            data=data,
+        )
+        scenario_results.append(
+            {
+                "label": scenario["label"],
+                "scenario": scenario,
+                "parameters": cleaned_params,
+                "metrics": _build_comparison_entry(result),
+                "execution_costs": result.get("execution_costs", {}),
+                "impact_curve": _market_impact_curve(
+                    scenario=scenario,
+                    data=data,
+                    sample_trade_values=request.sample_trade_values,
+                ),
+            }
+        )
+
+    baseline = scenario_results[0] if scenario_results else None
+    baseline_return = float(baseline["metrics"].get("total_return", 0) or 0) if baseline else 0.0
+    baseline_sharpe = float(baseline["metrics"].get("sharpe_ratio", 0) or 0) if baseline else 0.0
+    baseline_cost = float(baseline["execution_costs"].get("estimated_market_impact_cost", 0) or 0) if baseline else 0.0
+    for scenario_result in scenario_results:
+        scenario_result["vs_baseline"] = {
+            "return_delta": round(float(scenario_result["metrics"].get("total_return", 0) or 0) - baseline_return, 6),
+            "sharpe_delta": round(float(scenario_result["metrics"].get("sharpe_ratio", 0) or 0) - baseline_sharpe, 6),
+            "impact_cost_delta": round(
+                float(scenario_result["execution_costs"].get("estimated_market_impact_cost", 0) or 0) - baseline_cost,
+                2,
+            ),
+        }
+
+    return ensure_json_serializable(
+        {
+            "success": True,
+            "data": {
+                "symbol": request.symbol,
+                "strategy": request.strategy,
+                "sample_trade_values": request.sample_trade_values,
+                "scenarios": scenario_results,
+                "summary": {
+                    "scenario_count": len(scenario_results),
+                    "best_by_sharpe": max(
+                        scenario_results,
+                        key=lambda item: float(item["metrics"].get("sharpe_ratio", 0) or 0),
+                        default=None,
+                    ),
+                },
+            },
+        }
+    )
+
+
+def _market_impact_curve(
+    *,
+    scenario: Dict[str, Any],
+    data: pd.DataFrame,
+    sample_trade_values: List[float],
+) -> List[Dict[str, Any]]:
+    close_prices = pd.to_numeric(data.get("close"), errors="coerce").dropna()
+    reference_price = float(close_prices.iloc[-1]) if not close_prices.empty else 100.0
+    returns = close_prices.pct_change().replace([np.inf, -np.inf], np.nan)
+    volatility_reference = float(returns.std()) if returns.dropna().size else 0.02
+    if "volume" in data.columns:
+        volumes = pd.to_numeric(data["volume"], errors="coerce").clip(lower=0)
+        dollar_volume = (pd.to_numeric(data["close"], errors="coerce") * volumes).replace([np.inf, -np.inf], np.nan)
+        liquidity_reference = (
+            float(dollar_volume.dropna().median())
+            if dollar_volume.dropna().size
+            else float(scenario["impact_reference_notional"])
+        )
+    else:
+        liquidity_reference = float(scenario["impact_reference_notional"])
+    liquidity_reference = max(liquidity_reference, float(scenario["impact_reference_notional"]), 1.0)
+
+    rows = []
+    for trade_value in sample_trade_values:
+        trade_notional = max(float(trade_value or 0.0), 0.0)
+        impact = estimate_market_impact_rate(
+            trade_notional,
+            market_impact_bps=scenario["market_impact_bps"],
+            model=scenario["market_impact_model"],
+            avg_daily_notional=liquidity_reference,
+            volatility=volatility_reference,
+            impact_coefficient=scenario["impact_coefficient"],
+            permanent_impact_bps=scenario["permanent_impact_bps"],
+            reference_notional=scenario["impact_reference_notional"],
+        )
+        rows.append(
+            {
+                "trade_value": trade_notional,
+                "reference_price": reference_price,
+                "estimated_shares": round(float(trade_notional / reference_price), 4) if reference_price > 0 else 0.0,
+                "market_impact_rate": round(float(impact["impact_rate"]), 6),
+                "market_impact_bps": round(float(impact["impact_rate"]) * 10000, 2),
+                "participation_rate": round(float(impact["participation_rate"]), 4),
+                "estimated_cost": round(float(trade_notional * float(impact["impact_rate"])), 2),
+            }
+        )
+    return rows
+
+
+def _default_market_impact_scenarios(request: MarketImpactAnalysisRequest) -> List[Dict[str, Any]]:
+    return [
+        {
+            "label": "无冲击基线",
+            "market_impact_model": "constant",
+            "market_impact_bps": 0.0,
+            "impact_reference_notional": request.impact_reference_notional,
+            "impact_coefficient": 1.0,
+            "permanent_impact_bps": 0.0,
+        },
+        {
+            "label": "线性冲击",
+            "market_impact_model": "linear",
+            "market_impact_bps": max(float(request.market_impact_bps or 8.0), 8.0),
+            "impact_reference_notional": request.impact_reference_notional,
+            "impact_coefficient": max(float(request.impact_coefficient or 1.0), 1.0),
+            "permanent_impact_bps": 0.0,
+        },
+        {
+            "label": "平方根冲击",
+            "market_impact_model": "sqrt",
+            "market_impact_bps": max(float(request.market_impact_bps or 12.0), 12.0),
+            "impact_reference_notional": request.impact_reference_notional,
+            "impact_coefficient": max(float(request.impact_coefficient or 1.0), 1.15),
+            "permanent_impact_bps": 0.0,
+        },
+        {
+            "label": "Almgren-Chriss",
+            "market_impact_model": "almgren_chriss",
+            "market_impact_bps": max(float(request.market_impact_bps or 18.0), 18.0),
+            "impact_reference_notional": request.impact_reference_notional,
+            "impact_coefficient": max(float(request.impact_coefficient or 1.0), 1.2),
+            "permanent_impact_bps": max(float(request.permanent_impact_bps or 4.0), 4.0),
+        },
+    ]
 
 
 @router.post("/batch", summary="批量运行多个回测任务")
@@ -529,6 +1141,10 @@ async def run_walk_forward_backtest(request: WalkForwardRequest):
                     fixed_commission=request.fixed_commission,
                     min_commission=request.min_commission,
                     market_impact_bps=request.market_impact_bps,
+                    market_impact_model=request.market_impact_model,
+                    impact_reference_notional=request.impact_reference_notional,
+                    impact_coefficient=request.impact_coefficient,
+                    permanent_impact_bps=request.permanent_impact_bps,
                     max_holding_days=request.max_holding_days,
                 ),
                 parameter_grid=request.parameter_grid,
@@ -591,6 +1207,10 @@ async def run_market_regime_backtest(request: MarketRegimeRequest):
             fixed_commission=request.fixed_commission,
             min_commission=request.min_commission,
             market_impact_bps=request.market_impact_bps,
+            market_impact_model=request.market_impact_model,
+            impact_reference_notional=request.impact_reference_notional,
+            impact_coefficient=request.impact_coefficient,
+            permanent_impact_bps=request.permanent_impact_bps,
             max_holding_days=request.max_holding_days,
             data=data,
         )
@@ -715,6 +1335,10 @@ async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
                 fixed_commission=request.fixed_commission,
                 min_commission=request.min_commission,
                 market_impact_bps=request.market_impact_bps,
+                market_impact_model=request.market_impact_model,
+                impact_reference_notional=request.impact_reference_notional,
+                impact_coefficient=request.impact_coefficient,
+                permanent_impact_bps=request.permanent_impact_bps,
                 data=data,
             )
             strategy_instance = _create_strategy_instance(request.strategy, cleaned_params)
@@ -784,6 +1408,10 @@ async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
             fixed_commission=request.fixed_commission,
             min_commission=request.min_commission,
             market_impact_bps=request.market_impact_bps,
+            market_impact_model=request.market_impact_model,
+            impact_reference_notional=request.impact_reference_notional,
+            impact_coefficient=request.impact_coefficient,
+            permanent_impact_bps=request.permanent_impact_bps,
         ).run(
             strategy=type(
                 "PortfolioStrategyWrapper",
@@ -830,6 +1458,10 @@ async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
             "fixed_commission": request.fixed_commission,
             "min_commission": request.min_commission,
             "market_impact_bps": request.market_impact_bps,
+            "market_impact_model": request.market_impact_model,
+            "impact_reference_notional": request.impact_reference_notional,
+            "impact_coefficient": request.impact_coefficient,
+            "permanent_impact_bps": request.permanent_impact_bps,
         })
 
         return ensure_json_serializable({
@@ -884,6 +1516,10 @@ async def _compare_strategies_impl(
     fixed_commission: float = 0.0,
     min_commission: float = 0.0,
     market_impact_bps: float = 0.0,
+    market_impact_model: str = "constant",
+    impact_reference_notional: float = 100000.0,
+    impact_coefficient: float = 1.0,
+    permanent_impact_bps: float = 0.0,
     max_holding_days: Optional[int] = None,
 ):
     data = _fetch_backtest_data(symbol, start_date, end_date)
@@ -905,6 +1541,10 @@ async def _compare_strategies_impl(
             fixed_commission=fixed_commission,
             min_commission=min_commission,
             market_impact_bps=market_impact_bps,
+            market_impact_model=market_impact_model,
+            impact_reference_notional=impact_reference_notional,
+            impact_coefficient=impact_coefficient,
+            permanent_impact_bps=permanent_impact_bps,
             max_holding_days=max_holding_days,
             data=data,
         )
@@ -996,6 +1636,10 @@ def run_backtest(request: BacktestRequest):
             fixed_commission=request.fixed_commission,
             min_commission=request.min_commission,
             market_impact_bps=request.market_impact_bps,
+            market_impact_model=request.market_impact_model,
+            impact_reference_notional=request.impact_reference_notional,
+            impact_coefficient=request.impact_coefficient,
+            permanent_impact_bps=request.permanent_impact_bps,
             max_holding_days=request.max_holding_days,
         )
 
@@ -1043,11 +1687,99 @@ async def compare_strategies_post(request: CompareRequest):
             initial_capital=request.initial_capital,
             commission=request.commission,
             slippage=request.slippage,
+            fixed_commission=request.fixed_commission,
+            min_commission=request.min_commission,
+            market_impact_bps=request.market_impact_bps,
+            market_impact_model=request.market_impact_model,
+            impact_reference_notional=request.impact_reference_notional,
+            impact_coefficient=request.impact_coefficient,
+            permanent_impact_bps=request.permanent_impact_bps,
+            max_holding_days=request.max_holding_days,
         )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error comparing strategies: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/monte-carlo", summary="回测结果 Monte Carlo 路径模拟")
+async def run_backtest_monte_carlo(request: MonteCarloBacktestRequest):
+    try:
+        return await asyncio.to_thread(run_backtest_monte_carlo_sync, request.model_dump())
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running Monte Carlo backtest: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/monte-carlo/async", summary="异步提交 Monte Carlo 回测任务")
+async def queue_backtest_monte_carlo(request: MonteCarloBacktestRequest):
+    try:
+        return _submit_async_backtest_task("backtest_monte_carlo", request.model_dump())
+    except Exception as e:
+        logger.error(f"Error queueing Monte Carlo backtest: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/compare/significance", summary="策略对比显著性检验")
+async def compare_strategy_significance(request: SignificanceCompareRequest):
+    try:
+        return await asyncio.to_thread(compare_strategy_significance_sync, request.model_dump())
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error comparing strategy significance: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/compare/significance/async", summary="异步提交策略显著性检验任务")
+async def queue_strategy_significance(request: SignificanceCompareRequest):
+    try:
+        return _submit_async_backtest_task("backtest_significance", request.model_dump())
+    except Exception as e:
+        logger.error(f"Error queueing strategy significance: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/multi-period", summary="多周期并行回测")
+async def run_multi_period_backtest(request: MultiPeriodBacktestRequest):
+    try:
+        return await asyncio.to_thread(run_multi_period_backtest_sync, request.model_dump())
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running multi-period backtest: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/multi-period/async", summary="异步提交多周期回测任务")
+async def queue_multi_period_backtest(request: MultiPeriodBacktestRequest):
+    try:
+        return _submit_async_backtest_task("backtest_multi_period", request.model_dump())
+    except Exception as e:
+        logger.error(f"Error queueing multi-period backtest: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/impact-analysis", summary="市场冲击敏感性分析")
+async def run_market_impact_analysis(request: MarketImpactAnalysisRequest):
+    try:
+        return await asyncio.to_thread(run_market_impact_analysis_sync, request.model_dump())
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running market impact analysis: {e}", exc_info=True)
+        return {"success": False, "error": str(e)}
+
+
+@router.post("/impact-analysis/async", summary="异步提交市场冲击分析任务")
+async def queue_market_impact_analysis(request: MarketImpactAnalysisRequest):
+    try:
+        return _submit_async_backtest_task("backtest_impact_analysis", request.model_dump())
+    except Exception as e:
+        logger.error(f"Error queueing market impact analysis: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
 # ==================== 回测历史记录 ====================

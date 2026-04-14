@@ -3,6 +3,16 @@ import { STOCK_DATABASE } from '../constants/stocks';
 export const QUOTE_FRESH_MS = 45 * 1000;
 export const QUOTE_DELAYED_MS = 3 * 60 * 1000;
 export const HOUR_MS = 60 * 60 * 1000;
+export const CATEGORY_LABELS = {
+  index: '指数',
+  us: '美股',
+  cn: 'A股',
+  crypto: '加密货币',
+  bond: '债券',
+  future: '期货',
+  option: '期权',
+  other: '其他',
+};
 
 export const hasNumericValue = (value) => value !== undefined && value !== null && !Number.isNaN(Number(value));
 
@@ -50,6 +60,8 @@ export const inferSymbolCategory = (symbol) => {
 
   return 'us';
 };
+
+export const getCategoryLabel = (category) => CATEGORY_LABELS[category] || CATEGORY_LABELS.other;
 
 export const formatPrice = (price, fallback = '--') => {
   if (!hasNumericValue(price)) return fallback;

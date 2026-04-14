@@ -195,6 +195,8 @@ class AlphaVantageProvider(BaseDataProvider):
                 "low": float(quote.get("04. low", 0)),
                 "open": float(quote.get("02. open", 0)),
                 "previous_close": float(quote.get("08. previous close", 0)),
+                "bid": float(quote.get("11. bid", 0) or 0),
+                "ask": float(quote.get("12. ask", 0) or 0),
                 "timestamp": datetime.now(),
                 "source": self.name
             }

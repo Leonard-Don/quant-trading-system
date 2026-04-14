@@ -41,6 +41,7 @@ import CrossMarketBasketSummaryCard from './cross-market/CrossMarketBasketSummar
 import {
   buildCrossMarketPlaybook,
   buildCrossMarketWorkbenchPayload,
+  buildTradeThesisWorkbenchPayload,
 } from './research-playbook/playbookViewModels';
 import { buildSnapshotComparison } from './research-workbench/snapshotCompare';
 import {
@@ -52,6 +53,7 @@ import {
   getResearchTasks,
   runCrossMarketBacktest,
 } from '../services/api';
+import dayjs from '../utils/dayjs';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
 import { useSafeMessageApi } from '../utils/messageApi';
 import {
@@ -59,6 +61,7 @@ import {
   CROSS_MARKET_DIMENSION_LABELS,
   CROSS_MARKET_FACTOR_LABELS,
 } from '../utils/crossMarketRecommendations';
+import { loadMacroMispricingDraft } from '../utils/macroMispricingDraft';
 import { buildResearchTaskRefreshSignals } from '../utils/researchTaskSignals';
 import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
 
@@ -78,6 +81,9 @@ const CONSTRUCTION_MODE_LABELS = {
   equal_weight: '等权配置',
   ols_hedge: '滚动 OLS 对冲',
 };
+
+const DEFAULT_CROSS_MARKET_START_DATE = dayjs().subtract(1, 'year').format('YYYY-MM-DD');
+const DEFAULT_CROSS_MARKET_END_DATE = dayjs().format('YYYY-MM-DD');
 
 const DEFAULT_PARAMETERS = {
   lookback: 20,
@@ -359,6 +365,31 @@ const buildTemplateContextPayload = (template, appliedBiasMeta) => {
     input_reliability_posture: template.inputReliabilityPosture || '',
     input_reliability_reason: template.inputReliabilityReason || '',
     input_reliability_action_hint: template.refreshMeta?.inputReliabilityShift?.actionHint || '',
+    department_chaos_label: template.departmentChaosLabel || 'unknown',
+    department_chaos_score: template.departmentChaosScore ?? null,
+    department_chaos_top_department: template.departmentChaosTopDepartment || '',
+    department_chaos_reason: template.departmentChaosReason || '',
+    department_chaos_risk_budget_scale: template.departmentChaosRiskBudgetScale ?? 1,
+    policy_execution_label: template.policyExecutionLabel || 'unknown',
+    policy_execution_score: template.policyExecutionScore ?? null,
+    policy_execution_top_department: template.policyExecutionTopDepartment || '',
+    policy_execution_reason: template.policyExecutionReason || '',
+    policy_execution_risk_budget_scale: template.policyExecutionRiskBudgetScale ?? 1,
+    people_fragility_label: template.peopleFragilityLabel || 'stable',
+    people_fragility_score: template.peopleFragilityScore ?? null,
+    people_fragility_focus: template.peopleFragilityFocus || '',
+    people_fragility_reason: template.peopleFragilityReason || '',
+    people_fragility_risk_budget_scale: template.peopleFragilityRiskBudgetScale ?? 1,
+    source_mode_label: template.sourceModeLabel || 'mixed',
+    source_mode_dominant: template.sourceModeDominant || '',
+    source_mode_reason: template.sourceModeReason || '',
+    source_mode_risk_budget_scale: template.sourceModeRiskBudgetScale ?? 1,
+    structural_decay_radar_label: template.structuralDecayRadarLabel || 'stable',
+    structural_decay_radar_display_label: template.structuralDecayRadarDisplayLabel || '',
+    structural_decay_radar_score: template.structuralDecayRadarScore ?? null,
+    structural_decay_radar_action_hint: template.structuralDecayRadarActionHint || '',
+    structural_decay_radar_risk_budget_scale: template.structuralDecayRadarRiskBudgetScale ?? 1,
+    structural_decay_radar_top_signals: template.structuralDecayRadarTopSignals || [],
     bias_highlights_raw: appliedBiasMeta?.rawHighlights || [],
     bias_highlights: appliedBiasMeta?.highlights || [],
     bias_actions: template.biasActions || [],
@@ -369,6 +400,7 @@ const buildTemplateContextPayload = (template, appliedBiasMeta) => {
     support_legs: template.supportLegs || [],
     theme_core: template.themeCore || '',
     theme_support: template.themeSupport || '',
+    execution_posture: template.executionPosture || '',
     base_assets: (template.assets || []).map((asset) => ({
       symbol: asset.symbol,
       asset_class: asset.asset_class,
@@ -401,19 +433,24 @@ function CrossMarketBacktestPanel() {
     initial_capital: 100000,
     commission: 0.1,
     slippage: 0.1,
-    start_date: '',
-    end_date: '',
+    start_date: DEFAULT_CROSS_MARKET_START_DATE,
+    end_date: DEFAULT_CROSS_MARKET_END_DATE,
   });
   const [results, setResults] = useState(null);
   const [researchContext, setResearchContext] = useState(readResearchContext());
+  const [queueResumeHint, setQueueResumeHint] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [savedTaskId, setSavedTaskId] = useState('');
+  const [savedTaskType, setSavedTaskType] = useState('');
   const [appliedBiasMeta, setAppliedBiasMeta] = useState(null);
   const [macroOverview, setMacroOverview] = useState(null);
   const [altSnapshot, setAltSnapshot] = useState(null);
   const [researchTasks, setResearchTasks] = useState([]);
+  const [draftTemplateContext, setDraftTemplateContext] = useState(null);
+  const [macroMispricingDraft, setMacroMispricingDraft] = useState(null);
   const appliedTemplateRef = useRef('');
   const autoRecommendedRef = useRef('');
+  const appliedDraftRef = useRef('');
 
   useEffect(() => {
     const loadTemplates = async () => {
@@ -446,6 +483,21 @@ function CrossMarketBacktestPanel() {
     return () => window.removeEventListener('popstate', syncContext);
   }, []);
 
+  useEffect(() => {
+    if (
+      researchContext?.source === 'research_workbench'
+      && researchContext?.task
+      && savedTaskId !== researchContext.task
+    ) {
+      setSavedTaskId(researchContext.task);
+      setSavedTaskType((current) => current || 'cross_market');
+    }
+  }, [researchContext?.source, researchContext?.task, savedTaskId]);
+
+  useEffect(() => {
+    setQueueResumeHint('');
+  }, [researchContext?.task, researchContext?.template]);
+
   const longAssets = useMemo(() => normalizeAssets(assets, 'long'), [assets]);
   const shortAssets = useMemo(() => normalizeAssets(assets, 'short'), [assets]);
   const recommendedTemplates = useMemo(
@@ -465,7 +517,7 @@ function CrossMarketBacktestPanel() {
     [altSnapshot, macroOverview, templates]
   );
   const refreshByTemplate = useMemo(
-    () => buildResearchTaskRefreshSignals({ researchTasks, overview: macroOverview, snapshot: altSnapshot }).byTemplateId,
+    () => (buildResearchTaskRefreshSignals({ researchTasks, overview: macroOverview, snapshot: altSnapshot }) || {}).byTemplateId || {},
     [altSnapshot, macroOverview, researchTasks]
   );
   const taskByTemplate = useMemo(
@@ -584,6 +636,25 @@ function CrossMarketBacktestPanel() {
       ),
     [effectiveTemplate, researchContext, results, selectedTemplateId]
   );
+  const templateForPayload = useMemo(
+    () => effectiveTemplate || (
+      draftTemplateContext
+        ? {
+            id: draftTemplateContext.template_id || 'macro_mispricing_relative_value',
+            name: draftTemplateContext.template_name || 'Macro Mispricing Relative Value',
+            theme: draftTemplateContext.theme || '',
+            construction_mode: draftTemplateContext.construction_mode || quality.construction_mode,
+            driverHeadline: draftTemplateContext.recommendation_reason || '',
+            coreLegs: draftTemplateContext.core_legs || [],
+            supportLegs: draftTemplateContext.support_legs || [],
+            themeCore: draftTemplateContext.theme_core || '',
+            themeSupport: draftTemplateContext.theme_support || '',
+            signalAttribution: draftTemplateContext.signal_attribution || [],
+          }
+        : null
+    ),
+    [draftTemplateContext, effectiveTemplate, quality.construction_mode]
+  );
   const topRecommendationSelectionQualityLines = useMemo(
     () => getSelectionQualityExplanationLines(displayRecommendedTemplates[0]?.refreshMeta),
     [displayRecommendedTemplates]
@@ -641,9 +712,35 @@ function CrossMarketBacktestPanel() {
             qualityReason: template.biasQualityReason || '',
             rawHighlights: template.rawBiasHighlights || [],
             highlights: template.biasHighlights || [],
+            departmentChaosLabel: template.departmentChaosLabel || 'unknown',
+            departmentChaosScore: template.departmentChaosScore || 0,
+            departmentChaosTopDepartment: template.departmentChaosTopDepartment || '',
+            departmentChaosReason: template.departmentChaosReason || '',
+            departmentChaosRiskBudgetScale: template.departmentChaosRiskBudgetScale ?? 1,
+            policyExecutionLabel: template.policyExecutionLabel || 'unknown',
+            policyExecutionScore: template.policyExecutionScore || 0,
+            policyExecutionTopDepartment: template.policyExecutionTopDepartment || '',
+            policyExecutionReason: template.policyExecutionReason || '',
+            policyExecutionRiskBudgetScale: template.policyExecutionRiskBudgetScale ?? 1,
+            peopleFragilityLabel: template.peopleFragilityLabel || 'stable',
+            peopleFragilityScore: template.peopleFragilityScore || 0,
+            peopleFragilityFocus: template.peopleFragilityFocus || '',
+            peopleFragilityReason: template.peopleFragilityReason || '',
+            peopleFragilityRiskBudgetScale: template.peopleFragilityRiskBudgetScale ?? 1,
+            sourceModeLabel: template.sourceModeLabel || 'mixed',
+            sourceModeDominant: template.sourceModeDominant || '',
+            sourceModeReason: template.sourceModeReason || '',
+            sourceModeRiskBudgetScale: template.sourceModeRiskBudgetScale ?? 1,
+            structuralDecayRadarLabel: template.structuralDecayRadarLabel || 'stable',
+            structuralDecayRadarDisplayLabel: template.structuralDecayRadarDisplayLabel || '',
+            structuralDecayRadarScore: template.structuralDecayRadarScore || 0,
+            structuralDecayRadarActionHint: template.structuralDecayRadarActionHint || '',
+            structuralDecayRadarRiskBudgetScale: template.structuralDecayRadarRiskBudgetScale ?? 1,
           }
         : null
     );
+    setMacroMispricingDraft(null);
+    setDraftTemplateContext(null);
     setParameters({
       lookback: template.parameters?.lookback ?? DEFAULT_PARAMETERS.lookback,
       entry_threshold: template.parameters?.entry_threshold ?? DEFAULT_PARAMETERS.entry_threshold,
@@ -672,6 +769,54 @@ function CrossMarketBacktestPanel() {
     appliedTemplateRef.current = researchContext.template;
     applyTemplate(researchContext.template, { useBias: false });
   }, [applyTemplate, researchContext, templates]);
+
+  useEffect(() => {
+    const draftId = researchContext?.draft || '';
+    if (!draftId) {
+      setMacroMispricingDraft(null);
+      return;
+    }
+    if (appliedDraftRef.current === draftId) {
+      return;
+    }
+
+    const draft = loadMacroMispricingDraft(draftId);
+    if (!draft?.assets?.length) {
+      return;
+    }
+
+    appliedDraftRef.current = draftId;
+    setSelectedTemplateId(draft.templateId || '');
+    setAppliedBiasMeta(null);
+    setMacroMispricingDraft(draft);
+    setDraftTemplateContext(draft.templateContext || null);
+    setAssets(
+      draft.assets.map((asset, index) => ({
+        key: `${asset.side}-${index}-${draft.id}`,
+        side: asset.side,
+        symbol: asset.symbol,
+        asset_class: asset.asset_class || 'ETF',
+        weight: asset.weight ?? null,
+      }))
+    );
+    setParameters((prev) => ({
+      ...prev,
+      ...(draft.parameters || {}),
+    }));
+    setQuality((prev) => ({
+      ...prev,
+      ...(draft.quality || {}),
+    }));
+    setConstraints((prev) => ({
+      ...prev,
+      ...(draft.constraints || {}),
+    }));
+    setMeta((prev) => ({
+      ...prev,
+      ...(draft.meta || {}),
+    }));
+    message.info(`已载入宏观错误定价草案: ${draft.title || draft.symbol || '组合草案'}`);
+  }, [message, researchContext]);
 
   useEffect(() => {
     if (researchContext?.template || selectedTemplateId || !displayRecommendedTemplates.length) {
@@ -706,7 +851,9 @@ function CrossMarketBacktestPanel() {
     try {
       const response = await runCrossMarketBacktest({
         assets: payloadAssets,
-        template_context: buildTemplateContextPayload(selectedTemplate, appliedBiasMeta),
+        template_context: selectedTemplate
+          ? buildTemplateContextPayload(selectedTemplate, appliedBiasMeta)
+          : (draftTemplateContext || undefined),
         allocation_constraints: {
           ...(constraints.max_single_weight ? { max_single_weight: constraints.max_single_weight / 100 } : {}),
           ...(constraints.min_single_weight ? { min_single_weight: constraints.min_single_weight / 100 } : {}),
@@ -738,7 +885,7 @@ function CrossMarketBacktestPanel() {
   const handleSaveTask = async () => {
     const payload = buildCrossMarketWorkbenchPayload(
       researchContext,
-      effectiveTemplate,
+      templateForPayload,
       results,
       assets,
       { macroOverview, altSnapshot }
@@ -752,9 +899,43 @@ function CrossMarketBacktestPanel() {
     try {
       const response = await createResearchTask(payload);
       setSavedTaskId(response.data?.id || '');
+      setSavedTaskType('cross_market');
+      if (canReturnToWorkbenchQueue) {
+        setQueueResumeHint('saved');
+      }
       message.success(`已保存到研究工作台: ${response.data?.title || payload.title}`);
     } catch (error) {
       message.error(error.userMessage || error.message || '保存研究任务失败');
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
+  const handleSaveTradeThesis = async () => {
+    const payload = buildTradeThesisWorkbenchPayload(
+      researchContext,
+      macroMispricingDraft,
+      templateForPayload,
+      results,
+      assets,
+      { macroOverview, altSnapshot }
+    );
+    if (!payload) {
+      message.error('请先载入宏观错误定价草案后再保存为交易 Thesis');
+      return;
+    }
+
+    setSavingTask(true);
+    try {
+      const response = await createResearchTask(payload);
+      setSavedTaskId(response.data?.id || '');
+      setSavedTaskType('trade_thesis');
+      if (canReturnToWorkbenchQueue) {
+        setQueueResumeHint('saved');
+      }
+      message.success(`已保存为交易 Thesis: ${response.data?.title || payload.title}`);
+    } catch (error) {
+      message.error(error.userMessage || error.message || '保存交易 Thesis 失败');
     } finally {
       setSavingTask(false);
     }
@@ -766,13 +947,22 @@ function CrossMarketBacktestPanel() {
       return;
     }
 
-    const payload = buildCrossMarketWorkbenchPayload(
-      researchContext,
-      effectiveTemplate,
-      results,
-      assets,
-      { macroOverview, altSnapshot }
-    );
+    const payload = savedTaskType === 'trade_thesis'
+      ? buildTradeThesisWorkbenchPayload(
+          researchContext,
+          macroMispricingDraft,
+          templateForPayload,
+          results,
+          assets,
+          { macroOverview, altSnapshot }
+        )
+      : buildCrossMarketWorkbenchPayload(
+          researchContext,
+          templateForPayload,
+          results,
+          assets,
+          { macroOverview, altSnapshot }
+        );
     if (!payload?.snapshot) {
       message.error('当前还没有可更新的研究快照');
       return;
@@ -780,7 +970,15 @@ function CrossMarketBacktestPanel() {
 
     setSavingTask(true);
     try {
-      await addResearchTaskSnapshot(savedTaskId, { snapshot: payload.snapshot });
+      await addResearchTaskSnapshot(savedTaskId, {
+        snapshot: payload.snapshot,
+        ...(payload.refresh_priority_event
+          ? { refresh_priority_event: payload.refresh_priority_event }
+          : {}),
+      });
+      if (canReturnToWorkbenchQueue) {
+        setQueueResumeHint('snapshot');
+      }
       message.success('当前任务快照已更新');
     } catch (error) {
       message.error(error.userMessage || error.message || '更新任务快照失败');
@@ -788,6 +986,30 @@ function CrossMarketBacktestPanel() {
       setSavingTask(false);
     }
   };
+
+  const canReturnToWorkbenchQueue = Boolean(
+    researchContext?.source === 'research_workbench'
+    && researchContext?.task
+    && researchContext?.workbenchQueueMode === 'cross_market'
+  );
+
+  const handleReturnToWorkbenchNextTask = useCallback(() => {
+    if (!canReturnToWorkbenchQueue) return;
+    navigateByResearchAction({
+      target: 'workbench',
+      refresh: researchContext.workbenchRefresh || '',
+      type: researchContext.workbenchType || '',
+      sourceFilter: researchContext.workbenchSource || '',
+      reason: researchContext.workbenchReason || '',
+      snapshotView: researchContext.workbenchSnapshotView || '',
+      snapshotFingerprint: researchContext.workbenchSnapshotFingerprint || '',
+      snapshotSummary: researchContext.workbenchSnapshotSummary || '',
+      keyword: researchContext.workbenchKeyword || '',
+      queueMode: researchContext.workbenchQueueMode || 'cross_market',
+      queueAction: 'next_same_type',
+      taskId: researchContext.task || '',
+    }, window.location.search);
+  }, [canReturnToWorkbenchQueue, researchContext]);
 
   const renderAssetSection = (title, sideAssets, side) => (
     <Card
@@ -1327,11 +1549,45 @@ function CrossMarketBacktestPanel() {
         />
       ) : null}
 
+      {canReturnToWorkbenchQueue ? (
+        <Alert
+          type="success"
+          showIcon
+          message="当前任务来自工作台复盘队列"
+          description="回测或更新完成后，可以直接回到工作台并切到下一条跨市场任务，保持同类型连续复盘。"
+          action={(
+            <Button type="primary" size="small" onClick={handleReturnToWorkbenchNextTask}>
+              回到工作台下一条跨市场任务
+            </Button>
+          )}
+        />
+      ) : null}
+
+      {canReturnToWorkbenchQueue && queueResumeHint ? (
+        <Alert
+          type="success"
+          showIcon
+          message={queueResumeHint === 'snapshot' ? '当前跨市场复盘快照已更新' : '当前跨市场复盘任务已保存'}
+          description={
+            queueResumeHint === 'snapshot'
+              ? '这条跨市场任务的最新判断已经写回工作台，可以继续推进到同类型队列的下一条。'
+              : '这条跨市场任务已经落到工作台，可以继续推进到同类型队列的下一条。'
+          }
+          action={(
+            <Button type="primary" size="small" onClick={handleReturnToWorkbenchNextTask}>
+              完成当前复盘并继续下一条
+            </Button>
+          )}
+        />
+      ) : null}
+
       {playbook ? (
         <ResearchPlaybook
           playbook={playbook}
           onAction={(action) => navigateByResearchAction(action)}
           onSaveTask={handleSaveTask}
+          onSecondarySaveTask={macroMispricingDraft ? handleSaveTradeThesis : null}
+          secondarySaveLabel="保存为交易 Thesis"
           onUpdateSnapshot={savedTaskId && (results || selectedTemplate || assets.length) ? handleUpdateSnapshot : null}
           saving={savingTask}
         />
@@ -1353,12 +1609,12 @@ function CrossMarketBacktestPanel() {
               ) : null}
               <Space wrap size={[6, 6]}>
                 {(selectedTemplate.linked_factors || []).map((factor) => (
-                  <Tag key={factor} color="purple">
+                  <Tag key={`factor-${factor}`} color="purple">
                     因子: {CROSS_MARKET_FACTOR_LABELS[factor] || factor}
                   </Tag>
                 ))}
                 {(selectedTemplate.linked_dimensions || []).map((dimension) => (
-                  <Tag key={dimension} color="blue">
+                  <Tag key={`dimension-${dimension}`} color="blue">
                     维度: {CROSS_MARKET_DIMENSION_LABELS[dimension] || dimension}
                   </Tag>
                 ))}
@@ -1375,9 +1631,46 @@ function CrossMarketBacktestPanel() {
                     input {selectedTemplate.inputReliabilityLabel}
                   </Tag>
                 ) : null}
+                {selectedTemplate.sourceModeLabel && selectedTemplate.sourceModeLabel !== 'mixed' ? (
+                  <Tag color={selectedTemplate.sourceModeLabel === 'official-led' ? 'green' : selectedTemplate.sourceModeLabel === 'fallback-heavy' ? 'orange' : 'blue'}>
+                    来源 {selectedTemplate.sourceModeLabel}
+                  </Tag>
+                ) : null}
+                {selectedTemplate.policyExecutionLabel && selectedTemplate.policyExecutionLabel !== 'unknown' ? (
+                  <Tag color={selectedTemplate.policyExecutionLabel === 'chaotic' ? 'red' : selectedTemplate.policyExecutionLabel === 'watch' ? 'gold' : 'green'}>
+                    政策执行 {selectedTemplate.policyExecutionLabel}
+                  </Tag>
+                ) : null}
+                {selectedTemplate.executionPosture ? (
+                  <Tag color="lime">{selectedTemplate.executionPosture}</Tag>
+                ) : null}
               </Space>
+              {(selectedTemplate.themeCore || selectedTemplate.themeSupport) ? (
+                <Text type="secondary">
+                  核心腿：{selectedTemplate.themeCore || '暂无'} · 辅助腿：{selectedTemplate.themeSupport || '暂无'}
+                </Text>
+              ) : null}
               {selectedTemplate.policySourceHealthReason ? (
                 <Text type="secondary">{selectedTemplate.policySourceHealthReason}</Text>
+              ) : null}
+              {selectedTemplate.policyExecutionReason ? (
+                <Text type="secondary">
+                  政策执行：{selectedTemplate.policyExecutionReason}
+                  {selectedTemplate.policyExecutionTopDepartment
+                    ? ` · ${selectedTemplate.policyExecutionTopDepartment}`
+                    : ''}
+                  {selectedTemplate.policyExecutionRiskBudgetScale !== undefined
+                    ? ` · 风险预算 ${Number(selectedTemplate.policyExecutionRiskBudgetScale || 1).toFixed(2)}x`
+                    : ''}
+                </Text>
+              ) : null}
+              {selectedTemplate.sourceModeReason ? (
+                <Text type="secondary">
+                  来源治理：{selectedTemplate.sourceModeReason}
+                  {selectedTemplate.sourceModeRiskBudgetScale !== undefined
+                    ? ` · 风险预算 ${Number(selectedTemplate.sourceModeRiskBudgetScale || 1).toFixed(2)}x`
+                    : ''}
+                </Text>
               ) : null}
               {selectedTemplate.inputReliabilityLead ? (
                 <Text type="secondary">
@@ -1418,6 +1711,53 @@ function CrossMarketBacktestPanel() {
               <Text>{appliedBiasMeta.summary}</Text>
               {appliedBiasMeta.qualityLabel && appliedBiasMeta.qualityLabel !== 'full' ? (
                 <Text type="secondary">偏置收缩 {appliedBiasMeta.qualityLabel} · {appliedBiasMeta.qualityReason}</Text>
+              ) : null}
+              {appliedBiasMeta.departmentChaosLabel && appliedBiasMeta.departmentChaosLabel !== 'unknown' ? (
+                <Text type="secondary">
+                  部门混乱 {appliedBiasMeta.departmentChaosLabel}
+                  {appliedBiasMeta.departmentChaosTopDepartment ? ` · ${appliedBiasMeta.departmentChaosTopDepartment}` : ''}
+                  {appliedBiasMeta.departmentChaosRiskBudgetScale !== undefined
+                    ? ` · 风险预算 ${Number(appliedBiasMeta.departmentChaosRiskBudgetScale || 1).toFixed(2)}x`
+                    : ''}
+                </Text>
+              ) : null}
+              {appliedBiasMeta.peopleFragilityLabel && appliedBiasMeta.peopleFragilityLabel !== 'stable' ? (
+                <Text type="secondary">
+                  人的维度 {appliedBiasMeta.peopleFragilityLabel}
+                  {appliedBiasMeta.peopleFragilityFocus ? ` · ${appliedBiasMeta.peopleFragilityFocus}` : ''}
+                  {appliedBiasMeta.peopleFragilityRiskBudgetScale !== undefined
+                    ? ` · 风险预算 ${Number(appliedBiasMeta.peopleFragilityRiskBudgetScale || 1).toFixed(2)}x`
+                    : ''}
+                </Text>
+              ) : null}
+              {appliedBiasMeta.policyExecutionLabel && appliedBiasMeta.policyExecutionLabel !== 'unknown' ? (
+                <Text type="secondary">
+                  政策执行 {appliedBiasMeta.policyExecutionLabel}
+                  {appliedBiasMeta.policyExecutionTopDepartment ? ` · ${appliedBiasMeta.policyExecutionTopDepartment}` : ''}
+                  {appliedBiasMeta.policyExecutionRiskBudgetScale !== undefined
+                    ? ` · 风险预算 ${Number(appliedBiasMeta.policyExecutionRiskBudgetScale || 1).toFixed(2)}x`
+                    : ''}
+                </Text>
+              ) : null}
+              {appliedBiasMeta.sourceModeLabel && appliedBiasMeta.sourceModeLabel !== 'mixed' ? (
+                <Text type="secondary">
+                  来源治理 {appliedBiasMeta.sourceModeLabel}
+                  {appliedBiasMeta.sourceModeReason ? ` · ${appliedBiasMeta.sourceModeReason}` : ''}
+                  {appliedBiasMeta.sourceModeRiskBudgetScale !== undefined
+                    ? ` · 风险预算 ${Number(appliedBiasMeta.sourceModeRiskBudgetScale || 1).toFixed(2)}x`
+                    : ''}
+                </Text>
+              ) : null}
+              {appliedBiasMeta.structuralDecayRadarLabel && appliedBiasMeta.structuralDecayRadarLabel !== 'stable' ? (
+                <Text type="secondary">
+                  结构衰败 {appliedBiasMeta.structuralDecayRadarDisplayLabel || appliedBiasMeta.structuralDecayRadarLabel}
+                  {appliedBiasMeta.structuralDecayRadarScore !== undefined
+                    ? ` · ${Math.round(Number(appliedBiasMeta.structuralDecayRadarScore || 0) * 100)}%`
+                    : ''}
+                  {appliedBiasMeta.structuralDecayRadarRiskBudgetScale !== undefined
+                    ? ` · 风险预算 ${Number(appliedBiasMeta.structuralDecayRadarRiskBudgetScale || 1).toFixed(2)}x`
+                    : ''}
+                </Text>
               ) : null}
               <Space wrap size={[6, 6]}>
                 {(appliedBiasMeta.highlights || []).map((item) => (
@@ -1505,6 +1845,9 @@ function CrossMarketBacktestPanel() {
                       <Space wrap size={[6, 6]} style={{ marginBottom: 8 }}>
                         <Tag color={template.recommendationTone}>{template.recommendationTier}</Tag>
                         <Tag color="cyan">score {Number(template.recommendationScore || 0).toFixed(2)}</Tag>
+                        {template.executionPosture ? (
+                          <Tag color="lime">{template.executionPosture}</Tag>
+                        ) : null}
                         {template.refreshMeta?.selectionQualityRunState?.active ? (
                           <Tag color="gold">优先重看</Tag>
                         ) : null}
@@ -1524,11 +1867,26 @@ function CrossMarketBacktestPanel() {
                             input {template.inputReliabilityLabel}
                           </Tag>
                         ) : null}
+                        {template.sourceModeLabel && template.sourceModeLabel !== 'mixed' ? (
+                          <Tag color={template.sourceModeLabel === 'official-led' ? 'green' : template.sourceModeLabel === 'fallback-heavy' ? 'orange' : 'blue'}>
+                            来源 {template.sourceModeLabel}
+                          </Tag>
+                        ) : null}
+                        {template.policyExecutionLabel && template.policyExecutionLabel !== 'unknown' ? (
+                          <Tag color={template.policyExecutionLabel === 'chaotic' ? 'red' : template.policyExecutionLabel === 'watch' ? 'gold' : 'green'}>
+                            政策执行 {template.policyExecutionLabel}
+                          </Tag>
+                        ) : null}
                       </Space>
                       <div style={{ fontWeight: 600, marginBottom: 6 }}>{template.name}</div>
                       <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
                         {template.driverHeadline}
                       </Text>
+                      {(template.themeCore || template.themeSupport) ? (
+                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                          核心腿：{template.themeCore || '暂无'} · 辅助腿：{template.themeSupport || '暂无'}
+                        </Text>
+                      ) : null}
                       {template.recentComparisonLead ? (
                         <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
                           最近两版：{template.recentComparisonLead}
@@ -1542,6 +1900,17 @@ function CrossMarketBacktestPanel() {
                       {template.policySourceHealthReason ? (
                         <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
                           {template.policySourceHealthReason}
+                        </Text>
+                      ) : null}
+                      {template.policyExecutionReason ? (
+                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                          政策执行：{template.policyExecutionReason}
+                          {template.policyExecutionTopDepartment ? ` · ${template.policyExecutionTopDepartment}` : ''}
+                        </Text>
+                      ) : null}
+                      {template.sourceModeReason ? (
+                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                          来源治理：{template.sourceModeReason}
                         </Text>
                       ) : null}
                       {template.inputReliabilityLead ? (
@@ -2473,6 +2842,9 @@ function CrossMarketBacktestPanel() {
                     ))}
                   </Space>
                 ) : null}
+                {results.allocation_overlay.execution_posture ? (
+                  <Text type="secondary">执行姿态：{results.allocation_overlay.execution_posture}</Text>
+                ) : null}
                 {results.allocation_overlay.theme_core ? (
                   <Text type="secondary">核心腿：{results.allocation_overlay.theme_core}</Text>
                 ) : null}
@@ -2481,6 +2853,34 @@ function CrossMarketBacktestPanel() {
                 ) : null}
                 {results.allocation_overlay.theme_support ? (
                   <Text type="secondary">辅助腿：{results.allocation_overlay.theme_support}</Text>
+                ) : null}
+                {results.allocation_overlay.policy_execution?.active ? (
+                  <Text type="secondary">
+                    政策执行：{results.allocation_overlay.policy_execution.label}
+                    {results.allocation_overlay.policy_execution.top_department
+                      ? ` · ${results.allocation_overlay.policy_execution.top_department}`
+                      : ''}
+                    {results.allocation_overlay.policy_execution.risk_budget_scale !== undefined
+                      ? ` · 风险预算 ${Number(results.allocation_overlay.policy_execution.risk_budget_scale || 1).toFixed(2)}x`
+                      : ''}
+                    {results.allocation_overlay.policy_execution.reason
+                      ? ` · ${results.allocation_overlay.policy_execution.reason}`
+                      : ''}
+                  </Text>
+                ) : null}
+                {results.allocation_overlay.source_mode_summary?.active ? (
+                  <Text type="secondary">
+                    来源治理：{results.allocation_overlay.source_mode_summary.label}
+                    {results.allocation_overlay.source_mode_summary.dominant
+                      ? ` · ${results.allocation_overlay.source_mode_summary.dominant}`
+                      : ''}
+                    {results.allocation_overlay.source_mode_summary.risk_budget_scale !== undefined
+                      ? ` · 风险预算 ${Number(results.allocation_overlay.source_mode_summary.risk_budget_scale || 1).toFixed(2)}x`
+                      : ''}
+                    {results.allocation_overlay.source_mode_summary.reason
+                      ? ` · ${results.allocation_overlay.source_mode_summary.reason}`
+                      : ''}
+                  </Text>
                 ) : null}
                 <Text type="secondary">
                   偏移资产 {results.allocation_overlay.shifted_asset_count || 0} 个 · 最大偏移 {(Number(results.allocation_overlay.max_delta_weight || 0) * 100).toFixed(2)}pp

@@ -44,10 +44,38 @@ def test_macro_factor_registry_and_combiner():
                     "logistics": {"score": 0.1},
                 },
             },
+            "people_layer": {
+                "confidence": 0.72,
+                "company_count": 3,
+                "fragile_company_count": 1,
+                "avg_fragility_score": 0.51,
+                "avg_quality_score": 0.43,
+                "watchlist": [
+                    {"symbol": "BABA", "people_fragility_score": 0.72, "people_quality_score": 0.31},
+                    {"symbol": "TSLA", "people_fragility_score": 0.58, "people_quality_score": 0.35},
+                ],
+                "source_mode_summary": {"counts": {"curated": 4, "proxy": 2}},
+            },
+            "policy_execution": {
+                "confidence": 0.69,
+                "score": 0.46,
+                "department_count": 2,
+                "chaotic_department_count": 1,
+                "degraded_departments": [{"department": "nea"}],
+                "lagging_departments": [{"department": "nea"}],
+                "department_board": [
+                    {"department": "ndrc", "chaos_score": 0.64, "label": "chaotic"},
+                    {"department": "nea", "chaos_score": 0.34, "label": "watch"},
+                ],
+                "source_mode_summary": {"counts": {"official": 2}},
+            },
         },
         "records": [
             _record(AltDataCategory.POLICY, 0.3),
             _record(AltDataCategory.HIRING, 0.5, {"dilution_ratio": 1.8}),
+            _record(AltDataCategory.EXECUTIVE_GOVERNANCE, 0.62, {"governance_risk": 0.68}),
+            _record(AltDataCategory.INSIDER_FLOW, 0.24, {"conviction_score": -0.24}),
+            _record(AltDataCategory.POLICY_EXECUTION, 0.58, {"execution_status": "reversal_cluster"}),
             _record(AltDataCategory.BIDDING, 0.4),
             _record(AltDataCategory.COMMODITY_INVENTORY, 0.25),
             _record(AltDataCategory.PORT_CONGESTION, 0.1),
@@ -59,8 +87,17 @@ def test_macro_factor_registry_and_combiner():
     combined = FactorCombiner().combine(results)
 
     factor_names = {result.name for result in results}
-    assert len(results) == 6
-    assert {"bureaucratic_friction", "tech_dilution", "baseload_mismatch", "rate_curve_pressure", "credit_spread_stress", "fx_mismatch"} <= factor_names
+    assert len(results) == 8
+    assert {
+        "bureaucratic_friction",
+        "tech_dilution",
+        "people_fragility",
+        "policy_execution_disorder",
+        "baseload_mismatch",
+        "rate_curve_pressure",
+        "credit_spread_stress",
+        "fx_mismatch",
+    } <= factor_names
     assert combined["signal"] in {-1, 0, 1}
     assert combined["score"] != 0
     assert all("metadata" in result.to_dict() for result in results)

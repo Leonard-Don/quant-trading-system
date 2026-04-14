@@ -7,9 +7,9 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
   return (
     <Card
       title="Cross-Market Overview"
-      bordered={false}
+      variant="borderless"
       extra={<Tag color="cyan">{cards.length} templates</Tag>}
-      bodyStyle={{ minHeight: 320 }}
+      styles={{ body: { minHeight: 320 } }}
     >
       {cards.length ? (
         <Row gutter={[12, 12]}>
@@ -27,6 +27,7 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
                 <Space wrap style={{ marginBottom: 10 }}>
                   <Tag color={card.recommendationTone || 'blue'}>{card.recommendationTier || '候选模板'}</Tag>
                   <Tag color="geekblue">{card.construction_mode}</Tag>
+                  {card.executionPosture ? <Tag color="lime">{card.executionPosture}</Tag> : null}
                   <Tag color="gold">{card.longCount}L / {card.shortCount}S</Tag>
                   <Tag color="cyan">score {Number(card.recommendationScore || 0).toFixed(2)}</Tag>
                   {card.resonanceLabel && card.resonanceLabel !== 'mixed' ? (
@@ -40,6 +41,16 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
                   {card.inputReliabilityLabel && card.inputReliabilityLabel !== 'unknown' ? (
                     <Tag color={card.inputReliabilityLabel === 'fragile' ? 'red' : card.inputReliabilityLabel === 'watch' ? 'gold' : 'green'}>
                       input {card.inputReliabilityLabel}
+                    </Tag>
+                  ) : null}
+                  {card.sourceModeLabel && card.sourceModeLabel !== 'mixed' ? (
+                    <Tag color={card.sourceModeLabel === 'official-led' ? 'green' : card.sourceModeLabel === 'fallback-heavy' ? 'orange' : 'blue'}>
+                      来源 {card.sourceModeLabel}
+                    </Tag>
+                  ) : null}
+                  {card.policyExecutionLabel && card.policyExecutionLabel !== 'unknown' ? (
+                    <Tag color={card.policyExecutionLabel === 'chaotic' ? 'red' : card.policyExecutionLabel === 'watch' ? 'gold' : 'green'}>
+                      政策执行 {card.policyExecutionLabel}
                     </Tag>
                   ) : null}
                   {card.trendLabel ? (
@@ -80,10 +91,32 @@ function CrossMarketOverview({ cards = [], onNavigate }) {
                 <Text style={{ color: 'rgba(125, 213, 255, 0.92)', display: 'block', marginBottom: 8 }}>
                   {card.theme || 'Macro theme'}
                 </Text>
+                {(card.themeCore || card.themeSupport) ? (
+                  <Text style={{ color: 'rgba(245,248,252,0.76)', display: 'block', marginBottom: 8 }}>
+                    核心腿：{card.themeCore || '暂无'} ｜ 辅助腿：{card.themeSupport || '暂无'}
+                  </Text>
+                ) : null}
                 <Paragraph style={{ color: 'rgba(245,248,252,0.82)', minHeight: 48 }}>{card.description}</Paragraph>
                 <Paragraph style={{ color: 'rgba(245,248,252,0.72)', minHeight: 52, marginBottom: 10 }}>
                   {card.driverHeadline}
                 </Paragraph>
+                {card.policyExecutionReason ? (
+                  <Paragraph style={{ color: 'rgba(255, 205, 132, 0.92)', minHeight: 30, marginBottom: 10 }}>
+                    政策执行：{card.policyExecutionReason}
+                    {card.policyExecutionTopDepartment ? ` · ${card.policyExecutionTopDepartment}` : ''}
+                    {card.policyExecutionRiskBudgetScale !== undefined
+                      ? ` · 风险预算 ${Number(card.policyExecutionRiskBudgetScale || 1).toFixed(2)}x`
+                      : ''}
+                  </Paragraph>
+                ) : null}
+                {card.sourceModeReason ? (
+                  <Paragraph style={{ color: 'rgba(173, 216, 255, 0.92)', minHeight: 30, marginBottom: 10 }}>
+                    来源治理：{card.sourceModeReason}
+                    {card.sourceModeRiskBudgetScale !== undefined
+                      ? ` · 风险预算 ${Number(card.sourceModeRiskBudgetScale || 1).toFixed(2)}x`
+                      : ''}
+                  </Paragraph>
+                ) : null}
                 {card.resonanceReason && card.resonanceLabel !== 'mixed' ? (
                   <Paragraph style={{ color: 'rgba(255, 171, 245, 0.9)', minHeight: 32, marginBottom: 10 }}>
                     {card.resonanceReason}

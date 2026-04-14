@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
 import {
   Card,
   Statistic,
@@ -11,7 +11,8 @@ import {
   Switch,
   message,
   AutoComplete,
-  Drawer
+  Drawer,
+  Empty,
 } from 'antd';
 import {
   ArrowUpOutlined,
@@ -27,7 +28,9 @@ import {
   ThunderboltOutlined,
   BarChartOutlined,
   FundOutlined,
-  BellOutlined
+  BellOutlined,
+  DeleteOutlined,
+  FolderOutlined,
 } from '@ant-design/icons';
 import RealtimeQuoteBoard from './realtime/RealtimeQuoteBoard';
 import RealtimeAnomalyRadar from './realtime/RealtimeAnomalyRadar';
@@ -36,20 +39,23 @@ import RealtimeReviewSummaryCard from './realtime/RealtimeReviewSummaryCard';
 import RealtimeDiagnosticsCard from './realtime/RealtimeDiagnosticsCard';
 import RealtimeSnapshotDrawer from './realtime/RealtimeSnapshotDrawer';
 import { STOCK_DATABASE } from '../constants/stocks';
-import api from '../services/api';
 import { useRealtimeDiagnostics } from '../hooks/useRealtimeDiagnostics';
-import { useRealtimeDerivedState } from '../hooks/useRealtimeDerivedState';
+import { useRealtimeDerivedState, formatQuoteTime } from '../hooks/useRealtimeDerivedState';
 import { useRealtimeFeed } from '../hooks/useRealtimeFeed';
 import { useRealtimeMetadata } from '../hooks/useRealtimeMetadata';
 import { useRealtimePreferences } from '../hooks/useRealtimePreferences';
 import {
-  ALERT_HIT_HISTORY_STORAGE_KEY,
-  loadAlertHitHistory,
-  MAX_ALERT_HIT_HISTORY,
   buildAlertDraftFromAnomaly,
   buildRealtimeAnomalyFeed,
   buildTradePlanDraftFromAnomaly,
 } from '../utils/realtimeSignals';
+import {
+  useRealtimeJournal,
+  normalizeReviewSnapshot,
+  normalizeTimelineEvent,
+  MAX_REVIEW_SNAPSHOTS,
+  MAX_TIMELINE_EVENTS,
+} from '../hooks/useRealtimeJournal';
 import {
   QUOTE_FRESH_MS,
   QUOTE_DELAYED_MS,
@@ -59,6 +65,7 @@ import {
   formatPrice,
   formatRelativeAge,
   formatVolume,
+  getCategoryLabel as getCategoryLabelForType,
   hasNumericValue,
   inferSymbolCategory,
 } from '../utils/realtimeFormatters';
@@ -72,12 +79,7 @@ import {
 
 const { Text } = Typography;
 const EMPTY_NUMERIC_TEXT = '--';
-const REVIEW_SNAPSHOT_STORAGE_KEY = 'realtime-review-snapshots';
-const REALTIME_TIMELINE_STORAGE_KEY = 'realtime-timeline-events';
 const REALTIME_DIAGNOSTICS_STORAGE_KEY = 'realtime-panel:diagnostics-enabled';
-const MAX_REVIEW_SNAPSHOTS = 48;
-const MAX_TIMELINE_EVENTS = 120;
-const REALTIME_JOURNAL_DEBOUNCE_MS = 500;
 const REVIEW_SNAPSHOT_VERSION = 2;
 const REALTIME_EXPORT_VERSION = 1;
 const QUOTE_SORT_OPTIONS = [
@@ -116,6 +118,46 @@ const CATEGORY_THEMES = {
   option: { label: '期权', accent: '#a855f7', soft: 'rgba(168, 85, 247, 0.12)' },
   other: { label: '其他', accent: '#64748b', soft: 'rgba(100, 116, 139, 0.12)' },
 };
+
+const formatCompactCurrency = (value) => {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) {
+    return '$0';
+  }
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    notation: Math.abs(numeric) >= 10000 ? 'compact' : 'standard',
+    maximumFractionDigits: Math.abs(numeric) >= 10000 ? 1 : 0,
+  }).format(numeric);
+};
+
+const normalizeGroupWeights = (group) => {
+  const symbols = Array.isArray(group?.symbols) ? group.symbols.filter(Boolean) : [];
+  if (!symbols.length) {
+    return {};
+  }
+
+  const explicitWeights = group?.weights && typeof group.weights === 'object' && !Array.isArray(group.weights)
+    ? Object.entries(group.weights).reduce((result, [symbol, rawWeight]) => {
+        const numericWeight = Number(rawWeight);
+        if (symbols.includes(symbol) && Number.isFinite(numericWeight)) {
+          result[symbol] = numericWeight;
+        }
+        return result;
+      }, {})
+    : {};
+
+  if (Object.keys(explicitWeights).length) {
+    return explicitWeights;
+  }
+
+  const equalWeight = 1 / symbols.length;
+  return symbols.reduce((result, symbol) => {
+    result[symbol] = equalWeight;
+    return result;
+  }, {});
+};
 const CATEGORY_OPTIONS = [
   { key: 'index', label: '指数' },
   { key: 'us', label: '美股' },
@@ -129,28 +171,6 @@ const CATEGORY_OPTIONS = [
 const TradePanel = lazy(() => import('./TradePanel'));
 const RealtimeStockDetailModal = lazy(() => import('./RealtimeStockDetailModal'));
 const PriceAlerts = lazy(() => import('./PriceAlerts'));
-
-const normalizeReviewSnapshot = (snapshot) => {
-  if (!snapshot || typeof snapshot !== 'object' || !snapshot.id) {
-    return null;
-  }
-
-  return {
-    version: snapshot.version || 1,
-    ...snapshot,
-  };
-};
-
-const normalizeTimelineEvent = (event) => {
-  if (!event || typeof event !== 'object' || !event.id || !event.symbol) {
-    return null;
-  }
-
-  return {
-    version: event.version || 1,
-    ...event,
-  };
-};
 
 const loadDiagnosticsEnabled = () => {
   if (typeof window === 'undefined') {
@@ -177,48 +197,6 @@ const loadDiagnosticsEnabled = () => {
   }
 
   return process.env.NODE_ENV !== 'production';
-};
-
-const loadReviewSnapshots = () => {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(REVIEW_SNAPSHOT_STORAGE_KEY);
-    if (!rawValue) {
-      return [];
-    }
-
-    const parsed = JSON.parse(rawValue);
-    return Array.isArray(parsed)
-      ? parsed.map(normalizeReviewSnapshot).filter(Boolean)
-      : [];
-  } catch (error) {
-    console.warn('Failed to load realtime review snapshots:', error);
-    return [];
-  }
-};
-
-const loadRealtimeTimelineEvents = () => {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-
-  try {
-    const rawValue = window.localStorage.getItem(REALTIME_TIMELINE_STORAGE_KEY);
-    if (!rawValue) {
-      return [];
-    }
-
-    const parsedValue = JSON.parse(rawValue);
-    return Array.isArray(parsedValue)
-      ? parsedValue.map(normalizeTimelineEvent).filter(Boolean)
-      : [];
-  } catch (error) {
-    console.warn('Failed to load realtime timeline events:', error);
-    return [];
-  }
 };
 
 const getTimelineTone = (kind = '') => {
@@ -338,53 +316,6 @@ const filterReviewSnapshots = (snapshots = [], scope = 'all', activeTab = '') =>
   return snapshots;
 };
 
-const summarizeReviewAttribution = (snapshots = []) => {
-  const validatedMarkets = new Map();
-  const invalidatedSignals = new Map();
-  const spotlightSymbols = new Map();
-
-  snapshots.forEach((snapshot) => {
-    if (snapshot.spotlightSymbol) {
-      const currentSpotlight = spotlightSymbols.get(snapshot.spotlightSymbol) || {
-        label: snapshot.spotlightName || snapshot.spotlightSymbol,
-        count: 0,
-      };
-      currentSpotlight.count += 1;
-      spotlightSymbols.set(snapshot.spotlightSymbol, currentSpotlight);
-    }
-
-    if (snapshot.outcome === 'validated' && snapshot.activeTabLabel) {
-      validatedMarkets.set(
-        snapshot.activeTabLabel,
-        (validatedMarkets.get(snapshot.activeTabLabel) || 0) + 1
-      );
-    }
-
-    if (snapshot.outcome === 'invalidated') {
-      (snapshot.anomalies || []).forEach((anomaly) => {
-        if (!anomaly?.title) {
-          return;
-        }
-        invalidatedSignals.set(anomaly.title, (invalidatedSignals.get(anomaly.title) || 0) + 1);
-      });
-    }
-  });
-
-  const pickTop = (entries, formatter) => {
-    const sorted = [...entries.entries()].sort((left, right) => right[1] - left[1]);
-    if (!sorted.length) {
-      return '--';
-    }
-    return formatter(sorted[0][0], sorted[0][1]);
-  };
-
-  return {
-    topValidatedMarket: pickTop(validatedMarkets, (label, count) => `${label} · ${count} 次有效`),
-    topInvalidatedSignal: pickTop(invalidatedSignals, (label, count) => `${label} · ${count} 次失效`),
-    topSpotlightSymbol: pickTop(spotlightSymbols, (symbol, meta) => `${meta.label} · ${meta.count} 次聚焦`),
-  };
-};
-
 const RealTimePanel = ({ openAlertsSignal = null }) => {
   const [messageApi, messageContextHolder] = message.useMessage();
   const [searchSymbol, setSearchSymbol] = useState('');
@@ -406,24 +337,21 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
   const [detailSymbol, setDetailSymbol] = useState(null);
   const [autoCompleteOptions, setAutoCompleteOptions] = useState([]);
   const [globalJumpOptions, setGlobalJumpOptions] = useState([]);
-  const [isAnomalyExpanded, setIsAnomalyExpanded] = useState(true);
+  const [isAnomalyExpanded, setIsAnomalyExpanded] = useState(false);
   const [isAlertHistoryExpanded, setIsAlertHistoryExpanded] = useState(false);
   const [isReviewExpanded, setIsReviewExpanded] = useState(false);
   const [isDiagnosticsExpanded, setIsDiagnosticsExpanded] = useState(false);
   const [isSnapshotDrawerVisible, setIsSnapshotDrawerVisible] = useState(false);
-  const [reviewSnapshots, setReviewSnapshots] = useState(loadReviewSnapshots);
-  const [timelineEvents, setTimelineEvents] = useState(loadRealtimeTimelineEvents);
   const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(loadDiagnosticsEnabled);
-  const [isJournalHydrated, setIsJournalHydrated] = useState(false);
-  const [alertHitHistory, setAlertHitHistory] = useState(loadAlertHitHistory);
   const [reviewScope, setReviewScope] = useState('all');
   const [selectedQuoteSymbols, setSelectedQuoteSymbols] = useState([]);
   const [draggingSymbol, setDraggingSymbol] = useState(null);
+  const [watchGroupName, setWatchGroupName] = useState('');
+  const [watchGroupSymbols, setWatchGroupSymbols] = useState('');
+  const [watchGroupCapital, setWatchGroupCapital] = useState('');
+  const [watchGroupWeights, setWatchGroupWeights] = useState('');
   const notifiedAnomaliesRef = useRef(new Map());
   const snapshotImportInputRef = useRef(null);
-  const journalSaveTimerRef = useRef(null);
-  const latestJournalRef = useRef('');
-  const lastSyncedJournalRef = useRef('');
 
   useEffect(() => {
     if (openAlertsSignal) {
@@ -432,30 +360,11 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
   }, [openAlertsSignal]);
 
   useEffect(() => {
-    window.localStorage.setItem(REVIEW_SNAPSHOT_STORAGE_KEY, JSON.stringify(reviewSnapshots));
-  }, [reviewSnapshots]);
-
-  useEffect(() => {
-    window.localStorage.setItem(REALTIME_TIMELINE_STORAGE_KEY, JSON.stringify(timelineEvents));
-  }, [timelineEvents]);
-
-  useEffect(() => {
     window.localStorage.setItem(
       REALTIME_DIAGNOSTICS_STORAGE_KEY,
       diagnosticsEnabled ? '1' : '0'
     );
   }, [diagnosticsEnabled]);
-
-  useEffect(() => {
-    window.localStorage.setItem(ALERT_HIT_HISTORY_STORAGE_KEY, JSON.stringify(alertHitHistory));
-  }, [alertHitHistory]);
-
-  useEffect(() => {
-    latestJournalRef.current = JSON.stringify({
-      review_snapshots: reviewSnapshots,
-      timeline_events: timelineEvents,
-    });
-  }, [reviewSnapshots, timelineEvents]);
 
   const {
     activeTab,
@@ -465,6 +374,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     setSubscribedSymbols,
     subscribedSymbols,
     symbolCategoryOverrides,
+    watchGroups,
+    setWatchGroups,
   } = useRealtimePreferences({
     defaultSymbols: DEFAULT_SUBSCRIBED_SYMBOLS,
   });
@@ -472,167 +383,21 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     metadataMap,
     fetchMetadata,
   } = useRealtimeMetadata({
+    knownMetadataMap: STOCK_DATABASE,
     subscribedSymbols,
   });
 
-  useEffect(() => {
-    let isCancelled = false;
-    const initialJournalSnapshot = latestJournalRef.current || JSON.stringify({
-      review_snapshots: reviewSnapshots,
-      timeline_events: timelineEvents,
-    });
-    let initialLocalJournal = {
-      review_snapshots: reviewSnapshots,
-      timeline_events: timelineEvents,
-    };
-
-    try {
-      initialLocalJournal = JSON.parse(initialJournalSnapshot);
-    } catch (error) {
-      console.warn('Failed to parse initial realtime journal snapshot, falling back to local state:', error);
-    }
-
-    const hydrateJournal = async () => {
-      try {
-        const response = await api.get('/realtime/journal', {
-          headers: {
-            'X-Realtime-Profile': realtimeProfileId,
-          },
-        });
-        if (!response.data?.success || isCancelled) {
-          return;
-        }
-
-        const currentJournalSnapshot = latestJournalRef.current || initialJournalSnapshot;
-        const userChangedJournalDuringHydration = currentJournalSnapshot !== initialJournalSnapshot;
-        const nextReviewSnapshots = Array.isArray(response.data.data?.review_snapshots)
-          ? response.data.data.review_snapshots
-              .map(normalizeReviewSnapshot)
-              .filter(Boolean)
-              .slice(0, MAX_REVIEW_SNAPSHOTS)
-          : [];
-        const nextTimelineEvents = Array.isArray(response.data.data?.timeline_events)
-          ? response.data.data.timeline_events
-              .map(normalizeTimelineEvent)
-              .filter(Boolean)
-              .slice(0, MAX_TIMELINE_EVENTS)
-          : [];
-        const backendJournalEmpty = nextReviewSnapshots.length === 0 && nextTimelineEvents.length === 0;
-        const localJournalHasEntries = (
-          Array.isArray(initialLocalJournal.review_snapshots) && initialLocalJournal.review_snapshots.length > 0
-        ) || (
-          Array.isArray(initialLocalJournal.timeline_events) && initialLocalJournal.timeline_events.length > 0
-        );
-
-        if (!userChangedJournalDuringHydration) {
-          if (backendJournalEmpty && localJournalHasEntries) {
-            lastSyncedJournalRef.current = '';
-          } else {
-            setReviewSnapshots(nextReviewSnapshots);
-            setTimelineEvents(nextTimelineEvents);
-            lastSyncedJournalRef.current = JSON.stringify({
-              review_snapshots: nextReviewSnapshots,
-              timeline_events: nextTimelineEvents,
-            });
-          }
-        }
-      } catch (error) {
-        console.warn('Failed to load realtime journal from backend, falling back to local cache:', error);
-      } finally {
-        if (!isCancelled) {
-          setIsJournalHydrated(true);
-        }
-      }
-    };
-
-    hydrateJournal();
-
-    return () => {
-      isCancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [realtimeProfileId]);
-
-  useEffect(() => {
-    if (!isJournalHydrated) {
-      return undefined;
-    }
-
-    const payload = {
-      review_snapshots: reviewSnapshots,
-      timeline_events: timelineEvents,
-    };
-    const serializedPayload = JSON.stringify(payload);
-    if (serializedPayload === lastSyncedJournalRef.current) {
-      return undefined;
-    }
-
-    if (journalSaveTimerRef.current) {
-      clearTimeout(journalSaveTimerRef.current);
-    }
-
-    journalSaveTimerRef.current = setTimeout(async () => {
-      try {
-        await api.put('/realtime/journal', payload, {
-          headers: {
-            'X-Realtime-Profile': realtimeProfileId,
-          },
-        });
-        lastSyncedJournalRef.current = serializedPayload;
-      } catch (error) {
-        console.warn('Failed to sync realtime journal to backend, keeping local cache only:', error);
-      }
-    }, REALTIME_JOURNAL_DEBOUNCE_MS);
-
-    return () => {
-      if (journalSaveTimerRef.current) {
-        clearTimeout(journalSaveTimerRef.current);
-        journalSaveTimerRef.current = null;
-      }
-    };
-  }, [isJournalHydrated, realtimeProfileId, reviewSnapshots, timelineEvents]);
-
-  useEffect(() => {
-    let isCancelled = false;
-    const initialAlertHistorySnapshot = JSON.stringify(alertHitHistory);
-
-    const hydrateAlertHitHistory = async () => {
-      try {
-        const response = await api.get('/realtime/alerts', {
-          headers: {
-            'X-Realtime-Profile': realtimeProfileId,
-          },
-        });
-
-        if (!response.data?.success || isCancelled) {
-          return;
-        }
-
-        const nextAlertHitHistory = Array.isArray(response.data.data?.alert_hit_history)
-          ? response.data.data.alert_hit_history.slice(0, MAX_ALERT_HIT_HISTORY)
-          : [];
-        const userChangedAlertHistoryDuringHydration = JSON.stringify(alertHitHistory) !== initialAlertHistorySnapshot;
-        const backendHistoryEmpty = nextAlertHitHistory.length === 0;
-        const localHistoryExists = alertHitHistory.length > 0;
-
-        if (!userChangedAlertHistoryDuringHydration) {
-          if (backendHistoryEmpty && localHistoryExists) {
-            return;
-          }
-          setAlertHitHistory(nextAlertHitHistory);
-        }
-      } catch (error) {
-        console.warn('Failed to load realtime alert hit history from backend, falling back to local cache:', error);
-      }
-    };
-
-    hydrateAlertHitHistory();
-
-    return () => {
-      isCancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [realtimeProfileId]);
+  const {
+    alertHitHistory,
+    setAlertHitHistory,
+    appendTimelineEvent,
+    handleAlertTriggered,
+    reviewSnapshots,
+    setReviewSnapshots,
+    timelineEvents,
+    setTimelineEvents,
+    updateReviewSnapshot,
+  } = useRealtimeJournal({ realtimeProfileId });
 
   const resolveSymbolCategory = useCallback((symbol) => {
     return symbolCategoryOverrides[symbol] || metadataMap[symbol]?.type || inferSymbolCategory(symbol);
@@ -651,11 +416,13 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     hasEverConnected,
     hasExperiencedFallback,
     isAutoUpdate,
+    isBrowserOnline,
     isConnected,
     lastConnectionIssue,
     lastClientRefreshAt,
     lastMarketUpdateAt,
     loading,
+    manualReconnect,
     quotes,
     reconnectAttempts,
     refreshCurrentTab,
@@ -678,21 +445,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     isConnected,
     reconnectAttempts,
   });
-
-  const appendTimelineEvent = useCallback((event) => {
-    if (!event?.symbol) {
-      return;
-    }
-
-    const nextEvent = {
-      id: `timeline_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      createdAt: new Date().toISOString(),
-      version: 1,
-      ...event,
-    };
-
-    setTimelineEvents((prev) => [nextEvent, ...prev].slice(0, MAX_TIMELINE_EVENTS));
-  }, []);
 
   const subscribeSymbol = useCallback((symbol) => {
     if (subscribedSymbols.includes(symbol)) {
@@ -863,14 +615,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     handleOpenAlerts(draft.symbol, draft);
   }, [handleCloseTrade, handleOpenAlerts]);
 
-  const handleAlertTriggered = useCallback((historyEntry) => {
-    if (!historyEntry?.symbol) {
-      return;
-    }
-
-    setAlertHitHistory((prev) => [historyEntry, ...prev].slice(0, MAX_ALERT_HIT_HISTORY));
-  }, []);
-
   const findMatchingSymbols = useCallback((input) => {
     if (!input || input.trim() === '') return [];
 
@@ -930,7 +674,87 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
   const currentTabSymbols = getSymbolsByCategory(activeTab);
   const selectedCurrentTabSymbols = selectedQuoteSymbols.filter((symbol) => currentTabSymbols.includes(symbol));
+  const watchGroupSummaries = useMemo(() => (
+    (watchGroups || []).map((group) => {
+      const groupSymbols = (group.symbols || []).filter(Boolean);
+      const weightMap = normalizeGroupWeights(group);
+      const capital = Number(group.capital || 0);
+      const availableQuotes = groupSymbols
+        .map((symbol) => ({ symbol, quote: quotes[symbol] }))
+        .filter((item) => item.quote);
+      const changes = availableQuotes
+        .map((item) => Number(item.quote?.change_percent))
+        .filter((value) => Number.isFinite(value));
+      const avgChange = changes.length
+        ? changes.reduce((sum, value) => sum + value, 0) / changes.length
+        : null;
+      const breadth = changes.length
+        ? changes.filter((value) => value > 0).length / changes.length
+        : null;
+      const strongest = availableQuotes
+        .slice()
+        .sort((left, right) => Number(right.quote?.change_percent || 0) - Number(left.quote?.change_percent || 0))[0];
+      const weakest = availableQuotes
+        .slice()
+        .sort((left, right) => Number(left.quote?.change_percent || 0) - Number(right.quote?.change_percent || 0))[0];
+      const weightEntries = groupSymbols.map((symbol) => ({
+        symbol,
+        weight: Number(weightMap[symbol] || 0),
+        category: resolveSymbolCategory(symbol),
+        quote: quotes[symbol],
+      }));
+      const grossWeight = weightEntries.reduce((sum, item) => sum + Math.abs(item.weight), 0);
+      const netWeight = weightEntries.reduce((sum, item) => sum + item.weight, 0);
+      const weightedChange = availableQuotes.length
+        ? weightEntries.reduce((sum, item) => {
+            const change = Number(item.quote?.change_percent);
+            if (!Number.isFinite(change)) {
+              return sum;
+            }
+            return sum + (item.weight * change);
+          }, 0)
+        : null;
+      const estimatedPnl = capital > 0 && weightedChange !== null
+        ? capital * (weightedChange / 100)
+        : null;
+      const exposureByCategory = weightEntries.reduce((result, item) => {
+        if (!item.category) {
+          return result;
+        }
+        result[item.category] = (result[item.category] || 0) + Math.abs(item.weight);
+        return result;
+      }, {});
+      const topExposures = Object.entries(exposureByCategory)
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, 2)
+        .map(([category, weight]) => ({
+          category,
+          label: getCategoryLabelForType(category),
+          weight,
+        }));
+      const concentration = weightEntries.length
+        ? Math.max(...weightEntries.map((item) => Math.abs(item.weight)))
+        : 0;
 
+      return {
+        ...group,
+        trackedCount: groupSymbols.length,
+        liveCount: availableQuotes.length,
+        avgChange,
+        breadth,
+        strongest,
+        weakest,
+        weightedChange,
+        estimatedPnl,
+        capital,
+        grossWeight,
+        netWeight,
+        concentration,
+        topExposures,
+        weightMap,
+      };
+    })
+  ), [quotes, resolveSymbolCategory, watchGroups]);
   const toggleQuoteSelection = useCallback((symbol) => {
     setSelectedQuoteSymbols((prev) => (
       prev.includes(symbol)
@@ -946,6 +770,53 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
   const clearSelectedQuotes = useCallback(() => {
     setSelectedQuoteSymbols([]);
   }, []);
+
+  const addWatchGroup = useCallback(() => {
+    const name = watchGroupName.trim();
+    const parsedSymbols = watchGroupSymbols
+      .split(/[\s,，]+/)
+      .map((symbol) => symbol.trim().toUpperCase())
+      .filter(Boolean);
+    const parsedWeights = watchGroupWeights
+      .split(/[\s,，]+/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .reduce((result, entry) => {
+        const [rawSymbol, rawWeight] = entry.split(':');
+        const symbol = String(rawSymbol || '').trim().toUpperCase();
+        const numericWeight = Number(rawWeight);
+        if (symbol && Number.isFinite(numericWeight)) {
+          result[symbol] = numericWeight;
+        }
+        return result;
+      }, {});
+    const capital = Number(watchGroupCapital);
+    if (!name || parsedSymbols.length === 0) {
+      messageApi.warning('请输入组合名称和至少一个标的');
+      return;
+    }
+
+    setWatchGroups((prev) => [
+      {
+        id: `watch-${Date.now()}`,
+        name,
+        symbols: Array.from(new Set(parsedSymbols)),
+        notes: '',
+        capital: Number.isFinite(capital) ? Math.max(capital, 0) : 0,
+        weights: parsedWeights,
+      },
+      ...prev.filter((group) => group.name !== name),
+    ]);
+    setWatchGroupName('');
+    setWatchGroupSymbols('');
+    setWatchGroupCapital('');
+    setWatchGroupWeights('');
+    messageApi.success(`已创建组合 ${name}`);
+  }, [messageApi, setWatchGroups, watchGroupCapital, watchGroupName, watchGroupSymbols, watchGroupWeights]);
+
+  const removeWatchGroup = useCallback((groupId) => {
+    setWatchGroups((prev) => prev.filter((group) => group.id !== groupId));
+  }, [setWatchGroups]);
 
   const moveSelectedQuotesToCategory = useCallback((targetCategory) => {
     if (!targetCategory || selectedCurrentTabSymbols.length === 0 || targetCategory === activeTab) {
@@ -965,7 +836,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     });
     setActiveTab(targetCategory);
     setSelectedQuoteSymbols([]);
-    messageApi.success(`已将 ${selectedCurrentTabSymbols.length} 个标的移动到${getCategoryLabel(targetCategory)}`);
+    messageApi.success(`已将 ${selectedCurrentTabSymbols.length} 个标的移动到${getCategoryLabelForType(targetCategory)}`);
   }, [activeTab, messageApi, selectedCurrentTabSymbols, setActiveTab, setSymbolCategoryOverrides]);
 
   const removeSelectedQuotes = useCallback(() => {
@@ -1053,18 +924,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     setGlobalJumpOptions([]);
   }, [addSymbol, handleShowDetail, messageApi, resolveSymbolCategory, setActiveTab, subscribedSymbols]);
 
-  const getCategoryLabel = (type) => {
-    switch (type) {
-      case 'index': return '指数';
-      case 'us': return '美股';
-      case 'cn': return 'A股';
-      case 'crypto': return '加密货币';
-      case 'bond': return '债券';
-      case 'future': return '期货';
-      case 'option': return '期权';
-      default: return '其他';
-    }
-  };
+  const getCategoryLabel = getCategoryLabelForType;
 
   const getCategoryTheme = (type) => CATEGORY_THEMES[type] || CATEGORY_THEMES.other;
   const getQuoteRangePercent = useCallback((quote) => {
@@ -1107,13 +967,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       return Number(rightValue) - Number(leftValue);
     });
   }, [getQuoteSortValue, quoteSortMode, quotes]);
-  const formatQuoteTime = (value) => {
-    if (!value) return '--';
-
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return '--';
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  };
   const diagnosticsCache = diagnosticsSummary?.cache || {};
   const diagnosticsFetch = diagnosticsCache.last_fetch_stats || {};
   const diagnosticsQuality = diagnosticsSummary?.quality || {};
@@ -1196,59 +1049,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     };
   }, [freshnessNow]);
 
-  const transportModeLabel = !isAutoUpdate
-    ? '手动刷新'
-    : isConnected
-      ? 'WebSocket 实时'
-      : reconnectAttempts > 0
-        ? '重连中 / REST 补数'
-        : '连接中 / REST 补数';
-  const lastClientRefreshLabel = lastClientRefreshAt ? formatQuoteTime(lastClientRefreshAt) : '--';
-  const lastMarketUpdateLabel = lastMarketUpdateAt ? formatQuoteTime(lastMarketUpdateAt) : '--';
-  const transportBanner = !isAutoUpdate
-    ? {
-        tone: 'manual',
-        title: '自动更新已关闭',
-        description: '当前只会在你手动点击刷新时拉取最新行情，适合临时暂停实时更新。',
-      }
-    : isConnected
-      ? {
-          tone: 'healthy',
-          title: hasExperiencedFallback ? '实时推送已恢复' : '实时推送正常',
-          description: hasExperiencedFallback
-            ? 'WebSocket 已重新接管实时更新，列表会继续自动推进。'
-            : '当前由 WebSocket 持续推送最新行情，REST 只在首屏和补数时兜底。',
-        }
-      : reconnectAttempts > 0
-        ? {
-            tone: 'fallback',
-            title: '正在重连实时推送',
-            description: `当前已切到 REST 补数，第 ${reconnectAttempts} 次重连进行中。${lastConnectionIssue ? ` 最近异常：${lastConnectionIssue}` : ''}`,
-          }
-      : {
-          tone: 'fallback',
-          title: hasEverConnected ? '已降级到 REST 补数' : '正在建立实时连接',
-          description: hasEverConnected
-            ? `实时推送暂时不可用，页面会先用 REST 补数维持更新，连接恢复后会自动切回实时模式。${lastConnectionIssue ? ` 最近异常：${lastConnectionIssue}` : ''}`
-            : '在 WebSocket 建立前，页面会先通过 REST 拉取当前分组行情，避免首屏空白。',
-        };
-  const transportBannerStyle = transportBanner.tone === 'healthy'
-    ? {
-        color: '#166534',
-        background: 'rgba(34, 197, 94, 0.14)',
-        borderColor: 'rgba(34, 197, 94, 0.24)',
-      }
-    : transportBanner.tone === 'manual'
-      ? {
-          color: '#1d4ed8',
-          background: 'rgba(59, 130, 246, 0.12)',
-          borderColor: 'rgba(59, 130, 246, 0.2)',
-        }
-      : {
-          color: '#b45309',
-          background: 'rgba(245, 158, 11, 0.14)',
-          borderColor: 'rgba(245, 158, 11, 0.26)',
-        };
   const anomalyFeed = buildRealtimeAnomalyFeed(currentTabSymbols, quotes, { limit: 6 });
   useEffect(() => {
     if (typeof window === 'undefined' || typeof Notification === 'undefined') {
@@ -1297,6 +1097,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     currentTabQuotes,
     fallingCount,
     freshnessSummary,
+    lastClientRefreshLabel,
+    lastMarketUpdateLabel,
     loadedQuotesCount,
     marketSentiment,
     realtimeActionPosture,
@@ -1305,16 +1107,26 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     reviewOutcomeSummary,
     risingCount,
     spotlightSymbol,
+    transportBanner,
+    transportBannerStyle,
+    transportModeLabel,
     validationRate,
   } = useRealtimeDerivedState({
     alertHitHistory,
     anomalyFeed,
     currentTabSymbols,
     filteredReviewSnapshots,
+    hasEverConnected,
+    hasExperiencedFallback,
+    isAutoUpdate,
+    isConnected,
+    lastClientRefreshAt,
+    lastConnectionIssue,
+    lastMarketUpdateAt,
     freshnessNow,
     getQuoteFreshness,
     quotes,
-    summarizeReviewAttribution,
+    reconnectAttempts,
   });
   const detailEventTimeline = buildRealtimeDetailTimeline({
     symbol: detailSymbol,
@@ -1413,7 +1225,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
     setActiveTab(snapshot.activeTab);
     setIsSnapshotDrawerVisible(false);
-    messageApi.success(`已切换到 ${snapshot.activeTabLabel || getCategoryLabel(snapshot.activeTab)} 复盘视角`);
+    messageApi.success(`已切换到 ${snapshot.activeTabLabel || getCategoryLabelForType(snapshot.activeTab)} 复盘视角`);
   }, [messageApi, setActiveTab]);
 
   const openSnapshotFocus = useCallback((snapshot) => {
@@ -1425,14 +1237,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     setDetailSymbol(snapshot.spotlightSymbol);
     setIsDetailModalVisible(true);
   }, [setActiveTab]);
-
-  const updateReviewSnapshot = useCallback((snapshotId, updates) => {
-    setReviewSnapshots((prev) => prev.map((snapshot) => (
-      snapshot.id === snapshotId
-        ? { ...snapshot, ...updates, updatedAt: new Date().toISOString() }
-        : snapshot
-    )));
-  }, []);
 
   const copyTextToClipboard = useCallback(async (content, successText) => {
     if (!navigator?.clipboard?.writeText) {
@@ -1549,7 +1353,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       }
     };
     reader.readAsText(file);
-  }, [messageApi]);
+  }, [messageApi, setReviewSnapshots, setTimelineEvents]);
 
   const tabs = [
     { key: 'index', label: '指数', icon: <BarChartOutlined /> },
@@ -1591,58 +1395,82 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               </Tag>
             </div>
             <div className="realtime-hero__subtitle">
-              把指数、美股、A股、加密、债券、期货和期权放进同一个实时工作台里，列表看盘，卡片直达深度详情。
+              多市场同屏盯盘，详情、提醒、交易和复盘在一个工作区完成。
             </div>
             <div className="realtime-hero__meta">
-              <div className="realtime-hero__chip">已加载 {loadedQuotesCount}/{subscribedSymbols.length} 个标的</div>
               <div className="realtime-hero__chip">当前分组：{getCategoryLabel(activeTab)}</div>
               <div className="realtime-hero__chip">链路模式：{transportModeLabel}</div>
-              <div className="realtime-hero__chip">新鲜 {freshnessSummary.fresh}/{currentTabSymbols.length}</div>
               {spotlightSymbol && (
                 <div className="realtime-hero__chip">
                   焦点：{getDisplayName(spotlightSymbol)} {formatPercent(quotes[spotlightSymbol]?.change_percent)}
                 </div>
               )}
-              <div className="realtime-hero__chip">提醒命中 {currentTabAlertHitSummary.totalHits}</div>
             </div>
             <div className="realtime-hero__secondary">
-              <span>最近接收：{lastClientRefreshLabel}</span>
-              <span>最新行情时间：{lastMarketUpdateLabel}</span>
+              <span>样本 {loadedQuotesCount}/{subscribedSymbols.length}</span>
+              <span>新鲜 {freshnessSummary.fresh}/{currentTabSymbols.length}</span>
+              <span>提醒 {currentTabAlertHitSummary.totalHits}</span>
+              <span>接收 {lastClientRefreshLabel}</span>
+              <span>行情 {lastMarketUpdateLabel}</span>
               {freshnessSummary.aging > 0 && <span>变旧 {freshnessSummary.aging}</span>}
               {freshnessSummary.delayed > 0 && <span>延迟 {freshnessSummary.delayed}</span>}
               {reconnectAttempts > 0 && <span>重连次数：{reconnectAttempts}</span>}
+              {!isConnected && (
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<SyncOutlined />}
+                  onClick={manualReconnect}
+                  style={{ padding: 0, height: 'auto', fontSize: 12 }}
+                >
+                  手动重连
+                </Button>
+              )}
             </div>
-            <div
-              style={{
-                marginTop: 16,
-                padding: '12px 14px',
-                borderRadius: 16,
-                border: `1px solid ${transportBannerStyle.borderColor}`,
-                background: transportBannerStyle.background,
-                color: transportBannerStyle.color,
-              }}
-            >
-              <div style={{ fontWeight: 700, fontSize: 13 }}>{transportBanner.title}</div>
-              <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.6 }}>{transportBanner.description}</div>
-            </div>
+            <div className="realtime-hero__insights">
+              {!isBrowserOnline && (
+                <div
+                  className="realtime-hero__insight"
+                  style={{
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                    background: 'rgba(239, 68, 68, 0.10)',
+                    color: '#b91c1c',
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>浏览器已离线</div>
+                  <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.6 }}>
+                    网络连接已中断，实时数据暂停更新。恢复网络后将自动重连。
+                  </div>
+                </div>
+              )}
+              <div
+                className="realtime-hero__insight realtime-hero__insight--transport"
+                style={{
+                  border: `1px solid ${transportBannerStyle.borderColor}`,
+                  background: transportBannerStyle.background,
+                  color: transportBannerStyle.color,
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{transportBanner.title}</div>
+                <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.6 }}>{transportBanner.description}</div>
+              </div>
 
-            <div
-              style={{
-                marginTop: 12,
-                padding: '12px 14px',
-                borderRadius: 16,
-                border: `1px solid ${realtimeActionPosture.level === 'warning' ? 'rgba(250, 173, 20, 0.55)' : realtimeActionPosture.level === 'success' ? 'rgba(82, 196, 26, 0.45)' : 'rgba(22, 119, 255, 0.28)'}`,
-                background: realtimeActionPosture.level === 'warning'
-                  ? 'rgba(250, 173, 20, 0.10)'
-                  : realtimeActionPosture.level === 'success'
-                    ? 'rgba(82, 196, 26, 0.10)'
-                    : 'rgba(22, 119, 255, 0.08)',
-                color: 'var(--text-primary)',
-              }}
-            >
-              <div style={{ fontWeight: 700, fontSize: 13 }}>{realtimeActionPosture.title}</div>
-              <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.6 }}>{realtimeActionPosture.actionHint}</div>
-              <div style={{ marginTop: 4, fontSize: 11, lineHeight: 1.6, color: 'var(--text-secondary)' }}>{realtimeActionPosture.reason}</div>
+              <div
+                className="realtime-hero__insight"
+                style={{
+                  border: `1px solid ${realtimeActionPosture.level === 'warning' ? 'rgba(250, 173, 20, 0.55)' : realtimeActionPosture.level === 'success' ? 'rgba(82, 196, 26, 0.45)' : 'rgba(22, 119, 255, 0.28)'}`,
+                  background: realtimeActionPosture.level === 'warning'
+                    ? 'rgba(250, 173, 20, 0.10)'
+                    : realtimeActionPosture.level === 'success'
+                      ? 'rgba(82, 196, 26, 0.10)'
+                      : 'rgba(22, 119, 255, 0.08)',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{realtimeActionPosture.title}</div>
+                <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.6 }}>{realtimeActionPosture.actionHint}</div>
+                <div style={{ marginTop: 4, fontSize: 11, lineHeight: 1.6, color: 'var(--text-secondary)' }}>{realtimeActionPosture.reason}</div>
+              </div>
             </div>
           </div>
 
@@ -1657,35 +1485,35 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               />
             </div>
 
-            <Button
-              icon={<BellOutlined />}
-              onClick={() => handleOpenAlerts()}
-              size="large"
-            >
-              价格提醒
-            </Button>
+            <div className="realtime-hero__primary-actions">
+              <Button
+                className="realtime-hero__refresh"
+                type="primary"
+                icon={<SyncOutlined spin={loading} />}
+                onClick={refreshCurrentTab}
+                loading={loading}
+                size="large"
+              >
+                刷新
+              </Button>
+              <Button
+                className="realtime-hero__secondary-button"
+                icon={<BellOutlined />}
+                onClick={() => handleOpenAlerts()}
+                size="large"
+              >
+                价格提醒
+              </Button>
+              <Button className="realtime-hero__secondary-button" onClick={saveReviewSnapshot} size="large">
+                保存快照
+              </Button>
+            </div>
 
-            <Button onClick={() => setIsSnapshotDrawerVisible(true)} size="large">
-              复盘快照
-            </Button>
-
-            <Button onClick={() => setDiagnosticsEnabled((prev) => !prev)} size="large">
-              {diagnosticsEnabled ? '隐藏诊断' : '显示诊断'}
-            </Button>
-
-            <Button onClick={saveReviewSnapshot} size="large">
-              保存快照
-            </Button>
-
-            <Button
-              type="primary"
-              icon={<SyncOutlined spin={loading} />}
-              onClick={refreshCurrentTab}
-              loading={loading}
-              size="large"
-            >
-              刷新
-            </Button>
+            <div className="realtime-hero__secondary-actions">
+              <Button type="text" onClick={() => setIsSnapshotDrawerVisible(true)}>
+                复盘快照
+              </Button>
+            </div>
           </div>
         </div>
       </Card>
@@ -1787,6 +1615,116 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           </Card>
         </div>
       </div>
+
+      <Card
+        style={{
+          marginBottom: 18,
+          borderRadius: 24,
+          border: '1px solid var(--border-color)',
+          boxShadow: '0 14px 34px rgba(15, 23, 42, 0.06)',
+        }}
+      >
+        <div className="realtime-block-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <FolderOutlined />
+          自选组合监控
+        </div>
+        <div className="realtime-block-subtitle">
+          把多个标的组织成“科技重仓”“对冲腿”等组合，实时观察组合级涨跌、宽度和最强驱动。
+        </div>
+        <Space.Compact style={{ width: '100%', marginTop: 16 }}>
+          <Input
+            style={{ maxWidth: 220 }}
+            value={watchGroupName}
+            onChange={(event) => setWatchGroupName(event.target.value)}
+            placeholder="组合名称"
+          />
+          <Input
+            value={watchGroupSymbols}
+            onChange={(event) => setWatchGroupSymbols(event.target.value)}
+            placeholder="标的列表，逗号分隔，如 AAPL, MSFT, NVDA"
+            onPressEnter={addWatchGroup}
+          />
+          <Button type="primary" onClick={addWatchGroup}>添加组合</Button>
+        </Space.Compact>
+        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'minmax(180px, 220px) minmax(260px, 1fr)', marginTop: 12 }}>
+          <Input
+            value={watchGroupCapital}
+            onChange={(event) => setWatchGroupCapital(event.target.value)}
+            placeholder="组合资金，可选，如 100000"
+          />
+          <Input
+            value={watchGroupWeights}
+            onChange={(event) => setWatchGroupWeights(event.target.value)}
+            placeholder="权重/对冲腿，可选，如 AAPL:0.5 MSFT:0.3 NVDA:-0.2"
+          />
+        </div>
+        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginTop: 18 }}>
+          {watchGroupSummaries.length ? watchGroupSummaries.map((group) => (
+            <div
+              key={group.id}
+              style={{
+                borderRadius: 16,
+                padding: 16,
+                border: '1px solid rgba(148, 163, 184, 0.18)',
+                background: 'rgba(15, 23, 42, 0.02)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15 }}>{group.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+                    {group.trackedCount} 个标的 · 实时覆盖 {group.liveCount}/{group.trackedCount}
+                  </div>
+                </div>
+                <Button type="text" icon={<DeleteOutlined />} onClick={() => removeWatchGroup(group.id)} />
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 12 }}>
+                <Tag color={Number(group.avgChange || 0) >= 0 ? 'green' : 'red'}>
+                  组合均值 {group.avgChange === null ? '--' : formatPercent(group.avgChange)}
+                </Tag>
+                <Tag color={Number(group.weightedChange || 0) >= 0 ? 'green' : 'red'}>
+                  加权收益 {group.weightedChange === null ? '--' : formatPercent(group.weightedChange)}
+                </Tag>
+                <Tag color="blue">
+                  上涨宽度 {group.breadth === null ? '--' : `${Math.round(group.breadth * 100)}%`}
+                </Tag>
+                <Tag color="purple">
+                  估算 P&L {group.estimatedPnl === null ? '--' : formatCompactCurrency(group.estimatedPnl)}
+                </Tag>
+              </div>
+              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)' }}>
+                {group.strongest
+                  ? `最强驱动：${getDisplayName(group.strongest.symbol)} ${formatPercent(group.strongest.quote?.change_percent)}`
+                  : '等待实时行情覆盖后显示组合驱动。'}
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                {`净暴露 ${group.netWeight.toFixed(2)}x · 总暴露 ${group.grossWeight.toFixed(2)}x · 最大单名权重 ${(group.concentration * 100).toFixed(0)}%`}
+              </div>
+              <div style={{ marginTop: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {group.topExposures.length
+                  ? group.topExposures.map((item) => (
+                    <Tag key={`${group.id}-${item.category}`} color="geekblue">
+                      {`${item.label} 暴露 ${(item.weight * 100).toFixed(0)}%`}
+                    </Tag>
+                  ))
+                  : <Tag>等待暴露计算</Tag>}
+              </div>
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+                {group.weakest
+                  ? `最弱标的：${getDisplayName(group.weakest.symbol)} ${formatPercent(group.weakest.quote?.change_percent)}`
+                  : '暂无最弱标的。'}
+              </div>
+              <div style={{ marginTop: 10, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {(group.symbols || []).slice(0, 6).map((symbol) => (
+                  <Tag key={`${group.id}-${symbol}`}>{`${symbol} ${Number(group.weightMap?.[symbol] || 0).toFixed(2)}x`}</Tag>
+                ))}
+              </div>
+            </div>
+          )) : (
+            <Empty description="还没有组合。可以把当前关注的标的组织成研究篮子。" />
+          )}
+        </div>
+      </Card>
 
       <RealtimeQuoteBoard
         EMPTY_NUMERIC_TEXT={EMPTY_NUMERIC_TEXT}
@@ -1902,12 +1840,37 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           formatQuoteTime={formatQuoteTime}
           formatTransportDecision={formatTransportDecision}
           isExpanded={isDiagnosticsExpanded}
+          onDisable={() => setDiagnosticsEnabled(false)}
           onRefresh={refreshDiagnostics}
           onToggleExpanded={() => setIsDiagnosticsExpanded(prev => !prev)}
           transportDecisions={transportDecisions}
           weakestFields={weakestFields}
           weakestSymbols={weakestSymbols}
         />
+      )}
+
+      {!diagnosticsEnabled && (
+        <Card
+          className="realtime-diagnostics-launcher"
+          style={{
+            borderRadius: 20,
+            border: '1px dashed color-mix(in srgb, var(--accent-primary) 26%, var(--border-color) 74%)',
+            background: 'color-mix(in srgb, var(--bg-secondary) 88%, white 12%)',
+            boxShadow: '0 10px 24px rgba(15, 23, 42, 0.04)',
+          }}
+        >
+          <div className="realtime-board-head" style={{ marginBottom: 0 }}>
+            <div>
+              <div className="realtime-block-title" style={{ fontSize: 16 }}>开发诊断</div>
+              <div className="realtime-block-subtitle">
+                当前已隐藏调试信息，只有在需要排查链路、缓存或字段覆盖时再展开。
+              </div>
+            </div>
+            <Button size="small" onClick={() => setDiagnosticsEnabled(true)}>
+              显示诊断
+            </Button>
+          </div>
+        </Card>
       )}
 
       <Drawer
@@ -1987,8 +1950,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         .realtime-hero {
           display: grid;
           grid-template-columns: minmax(0, 1.8fr) minmax(280px, 0.9fr);
-          gap: 24px;
-          padding: 28px;
+          gap: 20px;
+          padding: 22px 24px;
           background:
             linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 14%, var(--bg-secondary) 86%) 0%, color-mix(in srgb, var(--accent-secondary) 12%, var(--bg-secondary) 88%) 100%);
         }
@@ -1998,7 +1961,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           letter-spacing: 0.16em;
           text-transform: uppercase;
           color: var(--text-secondary);
-          margin-bottom: 10px;
+          margin-bottom: 8px;
           font-weight: 700;
         }
 
@@ -2011,47 +1974,64 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         }
 
         .realtime-hero__subtitle {
-          margin-top: 14px;
-          max-width: 720px;
+          margin-top: 10px;
+          max-width: 680px;
           color: var(--text-secondary);
-          line-height: 1.7;
-          font-size: 14px;
+          line-height: 1.6;
+          font-size: 13px;
         }
 
         .realtime-hero__meta {
           display: flex;
           flex-wrap: wrap;
-          gap: 10px;
-          margin-top: 18px;
+          gap: 8px;
+          margin-top: 14px;
         }
 
         .realtime-hero__secondary {
           display: flex;
           flex-wrap: wrap;
-          gap: 12px;
-          margin-top: 12px;
+          gap: 10px;
+          margin-top: 10px;
           color: var(--text-secondary);
-          font-size: 12px;
-          line-height: 1.6;
+          font-size: 11px;
+          line-height: 1.5;
+        }
+
+        .realtime-hero__secondary span {
+          padding: 4px 0;
+          white-space: nowrap;
         }
 
         .realtime-hero__chip {
-          padding: 8px 12px;
+          padding: 6px 10px;
           border-radius: 999px;
           background: color-mix(in srgb, var(--bg-secondary) 82%, white 18%);
           border: 1px solid color-mix(in srgb, var(--accent-primary) 16%, var(--border-color) 84%);
-          font-size: 12px;
+          font-size: 11px;
           color: var(--text-secondary);
+        }
+
+        .realtime-hero__insights {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+          margin-top: 14px;
+        }
+
+        .realtime-hero__insight {
+          padding: 10px 12px;
+          border-radius: 16px;
         }
 
         .realtime-hero__actions {
           display: flex;
           flex-direction: column;
-          justify-content: space-between;
-          gap: 14px;
-          padding: 18px;
+          align-self: start;
+          gap: 12px;
+          padding: 14px;
           border-radius: 20px;
-          background: color-mix(in srgb, var(--bg-secondary) 88%, white 12%);
+          background: color-mix(in srgb, var(--bg-secondary) 90%, white 10%);
           border: 1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--border-color) 82%);
         }
 
@@ -2060,6 +2040,26 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           align-items: center;
           justify-content: space-between;
           gap: 12px;
+        }
+
+        .realtime-hero__primary-actions,
+        .realtime-hero__secondary-actions {
+          display: grid;
+          gap: 8px;
+        }
+
+        .realtime-hero__primary-actions {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .realtime-hero__refresh {
+          grid-column: 1 / -1;
+          min-height: 46px;
+          font-weight: 700;
+        }
+
+        .realtime-hero__secondary-button {
+          min-height: 42px;
         }
 
         .realtime-toolbar-grid {
@@ -2320,6 +2320,10 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         @media (max-width: 1180px) {
           .realtime-toolbar-grid,
           .realtime-hero {
+            grid-template-columns: 1fr;
+          }
+
+          .realtime-hero__insights {
             grid-template-columns: 1fr;
           }
 

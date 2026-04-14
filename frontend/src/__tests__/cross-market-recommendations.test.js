@@ -285,4 +285,173 @@ describe('crossMarketRecommendations', () => {
     expect(fragileInputCard.biasQualityLabel).toBe('compressed');
     expect(fragileInputCard.matchedDrivers.some((item) => item.label.includes('输入可靠度'))).toBe(true);
   });
+
+  it('tilts construction toward execution-quality hedges when people fragility rises', () => {
+    const payload = {
+      templates: [
+        {
+          id: 'defensive_beta_hedge',
+          name: 'Defensive beta hedge',
+          linked_factors: ['tech_dilution'],
+          linked_dimensions: ['talent_structure'],
+          assets: [
+            { symbol: 'XLU', side: 'long', weight: 0.5, asset_class: 'ETF' },
+            { symbol: 'ARKK', side: 'long', weight: 0.5, asset_class: 'ETF' },
+            { symbol: 'QQQ', side: 'short', weight: 1, asset_class: 'ETF' },
+          ],
+          preferred_signal: 'mixed',
+        },
+      ],
+    };
+    const overview = {
+      people_layer_summary: {
+        label: 'fragile',
+        avg_fragility_score: 0.62,
+        summary: '组织脆弱度显著抬升。',
+        fragile_companies: [
+          {
+            symbol: 'BABA',
+            company_name: '阿里巴巴',
+            people_fragility_score: 0.79,
+            summary: '技术权威继续被非技术 KPI 稀释。',
+            hiring_signal: { dilution_ratio: 1.78 },
+          },
+        ],
+      },
+      evidence_summary: {
+        policy_source_health_summary: {
+          label: 'healthy',
+          reason: '主要政策源正文覆盖稳定',
+          fragile_sources: [],
+          watch_sources: [],
+          healthy_sources: ['fed'],
+          avg_full_text_ratio: 0.9,
+        },
+      },
+      factors: [{ name: 'tech_dilution', z_score: 0.8, value: 0.5, signal: 1 }],
+    };
+    const snapshot = {
+      signals: {
+        supply_chain: {
+          dimensions: {
+            talent_structure: { score: 0.66 },
+          },
+        },
+      },
+    };
+
+    const card = buildCrossMarketCards(payload, overview, snapshot)[0];
+
+    expect(card.peopleFragilityLabel).toBe('fragile');
+    expect(card.peopleFragilityFocus).toBe('阿里巴巴');
+    expect(card.peopleFragilityRiskBudgetScale).toBeLessThan(1);
+    expect(card.biasQualityLabel).toBe('people_guarded');
+    expect(card.adjustedAssets.find((item) => item.symbol === 'XLU').weight).toBeGreaterThan(0.5);
+    expect(card.adjustedAssets.find((item) => item.symbol === 'ARKK').weight).toBeLessThan(0.5);
+    expect(card.adjustedAssets.find((item) => item.symbol === 'QQQ').weight).toBe(1);
+    expect(card.biasSummary).toContain('执行质量折扣');
+    expect(card.driverSummary.some((item) => item.key === 'people_fragility_short')).toBe(true);
+    expect(card.matchedDrivers.some((item) => item.key === 'people-fragility-defensive_beta_hedge')).toBe(true);
+  });
+
+  it('turns structural decay radar escalation into defensive construction constraints', () => {
+    const payload = {
+      templates: [
+        {
+          id: 'defensive_beta_hedge',
+          name: 'Defensive beta hedge',
+          linked_factors: ['credit_spread_stress'],
+          linked_dimensions: [],
+          assets: [
+            { symbol: 'XLU', side: 'long', weight: 0.5, asset_class: 'ETF' },
+            { symbol: 'ARKK', side: 'long', weight: 0.5, asset_class: 'ETF' },
+            { symbol: 'QQQ', side: 'short', weight: 1, asset_class: 'ETF' },
+          ],
+          preferred_signal: 'mixed',
+        },
+      ],
+    };
+    const overview = {
+      structural_decay_radar: {
+        label: 'decay_alert',
+        display_label: '结构衰败警报',
+        score: 0.74,
+        critical_axis_count: 3,
+        action_hint: '人的维度、治理与执行证据已经共振。',
+        top_signals: [{ key: 'people', label: '人的维度', score: 0.82 }],
+      },
+      evidence_summary: {
+        policy_source_health_summary: {
+          label: 'healthy',
+          reason: '主要政策源正文覆盖稳定',
+        },
+      },
+      factors: [{ name: 'credit_spread_stress', z_score: 0.8, value: 0.4, signal: 1 }],
+    };
+
+    const card = buildCrossMarketCards(payload, overview, {})[0];
+
+    expect(card.structuralDecayRadarLabel).toBe('decay_alert');
+    expect(card.structuralDecayRadarRiskBudgetScale).toBeLessThan(1);
+    expect(card.biasQualityLabel).toBe('decay_guarded');
+    expect(card.adjustedAssets.find((item) => item.symbol === 'XLU').weight).toBeGreaterThan(0.5);
+    expect(card.adjustedAssets.find((item) => item.symbol === 'ARKK').weight).toBeLessThan(0.5);
+    expect(card.driverSummary.some((item) => item.key === 'structural_decay_hedge')).toBe(true);
+    expect(card.matchedDrivers.some((item) => item.key === 'structural-decay-radar-defensive_beta_hedge')).toBe(true);
+  });
+
+  it('carries policy-execution and source-mode governance into template construction metadata', () => {
+    const payload = {
+      templates: [
+        {
+          id: 'utilities_vs_growth',
+          name: 'Utilities vs Growth',
+          linked_factors: ['policy_execution_disorder'],
+          linked_dimensions: ['policy_execution', 'source_mode_summary'],
+          assets: [
+            { symbol: 'XLU', side: 'long', weight: 0.5, asset_class: 'ETF' },
+            { symbol: 'ARKK', side: 'long', weight: 0.5, asset_class: 'ETF' },
+            { symbol: 'QQQ', side: 'short', weight: 1, asset_class: 'ETF' },
+          ],
+          preferred_signal: 'positive',
+          execution_posture: '防御优先 / 对冲增强',
+          theme_core: 'XLU+5.0pp',
+          theme_support: 'QQQ',
+        },
+      ],
+    };
+    const overview = {
+      department_chaos_summary: {
+        label: 'chaotic',
+        summary: '发改委执行混乱继续升温。',
+        avg_chaos_score: 0.63,
+        top_departments: [
+          {
+            department: 'ndrc',
+            department_label: '发改委',
+            chaos_score: 0.72,
+            reason: '方向反复与执行滞后同步上升。',
+          },
+        ],
+      },
+      source_mode_summary: {
+        label: 'fallback-heavy',
+        dominant: 'proxy',
+        counts: { proxy: 4, official: 2, curated: 2 },
+      },
+      factors: [{ name: 'policy_execution_disorder', z_score: 1.1, value: 0.62, signal: 1 }],
+    };
+
+    const card = buildCrossMarketCards(payload, overview, { provider_health: { degraded_providers: 1 } })[0];
+
+    expect(card.executionPosture).toBe('防御优先 / 对冲增强');
+    expect(card.themeCore).toBe('XLU+5.0pp');
+    expect(card.themeSupport).toBe('QQQ');
+    expect(card.policyExecutionLabel).toBe('chaotic');
+    expect(card.policyExecutionTopDepartment).toBe('发改委');
+    expect(card.policyExecutionRiskBudgetScale).toBeLessThan(1);
+    expect(card.sourceModeLabel).toBe('fallback-heavy');
+    expect(card.sourceModeRiskBudgetScale).toBeLessThan(1);
+    expect(card.sourceModeReason).toContain('来源治理');
+  });
 });

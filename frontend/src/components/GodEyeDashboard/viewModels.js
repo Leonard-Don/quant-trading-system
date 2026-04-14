@@ -6,4 +6,9 @@ export {
   getSignalLabel,
 } from './overviewViewModels';
 
-export { buildCrossMarketCards, buildHunterModel } from './taskIntelligenceViewModels';
+export {
+  buildCrossMarketCards,
+  buildDecayWatchModel,
+  buildHunterModel,
+  buildTradeThesisWatchModel,
+} from './taskIntelligenceViewModels';

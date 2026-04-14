@@ -63,16 +63,16 @@ def test_get_multiple_quotes_includes_extended_intraday_fields():
 
     assert quotes["AAPL"] == {
         "symbol": "AAPL",
-        "price": 253.94,
+        "price": 253.91,
         "change": 1.12,
         "change_percent": 0.44,
-        "volume": 28765432,
-        "high": 255.13,
-        "low": 252.18,
-        "open": 253.08,
-        "previous_close": 252.82,
-        "bid": 253.86,
-        "ask": 265.62,
+        "volume": 28000000,
+        "high": 255.0,
+        "low": 252.0,
+        "open": 253.0,
+        "previous_close": 252.8,
+        "bid": None,
+        "ask": None,
         "timestamp": quotes["AAPL"]["timestamp"],
         "source": "yahoo",
     }
@@ -88,9 +88,38 @@ def test_get_multiple_quotes_includes_extended_intraday_fields():
         "low": 6710.80,
         "open": 6722.35,
         "previous_close": 6699.38,
-        "bid": 6683.37,
-        "ask": 6757.55,
+        "bid": None,
+        "ask": None,
         "timestamp": quotes["^GSPC"]["timestamp"],
         "source": "yahoo",
     }
     assert isinstance(quotes["^GSPC"]["timestamp"], datetime)
+
+
+def test_get_latest_quote_prefers_fast_info_before_info():
+    provider = YahooFinanceProvider()
+    slow_info_accessed = {"value": False}
+
+    class FakeTicker:
+        fast_info = {
+            "lastPrice": 188.2,
+            "regularMarketChange": 1.1,
+            "regularMarketChangePercent": 0.59,
+            "lastVolume": 123456,
+            "dayHigh": 189.0,
+            "dayLow": 186.8,
+            "open": 187.2,
+            "previousClose": 187.1,
+        }
+
+        @property
+        def info(self):
+            slow_info_accessed["value"] = True
+            return {"regularMarketPrice": 188.5}
+
+    with patch.object(provider, "_get_ticker", return_value=FakeTicker()):
+        quote = provider.get_latest_quote("AAPL")
+
+    assert quote["price"] == 188.2
+    assert quote["previous_close"] == 187.1
+    assert slow_info_accessed["value"] is False

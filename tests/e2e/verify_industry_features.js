@@ -39,6 +39,23 @@ const waitForIndustryHeatmapReady = async (page, options = {}) => {
   await page.locator('[data-testid="heatmap-tile"]').first().waitFor({ state: 'visible', timeout: 60000 });
 };
 
+const resetIndustryPreferences = async (page) => {
+  await page.evaluate(async () => {
+    const response = await fetch('/industry/preferences', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        watchlist_industries: [],
+        saved_views: [],
+        alert_thresholds: {},
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to reset industry preferences: ${response.status}`);
+    }
+  });
+};
+
 const waitForIndustryDetailReady = async (page) => {
   const modal = page.locator('[data-testid="industry-detail-modal"]');
   await modal.waitFor({ state: 'visible', timeout: 6000 });
@@ -222,8 +239,8 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   console.log('验证行业筛选搜索...');
   await page.getByPlaceholder('行业筛选...').fill('半导体');
   await page.waitForTimeout(500);
-  const visibleIndustryTitles = await page.locator('.ant-card-body .ant-typography strong').evaluateAll(
-    (nodes) => nodes.map(node => (node.textContent || '').trim()).filter(Boolean)
+  const visibleIndustryTitles = await page.locator('[data-testid="heatmap-tile"]:visible').evaluateAll(
+    (nodes) => nodes.map(node => node.getAttribute('data-industry-name') || '').filter(Boolean)
   );
   const semiconductorExists = visibleIndustryTitles.some((text) => text.includes('半导体'));
   const unrelatedVisible = visibleIndustryTitles.some((text) => text && !text.includes('半导体'));
@@ -297,6 +314,11 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     await page.locator('[data-testid="industry-saved-view-save-button"]').click();
     await page.waitForTimeout(800);
   }
+  const expandSavedViewsButton = page.getByRole('button', { name: '展开列表' });
+  if (await expandSavedViewsButton.isVisible().catch(() => false)) {
+    await expandSavedViewsButton.click().catch(() => {});
+    await page.waitForTimeout(400);
+  }
   const savedViewItemVisible = await page.locator('[data-testid="industry-saved-view-item"]').filter({ hasText: viewName }).first().isVisible().catch(() => false);
   const savedViewsStorageRaw = await page.evaluate(() => window.localStorage.getItem('industry_saved_views_v1') || '[]');
   const savedViewsPersisted = Array.isArray(JSON.parse(savedViewsStorageRaw)) && JSON.parse(savedViewsStorageRaw).some((item) => item?.name === viewName);
@@ -348,7 +370,15 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
 
   // 7. 验证弹窗详情
   console.log('点击行业方块打开详情...');
-  const firstHeatmapTile = page.locator('[data-testid="heatmap-tile"]').first();
+  const preferredIndustries = ['半导体', '消费电子', '通信设备', '电池', '银行'];
+  let firstHeatmapTile = page.locator('[data-testid="heatmap-tile"]').first();
+  for (const industryName of preferredIndustries) {
+    const candidate = page.locator(`[data-testid="heatmap-tile"][data-industry-name="${industryName}"]`).first();
+    if (await candidate.count().catch(() => 0)) {
+      firstHeatmapTile = candidate;
+      break;
+    }
+  }
   const industryText = (await firstHeatmapTile.getAttribute('data-industry-name')) || await firstHeatmapTile.innerText();
   console.log(`点击行业: ${industryText}`);
   await firstHeatmapTile.click();
@@ -384,9 +414,14 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
       totalMarketCap: await readIndustryStatistic(page, '总市值'),
       avgPe: await readIndustryStatistic(page, '平均市盈率'),
     };
-    const stockRows = await page.locator('[data-testid="industry-stock-table"] tbody tr').evaluateAll(
-      (rows) => rows.slice(0, 5).map((row) => Array.from(row.querySelectorAll('td')).map((cell) => (cell.textContent || '').trim()))
-    );
+    const stockTableSnapshot = await page.locator('[data-testid="industry-stock-table"]').evaluate((table) => {
+      const headers = Array.from(table.querySelectorAll('thead th')).map((cell) => (cell.textContent || '').trim());
+      const rows = Array.from(table.querySelectorAll('tbody tr'))
+        .slice(0, 5)
+        .map((row) => Array.from(row.querySelectorAll('td')).map((cell) => (cell.textContent || '').trim()));
+      return { headers, rows };
+    });
+    const stockRows = stockTableSnapshot.rows;
     const quickScoreSnapshot = stockRows.map((cells) => cells[3] || '');
     await waitForIndustryScoreStage(page, ['quick', 'full'], 4000).catch(() => null);
     if (initialScoreStage === 'quick') {
@@ -398,11 +433,16 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
       (rows) => rows.slice(0, 5).map((row) => Array.from(row.querySelectorAll('td')).map((cell) => (cell.textContent || '').trim()))
     );
     const aiInsightVisible = await page.locator('[data-testid="industry-ai-insight-panel"]').count().catch(() => 0);
-    const stockRowsHaveDetails = stockRows.some((cells) => {
-      const marketCap = cells[5] || '';
-      const peRatio = cells[6] || '';
-      return marketCap !== '-' || peRatio !== '-';
-    });
+    const detailColumnKeywords = ['主力净流入', '换手率', '市值', 'PE'];
+    const detailColumnIndexes = stockTableSnapshot.headers
+      .map((header, index) => (detailColumnKeywords.some((keyword) => header.includes(keyword)) ? index : -1))
+      .filter((index) => index >= 0);
+    const stockRowsHaveDetails = stockRows.some((cells) => (
+      detailColumnIndexes.some((index) => {
+        const value = cells[index] || '';
+        return value && value !== '-';
+      })
+    ));
     const stockScoresUpgraded = upgradedStockRows.some((cells, idx) => {
       const score = cells[3] || '';
       const initialScore = quickScoreSnapshot[idx] || '';
@@ -461,6 +501,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   console.log('验证观察列表提醒订阅...');
   await setLocalStorageItem(page, 'industry_watchlist_v1', null);
   await setLocalStorageItem(page, 'industry_alert_subscription_v1', null);
+  await resetIndustryPreferences(page);
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
   await waitForIndustryHeatmapReady(page);
   await closeVisibleModal(page, 'industry-detail-modal');
@@ -469,19 +510,37 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   if (watchlistSeedIndustry) {
     await watchlistSeedTile.click();
     await closeVisibleModal(page, 'industry-detail-modal');
-    const addWatchlistButton = page.getByRole('button', { name: /加入观察列表|加入观察/ }).first();
-    const watchedButton = page.getByRole('button', { name: /已在观察列表|已在观察/ }).first();
-    if (await addWatchlistButton.isVisible().catch(() => false)) {
-      await addWatchlistButton.click();
-    } else {
-      await watchedButton.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    const focusWatchlistButton = page.locator('[data-testid="industry-focus-watchlist-button"]').first();
+    const focusWatchlistLabel = await focusWatchlistButton.innerText().catch(() => '');
+    await focusWatchlistButton.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    if (focusWatchlistLabel.includes('加入')) {
+      await focusWatchlistButton.click();
     }
     await page.waitForTimeout(600);
+    const watchlistTab = page.getByRole('tab', { name: /观察列表/ }).first();
+    await watchlistTab.click();
+    await page.waitForTimeout(300);
     const watchlistCard = page.locator('[data-testid="industry-watchlist-card"]');
     await watchlistCard.waitFor({ state: 'visible', timeout: 10000 });
+    const watchlistExpandButton = watchlistCard.getByRole('button', { name: /展开|收起/ }).first();
+    if (await watchlistExpandButton.isVisible().catch(() => false)) {
+      const watchlistExpandLabel = await watchlistExpandButton.innerText().catch(() => '');
+      if (watchlistExpandLabel.includes('展开')) {
+        await watchlistExpandButton.click();
+        await page.waitForTimeout(300);
+      }
+    }
     const watchlistItemVisible = await watchlistCard.locator('[data-testid="industry-watchlist-item"]').filter({ hasText: watchlistSeedIndustry }).first().isVisible().catch(() => false);
     const alertsCard = page.locator('[data-testid="industry-alerts-card"]');
     await alertsCard.waitFor({ state: 'visible', timeout: 10000 });
+    const advancedSettingsButton = page.getByRole('button', { name: /高级设置|收起高级设置/ }).first();
+    if (await advancedSettingsButton.isVisible().catch(() => false)) {
+      const advancedLabel = await advancedSettingsButton.innerText().catch(() => '');
+      if (!advancedLabel.includes('收起')) {
+        await advancedSettingsButton.click();
+        await page.waitForTimeout(300);
+      }
+    }
     const alertThresholdPanelVisible = await page.locator('[data-testid="industry-alert-thresholds-panel"]').isVisible().catch(() => false);
     await page.evaluate(() => {
       const alertsRoot = document.querySelector('[data-testid="industry-alerts-card"]');
@@ -499,6 +558,18 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     const savedKindsExcludeRotation = Array.isArray(savedSubscription.kinds) && !savedSubscription.kinds.includes('rotation');
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForIndustryHeatmapReady(page);
+    const watchlistTabAfterReload = page.getByRole('tab', { name: /观察列表/ }).first();
+    await watchlistTabAfterReload.click().catch(() => {});
+    await page.waitForTimeout(300);
+    const watchlistCardAfterReload = page.locator('[data-testid="industry-watchlist-card"]');
+    const watchlistExpandButtonAfterReload = watchlistCardAfterReload.getByRole('button', { name: /展开|收起/ }).first();
+    if (await watchlistExpandButtonAfterReload.isVisible().catch(() => false)) {
+      const watchlistExpandLabelAfterReload = await watchlistExpandButtonAfterReload.innerText().catch(() => '');
+      if (watchlistExpandLabelAfterReload.includes('展开')) {
+        await watchlistExpandButtonAfterReload.click();
+        await page.waitForTimeout(300);
+      }
+    }
     const subscriptionTagVisible = await page.getByText('仅观察列表', { exact: false }).isVisible().catch(() => false);
     const persistedSubscription = JSON.parse(await page.evaluate(() => window.localStorage.getItem('industry_alert_subscription_v1') || '{}'));
     const persistedWatchlistScope = persistedSubscription.scope === 'watchlist';
@@ -522,21 +593,27 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   }
 
   console.log('验证龙头股 Sparkline...');
+  await page.getByRole('tab', { name: '龙头股' }).first().click().catch(() => {});
+  await page.waitForTimeout(300);
   const leaderPanel = page.locator('[data-testid="leader-stock-panel"]');
   await page.waitForFunction(() => {
-    const root = document.querySelector('[data-testid="leader-stock-table-core"]');
-    if (!root) return false;
-    const hasRows = root.querySelectorAll('[data-testid="leader-stock-row"]').length > 0;
-    const loading = Boolean(root.querySelector('.ant-spin-spinning'));
-    const text = root.textContent || '';
-    const hasEmpty = text.includes('暂无可用核心资产标的') || text.includes('当前行业暂无可用核心资产标的');
+    const activePane = document.querySelector('[data-testid="leader-stock-panel"] .ant-tabs-tabpane-active');
+    if (!activePane) return false;
+    const hasRows = activePane.querySelectorAll('[data-testid="leader-stock-row"]').length > 0;
+    const loading = Boolean(activePane.querySelector('.ant-spin-spinning'));
+    const text = activePane.textContent || '';
+    const hasEmpty = text.includes('暂无可用核心资产标的')
+      || text.includes('当前行业暂无可用核心资产标的')
+      || text.includes('暂无可用热点先锋标的')
+      || text.includes('当前行业暂无可用热点先锋标的');
     return (!loading && hasRows) || hasEmpty;
   }, null, { timeout: 10000 }).catch(() => {});
-  const leaderSparklineVisible = await leaderPanel.locator('[data-testid="mini-sparkline"]').first().isVisible().catch(() => false);
+  const activeLeaderTab = leaderPanel.locator('.ant-tabs-tabpane-active');
+  const leaderSparklineVisible = await activeLeaderTab.locator('[data-testid="mini-sparkline"]').first().isVisible().catch(() => false);
   console.log(`龙头股走势火花线是否显示: ${leaderSparklineVisible ? '是' : '否'}`);
 
   console.log('验证龙头股详情竞态保护...');
-  const leaderRows = page.locator('[data-testid="leader-stock-table-core"] [data-testid="leader-stock-row"]');
+  const leaderRows = activeLeaderTab.locator('[data-testid="leader-stock-row"]');
   const leaderRowCount = await leaderRows.count();
   if (leaderRowCount >= 2) {
     const firstLeaderSymbol = await leaderRows.nth(0).getAttribute('data-symbol');
@@ -546,7 +623,8 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
       close?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     }).catch(() => {});
     await page.evaluate(() => {
-      const rows = Array.from(document.querySelectorAll('[data-testid="leader-stock-table-core"] [data-testid="leader-stock-row"]'));
+      const activePane = document.querySelector('[data-testid="leader-stock-panel"] .ant-tabs-tabpane-active');
+      const rows = Array.from(activePane?.querySelectorAll('[data-testid="leader-stock-row"]') || []);
       rows[0]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       rows[1]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
@@ -600,13 +678,11 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     (rows) => rows.map(row => (row.textContent || '').trim()).filter(Boolean)
   );
   const rankingHasEmptyState = rankingBodyRows.length > 0 && rankingBodyRows[0].includes('暂无排名数据');
-  const volatilityLabelsAfterFilter = await rankingTableBody.locator('.ant-tag').evaluateAll(
-    (nodes) => nodes.map(node => (node.textContent || '').trim()).filter(text => text === '高波动' || text === '中波动' || text.startsWith('低波动'))
-  );
-  const onlyLowVolatility = rankingHasEmptyState || (volatilityLabelsAfterFilter.length > 0 && volatilityLabelsAfterFilter.every(text => text.startsWith('低波动')));
+  const rankingBodyText = rankingBodyRows.join('\n');
+  const onlyLowVolatility = rankingHasEmptyState || (!rankingBodyText.includes('高波动') && !rankingBodyText.includes('中波动'));
   console.log(`排行榜低波动筛选是否生效: ${onlyLowVolatility ? '是' : '否'}`);
-  const sourceLabelsAfterFilter = await rankingTableBody.locator('.ant-tag').evaluateAll(
-    (nodes) => nodes.map(node => (node.textContent || '').trim()).filter(text => text === '实时' || text === '快照' || text === '代理' || text === '估算')
+  const sourceLabelsAfterFilter = await rankingTableBody.locator('[data-testid="industry-market-cap-source-tag"]').evaluateAll(
+    (nodes) => nodes.map(node => (node.textContent || '').trim()).filter(Boolean)
   );
   const onlyLiveSource = rankingHasEmptyState || (sourceLabelsAfterFilter.length > 0 && sourceLabelsAfterFilter.every(text => text === '实时'));
   console.log(`排行榜实时市值筛选是否生效: ${onlyLiveSource ? '是' : '否'}`);
@@ -617,7 +693,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   await waitForIndustryAppShell(page);
   await waitForRankingReady(page);
   const reloadedRankingUrl = page.url();
-  const rankingTabStillActive = await page.locator('.ant-tabs-tab-active .ant-tabs-tab-btn').innerText();
+  const rankingTabStillActive = await page.getByRole('tab', { name: '排行榜' }).getAttribute('aria-selected');
   await page.waitForFunction(() => {
     const sortBy = document.querySelector('[data-testid="ranking-control-sort-by"] .ant-select-selection-item')?.textContent?.trim();
     const lookback = document.querySelector('[data-testid="ranking-control-lookback"] .ant-select-selection-item')?.textContent?.trim();
@@ -632,7 +708,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     && rankingSelectValues.marketCap === '实时市值'
     && rankingSelectValues.lookback === '近5日';
   console.log(`排行榜 URL 保留: ${rankingUrlPersisted ? '是' : '否'}`);
-  console.log(`排行榜刷新后仍停留当前标签页: ${rankingTabStillActive === '排行榜' ? '是' : '否'}`);
+  console.log(`排行榜刷新后仍停留当前标签页: ${rankingTabStillActive === 'true' ? '是' : '否'}`);
   console.log(`排行榜筛选状态刷新后保留: ${rankingFiltersPersisted ? '是' : '否'}`);
   const rankingStateBarVisible = await page.locator('[data-testid="ranking-state-bar"]').isVisible().catch(() => false);
   const rankingStateTags = await readRankingStateTagTexts(page);
@@ -675,10 +751,10 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     const rankingFilterLabel = (await rankingFilterTag.innerText()).trim();
     await rankingFilterTag.click({ force: true });
     await page.waitForTimeout(1200);
-    const switchedToHeatmap = await page.locator('.ant-tabs-tab-active .ant-tabs-tab-btn').innerText();
+    const switchedToHeatmap = await page.getByRole('tab', { name: '热力图' }).getAttribute('aria-selected');
     const heatmapFilterText = await page.locator('body').innerText();
     const heatmapFilterHintVisible = heatmapFilterText.includes(`来源: ${rankingFilterLabel === '实时' ? '实时市值' : rankingFilterLabel === '快照' ? '快照市值' : rankingFilterLabel === '代理' ? '代理市值' : '估算市值'}`);
-    console.log(`排行榜来源标签点击后标签页: ${switchedToHeatmap}`);
+    console.log(`排行榜来源标签点击后标签页: ${switchedToHeatmap === 'true' ? '热力图' : '未知'}`);
     console.log(`排行榜来源标签 ${rankingFilterLabel} 联动是否生效: ${heatmapFilterHintVisible ? '是' : '否'}`);
   } else {
     console.log('排行榜来源标签点击后标签页: 跳过');

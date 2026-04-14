@@ -544,116 +544,121 @@ const IndustryTrendPanel = ({
                 />
             )}
 
-            <div
-                data-testid="industry-quality-panel"
-                style={{
-                    marginBottom: 16,
-                    padding: '12px 12px 10px',
-                    borderRadius: 12,
-                    background: `color-mix(in srgb, ${SURFACE_BG} 88%, var(--bg-primary) 12%)`,
-                    border: `1px solid color-mix(in srgb, var(--border-color) 80%, #ffffff 20%)`,
-                }}
-            >
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <Text strong>数据质量面板</Text>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                            {expectedStockCount > 0
-                                ? `当前预计成分股 ${expectedStockCount} 只，详情页已覆盖 ${formatCoveragePercent(trendData.stock_coverage_ratio)}。`
-                                : '当前缺少可对照的预期成分股口径，以下覆盖率更适合当作参考。'}
-                        </Text>
-                    </div>
-                    <Space size={[6, 6]} wrap>
-                        <Tag color={stockCoverageMeta.tagColor} style={{ margin: 0, borderRadius: 999 }}>{stockCoverageMeta.label}</Tag>
-                        <Tag color={marketCapSourceMeta.color} style={{ margin: 0, borderRadius: 999 }}>{marketCapSourceMeta.label}</Tag>
-                        <Tag color={valuationQualityMeta.color} style={{ margin: 0, borderRadius: 999 }}>{valuationQualityMeta.label}</Tag>
-                    </Space>
-                </div>
-
-                <Row gutter={[10, 10]}>
-                    {[
-                        { key: 'stock', label: '成分股覆盖', value: trendData.stock_coverage_ratio, meta: stockCoverageMeta },
-                        { key: 'change', label: '涨跌覆盖', value: trendData.change_coverage_ratio, meta: changeCoverageMeta },
-                        { key: 'market_cap', label: '市值覆盖', value: trendData.market_cap_coverage_ratio, meta: marketCapCoverageMeta },
-                        { key: 'pe', label: 'PE覆盖', value: trendData.pe_coverage_ratio, meta: peCoverageMeta },
-                    ].map((item) => (
-                        <Col xs={12} md={6} key={item.key}>
-                            <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.55)' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                                    <span style={{ fontSize: 11, color: TEXT_SECONDARY }}>{item.label}</span>
-                                    <span style={{ fontSize: 12, fontWeight: 700, color: item.meta.color }}>{formatCoveragePercent(item.value)}</span>
-                                </div>
-                                <Progress
-                                    percent={Math.round(Number(item.value || 0) * 100)}
-                                    showInfo={false}
-                                    strokeColor={item.meta.color}
-                                    trailColor="rgba(0,0,0,0.06)"
-                                    size="small"
-                                />
+            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                <Col xs={24} xl={14}>
+                    <div
+                        data-testid="industry-ai-insight-panel"
+                        style={{
+                            height: '100%',
+                            padding: '12px 12px 10px',
+                            borderRadius: 12,
+                            background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 90%, var(--accent-primary) 10%) 0%, color-mix(in srgb, var(--bg-secondary) 95%, var(--bg-primary) 5%) 100%)',
+                            border: '1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--border-color) 82%)',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <Text strong>AI洞察</Text>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                    基于价格、资金、波动和覆盖率自动生成，帮助先抓主线再深挖成分股。
+                                </Text>
                             </div>
-                        </Col>
-                    ))}
-                </Row>
-
-                <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <Tag color={marketCapSourceMeta.color} style={{ margin: 0, borderRadius: 999 }}>
-                        市值来源: {marketCapSourceMeta.label}
-                    </Tag>
-                    <Tag color={valuationSourceMeta.color} style={{ margin: 0, borderRadius: 999 }}>
-                        估值来源: {valuationSourceMeta.label}
-                    </Tag>
-                    {trendData.total_market_cap_fallback && (
-                        <Tag color="gold" style={{ margin: 0, borderRadius: 999 }}>
-                            总市值已回退行业聚合口径
-                        </Tag>
-                    )}
-                    {trendData.avg_pe_fallback && (
-                        <Tag color="gold" style={{ margin: 0, borderRadius: 999 }}>
-                            平均市盈率已回退行业聚合口径
-                        </Tag>
-                    )}
-                </div>
-            </div>
-
-            <div
-                data-testid="industry-ai-insight-panel"
-                style={{
-                    marginBottom: 16,
-                    padding: '12px 12px 10px',
-                    borderRadius: 12,
-                    background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 90%, var(--accent-primary) 10%) 0%, color-mix(in srgb, var(--bg-secondary) 95%, var(--bg-primary) 5%) 100%)',
-                    border: '1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--border-color) 82%)',
-                }}
-            >
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <Text strong>AI洞察</Text>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                            基于价格、资金、波动和覆盖率自动生成，帮助先抓主线再深挖成分股。
-                        </Text>
-                    </div>
-                    <Tag color={insightTone.color} style={{ margin: 0, borderRadius: 999 }}>
-                        {insightTone.label}
-                    </Tag>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {insightItems.map((item, index) => (
-                        <div
-                            key={`${index}-${item.slice(0, 16)}`}
-                            style={{
-                                padding: '8px 10px',
-                                borderRadius: 10,
-                                background: 'rgba(255,255,255,0.52)',
-                                color: 'var(--text-primary)',
-                                fontSize: 12,
-                                lineHeight: 1.75,
-                            }}
-                        >
-                            {item}
+                            <Tag color={insightTone.color} style={{ margin: 0, borderRadius: 999 }}>
+                                {insightTone.label}
+                            </Tag>
                         </div>
-                    ))}
-                </div>
-            </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            {insightItems.map((item, index) => (
+                                <div
+                                    key={`${index}-${item.slice(0, 16)}`}
+                                    style={{
+                                        padding: '8px 10px',
+                                        borderRadius: 10,
+                                        background: 'rgba(255,255,255,0.52)',
+                                        color: 'var(--text-primary)',
+                                        fontSize: 12,
+                                        lineHeight: 1.75,
+                                    }}
+                                >
+                                    {item}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </Col>
+                <Col xs={24} xl={10}>
+                    <div
+                        data-testid="industry-quality-panel"
+                        style={{
+                            height: '100%',
+                            padding: '12px 12px 10px',
+                            borderRadius: 12,
+                            background: `color-mix(in srgb, ${SURFACE_BG} 88%, var(--bg-primary) 12%)`,
+                            border: `1px solid color-mix(in srgb, var(--border-color) 80%, #ffffff 20%)`,
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <Text strong>数据质量面板</Text>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                    {expectedStockCount > 0
+                                        ? `当前预计成分股 ${expectedStockCount} 只，详情页已覆盖 ${formatCoveragePercent(trendData.stock_coverage_ratio)}。`
+                                        : '当前缺少可对照的预期成分股口径，以下覆盖率更适合当作参考。'}
+                                </Text>
+                            </div>
+                            <Space size={[6, 6]} wrap>
+                                <Tag color={stockCoverageMeta.tagColor} style={{ margin: 0, borderRadius: 999 }}>{stockCoverageMeta.label}</Tag>
+                                <Tag color={marketCapSourceMeta.color} style={{ margin: 0, borderRadius: 999 }}>{marketCapSourceMeta.label}</Tag>
+                                <Tag color={valuationQualityMeta.color} style={{ margin: 0, borderRadius: 999 }}>{valuationQualityMeta.label}</Tag>
+                            </Space>
+                        </div>
+
+                        <Row gutter={[10, 10]}>
+                            {[
+                                { key: 'stock', label: '成分股覆盖', value: trendData.stock_coverage_ratio, meta: stockCoverageMeta },
+                                { key: 'change', label: '涨跌覆盖', value: trendData.change_coverage_ratio, meta: changeCoverageMeta },
+                                { key: 'market_cap', label: '市值覆盖', value: trendData.market_cap_coverage_ratio, meta: marketCapCoverageMeta },
+                                { key: 'pe', label: 'PE覆盖', value: trendData.pe_coverage_ratio, meta: peCoverageMeta },
+                            ].map((item) => (
+                                <Col xs={12} md={12} key={item.key}>
+                                    <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.55)' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                                            <span style={{ fontSize: 11, color: TEXT_SECONDARY }}>{item.label}</span>
+                                            <span style={{ fontSize: 12, fontWeight: 700, color: item.meta.color }}>{formatCoveragePercent(item.value)}</span>
+                                        </div>
+                                        <Progress
+                                            percent={Math.round(Number(item.value || 0) * 100)}
+                                            showInfo={false}
+                                            strokeColor={item.meta.color}
+                                            trailColor="rgba(0,0,0,0.06)"
+                                            size="small"
+                                        />
+                                    </div>
+                                </Col>
+                            ))}
+                        </Row>
+
+                        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <Tag color={marketCapSourceMeta.color} style={{ margin: 0, borderRadius: 999 }}>
+                                市值来源: {marketCapSourceMeta.label}
+                            </Tag>
+                            <Tag color={valuationSourceMeta.color} style={{ margin: 0, borderRadius: 999 }}>
+                                估值来源: {valuationSourceMeta.label}
+                            </Tag>
+                            {trendData.total_market_cap_fallback && (
+                                <Tag color="gold" style={{ margin: 0, borderRadius: 999 }}>
+                                    总市值已回退行业聚合口径
+                                </Tag>
+                            )}
+                            {trendData.avg_pe_fallback && (
+                                <Tag color="gold" style={{ margin: 0, borderRadius: 999 }}>
+                                    平均市盈率已回退行业聚合口径
+                                </Tag>
+                            )}
+                        </div>
+                    </div>
+                </Col>
+            </Row>
 
             {/* 行业统计信息 */}
             <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>

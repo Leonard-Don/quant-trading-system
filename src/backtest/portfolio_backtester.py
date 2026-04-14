@@ -8,6 +8,7 @@ import pandas as pd
 
 from .base_backtester import BaseBacktester
 from .execution_engine import PortfolioExecutionConfig, PortfolioExecutionEngine
+from .impact_model import normalize_market_impact_model, summarize_execution_costs
 from .signal_adapter import SignalAdapter
 
 
@@ -28,6 +29,10 @@ class PortfolioBacktester(BaseBacktester):
         fixed_commission: float = 0.0,
         min_commission: float = 0.0,
         market_impact_bps: float = 0.0,
+        market_impact_model: str = "constant",
+        impact_reference_notional: float = 100000.0,
+        impact_coefficient: float = 1.0,
+        permanent_impact_bps: float = 0.0,
     ):
         super().__init__(
             initial_capital=initial_capital,
@@ -43,6 +48,10 @@ class PortfolioBacktester(BaseBacktester):
             fixed_commission=fixed_commission,
             min_commission=min_commission,
             market_impact_bps=market_impact_bps,
+            market_impact_model=normalize_market_impact_model(market_impact_model),
+            impact_reference_notional=impact_reference_notional,
+            impact_coefficient=impact_coefficient,
+            permanent_impact_bps=permanent_impact_bps,
         )
 
     def run(self, strategy: Any, data: Any, **kwargs: Any) -> Dict[str, Any]:
@@ -80,6 +89,16 @@ class PortfolioBacktester(BaseBacktester):
                 "positions_history": execution["positions"].reset_index().to_dict("records"),
                 "trades": execution["trades"],
                 "assets": list(price_matrix.columns),
+                "execution_costs": summarize_execution_costs(execution["trades"]),
+                "execution_diagnostics": {
+                    "market_impact_bps": self.execution_config.market_impact_bps,
+                    "market_impact_model": self.execution_config.market_impact_model,
+                    "impact_reference_notional": self.execution_config.impact_reference_notional,
+                    "impact_coefficient": self.execution_config.impact_coefficient,
+                    "permanent_impact_bps": self.execution_config.permanent_impact_bps,
+                    "fixed_commission": self.execution_config.fixed_commission,
+                    "min_commission": self.execution_config.min_commission,
+                },
             }
         )
         self.results = metrics

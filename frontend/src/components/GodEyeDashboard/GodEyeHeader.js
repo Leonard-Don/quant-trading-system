@@ -27,7 +27,7 @@ const GodEyeHeader = ({
   refreshing,
 }) => (
   <Card
-    bordered={false}
+    variant="borderless"
     style={{
       background:
         'radial-gradient(circle at top left, rgba(26, 66, 98, 0.96), rgba(10, 22, 33, 0.98) 55%, rgba(38, 54, 34, 0.92))',

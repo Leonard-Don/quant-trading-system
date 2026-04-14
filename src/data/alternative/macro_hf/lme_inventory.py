@@ -81,6 +81,10 @@ class LMEInventoryProvider(AntiCrawlMixin):
                     "unit": metal_info["unit"],
                     "data": inventory_data,
                     "source": "yfinance_proxy",
+                    "source_mode": "proxy",
+                    "fallback_reason": "lme_direct_feed_not_connected",
+                    "lag_days": 1,
+                    "coverage": 0.68,
                     "timestamp": datetime.now().isoformat(),
                 }
         except Exception as e:
@@ -161,6 +165,10 @@ class LMEInventoryProvider(AntiCrawlMixin):
                 "trend": "unknown",
                 "signal": 0,
                 "confidence": 0,
+                "source_mode": "curated",
+                "fallback_reason": "inventory_proxy_unavailable",
+                "lag_days": 30,
+                "coverage": 0.0,
             }
 
         price_data = data["data"]
@@ -188,6 +196,10 @@ class LMEInventoryProvider(AntiCrawlMixin):
             "volatility": price_data.get("volatility", 0),
             "signal": signal,
             "confidence": min(0.8, abs(change_pct) / 10),
+            "source_mode": data.get("source_mode", "proxy"),
+            "fallback_reason": data.get("fallback_reason", ""),
+            "lag_days": data.get("lag_days", 1),
+            "coverage": data.get("coverage", 0.68),
             "timestamp": datetime.now().isoformat(),
         }
 

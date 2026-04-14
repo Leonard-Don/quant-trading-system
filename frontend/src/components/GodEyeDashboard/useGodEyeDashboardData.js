@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { message } from 'antd';
 
-import { refreshAltData } from '../../services/api';
+import { createResearchTask, refreshAltData } from '../../services/api';
 import {
   buildGodEyeDerivedState,
   fetchGodEyeDashboardPayload,
 } from './dashboardDataHelpers';
+import { buildMacroMispricingWorkbenchPayload } from './taskIntelligenceViewModels';
 
 export default function useGodEyeDashboardData() {
   const [loading, setLoading] = useState(true);
@@ -57,14 +58,32 @@ export default function useGodEyeDashboardData() {
     }
   }, [loadDashboard]);
 
+  const handleSaveDecayWatchTask = useCallback(async (item) => {
+    if (!item || item.macroTaskId) {
+      return;
+    }
+
+    try {
+      const payload = buildMacroMispricingWorkbenchPayload(item);
+      await createResearchTask(payload);
+      message.success(`${item.symbol || item.title || '目标'} 已保存到工作台`);
+      await loadDashboard(false);
+    } catch (error) {
+      message.error(error.userMessage || error.message || '保存结构性衰败任务失败');
+    }
+  }, [loadDashboard]);
+
   const {
     crossMarketCards,
+    decayWatchModel,
     dashboardStatus,
     factorPanelModel,
     heatmapModel,
     hunterAlerts,
     radarData,
     refreshCounts,
+    refreshSignals,
+    tradeThesisWatchModel,
     timelineItems,
   } = useMemo(
     () =>
@@ -82,16 +101,21 @@ export default function useGodEyeDashboardData() {
 
   return {
     crossMarketCards,
+    decayWatchModel,
     dashboardStatus,
     factorPanelModel,
     handleManualRefresh,
+    handleSaveDecayWatchTask,
     heatmapModel,
     hunterAlerts,
     loading,
     overview,
     radarData,
     refreshCounts,
+    refreshSignals,
     refreshing,
+    snapshot,
+    tradeThesisWatchModel,
     timelineItems,
   };
 }

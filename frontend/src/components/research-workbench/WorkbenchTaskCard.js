@@ -3,6 +3,13 @@ import { Space, Tag, Typography } from 'antd';
 
 import { formatResearchSource } from '../../utils/researchContext';
 import { buildSnapshotComparison } from './snapshotCompare';
+import { buildRefreshPriorityMeta } from './workbenchSelectors';
+import {
+  buildRefreshPriorityChangeSummary,
+  extractSnapshotViewContext,
+  extractLatestRefreshPriorityEvent,
+  getRefreshPriorityChangeColor,
+} from './workbenchUtils';
 
 const { Text } = Typography;
 
@@ -18,12 +25,30 @@ function WorkbenchTaskCard({
   onDragOver,
   onDrop,
 }) {
+  const taskTypeColor = task.type === 'pricing'
+    ? 'blue'
+    : task.type === 'macro_mispricing'
+      ? 'volcano'
+      : task.type === 'trade_thesis'
+        ? 'cyan'
+      : 'purple';
   const templateMeta = task.snapshot?.payload?.template_meta || {};
   const executionPlan = task.snapshot?.payload?.execution_plan || {};
+  const structuralDecay = task.snapshot?.payload?.structural_decay || {};
+  const peopleLayer = task.snapshot?.payload?.people_layer || {};
+  const tradeThesis = task.snapshot?.payload?.trade_thesis || {};
   const history = task?.snapshot_history || [];
   const latestComparison = history.length >= 2
     ? buildSnapshotComparison(task.type, history[1], history[0])
     : null;
+  const refreshPriorityMeta = buildRefreshPriorityMeta(refreshSignal);
+  const latestRefreshPriorityEvent = extractLatestRefreshPriorityEvent(task);
+  const latestRefreshPriorityChangeLabel = latestRefreshPriorityEvent?.meta?.change_label || '';
+  const latestRefreshPriorityChangeColor = getRefreshPriorityChangeColor(
+    latestRefreshPriorityEvent?.meta?.change_type || 'updated'
+  );
+  const latestRefreshPriorityChangeSummary = buildRefreshPriorityChangeSummary(latestRefreshPriorityEvent);
+  const snapshotViewContext = extractSnapshotViewContext(task.snapshot);
 
   return (
     <div
@@ -51,7 +76,7 @@ function WorkbenchTaskCard({
       <Space direction="vertical" size={6} style={{ width: '100%' }}>
         <Space wrap>
           <Text strong>{task.title}</Text>
-          <Tag color={task.type === 'pricing' ? 'blue' : 'purple'}>{task.type}</Tag>
+          <Tag color={taskTypeColor}>{task.type}</Tag>
           {templateMeta.recommendation_tier ? <Tag color="gold">{templateMeta.recommendation_tier}</Tag> : null}
           {templateMeta.selection_quality?.label && templateMeta.selection_quality.label !== 'original' ? (
             <Tag color="orange">自动降级</Tag>
@@ -64,16 +89,44 @@ function WorkbenchTaskCard({
           {refreshSignal?.biasCompressionShift?.coreLegAffected ? <Tag color="volcano">核心腿受压</Tag> : null}
           {refreshSignal?.selectionQualityRunState?.active ? <Tag color="gold">降级运行</Tag> : null}
           {refreshSignal?.reviewContextDriven ? <Tag color="geekblue">复核语境切换</Tag> : null}
+          {refreshSignal?.structuralDecayRadarDriven ? <Tag color="volcano">系统衰败雷达</Tag> : null}
+          {refreshSignal?.structuralDecayDriven ? <Tag color="volcano">结构性衰败</Tag> : null}
+          {refreshSignal?.tradeThesisDriven ? <Tag color="cyan">交易 Thesis 漂移</Tag> : null}
+          {refreshSignal?.peopleLayerDriven ? <Tag color="purple">人的维度</Tag> : null}
+          {refreshSignal?.departmentChaosDriven ? <Tag color="volcano">部门混乱</Tag> : null}
           {refreshSignal?.inputReliabilityDriven ? <Tag color="blue">输入可靠度</Tag> : null}
           {refreshSignal?.selectionQualityDriven ? <Tag color="orange">自动降级</Tag> : null}
           {refreshSignal?.policySourceDriven ? <Tag color="red">政策源驱动</Tag> : null}
           {refreshSignal?.biasCompressionDriven ? <Tag color="orange">偏置收缩</Tag> : null}
+          {latestRefreshPriorityChangeLabel ? (
+            <Tag color={latestRefreshPriorityChangeColor}>{latestRefreshPriorityChangeLabel}</Tag>
+          ) : null}
         </Space>
         <Text type="secondary">{task.snapshot?.headline || '暂无快照摘要'}</Text>
+        {snapshotViewContext.summary ? (
+          <Text type="secondary">最近快照视角 {snapshotViewContext.summary}</Text>
+        ) : null}
+        {snapshotViewContext.scopedTaskLabel ? (
+          <Text type="secondary">{snapshotViewContext.scopedTaskLabel}</Text>
+        ) : null}
         {latestComparison?.lead ? (
           <Text type="secondary">
             最近两版：{latestComparison.lead}
           </Text>
+        ) : null}
+        {refreshPriorityMeta ? (
+          <>
+            <Text strong style={{ color: refreshSignal?.severity === 'high' ? '#cf1322' : '#d48806' }}>
+              自动排序：{refreshPriorityMeta.reasonLabel}
+            </Text>
+            {latestRefreshPriorityChangeSummary ? (
+              <Text type="secondary">{latestRefreshPriorityChangeSummary}</Text>
+            ) : null}
+            <Text type="secondary">
+              {refreshPriorityMeta.lead}
+              {refreshPriorityMeta.detail ? ` · ${refreshPriorityMeta.detail}` : ''}
+            </Text>
+          </>
         ) : null}
         {refreshSignal?.selectionQualityRunState?.active ? (
           <Text style={{ color: '#ad6800' }}>
@@ -85,6 +138,61 @@ function WorkbenchTaskCard({
         ) : refreshSignal?.inputReliabilityShift?.actionHint ? (
           <Text style={{ color: '#1677ff' }}>
             输入可靠度：{refreshSignal.inputReliabilityShift.actionHint}
+          </Text>
+        ) : refreshSignal?.structuralDecayRadarShift?.actionHint ? (
+          <Text style={{ color: '#d4380d' }}>
+            系统衰败雷达：{refreshSignal.structuralDecayRadarShift.actionHint}
+          </Text>
+        ) : refreshSignal?.peopleLayerShift?.actionHint ? (
+          <Text style={{ color: '#722ed1' }}>
+            人的维度：{refreshSignal.peopleLayerShift.actionHint}
+          </Text>
+        ) : null}
+        {refreshSignal?.structuralDecayRadarShift?.topSignalSummary ? (
+          <Text type="secondary">
+            雷达焦点 {refreshSignal.structuralDecayRadarShift.topSignalSummary}
+          </Text>
+        ) : null}
+        {refreshSignal?.peopleLayerShift?.evidenceSummary ? (
+          <Text type="secondary">
+            人事证据 {refreshSignal.peopleLayerShift.evidenceSummary}
+          </Text>
+        ) : null}
+        {refreshSignal?.structuralDecayShift?.evidenceSummary ? (
+          <Text type="secondary">
+            衰败证据 {refreshSignal.structuralDecayShift.evidenceSummary}
+          </Text>
+        ) : null}
+        {refreshSignal?.tradeThesisShift?.evidenceSummary ? (
+          <Text type="secondary">
+            Thesis 证据 {refreshSignal.tradeThesisShift.evidenceSummary}
+          </Text>
+        ) : null}
+        {task.type === 'macro_mispricing' && structuralDecay?.score !== undefined && structuralDecay?.score !== null ? (
+          <Text type="secondary">
+            衰败评分 {Number(structuralDecay.score || 0).toFixed(2)}
+            {structuralDecay?.dominant_failure_label ? ` · ${structuralDecay.dominant_failure_label}` : ''}
+          </Text>
+        ) : null}
+        {task.type === 'macro_mispricing' && peopleLayer?.risk_level ? (
+          <Text type="secondary">
+            人的维度 {peopleLayer.risk_level}
+            {peopleLayer?.summary ? ` · ${peopleLayer.summary}` : ''}
+          </Text>
+        ) : null}
+        {task.type === 'trade_thesis' && tradeThesis?.thesis?.stance ? (
+          <Text type="secondary">
+            Thesis {tradeThesis.thesis.stance}
+            {tradeThesis?.symbol ? ` · ${tradeThesis.symbol}` : ''}
+            {tradeThesis?.thesis?.horizon ? ` · ${tradeThesis.thesis.horizon}` : ''}
+          </Text>
+        ) : null}
+        {task.type === 'trade_thesis' && tradeThesis?.results_summary?.total_return !== undefined ? (
+          <Text type="secondary">
+            回测 {(Number(tradeThesis.results_summary.total_return || 0) * 100).toFixed(2)}%
+            {tradeThesis?.results_summary?.sharpe_ratio !== undefined
+              ? ` · Sharpe ${Number(tradeThesis.results_summary.sharpe_ratio || 0).toFixed(2)}`
+              : ''}
           </Text>
         ) : null}
         {refreshSignal?.severity && refreshSignal.severity !== 'low' ? (

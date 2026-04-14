@@ -977,13 +977,18 @@ class IndustryAnalyzer:
                     df["momentum_score"] = scaler.fit_transform(
                         df[["weighted_change"]].fillna(0)
                     ).flatten()
-                historical_vol_df = self.calculate_industry_historical_volatility(
-                    lookback=lookback,
-                    industries=df["industry_name"].tolist()
-                )
-                if not historical_vol_df.empty:
-                    df = self._apply_historical_volatility(df, historical_vol_df)
                 df = self._ensure_industry_volatility(df)
+
+                # 首屏行业列表优先使用资金流/换手率代理波动率，避免为了补真实历史波动率
+                # 再触发全行业指数历史拉取，拖慢热力图和排行榜冷启动。
+                should_fetch_historical_volatility = industries is not None
+                if should_fetch_historical_volatility:
+                    historical_vol_df = self.calculate_industry_historical_volatility(
+                        lookback=lookback,
+                        industries=df["industry_name"].tolist()
+                    )
+                    if not historical_vol_df.empty:
+                        df = self._apply_historical_volatility(df, historical_vol_df)
                 
                 # Update cache
                 if cache_key:

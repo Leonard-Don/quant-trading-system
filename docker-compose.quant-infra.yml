@@ -1,0 +1,43 @@
+services:
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${TIMESCALE_DB:-quant_research}
+      POSTGRES_USER: ${TIMESCALE_USER:-quant}
+      POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD:-quant_dev_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "${TIMESCALE_PORT:-5432}:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${TIMESCALE_USER:-quant} -d ${TIMESCALE_DB:-quant_research}
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - ping
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  timescale_data:
+  redis_data:

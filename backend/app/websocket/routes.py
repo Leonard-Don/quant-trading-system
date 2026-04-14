@@ -3,6 +3,7 @@ WebSocket路由端点
 """
 
 import asyncio
+import hmac
 import logging
 import os
 from datetime import datetime
@@ -16,13 +17,78 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
+_ws_auth_warned = False
+
+
 def _is_authorized_websocket(websocket: WebSocket) -> bool:
+    global _ws_auth_warned
     expected_token = os.getenv("REALTIME_WS_TOKEN")
     if not expected_token:
+        if not _ws_auth_warned:
+            logger.warning(
+                "REALTIME_WS_TOKEN is not set — WebSocket auth is disabled. "
+                "Set the environment variable to enforce token-based access control."
+            )
+            _ws_auth_warned = True
         return True
 
     provided_token = websocket.query_params.get("token")
-    return bool(provided_token) and provided_token == expected_token
+    if not provided_token:
+        provided_token = websocket.headers.get("x-ws-token")
+    return bool(provided_token) and hmac.compare_digest(str(provided_token), expected_token)
+
+
+async def _send_quote_snapshot(
+    websocket: WebSocket,
+    symbols: list[str],
+    *,
+    origin: str,
+    cache_first: bool = False,
+    allow_fill: bool = True,
+) -> None:
+    target_symbols = [symbol for symbol in symbols if isinstance(symbol, str)]
+    if not target_symbols:
+        return
+
+    loop = asyncio.get_running_loop()
+    cached_snapshot = {}
+    if cache_first:
+        cached_snapshot = await loop.run_in_executor(
+            None,
+            lambda: realtime_manager.get_cached_quotes_dict(target_symbols),
+        )
+        if cached_snapshot:
+            await manager.send_personal_message(websocket, {
+                "type": "snapshot",
+                "symbols": list(cached_snapshot.keys()),
+                "data": cached_snapshot,
+                "origin": origin,
+                "stage": "cache",
+                "timestamp": datetime.now().isoformat(),
+            })
+
+    missing_symbols = [symbol for symbol in target_symbols if symbol not in cached_snapshot]
+    if not missing_symbols or not allow_fill:
+        return
+
+    quotes = await loop.run_in_executor(
+        None,
+        lambda: realtime_manager.get_quotes_dict(missing_symbols, use_cache=True),
+    )
+    snapshot_data = {
+        symbol: quote
+        for symbol, quote in quotes.items()
+        if symbol in missing_symbols and quote
+    }
+    if snapshot_data:
+        await manager.send_personal_message(websocket, {
+            "type": "snapshot",
+            "symbols": list(snapshot_data.keys()),
+            "data": snapshot_data,
+            "origin": origin,
+            "stage": "fill" if cache_first and cached_snapshot else "full",
+            "timestamp": datetime.now().isoformat(),
+        })
 
 
 @router.websocket("/ws/quotes")
@@ -63,49 +129,29 @@ async def websocket_quotes(websocket: WebSocket):
 
                 new_symbols = [result["symbol"] for result in subscription_results if result.get("added")]
                 if new_symbols:
-                    loop = asyncio.get_running_loop()
-                    quotes = await loop.run_in_executor(
-                        None, realtime_manager.get_quotes_dict, new_symbols, True
+                    await _send_quote_snapshot(
+                        websocket,
+                        new_symbols,
+                        origin="subscribe",
+                        cache_first=True,
+                        allow_fill=len(new_symbols) <= 8,
                     )
-                    snapshot_data = {
-                        symbol: quote
-                        for symbol, quote in quotes.items()
-                        if symbol in new_symbols and quote
-                    }
-                    if snapshot_data:
-                        await manager.send_personal_message(websocket, {
-                            "type": "snapshot",
-                            "symbols": list(snapshot_data.keys()),
-                            "data": snapshot_data,
-                            "origin": "subscribe",
-                            "timestamp": datetime.now().isoformat(),
-                        })
-
                     logger.info(
-                        "Initial realtime snapshot sent: websocket_symbols=%s snapshots=%s duplicates=%s",
+                        "Initial realtime snapshot sent: websocket_symbols=%s snapshots=%s duplicates=%s allow_fill=%s",
                         len(symbols),
-                        len(snapshot_data),
+                        len(new_symbols),
                         len([result for result in subscription_results if result.get("duplicate")]),
+                        len(new_symbols) <= 8,
                     )
             elif action == "snapshot":
                 target_symbols = symbols or list(manager.subscriptions.get(websocket, set()))
                 if target_symbols:
-                    loop = asyncio.get_running_loop()
-                    quotes = await loop.run_in_executor(
-                        None, realtime_manager.get_quotes_dict, target_symbols, True
+                    await _send_quote_snapshot(
+                        websocket,
+                        target_symbols,
+                        origin="manual_refresh",
+                        cache_first=True,
                     )
-                    snapshot_data = {
-                        symbol: quote
-                        for symbol, quote in quotes.items()
-                        if symbol in target_symbols and quote
-                    }
-                    await manager.send_personal_message(websocket, {
-                        "type": "snapshot",
-                        "symbols": list(snapshot_data.keys()),
-                        "data": snapshot_data,
-                        "origin": "manual_refresh",
-                        "timestamp": datetime.now().isoformat(),
-                    })
 
             elif action == "unsubscribe":
                 for symbol in symbols:

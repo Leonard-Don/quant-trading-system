@@ -5,6 +5,7 @@
 import pytest
 import pandas as pd
 import numpy as np
+import time
 from datetime import datetime
 from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
@@ -225,3 +226,42 @@ class TestDataManager:
 
         # 验证缓存大小不超过限制
         assert data_manager.cache.size() <= data_manager.cache.max_size
+
+    def test_get_historical_data_deduplicates_inflight_fetches(self, data_manager):
+        """测试并发获取同一标的时只触发一次真实抓取"""
+        sample = pd.DataFrame(
+            {
+                "Open": [1.0, 2.0],
+                "High": [1.5, 2.5],
+                "Low": [0.5, 1.5],
+                "Close": [1.2, 2.2],
+                "Volume": [100, 200],
+            },
+            index=pd.date_range(start="2024-01-01", periods=2),
+        )
+        call_count = {"value": 0}
+
+        class DummyTicker:
+            def history(self, *args, **kwargs):
+                call_count["value"] += 1
+                time.sleep(0.15)
+                return sample.copy()
+
+        with patch("yfinance.Ticker", return_value=DummyTicker()):
+            start_date = datetime(2024, 1, 1)
+            end_date = datetime(2024, 1, 31)
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                futures = [
+                    executor.submit(
+                        data_manager.get_historical_data,
+                        "AAPL",
+                        start_date,
+                        end_date,
+                        "1d",
+                    )
+                    for _ in range(2)
+                ]
+                results = [future.result() for future in futures]
+
+        assert call_count["value"] == 1
+        assert all(isinstance(result, pd.DataFrame) and not result.empty for result in results)

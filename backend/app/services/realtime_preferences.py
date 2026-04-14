@@ -22,10 +22,14 @@ DEFAULT_SYMBOLS = [
     'SPY', 'QQQ', 'UVXY',
 ]
 VALID_TABS = {'index', 'us', 'cn', 'crypto', 'bond', 'future', 'option', 'other'}
+MAX_SUBSCRIBED_SYMBOLS = 200
+MAX_WATCH_GROUPS = 20
+MAX_SYMBOLS_PER_WATCH_GROUP = 200
 DEFAULT_PREFERENCES = {
     "symbols": DEFAULT_SYMBOLS,
     "active_tab": "index",
     "symbol_categories": {},
+    "watch_groups": [],
 }
 
 
@@ -66,10 +70,21 @@ class RealtimePreferencesStore:
 
     def _normalize_preferences(self, payload: Dict[str, Any] | None) -> Dict[str, Any]:
         payload = dict(payload or {})
-        symbols = self._normalize_symbols(payload.get("symbols") or DEFAULT_PREFERENCES["symbols"])
+        warnings: List[str] = []
+        raw_symbols = payload.get("symbols") or DEFAULT_PREFERENCES["symbols"]
+        symbols = self._normalize_symbols(raw_symbols)
+        if len(symbols) > MAX_SUBSCRIBED_SYMBOLS:
+            warnings.append(
+                f"symbols truncated from {len(symbols)} to {MAX_SUBSCRIBED_SYMBOLS}"
+            )
+            symbols = symbols[:MAX_SUBSCRIBED_SYMBOLS]
         active_tab = payload.get("active_tab") or DEFAULT_PREFERENCES["active_tab"]
         raw_categories = payload.get("symbol_categories") or {}
+        raw_watch_groups = payload.get("watch_groups") or []
         if active_tab not in VALID_TABS:
+            warnings.append(
+                f"invalid active_tab '{active_tab}', reset to '{DEFAULT_PREFERENCES['active_tab']}'"
+            )
             active_tab = DEFAULT_PREFERENCES["active_tab"]
 
         symbol_categories: Dict[str, str] = {}
@@ -81,11 +96,62 @@ class RealtimePreferencesStore:
                 category = raw_category.strip()
                 if symbol and category in VALID_TABS:
                     symbol_categories[symbol] = category
+                elif symbol:
+                    warnings.append(
+                        f"symbol_categories['{symbol}']: skipped (invalid category '{category}')"
+                    )
+
+        watch_groups: List[Dict[str, Any]] = []
+        if isinstance(raw_watch_groups, list):
+            if len(raw_watch_groups) > MAX_WATCH_GROUPS:
+                warnings.append(
+                    f"watch_groups truncated from {len(raw_watch_groups)} to {MAX_WATCH_GROUPS}"
+                )
+            for raw_group in raw_watch_groups[:MAX_WATCH_GROUPS]:
+                if not isinstance(raw_group, dict):
+                    continue
+                name = str(raw_group.get("name") or "").strip()
+                if not name:
+                    warnings.append("watch_groups: skipped a group with empty name")
+                    continue
+                group_symbols = self._normalize_symbols(raw_group.get("symbols") or [])
+                if len(group_symbols) > MAX_SYMBOLS_PER_WATCH_GROUP:
+                    warnings.append(
+                        f"watch_groups['{name}']: symbols truncated from {len(group_symbols)} to {MAX_SYMBOLS_PER_WATCH_GROUP}"
+                    )
+                    group_symbols = group_symbols[:MAX_SYMBOLS_PER_WATCH_GROUP]
+                raw_weights = raw_group.get("weights") or {}
+                weights: Dict[str, float] = {}
+                if isinstance(raw_weights, dict):
+                    for raw_symbol, raw_weight in raw_weights.items():
+                        symbol = str(raw_symbol or "").strip().upper()
+                        if symbol not in group_symbols:
+                            continue
+                        try:
+                            numeric_weight = float(raw_weight)
+                        except (TypeError, ValueError):
+                            continue
+                        if numeric_weight == numeric_weight:
+                            weights[symbol] = numeric_weight
+                try:
+                    capital = float(raw_group.get("capital") or 0.0)
+                except (TypeError, ValueError):
+                    capital = 0.0
+                watch_groups.append({
+                    "id": str(raw_group.get("id") or f"group-{len(watch_groups)+1}"),
+                    "name": name,
+                    "symbols": group_symbols,
+                    "notes": str(raw_group.get("notes") or "").strip(),
+                    "capital": max(capital, 0.0),
+                    "weights": weights,
+                })
 
         return {
             "symbols": symbols or list(DEFAULT_PREFERENCES["symbols"]),
             "active_tab": active_tab,
             "symbol_categories": symbol_categories,
+            "watch_groups": watch_groups,
+            "_warnings": warnings,
         }
 
     def _load_preferences(self, profile_id: str | None) -> Dict[str, Any]:
@@ -114,13 +180,18 @@ class RealtimePreferencesStore:
                 "symbols": list(preferences["symbols"]),
                 "active_tab": preferences["active_tab"],
                 "symbol_categories": dict(preferences.get("symbol_categories") or {}),
+                "watch_groups": list(preferences.get("watch_groups") or []),
             }
 
     def update_preferences(self, payload: Dict[str, Any], profile_id: str | None = None) -> Dict[str, Any]:
         with self._lock:
             preferences = self._normalize_preferences(payload)
+            warnings = preferences.pop("_warnings", [])
             self._persist(profile_id, preferences)
-            return self.get_preferences(profile_id)
+            result = self.get_preferences(profile_id)
+            if warnings:
+                result["_warnings"] = warnings
+            return result
 
 
 realtime_preferences_store = RealtimePreferencesStore()

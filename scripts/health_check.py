@@ -9,6 +9,7 @@ import importlib
 from pathlib import Path
 import json
 from datetime import datetime
+import shlex
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
@@ -148,6 +149,122 @@ class HealthChecker:
         except FileNotFoundError:
             self.log_issue("Node.js 未安装")
 
+    def _load_env_file(self, env_path: Path):
+        values = {}
+        if not env_path.exists():
+            return values
+        for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            parsed = shlex.split(value.strip()) if value.strip() else []
+            values[key.strip()] = parsed[0] if parsed else value.strip().strip('"').strip("'")
+        return values
+
+    def check_local_infrastructure_stack(self):
+        """检查本地 Docker infra stack 入口"""
+        print("\n🐳 检查本地基础设施栈...")
+
+        compose_file = project_root / "docker-compose.quant-infra.yml"
+        start_script = project_root / "scripts/start_infra_stack.sh"
+        stop_script = project_root / "scripts/stop_infra_stack.sh"
+        migration_script = project_root / "scripts/migrate_infra_store.py"
+        runtime_env_file = project_root / "logs/infra-stack.env"
+        env_file = project_root / ".env"
+        env_values = self._load_env_file(env_file)
+
+        if compose_file.exists():
+            self.log_success("docker-compose.quant-infra.yml 存在")
+        else:
+            self.log_issue("缺少 docker-compose.quant-infra.yml")
+
+        for script_path in [start_script, stop_script, migration_script]:
+            if script_path.exists():
+                if script_path.suffix == ".py" or os.access(script_path, os.X_OK):
+                    self.log_success(f"{script_path.relative_to(project_root)} 可执行")
+                else:
+                    self.log_warning(f"{script_path.relative_to(project_root)} 存在但缺少执行权限")
+            else:
+                self.log_issue(f"缺少脚本: {script_path.relative_to(project_root)}")
+
+        try:
+            result = subprocess.run(["docker", "--version"], capture_output=True, text=True)
+            if result.returncode == 0:
+                self.log_success(result.stdout.strip())
+            else:
+                self.log_warning("Docker 已安装但无法正常执行")
+        except FileNotFoundError:
+            self.log_warning("Docker 未安装，本地 infra stack 将无法直接启动")
+
+        try:
+            result = subprocess.run(["docker", "compose", "version"], capture_output=True, text=True)
+            if result.returncode == 0:
+                self.log_success(result.stdout.strip())
+            else:
+                self.log_warning("docker compose 不可用，可尝试安装 Docker Desktop")
+        except FileNotFoundError:
+            self.log_warning("docker compose 不可用")
+
+        if env_values.get("DATABASE_URL"):
+            self.log_success("`.env` 已配置 DATABASE_URL")
+        else:
+            self.log_warning("`.env` 未配置 DATABASE_URL，可使用 start_infra_stack.sh 运行时自动注入")
+
+        if env_values.get("REDIS_URL"):
+            self.log_success("`.env` 已配置 REDIS_URL")
+        else:
+            self.log_warning("`.env` 未配置 REDIS_URL，可使用 start_infra_stack.sh 运行时自动注入")
+
+        if env_values.get("CELERY_BROKER_URL") or env_values.get("REDIS_URL"):
+            self.log_success("任务队列 broker 入口已配置或可由 Redis 派生")
+        else:
+            self.log_warning("`.env` 未配置 CELERY_BROKER_URL，异步任务将回退为本地执行器")
+
+        if runtime_env_file.exists():
+            self.log_success("发现运行时 infra 环境文件 logs/infra-stack.env")
+        else:
+            self.log_warning("尚未发现 logs/infra-stack.env，可先运行 ./scripts/start_infra_stack.sh")
+
+    def check_celery_worker_runtime(self):
+        """检查 Celery worker 启停链路"""
+        print("\n🧵 检查 Celery worker 运行时...")
+
+        start_script = project_root / "scripts/start_celery_worker.sh"
+        stop_script = project_root / "scripts/stop_celery_worker.sh"
+        pid_file = project_root / "logs/celery-worker.pid"
+        log_file = project_root / "logs/celery-worker.log"
+
+        for script_path in [start_script, stop_script]:
+            if script_path.exists():
+                if os.access(script_path, os.X_OK):
+                    self.log_success(f"{script_path.relative_to(project_root)} 可执行")
+                else:
+                    self.log_warning(f"{script_path.relative_to(project_root)} 存在但缺少执行权限")
+            else:
+                self.log_issue(f"缺少脚本: {script_path.relative_to(project_root)}")
+
+        try:
+            importlib.import_module("celery")
+            self.log_success("Python celery 模块已安装")
+        except ImportError:
+            self.log_warning("Python celery 模块未安装，worker 暂时无法启动")
+
+        if pid_file.exists():
+            try:
+                pid = int(pid_file.read_text(encoding="utf-8").strip())
+                os.kill(pid, 0)
+                self.log_success(f"检测到 Celery worker 进程运行中 (PID: {pid})")
+            except Exception:
+                self.log_warning("检测到 celery-worker.pid，但进程已不在运行")
+        else:
+            self.log_warning("尚未发现 celery-worker.pid，可用 ./scripts/start_celery_worker.sh 启动")
+
+        if log_file.exists():
+            self.log_success("发现 Celery worker 日志文件 logs/celery-worker.log")
+        else:
+            self.log_warning("尚未发现 Celery worker 日志文件")
+
     def check_permissions(self):
         """检查文件权限"""
         print("\n🔐 检查文件权限...")
@@ -240,6 +357,8 @@ class HealthChecker:
         self.check_project_structure()
         self.check_module_imports()
         self.check_frontend_dependencies()
+        self.check_local_infrastructure_stack()
+        self.check_celery_worker_runtime()
         self.check_permissions()
         self.check_configuration()
         self.check_test_environment()

@@ -342,6 +342,41 @@ class CrossMarketBacktester(BaseBacktester):
         input_reliability_posture = template_context.get("input_reliability_posture") or ""
         input_reliability_reason = template_context.get("input_reliability_reason") or ""
         input_reliability_action_hint = template_context.get("input_reliability_action_hint") or ""
+        department_chaos_label = template_context.get("department_chaos_label") or "unknown"
+        department_chaos_score = float(template_context.get("department_chaos_score") or 0.0)
+        department_chaos_top_department = template_context.get("department_chaos_top_department") or ""
+        department_chaos_reason = template_context.get("department_chaos_reason") or ""
+        department_chaos_risk_budget_scale = float(
+            template_context.get("department_chaos_risk_budget_scale") or 1.0
+        )
+        policy_execution_label = template_context.get("policy_execution_label") or "unknown"
+        policy_execution_score = float(template_context.get("policy_execution_score") or 0.0)
+        policy_execution_top_department = template_context.get("policy_execution_top_department") or ""
+        policy_execution_reason = template_context.get("policy_execution_reason") or ""
+        policy_execution_risk_budget_scale = float(
+            template_context.get("policy_execution_risk_budget_scale") or 1.0
+        )
+        people_fragility_label = template_context.get("people_fragility_label") or "stable"
+        people_fragility_score = float(template_context.get("people_fragility_score") or 0.0)
+        people_fragility_focus = template_context.get("people_fragility_focus") or ""
+        people_fragility_reason = template_context.get("people_fragility_reason") or ""
+        people_fragility_risk_budget_scale = float(
+            template_context.get("people_fragility_risk_budget_scale") or 1.0
+        )
+        source_mode_label = template_context.get("source_mode_label") or "mixed"
+        source_mode_dominant = template_context.get("source_mode_dominant") or ""
+        source_mode_reason = template_context.get("source_mode_reason") or ""
+        source_mode_risk_budget_scale = float(
+            template_context.get("source_mode_risk_budget_scale") or 1.0
+        )
+        structural_decay_radar_label = template_context.get("structural_decay_radar_label") or "stable"
+        structural_decay_radar_display_label = template_context.get("structural_decay_radar_display_label") or ""
+        structural_decay_radar_score = float(template_context.get("structural_decay_radar_score") or 0.0)
+        structural_decay_radar_action_hint = template_context.get("structural_decay_radar_action_hint") or ""
+        structural_decay_radar_risk_budget_scale = float(
+            template_context.get("structural_decay_radar_risk_budget_scale") or 1.0
+        )
+        structural_decay_radar_top_signals = template_context.get("structural_decay_radar_top_signals") or []
 
         return {
             "template_id": template_context.get("template_id") or "",
@@ -370,6 +405,7 @@ class CrossMarketBacktester(BaseBacktester):
             "support_legs": template_context.get("support_legs") or [],
             "theme_core": template_context.get("theme_core") or "",
             "theme_support": template_context.get("theme_support") or "",
+            "execution_posture": template_context.get("execution_posture") or "",
             "bias_compression_effect": compression_effect,
             "compression_summary": {
                 "label": (
@@ -413,6 +449,51 @@ class CrossMarketBacktester(BaseBacktester):
                 "posture": input_reliability_posture,
                 "reason": input_reliability_reason,
                 "action_hint": input_reliability_action_hint,
+            },
+            "department_chaos": {
+                "label": department_chaos_label,
+                "score": department_chaos_score,
+                "top_department": department_chaos_top_department,
+                "reason": department_chaos_reason,
+                "risk_budget_scale": department_chaos_risk_budget_scale,
+                "active": department_chaos_label in {"chaotic", "chaos_guarded"}
+                or department_chaos_score >= 0.58,
+            },
+            "policy_execution": {
+                "label": policy_execution_label,
+                "score": policy_execution_score,
+                "top_department": policy_execution_top_department,
+                "reason": policy_execution_reason,
+                "risk_budget_scale": policy_execution_risk_budget_scale,
+                "active": policy_execution_label in {"chaotic", "watch", "guarded"}
+                or policy_execution_score >= 0.54,
+            },
+            "people_fragility": {
+                "label": people_fragility_label,
+                "score": people_fragility_score,
+                "focus": people_fragility_focus,
+                "reason": people_fragility_reason,
+                "risk_budget_scale": people_fragility_risk_budget_scale,
+                "active": people_fragility_label in {"fragile", "people_guarded"}
+                or people_fragility_score >= 0.68,
+            },
+            "source_mode_summary": {
+                "label": source_mode_label,
+                "dominant": source_mode_dominant,
+                "reason": source_mode_reason,
+                "risk_budget_scale": source_mode_risk_budget_scale,
+                "active": source_mode_label in {"fallback-heavy", "watch"}
+                or source_mode_risk_budget_scale < 0.95,
+            },
+            "structural_decay_radar": {
+                "label": structural_decay_radar_label,
+                "display_label": structural_decay_radar_display_label,
+                "score": structural_decay_radar_score,
+                "action_hint": structural_decay_radar_action_hint,
+                "risk_budget_scale": structural_decay_radar_risk_budget_scale,
+                "top_signals": structural_decay_radar_top_signals,
+                "active": structural_decay_radar_label in {"decay_alert", "decay_guarded"}
+                or structural_decay_radar_score >= 0.68,
             },
             "side_bias_summary": {
                 "long_raw_weight": round(long_raw_total, 6),

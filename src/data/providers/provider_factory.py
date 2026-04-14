@@ -16,6 +16,7 @@ from .alphavantage_provider import AlphaVantageProvider
 from .twelvedata_provider import TwelveDataProvider
 from .akshare_provider import AKShareProvider
 from .us_stock_provider import USStockProvider
+from ..market_depth import resolve_market_depth
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +242,23 @@ class DataProviderFactory:
                 continue
         
         return {"symbol": symbol, "error": "All providers failed"}
+
+    def get_order_book(self, symbol: str, levels: int = 10) -> Dict[str, Any]:
+        """
+        获取市场深度，优先真实 Level 2，再退回 quote-proxy / synthetic。
+        """
+        return resolve_market_depth(
+            symbol,
+            levels=levels,
+            provider_factory=self,
+            quote_loader=lambda probe_symbol: self.get_latest_quote(probe_symbol),
+        )
+
+    def get_market_depth_capabilities(self, symbol: str, levels: int = 10) -> Dict[str, Any]:
+        """
+        返回市场深度能力探测结果，供前端/诊断面板直接使用。
+        """
+        return self.get_order_book(symbol, levels=levels)
     
     def get_available_providers(self) -> List[Dict[str, Any]]:
         """获取所有可用的提供器信息"""

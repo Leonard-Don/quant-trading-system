@@ -15,6 +15,8 @@ from backend.app.api.v1.endpoints import (
     macro,
     cross_market,
     research_workbench,
+    quant_lab,
+    infrastructure,
 )
 
 api_router = APIRouter()
@@ -41,4 +43,10 @@ api_router.include_router(
     research_workbench.router,
     prefix="/research-workbench",
     tags=["Research Workbench"],
+)
+api_router.include_router(quant_lab.router, prefix="/quant-lab", tags=["Quant Lab"])
+api_router.include_router(
+    infrastructure.router,
+    prefix="/infrastructure",
+    tags=["Infrastructure"],
 )
