@@ -15,6 +15,7 @@ import {
   Statistic,
   Table,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import {
@@ -226,7 +227,23 @@ export function PeerComparisonCard({ loading, error, peerComparison, onInspect }
               { title: 'P/E', dataIndex: 'pe_ratio', key: 'pe_ratio', render: (value) => (value ? Number(value).toFixed(1) : DISPLAY_EMPTY) },
               { title: 'P/S', dataIndex: 'price_to_sales', key: 'price_to_sales', render: (value) => (value ? Number(value).toFixed(1) : DISPLAY_EMPTY) },
               { title: 'EV/EBITDA', dataIndex: 'enterprise_to_ebitda', key: 'enterprise_to_ebitda', render: (value) => (value ? Number(value).toFixed(1) : DISPLAY_EMPTY) },
-              { title: '操作', key: 'action', render: (_, record) => (record.is_target ? <AntText type="secondary">当前</AntText> : <Button type="link" onClick={() => onInspect(record)}>深入分析</Button>) },
+              {
+                title: '操作',
+                key: 'action',
+                render: (_, record) => (
+                  record.is_target ? (
+                    <AntText type="secondary">当前</AntText>
+                  ) : (
+                    <Button
+                      data-testid={`pricing-peer-inspect-${record.symbol}`}
+                      type="link"
+                      onClick={() => onInspect(record)}
+                    >
+                      深入分析
+                    </Button>
+                  )
+                ),
+              },
             ]}
           />
         </>
@@ -290,6 +307,8 @@ export const PricingScreenerCard = ({
           <Option value="undervalued">只看低估</Option>
           <Option value="high-confidence">只看高置信度</Option>
           <Option value="aligned">只看证据同向</Option>
+          <Option value="governance-risk">只看治理风险高</Option>
+          <Option value="governance-support">只看执行支撑强</Option>
         </Select>
         <Select value={sectorFilter} onChange={onSectorFilterChange} style={{ width: 180 }}>
           <Option value="all">全部板块</Option>
@@ -324,11 +343,42 @@ export const PricingScreenerCard = ({
             },
             { title: '机会分', dataIndex: 'screening_score', key: 'screening_score', width: 100, render: (value) => <AntText strong>{Number(value || 0).toFixed(1)}</AntText> },
             { title: '偏差', dataIndex: 'gap_pct', key: 'gap_pct', width: 96, render: (value) => (value === null || value === undefined ? DISPLAY_EMPTY : `${value > 0 ? '+' : ''}${Number(value).toFixed(1)}%`) },
+            {
+              title: '治理折扣',
+              dataIndex: 'people_governance_discount_pct',
+              key: 'people_governance_discount_pct',
+              width: 128,
+              render: (value, record) => {
+                if (value === null || value === undefined) return DISPLAY_EMPTY;
+                const numeric = Number(value || 0);
+                const color = numeric >= 6 ? 'red' : numeric > 0 ? 'gold' : numeric <= -3 ? 'green' : 'blue';
+                return (
+                  <Tooltip title={record.people_governance_summary || record.people_governance_label || ''}>
+                    <Tag color={color}>
+                      {numeric >= 0 ? `-${numeric.toFixed(1)}%` : `+${Math.abs(numeric).toFixed(1)}%`}
+                    </Tag>
+                  </Tooltip>
+                );
+              },
+            },
             { title: '观点', dataIndex: 'primary_view', key: 'primary_view', width: 88, render: (value) => <Tag color={value === '低估' ? 'green' : value === '高估' ? 'red' : 'default'}>{value || '合理'}</Tag> },
             { title: '置信度', dataIndex: 'confidence_score', key: 'confidence_score', width: 110, render: (value, record) => <div><Tag>{record.confidence || 'medium'}</Tag><div style={{ fontSize: 12, color: '#8c8c8c' }}>{Number(value || 0).toFixed(2)}</div></div> },
             { title: '证据共振', dataIndex: 'factor_alignment_label', key: 'factor_alignment_label', width: 110, render: (value, record) => <Tag color={ALIGNMENT_TAG_COLORS[record.factor_alignment_status] || 'default'}>{value || '待确认'}</Tag> },
             { title: '主驱动', dataIndex: 'primary_driver', key: 'primary_driver', render: (value) => value || DISPLAY_EMPTY },
-            { title: '操作', key: 'action', width: 100, render: (_, record) => <Button type="link" onClick={() => onInspect(record)}>深入分析</Button> },
+            {
+              title: '操作',
+              key: 'action',
+              width: 100,
+              render: (_, record) => (
+                <Button
+                  data-testid={`pricing-screener-inspect-${record.symbol}`}
+                  type="link"
+                  onClick={() => onInspect(record)}
+                >
+                  深入分析
+                </Button>
+              ),
+            },
           ]}
         />
       ) : null}

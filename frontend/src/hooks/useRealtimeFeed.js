@@ -40,10 +40,14 @@ export const useRealtimeFeed = ({
   const [hasExperiencedFallback, setHasExperiencedFallback] = useState(false);
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
   const [lastConnectionIssue, setLastConnectionIssue] = useState('');
+  const [isBrowserOnline, setIsBrowserOnline] = useState(
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  );
 
   const isInitializedRef = useRef(false);
   const shownMessagesRef = useRef(new Set());
   const previousSubscribedSymbolsRef = useRef(new Set());
+  const currentTabSymbolsRef = useRef(resolveSymbolsByCategory(activeTab));
   const connectTimerRef = useRef(null);
   const missingQuoteRequestsRef = useRef(new Set());
   const currentTabFallbackTimerRef = useRef(null);
@@ -53,6 +57,10 @@ export const useRealtimeFeed = ({
   useEffect(() => {
     quotesRef.current = quotes;
   }, [quotes]);
+
+  useEffect(() => {
+    currentTabSymbolsRef.current = resolveSymbolsByCategory(activeTab);
+  }, [activeTab, resolveSymbolsByCategory]);
 
   const pushTransportDecision = useCallback((mode, symbols = [], note = '') => {
     const normalizedSymbols = (Array.isArray(symbols) ? symbols : [symbols])
@@ -82,6 +90,9 @@ export const useRealtimeFeed = ({
         setReconnectAttempts(0);
         setLastConnectionIssue('');
         setLoading(false);
+        if (currentTabSymbolsRef.current.length > 0) {
+          webSocketService.subscribe(currentTabSymbolsRef.current, { forceResend: true });
+        }
         if (!shownMessagesRef.current.has('connected')) {
           shownMessagesRef.current.add('connected');
           messageApi.success('实时数据连接已建立');
@@ -158,10 +169,30 @@ export const useRealtimeFeed = ({
   }, [isAutoUpdate, messageApi]);
 
   useEffect(() => {
-    const previousSymbols = previousSubscribedSymbolsRef.current;
-    const nextSymbols = new Set(subscribedSymbols);
+    const handleOnline = () => {
+      setIsBrowserOnline(true);
+      if (isAutoUpdate && !webSocketService.isConnected) {
+        webSocketService.manualReconnect().catch(() => {});
+      }
+    };
+    const handleOffline = () => {
+      setIsBrowserOnline(false);
+      setLastConnectionIssue('浏览器离线');
+    };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [isAutoUpdate]);
 
-    const addedSymbols = subscribedSymbols.filter(symbol => !previousSymbols.has(symbol));
+  useEffect(() => {
+    const currentTabSymbols = resolveSymbolsByCategory(activeTab);
+    const previousSymbols = previousSubscribedSymbolsRef.current;
+    const nextSymbols = new Set(currentTabSymbols);
+
+    const addedSymbols = currentTabSymbols.filter(symbol => !previousSymbols.has(symbol));
     const removedSymbols = Array.from(previousSymbols).filter(symbol => !nextSymbols.has(symbol));
 
     if (addedSymbols.length > 0) {
@@ -173,15 +204,16 @@ export const useRealtimeFeed = ({
     }
 
     previousSubscribedSymbolsRef.current = nextSymbols;
-  }, [subscribedSymbols]);
+  }, [activeTab, resolveSymbolsByCategory]);
 
   useEffect(() => {
+    if (!isAutoUpdate) return;
     const timer = setInterval(() => {
       setFreshnessNow(Date.now());
     }, QUOTE_FRESHNESS_TICK_MS);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [isAutoUpdate]);
 
   const clearMissingQuoteRequests = useCallback((symbols = []) => {
     const targetSymbols = Array.isArray(symbols) ? symbols : [symbols];
@@ -336,6 +368,16 @@ export const useRealtimeFeed = ({
     });
   }, [clearMissingQuoteRequests]);
 
+  const manualReconnect = useCallback(() => {
+    setReconnectAttempts(0);
+    setLastConnectionIssue('');
+    webSocketService.manualReconnect().then(() => {
+      messageApi.success('手动重连成功');
+    }).catch(() => {
+      messageApi.error('手动重连失败，将继续自动重试');
+    });
+  }, [messageApi]);
+
   return {
     clearMissingQuoteRequests,
     fetchQuotes,
@@ -343,11 +385,13 @@ export const useRealtimeFeed = ({
     hasEverConnected,
     hasExperiencedFallback,
     isAutoUpdate,
+    isBrowserOnline,
     isConnected,
     lastConnectionIssue,
     lastClientRefreshAt,
     lastMarketUpdateAt,
     loading,
+    manualReconnect,
     quotes,
     reconnectAttempts,
     refreshCurrentTab,

@@ -128,7 +128,7 @@ describe('webSocketService', () => {
     expect(webSocketService.getReconnectDelay(2)).toBe(6000);
     expect(webSocketService.getReconnectDelay(3)).toBe(12000);
     expect(webSocketService.getReconnectDelay(4)).toBe(24000);
-    expect(webSocketService.getReconnectDelay(5)).toBe(30000);
+    expect(webSocketService.getReconnectDelay(5)).toBe(48000);
   });
 
   test('swallows reconnect promise rejections from timer-driven retries', async () => {
@@ -218,6 +218,36 @@ describe('webSocketService', () => {
     expect(webSocketService.requestSnapshot(['AAPL', 'MSFT'])).toBe(true);
     expect(socketInstance.send).toHaveBeenCalledWith(JSON.stringify({
       action: 'snapshot',
+      symbols: ['AAPL', 'MSFT'],
+    }));
+  });
+
+  test('can force-resend subscriptions after the socket is already connected', async () => {
+    let socketInstance = null;
+
+    global.WebSocket = jest.fn().mockImplementation(() => {
+      socketInstance = {
+        readyState: 0,
+        close: jest.fn(),
+        send: jest.fn(),
+      };
+      return socketInstance;
+    });
+    global.WebSocket.OPEN = 1;
+
+    webSocketService.subscribe(['AAPL', 'MSFT']);
+
+    const connectPromise = webSocketService.connect();
+    socketInstance.readyState = 1;
+    socketInstance.onopen?.();
+    await connectPromise;
+
+    socketInstance.send.mockClear();
+
+    webSocketService.subscribe(['AAPL', 'MSFT'], { forceResend: true });
+
+    expect(socketInstance.send).toHaveBeenCalledWith(JSON.stringify({
+      action: 'subscribe',
       symbols: ['AAPL', 'MSFT'],
     }));
   });

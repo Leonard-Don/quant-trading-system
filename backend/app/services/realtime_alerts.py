@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -58,14 +59,20 @@ class RealtimeAlertsStore:
         alert_hit_history = payload.get("alert_hit_history") if isinstance(payload, dict) else []
         normalized_alerts: List[Dict[str, Any]] = []
         normalized_history: List[Dict[str, Any]] = []
+        warnings: List[str] = []
 
-        for raw_alert in alerts or []:
+        for index, raw_alert in enumerate(alerts or []):
             if not isinstance(raw_alert, dict):
+                warnings.append(f"alerts[{index}]: skipped (not a dict)")
                 continue
 
             symbol = str(raw_alert.get("symbol") or "").strip().upper()
             condition = str(raw_alert.get("condition") or "price_above").strip()
-            if not symbol or condition not in VALID_CONDITIONS:
+            if not symbol:
+                warnings.append(f"alerts[{index}]: skipped (missing symbol)")
+                continue
+            if condition not in VALID_CONDITIONS:
+                warnings.append(f"alerts[{index}]: skipped (invalid condition '{condition}')")
                 continue
 
             threshold = raw_alert.get("threshold")
@@ -100,10 +107,47 @@ class RealtimeAlertsStore:
                 continue
             normalized_history.append(dict(raw_entry))
 
+        history_count = len(normalized_history)
+        if history_count > MAX_ALERT_HIT_HISTORY:
+            warnings.append(
+                f"alert_hit_history truncated from {history_count} to {MAX_ALERT_HIT_HISTORY}"
+            )
+
         return {
             "alerts": normalized_alerts,
             "alert_hit_history": normalized_history[:MAX_ALERT_HIT_HISTORY],
+            "_warnings": warnings,
         }
+
+    def _normalize_history_entry(self, entry: Dict[str, Any] | None) -> Dict[str, Any] | None:
+        if not isinstance(entry, dict):
+            return None
+        symbol = str(entry.get("symbol") or "").strip().upper()
+        trigger_time = str(entry.get("triggerTime") or entry.get("trigger_time") or datetime.utcnow().isoformat()).strip()
+        entry_id = str(entry.get("id") or "").strip() or f"alert_hit_{symbol or 'unknown'}_{trigger_time}"
+        return {
+            **entry,
+            "id": entry_id,
+            "symbol": symbol,
+            "triggerTime": trigger_time,
+            "condition": str(entry.get("condition") or "").strip() or None,
+            "message": str(entry.get("message") or "").strip() or None,
+        }
+
+    def record_alert_hit(self, entry: Dict[str, Any], profile_id: str | None = None) -> Dict[str, Any]:
+        normalized_entry = self._normalize_history_entry(entry)
+        if not normalized_entry:
+            raise ValueError("invalid alert history entry")
+        with self._lock:
+            current = self._load_alerts(profile_id)
+            history = list(current.get("alert_hit_history") or [])
+            deduped = [item for item in history if str(item.get("id") or "").strip() != normalized_entry["id"]]
+            current["alert_hit_history"] = [normalized_entry, *deduped][:MAX_ALERT_HIT_HISTORY]
+            self._persist(profile_id, current)
+            return {
+                "entry": normalized_entry,
+                "alert_hit_history": list(current["alert_hit_history"]),
+            }
 
     def _load_alerts(self, profile_id: str | None) -> Dict[str, Any]:
         alerts_file = self._get_alerts_file(profile_id)
@@ -135,8 +179,12 @@ class RealtimeAlertsStore:
     def update_alerts(self, payload: Dict[str, Any], profile_id: str | None = None) -> Dict[str, Any]:
         with self._lock:
             normalized = self._normalize_alerts(payload)
+            warnings = normalized.pop("_warnings", [])
             self._persist(profile_id, normalized)
-            return self.get_alerts(profile_id)
+            result = self.get_alerts(profile_id)
+            if warnings:
+                result["_warnings"] = warnings
+            return result
 
 
 realtime_alerts_store = RealtimeAlertsStore()

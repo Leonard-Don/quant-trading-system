@@ -46,6 +46,16 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
                 reason: '主要政策源正文覆盖稳定',
                 avg_full_text_ratio: 0.88,
               },
+              policy_execution: {
+                label: 'watch',
+                score: 0.38,
+                summary: '部门执行仍处观察区。',
+                top_departments: [{ department_label: '发改委' }],
+              },
+              source_mode_summary: {
+                label: 'official-led',
+                coverage: 6,
+              },
               input_reliability: {
                 label: 'robust',
                 score: 0.84,
@@ -88,6 +98,12 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
             bias_scale: 1,
             bias_quality_label: 'full',
             bias_quality_reason: '主要政策源正文覆盖稳定',
+            policy_execution_label: 'watch',
+            policy_execution_risk_budget_scale: 0.94,
+            policy_execution_reason: '执行仍处观察区',
+            source_mode_label: 'official-led',
+            source_mode_risk_budget_scale: 1,
+            source_mode_reason: '当前研究输入以官方/披露源为主。',
             dominant_drivers: [{ key: 'baseload_support', label: '基建/基荷支撑', value: 0.2 }],
             driver_summary: [
               { key: 'baseload_support', label: '基建/基荷支撑', value: 0.2 },
@@ -166,6 +182,16 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
                 reason: '正文抓取脆弱源 ndrc',
                 avg_full_text_ratio: 0.43,
               },
+              policy_execution: {
+                label: 'chaotic',
+                score: 0.66,
+                summary: '政策执行混乱继续升温。',
+                top_departments: [{ department_label: '发改委' }],
+              },
+              source_mode_summary: {
+                label: 'fallback-heavy',
+                coverage: 8,
+              },
               input_reliability: {
                 label: 'fragile',
                 score: 0.41,
@@ -208,6 +234,12 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
             bias_scale: 0.55,
             bias_quality_label: 'compressed',
             bias_quality_reason: '正文抓取脆弱源 ndrc，宏观偏置已收缩',
+            policy_execution_label: 'chaotic',
+            policy_execution_risk_budget_scale: 0.84,
+            policy_execution_reason: '正文覆盖退化，执行滞后正在抬升组合防御需求',
+            source_mode_label: 'fallback-heavy',
+            source_mode_risk_budget_scale: 0.72,
+            source_mode_reason: '当前来源治理偏回退，建议压缩偏置强度。',
             dominant_drivers: [{ key: 'growth_pressure', label: '成长端估值压力', value: 0.32 }],
             driver_summary: [
               { key: 'baseload_support', label: '基建/基荷支撑', value: 0.18 },
@@ -271,11 +303,16 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
     expect(comparison.rows.some((row) => row.label === 'Macro Δ')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Macro Resonance')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Policy Source')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Policy Execution')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Policy Execution Score')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Policy Execution Focus')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Input Reliability')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Input Reliability Score')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Input Reliability Lead')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Policy Full Text')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Policy Source Reason')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Source Mode')).toBe(true);
+    expect(comparison.rows.some((row) => row.label === 'Source Mode Construction')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Macro Signal Change')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Alt Trend')).toBe(true);
     expect(comparison.rows.some((row) => row.label === 'Rebalance')).toBe(true);

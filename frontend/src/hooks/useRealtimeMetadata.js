@@ -18,7 +18,10 @@ const normalizeMetadataEntry = (symbol, entry) => {
   };
 };
 
-export const useRealtimeMetadata = ({ subscribedSymbols }) => {
+export const useRealtimeMetadata = ({
+  subscribedSymbols,
+  knownMetadataMap = {},
+}) => {
   const [metadataMap, setMetadataMap] = useState({});
   const requestedSymbolsRef = useRef(new Set());
 
@@ -72,8 +75,8 @@ export const useRealtimeMetadata = ({ subscribedSymbols }) => {
   }, [mergeMetadata]);
 
   const metadataSymbols = useMemo(() => (
-    subscribedSymbols.filter((symbol) => !metadataMap[symbol])
-  ), [metadataMap, subscribedSymbols]);
+    subscribedSymbols.filter((symbol) => !metadataMap[symbol] && !knownMetadataMap[symbol])
+  ), [knownMetadataMap, metadataMap, subscribedSymbols]);
 
   useEffect(() => {
     if (metadataSymbols.length === 0) {

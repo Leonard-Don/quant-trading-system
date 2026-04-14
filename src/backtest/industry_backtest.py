@@ -796,6 +796,8 @@ class IndustryBacktester(BaseBacktester):
 
         close_series = pd.to_numeric(data["close"], errors="coerce").dropna()
         close_series.index = pd.to_datetime(close_series.index)
+        if getattr(close_series.index, "tz", None) is not None:
+            close_series.index = close_series.index.tz_localize(None)
         self._price_cache[normalized_symbol] = close_series.sort_index()
         return self._price_cache[normalized_symbol]
 
@@ -814,9 +816,11 @@ class IndustryBacktester(BaseBacktester):
             return 0.0
         self._run_diagnostics["benchmark_data_available"] = True
 
+        normalized_start = pd.Timestamp(start_date).tz_localize(None) if pd.Timestamp(start_date).tzinfo else pd.Timestamp(start_date)
+        normalized_end = pd.Timestamp(end_date).tz_localize(None) if pd.Timestamp(end_date).tzinfo else pd.Timestamp(end_date)
         benchmark_series = benchmark_series[
-            (benchmark_series.index >= pd.Timestamp(start_date))
-            & (benchmark_series.index <= pd.Timestamp(end_date))
+            (benchmark_series.index >= normalized_start)
+            & (benchmark_series.index <= normalized_end)
         ]
         if len(benchmark_series) < 2:
             return 0.0

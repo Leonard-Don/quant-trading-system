@@ -26,7 +26,7 @@ const GodEyeStatusStats = ({
 }) => (
   <Row gutter={[16, 16]}>
     <Col xs={24} md={6}>
-      <Card bordered={false}>
+      <Card variant="borderless">
         <Statistic
           title="最近刷新"
           value={snapshotTimestamp || '未刷新'}
@@ -36,7 +36,7 @@ const GodEyeStatusStats = ({
       </Card>
     </Col>
     <Col xs={24} md={6}>
-      <Card bordered={false}>
+      <Card variant="borderless">
         <Statistic
           title="数据新鲜度"
           value={staleness?.label || 'unknown'}
@@ -46,7 +46,7 @@ const GodEyeStatusStats = ({
       </Card>
     </Col>
     <Col xs={24} md={6}>
-      <Card bordered={false}>
+      <Card variant="borderless">
         <Statistic
           title="健康提供器"
           value={providerHealth?.healthy_providers ?? 0}
@@ -59,7 +59,7 @@ const GodEyeStatusStats = ({
       </Card>
     </Col>
     <Col xs={24} md={6}>
-      <Card bordered={false}>
+      <Card variant="borderless">
         <Statistic
           title="宏观错价分数"
           value={macroScore ?? 0}

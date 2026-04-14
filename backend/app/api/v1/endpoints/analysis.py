@@ -1,6 +1,7 @@
-
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from datetime import datetime
+import json
 import logging
 from backend.app.schemas.analysis import TrendAnalysisRequest, TrendAnalysisResponse
 import numpy as np
@@ -12,6 +13,7 @@ from src.analytics.comprehensive_scorer import ComprehensiveScorer
 from src.analytics.pattern_recognizer import PatternRecognizer
 from src.analytics.fundamental_analyzer import FundamentalAnalyzer
 from src.data.data_manager import DataManager
+from src.utils.cache import cache_manager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -22,6 +24,36 @@ sentiment_analyzer = SentimentAnalyzer()
 comprehensive_scorer = ComprehensiveScorer()
 pattern_recognizer = PatternRecognizer()
 fundamental_analyzer = FundamentalAnalyzer()
+
+ANALYSIS_CACHE_TTLS = {
+    "overview": 180,
+    "klines": 180,
+    "prediction_compare": 300,
+}
+
+
+def _analysis_cache_key(name: str, request: TrendAnalysisRequest, **extra) -> str:
+    payload = {
+        "name": name,
+        "symbol": request.symbol,
+        "interval": request.interval,
+        "start_date": request.start_date,
+        "end_date": request.end_date,
+        **extra,
+    }
+    return f"analysis::{name}::{json.dumps(payload, sort_keys=True, default=str)}"
+
+
+def _get_cached_analysis(name: str, request: TrendAnalysisRequest, **extra):
+    return cache_manager.get(_analysis_cache_key(name, request, **extra))
+
+
+def _set_cached_analysis(name: str, request: TrendAnalysisRequest, value, **extra):
+    cache_manager.set(
+        _analysis_cache_key(name, request, **extra),
+        value,
+        ttl=ANALYSIS_CACHE_TTLS[name],
+    )
 
 
 def _build_klines(data: pd.DataFrame, limit: int = 150):
@@ -45,6 +77,47 @@ def _build_klines(data: pd.DataFrame, limit: int = 150):
             continue
     return klines
 
+
+def _build_overview_fallback_response(request: TrendAnalysisRequest, reason: str = ""):
+    note = "总览分析暂时不可用，已回退为中性信号。"
+    if reason:
+        note = f"{note} {reason}"
+
+    return {
+        "symbol": request.symbol,
+        "timestamp": datetime.now().isoformat(),
+        "overall_score": 50,
+        "recommendation": "暂时观望",
+        "confidence": "LOW",
+        "scores": {
+            "trend": 50,
+            "volume": 50,
+            "sentiment": 50,
+            "technical": 50,
+        },
+        "key_signals": [],
+        "risk_warnings": [note],
+        "score_explanation": [],
+        "recommendation_reasons": ["等待更多稳定数据后再评估。"],
+        "indicators": {
+            "rsi": {"value": 50, "status": "neutral"},
+            "macd": {"value": 0},
+            "bollinger": {
+                "bandwidth": 0,
+                "position": "neutral",
+                "signal": "波动率 neutral",
+            },
+            "signal_strength": {
+                "signal": "neutral",
+                "strength": 0,
+            },
+            "overall": {
+                "description": "neutral",
+                "signal": "neutral",
+            },
+        },
+    }
+
 @router.post("/analyze", response_model=TrendAnalysisResponse, summary="分析股票趋势")
 async def analyze_trend(request: TrendAnalysisRequest):
     """
@@ -65,11 +138,12 @@ async def analyze_trend(request: TrendAnalysisRequest):
         # 获取数据
 
 
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=request.interval,
+        data = await run_in_threadpool(
+            data_manager.get_historical_data,
+            request.symbol,
+            start_date,
+            end_date,
+            request.interval,
         )
 
         if data.empty:
@@ -112,11 +186,12 @@ async def comprehensive_analysis(request: TrendAnalysisRequest):
             end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
 
         # 获取数据
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=request.interval,
+        data = await run_in_threadpool(
+            data_manager.get_historical_data,
+            request.symbol,
+            start_date,
+            end_date,
+            request.interval,
         )
 
         if data.empty:
@@ -153,6 +228,10 @@ async def analysis_overview(request: TrendAnalysisRequest):
     轻量总览分析，返回评分与关键信号
     """
     try:
+        cached = _get_cached_analysis("overview", request)
+        if cached is not None:
+            return cached
+
         start_date = None
         end_date = None
 
@@ -175,10 +254,11 @@ async def analysis_overview(request: TrendAnalysisRequest):
                 status_code=404, detail=f"No data found for symbol {request.symbol}"
             )
 
-        result = comprehensive_scorer.comprehensive_analysis(
+        result = await run_in_threadpool(
+            comprehensive_scorer.comprehensive_analysis,
             data,
             request.symbol,
-            include_pattern=False
+            False,
         )
 
         # 构造前端技术指标快照所需的格式
@@ -216,7 +296,7 @@ async def analysis_overview(request: TrendAnalysisRequest):
             }
         }
 
-        return {
+        response = {
             "symbol": request.symbol,
             "timestamp": datetime.now().isoformat(),
             "overall_score": result.get("overall_score"),
@@ -229,12 +309,16 @@ async def analysis_overview(request: TrendAnalysisRequest):
             "recommendation_reasons": result.get("recommendation_reasons"),
             "indicators": formatted_indicators
         }
+        _set_cached_analysis("overview", request, response)
+        return response
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error in overview analysis: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        fallback_response = _build_overview_fallback_response(request, reason=str(e))
+        _set_cached_analysis("overview", request, fallback_response)
+        return fallback_response
 
 
 @router.post("/fundamental", summary="基本面分析")
@@ -260,6 +344,10 @@ async def get_klines(request: TrendAnalysisRequest, limit: int = 150):
     获取K线数据（默认150条）
     """
     try:
+        cached = _get_cached_analysis("klines", request, limit=limit)
+        if cached is not None:
+            return cached
+
         start_date = None
         end_date = None
 
@@ -270,11 +358,12 @@ async def get_klines(request: TrendAnalysisRequest, limit: int = 150):
         if request.end_date:
             end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
 
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=request.interval,
+        data = await run_in_threadpool(
+            data_manager.get_historical_data,
+            request.symbol,
+            start_date,
+            end_date,
+            request.interval,
         )
 
         if data.empty:
@@ -282,11 +371,13 @@ async def get_klines(request: TrendAnalysisRequest, limit: int = 150):
                 status_code=404, detail=f"No data found for symbol {request.symbol}"
             )
 
-        return {
+        response = {
             "symbol": request.symbol,
             "timestamp": datetime.now().isoformat(),
             "klines": _build_klines(data, limit=limit)
         }
+        _set_cached_analysis("klines", request, response, limit=limit)
+        return response
 
     except HTTPException:
         raise
@@ -609,10 +700,17 @@ async def compare_model_predictions(request: TrendAnalysisRequest):
     同时返回 Random Forest 和 LSTM 的预测结果
     """
     try:
+        cached = _get_cached_analysis("prediction_compare", request)
+        if cached is not None:
+            return cached
+
         # 获取历史数据
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            interval=request.interval
+        data = await run_in_threadpool(
+            data_manager.get_historical_data,
+            request.symbol,
+            None,
+            None,
+            request.interval,
         )
         
         if data.empty:
@@ -622,13 +720,20 @@ async def compare_model_predictions(request: TrendAnalysisRequest):
             )
         
         # 比较预测
-        result = model_comparator.compare_predictions(data, request.symbol, days=5)
+        result = await run_in_threadpool(
+            model_comparator.compare_predictions,
+            data,
+            request.symbol,
+            5,
+        )
         
-        return {
+        response = {
             "symbol": request.symbol,
             "timestamp": datetime.now().isoformat(),
             **result
         }
+        _set_cached_analysis("prediction_compare", request, response)
+        return response
         
     except HTTPException:
         raise

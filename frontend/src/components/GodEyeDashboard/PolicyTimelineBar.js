@@ -18,7 +18,7 @@ function PolicyTimelineBar({ items = [], onNavigate }) {
   );
 
   return (
-    <Card title="Policy Timeline" bordered={false} bodyStyle={{ minHeight: 360 }}>
+    <Card title="Policy Timeline" variant="borderless" styles={{ body: { minHeight: 360 } }}>
       {items.length ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{ maxHeight: 240, overflowY: 'auto', paddingRight: 8 }}>

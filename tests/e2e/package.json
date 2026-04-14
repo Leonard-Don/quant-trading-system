@@ -11,6 +11,8 @@
     "verify:industry": "node verify_industry_features.js",
     "verify:realtime": "node verify_realtime_features.js",
     "verify:pricing": "node verify_pricing_research.js",
+    "verify:continuous-review": "node verify_continuous_review_flow.js",
+    "verify:research": "node verify_research_suite.js",
     "test": "npm run verify:industry"
   },
   "keywords": [],

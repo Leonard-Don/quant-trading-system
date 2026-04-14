@@ -22,7 +22,9 @@ from .governance import (
     ProviderRefreshStatus,
 )
 from .macro_hf import MacroHFSignalProvider
+from .people import PeopleLayerProvider
 from .policy_radar import PolicySignalProvider
+from .policy_radar.policy_execution import PolicyExecutionProvider
 from .supply_chain import SupplyChainSignalProvider
 from .entity_resolution import aggregate_entities, resolve_entity
 
@@ -44,11 +46,25 @@ DEFAULT_PROVIDER_CONFIG: Dict[str, Dict[str, Any]] = {
         "metals": ["copper", "aluminium"],
         "categories": ["semiconductors", "copper_ore", "ev_battery"],
     },
+    "people_layer": {
+        "symbols": [],
+    },
+    "policy_execution": {
+        "sources": ["ndrc", "nea", "fed", "ecb", "boe"],
+        "limit": 5,
+        "days_back": 14,
+        "detail_limit": 4,
+    },
 }
 
 SOURCE_TIER_RULES = [
     ("policy_radar:ndrc", ("official", 1.0)),
     ("policy_radar:nea", ("official", 0.95)),
+    ("policy_execution:ndrc", ("official", 0.98)),
+    ("policy_execution:nea", ("official", 0.94)),
+    ("people_layer:executive_governance", ("corporate_governance", 0.78)),
+    ("people_layer:insider_flow", ("market_disclosure", 0.74)),
+    ("people_layer:hiring_structure", ("corporate_signal", 0.72)),
     ("macro_hf", ("market", 0.88)),
     ("supply_chain:bidding", ("public_procurement", 0.84)),
     ("supply_chain:env_assessment", ("regulatory_filing", 0.86)),
@@ -79,15 +95,23 @@ class AltDataManager:
 
     def _build_default_providers(self) -> Dict[str, BaseAltDataProvider]:
         provider_config = self.config.get("providers", {})
+        policy_provider = PolicySignalProvider(
+            provider_config.get("policy_radar", self.config)
+        )
         return {
-            "policy_radar": PolicySignalProvider(
-                provider_config.get("policy_radar", self.config)
-            ),
+            "policy_radar": policy_provider,
             "supply_chain": SupplyChainSignalProvider(
                 provider_config.get("supply_chain", self.config)
             ),
             "macro_hf": MacroHFSignalProvider(
                 provider_config.get("macro_hf", self.config)
+            ),
+            "people_layer": PeopleLayerProvider(
+                provider_config.get("people_layer", self.config)
+            ),
+            "policy_execution": PolicyExecutionProvider(
+                provider_config.get("policy_execution", self.config),
+                policy_provider=policy_provider,
             ),
         }
 
@@ -325,7 +349,9 @@ class AltDataManager:
             staleness=self._build_staleness(),
             provider_health=self._build_provider_health(),
         )
-        return envelope.to_dict()
+        payload = envelope.to_dict()
+        payload["source_mode_summary"] = self._build_source_mode_summary(records)
+        return payload
 
     def get_provider_status(self) -> Dict[str, Dict[str, Any]]:
         payload: Dict[str, Dict[str, Any]] = {}
@@ -355,6 +381,7 @@ class AltDataManager:
             "snapshot_timestamp": snapshot.get("snapshot_timestamp"),
             "staleness": snapshot.get("staleness", {}),
             "provider_health": snapshot.get("provider_health", {}),
+            "source_mode_summary": snapshot.get("source_mode_summary", {}),
             "refresh_status": snapshot.get("refresh_status", {}),
             "providers": snapshot.get("providers", {}),
             "scheduler": scheduler_status or {},
@@ -420,14 +447,50 @@ class AltDataManager:
 
     def _build_provider_health(self) -> Dict[str, Any]:
         counts = {"success": 0, "degraded": 0, "error": 0, "running": 0, "idle": 0}
+        per_provider: Dict[str, Any] = {}
         for status in self.refresh_status.values():
             counts.setdefault(status.status, 0)
             counts[status.status] += 1
-        return {
+        for name, status in self.refresh_status.items():
+            signal = self.latest_signals.get(name, {})
+            per_provider[name] = {
+                "status": status.status,
+                "confidence": round(float(signal.get("confidence", 0.0) or 0.0), 4),
+                "record_count": int(signal.get("record_count", 0) or 0),
+                "source_mode_summary": signal.get("source_mode_summary", {}),
+                "snapshot_age_seconds": status.snapshot_age_seconds,
+                "error": status.error,
+            }
+        payload = {
             "counts": counts,
             "healthy_providers": counts.get("success", 0),
             "degraded_providers": counts.get("degraded", 0),
             "error_providers": counts.get("error", 0),
+            "providers": per_provider,
+        }
+        payload.update(per_provider)
+        return payload
+
+    def _build_source_mode_summary(self, records: List[AltDataRecord]) -> Dict[str, Any]:
+        source_mode_counts: Dict[str, int] = {}
+        category_modes: Dict[str, Dict[str, int]] = {}
+        for record in records:
+            mode = str((record.metadata or {}).get("source_mode") or "derived")
+            source_mode_counts[mode] = source_mode_counts.get(mode, 0) + 1
+            bucket = category_modes.setdefault(record.category.value, {})
+            bucket[mode] = bucket.get(mode, 0) + 1
+
+        provider_modes = {
+            name: signal.get("source_mode_summary", {})
+            for name, signal in self.latest_signals.items()
+            if isinstance(signal, dict)
+        }
+        dominant = max(source_mode_counts.items(), key=lambda item: item[1])[0] if source_mode_counts else "derived"
+        return {
+            "counts": source_mode_counts,
+            "dominant": dominant,
+            "category_modes": category_modes,
+            "provider_modes": provider_modes,
         }
 
     def _merge_provider_kwargs(self, name: str, runtime_kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -531,6 +594,7 @@ class AltDataManager:
         entity = resolve_entity(record.raw_value, record.tags, self._extract_record_headline(record))
         source_meta = self._infer_source_tier(record.source)
         freshness = self._build_freshness_meta(record.timestamp)
+        metadata = record.metadata if isinstance(record.metadata, dict) else {}
         return {
             "record_id": record.record_id,
             "timestamp": record.timestamp.isoformat(),
@@ -549,6 +613,9 @@ class AltDataManager:
             "freshness_weight": freshness["weight"],
             "normalized_score": round(float(record.normalized_score), 4),
             "confidence": round(float(record.confidence), 4),
+            "source_mode": metadata.get("source_mode", "derived"),
+            "lag_days": metadata.get("lag_days"),
+            "coverage": metadata.get("coverage"),
             "tags": record.tags[:4],
         }
 
@@ -570,6 +637,24 @@ class AltDataManager:
             return (
                 f"{company} dilution_ratio={float(raw.get('dilution_ratio', 0.0)):.2f}; "
                 f"signal={raw.get('signal', 'neutral')}"
+            ).strip()
+        if category == "executive_governance":
+            company = raw.get("company") or raw.get("symbol") or ""
+            return (
+                f"{company} governance_risk={float(raw.get('governance_risk', 0.0)):.2f}; "
+                f"technical_authority={float(raw.get('technical_authority_score', 0.0)):.2f}"
+            ).strip()
+        if category == "insider_flow":
+            company = raw.get("company") or raw.get("symbol") or ""
+            return (
+                f"{company} net_action={raw.get('net_action', 'neutral')}; "
+                f"conviction={float(raw.get('conviction_score', 0.0)):.2f}"
+            ).strip()
+        if category == "policy_execution":
+            department = raw.get("department_label") or raw.get("department") or ""
+            return (
+                f"{department} execution={raw.get('execution_status', 'unknown')}; "
+                f"reversal_count={int(raw.get('reversal_count', 0) or 0)}"
             ).strip()
         if category == "bidding":
             industry = raw.get("industry") or raw.get("industry_id") or ""
@@ -601,6 +686,27 @@ class AltDataManager:
                 "ticker": raw.get("ticker", ""),
                 "dilution_ratio": round(float(raw.get("dilution_ratio", 0.0) or 0.0), 4),
                 "signal": raw.get("signal", ""),
+            }
+        if category == "executive_governance":
+            return {
+                "company": raw.get("company", ""),
+                "technical_authority_score": round(float(raw.get("technical_authority_score", 0.0) or 0.0), 4),
+                "capital_markets_pressure": round(float(raw.get("capital_markets_pressure", 0.0) or 0.0), 4),
+                "governance_risk": round(float(raw.get("governance_risk", 0.0) or 0.0), 4),
+            }
+        if category == "insider_flow":
+            return {
+                "company": raw.get("company", ""),
+                "net_action": raw.get("net_action", ""),
+                "net_value_musd": round(float(raw.get("net_value_musd", 0.0) or 0.0), 4),
+                "conviction_score": round(float(raw.get("conviction_score", 0.0) or 0.0), 4),
+            }
+        if category == "policy_execution":
+            return {
+                "department": raw.get("department", ""),
+                "policy_id": raw.get("policy_id", ""),
+                "execution_status": raw.get("execution_status", ""),
+                "reversal_count": int(raw.get("reversal_count", 0) or 0),
             }
         if category == "bidding":
             return {

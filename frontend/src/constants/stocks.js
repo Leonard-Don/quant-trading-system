@@ -85,14 +85,14 @@ export const STOCK_DATABASE = {
     'ZS=F': { en: 'Soybean', cn: '大豆期货', type: 'future' },
     'ZW=F': { en: 'Wheat', cn: '小麦期货', type: 'future' },
 
-    // 7. 期权 (Options)
-    'SPY': { en: 'SPY ETF (Optionable)', cn: '标普500 ETF (期权标的)', type: 'option' },
-    'QQQ': { en: 'QQQ ETF (Optionable)', cn: '纳指100 ETF (期权标的)', type: 'option' },
-    'IWM': { en: 'IWM ETF (Optionable)', cn: '罗素2000 ETF (期权标的)', type: 'option' },
-    'DIA': { en: 'DIA ETF (Optionable)', cn: '道琼斯 ETF (期权标的)', type: 'option' },
-    'UVXY': { en: 'ProShares Ultra VIX', cn: '1.5倍做多恐慌指数', type: 'option' },
-    'VXX': { en: 'iPath Series B S&P 500 VIX', cn: '短期恐慌指数ETN', type: 'option' },
-    'HYG': { en: 'High Yield Corp Bond ETF', cn: '高收益债ETF (期权标的)', type: 'option' },
-    'EEM': { en: 'Emerging Markets ETF', cn: '新兴市场ETF (期权标的)', type: 'option' },
-    'FXI': { en: 'China Large-Cap ETF', cn: '中国大盘股ETF (期权标的)', type: 'option' },
+    // 7. ETF
+    'SPY': { en: 'SPDR S&P 500 ETF', cn: '标普500 ETF', type: 'us' },
+    'QQQ': { en: 'Invesco QQQ Trust', cn: '纳指100 ETF', type: 'us' },
+    'IWM': { en: 'iShares Russell 2000 ETF', cn: '罗素2000 ETF', type: 'us' },
+    'DIA': { en: 'SPDR Dow Jones ETF', cn: '道琼斯 ETF', type: 'us' },
+    'UVXY': { en: 'ProShares Ultra VIX', cn: '1.5倍做多恐慌指数', type: 'us' },
+    'VXX': { en: 'iPath Series B S&P 500 VIX', cn: '短期恐慌指数ETN', type: 'us' },
+    'HYG': { en: 'High Yield Corp Bond ETF', cn: '高收益债ETF', type: 'bond' },
+    'EEM': { en: 'iShares Emerging Markets ETF', cn: '新兴市场ETF', type: 'us' },
+    'FXI': { en: 'iShares China Large-Cap ETF', cn: '中国大盘股ETF', type: 'us' },
 };

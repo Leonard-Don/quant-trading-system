@@ -31,6 +31,34 @@ export const DEFAULT_INDUSTRY_ALERT_THRESHOLDS = {
     rotation_change_pct: 1,
 };
 
+export const scheduleDeferredTask = (task, delayMs = 1600) => {
+    if (typeof window === 'undefined') {
+        task();
+        return () => {};
+    }
+    const timeoutId = window.setTimeout(task, delayMs);
+    return () => window.clearTimeout(timeoutId);
+};
+
+export const getMarketCapBadgeMeta = (source) => {
+    const normalized = String(source || 'unknown');
+    if (normalized.startsWith('snapshot_')) {
+        return { label: '快照', color: 'blue', filter: 'snapshot' };
+    }
+    if (normalized === 'sina_proxy_stock_sum') {
+        return { label: '代理', color: 'cyan', filter: 'proxy' };
+    }
+    if (normalized === 'unknown' || normalized.startsWith('estimated') || normalized === 'constant_fallback') {
+        return { label: '估算', color: 'gold', filter: 'estimated' };
+    }
+    return { label: '实时', color: 'green', filter: 'live' };
+};
+
+export const normalizeIndustryAlertThresholds = (thresholds = {}) => ({
+    ...DEFAULT_INDUSTRY_ALERT_THRESHOLDS,
+    ...(thresholds || {}),
+});
+
 export const formatIndustryAlertMoneyFlow = (value) => {
     const numericValue = Number(value || 0);
     if (!numericValue) return '0';

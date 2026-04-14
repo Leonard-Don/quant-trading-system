@@ -53,15 +53,23 @@ class RealtimeJournalStore:
 
     def _normalize_payload(self, payload: Dict[str, Any] | None) -> Dict[str, Any]:
         payload = dict(payload or {})
+        warnings: List[str] = []
+        raw_snapshots = payload.get("review_snapshots") or []
+        raw_events = payload.get("timeline_events") or []
+        snapshots = self._normalize_entries(raw_snapshots, max_items=MAX_REVIEW_SNAPSHOTS)
+        events = self._normalize_entries(raw_events, max_items=MAX_TIMELINE_EVENTS)
+        if isinstance(raw_snapshots, list) and len(raw_snapshots) > MAX_REVIEW_SNAPSHOTS:
+            warnings.append(
+                f"review_snapshots truncated from {len(raw_snapshots)} to {MAX_REVIEW_SNAPSHOTS}"
+            )
+        if isinstance(raw_events, list) and len(raw_events) > MAX_TIMELINE_EVENTS:
+            warnings.append(
+                f"timeline_events truncated from {len(raw_events)} to {MAX_TIMELINE_EVENTS}"
+            )
         return {
-            "review_snapshots": self._normalize_entries(
-                payload.get("review_snapshots"),
-                max_items=MAX_REVIEW_SNAPSHOTS,
-            ),
-            "timeline_events": self._normalize_entries(
-                payload.get("timeline_events"),
-                max_items=MAX_TIMELINE_EVENTS,
-            ),
+            "review_snapshots": snapshots,
+            "timeline_events": events,
+            "_warnings": warnings,
         }
 
     def _load_journal(self, profile_id: str | None) -> Dict[str, Any]:
@@ -94,8 +102,12 @@ class RealtimeJournalStore:
     def update_journal(self, payload: Dict[str, Any], profile_id: str | None = None) -> Dict[str, Any]:
         with self._lock:
             normalized = self._normalize_payload(payload)
+            warnings = normalized.pop("_warnings", [])
             self._persist(profile_id, normalized)
-            return self.get_journal(profile_id)
+            result = self.get_journal(profile_id)
+            if warnings:
+                result["_warnings"] = warnings
+            return result
 
 
 realtime_journal_store = RealtimeJournalStore()

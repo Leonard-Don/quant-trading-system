@@ -68,6 +68,27 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
   }, [selectedStrategy, strategies]);
 
   useEffect(() => {
+    const currentStrategy = form.getFieldValue('strategy');
+    if (currentStrategy) {
+      const matchedStrategy = strategies.find((item) => item.name === currentStrategy);
+      if (matchedStrategy && matchedStrategy.name !== selectedStrategy?.name) {
+        setSelectedStrategy(matchedStrategy);
+        setStrategyParams((prev) => ({
+          ...Object.fromEntries(
+            Object.entries(matchedStrategy.parameters || {}).map(([key, config]) => [key, config.default])
+          ),
+          ...prev,
+        }));
+      }
+      return;
+    }
+
+    if (selectedStrategy?.name) {
+      form.setFieldValue('strategy', selectedStrategy.name);
+    }
+  }, [form, selectedStrategy, strategies]);
+
+  useEffect(() => {
     const applyWorkspaceDraft = () => {
       const draft = loadBacktestWorkspaceDraft();
       if (!draft?.symbol || !draft?.strategy || !draft?.dateRange?.[0] || !draft?.dateRange?.[1]) {

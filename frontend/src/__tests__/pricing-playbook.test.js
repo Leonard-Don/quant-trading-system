@@ -1,5 +1,12 @@
 import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
+import {
+  buildPricingPlaybook,
+  buildPricingWorkbenchPayload,
+} from '../components/research-playbook/playbookViewModels';
+import { buildSnapshotComparison } from '../components/research-workbench/snapshotCompare';
+import ResearchPlaybook from '../components/research-playbook/ResearchPlaybook';
+import { getDriverImpactMeta, getPriceSourceLabel, getSignalStrengthMeta } from '../utils/pricingResearch';
 
 jest.mock('antd', () => {
   const React = require('react');
@@ -10,14 +17,6 @@ jest.mock('antd', () => {
     Col: ({ children }) => <div>{children}</div>,
   };
 });
-
-import {
-  buildPricingPlaybook,
-  buildPricingWorkbenchPayload,
-} from '../components/research-playbook/playbookViewModels';
-import { buildSnapshotComparison } from '../components/research-workbench/snapshotCompare';
-import ResearchPlaybook from '../components/research-playbook/ResearchPlaybook';
-import { getDriverImpactMeta, getPriceSourceLabel, getSignalStrengthMeta } from '../utils/pricingResearch';
 
 beforeAll(() => {
   Object.defineProperty(window, 'matchMedia', {
@@ -94,6 +93,40 @@ describe('pricing playbook percent formatting', () => {
       },
       insights: ['存在显著高估'],
     },
+    people_layer: {
+      stance: 'fragile',
+      risk_level: 'high',
+      summary: 'AAPL 的人事层结论偏脆弱，组织质量 0.42 / 脆弱度 0.64。',
+    },
+    structural_decay: {
+      score: 0.74,
+      label: '结构性衰败警报',
+      action: 'structural_short',
+      dominant_failure_label: '组织与治理稀释',
+      summary: '结构性衰败警报，主导失效模式偏向 组织与治理稀释。',
+    },
+    macro_mispricing_thesis: {
+      thesis_type: 'relative_short',
+      stance: '结构性做空',
+      score: 0.74,
+      horizon: '中长期',
+      primary_leg: {
+        symbol: 'AAPL',
+        side: 'short',
+        role: 'primary',
+      },
+      hedge_leg: {
+        symbol: 'XLK',
+        side: 'long',
+        role: 'hedge',
+      },
+      trade_legs: [
+        { symbol: 'AAPL', side: 'short', role: 'core_expression', weight: 0.5 },
+        { symbol: 'XLK', side: 'long', role: 'beta_hedge', weight: 0.3 },
+        { symbol: 'GLD', side: 'long', role: 'stress_hedge', weight: 0.2 },
+      ],
+      kill_conditions: ['结构性衰败评分回落到 0.50 以下'],
+    },
   };
 
   it('uses percent points in pricing playbook copy', () => {
@@ -106,7 +139,17 @@ describe('pricing playbook percent formatting', () => {
 
   it('persists corrected percent copy into the pricing workbench snapshot', () => {
     const playbook = buildPricingPlaybook({ symbol: 'AAPL', source: 'manual' }, pricingResult);
-    const payload = buildPricingWorkbenchPayload({ symbol: 'AAPL', source: 'manual', period: '2y' }, pricingResult, playbook);
+    const payload = buildPricingWorkbenchPayload({
+      symbol: 'AAPL',
+      source: 'manual',
+      period: '2y',
+      workbenchRefresh: 'high',
+      workbenchType: 'pricing',
+      workbenchSource: 'godeye',
+      workbenchReason: 'priority_escalated',
+      workbenchKeyword: 'defense',
+      task: 'rw_focus_1',
+    }, pricingResult, playbook);
 
     expect(payload.snapshot.summary).toContain('+62.6%');
     expect(payload.snapshot.summary).not.toContain('6260.0%');
@@ -166,6 +209,49 @@ describe('pricing playbook percent formatting', () => {
     expect(payload.snapshot.payload.primary_driver.factor).toBe('P/B 倍数法溢价');
     expect(payload.snapshot.payload.primary_driver.signal_strength).toBe(3.33);
     expect(payload.snapshot.payload.primary_driver.ranking_reason).toBe('相对行业基准的估值溢价最显著，说明倍数扩张是当前定价偏差的主要来源');
+    expect(payload.snapshot.payload.people_layer).toEqual({
+      stance: 'fragile',
+      risk_level: 'high',
+      summary: 'AAPL 的人事层结论偏脆弱，组织质量 0.42 / 脆弱度 0.64。',
+    });
+    expect(payload.snapshot.payload.structural_decay).toEqual({
+      score: 0.74,
+      label: '结构性衰败警报',
+      action: 'structural_short',
+      dominant_failure_label: '组织与治理稀释',
+      summary: '结构性衰败警报，主导失效模式偏向 组织与治理稀释。',
+    });
+    expect(payload.context.workbench_view_context.summary).toBe('快速视图：自动排序升档 · 关键词：defense · 更新级别：建议更新 · 类型：Pricing · 来源：GodEye');
+    expect(payload.snapshot.payload.view_context.summary).toBe(payload.context.workbench_view_context.summary);
+    expect(payload.snapshot.payload.view_context.scoped_task_label).toBe('当前定位：rw_focus_1');
+    expect(payload.snapshot.payload.macro_mispricing_thesis).toEqual({
+      thesis_type: 'relative_short',
+      stance: '结构性做空',
+      score: 0.74,
+      horizon: '中长期',
+      primary_leg: {
+        symbol: 'AAPL',
+        side: 'short',
+        role: 'primary',
+      },
+      hedge_leg: {
+        symbol: 'XLK',
+        side: 'long',
+        role: 'hedge',
+      },
+      trade_legs: [
+        { symbol: 'AAPL', side: 'short', role: 'core_expression', weight: 0.5 },
+        { symbol: 'XLK', side: 'long', role: 'beta_hedge', weight: 0.3 },
+        { symbol: 'GLD', side: 'long', role: 'stress_hedge', weight: 0.2 },
+      ],
+      kill_conditions: ['结构性衰败评分回落到 0.50 以下'],
+    });
+    expect(payload.refresh_priority_event).toMatchObject({
+      reason_key: 'structural_decay',
+      reason_label: '结构衰败/系统雷达',
+      severity: 'medium',
+    });
+    expect(payload.refresh_priority_event.lead).toContain('结构性衰败警报');
   });
 
   it('formats pricing snapshot comparison gap as percent points', () => {
@@ -173,6 +259,10 @@ describe('pricing playbook percent formatting', () => {
       'pricing',
       {
         payload: {
+          view_context: {
+            summary: '快速视图：自动排序首次入列 · 类型：Pricing',
+            scoped_task_label: '当前定位：rw_base',
+          },
           fair_value: { mid: 155.49, low: 132.17, high: 178.81 },
           dcf_scenarios: [
             { name: 'bear', intrinsic_value: 132.17 },
@@ -197,6 +287,10 @@ describe('pricing playbook percent formatting', () => {
       },
       {
         payload: {
+          view_context: {
+            summary: '快速视图：自动排序升档 · 关键词：defense',
+            scoped_task_label: '当前定位：rw_target',
+          },
           fair_value: { mid: 148.21, low: 121.5, high: 166.8 },
           dcf_scenarios: [
             { name: 'bear', intrinsic_value: 121.5 },
@@ -228,6 +322,8 @@ describe('pricing playbook percent formatting', () => {
     const periodRow = comparison.rows.find((row) => row.key === 'analysis-period');
     const priceSourceRow = comparison.rows.find((row) => row.key === 'price-source');
     const factorSamplesRow = comparison.rows.find((row) => row.key === 'factor-samples');
+    const workbenchViewRow = comparison.rows.find((row) => row.key === 'workbench-view');
+    const workbenchTaskRow = comparison.rows.find((row) => row.key === 'workbench-task');
     const bearRow = comparison.rows.find((row) => row.key === 'fair-value-bear');
     const bullRow = comparison.rows.find((row) => row.key === 'fair-value-bull');
     const spreadRow = comparison.rows.find((row) => row.key === 'scenario-spread');
@@ -250,6 +346,8 @@ describe('pricing playbook percent formatting', () => {
     expect(factorSamplesRow.left).toBe('132');
     expect(factorSamplesRow.right).toBe('214');
     expect(factorSamplesRow.delta).toBe('+82');
+    expect(workbenchViewRow.delta).toBe('工作台筛选视角已变化');
+    expect(workbenchTaskRow.delta).toBe('任务焦点已变化');
     expect(bearRow.left).toBe('132.17');
     expect(bearRow.right).toBe('121.50');
     expect(bearRow.delta).toBe('-10.67');

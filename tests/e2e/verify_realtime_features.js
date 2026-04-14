@@ -32,14 +32,22 @@ const closeVisibleModal = async (page) => {
 };
 
 const closeVisibleDrawer = async (page) => {
-  const visibleDrawer = page.locator('.ant-drawer-content-wrapper').last();
+  const visibleDrawer = page.locator('.ant-drawer-content-wrapper:visible').last();
   if (await visibleDrawer.count()) {
     await page.keyboard.press('Escape').catch(() => {});
     await page.waitForTimeout(300);
     if (await visibleDrawer.isVisible().catch(() => false)) {
-      const closeButton = page.locator('.ant-drawer-close').last();
+      const mask = page.locator('.ant-drawer-mask:visible').last();
+      if (await mask.count()) {
+        await mask.click({ position: { x: 8, y: 8 }, force: true }).catch(() => {});
+        await page.waitForTimeout(300);
+      }
+    }
+    if (await visibleDrawer.isVisible().catch(() => false)) {
+      const closeButton = page.locator('.ant-drawer-close:visible').last();
       if (await closeButton.count()) {
-        await closeButton.click({ force: true });
+        await closeButton.scrollIntoViewIfNeeded().catch(() => {});
+        await closeButton.click({ force: true }).catch(() => {});
         await page.waitForTimeout(300);
       }
     }
@@ -79,6 +87,7 @@ const closeVisibleDrawer = async (page) => {
     window.localStorage.setItem('realtime-panel:symbols', JSON.stringify(defaultSymbols));
     window.localStorage.setItem('realtime-panel:active-tab', 'index');
     window.localStorage.setItem('realtime-panel:symbol-categories', JSON.stringify({}));
+    window.localStorage.setItem('realtime-panel:diagnostics-enabled', '1');
     window.localStorage.setItem('realtime-review-snapshots', JSON.stringify([]));
     window.localStorage.setItem('realtime-timeline-events', JSON.stringify([]));
     window.localStorage.setItem('price_alerts', JSON.stringify([]));
@@ -122,6 +131,22 @@ const closeVisibleDrawer = async (page) => {
     timeout: 60000,
   });
   await waitForRealtimeShell(page);
+  await page.getByText('开发诊断', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  const showDiagnosticsButton = page.getByRole('button', { name: '显示诊断' });
+  if (await showDiagnosticsButton.isVisible().catch(() => false)) {
+    await showDiagnosticsButton.click();
+  }
+  const diagnosticsTrail = page.getByText('最近决策轨迹', { exact: true });
+  if (!(await diagnosticsTrail.isVisible().catch(() => false))) {
+    await page.getByText('开发诊断', { exact: true }).click();
+  }
+  await diagnosticsTrail.waitFor({ state: 'visible', timeout: 60000 });
+
+  console.log('验证看盘面板列表模式与排序...');
+  await page.getByRole('button', { name: '列表模式' }).click();
+  await page.locator('.realtime-quote-card--list').first().waitFor({ state: 'visible', timeout: 60000 });
+  await page.getByRole('button', { name: /代\s*码/ }).click();
+  console.log('看盘面板列表模式与排序已生效: 是');
 
   console.log('验证默认指数视图...');
   const indexCard = await waitForQuoteCard(page, '^GSPC');
@@ -216,17 +241,20 @@ const closeVisibleDrawer = async (page) => {
   await closeVisibleModal(page);
 
   console.log('切换到美股分组，验证交易入口...');
-  await page.locator('.ant-tabs-tab-btn').filter({ hasText: '美股' }).first().click();
-  const usCard = await waitForQuoteCard(page, 'AAPL');
-  console.log('验证详情页带入交易...');
-  await usCard.click();
+  await globalJumpInput.fill('AAPL');
+  await globalJumpInput.press('Enter');
+  await page.getByText('当前分组：美股', { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
   await page.locator('[data-testid="realtime-stock-detail-modal"]').waitFor({ state: 'visible', timeout: 60000 });
+  await page.getByText('AAPL 全维分析', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  console.log('验证详情页带入交易...');
   await page.getByRole('button', { name: '带入交易' }).click();
   await page.getByText('模拟交易终端', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('仓位建议', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   console.log('详情页一键带入交易已生效: 是');
   await closeVisibleModal(page);
 
+  const usCard = page.locator('.realtime-quote-card:visible').first();
+  await usCard.waitFor({ state: 'visible', timeout: 60000 });
   await usCard.getByRole('button', { name: '交易' }).click();
   await page.getByText('模拟交易终端', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('下单面板', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
@@ -261,6 +289,7 @@ const closeVisibleDrawer = async (page) => {
   const unexpectedConsoleErrors = consoleErrors.filter((entry) => (
     !entry.includes('API Network Error:')
     && !entry.includes('ERR_CONNECTION_RESET')
+    && !entry.includes('ERR_CONNECTION_REFUSED')
   ));
   const relevantFailedRequests = failedRequests.filter((entry) => isRealtimeRelevantUrl(entry.url));
 

@@ -6,13 +6,14 @@ import asyncio
 import logging
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError, wait
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from ..core.base import BaseComponent
 from ..utils.cache import cache_manager
+from .data_manager import DataManager
 from .providers.base_provider import BaseDataProvider
 from .providers.provider_factory import get_data_factory
 
@@ -20,6 +21,8 @@ from .providers.provider_factory import get_data_factory
 logger = logging.getLogger(__name__)
 PROVIDER_FAILURE_THRESHOLD = 3
 PROVIDER_COOLDOWN_SECONDS = 60
+PROVIDER_FETCH_TIMEOUT_SECONDS = 3
+ETF_LIKE_SYMBOLS = {"SPY", "QQQ", "IWM", "DIA", "UVXY", "VXX", "TLT", "FXI", "EEM", "HYG"}
 QUOTE_QUALITY_FIELDS = [
     "price",
     "change",
@@ -73,12 +76,16 @@ class RealTimeQuote:
 class RealTimeDataManager(BaseComponent):
     """统一的实时行情管理器。"""
 
-    def __init__(self, update_interval: int = 5, max_history: int = 1000):
+    def __init__(self, update_interval: int = 5, max_history: int = 1000, max_global_history: int = 100_000):
         super().__init__({})
         self.update_interval = update_interval
         self.max_history = max_history
-        self.cache_ttl = max(update_interval, 5)
+        self.max_global_history = max_global_history
+        # 对实时工作台来说，几十秒内的旧报价仍可先展示并由 freshness 标签标记，
+        # 这样能显著缩短重新进入页面时的首包等待。
+        self.cache_ttl = max(update_interval * 6, 30)
         self.provider_factory = get_data_factory()
+        self.data_manager = DataManager()
         self.subscribed_symbols: Set[str] = set()
         self.subscribers: Dict[str, Set[Callable[[RealTimeQuote], None]]] = {}
         self.quote_history: Dict[str, List[RealTimeQuote]] = {}
@@ -134,11 +141,16 @@ class RealTimeDataManager(BaseComponent):
 
     @staticmethod
     def _to_datetime(value: Any) -> datetime:
+        def _normalize(dt: datetime) -> datetime:
+            if dt.tzinfo is not None:
+                return datetime.fromtimestamp(dt.timestamp())
+            return dt
+
         if isinstance(value, datetime):
-            return value
+            return _normalize(value)
         if isinstance(value, str):
             try:
-                return datetime.fromisoformat(value)
+                return _normalize(datetime.fromisoformat(value))
             except ValueError:
                 return datetime.now()
         return datetime.now()
@@ -339,6 +351,139 @@ class RealTimeDataManager(BaseComponent):
 
         return ranked_available + cooling_down
 
+    def _get_preferred_provider_names_for_symbol(self, symbol: str) -> List[str]:
+        normalized = self._normalize_symbol(symbol)
+        if normalized.endswith("=F"):
+            preferred = self.provider_factory.get_cross_market_provider_order("COMMODITY_FUTURES")
+        elif normalized in ETF_LIKE_SYMBOLS:
+            preferred = self.provider_factory.get_cross_market_provider_order("ETF")
+        elif normalized.endswith(".SS") or normalized.endswith(".SZ") or normalized.startswith("^") or normalized.endswith("-USD"):
+            preferred = [
+                name
+                for name in ("yahoo", "alphavantage", "twelvedata")
+                if name in self.provider_factory.providers
+            ]
+        else:
+            preferred = self.provider_factory.get_cross_market_provider_order("US_STOCK")
+
+        if preferred:
+            return preferred
+
+        return [provider.name for provider in self._get_provider_fetch_order()]
+
+    def _infer_asset_class_for_symbol(self, symbol: str) -> str:
+        normalized = self._normalize_symbol(symbol)
+        if normalized.endswith("=F"):
+            return "COMMODITY_FUTURES"
+        if normalized in ETF_LIKE_SYMBOLS:
+            return "ETF"
+        if normalized.endswith("-USD"):
+            return "CRYPTO"
+        if normalized.endswith(".SS") or normalized.endswith(".SZ") or normalized.startswith("^"):
+            return "INDEX"
+        return "US_STOCK"
+
+    def _build_quote_from_history_payload(
+        self,
+        symbol: str,
+        rows: List[Dict[str, Any]],
+        source: str,
+    ) -> Optional[RealTimeQuote]:
+        if not rows:
+            return None
+
+        latest_row = rows[-1] or {}
+        previous_row = rows[-2] if len(rows) > 1 else None
+        latest_close = self._to_float(latest_row.get("close"))
+        previous_close = self._to_float(previous_row.get("close")) if previous_row else None
+        if latest_close is None:
+            return None
+
+        change = None
+        change_percent = None
+        if previous_close not in (None, 0):
+            change = latest_close - previous_close
+            change_percent = (change / previous_close) * 100
+
+        timestamp = latest_row.get("date")
+        if timestamp in (None, ""):
+            timestamp = datetime.now().isoformat()
+
+        return self._build_quote(
+            symbol,
+            {
+                "symbol": symbol,
+                "price": latest_close,
+                "change": change,
+                "change_percent": change_percent,
+                "volume": latest_row.get("volume"),
+                "high": latest_row.get("high"),
+                "low": latest_row.get("low"),
+                "open": latest_row.get("open"),
+                "previous_close": previous_close,
+                "timestamp": timestamp,
+                "source": source,
+            },
+            default_source=source,
+        )
+
+    def _fetch_historical_fallback_quotes(self, symbols: List[str]) -> Dict[str, RealTimeQuote]:
+        fallback_quotes: Dict[str, RealTimeQuote] = {}
+        normalized_symbols = self._normalize_symbols(symbols)
+        if not normalized_symbols:
+            return fallback_quotes
+
+        def fetch_single_symbol(symbol: str) -> Tuple[str, Optional[RealTimeQuote]]:
+            asset_class = self._infer_asset_class_for_symbol(symbol)
+            try:
+                historical = self.data_manager.get_cross_market_historical_data(
+                    symbol=symbol,
+                    asset_class=asset_class,
+                    start_date=datetime.now() - timedelta(days=10),
+                    end_date=datetime.now(),
+                    interval="1d",
+                )
+                data = historical.get("data")
+                if data is None or getattr(data, "empty", True):
+                    return symbol, None
+                rows = data.tail(2).reset_index().to_dict("records")
+                provider = historical.get("provider") or "historical"
+                quote = self._build_quote_from_history_payload(
+                    symbol,
+                    rows,
+                    source=f"history_fallback:{provider}",
+                )
+                return symbol, quote
+            except Exception as exc:
+                logger.warning("Historical fallback failed for %s: %s", symbol, exc)
+                return symbol, None
+
+        max_workers = min(len(normalized_symbols), 6)
+        futures = {
+            self.fetch_executor.submit(fetch_single_symbol, symbol): symbol
+            for symbol in normalized_symbols
+        }
+        done, not_done = wait(futures, timeout=max(PROVIDER_FETCH_TIMEOUT_SECONDS, 3))
+
+        for future in done:
+            symbol, quote = future.result()
+            if quote:
+                fallback_quotes[symbol] = quote
+
+        for future in not_done:
+            future.cancel()
+            symbol = futures[future]
+            logger.warning("Historical fallback timed out for %s", symbol)
+
+        if fallback_quotes:
+            logger.info(
+                "Historical fallback provided quotes: requested=%s resolved=%s",
+                len(normalized_symbols),
+                len(fallback_quotes),
+            )
+
+        return fallback_quotes
+
     def subscribe_symbol(self, symbol: str, callback: Optional[Callable[[RealTimeQuote], None]] = None) -> bool:
         """订阅股票实时数据。"""
         canonical = self._normalize_symbol(symbol)
@@ -403,6 +548,15 @@ class RealTimeDataManager(BaseComponent):
         quote = quotes.get(canonical)
         return quote.to_dict() if quote else None
 
+    def get_cached_quotes_dict(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+        """仅返回当前缓存中已有的报价，不触发新的数据抓取。"""
+        cached_payload: Dict[str, Dict[str, Any]] = {}
+        for symbol in self._normalize_symbols(symbols):
+            cached_quote = self._get_cached_quote(symbol)
+            if cached_quote:
+                cached_payload[symbol] = cached_quote.to_dict()
+        return cached_payload
+
     def get_quotes_dict(self, symbols: List[str], use_cache: bool = True) -> Dict[str, Dict[str, Any]]:
         """批量获取统一报价字典。"""
         if use_cache:
@@ -428,25 +582,53 @@ class RealTimeDataManager(BaseComponent):
     ) -> Dict[str, Dict[str, Any]]:
         uses_batch_api = type(provider).get_multiple_quotes is not BaseDataProvider.get_multiple_quotes
         if uses_batch_api:
-            return provider.get_multiple_quotes(symbols)
+            future = self.fetch_executor.submit(provider.get_multiple_quotes, symbols)
+            try:
+                return future.result(timeout=PROVIDER_FETCH_TIMEOUT_SECONDS)
+            except FutureTimeoutError as exc:
+                future.cancel()
+                raise TimeoutError(
+                    f"Provider {provider.name} batch quote fetch timed out after {PROVIDER_FETCH_TIMEOUT_SECONDS}s"
+                ) from exc
 
         results: Dict[str, Dict[str, Any]] = {}
         futures = {
             self.fetch_executor.submit(provider.get_latest_quote, symbol): symbol for symbol in symbols
         }
-        for future in as_completed(futures):
+        done, not_done = wait(futures, timeout=PROVIDER_FETCH_TIMEOUT_SECONDS)
+
+        for future in done:
             symbol = futures[future]
             try:
                 results[symbol] = future.result()
             except Exception as exc:
                 logger.warning("Provider %s failed for %s: %s", provider.name, symbol, exc)
                 results[symbol] = {"symbol": symbol, "error": str(exc), "source": provider.name}
+
+        for future in not_done:
+            symbol = futures[future]
+            future.cancel()
+            logger.warning(
+                "Provider %s timed out for %s after %ss",
+                provider.name,
+                symbol,
+                PROVIDER_FETCH_TIMEOUT_SECONDS,
+            )
+            results[symbol] = {
+                "symbol": symbol,
+                "error": f"timeout after {PROVIDER_FETCH_TIMEOUT_SECONDS}s",
+                "source": provider.name,
+            }
         return results
 
     def _fetch_provider_quotes(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
         pending = self._normalize_symbols(symbols)
         resolved: Dict[str, Dict[str, Any]] = {}
         now = time.time()
+        preferred_providers = {
+            symbol: self._get_preferred_provider_names_for_symbol(symbol)
+            for symbol in pending
+        }
 
         for provider in self._get_provider_fetch_order():
             if not pending:
@@ -461,8 +643,16 @@ class RealTimeDataManager(BaseComponent):
                 )
                 continue
 
+            eligible_symbols = [
+                symbol
+                for symbol in pending
+                if provider.name in preferred_providers.get(symbol, [])
+            ]
+            if not eligible_symbols:
+                continue
+
             try:
-                provider_results = self._fetch_with_provider(provider, pending)
+                provider_results = self._fetch_with_provider(provider, eligible_symbols)
             except Exception as exc:
                 self._mark_provider_failure(provider.name, str(exc))
                 logger.warning("Provider %s batch fetch failed: %s", provider.name, exc)
@@ -474,6 +664,9 @@ class RealTimeDataManager(BaseComponent):
             }
             next_pending: List[str] = []
             for symbol in pending:
+                if symbol not in eligible_symbols:
+                    next_pending.append(symbol)
+                    continue
                 payload = normalized_results.get(symbol)
                 if payload and "error" not in payload:
                     resolved[symbol] = payload
@@ -533,6 +726,14 @@ class RealTimeDataManager(BaseComponent):
                     self._store_quote(quote)
                     fetched += 1
 
+            unresolved_symbols = [symbol for symbol in symbols_to_fetch if symbol not in quotes]
+            if unresolved_symbols:
+                fallback_quotes = self._fetch_historical_fallback_quotes(unresolved_symbols)
+                for symbol, quote in fallback_quotes.items():
+                    quotes[symbol] = quote
+                    self._store_quote(quote)
+                    fetched += 1
+
         misses = len(requested_symbols) - len(quotes)
         stats = {
             "requested": len(requested_symbols),
@@ -571,6 +772,23 @@ class RealTimeDataManager(BaseComponent):
 
                 for callback in self.subscribers.get(symbol, set()):
                     callbacks_to_notify.append((callback, quote))
+
+            # Enforce global memory cap by trimming the longest histories first
+            total = sum(len(h) for h in self.quote_history.values())
+            if total > self.max_global_history:
+                by_length = sorted(
+                    self.quote_history.items(),
+                    key=lambda item: len(item[1]),
+                    reverse=True,
+                )
+                excess = total - self.max_global_history
+                for sym, hist in by_length:
+                    if excess <= 0:
+                        break
+                    trim = min(len(hist) - 1, excess)
+                    if trim > 0:
+                        self.quote_history[sym] = hist[trim:]
+                        excess -= trim
 
         self.prewarm_quote_bundle(
             symbols,
@@ -630,9 +848,12 @@ class RealTimeDataManager(BaseComponent):
         with self._lock:
             latest_quotes: List[RealTimeQuote] = []
             tracked_symbols = sorted(set(self.subscribed_symbols) | set(self.quote_history.keys()))
+            total_quotes = sum(len(history) for history in self.quote_history.values())
             summary = {
                 "subscribed_symbols": len(self.subscribed_symbols),
-                "total_quotes": sum(len(history) for history in self.quote_history.values()),
+                "total_quotes": total_quotes,
+                "max_global_history": self.max_global_history,
+                "global_history_usage": round(total_quotes / self.max_global_history, 3) if self.max_global_history else 0,
                 "active_symbols": [],
                 "market_status": "open",
                 "last_update": datetime.now().isoformat(),

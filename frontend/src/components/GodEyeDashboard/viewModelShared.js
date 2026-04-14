@@ -43,6 +43,8 @@ export const FACTOR_TEMPLATE_MAP = {
   rate_curve_pressure: 'defensive_beta_hedge',
   credit_spread_stress: 'defensive_beta_hedge',
   fx_mismatch: 'copper_vs_semis',
+  people_fragility: 'people_decay_short_vs_cashflow_defensive',
+  policy_execution_disorder: 'utilities_vs_growth',
 };
 
 export const FACTOR_SYMBOL_MAP = {
@@ -52,6 +54,8 @@ export const FACTOR_SYMBOL_MAP = {
   rate_curve_pressure: 'TLT',
   credit_spread_stress: 'HYG',
   fx_mismatch: 'UUP',
+  people_fragility: 'BABA',
+  policy_execution_disorder: 'DUK',
 };
 
 export const formatTemplateName = (templateId = '') =>
@@ -69,6 +73,8 @@ export const formatFactorName = (name = '') => {
     rate_curve_pressure: '利率曲线压力',
     credit_spread_stress: '信用利差压力',
     fx_mismatch: '汇率错配',
+    people_fragility: '人的维度脆弱',
+    policy_execution_disorder: '政策执行混乱',
   };
   return mapping[name] || name.replace(/_/g, ' ');
 };
@@ -93,13 +99,13 @@ export const buildCrossMarketAction = (template, source, note) =>
       }
     : null;
 
-export const buildWorkbenchAction = (taskId, source, note, reason = '', label = '打开任务') =>
+export const buildWorkbenchAction = (taskId, source, note, reason = '', label = '打开任务', type = 'cross_market') =>
   taskId
     ? {
         target: 'workbench',
         label,
         taskId,
-        type: 'cross_market',
+        type,
         refresh: 'high',
         reason,
         source,

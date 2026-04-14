@@ -102,6 +102,7 @@ describe('useRealtimeFeed', () => {
     });
 
     await waitFor(() => expect(result.current.isConnected).toBe(true));
+    expect(webSocketService.subscribe).toHaveBeenCalledWith(['^GSPC'], { forceResend: true });
     expect(result.current.quotes['^GSPC']).toEqual(expect.objectContaining({
       price: 5123.45,
       _clientReceivedAt: expect.any(Number),

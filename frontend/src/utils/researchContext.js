@@ -1,10 +1,22 @@
 const VIEW_QUERY_KEY = 'view';
 const TAB_QUERY_KEY = 'tab';
 
-const RESEARCH_KEYS = ['symbol', 'symbols', 'template', 'action', 'source', 'note'];
+const RESEARCH_KEYS = ['symbol', 'symbols', 'template', 'draft', 'action', 'source', 'note'];
 const PRICING_KEYS = ['symbol', 'symbols', 'action', 'source', 'note', 'period'];
-const CROSS_MARKET_KEYS = ['template', 'action', 'source', 'note'];
-const WORKBENCH_KEYS = ['workbench_refresh', 'workbench_type', 'workbench_source', 'workbench_reason', 'task'];
+const CROSS_MARKET_KEYS = ['template', 'draft', 'action', 'source', 'note'];
+const WORKBENCH_KEYS = [
+  'workbench_refresh',
+  'workbench_type',
+  'workbench_source',
+  'workbench_reason',
+  'workbench_snapshot_view',
+  'workbench_snapshot_fingerprint',
+  'workbench_snapshot_summary',
+  'workbench_keyword',
+  'workbench_queue_mode',
+  'workbench_queue_action',
+  'task',
+];
 
 export const readResearchContext = (search = window.location.search) => {
   const params = new URLSearchParams(search);
@@ -14,6 +26,7 @@ export const readResearchContext = (search = window.location.search) => {
     symbol: params.get('symbol') || '',
     symbols: params.get('symbols') || '',
     template: params.get('template') || '',
+    draft: params.get('draft') || '',
     action: params.get('action') || '',
     source: params.get('source') || '',
     note: params.get('note') || '',
@@ -25,6 +38,12 @@ export const readResearchContext = (search = window.location.search) => {
     workbenchType: params.get('workbench_type') || '',
     workbenchSource: params.get('workbench_source') || '',
     workbenchReason: params.get('workbench_reason') || '',
+    workbenchSnapshotView: params.get('workbench_snapshot_view') || '',
+    workbenchSnapshotFingerprint: params.get('workbench_snapshot_fingerprint') || '',
+    workbenchSnapshotSummary: params.get('workbench_snapshot_summary') || '',
+    workbenchKeyword: params.get('workbench_keyword') || '',
+    workbenchQueueMode: params.get('workbench_queue_mode') || '',
+    workbenchQueueAction: params.get('workbench_queue_action') || '',
     task: params.get('task') || '',
   };
 };
@@ -95,6 +114,7 @@ export const buildAppUrl = ({
   symbol = undefined,
   symbols = undefined,
   template = undefined,
+  draft = undefined,
   action = undefined,
   source = undefined,
   note = undefined,
@@ -106,6 +126,12 @@ export const buildAppUrl = ({
   workbenchType = undefined,
   workbenchSource = undefined,
   workbenchReason = undefined,
+  workbenchSnapshotView = undefined,
+  workbenchSnapshotFingerprint = undefined,
+  workbenchSnapshotSummary = undefined,
+  workbenchKeyword = undefined,
+  workbenchQueueMode = undefined,
+  workbenchQueueAction = undefined,
   task = undefined,
 } = {}) => {
   const params = new URLSearchParams(currentSearch);
@@ -124,6 +150,7 @@ export const buildAppUrl = ({
   setParam(params, 'symbol', symbol);
   setParam(params, 'symbols', symbols);
   setParam(params, 'template', template);
+  setParam(params, 'draft', draft);
   setParam(params, 'action', action);
   setParam(params, 'source', source);
   setParam(params, 'note', note);
@@ -135,6 +162,12 @@ export const buildAppUrl = ({
   setParam(params, 'workbench_type', workbenchType);
   setParam(params, 'workbench_source', workbenchSource);
   setParam(params, 'workbench_reason', workbenchReason);
+  setParam(params, 'workbench_snapshot_view', workbenchSnapshotView);
+  setParam(params, 'workbench_snapshot_fingerprint', workbenchSnapshotFingerprint);
+  setParam(params, 'workbench_snapshot_summary', workbenchSnapshotSummary);
+  setParam(params, 'workbench_keyword', workbenchKeyword);
+  setParam(params, 'workbench_queue_mode', workbenchQueueMode);
+  setParam(params, 'workbench_queue_action', workbenchQueueAction);
   setParam(params, 'task', task);
 
   sanitizeParamsForView(params, view);
@@ -159,6 +192,7 @@ export const buildViewUrlForCurrentState = (
     symbol: params.get('symbol'),
     symbols: params.get('symbols'),
     template: params.get('template'),
+    draft: params.get('draft'),
     action: params.get('action'),
     source: params.get('source'),
     note: params.get('note'),
@@ -170,8 +204,31 @@ export const buildViewUrlForCurrentState = (
     workbenchType: params.get('workbench_type'),
     workbenchSource: params.get('workbench_source'),
     workbenchReason: params.get('workbench_reason'),
+    workbenchSnapshotView: params.get('workbench_snapshot_view'),
+    workbenchSnapshotFingerprint: params.get('workbench_snapshot_fingerprint'),
+    workbenchSnapshotSummary: params.get('workbench_snapshot_summary'),
+    workbenchKeyword: params.get('workbench_keyword'),
+    workbenchQueueMode: params.get('workbench_queue_mode'),
+    workbenchQueueAction: params.get('workbench_queue_action'),
     task: params.get('task'),
   });
+};
+
+const readWorkbenchParamsFromSearch = (currentSearch = window.location.search) => {
+  const params = new URLSearchParams(currentSearch);
+  return {
+    workbenchSnapshotView: params.get('workbench_snapshot_view'),
+    workbenchSnapshotFingerprint: params.get('workbench_snapshot_fingerprint'),
+    workbenchSnapshotSummary: params.get('workbench_snapshot_summary'),
+    workbenchKeyword: params.get('workbench_keyword'),
+    workbenchQueueMode: params.get('workbench_queue_mode'),
+    workbenchQueueAction: params.get('workbench_queue_action'),
+    workbenchRefresh: params.get('workbench_refresh'),
+    workbenchType: params.get('workbench_type'),
+    workbenchSource: params.get('workbench_source'),
+    workbenchReason: params.get('workbench_reason'),
+    task: params.get('task'),
+  };
 };
 
 export const buildPricingLink = (
@@ -191,18 +248,27 @@ export const buildPricingLink = (
     action: 'pricing',
     note,
     period: resolvedPeriod,
+    ...readWorkbenchParamsFromSearch(currentSearch),
   });
 };
 
-export const buildCrossMarketLink = (templateId, source = 'godeye', note = '', currentSearch = window.location.search) =>
+export const buildCrossMarketLink = (
+  templateId,
+  source = 'godeye',
+  note = '',
+  currentSearch = window.location.search,
+  draft = undefined,
+) =>
   buildAppUrl({
     currentSearch,
     view: 'backtest',
     tab: 'cross-market',
     template: templateId,
+    draft,
     source,
     action: 'cross_market',
     note,
+    ...readWorkbenchParamsFromSearch(currentSearch),
   });
 
 export const buildGodEyeLink = (currentSearch = window.location.search) =>
@@ -217,6 +283,12 @@ export const buildWorkbenchLink = (
     type = '',
     sourceFilter = '',
     reason = '',
+    snapshotView = '',
+    snapshotFingerprint = '',
+    snapshotSummary = '',
+    keyword = '',
+    queueMode = '',
+    queueAction = '',
     taskId = '',
   } = {},
   currentSearch = window.location.search,
@@ -228,6 +300,12 @@ export const buildWorkbenchLink = (
     workbenchType: type,
     workbenchSource: sourceFilter,
     workbenchReason: reason,
+    workbenchSnapshotView: snapshotView,
+    workbenchSnapshotFingerprint: snapshotFingerprint,
+    workbenchSnapshotSummary: snapshotSummary,
+    workbenchKeyword: keyword,
+    workbenchQueueMode: queueMode,
+    workbenchQueueAction: queueAction,
     task: taskId,
   });
 
@@ -250,7 +328,7 @@ export const navigateByResearchAction = (action, currentSearch = window.location
 
   if (action.target === 'cross-market') {
     navigateToAppUrl(
-      buildCrossMarketLink(action.template, action.source || 'playbook', action.note || '', currentSearch)
+      buildCrossMarketLink(action.template, action.source || 'playbook', action.note || '', currentSearch, action.draft)
     );
     return;
   }
@@ -268,6 +346,12 @@ export const navigateByResearchAction = (action, currentSearch = window.location
           type: action.type,
           sourceFilter: action.sourceFilter,
           reason: action.reason,
+          snapshotView: action.snapshotView,
+          snapshotFingerprint: action.snapshotFingerprint,
+          snapshotSummary: action.snapshotSummary,
+          keyword: action.keyword,
+          queueMode: action.queueMode,
+          queueAction: action.queueAction,
           taskId: action.taskId,
         },
         currentSearch

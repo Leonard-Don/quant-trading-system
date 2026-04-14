@@ -4,6 +4,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
+import StrategyForm from '../components/StrategyForm';
 
 // 模拟 API 服务
 jest.mock('../services/api', () => ({
@@ -33,6 +34,36 @@ jest.mock('antd', () => {
             loading: jest.fn()
         }
     };
+});
+
+jest.mock('../utils/messageApi', () => ({
+    useSafeMessageApi: () => ({
+        success: jest.fn(),
+        error: jest.fn(),
+        warning: jest.fn(),
+        info: jest.fn(),
+    }),
+}));
+
+beforeAll(() => {
+    if (!window.matchMedia) {
+        window.matchMedia = () => ({
+            matches: false,
+            addListener: () => {},
+            removeListener: () => {},
+            addEventListener: () => {},
+            removeEventListener: () => {},
+            dispatchEvent: () => false,
+        });
+    }
+
+    if (!window.ResizeObserver) {
+        window.ResizeObserver = class {
+            observe() {}
+            unobserve() {}
+            disconnect() {}
+        };
+    }
 });
 
 
@@ -74,6 +105,38 @@ describe('StrategyForm Component', () => {
     });
 
     describe('Strategy Selection', () => {
+        test('syncs strategy field from loaded strategies before submit', async () => {
+            const handleSubmit = jest.fn();
+            render(
+                <StrategyForm
+                    strategies={[
+                        {
+                            name: 'moving_average',
+                            parameters: {
+                                fast_period: { default: 20 },
+                                slow_period: { default: 50 },
+                            },
+                        },
+                    ]}
+                    onSubmit={handleSubmit}
+                    loading={false}
+                />
+            );
+
+            await waitFor(() => {
+                expect(screen.getByDisplayValue('AAPL')).toBeInTheDocument();
+                expect(screen.getAllByText('移动平均策略').length).toBeGreaterThan(0);
+            });
+
+            fireEvent.click(screen.getByRole('button', { name: '开始回测' }));
+
+            await waitFor(() => {
+                expect(handleSubmit).toHaveBeenCalledWith(expect.objectContaining({
+                    strategy: 'moving_average',
+                }));
+            });
+        });
+
         test('default strategy is selected', () => {
             const defaultStrategy = 'sma_crossover';
             const strategies = ['sma_crossover', 'rsi', 'macd'];

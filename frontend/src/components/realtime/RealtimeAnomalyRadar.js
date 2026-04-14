@@ -16,8 +16,12 @@ const RealtimeAnomalyRadar = ({
   isExpanded,
   onToggleExpanded,
   quotes,
-}) => (
-  <Card
+}) => {
+  const featuredAnomaly = anomalyFeed[0] || null;
+  const remainingCount = Math.max(0, anomalyFeed.length - 1);
+
+  return (
+    <Card
     className="realtime-board-card"
     style={{
       borderRadius: 24,
@@ -38,10 +42,59 @@ const RealtimeAnomalyRadar = ({
           <strong>{anomalyFeed.length}</strong>
         </div>
         <Button size="small" onClick={onToggleExpanded}>
-          {isExpanded ? '收起异动雷达' : '展开异动雷达'}
+          {isExpanded ? '收起异动雷达' : '展开异动'}
         </Button>
       </Space>
     </div>
+
+    {!isExpanded && featuredAnomaly ? (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 14,
+          padding: '12px 14px',
+          borderRadius: 16,
+          background: `linear-gradient(180deg, ${featuredAnomaly.background || 'color-mix(in srgb, var(--bg-secondary) 90%, white 10%)'} 0%, color-mix(in srgb, var(--bg-secondary) 94%, white 6%) 100%)`,
+          border: `1px solid ${featuredAnomaly.color || 'var(--border-color)'}`,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ display: 'grid', gap: 4 }}>
+          <Space wrap>
+            <Tag
+              style={{
+                margin: 0,
+                borderRadius: 999,
+                paddingInline: 10,
+                color: featuredAnomaly.color,
+                background: featuredAnomaly.background,
+                borderColor: 'transparent',
+                fontWeight: 700,
+              }}
+            >
+              {featuredAnomaly.label}
+            </Tag>
+            <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>{featuredAnomaly.symbol}</Tag>
+            {remainingCount > 0 ? (
+              <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>
+                另有 {remainingCount} 条
+              </Tag>
+            ) : null}
+          </Space>
+          <Text style={{ color: 'var(--text-primary)', fontWeight: 700 }}>
+            {featuredAnomaly.title} · {getDisplayName(featuredAnomaly.symbol)}
+          </Text>
+          <Text type="secondary" style={{ fontSize: '12px' }}>
+            {featuredAnomaly.description}
+          </Text>
+        </div>
+        <Button type="primary" size="small" onClick={onToggleExpanded}>
+          查看全部异动
+        </Button>
+      </div>
+    ) : null}
 
     {isExpanded && (
       anomalyFeed.length === 0 ? (
@@ -122,6 +175,7 @@ const RealtimeAnomalyRadar = ({
       )
     )}
   </Card>
-);
+  );
+};
 
 export default RealtimeAnomalyRadar;

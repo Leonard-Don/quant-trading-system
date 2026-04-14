@@ -103,6 +103,28 @@ class BaseDataProvider(ABC):
             基本面数据字典
         """
         return {"symbol": symbol, "error": "Not implemented"}
+
+    def get_order_book(self, symbol: str, levels: int = 10) -> Dict[str, Any]:
+        """
+        获取订单簿深度（可选实现）。
+
+        默认返回空结果，具体 provider 可以覆盖为真实 Level 2 接口。
+        """
+        return {}
+
+    def supports_capability(self, capability: str) -> bool:
+        """
+        返回 provider 是否声明支持某项扩展能力。
+        """
+        normalized = str(capability or "").strip().lower()
+        if normalized in {"order_book", "orderbook", "level2", "market_depth"}:
+            method = getattr(self, "get_order_book", None)
+            base_method = BaseDataProvider.get_order_book
+            if not callable(method):
+                return False
+            bound_func = getattr(method, "__func__", method)
+            return bound_func is not base_method
+        return False
     
     def get_multiple_quotes(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
         """
@@ -149,7 +171,13 @@ class BaseDataProvider(ABC):
             "priority": self.priority,
             "rate_limit": self.rate_limit,
             "requires_api_key": self.requires_api_key,
-            "is_available": self.is_available()
+            "is_available": self.is_available(),
+            "capabilities": {
+                "historical_data": True,
+                "latest_quote": True,
+                "fundamental_data": callable(getattr(self, "get_fundamental_data", None)),
+                "order_book": self.supports_capability("order_book"),
+            },
         }
     
     def _check_rate_limit(self) -> bool:

@@ -178,6 +178,32 @@ def test_cross_market_backtester_returns_expected_sections():
             "input_reliability_posture": "输入需谨慎使用",
             "input_reliability_reason": "effective confidence 0.41 · freshness aging · 风险 时效偏旧、来源退化",
             "input_reliability_action_hint": "建议先复核当前宏观输入可靠度，再决定是否继续沿用当前模板强度。",
+            "department_chaos_label": "chaotic",
+            "department_chaos_score": 0.68,
+            "department_chaos_top_department": "发改委",
+            "department_chaos_reason": "方向反复 3 次，长官意志 0.84",
+            "department_chaos_risk_budget_scale": 0.82,
+            "policy_execution_label": "chaotic",
+            "policy_execution_score": 0.66,
+            "policy_execution_top_department": "发改委",
+            "policy_execution_reason": "正文覆盖退化，执行滞后正在抬升组合防御需求",
+            "policy_execution_risk_budget_scale": 0.84,
+            "people_fragility_label": "fragile",
+            "people_fragility_score": 0.79,
+            "people_fragility_focus": "阿里巴巴",
+            "people_fragility_reason": "技术权威继续被非技术 KPI 稀释",
+            "people_fragility_risk_budget_scale": 0.88,
+            "source_mode_label": "fallback-heavy",
+            "source_mode_dominant": "proxy",
+            "source_mode_reason": "当前来源治理偏回退，建议压缩偏置强度。",
+            "source_mode_risk_budget_scale": 0.72,
+            "structural_decay_radar_label": "decay_alert",
+            "structural_decay_radar_display_label": "结构衰败警报",
+            "structural_decay_radar_score": 0.74,
+            "structural_decay_radar_action_hint": "人的维度、治理与执行证据已经共振。",
+            "structural_decay_radar_risk_budget_scale": 0.78,
+            "structural_decay_radar_top_signals": [{"key": "people", "label": "人的维度", "score": 0.82}],
+            "execution_posture": "防御优先 / 对冲增强",
             "base_assets": [
                 {"symbol": "XLU", "asset_class": "ETF", "side": "long", "weight": 0.45},
                 {"symbol": "QQQ", "asset_class": "ETF", "side": "short", "weight": 0.55},
@@ -265,6 +291,29 @@ def test_cross_market_backtester_returns_expected_sections():
     assert results["allocation_overlay"]["input_reliability"]["score"] == 0.41
     assert results["allocation_overlay"]["input_reliability"]["posture"] == "输入需谨慎使用"
     assert "复核" in results["allocation_overlay"]["input_reliability"]["action_hint"]
+    assert results["allocation_overlay"]["department_chaos"]["label"] == "chaotic"
+    assert results["allocation_overlay"]["department_chaos"]["score"] == 0.68
+    assert results["allocation_overlay"]["department_chaos"]["top_department"] == "发改委"
+    assert results["allocation_overlay"]["department_chaos"]["risk_budget_scale"] == 0.82
+    assert results["allocation_overlay"]["department_chaos"]["active"] is True
+    assert results["allocation_overlay"]["policy_execution"]["label"] == "chaotic"
+    assert results["allocation_overlay"]["policy_execution"]["top_department"] == "发改委"
+    assert results["allocation_overlay"]["policy_execution"]["risk_budget_scale"] == 0.84
+    assert results["allocation_overlay"]["policy_execution"]["active"] is True
+    assert results["allocation_overlay"]["people_fragility"]["label"] == "fragile"
+    assert results["allocation_overlay"]["people_fragility"]["score"] == 0.79
+    assert results["allocation_overlay"]["people_fragility"]["focus"] == "阿里巴巴"
+    assert results["allocation_overlay"]["people_fragility"]["risk_budget_scale"] == 0.88
+    assert results["allocation_overlay"]["people_fragility"]["active"] is True
+    assert results["allocation_overlay"]["source_mode_summary"]["label"] == "fallback-heavy"
+    assert results["allocation_overlay"]["source_mode_summary"]["dominant"] == "proxy"
+    assert results["allocation_overlay"]["source_mode_summary"]["risk_budget_scale"] == 0.72
+    assert results["allocation_overlay"]["source_mode_summary"]["active"] is True
+    assert results["allocation_overlay"]["structural_decay_radar"]["label"] == "decay_alert"
+    assert results["allocation_overlay"]["structural_decay_radar"]["score"] == 0.74
+    assert results["allocation_overlay"]["structural_decay_radar"]["risk_budget_scale"] == 0.78
+    assert results["allocation_overlay"]["structural_decay_radar"]["active"] is True
+    assert results["allocation_overlay"]["execution_posture"] == "防御优先 / 对冲增强"
     assert results["allocation_overlay"]["compressed_asset_count"] >= 1
     assert results["allocation_overlay"]["rows"][0]["raw_bias_weight"] >= 0
     assert "compression_delta" in results["allocation_overlay"]["rows"][0]

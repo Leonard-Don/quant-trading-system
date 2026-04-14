@@ -19,6 +19,10 @@ from .pricing_gap_support import (
     resolve_valuation_view,
 )
 from .valuation_model import ValuationModel
+from .structural_decay import build_structural_decay
+from .macro_mispricing_thesis import build_macro_mispricing_thesis
+from src.data.alternative import get_alt_data_manager
+from src.data.alternative.people import PeopleSignalAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +37,10 @@ class PricingGapAnalyzer:
     def __init__(self):
         self.pricing_engine = AssetPricingEngine()
         self.valuation_model = ValuationModel()
+        self.people_analyzer = PeopleSignalAnalyzer()
+        self.alt_data_manager = get_alt_data_manager()
 
-    def analyze(self, symbol: str, period: str = "1y") -> Dict[str, Any]:
+    def analyze(self, symbol: str, period: str = "1y", parallel: bool = True) -> Dict[str, Any]:
         """
         完整的定价差异分析
 
@@ -46,11 +52,15 @@ class PricingGapAnalyzer:
             综合定价差异分析结果
         """
         try:
-            with ThreadPoolExecutor(max_workers=2) as executor:
-                factor_future = executor.submit(self.pricing_engine.analyze, symbol, period)
-                valuation_future = executor.submit(self.valuation_model.analyze, symbol)
-                factor_result = factor_future.result()
-                valuation_result = valuation_future.result()
+            if parallel:
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    factor_future = executor.submit(self.pricing_engine.analyze, symbol, period)
+                    valuation_future = executor.submit(self.valuation_model.analyze, symbol)
+                    factor_result = factor_future.result()
+                    valuation_result = valuation_future.result()
+            else:
+                factor_result = self.pricing_engine.analyze(symbol, period)
+                valuation_result = self.valuation_model.analyze(symbol)
 
             # 3. 定价差异分析
             gap_analysis = self._analyze_gap(factor_result, valuation_result)
@@ -58,8 +68,32 @@ class PricingGapAnalyzer:
             # 4. 偏差归因
             deviation_drivers = self._analyze_deviation_drivers(factor_result, valuation_result)
 
-            # 5. 投资含义
-            implications = self._derive_implications(gap_analysis, factor_result, valuation_result)
+            # 5. 人的维度
+            people_layer = self.people_analyzer.analyze(
+                symbol,
+                valuation_result.get("company_name", symbol),
+                valuation_result.get("sector", ""),
+            )
+
+            alt_context = self._load_alt_context(symbol)
+            people_governance_overlay = self._build_people_governance_overlay(
+                symbol=symbol,
+                gap=gap_analysis,
+                valuation=valuation_result,
+                factor=factor_result,
+                people_layer=people_layer,
+                alt_context=alt_context,
+            )
+
+            # 6. 投资含义
+            implications = self._derive_implications(
+                gap_analysis,
+                factor_result,
+                valuation_result,
+                people_layer,
+                people_governance_overlay,
+            )
+            structural_decay = implications.get("structural_decay", {})
 
             return {
                 "symbol": symbol,
@@ -67,8 +101,12 @@ class PricingGapAnalyzer:
                 "valuation": valuation_result,
                 "gap_analysis": gap_analysis,
                 "deviation_drivers": deviation_drivers,
+                "people_layer": people_layer,
+                "people_governance_overlay": people_governance_overlay,
+                "structural_decay": structural_decay,
+                "macro_mispricing_thesis": implications.get("macro_mispricing_thesis", {}),
                 "implications": implications,
-                "summary": self._generate_summary(gap_analysis, valuation_result)
+                "summary": self._generate_summary(gap_analysis, valuation_result, people_layer)
             }
 
         except Exception as e:
@@ -80,6 +118,10 @@ class PricingGapAnalyzer:
                 "valuation": {},
                 "gap_analysis": {},
                 "deviation_drivers": {},
+                "people_layer": {},
+                "people_governance_overlay": {},
+                "structural_decay": {},
+                "macro_mispricing_thesis": {},
                 "implications": {},
                 "summary": f"分析失败: {e}"
             }
@@ -97,9 +139,16 @@ class PricingGapAnalyzer:
 
         results = []
         failures = []
-        with ThreadPoolExecutor(max_workers=max(1, min(int(max_workers or 1), 8))) as executor:
+        effective_workers = max(1, min(int(max_workers or 1), 3, len(normalized_symbols) or 1))
+        def _screen_symbol(target_symbol: str) -> Dict[str, Any]:
+            try:
+                return self.analyze(target_symbol, period, False)
+            except TypeError:
+                return self.analyze(target_symbol, period)
+
+        with ThreadPoolExecutor(max_workers=effective_workers) as executor:
             future_map = {
-                executor.submit(self.analyze, symbol, period): symbol
+                executor.submit(_screen_symbol, symbol): symbol
                 for symbol in normalized_symbols
             }
             for future in as_completed(future_map):
@@ -487,11 +536,14 @@ class PricingGapAnalyzer:
             confidence_score=confidence_score,
             primary_view=implications.get("primary_view"),
             alignment_status=alignment.get("status"),
+            people_governance_overlay=analysis.get("people_governance_overlay"),
         )
+        governance_overlay = analysis.get("people_governance_overlay", {}) or {}
 
         return {
             "symbol": analysis.get("symbol"),
             "company_name": valuation.get("company_name"),
+            "sector": valuation.get("sector"),
             "period": period,
             "screening_score": score,
             "current_price": gap.get("current_price"),
@@ -509,6 +561,12 @@ class PricingGapAnalyzer:
             "price_source": valuation.get("current_price_source"),
             "primary_driver": primary_driver.get("factor"),
             "primary_driver_reason": primary_driver.get("ranking_reason"),
+            "people_governance_discount_pct": governance_overlay.get("governance_discount_pct"),
+            "people_governance_confidence": governance_overlay.get("confidence"),
+            "people_governance_label": governance_overlay.get("label"),
+            "people_governance_summary": governance_overlay.get("summary"),
+            "structural_decay_score": float((analysis.get("structural_decay") or {}).get("score") or 0),
+            "structural_decay_label": (analysis.get("structural_decay") or {}).get("label"),
             "summary": analysis.get("summary"),
         }
 
@@ -518,6 +576,7 @@ class PricingGapAnalyzer:
         confidence_score: float,
         primary_view: Optional[str],
         alignment_status: Optional[str],
+        people_governance_overlay: Optional[Dict[str, Any]] = None,
     ) -> float:
         """Estimate how actionable a pricing opportunity is for rank ordering."""
         base_score = abs(float(gap_pct or 0)) * max(float(confidence_score or 0), 0.2)
@@ -528,6 +587,18 @@ class PricingGapAnalyzer:
             "conflict": -4.0,
         }.get(alignment_status, 0.0)
         actionable_bonus = 2.0 if primary_view in {"高估", "低估"} else 0.0
+        governance_overlay = people_governance_overlay or {}
+        governance_discount_pct = float(governance_overlay.get("governance_discount_pct") or 0.0)
+        governance_confidence = float(governance_overlay.get("confidence") or 0.0)
+        governance_penalty = governance_discount_pct * max(governance_confidence, 0.2) * 0.18
+        governance_support = abs(min(governance_discount_pct, 0.0)) * max(governance_confidence, 0.2) * 0.12
+
+        if primary_view == "高估":
+            actionable_bonus += governance_penalty
+        elif primary_view == "低估":
+            actionable_bonus -= governance_penalty
+            actionable_bonus += governance_support
+
         return round(max(base_score + alignment_bonus + actionable_bonus, 0.0), 2)
 
     def _sort_drivers(self, drivers):
@@ -595,7 +666,14 @@ class PricingGapAnalyzer:
             return "相对行业基准的估值折价最显著，说明倍数压缩是当前定价偏差的主要来源"
         return "该信号的影响幅度最大，因此被识别为当前定价偏差的主要来源"
 
-    def _derive_implications(self, gap: Dict, factor: Dict, valuation: Dict) -> Dict[str, Any]:
+    def _derive_implications(
+        self,
+        gap: Dict,
+        factor: Dict,
+        valuation: Dict,
+        people_layer: Optional[Dict[str, Any]] = None,
+        people_governance_overlay: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """推导投资含义和建议"""
         severity = gap.get("severity", "unknown")
         gap_pct = gap.get("gap_pct", 0)
@@ -640,9 +718,52 @@ class PricingGapAnalyzer:
         elif val_status in ["overvalued", "severely_overvalued"]:
             insights.append("一级市场视角（基本面估值）认为当前价格偏高")
 
+        people_layer = people_layer or {}
+        people_governance_overlay = people_governance_overlay or {}
+        people_risk = people_layer.get("risk_level")
+        if people_risk == "high":
+            insights.append("人的维度显示组织与治理脆弱度偏高，需警惕这不是短期错价而是结构性折价/高估的开始。")
+        elif people_layer.get("stance") == "supportive":
+            insights.append("人的维度对执行与技术路线形成支撑，有助于提升定价修复的持续性。")
+        governance_discount_pct = float(people_governance_overlay.get("governance_discount_pct") or 0.0)
+        if governance_discount_pct >= 6:
+            insights.append(
+                f"治理/执行折价约 {governance_discount_pct:.1f}%，即使表面估值便宜，也需要先确认这不是长期治理折价。"
+            )
+        elif governance_discount_pct <= -3:
+            insights.append(
+                f"治理/执行层当前形成约 {abs(governance_discount_pct):.1f}% 的执行支撑，有助于提升估值修复的持续性。"
+            )
+        if people_layer.get("notes"):
+            insights.extend((people_layer.get("notes") or [])[:2])
+
         confidence_meta = self._assess_confidence(gap, factor, valuation)
         alignment_meta = self._build_alignment_meta(gap, factor, valuation)
+        structural_decay = build_structural_decay(
+            gap,
+            factor,
+            valuation,
+            people_layer,
+            alignment_meta,
+            confidence_meta,
+        )
         trade_setup = self._build_trade_setup(gap, valuation, alignment_meta, confidence_meta)
+        macro_mispricing_thesis = build_macro_mispricing_thesis(
+            self._safe_symbol_from_context(gap, valuation),
+            gap,
+            valuation,
+            people_layer,
+            structural_decay,
+            trade_setup,
+        )
+
+        if structural_decay.get("action") == "structural_short":
+            insights.append("综合人的维度、因子与估值信号，当前更接近结构性衰败而非单纯短期错价。")
+            risk_level = "high"
+        elif structural_decay.get("action") == "structural_avoid":
+            insights.append("当前更像结构性走弱早期，研究上应优先验证是否需要转入长期回避框架。")
+        if macro_mispricing_thesis.get("summary"):
+            insights.append(macro_mispricing_thesis["summary"])
 
         return {
             "insights": insights,
@@ -654,7 +775,15 @@ class PricingGapAnalyzer:
             "confidence_breakdown": confidence_meta["components"],
             "factor_alignment": alignment_meta,
             "trade_setup": trade_setup,
+            "macro_mispricing_thesis": macro_mispricing_thesis,
+            "people_risk": people_risk,
+            "people_summary": people_layer.get("summary", ""),
+            "people_governance_overlay": people_governance_overlay,
+            "structural_decay": structural_decay,
         }
+
+    def _safe_symbol_from_context(self, gap: Dict, valuation: Dict) -> str:
+        return str(valuation.get("symbol") or valuation.get("ticker") or gap.get("symbol") or "").strip().upper()
 
     def _assess_confidence(self, gap: Dict, factor: Dict, valuation: Dict) -> Dict[str, Any]:
         """Estimate confidence from data quality, model coverage and valuation consistency."""
@@ -683,7 +812,7 @@ class PricingGapAnalyzer:
     def _build_alignment_meta(self, gap: Dict, factor: Dict, valuation: Dict) -> Dict[str, str]:
         return build_alignment_meta(gap, factor, valuation)
 
-    def _generate_summary(self, gap: Dict, valuation: Dict) -> str:
+    def _generate_summary(self, gap: Dict, valuation: Dict, people_layer: Optional[Dict[str, Any]] = None) -> str:
         """生成定价差异摘要"""
         severity_label = gap.get("severity_label", "未知")
         gap_pct = gap.get("gap_pct")
@@ -695,4 +824,207 @@ class PricingGapAnalyzer:
             return "数据不足，无法进行定价差异分析"
 
         direction = "溢价" if gap_pct > 0 else "折价"
-        return f"市价${current}，公允价值${fair}，{direction}{abs(gap_pct):.1f}%（{severity_label}），估值状态：{val_label}"
+        people_suffix = ""
+        if (people_layer or {}).get("stance") == "fragile":
+            people_suffix = "；人的维度偏脆弱"
+        elif (people_layer or {}).get("stance") == "supportive":
+            people_suffix = "；人的维度偏支撑"
+        return f"市价${current}，公允价值${fair}，{direction}{abs(gap_pct):.1f}%（{severity_label}），估值状态：{val_label}{people_suffix}"
+
+    def _load_alt_context(self, symbol: str) -> Dict[str, Any]:
+        symbol = str(symbol or "").strip().upper()
+        try:
+            snapshot = self.alt_data_manager.get_dashboard_snapshot(refresh=False) or {}
+        except Exception as exc:
+            logger.warning("加载另类数据快照失败: %s", exc)
+            snapshot = {}
+
+        signals = snapshot.get("signals", {}) if isinstance(snapshot, dict) else {}
+        people_signal = signals.get("people_layer") or {}
+        policy_execution = signals.get("policy_execution") or {}
+        watchlist = people_signal.get("watchlist") or []
+        people_watch_entry = next(
+            (
+                item
+                for item in watchlist
+                if str(item.get("symbol") or "").strip().upper() == symbol
+            ),
+            {},
+        )
+        return {
+            "snapshot": snapshot,
+            "people_signal": people_signal,
+            "people_watch_entry": people_watch_entry,
+            "policy_execution": policy_execution,
+            "source_mode_summary": self._normalize_source_mode_summary(snapshot.get("source_mode_summary") or {}),
+        }
+
+    def _normalize_source_mode_summary(self, summary: Dict[str, Any]) -> Dict[str, Any]:
+        counts = summary.get("counts") or {}
+        total = sum(int(value or 0) for value in counts.values())
+        official_like = sum(
+            int(counts.get(key) or 0)
+            for key in (
+                "official",
+                "corporate_governance",
+                "market_disclosure",
+                "market",
+                "public_procurement",
+                "regulatory_filing",
+            )
+        )
+        fallback_like = sum(
+            int(counts.get(key) or 0)
+            for key in ("proxy", "curated", "derived")
+        )
+        official_share = official_like / total if total else 0.0
+        fallback_share = fallback_like / total if total else 0.0
+        if fallback_share >= 0.45:
+            label = "fallback-heavy"
+        elif official_share >= 0.5:
+            label = "official-led"
+        else:
+            label = "mixed"
+        return {
+            **summary,
+            "counts": counts,
+            "label": label,
+            "coverage": total,
+            "official_share": round(official_share, 4),
+            "fallback_share": round(fallback_share, 4),
+        }
+
+    def _build_people_governance_overlay(
+        self,
+        *,
+        symbol: str,
+        gap: Dict[str, Any],
+        valuation: Dict[str, Any],
+        factor: Dict[str, Any],
+        people_layer: Dict[str, Any],
+        alt_context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        people_layer = people_layer or {}
+        people_signal = alt_context.get("people_signal") or {}
+        watch_entry = alt_context.get("people_watch_entry") or {}
+        policy_execution = alt_context.get("policy_execution") or {}
+        source_mode_summary = alt_context.get("source_mode_summary") or {}
+        alignment_meta = self._build_alignment_meta(gap, factor, valuation)
+
+        valuation_status = str((valuation.get("valuation_status") or {}).get("status") or "")
+        people_fragility = max(
+            float(people_layer.get("people_fragility_score") or 0.0),
+            float(watch_entry.get("people_fragility_score") or 0.0),
+            float(people_signal.get("avg_fragility_score") or 0.0),
+        )
+        people_quality = max(
+            float(people_layer.get("people_quality_score") or 0.0),
+            float(watch_entry.get("people_quality_score") or 0.0),
+            float(people_signal.get("avg_quality_score") or 0.0),
+        )
+        policy_disorder = max(
+            float(policy_execution.get("score") or 0.0),
+            float(policy_execution.get("strength") or 0.0),
+        )
+        source_penalty = {
+            "official-led": -1.0,
+            "mixed": 0.0,
+            "fallback-heavy": 2.5,
+        }.get(source_mode_summary.get("label"), 0.0)
+
+        discount = people_fragility * 10.0 + policy_disorder * 8.0 + source_penalty
+        support = people_quality * 3.0
+        if people_layer.get("stance") == "supportive":
+            support += 1.8
+        elif people_layer.get("stance") == "fragile":
+            discount += 1.5
+        if people_layer.get("risk_level") == "high":
+            discount += 1.8
+
+        if alignment_meta.get("status") == "conflict":
+            discount += 1.6
+        elif alignment_meta.get("status") == "aligned" and people_layer.get("stance") == "supportive":
+            support += 0.8
+
+        if valuation_status in {"undervalued", "severely_undervalued"} and discount > 0:
+            discount = max(discount - 1.5, discount * 0.75)
+        elif valuation_status in {"overvalued", "severely_overvalued"} and discount > 0:
+            discount += 0.9
+
+        signed_discount = round(discount - support, 2)
+        if signed_discount >= 12:
+            label = "严重治理折价"
+            summary = (
+                f"{symbol} 当前更像执行/治理折价主导，治理折价约 {signed_discount:.1f}% ，"
+                "需要先验证组织与政策执行风险，而不是把便宜直接视作高质量机会。"
+            )
+        elif signed_discount >= 5:
+            label = "治理折价"
+            summary = (
+                f"{symbol} 当前存在约 {signed_discount:.1f}% 的执行/治理折价，"
+                "需要把组织质量和政策执行噪音一起纳入估值判断。"
+            )
+        elif signed_discount <= -3:
+            label = "执行支撑"
+            summary = (
+                f"{symbol} 当前呈现约 {abs(signed_discount):.1f}% 的执行支撑，"
+                "组织质量与执行稳定性对估值修复有正向帮助。"
+            )
+        else:
+            label = "治理中性"
+            summary = f"{symbol} 当前执行/治理层面对定价结论影响有限，更多仍由估值和因子证据驱动。"
+
+        confidence = min(
+            0.95,
+            max(
+                float(people_layer.get("confidence") or 0.0),
+                float(policy_execution.get("confidence") or 0.0) * 0.85,
+                0.35,
+            ),
+        )
+        executive = people_layer.get("executive_profile") or {}
+        insider = people_layer.get("insider_flow") or {}
+        hiring = people_layer.get("hiring_signal") or {}
+        top_department = (policy_execution.get("top_departments") or [{}])[0] or {}
+
+        return {
+            "label": label,
+            "governance_discount_pct": signed_discount,
+            "confidence": round(confidence, 4),
+            "source_mode_summary": source_mode_summary,
+            "executive_evidence": {
+                "technical_authority_score": executive.get("technical_authority_score"),
+                "capital_markets_pressure": executive.get("capital_markets_pressure"),
+                "leadership_balance": executive.get("leadership_balance"),
+                "average_tenure_years": executive.get("average_tenure_years"),
+                "summary": executive.get("leadership_balance") or people_layer.get("summary", ""),
+            },
+            "insider_evidence": {
+                "label": insider.get("label"),
+                "net_action": insider.get("net_action"),
+                "transaction_count": insider.get("transaction_count"),
+                "conviction_score": insider.get("conviction_score"),
+                "summary": insider.get("summary"),
+            },
+            "hiring_evidence": {
+                "signal": hiring.get("signal"),
+                "dilution_ratio": hiring.get("dilution_ratio"),
+                "tech_ratio": hiring.get("tech_ratio"),
+                "summary": hiring.get("alert_message"),
+            },
+            "policy_execution_context": {
+                "label": "chaotic"
+                if float(policy_execution.get("score") or 0) >= 0.62
+                else "watch"
+                if float(policy_execution.get("score") or 0) >= 0.38
+                else "stable",
+                "summary": policy_execution.get("summary") or "",
+                "reversal_count": policy_execution.get("reversal_count"),
+                "top_department": top_department.get("department_label") or top_department.get("department") or "",
+                "execution_status": top_department.get("execution_status") or "",
+                "lag_days": top_department.get("lag_days"),
+                "full_text_ratio": top_department.get("full_text_ratio"),
+                "reason": top_department.get("reason") or "",
+            },
+            "summary": summary,
+        }

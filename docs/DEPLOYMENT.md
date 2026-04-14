@@ -108,12 +108,47 @@ server {
 
 ## Docker 支持
 
-当前仓库未提供官方 `Dockerfile` 或 `docker-compose.yml`，因此目前推荐使用原生 Python + Node.js + 反向代理部署。如果后续需要容器化，建议先固定：
+当前仓库已提供本地研究环境专用的基础设施编排文件 [`docker-compose.quant-infra.yml`](../docker-compose.quant-infra.yml)，用于一键启动：
 
-- 后端启动命令
-- 前端构建产物目录
-- `.env` 注入方式
-- 反向代理路径前缀
+- `PostgreSQL + TimescaleDB`
+- `Redis`
+
+推荐的本地启动顺序如下：
+
+```bash
+cp .env.example .env
+./scripts/start_infra_stack.sh --bootstrap-persistence
+source ./logs/infra-stack.env
+./scripts/start_celery_worker.sh
+python3 ./scripts/migrate_infra_store.py
+./scripts/start_system.sh
+```
+
+如果希望一次性把基础设施和前后端一起拉起，可以直接使用：
+
+```bash
+./scripts/start_system.sh --with-infra --with-worker --bootstrap-persistence
+```
+
+停止命令：
+
+```bash
+./scripts/stop_system.sh --with-infra --with-worker
+```
+
+如需连同数据库和 Redis 数据卷一起删除：
+
+```bash
+./scripts/stop_system.sh --with-infra --remove-infra-volumes
+```
+
+说明：
+
+- `start_infra_stack.sh` 会在 `logs/infra-stack.env` 中生成推荐的 `DATABASE_URL / REDIS_URL / CELERY_*` 运行时环境。
+- `start_celery_worker.sh` 默认会复用 `logs/infra-stack.env` 中的 broker 配置，并以本地开发更稳妥的 `solo` pool 启动 worker。
+- `migrate_infra_store.py` 可先做 dry-run 预览，再使用 `--apply` 将原 SQLite fallback 的 records / timeseries 迁移到 PostgreSQL。
+- `--bootstrap-persistence` 会在 TimescaleDB 就绪后自动执行 `backend/app/db/timescale_schema.sql` 对应的 bootstrap 流程。
+- 若当前机器未安装 Docker / docker compose，系统仍可继续使用 SQLite + 本地执行器降级运行。
 
 ---
 

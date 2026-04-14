@@ -390,6 +390,16 @@ const PriceAlerts = ({
         });
         setAlertHitHistory((prev) => [historyEntry, ...prev].slice(0, MAX_ALERT_HIT_HISTORY));
         onAlertTriggered?.(historyEntry);
+        void api.recordRealtimeAlertHit(
+            historyEntry,
+            realtimeProfileIdRef.current,
+            {
+                severity: ['price_below', 'change_pct_below', 'touch_low'].includes(alert?.condition) ? 'critical' : 'warning',
+                persist_event_record: true,
+            }
+        ).catch((error) => {
+            console.warn('Failed to publish realtime alert hit to unified bus:', error);
+        });
 
         if (notificationsEnabled) {
             new Notification(`🔔 实时提醒: ${alert.symbol}`, {

@@ -2,12 +2,17 @@
 Backtest engine for testing trading strategies
 """
 
+import logging
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass
 from typing import Dict, Any, List, Optional
-import logging
 from .base_backtester import BaseBacktester
+from .impact_model import (
+    estimate_market_impact_rate,
+    normalize_market_impact_model,
+    summarize_execution_costs,
+)
 from .signal_adapter import SignalAdapter
 from .risk_manager import RiskManager, RiskContext, RiskAction
 from .position_sizer import (
@@ -42,6 +47,10 @@ class ExecutionConfig:
     fixed_commission: float = 0.0
     min_commission: float = 0.0
     market_impact_bps: float = 0.0
+    market_impact_model: str = "constant"
+    impact_reference_notional: float = 100000.0
+    impact_coefficient: float = 1.0
+    permanent_impact_bps: float = 0.0
 
 
 class SingleAssetExecutionEngine:
@@ -64,6 +73,7 @@ class SingleAssetExecutionEngine:
         self.commission = float(commission)
         self.slippage = float(slippage)
         self.config = config
+        self.config.market_impact_model = normalize_market_impact_model(self.config.market_impact_model)
 
     def execute(
         self,
@@ -118,8 +128,63 @@ class SingleAssetExecutionEngine:
             return float(shares)
         return float(int(shares))
 
-    def _effective_slippage(self) -> float:
-        return float(self.slippage + (self.config.market_impact_bps / 10_000.0))
+    def _prepare_execution_context(self, data: pd.DataFrame) -> Dict[str, np.ndarray]:
+        prices = pd.to_numeric(data["close"], errors="coerce").replace([np.inf, -np.inf], np.nan)
+        returns = prices.pct_change().replace([np.inf, -np.inf], np.nan)
+        fallback_volatility = float(returns.std()) if returns.dropna().size else 0.02
+        fallback_volatility = max(fallback_volatility, 0.005)
+        rolling_volatility = (
+            returns.rolling(20, min_periods=2).std().fillna(fallback_volatility).to_numpy(dtype=float)
+        )
+
+        if "volume" in data.columns:
+            volumes = pd.to_numeric(data["volume"], errors="coerce").clip(lower=0)
+            dollar_volume = (prices * volumes).replace([np.inf, -np.inf], np.nan)
+            fallback_notional = (
+                float(dollar_volume.dropna().median())
+                if dollar_volume.dropna().size
+                else float(self.config.impact_reference_notional or 100000.0)
+            )
+            fallback_notional = max(fallback_notional, float(self.config.impact_reference_notional or 100000.0), 1.0)
+            avg_daily_notional = (
+                dollar_volume.rolling(20, min_periods=1).mean().fillna(fallback_notional).to_numpy(dtype=float)
+            )
+        else:
+            fallback_notional = max(float(self.config.impact_reference_notional or 100000.0), 1.0)
+            avg_daily_notional = np.full(len(data), fallback_notional, dtype=float)
+
+        return {
+            "avg_daily_notional": avg_daily_notional,
+            "volatility": rolling_volatility,
+        }
+
+    def _execution_cost_profile(
+        self,
+        *,
+        price: float,
+        shares: float,
+        bar_index: int,
+        market_context: Dict[str, np.ndarray],
+    ) -> Dict[str, float | str]:
+        trade_notional = abs(float(price or 0.0) * float(shares or 0.0))
+        impact = estimate_market_impact_rate(
+            trade_notional,
+            market_impact_bps=self.config.market_impact_bps,
+            model=self.config.market_impact_model,
+            avg_daily_notional=float(market_context["avg_daily_notional"][bar_index]),
+            volatility=float(market_context["volatility"][bar_index]),
+            impact_coefficient=self.config.impact_coefficient,
+            permanent_impact_bps=self.config.permanent_impact_bps,
+            reference_notional=self.config.impact_reference_notional,
+        )
+        total_slippage_rate = float(self.slippage) + float(impact["impact_rate"])
+        return {
+            **impact,
+            "trade_notional": trade_notional,
+            "total_slippage_rate": total_slippage_rate,
+            "estimated_market_impact_cost": trade_notional * float(impact["impact_rate"]),
+            "estimated_total_slippage_cost": trade_notional * total_slippage_rate,
+        }
 
     def _commission_cost(self, notional: float) -> float:
         if notional <= 0:
@@ -179,7 +244,7 @@ class SingleAssetExecutionEngine:
         current_entry_date = None
         peak_equity = self.initial_capital
         prev_total = self.initial_capital
-        effective_slippage = self._effective_slippage()
+        market_context = self._prepare_execution_context(data)
 
         for i, (price, signal) in enumerate(zip(price_array, signal_array)):
             current_equity = current_cash + current_position * price
@@ -240,7 +305,13 @@ class SingleAssetExecutionEngine:
                 shares = self._normalize_shares(sizing_result.shares)
 
                 if shares > 0:
-                    gross_cost = shares * price * (1 + effective_slippage)
+                    execution_cost = self._execution_cost_profile(
+                        price=price,
+                        shares=shares,
+                        bar_index=i,
+                        market_context=market_context,
+                    )
+                    gross_cost = shares * price * (1 + float(execution_cost["total_slippage_rate"]))
                     commission_cost = self._commission_cost(gross_cost)
                     total_cost = gross_cost + commission_cost
                     if total_cost <= current_cash:
@@ -256,10 +327,24 @@ class SingleAssetExecutionEngine:
                                 "shares": shares,
                                 "cost": total_cost,
                                 "pnl": 0.0,
+                                "market_impact_rate": execution_cost["impact_rate"],
+                                "execution_slippage_rate": execution_cost["total_slippage_rate"],
+                                "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
+                                "estimated_total_slippage_cost": execution_cost["estimated_total_slippage_cost"],
+                                "impact_model": execution_cost["model"],
+                                "participation_rate": execution_cost["participation_rate"],
+                                "impact_liquidity_proxy": execution_cost["liquidity_proxy"],
+                                "impact_volatility_estimate": execution_cost["volatility_estimate"],
                             }
                         )
             elif signal == -1 and current_position > 0:
-                gross_revenue = current_position * price * (1 - effective_slippage)
+                execution_cost = self._execution_cost_profile(
+                    price=price,
+                    shares=current_position,
+                    bar_index=i,
+                    market_context=market_context,
+                )
+                gross_revenue = current_position * price * (1 - float(execution_cost["total_slippage_rate"]))
                 commission_cost = self._commission_cost(gross_revenue)
                 total_revenue = gross_revenue - commission_cost
                 total_cost_basis = current_position * avg_cost_basis
@@ -274,6 +359,14 @@ class SingleAssetExecutionEngine:
                         "shares": current_position,
                         "revenue": total_revenue,
                         "pnl": pnl,
+                        "market_impact_rate": execution_cost["impact_rate"],
+                        "execution_slippage_rate": execution_cost["total_slippage_rate"],
+                        "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
+                        "estimated_total_slippage_cost": execution_cost["estimated_total_slippage_cost"],
+                        "impact_model": execution_cost["model"],
+                        "participation_rate": execution_cost["participation_rate"],
+                        "impact_liquidity_proxy": execution_cost["liquidity_proxy"],
+                        "impact_volatility_estimate": execution_cost["volatility_estimate"],
                     }
                 )
                 current_position = 0.0
@@ -324,7 +417,7 @@ class SingleAssetExecutionEngine:
         current_entry_date = None
         peak_equity = self.initial_capital
         prev_total = self.initial_capital
-        effective_slippage = self._effective_slippage()
+        market_context = self._prepare_execution_context(data)
 
         for i, (price, raw_signal) in enumerate(zip(price_array, signal_array)):
             current_equity = current_cash + current_position * price
@@ -382,7 +475,13 @@ class SingleAssetExecutionEngine:
 
             if position_delta > 0:
                 shares_to_buy = position_delta
-                gross_cost = shares_to_buy * price * (1 + effective_slippage)
+                execution_cost = self._execution_cost_profile(
+                    price=price,
+                    shares=shares_to_buy,
+                    bar_index=i,
+                    market_context=market_context,
+                )
+                gross_cost = shares_to_buy * price * (1 + float(execution_cost["total_slippage_rate"]))
                 commission_cost = self._commission_cost(gross_cost)
                 total_cost = gross_cost + commission_cost
                 if total_cost <= current_cash and shares_to_buy > 0:
@@ -405,11 +504,25 @@ class SingleAssetExecutionEngine:
                             "shares": shares_to_buy,
                             "cost": total_cost,
                             "pnl": 0.0,
+                            "market_impact_rate": execution_cost["impact_rate"],
+                            "execution_slippage_rate": execution_cost["total_slippage_rate"],
+                            "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
+                            "estimated_total_slippage_cost": execution_cost["estimated_total_slippage_cost"],
+                            "impact_model": execution_cost["model"],
+                            "participation_rate": execution_cost["participation_rate"],
+                            "impact_liquidity_proxy": execution_cost["liquidity_proxy"],
+                            "impact_volatility_estimate": execution_cost["volatility_estimate"],
                         }
                     )
             elif position_delta < 0 and current_position > 0:
                 shares_to_sell = min(abs(position_delta), current_position)
-                gross_revenue = shares_to_sell * price * (1 - effective_slippage)
+                execution_cost = self._execution_cost_profile(
+                    price=price,
+                    shares=shares_to_sell,
+                    bar_index=i,
+                    market_context=market_context,
+                )
+                gross_revenue = shares_to_sell * price * (1 - float(execution_cost["total_slippage_rate"]))
                 commission_cost = self._commission_cost(gross_revenue)
                 total_revenue = gross_revenue - commission_cost
                 pnl = total_revenue - (shares_to_sell * avg_cost_basis)
@@ -420,12 +533,20 @@ class SingleAssetExecutionEngine:
                     {
                         "date": data.index[i],
                         "type": "SELL",
-                        "price": price,
-                        "shares": shares_to_sell,
-                        "revenue": total_revenue,
-                        "pnl": pnl,
-                    }
-                )
+                            "price": price,
+                            "shares": shares_to_sell,
+                            "revenue": total_revenue,
+                            "pnl": pnl,
+                            "market_impact_rate": execution_cost["impact_rate"],
+                            "execution_slippage_rate": execution_cost["total_slippage_rate"],
+                            "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
+                            "estimated_total_slippage_cost": execution_cost["estimated_total_slippage_cost"],
+                            "impact_model": execution_cost["model"],
+                            "participation_rate": execution_cost["participation_rate"],
+                            "impact_liquidity_proxy": execution_cost["liquidity_proxy"],
+                            "impact_volatility_estimate": execution_cost["volatility_estimate"],
+                        }
+                    )
                 if current_position <= 0:
                     current_position = 0.0
                     avg_cost_basis = 0.0
@@ -473,6 +594,10 @@ class Backtester(BaseBacktester):
         fixed_commission: float = 0.0,
         min_commission: float = 0.0,
         market_impact_bps: float = 0.0,
+        market_impact_model: str = "constant",
+        impact_reference_notional: float = 100000.0,
+        impact_coefficient: float = 1.0,
+        permanent_impact_bps: float = 0.0,
         max_holding_days: Optional[int] = None,
     ):
         """
@@ -509,6 +634,10 @@ class Backtester(BaseBacktester):
             fixed_commission=fixed_commission,
             min_commission=min_commission,
             market_impact_bps=market_impact_bps,
+            market_impact_model=normalize_market_impact_model(market_impact_model),
+            impact_reference_notional=impact_reference_notional,
+            impact_coefficient=impact_coefficient,
+            permanent_impact_bps=permanent_impact_bps,
         )
 
     def run(
@@ -563,6 +692,7 @@ class Backtester(BaseBacktester):
         results = self._calculate_metrics(portfolio, trades)
         results["portfolio"] = portfolio
         results["trades"] = trades
+        results["execution_costs"] = summarize_execution_costs(trades)
         results["execution_diagnostics"] = {
             "configured_signal_mode": self.execution_config.signal_mode,
             "resolved_signal_mode": execution.get("resolved_signal_mode", self.execution_config.signal_mode),
@@ -575,6 +705,10 @@ class Backtester(BaseBacktester):
             "fixed_commission": self.execution_config.fixed_commission,
             "min_commission": self.execution_config.min_commission,
             "market_impact_bps": self.execution_config.market_impact_bps,
+            "market_impact_model": self.execution_config.market_impact_model,
+            "impact_reference_notional": self.execution_config.impact_reference_notional,
+            "impact_coefficient": self.execution_config.impact_coefficient,
+            "permanent_impact_bps": self.execution_config.permanent_impact_bps,
         }
 
         self.results = results
@@ -737,6 +871,7 @@ class Backtester(BaseBacktester):
             portfolio_values
         )
         recovery_factor = calculate_recovery_factor(net_profit, max_drawdown)
+        execution_costs = summarize_execution_costs(trades)
 
         metrics = {
             "initial_capital": self.initial_capital,
@@ -770,6 +905,7 @@ class Backtester(BaseBacktester):
             "max_consecutive_losses": max_consecutive_losses,
             "total_completed_trades": total_completed_trades,
             "has_open_position": has_open_position,  # 标记是否有未平仓头寸
+            "execution_costs": execution_costs,
         }
 
         return metrics

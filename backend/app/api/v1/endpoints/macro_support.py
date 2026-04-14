@@ -8,12 +8,14 @@ from src.data.data_manager import DataManager
 _market_data_manager = DataManager()
 
 FACTOR_WEIGHTS = {
-    "bureaucratic_friction": 1.0,
-    "tech_dilution": 0.9,
-    "baseload_mismatch": 1.1,
-    "rate_curve_pressure": 0.85,
-    "credit_spread_stress": 0.85,
-    "fx_mismatch": 0.8,
+    "bureaucratic_friction": 0.86,
+    "tech_dilution": 0.78,
+    "people_fragility": 0.84,
+    "policy_execution_disorder": 0.82,
+    "baseload_mismatch": 0.98,
+    "rate_curve_pressure": 0.74,
+    "credit_spread_stress": 0.74,
+    "fx_mismatch": 0.7,
 }
 
 FACTOR_EVIDENCE_MAP = {
@@ -23,7 +25,15 @@ FACTOR_EVIDENCE_MAP = {
     },
     "tech_dilution": {
         "categories": {"hiring"},
-        "signal_keys": {"supply_chain"},
+        "signal_keys": {"supply_chain", "people_layer"},
+    },
+    "people_fragility": {
+        "categories": {"executive_governance", "insider_flow", "hiring"},
+        "signal_keys": {"people_layer"},
+    },
+    "policy_execution_disorder": {
+        "categories": {"policy_execution", "policy"},
+        "signal_keys": {"policy_execution", "policy_radar"},
     },
     "baseload_mismatch": {
         "categories": {"commodity_inventory", "port_congestion", "customs", "bidding"},
@@ -46,6 +56,11 @@ FACTOR_EVIDENCE_MAP = {
 SOURCE_TIER_RULES = [
     ("policy_radar:ndrc", ("official", 1.0)),
     ("policy_radar:nea", ("official", 0.95)),
+    ("policy_execution:ndrc", ("official", 0.98)),
+    ("policy_execution:nea", ("official", 0.94)),
+    ("people_layer:executive_governance", ("corporate_governance", 0.78)),
+    ("people_layer:insider_flow", ("market_disclosure", 0.74)),
+    ("people_layer:hiring_structure", ("corporate_signal", 0.72)),
     ("macro_hf", ("market", 0.88)),
     ("supply_chain:bidding", ("public_procurement", 0.84)),
     ("supply_chain:env_assessment", ("regulatory_filing", 0.86)),
@@ -58,6 +73,7 @@ def build_macro_context(refresh: bool = False):
     snapshot = manager.get_dashboard_snapshot(refresh=refresh)
     return {
         "snapshot_timestamp": snapshot.get("snapshot_timestamp"),
+        "snapshot": snapshot,
         "signals": snapshot.get("signals", {}),
         "records": manager.get_records(timeframe="45d", limit=200),
         "market_indicators": _market_data_manager.get_market_indicators(),
@@ -65,6 +81,7 @@ def build_macro_context(refresh: bool = False):
         "refresh_status": snapshot.get("refresh_status", {}),
         "data_freshness": snapshot.get("staleness", {}),
         "provider_health": snapshot.get("provider_health", {}),
+        "source_mode_summary": snapshot.get("source_mode_summary", {}),
     }
 
 

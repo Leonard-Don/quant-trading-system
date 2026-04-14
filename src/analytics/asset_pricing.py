@@ -10,6 +10,7 @@ from typing import Dict, Any
 from datetime import datetime, timedelta
 
 from src.analytics.asset_pricing_support import (
+    annualized_factor_premia,
     empty_asset_pricing_result,
     fetch_ff5_factors,
     fetch_ff_factors,
@@ -105,9 +106,9 @@ class AssetPricingEngine:
             ff3_result = self._run_ff3(stock_returns, period)
             ff5_result = self._run_ff5(stock_returns, period)
 
-            # 因子归因
-            attribution = self._factor_attribution(capm_result, ff3_result)
             ff_factors = _fetch_ff_factors(period)
+            # 因子归因
+            attribution = self._factor_attribution(capm_result, ff3_result, ff_factors)
             factor_source = factor_source_meta(ff_factors)
             ff5_source = factor_source_meta(_fetch_ff5_factors(period))
 
@@ -310,7 +311,7 @@ class AssetPricingEngine:
             logger.error(f"FF5 分析出错: {e}")
             return {"error": str(e)}
 
-    def _factor_attribution(self, capm: Dict, ff3: Dict) -> Dict[str, Any]:
+    def _factor_attribution(self, capm: Dict, ff3: Dict, ff_factors: pd.DataFrame | None = None) -> Dict[str, Any]:
         """因子归因分析：解释超额收益的来源"""
         if "error" in capm or "error" in ff3:
             return {"error": "因子模型分析失败，无法进行归因"}
@@ -320,10 +321,11 @@ class AssetPricingEngine:
         smb = loadings.get("size", 0)
         hml = loadings.get("value", 0)
 
-        # 估算各因子年化贡献 (简化：使用典型年化因子溢价)
-        mkt_premium = 0.06   # 市场溢价约 6%
-        smb_premium = 0.02   # 规模溢价约 2%
-        hml_premium = 0.03   # 价值溢价约 3%
+        premium_meta = annualized_factor_premia(ff_factors)
+        premia = premium_meta["values"]
+        mkt_premium = premia["market"]
+        smb_premium = premia["size"]
+        hml_premium = premia["value"]
 
         mkt_contribution = mkt * mkt_premium
         smb_contribution = smb * smb_premium
@@ -333,6 +335,15 @@ class AssetPricingEngine:
 
         return {
             "total_expected_excess_return": round(total, 4),
+            "premium_assumptions": {
+                "source": premium_meta["source"],
+                "label": premium_meta["label"],
+                "window_days": premium_meta["window_days"],
+                "is_proxy": premium_meta["is_proxy"],
+                "market": round(mkt_premium, 4),
+                "size": round(smb_premium, 4),
+                "value": round(hml_premium, 4),
+            },
             "components": {
                 "alpha": {
                     "value": round(alpha_contribution, 4),

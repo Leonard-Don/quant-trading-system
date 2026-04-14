@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
-import { App as AntdApp, Layout, Typography, Menu, Space, Button, Tooltip, Spin, Badge } from 'antd';
+import { App as AntdApp, Layout, Typography, Menu, Space, Button, Tooltip, Spin, Badge, Grid } from 'antd';
 import {
   DashboardOutlined,
   BarChartOutlined,
   LineChartOutlined,
+  MenuOutlined,
   SunOutlined,
   MoonOutlined,
   FireOutlined,
@@ -28,6 +29,7 @@ const BacktestDashboard = lazy(() => import('./components/BacktestDashboard'));
 const PricingResearch = lazy(() => import('./components/PricingResearch'));
 const GodEyeDashboard = lazy(() => import('./components/GodEyeDashboard'));
 const ResearchWorkbench = lazy(() => import('./components/ResearchWorkbench'));
+const QuantLab = lazy(() => import('./components/QuantLab'));
 
 // 懒加载占位组件
 const LazyLoadFallback = () => (
@@ -45,8 +47,9 @@ const LazyLoadFallback = () => (
 
 const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
+const { useBreakpoint } = Grid;
 const VIEW_QUERY_KEY = 'view';
-const VALID_VIEWS = new Set(['backtest', 'realtime', 'industry', 'pricing', 'godsEye', 'workbench']);
+const VALID_VIEWS = new Set(['backtest', 'realtime', 'industry', 'pricing', 'godsEye', 'godeye', 'workbench', 'quantlab']);
 const INDUSTRY_ALERT_BADGE_STORAGE_KEY = 'industry_alert_badge_count_v1';
 const INDUSTRY_ALERT_BADGE_EVENT = 'industry-alert-badge-update';
 
@@ -63,7 +66,7 @@ const readViewStateFromLocation = (search = window.location.search) => {
 
   if (requestedView && VALID_VIEWS.has(requestedView)) {
     return {
-      currentView: requestedView,
+      currentView: requestedView === 'godeye' ? 'godsEye' : requestedView,
       realtimeAuxIntent: null,
     };
   }
@@ -76,6 +79,8 @@ const readViewStateFromLocation = (search = window.location.search) => {
 
 function App() {
   const { message } = AntdApp.useApp();
+  const screens = useBreakpoint();
+  const isMobile = !screens.lg;
   // Theme
   const { isDarkMode, toggleTheme } = useTheme();
   // ... (existing state)
@@ -83,6 +88,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
   const [viewState, setViewState] = useState(() => readViewStateFromLocation());
+  const [strategiesLoaded, setStrategiesLoaded] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [industryAlertBadgeCount, setIndustryAlertBadgeCount] = useState(() => {
     const value = window.localStorage.getItem(INDUSTRY_ALERT_BADGE_STORAGE_KEY);
     const numericValue = Number(value || 0);
@@ -91,17 +98,23 @@ function App() {
   const { currentView, realtimeAuxIntent } = viewState;
 
   const loadStrategies = useCallback(async () => {
+    if (strategiesLoaded) {
+      return;
+    }
     try {
       const data = await getStrategies();
       setStrategies(data);
+      setStrategiesLoaded(true);
     } catch (error) {
       message.error('加载策略失败: ' + error.message);
     }
-  }, [message]);
+  }, [message, strategiesLoaded]);
 
   useEffect(() => {
-    loadStrategies();
-  }, [loadStrategies]);
+    if (currentView === 'backtest' && !strategiesLoaded) {
+      loadStrategies();
+    }
+  }, [currentView, strategiesLoaded, loadStrategies]);
 
   useEffect(() => {
     const applyViewFromUrl = () => {
@@ -133,6 +146,12 @@ function App() {
     const nextUrl = buildViewUrlForCurrentState(currentView);
     window.history.replaceState(null, '', nextUrl);
   }, [currentView]);
+
+  useEffect(() => {
+    if (!isMobile) {
+      setMobileMenuOpen(false);
+    }
+  }, [isMobile]);
 
   const handleBacktest = async (formData) => {
     setLoading(true);
@@ -208,6 +227,11 @@ function App() {
       key: 'workbench',
       icon: <FolderOutlined />,
       label: '研究工作台',
+    },
+    {
+      key: 'quantlab',
+      icon: <DashboardOutlined />,
+      label: 'Quant Lab',
     }
   ];
 
@@ -217,7 +241,10 @@ function App() {
       currentView: nextView,
       realtimeAuxIntent: nextView === 'realtime' ? prev.realtimeAuxIntent : null,
     }));
-  }, []);
+    if (isMobile) {
+      setMobileMenuOpen(false);
+    }
+  }, [isMobile]);
 
   const renderContent = () => {
     switch (currentView) {
@@ -231,9 +258,12 @@ function App() {
       case 'pricing':
         return <Suspense fallback={<LazyLoadFallback />}><PricingResearch /></Suspense>;
       case 'godsEye':
+      case 'godeye':
         return <Suspense fallback={<LazyLoadFallback />}><GodEyeDashboard /></Suspense>;
       case 'workbench':
         return <Suspense fallback={<LazyLoadFallback />}><ResearchWorkbench /></Suspense>;
+      case 'quantlab':
+        return <Suspense fallback={<LazyLoadFallback />}><QuantLab /></Suspense>;
       case 'backtest':
       default:
         return (
@@ -254,6 +284,18 @@ function App() {
       <Layout style={{ height: '100vh' }}>
         <Header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {isMobile ? (
+              <Button
+                type="text"
+                icon={<MenuOutlined />}
+                onClick={() => setMobileMenuOpen((open) => !open)}
+                aria-label="切换导航菜单"
+                style={{
+                  color: 'var(--text-primary)',
+                  fontSize: '16px',
+                }}
+              />
+            ) : null}
             <DashboardOutlined style={{
               fontSize: '22px',
               color: 'var(--accent-primary)'
@@ -298,8 +340,17 @@ function App() {
         <Layout>
           <Sider
             width={220}
-            breakpoint={null}
-            collapsedWidth={64}
+            collapsible
+            trigger={null}
+            collapsed={isMobile ? !mobileMenuOpen : false}
+            collapsedWidth={isMobile ? 0 : 64}
+            style={isMobile ? {
+              position: 'fixed',
+              left: 0,
+              top: 64,
+              bottom: 0,
+              zIndex: 1000,
+            } : undefined}
           >
             <Menu
               mode="inline"
@@ -317,7 +368,7 @@ function App() {
           </Sider>
           <Layout style={{ padding: '0' }}>
             <Content style={{
-              padding: '24px',
+              padding: isMobile ? '16px' : '24px',
               margin: 0,
               minHeight: '280px',
               overflow: 'auto'

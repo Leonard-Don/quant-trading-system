@@ -47,7 +47,7 @@ class TradeWebSocketService {
   }
 
   getWebSocketUrl() {
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+    const apiUrl = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
     const url = new URL(apiUrl.replace(/^http/, 'ws') + '/ws/trades');
     const token = process.env.REACT_APP_REALTIME_WS_TOKEN;
     if (token) {

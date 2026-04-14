@@ -29,9 +29,12 @@ logger = logging.getLogger(__name__)
 class AltDataCategory(str, Enum):
     """另类数据类别"""
     POLICY = "policy"                   # 政策文件
+    POLICY_EXECUTION = "policy_execution"  # 政策执行/部门混乱
     BIDDING = "bidding"                 # 招标采购
     ENV_ASSESSMENT = "env_assessment"   # 环评公示
     HIRING = "hiring"                   # 招聘趋势
+    EXECUTIVE_GOVERNANCE = "executive_governance"  # 高管/治理画像
+    INSIDER_FLOW = "insider_flow"       # 内部人交易/持股流向
     CUSTOMS = "customs"                 # 海关进出口
     COMMODITY_INVENTORY = "commodity_inventory"  # 大宗商品库存
     PORT_CONGESTION = "port_congestion" # 港口拥堵

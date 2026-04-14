@@ -163,6 +163,129 @@ describe('buildHunterModel narrative shifts', () => {
     expect(resonanceAlert.action.target).toBe('cross-market');
   });
 
+  it('adds a pricing alert when people-layer flags fragile companies', () => {
+    const alerts = buildHunterModel({
+      snapshot: {},
+      overview: {
+        people_layer_summary: {
+          fragile_companies: [
+            {
+              symbol: 'BABA',
+              company_name: '阿里巴巴',
+              people_fragility_score: 0.72,
+              summary: '阿里巴巴 的人事层结论偏脆弱，组织质量 0.38 / 脆弱度 0.67。',
+            },
+          ],
+        },
+      },
+      status: {},
+      researchTasks: [],
+    });
+
+    const peopleAlert = alerts.find((item) => item.key === 'people-BABA');
+    expect(peopleAlert).toBeTruthy();
+    expect(peopleAlert.severity).toBe('high');
+    expect(peopleAlert.title).toContain('组织脆弱度偏高');
+    expect(peopleAlert.action.target).toBe('pricing');
+    expect(peopleAlert.action.symbol).toBe('BABA');
+  });
+
+  it('adds a cross-market alert when department chaos becomes elevated', () => {
+    const alerts = buildHunterModel({
+      snapshot: {},
+      overview: {
+        department_chaos_summary: {
+          label: 'chaotic',
+          top_departments: [
+            {
+              department: 'ndrc',
+              department_label: '发改委',
+              label: 'chaotic',
+              chaos_score: 0.74,
+              reason: '方向反复 2 次，长官意志 0.72',
+            },
+          ],
+        },
+      },
+      status: {},
+      researchTasks: [],
+    });
+
+    const departmentAlert = alerts.find((item) => item.key === 'department-chaos-ndrc');
+    expect(departmentAlert).toBeTruthy();
+    expect(departmentAlert.severity).toBe('high');
+    expect(departmentAlert.title).toContain('发改委 政策混乱度偏高');
+    expect(departmentAlert.description).toContain('方向反复');
+    expect(departmentAlert.action.target).toBe('cross-market');
+  });
+
+  it('explains people-layer evidence in pricing refresh alerts and routes pricing tasks correctly', () => {
+    const alerts = buildHunterModel({
+      snapshot: {},
+      overview: {
+        people_layer_summary: {
+          watchlist: [
+            {
+              symbol: 'BABA',
+              company_name: '阿里巴巴',
+              risk_level: 'high',
+              stance: 'fragile',
+              people_fragility_score: 0.78,
+              people_quality_score: 0.34,
+              summary: '资本市场和合规压力继续抬升，人的维度偏脆弱。',
+              hiring_signal: {
+                dilution_ratio: 1.72,
+              },
+              insider_flow: {
+                conviction_score: -0.24,
+              },
+            },
+          ],
+        },
+      },
+      status: {},
+      researchTasks: [
+        {
+          id: 'pricing_people_refresh',
+          type: 'pricing',
+          status: 'in_progress',
+          title: '[Pricing] BABA mispricing review',
+          symbol: 'BABA',
+          updated_at: '2026-03-22T10:00:00',
+          snapshot: {
+            payload: {
+              people_layer: {
+                symbol: 'BABA',
+                risk_level: 'medium',
+                stance: 'neutral',
+                people_fragility_score: 0.46,
+                people_quality_score: 0.5,
+                summary: '当前组织结构压力可控。',
+                hiring_signal: {
+                  dilution_ratio: 1.32,
+                },
+                insider_flow: {
+                  conviction_score: -0.08,
+                },
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const refreshAlert = alerts.find((item) => item.key === 'refresh-pricing_people_refresh');
+    expect(refreshAlert).toBeTruthy();
+    expect(refreshAlert.description).toContain('人的维度已进入高风险区');
+    expect(refreshAlert.description).toContain('人事证据 招聘稀释度 1.32→1.72');
+    expect(refreshAlert.description).toContain('内部人信号 -0.08→-0.24');
+    expect(refreshAlert.action.target).toBe('workbench');
+    expect(refreshAlert.action.taskId).toBe('pricing_people_refresh');
+    expect(refreshAlert.action.type).toBe('pricing');
+    expect(refreshAlert.action.reason).toBe('people_fragility');
+    expect(refreshAlert.action.label).toBe('优先复核人的维度');
+  });
+
   it('surfaces input-reliability deterioration in refresh alerts', () => {
     const alerts = buildHunterModel({
       snapshot: {},
@@ -238,8 +361,216 @@ describe('buildHunterModel narrative shifts', () => {
     const refreshAlert = alerts.find((item) => item.key === 'refresh-task_input_reliability');
     expect(refreshAlert).toBeTruthy();
     expect(refreshAlert.description).toContain('输入可靠度 robust→fragile');
-    expect(refreshAlert.action.reason).toBe('input_reliability');
+    expect(refreshAlert.action.reason).toBe('source_health_degradation');
     expect(refreshAlert.action.label).toBe('先复核输入可靠度');
     expect(refreshAlert.action.note).toContain('先复核当前宏观输入可靠度');
+  });
+
+  it('promotes worsening macro mispricing tasks into GodEye hunter alerts', () => {
+    const alerts = buildHunterModel({
+      snapshot: {},
+      overview: {
+        people_layer_summary: {
+          watchlist: [
+            {
+              symbol: 'BABA',
+              risk_level: 'high',
+              stance: 'fragile',
+              people_fragility_score: 0.84,
+              people_quality_score: 0.32,
+              summary: '技术权威继续被稀释，组织治理恶化。',
+              hiring_signal: { dilution_ratio: 1.78 },
+              insider_flow: { conviction_score: -0.26 },
+            },
+          ],
+        },
+      },
+      status: {},
+      researchTasks: [
+        {
+          id: 'macro_decay_1',
+          type: 'macro_mispricing',
+          status: 'in_progress',
+          title: '[MacroMispricing] BABA 结构性衰败观察',
+          symbol: 'BABA',
+          snapshot: {
+            payload: {
+              source_task_id: 'pricing_baba_1',
+              people_layer: {
+                risk_level: 'medium',
+                stance: 'neutral',
+                people_fragility_score: 0.58,
+                people_quality_score: 0.46,
+                hiring_signal: { dilution_ratio: 1.31 },
+                insider_flow: { conviction_score: -0.08 },
+              },
+              structural_decay: {
+                score: 0.61,
+                label: '结构性衰败观察',
+                action: 'watch',
+                dominant_failure_label: '组织与治理稀释',
+                evidence: ['人的维度开始转弱'],
+              },
+            },
+          },
+        },
+        {
+          id: 'pricing_baba_1',
+          type: 'pricing',
+          status: 'in_progress',
+          title: '[Pricing] BABA mispricing review',
+          symbol: 'BABA',
+          snapshot: {
+            payload: {
+              structural_decay: {
+                score: 0.83,
+                label: '结构性衰败警报',
+                action: 'structural_short',
+                dominant_failure_label: '组织与治理稀释',
+                summary: '结构性衰败判断进一步升级。',
+                evidence: ['人的维度已进入高脆弱区间', '招聘稀释度 1.78', '内部人信号 -0.26'],
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const refreshAlert = alerts.find((item) => item.key === 'refresh-macro_decay_1');
+    expect(refreshAlert).toBeTruthy();
+    expect(refreshAlert.title).toContain('建议更新');
+    expect(refreshAlert.description).toContain('衰败判断从 watch 升级到 structural_short');
+    expect(refreshAlert.description).toContain('衰败证据');
+    expect(refreshAlert.description).toContain('招聘稀释度 1.78');
+    expect(refreshAlert.action.target).toBe('workbench');
+    expect(refreshAlert.action.type).toBe('macro_mispricing');
+    expect(refreshAlert.action.reason).toBe('structural_decay');
+    expect(refreshAlert.action.label).toBe('优先复核衰败判断');
+  });
+
+  it('promotes drifting trade thesis tasks into GodEye hunter alerts', () => {
+    const alerts = buildHunterModel({
+      snapshot: {},
+      overview: {
+        people_layer_summary: {
+          watchlist: [
+            {
+              symbol: 'BABA',
+              risk_level: 'high',
+              stance: 'fragile',
+              people_fragility_score: 0.79,
+              people_quality_score: 0.33,
+              summary: '管理与技术权威继续分化。',
+            },
+          ],
+        },
+      },
+      status: {},
+      researchTasks: [
+        {
+          id: 'trade_thesis_baba',
+          type: 'trade_thesis',
+          status: 'in_progress',
+          title: '[TradeThesis] BABA macro mispricing basket',
+          symbol: 'BABA',
+          snapshot: {
+            payload: {
+              trade_thesis: {
+                symbol: 'BABA',
+                source_task_id: 'pricing_baba_trade',
+                thesis: {
+                  stance: '结构性做空',
+                  horizon: '6-12m',
+                  summary: '以 BABA 为主表达腿做长期对冲。',
+                  trade_legs: [
+                    { symbol: 'BABA', side: 'short', role: 'core_expression' },
+                    { symbol: 'KWEB', side: 'long', role: 'beta_hedge' },
+                  ],
+                },
+              },
+              structural_decay: {
+                score: 0.62,
+                label: '结构性衰败观察',
+                action: 'watch',
+                dominant_failure_label: '组织与治理稀释',
+              },
+            },
+          },
+        },
+        {
+          id: 'pricing_baba_trade',
+          type: 'pricing',
+          status: 'in_progress',
+          title: '[Pricing] BABA mispricing review',
+          symbol: 'BABA',
+          snapshot: {
+            payload: {
+              macro_mispricing_thesis: {
+                stance: '结构性回避',
+                horizon: '3-6m',
+                summary: '主表达腿应从单名义空头切到板块对冲。',
+                trade_legs: [
+                  { symbol: 'KWEB', side: 'short', role: 'core_expression' },
+                  { symbol: 'BABA', side: 'short', role: 'support_expression' },
+                  { symbol: 'FXI', side: 'long', role: 'beta_hedge' },
+                ],
+              },
+            },
+          },
+        },
+      ],
+    });
+
+    const refreshAlert = alerts.find((item) => item.key === 'refresh-trade_thesis_baba');
+    expect(refreshAlert).toBeTruthy();
+    expect(refreshAlert.description).toContain('交易 Thesis 从 结构性做空 切到 结构性回避');
+    expect(refreshAlert.description).toContain('Thesis 证据');
+    expect(refreshAlert.action.target).toBe('workbench');
+    expect(refreshAlert.action.type).toBe('trade_thesis');
+    expect(refreshAlert.action.reason).toBe('trade_thesis');
+    expect(refreshAlert.action.label).toBe('优先复核交易 Thesis');
+  });
+
+  it('surfaces structural decay radar escalation as a cross-market hunter alert', () => {
+    const alerts = buildHunterModel({
+      snapshot: {},
+      overview: {
+        structural_decay_radar: {
+          label: 'decay_alert',
+          display_label: '结构衰败警报',
+          score: 0.74,
+          action_hint: '人的维度、治理与执行证据已经共振。',
+        },
+      },
+      status: {},
+      researchTasks: [],
+    });
+
+    const radarAlert = alerts.find((item) => item.key === 'structural-decay-radar');
+    expect(radarAlert).toBeTruthy();
+    expect(radarAlert.severity).toBe('high');
+    expect(radarAlert.description).toContain('结构衰败警报');
+    expect(radarAlert.action.target).toBe('cross-market');
+    expect(radarAlert.action.template).toBe('defensive_beta_hedge');
+    expect(radarAlert.action.source).toBe('decay_radar');
+  });
+
+  it('surfaces a source-governance alert when research inputs become fallback-heavy', () => {
+    const alerts = buildHunterModel({
+      snapshot: {},
+      overview: {
+        source_mode_summary: {
+          label: 'fallback-heavy',
+          reason: '当前研究输入由 proxy/curated 回退源主导，建议压缩偏置强度。',
+        },
+      },
+      status: {},
+      researchTasks: [],
+    });
+
+    const sourceAlert = alerts.find((item) => item.key === 'source-mode-fallback-heavy');
+    expect(sourceAlert).toBeTruthy();
+    expect(sourceAlert.severity).toBe('medium');
+    expect(sourceAlert.description).toContain('proxy/curated');
   });
 });

@@ -30,7 +30,13 @@ import { getIndustryRotation, getHotIndustries } from '../services/api';
 
 const { Text } = Typography;
 
-const COLORS = ['#ff4d4f', '#1890ff', '#52c41a', '#faad14', '#eb2f96'];
+const COLORS = [
+    'var(--accent-danger)',
+    'var(--accent-primary)',
+    'var(--accent-success)',
+    'var(--accent-warning)',
+    'var(--accent-secondary)',
+];
 const PERIOD_LABELS = { 1: '1日', 3: '3日', 5: '5日', 10: '10日', 20: '20日', 60: '60日' };
 const PERIOD_OPTIONS = [1, 3, 5, 10, 20, 60];
 const PERIOD_PRESETS = [
@@ -261,7 +267,7 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
             data-testid="industry-rotation-card"
             title={
                 <span>
-                    <SwapOutlined style={{ marginRight: 8, color: '#722ed1' }} />
+                    <SwapOutlined style={{ marginRight: 8, color: 'var(--accent-secondary)' }} />
                     行业轮动对比
                 </span>
             }
@@ -354,13 +360,13 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
                         <div style={{
                             padding: '10px 12px',
                             borderRadius: 12,
-                            background: 'linear-gradient(180deg, rgba(207,19,34,0.08) 0%, rgba(207,19,34,0.02) 100%)',
-                            border: '1px solid rgba(207,19,34,0.12)',
+                            background: 'linear-gradient(180deg, color-mix(in srgb, var(--accent-danger) 8%, transparent 92%) 0%, color-mix(in srgb, var(--accent-danger) 2%, transparent 98%) 100%)',
+                            border: '1px solid color-mix(in srgb, var(--accent-danger) 12%, transparent 88%)',
                             minWidth: 180,
                         }}>
-                            <div style={{ fontSize: 11, color: '#cf1322', fontWeight: 700, marginBottom: 4 }}>阶段最强</div>
+                            <div style={{ fontSize: 11, color: 'var(--accent-danger)', fontWeight: 700, marginBottom: 4 }}>阶段最强</div>
                             <div style={{ fontSize: 14, fontWeight: 700 }}>{strongestIndustry.name}</div>
-                            <div style={{ fontSize: 12, color: '#595959' }}>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                                 最近周期 {strongestIndustry.latest >= 0 ? '+' : ''}{strongestIndustry.latest.toFixed(2)}%
                             </div>
                         </div>
@@ -369,13 +375,13 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
                         <div style={{
                             padding: '10px 12px',
                             borderRadius: 12,
-                            background: 'linear-gradient(180deg, rgba(56,158,13,0.08) 0%, rgba(56,158,13,0.02) 100%)',
-                            border: '1px solid rgba(56,158,13,0.12)',
+                            background: 'linear-gradient(180deg, color-mix(in srgb, var(--accent-success) 8%, transparent 92%) 0%, color-mix(in srgb, var(--accent-success) 2%, transparent 98%) 100%)',
+                            border: '1px solid color-mix(in srgb, var(--accent-success) 12%, transparent 88%)',
                             minWidth: 180,
                         }}>
-                            <div style={{ fontSize: 11, color: '#389e0d', fontWeight: 700, marginBottom: 4 }}>阶段偏弱</div>
+                            <div style={{ fontSize: 11, color: 'var(--accent-success)', fontWeight: 700, marginBottom: 4 }}>阶段偏弱</div>
                             <div style={{ fontSize: 14, fontWeight: 700 }}>{weakestIndustry.name}</div>
-                            <div style={{ fontSize: 12, color: '#595959' }}>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                                 最近周期 {weakestIndustry.latest >= 0 ? '+' : ''}{weakestIndustry.latest.toFixed(2)}%
                             </div>
                         </div>
@@ -384,13 +390,13 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
                         <div style={{
                             padding: '10px 12px',
                             borderRadius: 12,
-                            background: 'linear-gradient(180deg, rgba(24,144,255,0.08) 0%, rgba(24,144,255,0.02) 100%)',
-                            border: '1px solid rgba(24,144,255,0.14)',
+                            background: 'linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 8%, transparent 92%) 0%, color-mix(in srgb, var(--accent-primary) 2%, transparent 98%) 100%)',
+                            border: '1px solid color-mix(in srgb, var(--accent-primary) 14%, transparent 86%)',
                             minWidth: 180,
                         }}>
-                            <div style={{ fontSize: 11, color: '#1890ff', fontWeight: 700, marginBottom: 4 }}>资金最强</div>
+                            <div style={{ fontSize: 11, color: 'var(--accent-primary)', fontWeight: 700, marginBottom: 4 }}>资金最强</div>
                             <div style={{ fontSize: 14, fontWeight: 700 }}>{strongestFlowIndustry.name}</div>
-                            <div style={{ fontSize: 12, color: '#595959' }}>
+                            <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                                 最近周期 {formatFlowYi(strongestFlowIndustry.latest)}
                             </div>
                         </div>
@@ -402,7 +408,7 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
             {loading ? (
                 <div style={{ textAlign: 'center', padding: 40 }} data-testid="industry-rotation-loading">
                     <Spin />
-                    <div style={{ marginTop: 12, color: '#999' }}>加载轮动数据...</div>
+                    <div style={{ marginTop: 12, color: 'var(--text-muted)' }}>加载轮动数据...</div>
                 </div>
             ) : selectedIndustries.length < 2 ? (
                 <Empty
@@ -416,7 +422,10 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
                 <div data-testid="industry-rotation-chart">
                     <ResponsiveContainer width="100%" height={320}>
                         <ComposedChart data={chartData}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                            <CartesianGrid
+                                strokeDasharray="3 3"
+                                stroke="color-mix(in srgb, var(--border-color) 72%, transparent 28%)"
+                            />
                             <XAxis
                                 dataKey="periodLabel"
                                 tick={{ fontSize: 12 }}
@@ -442,7 +451,12 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
                                 labelFormatter={(label) => `周期: ${label}`}
                             />
                             <Legend />
-                            <ReferenceLine yAxisId="price" y={0} stroke="#d9d9d9" strokeDasharray="3 3" />
+                            <ReferenceLine
+                                yAxisId="price"
+                                y={0}
+                                stroke="color-mix(in srgb, var(--border-color) 82%, transparent 18%)"
+                                strokeDasharray="3 3"
+                            />
                             {selectedIndustries.map((name, idx) => (
                                 <Area
                                     key={`${name}-flow`}
@@ -505,8 +519,8 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
                                         {row.values.map((cell) => {
                                             const opacity = Math.min(1, Math.abs(cell.value));
                                             const background = cell.value >= 0
-                                                ? `rgba(207, 19, 34, ${0.08 + opacity * 0.2})`
-                                                : `rgba(56, 158, 13, ${0.08 + opacity * 0.2})`;
+                                                ? `color-mix(in srgb, var(--accent-danger) ${Math.round((0.08 + opacity * 0.2) * 100)}%, transparent)`
+                                                : `color-mix(in srgb, var(--accent-success) ${Math.round((0.08 + opacity * 0.2) * 100)}%, transparent)`;
                                             return (
                                                 <div
                                                     key={`${row.name}-${cell.name}`}
@@ -517,9 +531,9 @@ const IndustryRotationChart = ({ initialIndustries = [] }) => {
                                                         alignItems: 'center',
                                                         justifyContent: 'center',
                                                         fontWeight: 700,
-                                                        color: cell.value >= 0 ? '#cf1322' : '#237804',
+                                                        color: cell.value >= 0 ? 'var(--accent-danger)' : 'var(--accent-success)',
                                                         background,
-                                                        border: '1px solid rgba(0,0,0,0.05)',
+                                                        border: '1px solid color-mix(in srgb, var(--border-color) 80%, transparent 20%)',
                                                     }}
                                                 >
                                                     {cell.value >= 0 ? '+' : ''}{cell.value.toFixed(2)}

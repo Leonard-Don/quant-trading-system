@@ -76,6 +76,10 @@ class MacroHFSignalProvider(BaseAltDataProvider):
                         ),
                         "confidence": float(item.get("confidence", 0.0)),
                         "trend": item.get("trend", "unknown"),
+                        "source_mode": item.get("source_mode", "proxy"),
+                        "fallback_reason": item.get("fallback_reason", ""),
+                        "lag_days": item.get("lag_days"),
+                        "coverage": item.get("coverage"),
                         "raw": item,
                     }
                 )
@@ -88,6 +92,10 @@ class MacroHFSignalProvider(BaseAltDataProvider):
                         * max(0.2, float(item.get("confidence", 0.0))),
                         "confidence": float(item.get("confidence", 0.0)),
                         "reason": item.get("reason", ""),
+                        "source_mode": item.get("source_mode", "proxy"),
+                        "fallback_reason": item.get("fallback_reason", ""),
+                        "lag_days": item.get("lag_days"),
+                        "coverage": item.get("coverage"),
                         "raw": item,
                     }
                 )
@@ -100,6 +108,10 @@ class MacroHFSignalProvider(BaseAltDataProvider):
                         "score": round((global_index - 50.0) / 50.0, 4),
                         "confidence": 0.45,
                         "status": item.get("status", "normal"),
+                        "source_mode": item.get("source_mode", "proxy"),
+                        "fallback_reason": item.get("fallback_reason", ""),
+                        "lag_days": item.get("lag_days"),
+                        "coverage": item.get("coverage"),
                         "raw": item,
                     }
                 )
@@ -126,7 +138,13 @@ class MacroHFSignalProvider(BaseAltDataProvider):
                     normalized_score=max(-1.0, min(1.0, float(item["score"]))),
                     confidence=max(0.0, min(1.0, float(item["confidence"]))),
                     tags=[item.get("name", ""), item_type],
-                    metadata={"label": item.get("name", "")},
+                    metadata={
+                        "label": item.get("name", ""),
+                        "source_mode": item.get("source_mode", "proxy"),
+                        "fallback_reason": item.get("fallback_reason", ""),
+                        "lag_days": item.get("lag_days"),
+                        "coverage": item.get("coverage"),
+                    },
                 )
             )
         return records
@@ -145,6 +163,14 @@ class MacroHFSignalProvider(BaseAltDataProvider):
             + dimensions["logistics"]["score"] * 0.20,
             4,
         )
+        source_mode_counts: Dict[str, int] = {}
+        for record in records:
+            mode = str((record.metadata or {}).get("source_mode") or "proxy")
+            source_mode_counts[mode] = source_mode_counts.get(mode, 0) + 1
+        signal["source_mode_summary"] = {
+            "counts": source_mode_counts,
+            "dominant": max(source_mode_counts.items(), key=lambda item: item[1])[0] if source_mode_counts else "proxy",
+        }
         return signal
 
 

@@ -49,6 +49,31 @@ class CrossMarketTemplateContext(BaseModel):
     input_reliability_posture: Optional[str] = None
     input_reliability_reason: Optional[str] = None
     input_reliability_action_hint: Optional[str] = None
+    department_chaos_label: Optional[str] = None
+    department_chaos_score: Optional[float] = None
+    department_chaos_top_department: Optional[str] = None
+    department_chaos_reason: Optional[str] = None
+    department_chaos_risk_budget_scale: Optional[float] = None
+    policy_execution_label: Optional[str] = None
+    policy_execution_score: Optional[float] = None
+    policy_execution_top_department: Optional[str] = None
+    policy_execution_reason: Optional[str] = None
+    policy_execution_risk_budget_scale: Optional[float] = None
+    people_fragility_label: Optional[str] = None
+    people_fragility_score: Optional[float] = None
+    people_fragility_focus: Optional[str] = None
+    people_fragility_reason: Optional[str] = None
+    people_fragility_risk_budget_scale: Optional[float] = None
+    source_mode_label: Optional[str] = None
+    source_mode_dominant: Optional[str] = None
+    source_mode_reason: Optional[str] = None
+    source_mode_risk_budget_scale: Optional[float] = None
+    structural_decay_radar_label: Optional[str] = None
+    structural_decay_radar_display_label: Optional[str] = None
+    structural_decay_radar_score: Optional[float] = None
+    structural_decay_radar_action_hint: Optional[str] = None
+    structural_decay_radar_risk_budget_scale: Optional[float] = None
+    structural_decay_radar_top_signals: List[Dict[str, Any]] = Field(default_factory=list)
     bias_highlights_raw: List[str] = Field(default_factory=list)
     bias_highlights: List[str] = Field(default_factory=list)
     bias_actions: List[Dict[str, Any]] = Field(default_factory=list)
@@ -59,6 +84,7 @@ class CrossMarketTemplateContext(BaseModel):
     support_legs: List[Dict[str, Any]] = Field(default_factory=list)
     theme_core: Optional[str] = None
     theme_support: Optional[str] = None
+    execution_posture: Optional[str] = None
     base_assets: List[CrossMarketTemplateAsset] = Field(default_factory=list)
     raw_bias_assets: List[CrossMarketTemplateAsset] = Field(default_factory=list)
 
@@ -77,7 +103,7 @@ class CrossMarketAllocationConstraints(BaseModel):
 
 
 class CrossMarketBacktestRequest(BaseModel):
-    assets: List[CrossMarketAsset]
+    assets: List[CrossMarketAsset] = Field(..., min_length=1, max_length=50)
     template_context: Optional[CrossMarketTemplateContext] = None
     allocation_constraints: Optional[CrossMarketAllocationConstraints] = None
     strategy: str = "spread_zscore"

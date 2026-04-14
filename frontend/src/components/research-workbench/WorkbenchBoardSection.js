@@ -14,9 +14,24 @@ import {
   Typography,
 } from 'antd';
 import { InboxOutlined } from '@ant-design/icons';
+import { buildActiveWorkbenchFilterMeta, extractLatestRefreshPriorityEvent } from './workbenchUtils';
 
 const { Search } = Input;
 const { Text } = Typography;
+
+const QUICK_PRIORITY_FILTERS = [
+  { reason: 'priority_new', label: '首次', fullLabel: '自动排序首次入列', color: 'blue' },
+  { reason: 'priority_escalated', label: '升档', fullLabel: '自动排序升档', color: 'red' },
+  { reason: 'priority_relaxed', label: '缓和', fullLabel: '自动排序缓和', color: 'green' },
+  { reason: 'priority_updated', label: '更新', fullLabel: '自动排序同类更新', color: 'gold' },
+];
+
+const PRIORITY_CHANGE_TO_REASON = {
+  new: 'priority_new',
+  escalated: 'priority_escalated',
+  relaxed: 'priority_relaxed',
+  updated: 'priority_updated',
+};
 
 const WorkbenchBoardSection = ({
   archivedTasks,
@@ -24,23 +39,118 @@ const WorkbenchBoardSection = ({
   dragState,
   filters,
   handleDrop,
+  onCopyViewLink,
   handleRestoreArchived,
   loading,
   renderBoardCard,
+  refreshStats,
   saving,
   setDragState,
   setFilters,
   setSelectedTaskId,
   setShowArchived,
   showArchived,
+  snapshotSummaryOptions,
   sourceOptions,
   TYPE_OPTIONS,
   REFRESH_OPTIONS,
+  SNAPSHOT_VIEW_OPTIONS,
   REASON_OPTIONS,
-}) => (
+}) => {
+  const activeQuickFilter = QUICK_PRIORITY_FILTERS.find((item) => item.reason === filters.reason) || null;
+  const activeFilterMeta = buildActiveWorkbenchFilterMeta(filters, {
+    reasonOptions: REASON_OPTIONS,
+    refreshOptions: REFRESH_OPTIONS,
+    snapshotViewOptions: SNAPSHOT_VIEW_OPTIONS,
+    sourceOptions,
+    typeOptions: TYPE_OPTIONS,
+  });
+  const quickFilterCounts = {
+    priority_new: refreshStats?.priorityNew || 0,
+    priority_escalated: refreshStats?.priorityEscalated || 0,
+    priority_relaxed: refreshStats?.priorityRelaxed || 0,
+    priority_updated: refreshStats?.priorityUpdated || 0,
+  };
+  const snapshotSummarySelectOptions = [
+    { label: '全部研究视角', value: '' },
+    ...(filters.snapshotSummary && !(snapshotSummaryOptions || []).some((item) => item.value === filters.snapshotSummary)
+      ? [{ label: filters.snapshotSummary, value: filters.snapshotSummary, fingerprint: filters.snapshotFingerprint || '' }]
+      : []
+    ),
+    ...((snapshotSummaryOptions || []).map((item) => ({
+      label: item.label,
+      value: item.value,
+    }))),
+  ];
+
+  const toggleReasonFilter = (reason) => {
+    setFilters((prev) => ({
+      ...prev,
+      reason: prev.reason === reason ? '' : reason,
+    }));
+  };
+
+  const clearAllFilters = () => {
+    setFilters((prev) => ({
+      ...prev,
+      type: '',
+      source: '',
+      refresh: '',
+      reason: '',
+      snapshotView: '',
+      snapshotFingerprint: '',
+      snapshotSummary: '',
+      keyword: '',
+    }));
+  };
+
+  const clearFilterField = (field) => {
+    if (!field) {
+      return;
+    }
+    setFilters((prev) => ({
+      ...prev,
+      [field]: '',
+    }));
+  };
+
+  const buildColumnPriorityCounts = (tasks = []) => tasks.reduce((accumulator, task) => {
+    const changeType = extractLatestRefreshPriorityEvent(task)?.meta?.change_type;
+    if (changeType && accumulator[changeType] !== undefined) {
+      accumulator[changeType] += 1;
+    }
+    return accumulator;
+  }, {
+    new: 0,
+    escalated: 0,
+    relaxed: 0,
+    updated: 0,
+  });
+
+  const renderColumnPriorityTag = (columnStatus, changeType, color, label, count) => {
+    const reason = PRIORITY_CHANGE_TO_REASON[changeType];
+    const isActive = filters.reason === reason;
+
+    return (
+      <Tag
+        data-testid={`workbench-column-priority-${columnStatus}-${changeType}`}
+        color={color}
+        onClick={() => toggleReasonFilter(reason)}
+        style={{
+          cursor: 'pointer',
+          borderStyle: isActive ? 'solid' : 'dashed',
+          fontWeight: isActive ? 600 : 400,
+        }}
+      >
+        {label} {count}
+      </Tag>
+    );
+  };
+
+  return (
   <Space direction="vertical" size={16} style={{ width: '100%' }}>
     <Card
-      bordered={false}
+      variant="borderless"
       title="看板工具条"
       extra={dragState?.taskId ? <Tag color="processing">拖拽中</Tag> : null}
     >
@@ -69,6 +179,25 @@ const WorkbenchBoardSection = ({
           onChange={(value) => setFilters((prev) => ({ ...prev, reason: value }))}
           style={{ width: 180 }}
         />
+        <Select
+          value={filters.snapshotView}
+          options={SNAPSHOT_VIEW_OPTIONS}
+          onChange={(value) => setFilters((prev) => ({ ...prev, snapshotView: value }))}
+          style={{ width: 190 }}
+        />
+        <Select
+          value={filters.snapshotSummary}
+          options={snapshotSummarySelectOptions}
+          onChange={(value) => {
+            const matchedOption = snapshotSummarySelectOptions.find((item) => item.value === value);
+            setFilters((prev) => ({
+              ...prev,
+              snapshotSummary: value,
+              snapshotFingerprint: matchedOption?.fingerprint || '',
+            }));
+          }}
+          style={{ width: 320 }}
+        />
         <Search
           placeholder="搜索标题、symbol、template 或快照"
           allowClear
@@ -77,27 +206,82 @@ const WorkbenchBoardSection = ({
           style={{ width: 280 }}
         />
       </Space>
+      <Space wrap style={{ width: '100%', marginTop: 12 }}>
+        {QUICK_PRIORITY_FILTERS.map((item) => (
+          <Button
+            key={item.reason}
+            size="small"
+            type={filters.reason === item.reason ? 'primary' : 'default'}
+            danger={item.reason === 'priority_escalated' && filters.reason === item.reason}
+            onClick={() => toggleReasonFilter(item.reason)}
+          >
+            {item.label} {quickFilterCounts[item.reason]}
+          </Button>
+        ))}
+        {activeFilterMeta.length ? (
+          <>
+            {activeFilterMeta.map((item) => (
+              <Tag
+                key={item.field}
+                color={item.color}
+                closable
+                closeIcon={<span data-testid={`board-filter-close-${item.field}`}>×</span>}
+                onClose={(event) => {
+                  event.preventDefault();
+                  clearFilterField(item.field);
+                }}
+              >
+                {item.text}
+              </Tag>
+            ))}
+          </>
+        ) : (
+          <Text type="secondary">快速切到首次入列、升档、缓和或同类更新任务。</Text>
+        )}
+        {filters.keyword?.trim() || filters.reason || filters.refresh || filters.snapshotView || filters.snapshotSummary || filters.type || filters.source ? (
+          <Button size="small" type="link" onClick={clearAllFilters}>
+            清空全部筛选
+          </Button>
+        ) : null}
+        <Button size="small" type="link" onClick={onCopyViewLink}>
+          复制当前视图链接
+        </Button>
+      </Space>
     </Card>
 
     {loading ? (
-      <Card bordered={false}>
+      <Card variant="borderless">
         <div style={{ minHeight: 260, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <Spin />
         </div>
       </Card>
     ) : (
       <Row gutter={[16, 16]}>
-        {boardColumns.map((column) => (
+        {boardColumns.map((column) => {
+          const columnPriorityCounts = buildColumnPriorityCounts(column.tasks);
+          return (
           <Col xs={24} md={12} xl={6} key={column.status}>
             <Card
-              bordered={false}
+              variant="borderless"
               title={(
                 <Space wrap>
                   <span>{column.title}</span>
                   <Tag>{column.tasks.length}</Tag>
+                  {columnPriorityCounts.escalated
+                    ? renderColumnPriorityTag(column.status, 'escalated', 'red', '升档', columnPriorityCounts.escalated)
+                    : null}
+                  {columnPriorityCounts.new
+                    ? renderColumnPriorityTag(column.status, 'new', 'blue', '首次', columnPriorityCounts.new)
+                    : null}
+                  {columnPriorityCounts.relaxed
+                    ? renderColumnPriorityTag(column.status, 'relaxed', 'green', '缓和', columnPriorityCounts.relaxed)
+                    : null}
+                  {columnPriorityCounts.updated
+                    ? renderColumnPriorityTag(column.status, 'updated', 'gold', '更新', columnPriorityCounts.updated)
+                    : null}
                 </Space>
               )}
-              bodyStyle={{ minHeight: 340 }}
+              styles={{ body: { minHeight: 340 } }}
               onDragOver={(event) => {
                 event.preventDefault();
                 setDragState((current) => (
@@ -116,18 +300,30 @@ const WorkbenchBoardSection = ({
               }}
             >
               {column.tasks.length ? (
-                column.tasks.map((task) => renderBoardCard(task, column.status))
+                column.tasks.map((task) => (
+                  <React.Fragment key={task.id}>
+                    {renderBoardCard(task, column.status)}
+                  </React.Fragment>
+                ))
               ) : (
-                <Empty description={`${column.title}暂无任务`} image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                <Empty
+                  description={
+                    activeQuickFilter
+                      ? `${column.title}暂无${activeQuickFilter.fullLabel}任务`
+                      : `${column.title}暂无任务`
+                  }
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                />
               )}
             </Card>
           </Col>
-        ))}
+          );
+        })}
       </Row>
     )}
 
     <Card
-      bordered={false}
+      variant="borderless"
       title={(
         <Space>
           <InboxOutlined />
@@ -181,5 +377,6 @@ const WorkbenchBoardSection = ({
     </Card>
   </Space>
 );
+};
 
 export default WorkbenchBoardSection;

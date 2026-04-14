@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { message } from 'antd';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   getAltDataSnapshot,
@@ -15,21 +14,22 @@ import {
   readResearchContext,
 } from '../../utils/researchContext';
 import { buildResearchTaskRefreshSignals } from '../../utils/researchTaskSignals';
+import { getApiErrorMessage, useSafeMessageApi } from '../../utils/messageApi';
 import {
-  buildLatestSnapshotComparison,
-  buildOpenTaskPriorityLabel,
-  buildOpenTaskPriorityNote,
   buildRefreshStats,
-  buildTimelineItems,
   filterWorkbenchTasks,
 } from './workbenchSelectors';
 import {
   MAIN_STATUSES,
+  buildSnapshotViewSummaryOptions,
   sortByBoardOrder,
   STATUS_LABEL,
 } from './workbenchUtils';
+import useWorkbenchQueueNavigation from './useWorkbenchQueueNavigation';
+import useSelectedTaskIntelligence from './useSelectedTaskIntelligence';
 
 export default function useResearchWorkbenchData() {
+  const message = useSafeMessageApi();
   const initialContext = readResearchContext();
   const [loading, setLoading] = useState(true);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -42,14 +42,21 @@ export default function useResearchWorkbenchData() {
     source: initialContext.workbenchSource || '',
     refresh: initialContext.workbenchRefresh || '',
     reason: initialContext.workbenchReason || '',
-    keyword: '',
+    snapshotView: initialContext.workbenchSnapshotView || '',
+    snapshotFingerprint: initialContext.workbenchSnapshotFingerprint || '',
+    snapshotSummary: initialContext.workbenchSnapshotSummary || '',
+    keyword: initialContext.workbenchKeyword || '',
   });
+  const [workbenchQueueMode, setWorkbenchQueueMode] = useState(initialContext.workbenchQueueMode || '');
+  const [workbenchQueueAction, setWorkbenchQueueAction] = useState(initialContext.workbenchQueueAction || '');
   const [selectedTaskId, setSelectedTaskId] = useState(initialContext.task || '');
   const [selectedTask, setSelectedTask] = useState(null);
   const [timeline, setTimeline] = useState([]);
   const [showAllTimeline, setShowAllTimeline] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [dragState, setDragState] = useState(null);
+  const taskDetailRequestRef = useRef(0);
+  const pendingContextTaskIdRef = useRef(initialContext.task || '');
 
   const sourceOptions = useMemo(() => {
     const uniqueSources = Array.from(new Set(tasks.map((task) => task.source).filter(Boolean)));
@@ -69,22 +76,32 @@ export default function useResearchWorkbenchData() {
       return;
     }
 
+    const requestId = taskDetailRequestRef.current + 1;
+    taskDetailRequestRef.current = requestId;
     setDetailLoading(true);
     try {
       const [taskResponse, timelineResponse] = await Promise.all([
         getResearchTask(taskId),
         getResearchTaskTimeline(taskId),
       ]);
+      if (taskDetailRequestRef.current !== requestId) {
+        return;
+      }
       setSelectedTask(taskResponse.data || null);
       setTimeline(timelineResponse.data || []);
     } catch (error) {
-      message.error(error.userMessage || error.message || '加载任务详情失败');
+      if (taskDetailRequestRef.current !== requestId) {
+        return;
+      }
+      message.error(getApiErrorMessage(error, '加载任务详情失败'));
       setSelectedTask(null);
       setTimeline([]);
     } finally {
-      setDetailLoading(false);
+      if (taskDetailRequestRef.current === requestId) {
+        setDetailLoading(false);
+      }
     }
-  }, []);
+  }, [message]);
 
   const loadWorkbench = useCallback(async () => {
     setLoading(true);
@@ -95,23 +112,42 @@ export default function useResearchWorkbenchData() {
         getMacroOverview(false),
         getAltDataSnapshot(false),
       ]);
-      const nextTasks = taskResponse.data || [];
+      let nextTasks = taskResponse.data || [];
+      const contextTaskId = readResearchContext().task || pendingContextTaskIdRef.current || '';
+      if (contextTaskId && !nextTasks.some((task) => task.id === contextTaskId)) {
+        try {
+          const contextTaskResponse = await getResearchTask(contextTaskId);
+          const contextTask = contextTaskResponse?.data || null;
+          if (contextTask?.id) {
+            nextTasks = [contextTask, ...nextTasks.filter((task) => task.id !== contextTask.id)];
+          }
+        } catch (detailError) {
+          // Ignore direct-link enrichment failures here and let the regular detail loader surface errors.
+        }
+      }
+      const hasContextTask = Boolean(contextTaskId) && nextTasks.some((task) => task.id === contextTaskId);
+      if (hasContextTask) {
+        pendingContextTaskIdRef.current = '';
+      }
       setTasks(nextTasks);
       setStats(statsResponse.data || null);
       setLiveOverview(macroResponse || null);
       setLiveSnapshot(altSnapshotResponse || null);
       setSelectedTaskId((current) => {
+        if (hasContextTask) {
+          return contextTaskId;
+        }
         if (current && nextTasks.some((task) => task.id === current)) {
           return current;
         }
         return nextTasks[0]?.id || '';
       });
     } catch (error) {
-      message.error(error.userMessage || error.message || '加载研究工作台失败');
+      message.error(getApiErrorMessage(error, '加载研究工作台失败'));
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [message]);
 
   useEffect(() => {
     loadWorkbench();
@@ -128,12 +164,54 @@ export default function useResearchWorkbenchData() {
         type: filters.type,
         sourceFilter: filters.source,
         reason: filters.reason,
+        snapshotView: filters.snapshotView,
+        snapshotFingerprint: filters.snapshotFingerprint,
+        snapshotSummary: filters.snapshotSummary,
+        keyword: filters.keyword,
+        queueMode: workbenchQueueMode,
+        queueAction: workbenchQueueAction,
         taskId: selectedTaskId,
       },
       window.location.search
     );
     window.history.replaceState(null, '', nextUrl);
-  }, [filters.reason, filters.refresh, filters.source, filters.type, selectedTaskId]);
+  }, [
+    filters.keyword,
+    filters.reason,
+    filters.refresh,
+    filters.snapshotFingerprint,
+    filters.snapshotSummary,
+    filters.snapshotView,
+    filters.source,
+    filters.type,
+    selectedTaskId,
+    workbenchQueueAction,
+    workbenchQueueMode,
+  ]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const nextContext = readResearchContext();
+      pendingContextTaskIdRef.current = nextContext.task || '';
+      setFilters((current) => ({
+        ...current,
+        type: nextContext.workbenchType || '',
+        source: nextContext.workbenchSource || '',
+        refresh: nextContext.workbenchRefresh || '',
+        reason: nextContext.workbenchReason || '',
+        snapshotView: nextContext.workbenchSnapshotView || '',
+        snapshotFingerprint: nextContext.workbenchSnapshotFingerprint || '',
+        snapshotSummary: nextContext.workbenchSnapshotSummary || '',
+        keyword: nextContext.workbenchKeyword || '',
+      }));
+      setWorkbenchQueueMode(nextContext.workbenchQueueMode || '');
+      setWorkbenchQueueAction(nextContext.workbenchQueueAction || '');
+      setSelectedTaskId(nextContext.task || '');
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const refreshCurrentTask = useCallback(async () => {
     await loadWorkbench();
@@ -141,27 +219,72 @@ export default function useResearchWorkbenchData() {
   }, [loadTaskDetail, loadWorkbench, selectedTaskId]);
 
   const refreshSignals = useMemo(
-    () => buildResearchTaskRefreshSignals({ researchTasks: tasks, overview: liveOverview, snapshot: liveSnapshot }),
+    () => buildResearchTaskRefreshSignals({ researchTasks: tasks, overview: liveOverview, snapshot: liveSnapshot }) || {
+      prioritized: [],
+      byTaskId: {},
+    },
     [liveOverview, liveSnapshot, tasks]
   );
 
-  const refreshStats = useMemo(() => buildRefreshStats(refreshSignals), [refreshSignals]);
+  const refreshStats = useMemo(() => buildRefreshStats(refreshSignals, tasks), [refreshSignals, tasks]);
+  const snapshotSummaryOptions = useMemo(() => {
+    const queuedViews = stats?.snapshot_view_queues;
+    return Array.isArray(queuedViews) && queuedViews.length
+      ? queuedViews.map((item) => ({
+        label: item?.label || item?.value || '',
+        value: item?.value || item?.label || '',
+        fingerprint: item?.fingerprint || '',
+        count: Number(item?.count || 0),
+        scopedCount: Number(item?.scopedCount ?? item?.scoped_count ?? 0),
+        latestAt: item?.latestAt || item?.latest_at || '',
+        typeCounts: item?.typeCounts || item?.type_counts || {},
+      }))
+      : buildSnapshotViewSummaryOptions(tasks);
+  }, [stats, tasks]);
 
   const filteredTasks = useMemo(
     () => filterWorkbenchTasks(tasks, filters, refreshSignals.byTaskId),
     [filters, refreshSignals.byTaskId, tasks]
   );
 
+  useWorkbenchQueueNavigation({
+    tasks,
+    filters,
+    filteredTasks,
+    refreshSignals,
+    selectedTaskId,
+    setSelectedTaskId,
+    workbenchQueueMode,
+    workbenchQueueAction,
+    setWorkbenchQueueAction,
+    message,
+  });
+
   useEffect(() => {
     if (!filteredTasks.length) {
-      if (selectedTaskId) setSelectedTaskId('');
+      if (selectedTaskId && !loading && !pendingContextTaskIdRef.current) {
+        setSelectedTaskId('');
+      }
+      return;
+    }
+    const queueContext = readResearchContext();
+    const queuedTaskId = queueContext.task || '';
+    if (workbenchQueueAction === 'next_same_type' && queuedTaskId) {
+      const hasQueuedTask = filteredTasks.some((task) => task.id === queuedTaskId);
+      const hasSelectedTask = filteredTasks.some((task) => task.id === selectedTaskId);
+      if (!hasSelectedTask && hasQueuedTask) {
+        setSelectedTaskId(queuedTaskId);
+      }
       return;
     }
     const hasSelectedTask = filteredTasks.some((task) => task.id === selectedTaskId);
+    if (pendingContextTaskIdRef.current && selectedTaskId === pendingContextTaskIdRef.current && !hasSelectedTask) {
+      return;
+    }
     if (!selectedTaskId || !hasSelectedTask) {
       setSelectedTaskId(filteredTasks[0].id);
     }
-  }, [filteredTasks, selectedTaskId]);
+  }, [filteredTasks, loading, selectedTaskId, workbenchQueueAction]);
 
   const boardColumns = useMemo(
     () =>
@@ -181,23 +304,13 @@ export default function useResearchWorkbenchData() {
     [filteredTasks]
   );
 
-  const selectedTaskRefreshSignal = selectedTaskId ? refreshSignals.byTaskId[selectedTaskId] : null;
-  const openTaskPriorityLabel = useMemo(
-    () => buildOpenTaskPriorityLabel(selectedTaskRefreshSignal),
-    [selectedTaskRefreshSignal]
-  );
-  const openTaskPriorityNote = useMemo(
-    () => buildOpenTaskPriorityNote(selectedTask, selectedTaskRefreshSignal),
-    [selectedTask, selectedTaskRefreshSignal]
-  );
-  const latestSnapshotComparison = useMemo(
-    () => buildLatestSnapshotComparison(selectedTask),
-    [selectedTask]
-  );
-  const timelineItems = useMemo(
-    () => buildTimelineItems(timeline, showAllTimeline),
-    [showAllTimeline, timeline]
-  );
+  const taskIntelligence = useSelectedTaskIntelligence({
+    selectedTaskId,
+    selectedTask,
+    refreshSignals,
+    timeline,
+    showAllTimeline,
+  });
 
   return {
     archivedTasks,
@@ -206,18 +319,15 @@ export default function useResearchWorkbenchData() {
     dragState,
     filteredTasks,
     filters,
-    latestSnapshotComparison,
     loadTaskDetail,
     loadWorkbench,
     loading,
-    openTaskPriorityLabel,
-    openTaskPriorityNote,
     refreshCurrentTask,
     refreshSignals,
     refreshStats,
+    snapshotSummaryOptions,
     selectedTask,
     selectedTaskId,
-    selectedTaskRefreshSignal,
     setDragState,
     setFilters,
     setSelectedTaskId,
@@ -230,6 +340,10 @@ export default function useResearchWorkbenchData() {
     tasks,
     setTasks,
     timeline,
-    timelineItems,
+    workbenchQueueAction,
+    workbenchQueueMode,
+    setWorkbenchQueueAction,
+    setWorkbenchQueueMode,
+    ...taskIntelligence,
   };
 }

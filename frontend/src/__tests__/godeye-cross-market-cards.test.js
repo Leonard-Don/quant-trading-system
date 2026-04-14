@@ -186,6 +186,7 @@ describe('GodEye cross-market cards narrative trends', () => {
             linked_dimensions: ['inventory'],
             assets: [
               { symbol: 'XLU', side: 'long', weight: 0.5, asset_class: 'ETF' },
+              { symbol: 'ARKK', side: 'long', weight: 0.5, asset_class: 'ETF' },
               { symbol: 'QQQ', side: 'short', weight: 0.5, asset_class: 'ETF' },
             ],
             preferred_signal: 'positive',
@@ -270,5 +271,119 @@ describe('GodEye cross-market cards narrative trends', () => {
     expect(cards[0].taskRefreshSelectionQualityActive).toBe(false);
     expect(cards[0].rankingPenalty).toBeCloseTo(0.24, 5);
     expect(cards[0].rankingPenaltyReason).toContain('复核语境');
+  });
+
+  it('surfaces department-chaos refresh metadata on cross-market cards', () => {
+    const cards = buildCrossMarketCards(
+      {
+        templates: [
+          {
+            id: 'utilities_vs_growth',
+            name: 'Utilities vs Growth',
+            description: 'Defensive utilities against growth beta',
+            narrative: 'Department policy chaos hedge',
+            linked_factors: ['bureaucratic_friction'],
+            linked_dimensions: ['policy'],
+            assets: [
+              { symbol: 'XLU', side: 'long', weight: 0.5, asset_class: 'ETF' },
+              { symbol: 'ARKK', side: 'long', weight: 0.5, asset_class: 'ETF' },
+              { symbol: 'QQQ', side: 'short', weight: 0.5, asset_class: 'ETF' },
+            ],
+            preferred_signal: 'positive',
+            construction_mode: 'equal_weight',
+          },
+        ],
+      },
+      {
+        macro_signal: 0,
+        macro_score: 0.42,
+        department_chaos_summary: {
+          label: 'chaotic',
+          summary: '发改委政策方向反复切换，长官意志强度抬升。',
+          avg_chaos_score: 0.69,
+          top_departments: [
+            {
+              department: 'ndrc',
+              department_label: '发改委',
+              label: 'chaotic',
+              chaos_score: 0.74,
+              reason: '政策反复与意志强度同步升高',
+            },
+          ],
+        },
+        evidence_summary: {
+          policy_source_health_summary: {
+            label: 'healthy',
+            reason: '主要政策源正文覆盖稳定',
+            fragile_sources: [],
+            watch_sources: [],
+            healthy_sources: ['ndrc'],
+            avg_full_text_ratio: 0.88,
+          },
+        },
+        resonance_summary: {
+          label: 'mixed',
+          reason: '当前因子变化尚未形成明确共振',
+          positive_cluster: [],
+          negative_cluster: [],
+          weakening: [],
+          precursor: [],
+          reversed_factors: [],
+        },
+        factors: [{ name: 'bureaucratic_friction', z_score: 0.4, value: 0.22, signal: 0 }],
+        trend: { factor_deltas: {} },
+      },
+      { category_summary: {}, signals: {} },
+      [
+        {
+          id: 'rw_department',
+          type: 'cross_market',
+          status: 'in_progress',
+          template: 'utilities_vs_growth',
+          updated_at: '2026-03-21T10:00:00',
+          snapshot: {
+            payload: {
+              template_meta: {
+                template_id: 'utilities_vs_growth',
+                bias_scale: 1,
+                bias_quality_label: 'full',
+              },
+              research_input: {
+                macro: {
+                  macro_score: 0.41,
+                  macro_signal: 0,
+                  department_chaos: {
+                    label: 'watch',
+                    summary: '政策主体仍处观察区。',
+                    avg_chaos_score: 0.35,
+                    top_departments: [
+                      { department: 'ndrc', department_label: '发改委', label: 'watch', chaos_score: 0.38 },
+                    ],
+                  },
+                  policy_source_health: { label: 'healthy', reason: '主要政策源正文覆盖稳定', avg_full_text_ratio: 0.88 },
+                  resonance: { label: 'mixed', positive_cluster: [], negative_cluster: [] },
+                },
+                alt_data: { top_categories: [] },
+              },
+            },
+          },
+        },
+      ]
+    );
+
+    expect(cards[0].taskRefreshDepartmentChaosDriven).toBe(true);
+    expect(cards[0].taskRefreshDepartmentChaosShift.currentLabel).toBe('chaotic');
+    expect(cards[0].taskRefreshSummary).toContain('部门混乱从 watch 切到 chaotic');
+    expect(cards[0].rankingPenalty).toBeCloseTo(0.18, 5);
+    expect(cards[0].rankingPenaltyReason).toContain('部门混乱');
+    expect(cards[0].taskAction.reason).toBe('policy_execution');
+    expect(cards[0].taskAction.label).toBe('优先复核部门混乱');
+    expect(cards[0].biasQualityLabel).toBe('chaos_guarded');
+    expect(cards[0].departmentChaosRiskBudgetScale).toBeLessThan(1);
+    expect(cards[0].rawAdjustedAssets).toHaveLength(3);
+    expect(cards[0].adjustedAssets.find((item) => item.symbol === 'XLU').weight).toBeGreaterThan(0.5);
+    expect(cards[0].adjustedAssets.find((item) => item.symbol === 'ARKK').weight).toBeLessThan(0.5);
+    expect(cards[0].biasSummary).toContain('混乱触发防御化');
+    expect(cards[0].driverSummary.some((item) => item.key === 'department_chaos_defensive')).toBe(true);
   });
 });

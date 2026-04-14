@@ -307,10 +307,17 @@ def test_cross_market_templates_include_macro_linkage_metadata(monkeypatch):
 
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload["templates"]) >= 4
+    assert len(payload["templates"]) >= 8
     first = payload["templates"][0]
     assert "theme" in first
+    assert "theme_core" in first
+    assert "theme_support" in first
+    assert "execution_posture" in first
     assert "narrative" in first
     assert "linked_factors" in first
     assert "linked_dimensions" in first
     assert isinstance(first["linked_factors"], list)
+    template_ids = {item["id"] for item in payload["templates"]}
+    assert "people_decay_short_vs_cashflow_defensive" in template_ids
+    assert "rates_pressure_vs_duration_tech" in template_ids
+    assert "dollar_squeeze_vs_china_beta" in template_ids

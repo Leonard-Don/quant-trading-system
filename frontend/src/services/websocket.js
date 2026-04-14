@@ -8,9 +8,9 @@ class WebSocketService {
         this.ws = null;
         this.connectPromise = null;
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 5;
+        this.maxReconnectAttempts = Infinity;
         this.reconnectDelay = 3000;
-        this.maxReconnectDelay = 30000;
+        this.maxReconnectDelay = 60000;
         this.reconnectJitterRatio = 0.2;
         this.reconnectTimer = null;
         this.heartbeatIntervalMs = 15000;
@@ -68,7 +68,7 @@ class WebSocketService {
      * 获取WebSocket URL
      */
     getWebSocketUrl() {
-        const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+        const apiUrl = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
         const url = new URL(apiUrl.replace(/^http/, 'ws') + '/ws/quotes');
         const token = process.env.REACT_APP_REALTIME_WS_TOKEN;
         if (token) {
@@ -254,18 +254,25 @@ class WebSocketService {
     /**
      * 订阅股票报价
      */
-    subscribe(symbols) {
+    subscribe(symbols, options = {}) {
+        const { forceResend = false } = options;
         if (!Array.isArray(symbols)) {
             symbols = [symbols];
         }
-        const newSymbols = symbols
-            .map(s => s.toUpperCase())
+        const normalizedSymbols = symbols
+            .map(s => String(s).trim().toUpperCase())
+            .filter(Boolean);
+        const uniqueSymbols = Array.from(new Set(normalizedSymbols));
+        const newSymbols = uniqueSymbols
             .filter(symbol => !this.subscriptions.has(symbol));
 
         newSymbols.forEach(symbol => this.subscriptions.add(symbol));
 
-        if (newSymbols.length > 0 && this.isConnected) {
-            this.sendMessage({ action: 'subscribe', symbols: newSymbols });
+        if (this.isConnected) {
+            const payloadSymbols = forceResend ? uniqueSymbols : newSymbols;
+            if (payloadSymbols.length > 0) {
+                this.sendMessage({ action: 'subscribe', symbols: payloadSymbols });
+            }
         }
 
         return newSymbols;
@@ -394,6 +401,17 @@ class WebSocketService {
      */
     ping() {
         this.sendMessage({ action: 'ping' });
+    }
+
+    /**
+     * 手动重连 — 重置退避计数器后立即尝试连接
+     */
+    manualReconnect() {
+        this.disconnect();
+        this.manuallyDisconnected = false;
+        this.reconnectAttempts = 0;
+        this.lastErrorReason = null;
+        return this.connect();
     }
 
     /**

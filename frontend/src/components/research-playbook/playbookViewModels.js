@@ -1,4 +1,10 @@
 import { formatResearchSource } from '../../utils/researchContext';
+import { buildWorkbenchViewFingerprint } from '../../utils/workbenchViewFingerprint';
+import {
+  buildCrossMarketRefreshPriorityEvent,
+  buildPricingRefreshPriorityEvent,
+  buildTradeThesisRefreshPriorityEvent,
+} from '../../utils/workbenchPriorityEvents';
 
 const STATUS_LABELS = {
   ready: '待执行',
@@ -27,6 +33,117 @@ const toSignedPercentPoints = (value, digits = 1) => {
 };
 
 const compactText = (value = '') => String(value || '').replace(/\s+/g, ' ').trim();
+
+const WORKBENCH_REFRESH_LABELS = {
+  high: '建议更新',
+  medium: '建议复核',
+  low: '继续观察',
+};
+
+const WORKBENCH_TYPE_LABELS = {
+  pricing: 'Pricing',
+  cross_market: 'Cross-Market',
+  macro_mispricing: 'Macro Mispricing',
+  trade_thesis: 'Trade Thesis',
+};
+
+const WORKBENCH_SNAPSHOT_VIEW_LABELS = {
+  filtered: '带筛选视角快照',
+  scoped: '带任务焦点快照',
+};
+
+const WORKBENCH_REASON_LABELS = {
+  priority_new: '自动排序首次入列',
+  priority_escalated: '自动排序升档',
+  priority_relaxed: '自动排序缓和',
+  priority_updated: '自动排序同类更新',
+  resonance: '共振驱动',
+  bias_quality_core: '核心腿受压',
+  selection_quality_active: '降级运行',
+  review_context: '复核语境切换',
+  structural_decay: '结构衰败/系统雷达',
+  trade_thesis: '交易 Thesis 漂移',
+  people_layer: '人的维度',
+  people_fragility: '人的维度',
+  department_chaos: '部门混乱',
+  policy_execution: '政策执行混乱',
+  selection_quality: '自动降级',
+  input_reliability: '输入可靠度',
+  source_health_degradation: '来源健康退化',
+  policy_source: '政策源驱动',
+  bias_quality: '偏置收缩',
+};
+
+const buildWorkbenchViewContext = (context = {}) => {
+  const refresh = String(context?.workbenchRefresh || '').trim();
+  const type = String(context?.workbenchType || '').trim();
+  const sourceFilter = String(context?.workbenchSource || '').trim();
+  const reason = String(context?.workbenchReason || '').trim();
+  const snapshotView = String(context?.workbenchSnapshotView || '').trim();
+  const snapshotFingerprint = String(context?.workbenchSnapshotFingerprint || '').trim();
+  const snapshotSummary = String(context?.workbenchSnapshotSummary || '').trim();
+  const keyword = String(context?.workbenchKeyword || '').trim();
+  const taskId = String(context?.task || '').trim();
+
+  if (![refresh, type, sourceFilter, reason, snapshotView, snapshotFingerprint, snapshotSummary, keyword, taskId].some(Boolean)) {
+    return null;
+  }
+
+  const summaryParts = [];
+
+  if (reason) {
+    summaryParts.push(
+      `${reason.startsWith('priority_') ? '快速视图' : '更新原因'}：${WORKBENCH_REASON_LABELS[reason] || reason}`
+    );
+  }
+  if (keyword) {
+    summaryParts.push(`关键词：${keyword}`);
+  }
+  if (refresh) {
+    summaryParts.push(`更新级别：${WORKBENCH_REFRESH_LABELS[refresh] || refresh}`);
+  }
+  if (snapshotView) {
+    summaryParts.push(`快照视角：${WORKBENCH_SNAPSHOT_VIEW_LABELS[snapshotView] || snapshotView}`);
+  }
+  if (snapshotSummary) {
+    summaryParts.push(`研究视角：${snapshotSummary}`);
+  }
+  if (type) {
+    summaryParts.push(`类型：${WORKBENCH_TYPE_LABELS[type] || type}`);
+  }
+  if (sourceFilter) {
+    summaryParts.push(`来源：${formatResearchSource(sourceFilter)}`);
+  }
+
+  const viewFingerprint = snapshotFingerprint || buildWorkbenchViewFingerprint({
+    refresh,
+    type,
+    source_filter: sourceFilter,
+    reason,
+    snapshot_view: snapshotView,
+    keyword,
+    task_id: taskId,
+  });
+
+  return {
+    source_view: 'workbench',
+    has_filters: summaryParts.length > 0,
+    refresh,
+    type,
+    source_filter: sourceFilter,
+    reason,
+    snapshot_view: snapshotView,
+    view_fingerprint: viewFingerprint,
+    snapshot_summary: snapshotSummary,
+    keyword,
+    task_id: taskId,
+    summary: summaryParts.length ? summaryParts.join(' · ') : '全部任务视图',
+    scoped_task_label: taskId ? `当前定位：${taskId}` : '',
+    note: summaryParts.length
+      ? '这次快照是在带筛选的工作台视图下保存的。'
+      : '这次快照是在完整工作台视图下保存的。',
+  };
+};
 
 const buildPricingAction = (symbol, source, note) =>
   symbol
@@ -541,10 +658,19 @@ export const buildPricingWorkbenchPayload = (context = {}, pricingResult = null,
   const drivers = pricingResult?.deviation_drivers?.drivers || [];
   const primaryDriver = pricingResult?.deviation_drivers?.primary_driver || drivers[0] || null;
   const factorModel = pricingResult?.factor_model || {};
+  const peopleGovernanceOverlay = pricingResult?.people_governance_overlay || {};
   const title = `[Pricing] ${symbol} mispricing review`;
   const analysisPeriod = context.period || '1y';
+  const workbenchViewContext = buildWorkbenchViewContext(context);
+  const researchInput = {
+    macro: {
+      people_layer: pricingResult?.people_layer || {},
+      policy_execution: peopleGovernanceOverlay?.policy_execution_context || {},
+      source_mode_summary: peopleGovernanceOverlay?.source_mode_summary || {},
+    },
+  };
 
-  return {
+  const payload = {
     type: 'pricing',
     title,
     source: context.source || 'manual',
@@ -557,6 +683,7 @@ export const buildPricingWorkbenchPayload = (context = {}, pricingResult = null,
       source: context.source || 'manual',
       stage: playbook?.stageLabel || (pricingResult ? '结果已生成' : '待分析'),
       playbook_context: playbook?.context || [],
+      workbench_view_context: workbenchViewContext || {},
     },
     snapshot: {
       headline: playbook?.headline || `${symbol} 定价研究任务`,
@@ -602,11 +729,24 @@ export const buildPricingWorkbenchPayload = (context = {}, pricingResult = null,
         },
         implications,
         period: analysisPeriod,
+        people_layer: pricingResult?.people_layer || {},
+        people_governance_overlay: peopleGovernanceOverlay,
+        structural_decay: pricingResult?.structural_decay || implications?.structural_decay || {},
+        macro_mispricing_thesis:
+          pricingResult?.macro_mispricing_thesis
+          || implications?.macro_mispricing_thesis
+          || {},
         primary_driver: primaryDriver,
         drivers: drivers.slice(0, 3),
+        research_input: researchInput,
+        view_context: workbenchViewContext || {},
       },
     },
   };
+  const refreshPriorityEvent = buildPricingRefreshPriorityEvent(pricingResult, context);
+  return refreshPriorityEvent
+    ? { ...payload, refresh_priority_event: refreshPriorityEvent }
+    : payload;
 };
 
 export const buildCrossMarketWorkbenchPayload = (
@@ -676,6 +816,7 @@ export const buildCrossMarketWorkbenchPayload = (
   const selectionQualityLabel = selectionQuality.label || (rankingPenalty > 0 ? 'softened' : 'original');
   const selectionQualityReason = selectionQuality.reason || rankingPenaltyReason || '';
   const isReviewRunResult = Boolean(backtestResult && selectionQualityLabel && selectionQualityLabel !== 'original');
+  const workbenchViewContext = buildWorkbenchViewContext(context);
   const coreLegSymbols = new Set(
     (template?.coreLegs || [])
       .map((item) => String(item?.symbol || '').trim().toUpperCase())
@@ -725,6 +866,35 @@ export const buildCrossMarketWorkbenchPayload = (
           macroOverview?.evidence_summary?.policy_source_health_summary?.avg_full_text_ratio || 0
         ),
       },
+      department_chaos: {
+        label: macroOverview?.department_chaos_summary?.label || 'unknown',
+        summary: macroOverview?.department_chaos_summary?.summary || '',
+        avg_chaos_score: Number(macroOverview?.department_chaos_summary?.avg_chaos_score || 0),
+        department_count: Number(macroOverview?.department_chaos_summary?.department_count || 0),
+        chaotic_department_count: Number(macroOverview?.department_chaos_summary?.chaotic_department_count || 0),
+        top_departments: (macroOverview?.department_chaos_summary?.top_departments || [])
+          .slice(0, 5)
+          .map((item) => ({
+            department: item?.department || '',
+            department_label: item?.department_label || '',
+            label: item?.label || '',
+            chaos_score: Number(item?.chaos_score || 0),
+            policy_reversal_count: Number(item?.policy_reversal_count || 0),
+            avg_will_intensity: Number(item?.avg_will_intensity || 0),
+            reason: item?.reason || '',
+          })),
+      },
+      people_layer: altSnapshot?.signals?.people_layer || macroOverview?.people_layer_summary || {},
+      policy_execution: altSnapshot?.signals?.policy_execution || {},
+      source_mode_summary: macroOverview?.source_mode_summary || altSnapshot?.source_mode_summary || {},
+      structural_decay_radar: {
+        label: macroOverview?.structural_decay_radar?.label || 'stable',
+        display_label: macroOverview?.structural_decay_radar?.display_label || '',
+        score: Number(macroOverview?.structural_decay_radar?.score || 0),
+        critical_axis_count: Number(macroOverview?.structural_decay_radar?.critical_axis_count || 0),
+        top_signals: macroOverview?.structural_decay_radar?.top_signals || [],
+        action_hint: macroOverview?.structural_decay_radar?.action_hint || '',
+      },
       input_reliability: {
         label: macroOverview?.input_reliability_summary?.label || 'unknown',
         score: Number(macroOverview?.input_reliability_summary?.score || 0),
@@ -744,7 +914,7 @@ export const buildCrossMarketWorkbenchPayload = (
     },
   };
 
-  return {
+  const payload = {
     type: 'cross_market',
     title,
     source: context.source || 'manual',
@@ -767,6 +937,31 @@ export const buildCrossMarketWorkbenchPayload = (
       bias_scale: template?.biasScale || 1,
       bias_quality_label: template?.biasQualityLabel || 'full',
       bias_quality_reason: template?.biasQualityReason || '',
+      department_chaos_label: template?.departmentChaosLabel || 'unknown',
+      department_chaos_score: template?.departmentChaosScore ?? null,
+      department_chaos_top_department: template?.departmentChaosTopDepartment || '',
+      department_chaos_reason: template?.departmentChaosReason || '',
+      department_chaos_risk_budget_scale: template?.departmentChaosRiskBudgetScale ?? 1,
+      people_fragility_label: template?.peopleFragilityLabel || 'stable',
+      people_fragility_score: template?.peopleFragilityScore ?? null,
+      people_fragility_focus: template?.peopleFragilityFocus || '',
+      people_fragility_reason: template?.peopleFragilityReason || '',
+      people_fragility_risk_budget_scale: template?.peopleFragilityRiskBudgetScale ?? 1,
+      structural_decay_radar_label: template?.structuralDecayRadarLabel || 'stable',
+      structural_decay_radar_display_label: template?.structuralDecayRadarDisplayLabel || '',
+      structural_decay_radar_score: template?.structuralDecayRadarScore ?? null,
+      structural_decay_radar_action_hint: template?.structuralDecayRadarActionHint || '',
+      structural_decay_radar_risk_budget_scale: template?.structuralDecayRadarRiskBudgetScale ?? 1,
+      structural_decay_radar_top_signals: template?.structuralDecayRadarTopSignals || [],
+      policy_execution_label: template?.policyExecutionLabel || 'unknown',
+      policy_execution_score: template?.policyExecutionScore ?? null,
+      policy_execution_top_department: template?.policyExecutionTopDepartment || '',
+      policy_execution_reason: template?.policyExecutionReason || '',
+      policy_execution_risk_budget_scale: template?.policyExecutionRiskBudgetScale ?? 1,
+      source_mode_label: template?.sourceModeLabel || 'mixed',
+      source_mode_dominant: template?.sourceModeDominant || '',
+      source_mode_reason: template?.sourceModeReason || '',
+      source_mode_risk_budget_scale: template?.sourceModeRiskBudgetScale ?? 1,
       bias_highlights: template?.biasHighlights || [],
       bias_actions: template?.biasActions || [],
       driver_summary: template?.driverSummary || [],
@@ -775,6 +970,7 @@ export const buildCrossMarketWorkbenchPayload = (
       support_legs: template?.supportLegs || [],
       theme_core: template?.themeCore || '',
       theme_support: template?.themeSupport || '',
+      execution_posture: template?.executionPosture || template?.execution_posture || '',
       core_leg_pressure: coreLegPressure,
       resonance_label: template?.resonanceLabel || macroOverview?.resonance_summary?.label || 'mixed',
       resonance_reason: template?.resonanceReason || macroOverview?.resonance_summary?.reason || '',
@@ -800,6 +996,7 @@ export const buildCrossMarketWorkbenchPayload = (
       recommendation_reason: template?.driverHeadline || '',
       research_input: researchInput,
       assets: safeAssets,
+      workbench_view_context: workbenchViewContext || {},
     },
     snapshot: {
       headline: isReviewRunResult
@@ -837,6 +1034,31 @@ export const buildCrossMarketWorkbenchPayload = (
               bias_scale: template?.biasScale || 1,
               bias_quality_label: template?.biasQualityLabel || 'full',
               bias_quality_reason: template?.biasQualityReason || '',
+              department_chaos_label: template?.departmentChaosLabel || 'unknown',
+              department_chaos_score: template?.departmentChaosScore ?? null,
+              department_chaos_top_department: template?.departmentChaosTopDepartment || '',
+              department_chaos_reason: template?.departmentChaosReason || '',
+              department_chaos_risk_budget_scale: template?.departmentChaosRiskBudgetScale ?? 1,
+              people_fragility_label: template?.peopleFragilityLabel || 'stable',
+              people_fragility_score: template?.peopleFragilityScore ?? null,
+              people_fragility_focus: template?.peopleFragilityFocus || '',
+              people_fragility_reason: template?.peopleFragilityReason || '',
+              people_fragility_risk_budget_scale: template?.peopleFragilityRiskBudgetScale ?? 1,
+              structural_decay_radar_label: template?.structuralDecayRadarLabel || 'stable',
+              structural_decay_radar_display_label: template?.structuralDecayRadarDisplayLabel || '',
+              structural_decay_radar_score: template?.structuralDecayRadarScore ?? null,
+              structural_decay_radar_action_hint: template?.structuralDecayRadarActionHint || '',
+              structural_decay_radar_risk_budget_scale: template?.structuralDecayRadarRiskBudgetScale ?? 1,
+              structural_decay_radar_top_signals: template?.structuralDecayRadarTopSignals || [],
+              policy_execution_label: template?.policyExecutionLabel || 'unknown',
+              policy_execution_score: template?.policyExecutionScore ?? null,
+              policy_execution_top_department: template?.policyExecutionTopDepartment || '',
+              policy_execution_reason: template?.policyExecutionReason || '',
+              policy_execution_risk_budget_scale: template?.policyExecutionRiskBudgetScale ?? 1,
+              source_mode_label: template?.sourceModeLabel || 'mixed',
+              source_mode_dominant: template?.sourceModeDominant || '',
+              source_mode_reason: template?.sourceModeReason || '',
+              source_mode_risk_budget_scale: template?.sourceModeRiskBudgetScale ?? 1,
               bias_highlights: template?.biasHighlights || [],
               bias_actions: template?.biasActions || [],
               driver_summary: template?.driverSummary || [],
@@ -845,6 +1067,7 @@ export const buildCrossMarketWorkbenchPayload = (
               support_legs: template?.supportLegs || [],
               theme_core: template?.themeCore || '',
               theme_support: template?.themeSupport || '',
+              execution_posture: template?.executionPosture || template?.execution_posture || '',
               core_leg_pressure: coreLegPressure,
               resonance_label: template?.resonanceLabel || macroOverview?.resonance_summary?.label || 'mixed',
               resonance_reason: template?.resonanceReason || macroOverview?.resonance_summary?.reason || '',
@@ -877,6 +1100,7 @@ export const buildCrossMarketWorkbenchPayload = (
             constraint_overlay: backtestResult.constraint_overlay || {},
             hedge_portfolio: backtestResult.hedge_portfolio || {},
             research_input: researchInput,
+            view_context: workbenchViewContext || {},
             total_return: backtestResult.total_return || 0,
             sharpe_ratio: backtestResult.sharpe_ratio || 0,
             leg_performance: backtestResult.leg_performance || {},
@@ -892,6 +1116,31 @@ export const buildCrossMarketWorkbenchPayload = (
               bias_scale: template?.biasScale || 1,
               bias_quality_label: template?.biasQualityLabel || 'full',
               bias_quality_reason: template?.biasQualityReason || '',
+              department_chaos_label: template?.departmentChaosLabel || 'unknown',
+              department_chaos_score: template?.departmentChaosScore ?? null,
+              department_chaos_top_department: template?.departmentChaosTopDepartment || '',
+              department_chaos_reason: template?.departmentChaosReason || '',
+              department_chaos_risk_budget_scale: template?.departmentChaosRiskBudgetScale ?? 1,
+              people_fragility_label: template?.peopleFragilityLabel || 'stable',
+              people_fragility_score: template?.peopleFragilityScore ?? null,
+              people_fragility_focus: template?.peopleFragilityFocus || '',
+              people_fragility_reason: template?.peopleFragilityReason || '',
+              people_fragility_risk_budget_scale: template?.peopleFragilityRiskBudgetScale ?? 1,
+              structural_decay_radar_label: template?.structuralDecayRadarLabel || 'stable',
+              structural_decay_radar_display_label: template?.structuralDecayRadarDisplayLabel || '',
+              structural_decay_radar_score: template?.structuralDecayRadarScore ?? null,
+              structural_decay_radar_action_hint: template?.structuralDecayRadarActionHint || '',
+              structural_decay_radar_risk_budget_scale: template?.structuralDecayRadarRiskBudgetScale ?? 1,
+              structural_decay_radar_top_signals: template?.structuralDecayRadarTopSignals || [],
+              policy_execution_label: template?.policyExecutionLabel || 'unknown',
+              policy_execution_score: template?.policyExecutionScore ?? null,
+              policy_execution_top_department: template?.policyExecutionTopDepartment || '',
+              policy_execution_reason: template?.policyExecutionReason || '',
+              policy_execution_risk_budget_scale: template?.policyExecutionRiskBudgetScale ?? 1,
+              source_mode_label: template?.sourceModeLabel || 'mixed',
+              source_mode_dominant: template?.sourceModeDominant || '',
+              source_mode_reason: template?.sourceModeReason || '',
+              source_mode_risk_budget_scale: template?.sourceModeRiskBudgetScale ?? 1,
               bias_highlights: template?.biasHighlights || [],
               bias_actions: template?.biasActions || [],
               driver_summary: template?.driverSummary || [],
@@ -900,6 +1149,7 @@ export const buildCrossMarketWorkbenchPayload = (
               support_legs: template?.supportLegs || [],
               theme_core: template?.themeCore || '',
               theme_support: template?.themeSupport || '',
+              execution_posture: template?.executionPosture || template?.execution_posture || '',
               core_leg_pressure: coreLegPressure,
               resonance_label: template?.resonanceLabel || macroOverview?.resonance_summary?.label || 'mixed',
               resonance_reason: template?.resonanceReason || macroOverview?.resonance_summary?.reason || '',
@@ -926,7 +1176,139 @@ export const buildCrossMarketWorkbenchPayload = (
             },
             research_input: researchInput,
             assets: safeAssets,
-          },
+            view_context: workbenchViewContext || {},
+      },
     },
   };
+  const refreshPriorityEvent = buildCrossMarketRefreshPriorityEvent(template, backtestResult, researchInputs);
+  return refreshPriorityEvent
+    ? { ...payload, refresh_priority_event: refreshPriorityEvent }
+    : payload;
+};
+
+const normalizeTradeThesisTemplate = (template = {}, draft = {}) => ({
+  ...template,
+  id: template?.id || template?.template_id || draft?.templateId || '',
+  name: template?.name || template?.template_name || draft?.title || '',
+  theme: template?.theme || template?.stance || draft?.thesis?.stance || '',
+  construction_mode: template?.construction_mode || draft?.quality?.construction_mode || '',
+  driverHeadline: template?.driverHeadline || template?.recommendation_reason || draft?.thesis?.summary || draft?.note || '',
+  coreLegs: template?.coreLegs || template?.core_legs || draft?.templateContext?.core_legs || [],
+  supportLegs: template?.supportLegs || template?.support_legs || draft?.templateContext?.support_legs || [],
+  themeCore: template?.themeCore || template?.theme_core || draft?.templateContext?.theme_core || '',
+  themeSupport: template?.themeSupport || template?.theme_support || draft?.templateContext?.theme_support || '',
+  recommendationTier: template?.recommendationTier || draft?.thesis?.stance || '',
+  recommendationReason: template?.recommendation_reason || draft?.thesis?.summary || draft?.note || '',
+  signalAttribution: template?.signalAttribution || template?.signal_attribution || draft?.templateContext?.signal_attribution || [],
+});
+
+export const buildTradeThesisWorkbenchPayload = (
+  context = {},
+  draft = null,
+  template = null,
+  backtestResult = null,
+  assets = [],
+  researchInputs = {}
+) => {
+  const normalizedTemplate = normalizeTradeThesisTemplate(template || draft?.templateContext || {}, draft || {});
+  const basePayload = buildCrossMarketWorkbenchPayload(
+    {
+      ...context,
+      template: context.template || draft?.templateId || normalizedTemplate.id || '',
+    },
+    normalizedTemplate,
+    backtestResult,
+    assets,
+    researchInputs,
+  );
+
+  if (!basePayload) {
+    return null;
+  }
+
+  const symbol = String(draft?.symbol || context.symbol || '').trim().toUpperCase();
+  const taskLabel = draft?.title || normalizedTemplate.name || normalizedTemplate.id || 'Macro Mispricing Trade Thesis';
+  const tradeAssets = (draft?.assets || assets || []).map((asset) => ({
+    symbol: asset?.symbol || '',
+    asset_class: asset?.asset_class || '',
+    side: asset?.side || '',
+    weight: asset?.weight ?? null,
+    role: asset?.role || '',
+    thesis: asset?.thesis || '',
+  }));
+  const tradeThesis = {
+    draft_id: draft?.id || '',
+    source: draft?.source || context.source || '',
+    source_task_id: draft?.sourceTaskId || '',
+    source_task_type: draft?.sourceTaskType || '',
+    title: taskLabel,
+    note: draft?.note || '',
+    symbol,
+    thesis: draft?.thesis || {},
+    structural_decay: draft?.structuralDecay || {},
+    people_layer: draft?.peopleLayer || {},
+    quality: draft?.quality || {},
+    constraints: draft?.constraints || {},
+    meta: draft?.meta || {},
+    parameters: draft?.parameters || {},
+    template_context: draft?.templateContext || {},
+    assets: tradeAssets,
+    results_summary: backtestResult
+      ? {
+          total_return: backtestResult?.total_return ?? null,
+          sharpe_ratio: backtestResult?.sharpe_ratio ?? null,
+          coverage: backtestResult?.data_alignment?.tradable_day_ratio ?? null,
+        }
+      : {},
+  };
+
+  const payload = {
+    ...basePayload,
+    type: 'trade_thesis',
+    title: `[TradeThesis] ${taskLabel}`,
+    symbol,
+    template: normalizedTemplate.id || basePayload.template,
+    context: {
+      ...basePayload.context,
+      view: 'backtest',
+      tab: 'cross-market',
+      symbol,
+      draft_id: draft?.id || '',
+      source_task_id: draft?.sourceTaskId || '',
+      source_task_type: draft?.sourceTaskType || '',
+      thesis_origin: draft?.source || context.source || '',
+      trade_thesis: true,
+    },
+    snapshot: {
+      ...basePayload.snapshot,
+      headline: backtestResult ? `${taskLabel} 交易 Thesis` : `${taskLabel} 交易草案`,
+      summary: backtestResult
+        ? `${taskLabel} 已保存为可回测的交易 Thesis，可继续在工作台里跟踪组合演化。`
+        : `${taskLabel} 已保存为交易 Thesis 草案，可继续回测和迭代组合。`,
+      highlights: buildHighlights(
+        null,
+        [
+          draft?.thesis?.stance || '',
+          draft?.structuralDecay?.label || '',
+          draft?.peopleLayer?.risk_level ? `people ${draft.peopleLayer.risk_level}` : '',
+          backtestResult ? `total return ${toSignedPercent(backtestResult.total_return || 0, 2)}` : '',
+          `legs ${tradeAssets.length}`,
+        ]
+      ),
+      payload: {
+        ...basePayload.snapshot.payload,
+        draft: draft || {},
+        trade_thesis: tradeThesis,
+      },
+    },
+  };
+  const refreshPriorityEvent = buildTradeThesisRefreshPriorityEvent(
+    draft,
+    normalizedTemplate,
+    backtestResult,
+    researchInputs
+  );
+  return refreshPriorityEvent
+    ? { ...payload, refresh_priority_event: refreshPriorityEvent }
+    : payload;
 };

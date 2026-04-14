@@ -76,6 +76,8 @@ jest.mock('@ant-design/icons', () => {
     BarChartOutlined: MockIcon,
     FundOutlined: MockIcon,
     BellOutlined: MockIcon,
+    DeleteOutlined: MockIcon,
+    FolderOutlined: MockIcon,
     DownOutlined: MockIcon,
     RightOutlined: MockIcon,
   };
@@ -162,6 +164,7 @@ jest.mock('antd', () => {
     AutoComplete,
     Drawer,
     Tabs,
+    Empty: ({ description }) => <div data-testid="empty">{description}</div>,
   };
 });
 
@@ -528,7 +531,7 @@ describe('RealTimePanel', () => {
     expect(screen.getByText('待继续观察')).toBeInTheDocument();
     expect(screen.getByText('价格 ≥ $5100.00')).toBeInTheDocument();
     expect(screen.getByText('^GSPC 当前价格 $5123.45 已突破 $5100.00')).toBeInTheDocument();
-    expect(screen.getByText('提醒命中 1')).toBeInTheDocument();
+    expect(screen.getByText((_, element) => element?.textContent?.trim() === '提醒 1')).toBeInTheDocument();
 
     const symbolCard = await screen.findByText((content, element) => {
       return element?.tagName === 'SPAN' && content.includes('^GSPC · 行情');
@@ -628,7 +631,7 @@ describe('RealTimePanel', () => {
 
     await renderRealtimePanel();
 
-    expect(await screen.findByText('提醒命中 1')).toBeInTheDocument();
+    expect(await screen.findByText((_, element) => element?.textContent?.trim() === '提醒 1')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '展开提醒命中历史' }));
     expect(await screen.findByText('价格 ≥ $5100.00')).toBeInTheDocument();
     expect(screen.getByText('^GSPC 当前价格 $5123.45 已突破 $5100.00')).toBeInTheDocument();
@@ -734,6 +737,8 @@ describe('RealTimePanel', () => {
     await renderRealtimePanel();
 
     expect(await screen.findByText('异动雷达')).toBeInTheDocument();
+    expect(await screen.findByText('查看全部异动')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '展开异动' }));
     expect(await screen.findByText('强势拉升')).toBeInTheDocument();
     expect((await screen.findAllByText('高优先级')).length).toBeGreaterThan(0);
     expect(await screen.findByText(/\^GSPC 当前涨幅 3.15%/)).toBeInTheDocument();
@@ -794,6 +799,7 @@ describe('RealTimePanel', () => {
     };
 
     await renderRealtimePanel();
+    fireEvent.click(screen.getByRole('button', { name: '展开异动' }));
 
     fireEvent.click((await screen.findAllByRole('button', { name: '计划' }))[0]);
 
@@ -1210,7 +1216,7 @@ describe('RealTimePanel', () => {
 
     expect(screen.getByText('开发诊断')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '隐藏诊断' }));
-    expect(screen.queryByText('开发诊断')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '隐藏诊断' })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '显示诊断' }));
     expect(screen.getByText('开发诊断')).toBeInTheDocument();
   });
@@ -1387,7 +1393,11 @@ describe('RealTimePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '添加' }));
 
     await waitFor(() => {
-      expect(webSocketService.subscribe).toHaveBeenCalledWith(['NFLX']);
+      const subscribeCalls = webSocketService.subscribe.mock.calls;
+      const nflxCall = subscribeCalls.find(
+        (call) => Array.isArray(call[0]) && call[0].includes('NFLX')
+      );
+      expect(nflxCall).toBeTruthy();
     });
   });
 

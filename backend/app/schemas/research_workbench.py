@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 ResearchTaskStatus = Literal["new", "in_progress", "blocked", "complete", "archived"]
-ResearchTaskType = Literal["pricing", "cross_market"]
+ResearchTaskType = Literal["pricing", "cross_market", "macro_mispricing", "trade_thesis"]
 
 
 class ResearchTaskSnapshot(BaseModel):
@@ -33,6 +33,18 @@ class ResearchTaskTimelineEvent(BaseModel):
     label: str
     detail: str = ""
     meta: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ResearchTaskRefreshPriorityEvent(BaseModel):
+    reason_key: str = ""
+    reason_label: str = ""
+    severity: str = ""
+    lead: str = ""
+    detail: str = ""
+    urgency_score: Optional[float] = None
+    priority_weight: Optional[float] = None
+    recommendation: str = ""
+    summary: str = ""
 
 
 class ResearchTask(BaseModel):
@@ -65,6 +77,7 @@ class ResearchTaskCreateRequest(BaseModel):
     board_order: Optional[int] = None
     context: Dict[str, Any] = Field(default_factory=dict)
     snapshot: Optional[ResearchTaskSnapshot] = None
+    refresh_priority_event: Optional[ResearchTaskRefreshPriorityEvent] = None
 
 
 class ResearchTaskUpdateRequest(BaseModel):
@@ -74,21 +87,37 @@ class ResearchTaskUpdateRequest(BaseModel):
     board_order: Optional[int] = None
     context: Optional[Dict[str, Any]] = None
     snapshot: Optional[ResearchTaskSnapshot] = None
+    refresh_priority_event: Optional[ResearchTaskRefreshPriorityEvent] = None
 
 
 class ResearchTaskCommentCreateRequest(BaseModel):
-    author: str = "local"
-    body: str = Field(min_length=1)
+    author: str = Field(default="local", max_length=100)
+    body: str = Field(min_length=1, max_length=5000)
 
 
 class ResearchTaskSnapshotCreateRequest(BaseModel):
     snapshot: ResearchTaskSnapshot
+    refresh_priority_event: Optional[ResearchTaskRefreshPriorityEvent] = None
+
+
+class ResearchTaskBulkUpdateRequest(BaseModel):
+    task_ids: List[str] = Field(default_factory=list, min_length=1, max_length=100)
+    status: Optional[ResearchTaskStatus] = None
+    comment: str = Field(default="", max_length=5000)
+    author: str = Field(default="local", max_length=100)
+
+    @model_validator(mode="after")
+    def validate_has_action(self):
+        if not self.status and not str(self.comment or "").strip():
+            raise ValueError("At least one bulk action is required")
+        return self
 
 
 class ResearchTaskReorderItem(BaseModel):
     task_id: str
     status: ResearchTaskStatus
     board_order: int = Field(ge=0)
+    refresh_priority_event: Optional[ResearchTaskRefreshPriorityEvent] = None
 
 
 class ResearchWorkbenchReorderRequest(BaseModel):

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "量化交易系统API",
-    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.9.0\n    - **API版本**: v1\n    - **最后更新**: 2026-04-02\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
+    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v4.0.0\n    - **API版本**: v1\n    - **最后更新**: 2026-04-14\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -236,6 +236,268 @@
           "path": [
             "backtest",
             "compare"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "回测结果 Monte Carlo 路径模拟",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/monte-carlo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "monte-carlo"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "异步提交 Monte Carlo 回测任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/monte-carlo/async",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "monte-carlo",
+            "async"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "策略对比显著性检验",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/compare/significance",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "compare",
+            "significance"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "异步提交策略显著性检验任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/compare/significance/async",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "compare",
+            "significance",
+            "async"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "多周期并行回测",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/multi-period",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "multi-period"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "异步提交多周期回测任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/multi-period/async",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "multi-period",
+            "async"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "市场冲击敏感性分析",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/impact-analysis",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "impact-analysis"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "异步提交市场冲击分析任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/backtest/impact-analysis/async",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "backtest",
+            "impact-analysis",
+            "async"
           ]
         },
         "body": {
@@ -700,6 +962,78 @@
       }
     },
     {
+      "name": "个股行情回放帧",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/replay/{symbol}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "replay",
+            "{symbol}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "统计异常波动诊断",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/anomaly-diagnostics/{symbol}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "anomaly-diagnostics",
+            "{symbol}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Level 2 订单簿能力探测",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/orderbook/{symbol}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "orderbook",
+            "{symbol}"
+          ]
+        }
+      }
+    },
+    {
       "name": "获取实时行情偏好配置",
       "request": {
         "method": "GET",
@@ -796,6 +1130,39 @@
           "path": [
             "realtime",
             "alerts"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "记录实时提醒命中并发布到统一告警总线",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/realtime/alerts/hits",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "realtime",
+            "alerts",
+            "hits"
           ]
         },
         "body": {
@@ -1944,6 +2311,54 @@
       }
     },
     {
+      "name": "行业生命周期、ETF 映射与事件日历",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/industries/intelligence",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "industries",
+            "intelligence"
+          ]
+        }
+      }
+    },
+    {
+      "name": "行业相关性网络图",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/industries/network",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "industries",
+            "network"
+          ]
+        }
+      }
+    },
+    {
       "name": "Get Leader Stocks",
       "request": {
         "method": "GET",
@@ -2437,6 +2852,30 @@
       }
     },
     {
+      "name": "另类数据信号命中率与衰减诊断",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/alt-data/diagnostics/signals",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "alt-data",
+            "diagnostics",
+            "signals"
+          ]
+        }
+      }
+    },
+    {
       "name": "宏观错误定价总览",
       "request": {
         "method": "GET",
@@ -2478,6 +2917,29 @@
           "path": [
             "macro",
             "history"
+          ]
+        }
+      }
+    },
+    {
+      "name": "宏观因子历史验证",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/macro/factor-backtest",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "macro",
+            "factor-backtest"
           ]
         }
       }
@@ -2579,6 +3041,39 @@
           "path": [
             "research-workbench",
             "tasks"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "批量更新研究工作台任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/research-workbench/tasks/bulk-update",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "research-workbench",
+            "tasks",
+            "bulk-update"
           ]
         },
         "body": {
@@ -2844,6 +3339,1548 @@
           "path": [
             "research-workbench",
             "stats"
+          ]
+        }
+      }
+    },
+    {
+      "name": "策略参数自动优化器",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/optimizer",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "optimizer"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "异步提交策略参数优化任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/optimizer/async",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "optimizer",
+            "async"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "风险分析与归因中心",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/risk-center",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "risk-center"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "异步提交风险归因任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/risk-center/async",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "risk-center",
+            "async"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "交易日志与绩效追踪",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/trading-journal",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "trading-journal"
+          ]
+        }
+      }
+    },
+    {
+      "name": "更新交易日志扩展信息",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/trading-journal",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "trading-journal"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "智能告警编排中心",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/alerts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "alerts"
+          ]
+        }
+      }
+    },
+    {
+      "name": "更新智能告警编排",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/alerts",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "alerts"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "发布统一告警事件并执行级联动作",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/alerts/publish",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "alerts",
+            "publish"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "数据质量可观测平台",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/data-quality",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "data-quality"
+          ]
+        }
+      }
+    },
+    {
+      "name": "估值历史与多模型集成",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/valuation-lab",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "valuation-lab"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "异步提交估值实验任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/valuation-lab/async",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "valuation-lab",
+            "async"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "行业轮动量化策略",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/industry-rotation",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "industry-rotation"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "异步提交行业轮动任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/industry-rotation/async",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "industry-rotation",
+            "async"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "自定义因子表达式",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/factor-expression",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "factor-expression"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "异步提交自定义因子表达式任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/quant-lab/factor-expression/async",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "quant-lab",
+            "factor-expression",
+            "async"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "基础设施状态",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "签发本地研究令牌",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/token",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "token"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "本地用户密码登录",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/login",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "login"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "使用 refresh token 刷新访问令牌",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/refresh",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "refresh"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "OAuth2 Password / Refresh Token 交换",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/oauth/token",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "oauth",
+            "token"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "查看本地用户目录",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/users",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "users"
+          ]
+        }
+      }
+    },
+    {
+      "name": "创建或更新本地用户",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/users",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "users"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "查看 OAuth Provider 配置",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/oauth/providers",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "oauth",
+            "providers"
+          ]
+        }
+      }
+    },
+    {
+      "name": "创建或更新 OAuth Provider",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/oauth/providers",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "oauth",
+            "providers"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "从环境变量同步 OAuth Provider",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/oauth/providers/sync-env",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "oauth",
+            "providers",
+            "sync-env"
+          ]
+        }
+      }
+    },
+    {
+      "name": "诊断 OAuth Provider 配置",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/oauth/providers/{provider_id}/diagnostics",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "oauth",
+            "providers",
+            "{provider_id}",
+            "diagnostics"
+          ]
+        }
+      }
+    },
+    {
+      "name": "生成 OAuth 授权链接",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/oauth/providers/{provider_id}/authorize",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "oauth",
+            "providers",
+            "{provider_id}",
+            "authorize"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "交换 OAuth 授权码",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/oauth/providers/{provider_id}/exchange",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "oauth",
+            "providers",
+            "{provider_id}",
+            "exchange"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "OAuth 登录回调",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/oauth/providers/{provider_id}/callback",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "oauth",
+            "providers",
+            "{provider_id}",
+            "callback"
+          ]
+        }
+      }
+    },
+    {
+      "name": "撤销 refresh session",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/sessions/{session_id}/revoke",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "sessions",
+            "{session_id}",
+            "revoke"
+          ]
+        }
+      }
+    },
+    {
+      "name": "更新认证策略",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/auth/policy",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "auth",
+            "policy"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "提交异步任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/tasks",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "tasks"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "查看任务队列",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/tasks",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "tasks"
+          ]
+        }
+      }
+    },
+    {
+      "name": "查看任务状态",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/tasks/{task_id}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "tasks",
+            "{task_id}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "取消异步任务",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/tasks/{task_id}/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "tasks",
+            "{task_id}",
+            "cancel"
+          ]
+        }
+      }
+    },
+    {
+      "name": "更新按用户 / 按端点限流规则",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/rate-limits",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "rate-limits"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "写入持久化记录",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/persistence/records",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "persistence",
+            "records"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "读取持久化记录",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/persistence/records",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "persistence",
+            "records"
+          ]
+        }
+      }
+    },
+    {
+      "name": "查看数据库 / TimescaleDB 接入诊断",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/persistence/diagnostics",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "persistence",
+            "diagnostics"
+          ]
+        }
+      }
+    },
+    {
+      "name": "初始化 PostgreSQL / TimescaleDB 持久化结构",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/persistence/bootstrap",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "persistence",
+            "bootstrap"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "预览 SQLite fallback -> PostgreSQL 迁移",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/persistence/migration/preview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "persistence",
+            "migration",
+            "preview"
+          ]
+        }
+      }
+    },
+    {
+      "name": "执行 SQLite fallback -> PostgreSQL 迁移",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/persistence/migration/run",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "persistence",
+            "migration",
+            "run"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "写入时序记录",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/persistence/timeseries",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "persistence",
+            "timeseries"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "读取时序记录",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/persistence/timeseries",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "persistence",
+            "timeseries"
+          ]
+        }
+      }
+    },
+    {
+      "name": "保存配置版本",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/config-versions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "config-versions"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "读取配置版本",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/config-versions",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "config-versions"
+          ]
+        }
+      }
+    },
+    {
+      "name": "对比配置版本",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/config-versions/diff",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "config-versions",
+            "diff"
+          ]
+        }
+      }
+    },
+    {
+      "name": "从历史配置恢复为新版本",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/config-versions/restore",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "config-versions",
+            "restore"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "测试通知通道",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/notifications/test",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "notifications",
+            "test"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "保存通知渠道",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/notifications/channels",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "notifications",
+            "channels"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "删除通知渠道",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/infrastructure/notifications/channels/{channel_id}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "infrastructure",
+            "notifications",
+            "channels",
+            "{channel_id}"
           ]
         }
       }

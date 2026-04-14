@@ -29,6 +29,38 @@ const HEATMAP_NEGATIVE = 'var(--accent-success)';
 const HEATMAP_WARNING = 'var(--accent-warning)';
 const TILE_TEXT_SHADOW = '0 1px 3px rgba(15, 23, 42, 0.32)';
 
+const normalizeIndustrySearchText = (value) => String(value || '')
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[()（）]/g, '')
+    .replace(/[-_/]/g, '')
+    .replace(/及元件/g, '')
+    .replace(/板块/g, '')
+    .trim();
+
+const buildIndustrySearchCandidates = (name) => {
+    const raw = String(name || '').trim();
+    if (!raw) return [];
+
+    const canonical = raw.replace(/及元件/g, '').replace(/板块/g, '').trim();
+    const variants = new Set([
+        raw,
+        normalizeIndustrySearchText(raw),
+        canonical,
+        normalizeIndustrySearchText(canonical),
+    ]);
+
+    return Array.from(variants).filter(Boolean);
+};
+
+const matchesIndustrySearch = (name, searchTerm) => {
+    const normalizedQuery = normalizeIndustrySearchText(searchTerm);
+    if (!normalizedQuery) return true;
+    return buildIndustrySearchCandidates(name).some(
+        (candidate) => normalizeIndustrySearchText(candidate).includes(normalizedQuery)
+    );
+};
+
 // ... (retain squarified treemap algorithms: worstAspectRatio, squarify, layoutRow) ...
 
 /**
@@ -688,17 +720,19 @@ const IndustryHeatmap = ({
             ? sorted
             : sorted.filter(matchesMarketCapFilter);
         const searchScoped = searchTerm
-            ? sourceScoped.filter(item => item.name.toLowerCase().includes(searchTerm.toLowerCase()))
+            ? sourceScoped.filter((item) => matchesIndustrySearch(item.name, searchTerm))
             : sourceScoped;
-        const legendScoped = searchScoped.filter((item) => {
-            let metricValue = 0;
-            if (colorMetric === 'change_pct') metricValue = Number(item.value || 0);
-            else if (colorMetric === 'net_inflow_ratio') metricValue = Number(item.netInflowRatio || 0);
-            else if (colorMetric === 'turnover_rate') metricValue = Number(item.turnoverRate || 0);
-            else if (colorMetric === 'pe_ttm') metricValue = Number(item.pe_ttm || 0);
-            else if (colorMetric === 'pb') metricValue = Number(item.pb || 0);
-            return metricValue >= effectiveLegendRange[0] && metricValue <= effectiveLegendRange[1];
-        });
+        const legendScoped = searchTerm
+            ? searchScoped
+            : searchScoped.filter((item) => {
+                let metricValue = 0;
+                if (colorMetric === 'change_pct') metricValue = Number(item.value || 0);
+                else if (colorMetric === 'net_inflow_ratio') metricValue = Number(item.netInflowRatio || 0);
+                else if (colorMetric === 'turnover_rate') metricValue = Number(item.turnoverRate || 0);
+                else if (colorMetric === 'pe_ttm') metricValue = Number(item.pe_ttm || 0);
+                else if (colorMetric === 'pb') metricValue = Number(item.pb || 0);
+                return metricValue >= effectiveLegendRange[0] && metricValue <= effectiveLegendRange[1];
+            });
         const displayedBase = legendScoped;
         const displayed = displayCount > 0 ? displayedBase.slice(0, displayCount) : displayedBase;
 

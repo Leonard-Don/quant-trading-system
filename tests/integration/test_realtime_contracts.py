@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from backend.app.websocket.connection_manager import manager
 from backend.main import app
 from src.data.realtime_manager import realtime_manager
+from src.utils.cache import cache_manager
 
 
 FAKE_QUOTE = {
@@ -35,10 +36,16 @@ def reset_ws_manager():
     manager.active_connections.clear()
     manager.subscriptions.clear()
     manager.loop = None
+    realtime_manager.quote_history.clear()
+    realtime_manager._quotes_bundle_cache.clear()
+    cache_manager.clear()
     yield
     manager.active_connections.clear()
     manager.subscriptions.clear()
     manager.loop = None
+    realtime_manager.quote_history.clear()
+    realtime_manager._quotes_bundle_cache.clear()
+    cache_manager.clear()
 
 
 @pytest.fixture

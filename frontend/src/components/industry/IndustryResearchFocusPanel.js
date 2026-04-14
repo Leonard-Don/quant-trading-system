@@ -83,7 +83,7 @@ const IndustryResearchFocusPanel = ({
                 </div>
 
                 <Row gutter={[8, 8]}>
-                    <Col span={8}>
+                    <Col xs={24} sm={8}>
                         <div style={{ padding: '10px 12px', borderRadius: 10, background: 'color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary) 12%)' }}>
                             <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>综合得分</div>
                             <div style={{ fontSize: 18, fontWeight: 700, color: TEXT_PRIMARY }}>
@@ -91,7 +91,7 @@ const IndustryResearchFocusPanel = ({
                             </div>
                         </div>
                     </Col>
-                    <Col span={8}>
+                    <Col xs={24} sm={8}>
                         <div style={{ padding: '10px 12px', borderRadius: 10, background: 'color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary) 12%)' }}>
                             <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>涨跌幅</div>
                             <div style={{ fontSize: 18, fontWeight: 700, color: (selectedIndustrySnapshot?.change_pct || 0) >= 0 ? '#cf1322' : '#3f8600' }}>
@@ -101,7 +101,7 @@ const IndustryResearchFocusPanel = ({
                             </div>
                         </div>
                     </Col>
-                    <Col span={8}>
+                    <Col xs={24} sm={8}>
                         <div style={{ padding: '10px 12px', borderRadius: 10, background: 'color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary) 12%)' }}>
                             <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>资金流向</div>
                             <div style={{ fontSize: 18, fontWeight: 700, color: (selectedIndustrySnapshot?.money_flow || 0) >= 0 ? '#cf1322' : '#3f8600' }}>
@@ -183,6 +183,7 @@ const IndustryResearchFocusPanel = ({
                     </Button>
                     <Button
                         size="small"
+                        data-testid="industry-focus-watchlist-button"
                         icon={<StarFilled style={{ color: selectedIndustryWatched ? '#faad14' : 'rgba(0,0,0,0.25)' }} />}
                         onClick={onToggleWatchlist}
                     >

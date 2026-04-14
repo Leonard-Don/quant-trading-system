@@ -1,4 +1,4 @@
-import { STOCK_DATABASE } from '../constants/stocks';
+import { inferSymbolCategory } from './realtimeFormatters';
 
 const hasNumericValue = (value) => value !== null && value !== undefined && !Number.isNaN(Number(value));
 
@@ -47,31 +47,6 @@ const ANOMALY_THRESHOLDS_BY_CATEGORY = {
     rangeThreshold: 3,
     volumeSpikeRatio: 2,
   },
-};
-
-const inferSymbolCategory = (symbol) => {
-  const type = STOCK_DATABASE[symbol]?.type;
-  if (type) {
-    return type;
-  }
-
-  if (/^\d{6}\.(SS|SZ|BJ)$/i.test(symbol)) {
-    return 'cn';
-  }
-
-  if (/^-?[A-Z0-9]+-USD$/i.test(symbol)) {
-    return 'crypto';
-  }
-
-  if (/=F$/i.test(symbol)) {
-    return 'future';
-  }
-
-  if (symbol?.startsWith('^')) {
-    return /^(?:\^TNX|\^TYX|\^FVX|\^IRX)$/i.test(symbol) ? 'bond' : 'index';
-  }
-
-  return 'us';
 };
 
 export const getIntradayRangePercent = (quote) => {
@@ -625,6 +600,16 @@ const getMedian = (values) => {
   return sorted[middle];
 };
 
+const getMeanStd = (values = []) => {
+  const clean = values.filter((value) => hasNumericValue(value)).map(Number);
+  if (clean.length < 2) {
+    return { mean: null, std: null };
+  }
+  const mean = clean.reduce((sum, value) => sum + value, 0) / clean.length;
+  const variance = clean.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / clean.length;
+  return { mean, std: Math.sqrt(variance) };
+};
+
 export const getAnomalySeverityMeta = (kind, severity) => {
   const numericSeverity = hasNumericValue(severity) ? Number(severity) : 0;
 
@@ -670,6 +655,7 @@ export const buildRealtimeAnomalyFeed = (symbols = [], quotes = {}, options = {}
     priceMoveThreshold = 2,
     rangeThreshold = 3,
     volumeSpikeRatio = 2,
+    zScoreThreshold = 2.2,
     thresholdsByCategory = ANOMALY_THRESHOLDS_BY_CATEGORY,
   } = options;
 
@@ -678,6 +664,11 @@ export const buildRealtimeAnomalyFeed = (symbols = [], quotes = {}, options = {}
     normalizedSymbols
       .map((symbol) => toNumber(quotes[symbol]?.volume))
       .filter((value) => value !== null && value > 0)
+  );
+  const { mean: changeMean, std: changeStd } = getMeanStd(
+    normalizedSymbols
+      .map((symbol) => toNumber(quotes[symbol]?.change_percent))
+      .filter((value) => value !== null)
   );
 
   const events = [];
@@ -698,6 +689,9 @@ export const buildRealtimeAnomalyFeed = (symbols = [], quotes = {}, options = {}
     const volume = toNumber(quote.volume);
     const rangePercent = getIntradayRangePercent(quote);
     const timestamp = quote._clientReceivedAt || quote.timestamp || Date.now();
+    const changeZScore = changeStd && changePercent !== null
+      ? (changePercent - changeMean) / changeStd
+      : null;
 
     if (changePercent !== null && changePercent >= effectivePriceMoveThreshold) {
       events.push({
@@ -725,6 +719,40 @@ export const buildRealtimeAnomalyFeed = (symbols = [], quotes = {}, options = {}
         priceSnapshot: price,
         changePercentSnapshot: changePercent,
       });
+    }
+
+    if (changeZScore !== null && Math.abs(changeZScore) >= zScoreThreshold) {
+      events.push({
+        id: `${symbol}-zscore`,
+        symbol,
+        kind: 'statistical_zscore',
+        severity: Math.abs(changeZScore),
+        title: '统计异动',
+        description: `${symbol} 横截面涨跌 Z-Score ${changeZScore.toFixed(2)}，显著偏离当前分组均值。`,
+        timestamp,
+        priceSnapshot: price,
+        changePercentSnapshot: changePercent,
+        zScore: changeZScore,
+      });
+    }
+
+    if (changePercent !== null && rangePercent !== null) {
+      const cusumProxy = Math.abs(changePercent) + Math.max(0, rangePercent - effectiveRangeThreshold) * 0.5;
+      if (cusumProxy >= effectivePriceMoveThreshold * 1.8) {
+        events.push({
+          id: `${symbol}-cusum`,
+          symbol,
+          kind: 'cusum_shift',
+          severity: cusumProxy,
+          title: 'CUSUM 趋势漂移',
+          description: `${symbol} 涨跌幅与振幅组合信号显示盘中状态发生漂移，CUSUM proxy ${cusumProxy.toFixed(2)}。`,
+          timestamp,
+          priceSnapshot: price,
+          changePercentSnapshot: changePercent,
+          rangePercentSnapshot: rangePercent,
+          cusumProxy,
+        });
+      }
     }
 
     if (rangePercent !== null && rangePercent >= effectiveRangeThreshold) {
@@ -782,7 +810,16 @@ export const buildRealtimeAnomalyFeed = (symbols = [], quotes = {}, options = {}
     }
   });
 
-  return events
+  // Deduplicate by id — keep the highest-severity entry for each id
+  const deduped = new Map();
+  events.forEach((event) => {
+    const existing = deduped.get(event.id);
+    if (!existing || event.severity > existing.severity) {
+      deduped.set(event.id, event);
+    }
+  });
+
+  return Array.from(deduped.values())
     .sort((left, right) => {
       if (right.severity !== left.severity) {
         return right.severity - left.severity;

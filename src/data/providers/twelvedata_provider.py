@@ -175,6 +175,8 @@ class TwelveDataProvider(BaseDataProvider):
                 "low": float(data.get("low", 0)),
                 "open": float(data.get("open", 0)),
                 "previous_close": float(data.get("previous_close", 0)),
+                "bid": float(data.get("bid", 0) or 0),
+                "ask": float(data.get("ask", 0) or 0),
                 "timestamp": datetime.now(),
                 "source": self.name
             }

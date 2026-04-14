@@ -114,6 +114,16 @@ class LeaderStockScorer:
             # 注意：不再逐股持久化到磁盘，由调用方在批处理结束后统一调用 _persist_financial_cache()
             
         return financial
+
+    def _get_cached_financial_data_if_available(self, symbol: str) -> Dict[str, Any]:
+        """仅返回当前进程/磁盘缓存中的财务数据，不触发新的网络请求。"""
+        self.__class__._ensure_financial_cache_loaded()
+        entry = self.__class__._financial_cache.get(symbol)
+        if not entry:
+            return {"error": "Financial cache miss"}
+        if (time.time() - entry.get("ts", 0)) >= 86400:
+            return {"error": "Financial cache expired"}
+        return entry.get("data", {})
     
     def __init__(self, data_provider=None, weights: Dict[str, float] = None):
         """
@@ -291,6 +301,7 @@ class LeaderStockScorer:
         stock_data: Dict[str, Any],
         industry_stats: Dict = None,
         enrich_financial: bool = False,
+        cached_only: bool = False,
         score_type: str = "core"
     ) -> Dict[str, Any]:
         """
@@ -322,7 +333,7 @@ class LeaderStockScorer:
             return score_result
 
         try:
-            financial = self._get_cached_financial_data(symbol)
+            financial = self._get_cached_financial_data_if_available(symbol) if cached_only else self._get_cached_financial_data(symbol)
             if "error" not in financial:
                 raw_data = score_result["raw_data"]
                 raw_data["roe"] = financial.get("roe", 0)

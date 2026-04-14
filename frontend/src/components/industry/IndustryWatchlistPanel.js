@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Card, Tag, Button, Space } from 'antd';
 import { StarFilled, BranchesOutlined } from '@ant-design/icons';
 
@@ -12,7 +12,14 @@ const IndustryWatchlistPanel = ({
     handleIndustryClick,
     handleAddToComparison,
     formatIndustryAlertMoneyFlow,
-}) => (
+}) => {
+    const [expanded, setExpanded] = useState(false);
+    const visibleEntries = useMemo(
+        () => (expanded ? watchlistEntries : watchlistEntries.slice(0, 3)),
+        [expanded, watchlistEntries]
+    );
+
+    return (
     <Card
         size="small"
         data-testid="industry-watchlist-card"
@@ -35,14 +42,29 @@ const IndustryWatchlistPanel = ({
             </div>
         )}
         extra={watchlistEntries.length > 0 ? (
-            <Tag color="gold" style={{ margin: 0, borderRadius: 999 }}>
-                {watchlistEntries.length}/{maxWatchlistIndustries}
-            </Tag>
+            <Space size={8} wrap>
+                <Tag color="gold" style={{ margin: 0, borderRadius: 999 }}>
+                    {watchlistEntries.length}/{maxWatchlistIndustries}
+                </Tag>
+                <Button size="small" type="text" onClick={() => setExpanded((current) => !current)}>
+                    {expanded ? '收起' : '展开'}
+                </Button>
+            </Space>
         ) : null}
     >
         {watchlistEntries.length > 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {watchlistEntries.map((item) => (
+                {!expanded && watchlistEntries.length > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-secondary)' }}>
+                        <span>优先观察</span>
+                        {watchlistEntries.slice(0, 3).map((item) => (
+                            <Tag key={item.industryName} color={item.industryName === selectedIndustry ? 'processing' : 'default'} style={{ margin: 0, borderRadius: 999 }}>
+                                {item.industryName}
+                            </Tag>
+                        ))}
+                    </div>
+                )}
+                {visibleEntries.map((item) => (
                     <div
                         key={item.industryName}
                         data-testid="industry-watchlist-item"
@@ -110,6 +132,13 @@ const IndustryWatchlistPanel = ({
                         </Space>
                     </div>
                 ))}
+                {watchlistEntries.length > visibleEntries.length && (
+                    <div style={{ display: 'flex', justifyContent: 'center' }}>
+                        <Button size="small" type="text" onClick={() => setExpanded(true)}>
+                            展开其余 {watchlistEntries.length - visibleEntries.length} 个观察行业
+                        </Button>
+                    </div>
+                )}
             </div>
         ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -133,6 +162,7 @@ const IndustryWatchlistPanel = ({
             </div>
         )}
     </Card>
-);
+    );
+};
 
 export default IndustryWatchlistPanel;

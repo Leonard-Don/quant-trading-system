@@ -6,15 +6,42 @@ import { formatPricingScenarioSummary } from './workbenchUtils';
 
 const { Paragraph, Text } = Typography;
 
+const getSnapshotViewContext = (payload = {}) => payload.view_context || payload.workbench_view_context || {};
+const formatSourceModeSummaryLabel = (summary = {}) => {
+  const label = String(summary?.label || '').toLowerCase();
+  if (label === 'official-led') return '官方/披露主导';
+  if (label === 'fallback-heavy') return '回退源偏多';
+  if (label === 'mixed') return '混合来源';
+  return summary?.dominant || '-';
+};
+
+const SnapshotViewContextBlock = ({ payload = {} }) => {
+  const viewContext = getSnapshotViewContext(payload);
+  if (!viewContext?.summary && !viewContext?.scoped_task_label && !viewContext?.note) {
+    return null;
+  }
+
+  return (
+    <Space direction="vertical" size={2} style={{ width: '100%' }}>
+      {viewContext.summary ? <Text type="secondary">工作台视图 {viewContext.summary}</Text> : null}
+      {viewContext.scoped_task_label ? <Text type="secondary">{viewContext.scoped_task_label}</Text> : null}
+      {viewContext.note ? <Text type="secondary">{viewContext.note}</Text> : null}
+    </Space>
+  );
+};
+
 function PricingSnapshotSummary({ task, payload }) {
   const fairValue = payload.fair_value || payload.valuation?.fair_value || {};
   const primaryDriver = payload.primary_driver || payload.drivers?.[0] || null;
   const primaryDriverStrength = getSignalStrengthMeta(primaryDriver?.signal_strength);
   const primaryDriverImpact = getDriverImpactMeta(primaryDriver?.impact);
   const factorSummary = payload.factor_model || {};
+  const thesis = payload.macro_mispricing_thesis || {};
   const dcfScenarioSummary = formatPricingScenarioSummary(payload.dcf_scenarios || []);
   const monteCarlo = payload.monte_carlo || {};
   const auditTrail = payload.audit_trail || {};
+  const governanceOverlay = payload.people_governance_overlay || {};
+  const researchInputMacro = payload.research_input?.macro || {};
 
   return (
     <Space direction="vertical" size={8} style={{ width: '100%' }}>
@@ -51,6 +78,31 @@ function PricingSnapshotSummary({ task, payload }) {
       {payload.implications?.factor_alignment?.summary ? (
         <Text type="secondary">证据共振 {payload.implications?.factor_alignment?.summary}</Text>
       ) : null}
+      {governanceOverlay?.label ? (
+        <Text type="secondary">
+          治理折价 {governanceOverlay.label}
+          {governanceOverlay?.governance_discount_pct !== undefined && governanceOverlay?.governance_discount_pct !== null
+            ? ` · ${Number(governanceOverlay.governance_discount_pct) >= 0 ? '-' : '+'}${Math.abs(Number(governanceOverlay.governance_discount_pct || 0)).toFixed(1)}%`
+            : ''}
+          {governanceOverlay?.confidence !== undefined && governanceOverlay?.confidence !== null
+            ? ` · 置信度 ${Number(governanceOverlay.confidence).toFixed(2)}`
+            : ''}
+        </Text>
+      ) : null}
+      {governanceOverlay?.summary ? <Text type="secondary">{governanceOverlay.summary}</Text> : null}
+      {researchInputMacro?.policy_execution?.summary ? (
+        <Text type="secondary">
+          政策执行 {researchInputMacro.policy_execution.summary}
+          {researchInputMacro.policy_execution.top_department ? ` · ${researchInputMacro.policy_execution.top_department}` : ''}
+        </Text>
+      ) : null}
+      {researchInputMacro?.source_mode_summary?.label ? (
+        <Text type="secondary">
+          来源治理 {formatSourceModeSummaryLabel(researchInputMacro.source_mode_summary)}
+          {researchInputMacro.source_mode_summary.coverage ? ` · 覆盖 ${Number(researchInputMacro.source_mode_summary.coverage)}` : ''}
+        </Text>
+      ) : null}
+      <SnapshotViewContextBlock payload={payload} />
       {(payload.period || factorSummary.data_points || payload.current_price_source) ? (
         <Text type="secondary">
           分析窗口 {payload.period || factorSummary.period || '—'}
@@ -112,6 +164,78 @@ function PricingSnapshotSummary({ task, payload }) {
           {primaryDriver.ranking_reason ? ` · ${primaryDriver.ranking_reason}` : ''}
         </Text>
       ) : null}
+      {thesis?.primary_leg?.symbol ? (
+        <Text type="secondary">
+          Thesis {thesis.primary_leg.symbol} {thesis.primary_leg.side}
+          {thesis.hedge_leg?.symbol ? ` / ${thesis.hedge_leg.symbol} ${thesis.hedge_leg.side}` : ''}
+          {thesis.stance ? ` · ${thesis.stance}` : ''}
+        </Text>
+      ) : null}
+      {thesis?.trade_legs?.length ? (
+        <Text type="secondary">
+          组合腿 {thesis.trade_legs.slice(0, 3).map((leg) => `${leg.symbol} ${leg.side}`).join(' / ')}
+        </Text>
+      ) : null}
+      {(task.snapshot.highlights || []).map((item) => (
+        <Text key={item} type="secondary">
+          {item}
+        </Text>
+      ))}
+    </Space>
+  );
+}
+
+function MacroMispricingSnapshotSummary({ task, payload }) {
+  const structuralDecay = payload.structural_decay || {};
+  const thesis = payload.macro_mispricing_thesis || {};
+  const peopleLayer = payload.people_layer || {};
+  const implications = payload.implications || {};
+  const gapAnalysis = payload.gap_analysis || {};
+  const evidence = structuralDecay.evidence || [];
+
+  return (
+    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+      <Text strong>{task.snapshot.headline || 'Macro Mispricing Snapshot'}</Text>
+      <Paragraph style={{ marginBottom: 0 }}>{task.snapshot.summary}</Paragraph>
+      <Space wrap size={6}>
+        {structuralDecay.label ? <Tag color="volcano">{structuralDecay.label}</Tag> : null}
+        {structuralDecay.action ? <Tag color="red">{structuralDecay.action}</Tag> : null}
+        {peopleLayer.risk_level ? <Tag>{`人的维度 ${peopleLayer.risk_level}`}</Tag> : null}
+        {implications.primary_view ? <Tag>{`定价结论 ${implications.primary_view}`}</Tag> : null}
+      </Space>
+      {structuralDecay.score !== undefined && structuralDecay.score !== null ? (
+        <Text type="secondary">
+          衰败评分 {Number(structuralDecay.score || 0).toFixed(2)}
+          {structuralDecay.reversibility ? ` · 可逆性 ${structuralDecay.reversibility}` : ''}
+          {structuralDecay.horizon ? ` · 观察期 ${structuralDecay.horizon}` : ''}
+        </Text>
+      ) : null}
+      {structuralDecay.dominant_failure_label ? (
+        <Text type="secondary">主导失效模式 {structuralDecay.dominant_failure_label}</Text>
+      ) : null}
+      {peopleLayer.summary ? <Text type="secondary">人的维度 {peopleLayer.summary}</Text> : null}
+      {gapAnalysis.gap_pct !== undefined && gapAnalysis.gap_pct !== null ? (
+        <Text type="secondary">
+          当前错价 {Number(gapAnalysis.gap_pct || 0).toFixed(2)}%
+          {gapAnalysis.direction ? ` · ${gapAnalysis.direction}` : ''}
+        </Text>
+      ) : null}
+      <SnapshotViewContextBlock payload={payload} />
+      {thesis?.primary_leg?.symbol ? (
+        <Text type="secondary">
+          Thesis {thesis.primary_leg.symbol} {thesis.primary_leg.side}
+          {thesis.hedge_leg?.symbol ? ` / ${thesis.hedge_leg.symbol} ${thesis.hedge_leg.side}` : ''}
+          {thesis.stance ? ` · ${thesis.stance}` : ''}
+        </Text>
+      ) : null}
+      {thesis?.trade_legs?.length ? (
+        <Text type="secondary">
+          组合腿 {thesis.trade_legs.slice(0, 3).map((leg) => `${leg.symbol} ${leg.side}`).join(' / ')}
+        </Text>
+      ) : null}
+      {evidence.length ? (
+        <Text type="secondary">关键证据 {evidence.slice(0, 3).join('；')}</Text>
+      ) : null}
       {(task.snapshot.highlights || []).map((item) => (
         <Text key={item} type="secondary">
           {item}
@@ -122,10 +246,35 @@ function PricingSnapshotSummary({ task, payload }) {
 }
 
 function CrossMarketSnapshotSummary({ task, payload }) {
+  const tradeThesis = payload.trade_thesis || {};
   return (
     <Space direction="vertical" size={8} style={{ width: '100%' }}>
       <Text strong>{task.snapshot.headline || 'Cross-Market Snapshot'}</Text>
       <Paragraph style={{ marginBottom: 0 }}>{task.snapshot.summary}</Paragraph>
+      {tradeThesis?.thesis?.stance ? (
+        <Text type="secondary">
+          Thesis {tradeThesis.thesis.stance}
+          {tradeThesis?.symbol ? ` · ${tradeThesis.symbol}` : ''}
+          {tradeThesis?.thesis?.horizon ? ` · ${tradeThesis.thesis.horizon}` : ''}
+        </Text>
+      ) : null}
+      {tradeThesis?.results_summary?.total_return !== undefined ? (
+        <Text type="secondary">
+          回测 {(Number(tradeThesis.results_summary.total_return || 0) * 100).toFixed(2)}%
+          {tradeThesis?.results_summary?.sharpe_ratio !== undefined
+            ? ` · Sharpe ${Number(tradeThesis.results_summary.sharpe_ratio || 0).toFixed(2)}`
+            : ''}
+          {tradeThesis?.results_summary?.coverage !== undefined
+            ? ` · 覆盖率 ${(Number(tradeThesis.results_summary.coverage || 0) * 100).toFixed(2)}%`
+            : ''}
+        </Text>
+      ) : null}
+      {tradeThesis?.assets?.length ? (
+        <Text type="secondary">
+          组合腿 {tradeThesis.assets.slice(0, 3).map((asset) => `${asset.symbol} ${asset.side}`).join(' / ')}
+        </Text>
+      ) : null}
+      <SnapshotViewContextBlock payload={payload} />
       {payload.template_meta?.theme ? <Text type="secondary">主题 {payload.template_meta.theme}</Text> : null}
       {payload.template_meta?.allocation_mode ? (
         <Text type="secondary">
@@ -144,6 +293,44 @@ function CrossMarketSnapshotSummary({ task, payload }) {
           偏置收缩 {payload.template_meta.bias_quality_label}
           {payload.template_meta?.bias_scale ? ` · scale ${Number(payload.template_meta.bias_scale).toFixed(2)}x` : ''}
           {payload.template_meta?.bias_quality_reason ? ` · ${payload.template_meta.bias_quality_reason}` : ''}
+        </Text>
+      ) : null}
+      {payload.template_meta?.department_chaos_label && payload.template_meta.department_chaos_label !== 'unknown' ? (
+        <Text type="secondary">
+          部门混乱构造 {payload.template_meta.department_chaos_label}
+          {payload.template_meta?.department_chaos_top_department ? ` · ${payload.template_meta.department_chaos_top_department}` : ''}
+          {payload.template_meta?.department_chaos_risk_budget_scale
+            ? ` · 风险预算 ${Number(payload.template_meta.department_chaos_risk_budget_scale || 1).toFixed(2)}x`
+            : ''}
+        </Text>
+      ) : null}
+      {payload.template_meta?.policy_execution_label && payload.template_meta.policy_execution_label !== 'unknown' ? (
+        <Text type="secondary">
+          政策执行构造 {payload.template_meta.policy_execution_label}
+          {payload.template_meta?.policy_execution_top_department ? ` · ${payload.template_meta.policy_execution_top_department}` : ''}
+          {payload.template_meta?.policy_execution_risk_budget_scale
+            ? ` · 风险预算 ${Number(payload.template_meta.policy_execution_risk_budget_scale || 1).toFixed(2)}x`
+            : ''}
+        </Text>
+      ) : null}
+      {payload.template_meta?.people_fragility_label && payload.template_meta.people_fragility_label !== 'stable' ? (
+        <Text type="secondary">
+          人的维度构造 {payload.template_meta.people_fragility_label}
+          {payload.template_meta?.people_fragility_focus ? ` · ${payload.template_meta.people_fragility_focus}` : ''}
+          {payload.template_meta?.people_fragility_risk_budget_scale
+            ? ` · 风险预算 ${Number(payload.template_meta.people_fragility_risk_budget_scale || 1).toFixed(2)}x`
+            : ''}
+        </Text>
+      ) : null}
+      {payload.template_meta?.structural_decay_radar_label && payload.template_meta.structural_decay_radar_label !== 'stable' ? (
+        <Text type="secondary">
+          结构衰败雷达 {payload.template_meta.structural_decay_radar_display_label || payload.template_meta.structural_decay_radar_label}
+          {payload.template_meta?.structural_decay_radar_score !== undefined && payload.template_meta?.structural_decay_radar_score !== null
+            ? ` · ${Math.round(Number(payload.template_meta.structural_decay_radar_score || 0) * 100)}%`
+            : ''}
+          {payload.template_meta?.structural_decay_radar_risk_budget_scale
+            ? ` · 风险预算 ${Number(payload.template_meta.structural_decay_radar_risk_budget_scale || 1).toFixed(2)}x`
+            : ''}
         </Text>
       ) : null}
       {payload.template_meta?.core_leg_pressure?.affected ? (
@@ -219,6 +406,10 @@ function CrossMarketSnapshotSummary({ task, payload }) {
           && payload.research_input.macro.policy_source_health.label !== 'unknown'
             ? ` · 政策源 ${payload.research_input.macro.policy_source_health.label}`
             : ''}
+          {payload.research_input.macro.department_chaos?.label
+          && payload.research_input.macro.department_chaos.label !== 'unknown'
+            ? ` · 部门 ${payload.research_input.macro.department_chaos.label}`
+            : ''}
           {payload.research_input.macro.input_reliability?.label
           && payload.research_input.macro.input_reliability.label !== 'unknown'
             ? ` · 输入 ${payload.research_input.macro.input_reliability.label}`
@@ -227,6 +418,28 @@ function CrossMarketSnapshotSummary({ task, payload }) {
       ) : null}
       {payload.research_input?.macro?.policy_source_health?.reason ? (
         <Text type="secondary">政策源 {payload.research_input.macro.policy_source_health.reason}</Text>
+      ) : null}
+      {payload.research_input?.macro?.department_chaos?.summary ? (
+        <Text type="secondary">部门混乱 {payload.research_input.macro.department_chaos.summary}</Text>
+      ) : null}
+      {payload.research_input?.macro?.people_layer?.summary ? (
+        <Text type="secondary">人的维度 {payload.research_input.macro.people_layer.summary}</Text>
+      ) : null}
+      {payload.research_input?.macro?.policy_execution?.summary ? (
+        <Text type="secondary">
+          政策执行 {payload.research_input.macro.policy_execution.summary}
+          {payload.research_input.macro.policy_execution.top_departments?.[0]?.department_label
+            ? ` · ${payload.research_input.macro.policy_execution.top_departments[0].department_label}`
+            : ''}
+        </Text>
+      ) : null}
+      {payload.research_input?.macro?.source_mode_summary?.label ? (
+        <Text type="secondary">
+          来源治理 {formatSourceModeSummaryLabel(payload.research_input.macro.source_mode_summary)}
+          {payload.research_input.macro.source_mode_summary.coverage
+            ? ` · 覆盖 ${Number(payload.research_input.macro.source_mode_summary.coverage)}`
+            : ''}
+        </Text>
       ) : null}
       {payload.research_input?.macro?.input_reliability?.lead ? (
         <Text type="secondary">
@@ -333,6 +546,9 @@ export function SnapshotSummary({ task }) {
   if (task.type === 'pricing') {
     return <PricingSnapshotSummary task={task} payload={payload} />;
   }
+  if (task.type === 'macro_mispricing') {
+    return <MacroMispricingSnapshotSummary task={task} payload={payload} />;
+  }
   return <CrossMarketSnapshotSummary task={task} payload={payload} />;
 }
 
@@ -353,6 +569,7 @@ export function SnapshotHistoryList({ task }) {
         const dcfScenarioSummary = formatPricingScenarioSummary(payload.dcf_scenarios || []);
         const templateMeta = payload.template_meta || {};
         const primaryDriverStrength = getSignalStrengthMeta(payload.primary_driver?.signal_strength);
+        const viewContext = getSnapshotViewContext(payload);
         const isReviewRunSnapshot = Boolean(
           String(item.headline || '').includes('复核型结果')
           || (templateMeta.selection_quality?.label && templateMeta.selection_quality.label !== 'original')
@@ -371,7 +588,7 @@ export function SnapshotHistoryList({ task }) {
               description={(
                 <Space direction="vertical" size={4} style={{ width: '100%' }}>
                   <Text type="secondary">{item.summary || '暂无摘要'}</Text>
-                  {task.type === 'pricing' ? (
+                  {task.type === 'pricing' || task.type === 'macro_mispricing' ? (
                     <Space direction="vertical" size={4} style={{ width: '100%' }}>
                       <Space wrap size={6}>
                         <Text type="secondary">
@@ -405,6 +622,42 @@ export function SnapshotHistoryList({ task }) {
                           {payload.monte_carlo?.p90 !== undefined && payload.monte_carlo?.p90 !== null
                             ? ` · P90 ${Number(payload.monte_carlo.p90 || 0).toFixed(2)}`
                             : ''}
+                        </Text>
+                      ) : null}
+                      {task.type === 'macro_mispricing' && payload.structural_decay?.score !== undefined && payload.structural_decay?.score !== null ? (
+                        <Text type="secondary">
+                          衰败评分 {Number(payload.structural_decay.score || 0).toFixed(2)}
+                          {payload.structural_decay?.dominant_failure_label
+                            ? ` · ${payload.structural_decay.dominant_failure_label}`
+                            : ''}
+                        </Text>
+                      ) : null}
+                      {task.type === 'macro_mispricing' && payload.people_layer?.risk_level ? (
+                        <Text type="secondary">
+                          人的维度 {payload.people_layer.risk_level}
+                          {payload.people_layer?.summary ? ` · ${payload.people_layer.summary}` : ''}
+                        </Text>
+                      ) : null}
+                      {viewContext.summary ? <Text type="secondary">工作台视图 {viewContext.summary}</Text> : null}
+                      {viewContext.scoped_task_label ? <Text type="secondary">{viewContext.scoped_task_label}</Text> : null}
+                      {payload.macro_mispricing_thesis?.primary_leg?.symbol ? (
+                        <Text type="secondary">
+                          Thesis {payload.macro_mispricing_thesis.primary_leg.symbol} {payload.macro_mispricing_thesis.primary_leg.side}
+                          {payload.macro_mispricing_thesis.hedge_leg?.symbol
+                            ? ` / ${payload.macro_mispricing_thesis.hedge_leg.symbol} ${payload.macro_mispricing_thesis.hedge_leg.side}`
+                            : ''}
+                        </Text>
+                      ) : null}
+                      {task.type === 'trade_thesis' && payload.trade_thesis?.thesis?.stance ? (
+                        <Text type="secondary">
+                          Thesis {payload.trade_thesis.thesis.stance}
+                          {payload.trade_thesis?.symbol ? ` · ${payload.trade_thesis.symbol}` : ''}
+                          {payload.trade_thesis?.thesis?.horizon ? ` · ${payload.trade_thesis.thesis.horizon}` : ''}
+                        </Text>
+                      ) : null}
+                      {task.type === 'trade_thesis' && payload.trade_thesis?.assets?.length ? (
+                        <Text type="secondary">
+                          组合腿 {payload.trade_thesis.assets.slice(0, 3).map((asset) => `${asset.symbol} ${asset.side}`).join(' / ')}
                         </Text>
                       ) : null}
                     </Space>
@@ -517,6 +770,35 @@ export function SnapshotHistoryList({ task }) {
                           {templateMeta.bias_scale ? ` · scale ${Number(templateMeta.bias_scale).toFixed(2)}x` : ''}
                         </Text>
                       ) : null}
+                      {templateMeta.department_chaos_label && templateMeta.department_chaos_label !== 'unknown' ? (
+                        <Text type="secondary">
+                          部门混乱构造 {templateMeta.department_chaos_label}
+                          {templateMeta.department_chaos_top_department ? ` · ${templateMeta.department_chaos_top_department}` : ''}
+                          {templateMeta.department_chaos_risk_budget_scale
+                            ? ` · 风险预算 ${Number(templateMeta.department_chaos_risk_budget_scale || 1).toFixed(2)}x`
+                            : ''}
+                        </Text>
+                      ) : null}
+                      {templateMeta.people_fragility_label && templateMeta.people_fragility_label !== 'stable' ? (
+                        <Text type="secondary">
+                          人的维度构造 {templateMeta.people_fragility_label}
+                          {templateMeta.people_fragility_focus ? ` · ${templateMeta.people_fragility_focus}` : ''}
+                          {templateMeta.people_fragility_risk_budget_scale
+                            ? ` · 风险预算 ${Number(templateMeta.people_fragility_risk_budget_scale || 1).toFixed(2)}x`
+                            : ''}
+                        </Text>
+                      ) : null}
+                      {templateMeta.structural_decay_radar_label && templateMeta.structural_decay_radar_label !== 'stable' ? (
+                        <Text type="secondary">
+                          结构衰败雷达 {templateMeta.structural_decay_radar_display_label || templateMeta.structural_decay_radar_label}
+                          {templateMeta.structural_decay_radar_score !== undefined && templateMeta.structural_decay_radar_score !== null
+                            ? ` · ${Math.round(Number(templateMeta.structural_decay_radar_score || 0) * 100)}%`
+                            : ''}
+                          {templateMeta.structural_decay_radar_risk_budget_scale
+                            ? ` · 风险预算 ${Number(templateMeta.structural_decay_radar_risk_budget_scale || 1).toFixed(2)}x`
+                            : ''}
+                        </Text>
+                      ) : null}
                       {payload.allocation_overlay?.compressed_assets?.length ? (
                         <Text type="secondary">
                           压缩焦点 {payload.allocation_overlay.compressed_assets.join('，')}
@@ -546,6 +828,8 @@ export function SnapshotHistoryList({ task }) {
                       ) : null}
                       {templateMeta.recommendation_reason ? <Text type="secondary">{templateMeta.recommendation_reason}</Text> : null}
                       {templateMeta.resonance_reason ? <Text type="secondary">{templateMeta.resonance_reason}</Text> : null}
+                      {viewContext.summary ? <Text type="secondary">工作台视图 {viewContext.summary}</Text> : null}
+                      {viewContext.scoped_task_label ? <Text type="secondary">{viewContext.scoped_task_label}</Text> : null}
                       {payload.research_input?.macro ? (
                         <Text type="secondary">
                           宏观 {Number(payload.research_input.macro.macro_score || 0).toFixed(2)}
@@ -558,6 +842,10 @@ export function SnapshotHistoryList({ task }) {
                           && payload.research_input.macro.policy_source_health.label !== 'unknown'
                             ? ` · 政策源 ${payload.research_input.macro.policy_source_health.label}`
                             : ''}
+                          {payload.research_input.macro.department_chaos?.label
+                          && payload.research_input.macro.department_chaos.label !== 'unknown'
+                            ? ` · 部门 ${payload.research_input.macro.department_chaos.label}`
+                            : ''}
                           {payload.research_input.macro.input_reliability?.label
                           && payload.research_input.macro.input_reliability.label !== 'unknown'
                             ? ` · 输入 ${payload.research_input.macro.input_reliability.label}`
@@ -566,6 +854,9 @@ export function SnapshotHistoryList({ task }) {
                       ) : null}
                       {payload.research_input?.macro?.policy_source_health?.reason ? (
                         <Text type="secondary">政策源 {payload.research_input.macro.policy_source_health.reason}</Text>
+                      ) : null}
+                      {payload.research_input?.macro?.department_chaos?.summary ? (
+                        <Text type="secondary">部门混乱 {payload.research_input.macro.department_chaos.summary}</Text>
                       ) : null}
                       {payload.research_input?.macro?.input_reliability?.lead ? (
                         <Text type="secondary">

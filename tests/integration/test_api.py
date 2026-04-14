@@ -468,7 +468,7 @@ class TestAPIIntegration:
     def test_market_regime_endpoint_returns_regime_breakdown(self, client, monkeypatch):
         from backend.app.api.v1.endpoints import backtest as backtest_endpoint
 
-        dates = pd.date_range("2024-01-01", periods=60, freq="D")
+        dates = pd.date_range("2024-01-01", periods=60, freq="D", tz="UTC")
         close = (
             [100 + index * 2 for index in range(20)]
             + [140 - index * 2 for index in range(20)]

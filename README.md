@@ -5,7 +5,7 @@
 **一个基于 FastAPI + React 的量化研究、宏观错误定价、资产定价研究与跨市场回测平台**  
 *An institutional-grade quantitative research framework featuring macro mispricing arbitrage, alternative data pipelines, and advanced asset pricing models.*
 
-**当前版本：`v3.9.0`** · [查看完整更新日志](docs/CHANGELOG.md)
+**当前版本：`v4.0.0`** · [查看完整更新日志](docs/CHANGELOG.md)
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
@@ -52,6 +52,21 @@
 git clone https://github.com/Leonard-Don/quant-trading-system.git
 cd quant-trading-system
 ./scripts/start_system.sh
+```
+
+如需同时拉起 `PostgreSQL/TimescaleDB + Redis` 并自动初始化研究 schema，可直接使用：
+
+```bash
+./scripts/start_system.sh --with-infra --with-worker --bootstrap-persistence
+```
+
+如果只想单独准备基础设施层，也可以先运行：
+
+```bash
+./scripts/start_infra_stack.sh --bootstrap-persistence
+source ./logs/infra-stack.env
+./scripts/start_celery_worker.sh
+python3 ./scripts/migrate_infra_store.py
 ```
 
 启动后可直接访问：
@@ -578,14 +593,14 @@ graph LR
 
 ---
 
-## 🚀 最新更新（v3.9.0）
+## 🚀 最新更新（v4.0.0）
 
 > 完整更新日志见 [CHANGELOG.md](docs/CHANGELOG.md)
 
-- **宏观错误定价升级为 6 因子可靠度引擎** — 新增利率曲线压力、信用利差压力与汇率错配，并对冲突、覆盖、时滞、漂移、反转前兆、政策源健康度给出可解释诊断
-- **定价研究完成模块化拆分** — 资产定价、估值、Gap Analysis 与筛选/同行对比支撑层分离，研究说明与结果区块更稳定，也更便于继续扩展
-- **实时与工作台结构重构** — 实时行情面板拆出派生状态、元数据与分享模板，研究工作台与 GodEye 进一步组件化，便于维护并降低回归风险
-- **行业页进入可持久化配置阶段** — 自选行业、保存视图与提醒阈值现可导入/导出并回写后端，行业成分股构建也补上流式状态反馈
+- **基础设施层正式产品化** — 新增 `Infrastructure` API、认证令牌、持久化状态、Redis/Celery 任务队列、通知能力与 TimescaleDB schema，系统启动开始支持一键拉起基础设施栈
+- **Quant Lab 上线为独立研究工作区** — 策略优化、批量回测、组合实验、Walk-Forward、风险中心、交易日志、告警编排与估值实验统一进入量化实验台
+- **宏观视角扩展为结构性衰败与部门混乱监控** — GodEye 新增 people / governance / execution / physical / evidence 维度雷达，以及部门执行混乱、贸易论点跟踪与物理世界观察面板
+- **研究运营链路继续打通** — Research Workbench、实时复盘、行业研究与跨市场分析进一步模块化，更多偏好、快照、提醒与状态开始具备持久化和异步处理能力
 
 ---
 

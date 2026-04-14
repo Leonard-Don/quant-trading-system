@@ -202,6 +202,40 @@ class TestAssetPricingEngine:
         assert "capm" in result
         assert "error" in result["capm"]
 
+    def test_factor_attribution_uses_dynamic_realized_premia(self):
+        """测试因子归因优先使用当前窗口的动态年化因子溢价"""
+        from src.analytics.asset_pricing import AssetPricingEngine
+
+        engine = AssetPricingEngine()
+        ff_factors = pd.DataFrame({
+            "Mkt-RF": np.full(60, 0.0005),
+            "SMB": np.full(60, 0.0002),
+            "HML": np.full(60, -0.0001),
+            "RF": np.full(60, 0.0001),
+        }, index=pd.date_range(start="2024-01-01", periods=60))
+        ff_factors.attrs["source"] = {
+            "type": "kenneth_french_library",
+            "label": "Kenneth French Data Library",
+            "is_proxy": False,
+            "warning": "",
+        }
+
+        result = engine._factor_attribution(
+            {"alpha_annual": 0.03},
+            {"factor_loadings": {"market": 1.2, "size": 0.5, "value": -0.4}, "alpha_annual": 0.03},
+            ff_factors,
+        )
+
+        assumptions = result["premium_assumptions"]
+        assert assumptions["source"] == "rolling_realized_window"
+        assert assumptions["window_days"] == 60
+        assert assumptions["market"] == pytest.approx(0.126, rel=1e-3)
+        assert assumptions["size"] == pytest.approx(0.0504, rel=1e-3)
+        assert assumptions["value"] == pytest.approx(-0.0252, rel=1e-3)
+        assert result["components"]["market"]["value"] == pytest.approx(1.2 * 0.126, rel=1e-3)
+        assert result["components"]["size"]["value"] == pytest.approx(0.5 * 0.0504, rel=1e-3)
+        assert result["components"]["value"]["value"] == pytest.approx(-0.4 * -0.0252, rel=2e-3)
+
 
 class TestValuationModel:
     """测试内在价值估值模型"""
@@ -457,8 +491,179 @@ class TestPricingGapAnalyzer:
         assert "valuation" in result
         assert "gap_analysis" in result
         assert "deviation_drivers" in result
+        assert "people_layer" in result
         assert "implications" in result
         assert "summary" in result
+
+    def test_people_layer_combines_executives_insiders_and_hiring(self):
+        """测试人的维度会聚合高管画像、内部人交易和招聘稀释度"""
+        from src.data.alternative.people import PeopleSignalAnalyzer
+
+        analyzer = PeopleSignalAnalyzer()
+        result = analyzer.analyze("BABA", "阿里巴巴", "Technology")
+
+        assert result["symbol"] == "BABA"
+        assert result["risk_level"] in {"medium", "high"}
+        assert result["executive_profile"]["leadership_style"] == "commercial_finance_led"
+        assert result["insider_flow"]["net_action"] in {"neutral", "mixed", "selling", "buying"}
+        assert "dilution_ratio" in result["hiring_signal"]
+        assert result["summary"]
+
+    def test_implications_include_people_layer_risk_context(self):
+        """测试人的维度会进入最终投资含义"""
+        from src.analytics.pricing_gap_analyzer import PricingGapAnalyzer
+
+        analyzer = PricingGapAnalyzer()
+        factor = {
+            "data_points": 120,
+            "capm": {"alpha_pct": -4.5, "data_points": 120},
+            "fama_french": {"alpha_pct": -3.2, "data_points": 120},
+        }
+        valuation = {
+            "current_price_source": "live",
+            "fair_value": {"mid": 100},
+            "dcf": {"intrinsic_value": 90},
+            "comparable": {"fair_value": 94},
+            "valuation_status": {"status": "overvalued"},
+        }
+        gap = {
+            "gap_pct": 26.0,
+            "severity": "high",
+            "direction": "溢价(高估)",
+        }
+        people_layer = {
+            "risk_level": "high",
+            "stance": "fragile",
+            "summary": "人的维度偏脆弱",
+            "notes": ["内部人交易偏减持，说明管理层对当前定价的安全边际未给出强背书。"],
+        }
+
+        implications = analyzer._derive_implications(gap, factor, valuation, people_layer)
+
+        assert implications["people_risk"] == "high"
+        assert implications["people_summary"] == "人的维度偏脆弱"
+        assert any("人的维度显示组织与治理脆弱度偏高" in item for item in implications["insights"])
+
+    def test_people_governance_overlay_builds_discount_and_source_mode_context(self):
+        from src.analytics.pricing_gap_analyzer import PricingGapAnalyzer
+
+        analyzer = PricingGapAnalyzer()
+        overlay = analyzer._build_people_governance_overlay(
+            symbol="BABA",
+            gap={"gap_pct": 24.0},
+            valuation={"valuation_status": {"status": "overvalued"}},
+            factor={
+                "capm": {"alpha_pct": -4.1},
+                "fama_french": {"alpha_pct": -2.4},
+            },
+            people_layer={
+                "stance": "fragile",
+                "risk_level": "high",
+                "confidence": 0.78,
+                "people_fragility_score": 0.74,
+                "people_quality_score": 0.31,
+                "executive_profile": {"leadership_balance": "商业/财务主导"},
+                "insider_flow": {"label": "内部人减持偏谨慎", "conviction_score": -0.22},
+                "hiring_signal": {"dilution_ratio": 1.71, "alert_message": "技术组织被商业目标稀释"},
+            },
+            alt_context={
+                "people_signal": {"avg_fragility_score": 0.69},
+                "people_watch_entry": {"people_fragility_score": 0.77},
+                "policy_execution": {
+                    "score": 0.66,
+                    "confidence": 0.73,
+                    "summary": "部门级政策执行混乱继续升温",
+                    "top_departments": [
+                        {
+                            "department": "ndrc",
+                            "department_label": "发改委",
+                            "execution_status": "lagging",
+                            "lag_days": 14,
+                            "full_text_ratio": 0.41,
+                            "reason": "方向反复 2 次，长官意志偏高",
+                        }
+                    ],
+                },
+                "source_mode_summary": {"label": "fallback-heavy", "coverage": 8},
+            },
+        )
+
+        assert overlay["label"] in {"治理折价", "严重治理折价"}
+        assert overlay["governance_discount_pct"] > 5
+        assert overlay["confidence"] >= 0.7
+        assert overlay["source_mode_summary"]["label"] == "fallback-heavy"
+        assert overlay["executive_evidence"]["leadership_balance"] == "商业/财务主导"
+        assert overlay["hiring_evidence"]["dilution_ratio"] == 1.71
+        assert overlay["policy_execution_context"]["label"] == "chaotic"
+        assert overlay["policy_execution_context"]["top_department"] == "发改委"
+
+    def test_screening_score_penalizes_value_ideas_with_high_governance_discount(self):
+        from src.analytics.pricing_gap_analyzer import PricingGapAnalyzer
+
+        analyzer = PricingGapAnalyzer()
+        neutral_score = analyzer._screening_score(
+            gap_pct=-28.0,
+            confidence_score=0.72,
+            primary_view="低估",
+            alignment_status="aligned",
+            people_governance_overlay={"governance_discount_pct": 0.0, "confidence": 0.0},
+        )
+        fragile_score = analyzer._screening_score(
+            gap_pct=-28.0,
+            confidence_score=0.72,
+            primary_view="低估",
+            alignment_status="aligned",
+            people_governance_overlay={"governance_discount_pct": 12.0, "confidence": 0.78},
+        )
+
+        assert fragile_score < neutral_score
+
+    def test_structural_decay_escalates_when_people_and_market_signals_break_together(self):
+        from src.analytics.pricing_gap_analyzer import PricingGapAnalyzer
+
+        analyzer = PricingGapAnalyzer()
+        factor = {
+            "capm": {"alpha_pct": -6.2, "data_points": 180},
+            "fama_french": {"alpha_pct": -4.1, "data_points": 180},
+        }
+        valuation = {
+            "symbol": "TEST",
+            "current_price_source": "live",
+            "fair_value": {"mid": 100},
+            "dcf": {"intrinsic_value": 90},
+            "comparable": {"fair_value": 96},
+            "valuation_status": {"status": "overvalued"},
+        }
+        gap = {
+            "current_price": 128,
+            "fair_value_mid": 100,
+            "gap_pct": 28.0,
+            "severity": "high",
+            "direction": "溢价(高估)",
+        }
+        people_layer = {
+            "risk_level": "high",
+            "stance": "fragile",
+            "people_fragility_score": 0.76,
+            "people_quality_score": 0.34,
+            "summary": "人的维度偏脆弱",
+            "hiring_signal": {"dilution_ratio": 1.72},
+            "insider_flow": {"conviction_score": -0.24},
+        }
+
+        implications = analyzer._derive_implications(gap, factor, valuation, people_layer)
+
+        assert implications["structural_decay"]["score"] >= 0.72
+        assert implications["structural_decay"]["action"] == "structural_short"
+        assert implications["structural_decay"]["dominant_failure_label"] in {"组织与治理稀释", "竞争与执行失速"}
+        assert implications["macro_mispricing_thesis"]["thesis_type"] == "relative_short"
+        assert implications["macro_mispricing_thesis"]["primary_leg"]["symbol"] == "TEST"
+        assert implications["macro_mispricing_thesis"]["primary_leg"]["side"] == "short"
+        assert implications["macro_mispricing_thesis"]["hedge_leg"]["symbol"] == "SPY"
+        assert len(implications["macro_mispricing_thesis"]["trade_legs"]) >= 2
+        assert implications["macro_mispricing_thesis"]["trade_legs"][0]["role"] == "core_expression"
+        assert any(leg["role"] == "stress_hedge" for leg in implications["macro_mispricing_thesis"]["trade_legs"])
+        assert any("结构性衰败" in item for item in implications["insights"])
 
     def test_implications_confidence_high_with_full_model_coverage(self):
         """测试数据完整时给出高置信度"""

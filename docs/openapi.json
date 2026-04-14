@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "量化交易系统API",
-    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v3.9.0\n    - **API版本**: v1\n    - **最后更新**: 2026-04-02\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
+    "description": "\n    ## 专业的量化交易策略回测系统\n\n    ### 功能特性\n    - 🚀 **8种交易策略**: 移动均线、RSI、布林带、MACD、均值回归、VWAP、动量策略、买入持有\n    - 📊 **专业回测引擎**: 支持手续费、滑点、多种性能指标计算\n    - 📈 **实时数据**: 集成yfinance，支持多种数据源\n    - 🔍 **高级分析**: 夏普比率、最大回撤、VaR、CVaR等专业指标\n    - ⚡ **高性能**: 异步处理、智能缓存、性能监控\n    - 🔌 **WebSocket支持**: 实时股票报价推送\n\n    ### API版本\n    - **当前版本**: v4.0.0\n    - **API版本**: v1\n    - **最后更新**: 2026-04-14\n\n    ### 认证\n    当前版本无需认证，生产环境建议添加API密钥认证。\n\n    ### 限制\n    - 请求频率: 100次/分钟\n    - 数据范围: 最多5年历史数据\n    - 并发回测: 最多10个\n    ",
     "termsOfService": "https://example.com/terms/",
     "contact": {
       "name": "量化交易系统支持",
@@ -13,7 +13,7 @@
       "name": "MIT License",
       "url": "https://opensource.org/licenses/MIT"
     },
-    "version": "3.9.0"
+    "version": "4.0.0"
   },
   "paths": {
     "/market-data/": {
@@ -292,6 +292,318 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/monte-carlo": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "回测结果 Monte Carlo 路径模拟",
+        "operationId": "run_backtest_monte_carlo_backtest_monte_carlo_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonteCarloBacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/monte-carlo/async": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "异步提交 Monte Carlo 回测任务",
+        "operationId": "queue_backtest_monte_carlo_backtest_monte_carlo_async_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MonteCarloBacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/compare/significance": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "策略对比显著性检验",
+        "operationId": "compare_strategy_significance_backtest_compare_significance_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignificanceCompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/compare/significance/async": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "异步提交策略显著性检验任务",
+        "operationId": "queue_strategy_significance_backtest_compare_significance_async_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignificanceCompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/multi-period": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "多周期并行回测",
+        "operationId": "run_multi_period_backtest_backtest_multi_period_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MultiPeriodBacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/multi-period/async": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "异步提交多周期回测任务",
+        "operationId": "queue_multi_period_backtest_backtest_multi_period_async_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MultiPeriodBacktestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/impact-analysis": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "市场冲击敏感性分析",
+        "operationId": "run_market_impact_analysis_backtest_impact_analysis_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarketImpactAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/backtest/impact-analysis/async": {
+      "post": {
+        "tags": [
+          "Backtest"
+        ],
+        "summary": "异步提交市场冲击分析任务",
+        "operationId": "queue_market_impact_analysis_backtest_impact_analysis_async_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarketImpactAnalysisRequest"
               }
             }
           },
@@ -987,6 +1299,256 @@
         }
       }
     },
+    "/realtime/replay/{symbol}": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "个股行情回放帧",
+        "operationId": "get_symbol_replay_realtime_replay__symbol__get",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Symbol"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "5d",
+              "title": "Period"
+            }
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "1d",
+              "title": "Interval"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 240,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/realtime/anomaly-diagnostics/{symbol}": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "统计异常波动诊断",
+        "operationId": "get_realtime_anomaly_diagnostics_realtime_anomaly_diagnostics__symbol__get",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Symbol"
+            }
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "3mo",
+              "title": "Period"
+            }
+          },
+          {
+            "name": "interval",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "1d",
+              "title": "Interval"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 240,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "z_window",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Z Window"
+            }
+          },
+          {
+            "name": "return_z_threshold",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 2.0,
+              "title": "Return Z Threshold"
+            }
+          },
+          {
+            "name": "volume_z_threshold",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 2.0,
+              "title": "Volume Z Threshold"
+            }
+          },
+          {
+            "name": "cusum_threshold_sigma",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "default": 2.5,
+              "title": "Cusum Threshold Sigma"
+            }
+          },
+          {
+            "name": "pattern_lookback",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 5,
+              "title": "Pattern Lookback"
+            }
+          },
+          {
+            "name": "pattern_matches",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 5,
+              "title": "Pattern Matches"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/realtime/orderbook/{symbol}": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "Level 2 订单簿能力探测",
+        "operationId": "get_orderbook_realtime_orderbook__symbol__get",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Symbol"
+            }
+          },
+          {
+            "name": "levels",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 10,
+              "title": "Levels"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/realtime/preferences": {
       "get": {
         "tags": [
@@ -1072,6 +1634,45 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/RealtimeAlertsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/realtime/alerts/hits": {
+      "post": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "记录实时提醒命中并发布到统一告警总线",
+        "operationId": "record_alert_hit_realtime_alerts_hits_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RealtimeAlertHitRequest"
               }
             }
           },
@@ -2770,6 +3371,138 @@
         }
       }
     },
+    "/industry/industries/intelligence": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "行业生命周期、ETF 映射与事件日历",
+        "operationId": "get_industry_intelligence_industry_industries_intelligence_get",
+        "parameters": [
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 30,
+              "minimum": 1,
+              "description": "分析前 N 个热门行业",
+              "default": 12,
+              "title": "Top N"
+            },
+            "description": "分析前 N 个热门行业"
+          },
+          {
+            "name": "lookback_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 30,
+              "minimum": 1,
+              "description": "热度回看周期",
+              "default": 5,
+              "title": "Lookback Days"
+            },
+            "description": "热度回看周期"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/industries/network": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "行业相关性网络图",
+        "operationId": "get_industry_network_industry_industries_network_get",
+        "parameters": [
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 4,
+              "description": "网络节点数量",
+              "default": 18,
+              "title": "Top N"
+            },
+            "description": "网络节点数量"
+          },
+          {
+            "name": "lookback_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 30,
+              "minimum": 1,
+              "description": "热度回看周期",
+              "default": 5,
+              "title": "Lookback Days"
+            },
+            "description": "热度回看周期"
+          },
+          {
+            "name": "min_similarity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "description": "最小相似度",
+              "default": 0.92,
+              "title": "Min Similarity"
+            },
+            "description": "最小相似度"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/industry/leaders": {
       "get": {
         "tags": [
@@ -3639,6 +4372,87 @@
         }
       }
     },
+    "/alt-data/diagnostics/signals": {
+      "get": {
+        "tags": [
+          "Alternative Data"
+        ],
+        "summary": "另类数据信号命中率与衰减诊断",
+        "operationId": "get_alt_signal_diagnostics_alt_data_diagnostics_signals_get",
+        "parameters": [
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "name": "timeframe",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "90d",
+              "title": "Timeframe"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 300,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "half_life_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "maximum": 365.0,
+              "exclusiveMinimum": 0.1,
+              "default": 14.0,
+              "title": "Half Life Days"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/macro/overview": {
       "get": {
         "tags": [
@@ -3700,6 +4514,87 @@
               "default": 30,
               "title": "Limit"
             }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/macro/factor-backtest": {
+      "get": {
+        "tags": [
+          "Macro Mispricing"
+        ],
+        "summary": "宏观因子历史验证",
+        "operationId": "get_macro_factor_backtest_macro_factor_backtest_get",
+        "parameters": [
+          {
+            "name": "benchmark",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "用于验证宏观信号方向的市场基准",
+              "default": "SPY",
+              "title": "Benchmark"
+            },
+            "description": "用于验证宏观信号方向的市场基准"
+          },
+          {
+            "name": "period",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "基准价格历史区间",
+              "default": "2y",
+              "title": "Period"
+            },
+            "description": "基准价格历史区间"
+          },
+          {
+            "name": "horizons",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "逗号分隔的 forward-return 天数",
+              "default": "5,20,60",
+              "title": "Horizons"
+            },
+            "description": "逗号分隔的 forward-return 天数"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 2,
+              "description": "最多读取的宏观历史快照数量",
+              "default": 250,
+              "title": "Limit"
+            },
+            "description": "最多读取的宏观历史快照数量"
           }
         ],
         "responses": {
@@ -3905,6 +4800,45 @@
               }
             }
           }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/research-workbench/tasks/bulk-update": {
+      "post": {
+        "tags": [
+          "Research Workbench"
+        ],
+        "summary": "批量更新研究工作台任务",
+        "operationId": "bulk_update_research_tasks_research_workbench_tasks_bulk_update_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResearchTaskBulkUpdateRequest"
+              }
+            }
+          },
+          "required": true
         },
         "responses": {
           "200": {
@@ -4301,6 +5235,2711 @@
         }
       }
     },
+    "/quant-lab/optimizer": {
+      "post": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "策略参数自动优化器",
+        "operationId": "run_strategy_optimizer_quant_lab_optimizer_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyOptimizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/optimizer/async": {
+      "post": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "异步提交策略参数优化任务",
+        "operationId": "queue_strategy_optimizer_quant_lab_optimizer_async_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StrategyOptimizationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/risk-center": {
+      "post": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "风险分析与归因中心",
+        "operationId": "run_risk_center_quant_lab_risk_center_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RiskCenterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/risk-center/async": {
+      "post": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "异步提交风险归因任务",
+        "operationId": "queue_risk_center_quant_lab_risk_center_async_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RiskCenterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/trading-journal": {
+      "get": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "交易日志与绩效追踪",
+        "operationId": "get_trading_journal_quant_lab_trading_journal_get",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "更新交易日志扩展信息",
+        "operationId": "update_trading_journal_quant_lab_trading_journal_put",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TradingJournalUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/alerts": {
+      "get": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "智能告警编排中心",
+        "operationId": "get_alert_orchestration_quant_lab_alerts_get",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "更新智能告警编排",
+        "operationId": "update_alert_orchestration_quant_lab_alerts_put",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertOrchestrationUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/alerts/publish": {
+      "post": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "发布统一告警事件并执行级联动作",
+        "operationId": "publish_alert_event_quant_lab_alerts_publish_post",
+        "parameters": [
+          {
+            "name": "profile_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Profile Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AlertEventPublishRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/data-quality": {
+      "get": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "数据质量可观测平台",
+        "operationId": "get_data_quality_quant_lab_data_quality_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/valuation-lab": {
+      "post": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "估值历史与多模型集成",
+        "operationId": "run_valuation_lab_quant_lab_valuation_lab_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValuationLabRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/valuation-lab/async": {
+      "post": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "异步提交估值实验任务",
+        "operationId": "queue_valuation_lab_quant_lab_valuation_lab_async_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ValuationLabRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/industry-rotation": {
+      "post": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "行业轮动量化策略",
+        "operationId": "run_industry_rotation_lab_quant_lab_industry_rotation_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndustryRotationLabRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/industry-rotation/async": {
+      "post": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "异步提交行业轮动任务",
+        "operationId": "queue_industry_rotation_lab_quant_lab_industry_rotation_async_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndustryRotationLabRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/factor-expression": {
+      "post": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "自定义因子表达式",
+        "operationId": "evaluate_factor_expression_quant_lab_factor_expression_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FactorExpressionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/quant-lab/factor-expression/async": {
+      "post": {
+        "tags": [
+          "Quant Lab"
+        ],
+        "summary": "异步提交自定义因子表达式任务",
+        "operationId": "queue_factor_expression_quant_lab_factor_expression_async_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FactorExpressionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/status": {
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "基础设施状态",
+        "operationId": "get_infrastructure_status_infrastructure_status_get",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/auth/token": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "签发本地研究令牌",
+        "operationId": "create_auth_token_infrastructure_auth_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/auth/login": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "本地用户密码登录",
+        "operationId": "login_auth_user_infrastructure_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/auth/refresh": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "使用 refresh token 刷新访问令牌",
+        "operationId": "refresh_auth_user_infrastructure_auth_refresh_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/oauth/token": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "OAuth2 Password / Refresh Token 交换",
+        "operationId": "issue_oauth_token_infrastructure_oauth_token_post",
+        "requestBody": {
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_issue_oauth_token_infrastructure_oauth_token_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/auth/users": {
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "查看本地用户目录",
+        "operationId": "get_auth_users_infrastructure_auth_users_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "创建或更新本地用户",
+        "operationId": "save_auth_user_infrastructure_auth_users_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthUserRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/auth/oauth/providers": {
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "查看 OAuth Provider 配置",
+        "operationId": "get_oauth_providers_infrastructure_auth_oauth_providers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "创建或更新 OAuth Provider",
+        "operationId": "save_oauth_provider_infrastructure_auth_oauth_providers_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthProviderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/auth/oauth/providers/sync-env": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "从环境变量同步 OAuth Provider",
+        "operationId": "sync_oauth_providers_from_env_infrastructure_auth_oauth_providers_sync_env_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/auth/oauth/providers/{provider_id}/diagnostics": {
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "诊断 OAuth Provider 配置",
+        "operationId": "get_oauth_provider_diagnostics_infrastructure_auth_oauth_providers__provider_id__diagnostics_get",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/auth/oauth/providers/{provider_id}/authorize": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "生成 OAuth 授权链接",
+        "operationId": "authorize_oauth_provider_infrastructure_auth_oauth_providers__provider_id__authorize_post",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthAuthorizationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/auth/oauth/providers/{provider_id}/exchange": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "交换 OAuth 授权码",
+        "operationId": "exchange_oauth_provider_code_infrastructure_auth_oauth_providers__provider_id__exchange_post",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthExchangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/auth/oauth/providers/{provider_id}/callback": {
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "OAuth 登录回调",
+        "operationId": "oauth_provider_callback_infrastructure_auth_oauth_providers__provider_id__callback_get",
+        "parameters": [
+          {
+            "name": "provider_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Provider Id"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/auth/sessions/{session_id}/revoke": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "撤销 refresh session",
+        "operationId": "revoke_auth_session_infrastructure_auth_sessions__session_id__revoke_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/auth/policy": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "更新认证策略",
+        "operationId": "save_auth_policy_infrastructure_auth_policy_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AuthPolicyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/tasks": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "提交异步任务",
+        "operationId": "create_task_infrastructure_tasks_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "查看任务队列",
+        "operationId": "list_tasks_infrastructure_tasks_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/tasks/{task_id}": {
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "查看任务状态",
+        "operationId": "get_task_infrastructure_tasks__task_id__get",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/tasks/{task_id}/cancel": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "取消异步任务",
+        "operationId": "cancel_task_infrastructure_tasks__task_id__cancel_post",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Task Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/rate-limits": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "更新按用户 / 按端点限流规则",
+        "operationId": "update_rate_limits_infrastructure_rate_limits_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RateLimitUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/persistence/records": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "写入持久化记录",
+        "operationId": "put_record_infrastructure_persistence_records_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "读取持久化记录",
+        "operationId": "list_records_infrastructure_persistence_records_get",
+        "parameters": [
+          {
+            "name": "record_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Record Type"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/persistence/diagnostics": {
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "查看数据库 / TimescaleDB 接入诊断",
+        "operationId": "get_persistence_diagnostics_infrastructure_persistence_diagnostics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/persistence/bootstrap": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "初始化 PostgreSQL / TimescaleDB 持久化结构",
+        "operationId": "bootstrap_persistence_infrastructure_persistence_bootstrap_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersistenceBootstrapRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/persistence/migration/preview": {
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "预览 SQLite fallback -> PostgreSQL 迁移",
+        "operationId": "preview_persistence_migration_infrastructure_persistence_migration_preview_get",
+        "parameters": [
+          {
+            "name": "sqlite_path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sqlite Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/persistence/migration/run": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "执行 SQLite fallback -> PostgreSQL 迁移",
+        "operationId": "run_persistence_migration_infrastructure_persistence_migration_run_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersistenceMigrationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/persistence/timeseries": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "写入时序记录",
+        "operationId": "put_timeseries_infrastructure_persistence_timeseries_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TimeSeriesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "读取时序记录",
+        "operationId": "list_timeseries_infrastructure_persistence_timeseries_get",
+        "parameters": [
+          {
+            "name": "series_name",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Series Name"
+            }
+          },
+          {
+            "name": "symbol",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Symbol"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/config-versions": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "保存配置版本",
+        "operationId": "save_config_version_infrastructure_config_versions_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigVersionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "读取配置版本",
+        "operationId": "list_config_versions_infrastructure_config_versions_get",
+        "parameters": [
+          {
+            "name": "config_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Config Type"
+            }
+          },
+          {
+            "name": "config_key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Config Key"
+            }
+          },
+          {
+            "name": "owner_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "default",
+              "title": "Owner Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/config-versions/diff": {
+      "get": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "对比配置版本",
+        "operationId": "diff_config_versions_infrastructure_config_versions_diff_get",
+        "parameters": [
+          {
+            "name": "config_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Config Type"
+            }
+          },
+          {
+            "name": "config_key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Config Key"
+            }
+          },
+          {
+            "name": "from_version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "From Version"
+            }
+          },
+          {
+            "name": "to_version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "To Version"
+            }
+          },
+          {
+            "name": "owner_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "default",
+              "title": "Owner Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/config-versions/restore": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "从历史配置恢复为新版本",
+        "operationId": "restore_config_version_infrastructure_config_versions_restore_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigRestoreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/notifications/test": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "测试通知通道",
+        "operationId": "test_notification_infrastructure_notifications_test_post",
+        "parameters": [
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          },
+          {
+            "name": "x-api-key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/notifications/channels": {
+      "post": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "保存通知渠道",
+        "operationId": "save_notification_channel_infrastructure_notifications_channels_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationChannelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/infrastructure/notifications/channels/{channel_id}": {
+      "delete": {
+        "tags": [
+          "Infrastructure"
+        ],
+        "summary": "删除通知渠道",
+        "operationId": "delete_notification_channel_infrastructure_notifications_channels__channel_id__delete",
+        "parameters": [
+          {
+            "name": "channel_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Channel Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "summary": "Root",
@@ -4412,6 +8051,224 @@
         ],
         "title": "AdvancedHistorySaveRequest"
       },
+      "AlertEventPublishRequest": {
+        "properties": {
+          "source_module": {
+            "type": "string",
+            "title": "Source Module",
+            "default": "manual"
+          },
+          "rule_name": {
+            "type": "string",
+            "title": "Rule Name"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol",
+            "default": ""
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity",
+            "default": "info"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "default": ""
+          },
+          "condition_summary": {
+            "type": "string",
+            "title": "Condition Summary",
+            "default": ""
+          },
+          "condition": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Condition"
+          },
+          "trigger_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Value"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "rule_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Rule Ids"
+          },
+          "notify_channels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notify Channels"
+          },
+          "create_workbench_task": {
+            "type": "boolean",
+            "title": "Create Workbench Task",
+            "default": false
+          },
+          "workbench_task_type": {
+            "type": "string",
+            "title": "Workbench Task Type",
+            "default": "cross_market"
+          },
+          "workbench_status": {
+            "type": "string",
+            "title": "Workbench Status",
+            "default": "new"
+          },
+          "persist_event_record": {
+            "type": "boolean",
+            "title": "Persist Event Record",
+            "default": true
+          },
+          "cascade_actions": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Cascade Actions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rule_name"
+        ],
+        "title": "AlertEventPublishRequest"
+      },
+      "AlertOrchestrationUpdateRequest": {
+        "properties": {
+          "composite_rules": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Composite Rules"
+          },
+          "channels": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Channels"
+          },
+          "module_alerts": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Module Alerts"
+          },
+          "history_entry": {
+            "anyOf": [
+              {
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "History Entry"
+          },
+          "history_updates": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "History Updates"
+          }
+        },
+        "type": "object",
+        "title": "AlertOrchestrationUpdateRequest"
+      },
+      "AuthPolicyRequest": {
+        "properties": {
+          "required": {
+            "type": "boolean",
+            "title": "Required",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "AuthPolicyRequest"
+      },
+      "AuthUserRequest": {
+        "properties": {
+          "subject": {
+            "type": "string",
+            "title": "Subject"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": "researcher"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name",
+            "default": ""
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scopes"
+          },
+          "metadata": {
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject"
+        ],
+        "title": "AuthUserRequest"
+      },
       "BacktestRequest": {
         "properties": {
           "symbol": {
@@ -4479,6 +8336,26 @@
             "title": "Market Impact Bps",
             "default": 0.0
           },
+          "market_impact_model": {
+            "type": "string",
+            "title": "Market Impact Model",
+            "default": "constant"
+          },
+          "impact_reference_notional": {
+            "type": "number",
+            "title": "Impact Reference Notional",
+            "default": 100000.0
+          },
+          "impact_coefficient": {
+            "type": "number",
+            "title": "Impact Coefficient",
+            "default": 1.0
+          },
+          "permanent_impact_bps": {
+            "type": "number",
+            "title": "Permanent Impact Bps",
+            "default": 0.0
+          },
           "max_holding_days": {
             "anyOf": [
               {
@@ -4540,6 +8417,8 @@
               "$ref": "#/components/schemas/BatchBacktestTaskRequest"
             },
             "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
             "title": "Tasks"
           },
           "ranking_metric": {
@@ -4565,6 +8444,8 @@
           },
           "max_workers": {
             "type": "integer",
+            "maximum": 8.0,
+            "minimum": 1.0,
             "title": "Max Workers",
             "default": 4
           },
@@ -4575,6 +8456,8 @@
           },
           "timeout_seconds": {
             "type": "number",
+            "maximum": 600.0,
+            "exclusiveMinimum": 0.0,
             "title": "Timeout Seconds",
             "default": 60.0
           }
@@ -4674,6 +8557,26 @@
             "title": "Market Impact Bps",
             "default": 0.0
           },
+          "market_impact_model": {
+            "type": "string",
+            "title": "Market Impact Model",
+            "default": "constant"
+          },
+          "impact_reference_notional": {
+            "type": "number",
+            "title": "Impact Reference Notional",
+            "default": 100000.0
+          },
+          "impact_coefficient": {
+            "type": "number",
+            "title": "Impact Coefficient",
+            "default": 1.0
+          },
+          "permanent_impact_bps": {
+            "type": "number",
+            "title": "Permanent Impact Bps",
+            "default": 0.0
+          },
           "max_holding_days": {
             "anyOf": [
               {
@@ -4692,6 +8595,55 @@
           "strategy"
         ],
         "title": "BatchBacktestTaskRequest"
+      },
+      "Body_issue_oauth_token_infrastructure_oauth_token_post": {
+        "properties": {
+          "grant_type": {
+            "type": "string",
+            "title": "Grant Type",
+            "default": "password"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          },
+          "scope": {
+            "type": "string",
+            "title": "Scope",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "Body_issue_oauth_token_infrastructure_oauth_token_post"
       },
       "Body_optimize_portfolio_optimization_optimize_post": {
         "properties": {
@@ -4871,6 +8823,26 @@
             "title": "Market Impact Bps",
             "default": 0.0
           },
+          "market_impact_model": {
+            "type": "string",
+            "title": "Market Impact Model",
+            "default": "constant"
+          },
+          "impact_reference_notional": {
+            "type": "number",
+            "title": "Impact Reference Notional",
+            "default": 100000.0
+          },
+          "impact_coefficient": {
+            "type": "number",
+            "title": "Impact Coefficient",
+            "default": 1.0
+          },
+          "permanent_impact_bps": {
+            "type": "number",
+            "title": "Permanent Impact Bps",
+            "default": 0.0
+          },
           "max_holding_days": {
             "anyOf": [
               {
@@ -4906,6 +8878,62 @@
           "name"
         ],
         "title": "CompareStrategyConfig"
+      },
+      "ConfigRestoreRequest": {
+        "properties": {
+          "config_type": {
+            "type": "string",
+            "title": "Config Type"
+          },
+          "config_key": {
+            "type": "string",
+            "title": "Config Key"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version"
+          },
+          "owner_id": {
+            "type": "string",
+            "title": "Owner Id",
+            "default": "default"
+          }
+        },
+        "type": "object",
+        "required": [
+          "config_type",
+          "config_key",
+          "version"
+        ],
+        "title": "ConfigRestoreRequest"
+      },
+      "ConfigVersionRequest": {
+        "properties": {
+          "config_type": {
+            "type": "string",
+            "title": "Config Type"
+          },
+          "config_key": {
+            "type": "string",
+            "title": "Config Key"
+          },
+          "payload": {
+            "type": "object",
+            "title": "Payload"
+          },
+          "owner_id": {
+            "type": "string",
+            "title": "Owner Id",
+            "default": "default"
+          }
+        },
+        "type": "object",
+        "required": [
+          "config_type",
+          "config_key"
+        ],
+        "title": "ConfigVersionRequest"
       },
       "CorrelationRequest": {
         "properties": {
@@ -5003,6 +9031,8 @@
               "$ref": "#/components/schemas/CrossMarketAsset"
             },
             "type": "array",
+            "maxItems": 50,
+            "minItems": 1,
             "title": "Assets"
           },
           "template_context": {
@@ -5411,6 +9441,277 @@
             ],
             "title": "Input Reliability Action Hint"
           },
+          "department_chaos_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Chaos Label"
+          },
+          "department_chaos_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Chaos Score"
+          },
+          "department_chaos_top_department": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Chaos Top Department"
+          },
+          "department_chaos_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Chaos Reason"
+          },
+          "department_chaos_risk_budget_scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department Chaos Risk Budget Scale"
+          },
+          "policy_execution_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Execution Label"
+          },
+          "policy_execution_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Execution Score"
+          },
+          "policy_execution_top_department": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Execution Top Department"
+          },
+          "policy_execution_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Execution Reason"
+          },
+          "policy_execution_risk_budget_scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Execution Risk Budget Scale"
+          },
+          "people_fragility_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "People Fragility Label"
+          },
+          "people_fragility_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "People Fragility Score"
+          },
+          "people_fragility_focus": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "People Fragility Focus"
+          },
+          "people_fragility_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "People Fragility Reason"
+          },
+          "people_fragility_risk_budget_scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "People Fragility Risk Budget Scale"
+          },
+          "source_mode_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Mode Label"
+          },
+          "source_mode_dominant": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Mode Dominant"
+          },
+          "source_mode_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Mode Reason"
+          },
+          "source_mode_risk_budget_scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Mode Risk Budget Scale"
+          },
+          "structural_decay_radar_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structural Decay Radar Label"
+          },
+          "structural_decay_radar_display_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structural Decay Radar Display Label"
+          },
+          "structural_decay_radar_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structural Decay Radar Score"
+          },
+          "structural_decay_radar_action_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structural Decay Radar Action Hint"
+          },
+          "structural_decay_radar_risk_budget_scale": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Structural Decay Radar Risk Budget Scale"
+          },
+          "structural_decay_radar_top_signals": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Structural Decay Radar Top Signals"
+          },
           "bias_highlights_raw": {
             "items": {
               "type": "string"
@@ -5489,6 +9790,17 @@
             ],
             "title": "Theme Support"
           },
+          "execution_posture": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Posture"
+          },
           "base_assets": {
             "items": {
               "$ref": "#/components/schemas/CrossMarketTemplateAsset"
@@ -5519,6 +9831,36 @@
           "symbol"
         ],
         "title": "EventRequest"
+      },
+      "FactorExpressionRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "expression": {
+            "type": "string",
+            "title": "Expression",
+            "default": "rank(close / sma(close, 20)) + rank(volume / sma(volume, 20))"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period",
+            "default": "1y"
+          },
+          "preview_rows": {
+            "type": "integer",
+            "maximum": 120.0,
+            "minimum": 5.0,
+            "title": "Preview Rows",
+            "default": 30
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "FactorExpressionRequest"
       },
       "HTTPValidationError": {
         "properties": {
@@ -5959,6 +10301,59 @@
         ],
         "title": "IndustryRankResponse",
         "description": "行业排名响应"
+      },
+      "IndustryRotationLabRequest": {
+        "properties": {
+          "start_date": {
+            "type": "string",
+            "title": "Start Date"
+          },
+          "end_date": {
+            "type": "string",
+            "title": "End Date"
+          },
+          "rebalance_freq": {
+            "type": "string",
+            "title": "Rebalance Freq",
+            "default": "monthly"
+          },
+          "top_industries": {
+            "type": "integer",
+            "title": "Top Industries",
+            "default": 3
+          },
+          "stocks_per_industry": {
+            "type": "integer",
+            "title": "Stocks Per Industry",
+            "default": 3
+          },
+          "weight_method": {
+            "type": "string",
+            "title": "Weight Method",
+            "default": "equal"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 1000000
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
+          }
+        },
+        "type": "object",
+        "required": [
+          "start_date",
+          "end_date"
+        ],
+        "title": "IndustryRotationLabRequest"
       },
       "IndustryRotationResponse": {
         "properties": {
@@ -6487,6 +10882,38 @@
         "title": "LeaderStockResponse",
         "description": "龙头股推荐响应"
       },
+      "LoginRequest": {
+        "properties": {
+          "subject": {
+            "type": "string",
+            "title": "Subject"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "expires_in_seconds": {
+            "type": "integer",
+            "maximum": 2592000.0,
+            "minimum": 60.0,
+            "title": "Expires In Seconds",
+            "default": 86400
+          },
+          "refresh_expires_in_seconds": {
+            "type": "integer",
+            "maximum": 15552000.0,
+            "minimum": 3600.0,
+            "title": "Refresh Expires In Seconds",
+            "default": 2592000
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject",
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
       "MarketDataRequest": {
         "properties": {
           "symbol": {
@@ -6537,6 +10964,187 @@
           "symbol"
         ],
         "title": "MarketDataRequest"
+      },
+      "MarketImpactAnalysisRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters",
+            "default": {}
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 10000
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
+          },
+          "fixed_commission": {
+            "type": "number",
+            "title": "Fixed Commission",
+            "default": 0.0
+          },
+          "min_commission": {
+            "type": "number",
+            "title": "Min Commission",
+            "default": 0.0
+          },
+          "market_impact_bps": {
+            "type": "number",
+            "title": "Market Impact Bps",
+            "default": 0.0
+          },
+          "market_impact_model": {
+            "type": "string",
+            "title": "Market Impact Model",
+            "default": "constant"
+          },
+          "impact_reference_notional": {
+            "type": "number",
+            "title": "Impact Reference Notional",
+            "default": 100000.0
+          },
+          "impact_coefficient": {
+            "type": "number",
+            "title": "Impact Coefficient",
+            "default": 1.0
+          },
+          "permanent_impact_bps": {
+            "type": "number",
+            "title": "Permanent Impact Bps",
+            "default": 0.0
+          },
+          "max_holding_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Holding Days"
+          },
+          "scenarios": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MarketImpactScenarioConfig"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenarios"
+          },
+          "sample_trade_values": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Sample Trade Values",
+            "default": [
+              10000,
+              50000,
+              100000,
+              250000
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "strategy"
+        ],
+        "title": "MarketImpactAnalysisRequest"
+      },
+      "MarketImpactScenarioConfig": {
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "market_impact_model": {
+            "type": "string",
+            "title": "Market Impact Model",
+            "default": "constant"
+          },
+          "market_impact_bps": {
+            "type": "number",
+            "title": "Market Impact Bps",
+            "default": 0.0
+          },
+          "impact_reference_notional": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Impact Reference Notional"
+          },
+          "impact_coefficient": {
+            "type": "number",
+            "title": "Impact Coefficient",
+            "default": 1.0
+          },
+          "permanent_impact_bps": {
+            "type": "number",
+            "title": "Permanent Impact Bps",
+            "default": 0.0
+          }
+        },
+        "type": "object",
+        "title": "MarketImpactScenarioConfig"
       },
       "MarketRegimeRequest": {
         "properties": {
@@ -6605,6 +11213,26 @@
             "title": "Market Impact Bps",
             "default": 0.0
           },
+          "market_impact_model": {
+            "type": "string",
+            "title": "Market Impact Model",
+            "default": "constant"
+          },
+          "impact_reference_notional": {
+            "type": "number",
+            "title": "Impact Reference Notional",
+            "default": 100000.0
+          },
+          "impact_coefficient": {
+            "type": "number",
+            "title": "Impact Coefficient",
+            "default": 1.0
+          },
+          "permanent_impact_bps": {
+            "type": "number",
+            "title": "Permanent Impact Bps",
+            "default": 0.0
+          },
           "max_holding_days": {
             "anyOf": [
               {
@@ -6633,6 +11261,566 @@
           "strategy"
         ],
         "title": "MarketRegimeRequest"
+      },
+      "MonteCarloBacktestRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters",
+            "default": {}
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 10000
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
+          },
+          "fixed_commission": {
+            "type": "number",
+            "title": "Fixed Commission",
+            "default": 0.0
+          },
+          "min_commission": {
+            "type": "number",
+            "title": "Min Commission",
+            "default": 0.0
+          },
+          "market_impact_bps": {
+            "type": "number",
+            "title": "Market Impact Bps",
+            "default": 0.0
+          },
+          "market_impact_model": {
+            "type": "string",
+            "title": "Market Impact Model",
+            "default": "constant"
+          },
+          "impact_reference_notional": {
+            "type": "number",
+            "title": "Impact Reference Notional",
+            "default": 100000.0
+          },
+          "impact_coefficient": {
+            "type": "number",
+            "title": "Impact Coefficient",
+            "default": 1.0
+          },
+          "permanent_impact_bps": {
+            "type": "number",
+            "title": "Permanent Impact Bps",
+            "default": 0.0
+          },
+          "max_holding_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Holding Days"
+          },
+          "simulations": {
+            "type": "integer",
+            "title": "Simulations",
+            "default": 1000
+          },
+          "horizon_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Horizon Days"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed",
+            "default": 42
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "strategy"
+        ],
+        "title": "MonteCarloBacktestRequest"
+      },
+      "MultiPeriodBacktestRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters",
+            "default": {}
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 10000
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
+          },
+          "fixed_commission": {
+            "type": "number",
+            "title": "Fixed Commission",
+            "default": 0.0
+          },
+          "min_commission": {
+            "type": "number",
+            "title": "Min Commission",
+            "default": 0.0
+          },
+          "market_impact_bps": {
+            "type": "number",
+            "title": "Market Impact Bps",
+            "default": 0.0
+          },
+          "market_impact_model": {
+            "type": "string",
+            "title": "Market Impact Model",
+            "default": "constant"
+          },
+          "impact_reference_notional": {
+            "type": "number",
+            "title": "Impact Reference Notional",
+            "default": 100000.0
+          },
+          "impact_coefficient": {
+            "type": "number",
+            "title": "Impact Coefficient",
+            "default": 1.0
+          },
+          "permanent_impact_bps": {
+            "type": "number",
+            "title": "Permanent Impact Bps",
+            "default": 0.0
+          },
+          "max_holding_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Holding Days"
+          },
+          "intervals": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Intervals",
+            "default": [
+              "1d",
+              "1wk",
+              "1mo"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "strategy"
+        ],
+        "title": "MultiPeriodBacktestRequest"
+      },
+      "NotificationChannelRequest": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": "webhook"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "default": ""
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "settings": {
+            "type": "object",
+            "title": "Settings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "NotificationChannelRequest"
+      },
+      "NotificationRequest": {
+        "properties": {
+          "channel": {
+            "type": "string",
+            "title": "Channel",
+            "default": "dry_run"
+          },
+          "payload": {
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "type": "object",
+        "title": "NotificationRequest"
+      },
+      "OAuthAuthorizationRequest": {
+        "properties": {
+          "frontend_origin": {
+            "type": "string",
+            "title": "Frontend Origin",
+            "default": ""
+          },
+          "redirect_uri": {
+            "type": "string",
+            "title": "Redirect Uri",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "OAuthAuthorizationRequest"
+      },
+      "OAuthExchangeRequest": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "redirect_uri": {
+            "type": "string",
+            "title": "Redirect Uri",
+            "default": ""
+          },
+          "expires_in_seconds": {
+            "type": "integer",
+            "maximum": 2592000.0,
+            "minimum": 60.0,
+            "title": "Expires In Seconds",
+            "default": 86400
+          },
+          "refresh_expires_in_seconds": {
+            "type": "integer",
+            "maximum": 15552000.0,
+            "minimum": 3600.0,
+            "title": "Refresh Expires In Seconds",
+            "default": 2592000
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "state"
+        ],
+        "title": "OAuthExchangeRequest"
+      },
+      "OAuthProviderRequest": {
+        "properties": {
+          "provider_id": {
+            "type": "string",
+            "title": "Provider Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "default": ""
+          },
+          "provider_type": {
+            "type": "string",
+            "title": "Provider Type",
+            "default": "generic"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "client_id": {
+            "type": "string",
+            "title": "Client Id"
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Secret"
+          },
+          "auth_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Url"
+          },
+          "token_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Token Url"
+          },
+          "userinfo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Userinfo Url"
+          },
+          "redirect_uri": {
+            "type": "string",
+            "title": "Redirect Uri",
+            "default": ""
+          },
+          "frontend_origin": {
+            "type": "string",
+            "title": "Frontend Origin",
+            "default": ""
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scopes"
+          },
+          "auto_create_user": {
+            "type": "boolean",
+            "title": "Auto Create User",
+            "default": true
+          },
+          "default_role": {
+            "type": "string",
+            "title": "Default Role",
+            "default": "researcher"
+          },
+          "default_scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Default Scopes"
+          },
+          "subject_field": {
+            "type": "string",
+            "title": "Subject Field",
+            "default": ""
+          },
+          "display_name_field": {
+            "type": "string",
+            "title": "Display Name Field",
+            "default": ""
+          },
+          "email_field": {
+            "type": "string",
+            "title": "Email Field",
+            "default": ""
+          },
+          "extra_params": {
+            "type": "object",
+            "title": "Extra Params"
+          },
+          "metadata": {
+            "type": "object",
+            "title": "Metadata"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider_id",
+          "client_id"
+        ],
+        "title": "OAuthProviderRequest"
+      },
+      "PersistenceBootstrapRequest": {
+        "properties": {
+          "enable_timescale_schema": {
+            "type": "boolean",
+            "title": "Enable Timescale Schema",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "PersistenceBootstrapRequest"
+      },
+      "PersistenceMigrationRequest": {
+        "properties": {
+          "sqlite_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sqlite Path"
+          },
+          "dry_run": {
+            "type": "boolean",
+            "title": "Dry Run",
+            "default": true
+          },
+          "include_records": {
+            "type": "boolean",
+            "title": "Include Records",
+            "default": true
+          },
+          "include_timeseries": {
+            "type": "boolean",
+            "title": "Include Timeseries",
+            "default": true
+          },
+          "dedupe_timeseries": {
+            "type": "boolean",
+            "title": "Dedupe Timeseries",
+            "default": true
+          },
+          "record_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Limit"
+          },
+          "timeseries_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timeseries Limit"
+          }
+        },
+        "type": "object",
+        "title": "PersistenceMigrationRequest"
       },
       "PortfolioStrategyRequest": {
         "properties": {
@@ -6721,6 +11909,26 @@
           "market_impact_bps": {
             "type": "number",
             "title": "Market Impact Bps",
+            "default": 0.0
+          },
+          "market_impact_model": {
+            "type": "string",
+            "title": "Market Impact Model",
+            "default": "constant"
+          },
+          "impact_reference_notional": {
+            "type": "number",
+            "title": "Impact Reference Notional",
+            "default": 100000.0
+          },
+          "impact_coefficient": {
+            "type": "number",
+            "title": "Impact Coefficient",
+            "default": 1.0
+          },
+          "permanent_impact_bps": {
+            "type": "number",
+            "title": "Permanent Impact Bps",
             "default": 0.0
           },
           "min_trade_value": {
@@ -6813,6 +12021,110 @@
         ],
         "title": "PricingScreenerRequest"
       },
+      "RateLimitRuleRequest": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "pattern": {
+            "type": "string",
+            "title": "Pattern"
+          },
+          "requests_per_minute": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Requests Per Minute"
+          },
+          "burst_size": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Burst Size"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "pattern",
+          "requests_per_minute",
+          "burst_size"
+        ],
+        "title": "RateLimitRuleRequest"
+      },
+      "RateLimitUpdateRequest": {
+        "properties": {
+          "default_requests_per_minute": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Default Requests Per Minute"
+          },
+          "default_burst_size": {
+            "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Default Burst Size"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/RateLimitRuleRequest"
+            },
+            "type": "array",
+            "title": "Rules"
+          }
+        },
+        "type": "object",
+        "required": [
+          "default_requests_per_minute",
+          "default_burst_size"
+        ],
+        "title": "RateLimitUpdateRequest"
+      },
+      "RealtimeAlertHitRequest": {
+        "properties": {
+          "entry": {
+            "type": "object",
+            "title": "Entry"
+          },
+          "notify_channels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notify Channels"
+          },
+          "create_workbench_task": {
+            "type": "boolean",
+            "title": "Create Workbench Task",
+            "default": false
+          },
+          "persist_event_record": {
+            "type": "boolean",
+            "title": "Persist Event Record",
+            "default": true
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity",
+            "default": "warning"
+          }
+        },
+        "type": "object",
+        "title": "RealtimeAlertHitRequest"
+      },
       "RealtimeAlertsRequest": {
         "properties": {
           "alerts": {
@@ -6873,10 +12185,75 @@
             },
             "type": "object",
             "title": "Symbol Categories"
+          },
+          "watch_groups": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Watch Groups"
           }
         },
         "type": "object",
         "title": "RealtimePreferencesRequest"
+      },
+      "RecordRequest": {
+        "properties": {
+          "record_type": {
+            "type": "string",
+            "title": "Record Type",
+            "default": "research"
+          },
+          "record_key": {
+            "type": "string",
+            "title": "Record Key",
+            "default": "default"
+          },
+          "payload": {
+            "type": "object",
+            "title": "Payload"
+          },
+          "record_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Record Id"
+          }
+        },
+        "type": "object",
+        "title": "RecordRequest"
+      },
+      "RefreshRequest": {
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "title": "Refresh Token"
+          },
+          "expires_in_seconds": {
+            "type": "integer",
+            "maximum": 2592000.0,
+            "minimum": 60.0,
+            "title": "Expires In Seconds",
+            "default": 86400
+          },
+          "refresh_expires_in_seconds": {
+            "type": "integer",
+            "maximum": 15552000.0,
+            "minimum": 3600.0,
+            "title": "Refresh Expires In Seconds",
+            "default": 2592000
+          }
+        },
+        "type": "object",
+        "required": [
+          "refresh_token"
+        ],
+        "title": "RefreshRequest"
       },
       "ReportRequest": {
         "properties": {
@@ -6956,15 +12333,62 @@
         "title": "ReportRequest",
         "description": "报告生成请求"
       },
+      "ResearchTaskBulkUpdateRequest": {
+        "properties": {
+          "task_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Task Ids"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "new",
+                  "in_progress",
+                  "blocked",
+                  "complete",
+                  "archived"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 5000,
+            "title": "Comment",
+            "default": ""
+          },
+          "author": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Author",
+            "default": "local"
+          }
+        },
+        "type": "object",
+        "title": "ResearchTaskBulkUpdateRequest"
+      },
       "ResearchTaskCommentCreateRequest": {
         "properties": {
           "author": {
             "type": "string",
+            "maxLength": 100,
             "title": "Author",
             "default": "local"
           },
           "body": {
             "type": "string",
+            "maxLength": 5000,
             "minLength": 1,
             "title": "Body"
           }
@@ -6981,7 +12405,9 @@
             "type": "string",
             "enum": [
               "pricing",
-              "cross_market"
+              "cross_market",
+              "macro_mispricing",
+              "trade_thesis"
             ],
             "title": "Type"
           },
@@ -7045,6 +12471,16 @@
                 "type": "null"
               }
             ]
+          },
+          "refresh_priority_event": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchTaskRefreshPriorityEvent"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -7053,6 +12489,69 @@
           "title"
         ],
         "title": "ResearchTaskCreateRequest"
+      },
+      "ResearchTaskRefreshPriorityEvent": {
+        "properties": {
+          "reason_key": {
+            "type": "string",
+            "title": "Reason Key",
+            "default": ""
+          },
+          "reason_label": {
+            "type": "string",
+            "title": "Reason Label",
+            "default": ""
+          },
+          "severity": {
+            "type": "string",
+            "title": "Severity",
+            "default": ""
+          },
+          "lead": {
+            "type": "string",
+            "title": "Lead",
+            "default": ""
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          },
+          "urgency_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Urgency Score"
+          },
+          "priority_weight": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Priority Weight"
+          },
+          "recommendation": {
+            "type": "string",
+            "title": "Recommendation",
+            "default": ""
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "ResearchTaskRefreshPriorityEvent"
       },
       "ResearchTaskReorderItem": {
         "properties": {
@@ -7075,6 +12574,16 @@
             "type": "integer",
             "minimum": 0.0,
             "title": "Board Order"
+          },
+          "refresh_priority_event": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchTaskRefreshPriorityEvent"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -7121,6 +12630,16 @@
         "properties": {
           "snapshot": {
             "$ref": "#/components/schemas/ResearchTaskSnapshot"
+          },
+          "refresh_priority_event": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchTaskRefreshPriorityEvent"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -7202,6 +12721,16 @@
                 "type": "null"
               }
             ]
+          },
+          "refresh_priority_event": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchTaskRefreshPriorityEvent"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -7219,6 +12748,193 @@
         },
         "type": "object",
         "title": "ResearchWorkbenchReorderRequest"
+      },
+      "RiskCenterRequest": {
+        "properties": {
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Symbols"
+          },
+          "weights": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weights"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period",
+            "default": "1y"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbols"
+        ],
+        "title": "RiskCenterRequest"
+      },
+      "SignificanceCompareRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "strategies": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategies"
+          },
+          "strategy_configs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CompareStrategyConfig"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy Configs"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 10000.0
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
+          },
+          "fixed_commission": {
+            "type": "number",
+            "title": "Fixed Commission",
+            "default": 0.0
+          },
+          "min_commission": {
+            "type": "number",
+            "title": "Min Commission",
+            "default": 0.0
+          },
+          "market_impact_bps": {
+            "type": "number",
+            "title": "Market Impact Bps",
+            "default": 0.0
+          },
+          "market_impact_model": {
+            "type": "string",
+            "title": "Market Impact Model",
+            "default": "constant"
+          },
+          "impact_reference_notional": {
+            "type": "number",
+            "title": "Impact Reference Notional",
+            "default": 100000.0
+          },
+          "impact_coefficient": {
+            "type": "number",
+            "title": "Impact Coefficient",
+            "default": 1.0
+          },
+          "permanent_impact_bps": {
+            "type": "number",
+            "title": "Permanent Impact Bps",
+            "default": 0.0
+          },
+          "max_holding_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Holding Days"
+          },
+          "baseline_strategy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Strategy"
+          },
+          "bootstrap_samples": {
+            "type": "integer",
+            "title": "Bootstrap Samples",
+            "default": 1000
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed",
+            "default": 42
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "SignificanceCompareRequest"
       },
       "StockResponse": {
         "properties": {
@@ -7354,6 +13070,131 @@
         ],
         "title": "StrategyInfo"
       },
+      "StrategyOptimizationRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "strategy": {
+            "type": "string",
+            "title": "Strategy"
+          },
+          "parameters": {
+            "type": "object",
+            "title": "Parameters"
+          },
+          "parameter_grid": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "items": {},
+                  "type": "array"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parameter Grid"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date"
+          },
+          "initial_capital": {
+            "type": "number",
+            "title": "Initial Capital",
+            "default": 10000
+          },
+          "commission": {
+            "type": "number",
+            "title": "Commission",
+            "default": 0.001
+          },
+          "slippage": {
+            "type": "number",
+            "title": "Slippage",
+            "default": 0.001
+          },
+          "density": {
+            "type": "integer",
+            "title": "Density",
+            "default": 3
+          },
+          "optimization_metric": {
+            "type": "string",
+            "title": "Optimization Metric",
+            "default": "sharpe_ratio"
+          },
+          "optimization_method": {
+            "type": "string",
+            "title": "Optimization Method",
+            "default": "grid"
+          },
+          "optimization_budget": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Optimization Budget"
+          },
+          "run_walk_forward": {
+            "type": "boolean",
+            "title": "Run Walk Forward",
+            "default": true
+          },
+          "train_period": {
+            "type": "integer",
+            "title": "Train Period",
+            "default": 126
+          },
+          "test_period": {
+            "type": "integer",
+            "title": "Test Period",
+            "default": 42
+          },
+          "step_size": {
+            "type": "integer",
+            "title": "Step Size",
+            "default": 21
+          },
+          "monte_carlo_simulations": {
+            "type": "integer",
+            "title": "Monte Carlo Simulations",
+            "default": 150
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "strategy"
+        ],
+        "title": "StrategyOptimizationRequest"
+      },
       "SubscriptionRequest": {
         "properties": {
           "symbol": {
@@ -7378,6 +13219,94 @@
         "type": "object",
         "title": "SubscriptionRequest",
         "description": "兼容层订阅请求。"
+      },
+      "TaskRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "default": "manual_task"
+          },
+          "payload": {
+            "type": "object",
+            "title": "Payload"
+          },
+          "execution_backend": {
+            "type": "string",
+            "title": "Execution Backend",
+            "default": "auto"
+          }
+        },
+        "type": "object",
+        "title": "TaskRequest"
+      },
+      "TimeSeriesRequest": {
+        "properties": {
+          "series_name": {
+            "type": "string",
+            "title": "Series Name"
+          },
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "payload": {
+            "type": "object",
+            "title": "Payload"
+          }
+        },
+        "type": "object",
+        "required": [
+          "series_name",
+          "symbol",
+          "timestamp"
+        ],
+        "title": "TimeSeriesRequest"
+      },
+      "TokenRequest": {
+        "properties": {
+          "subject": {
+            "type": "string",
+            "title": "Subject",
+            "default": "researcher"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": "researcher"
+          },
+          "expires_in_seconds": {
+            "type": "integer",
+            "maximum": 2592000.0,
+            "minimum": 60.0,
+            "title": "Expires In Seconds",
+            "default": 86400
+          },
+          "refresh_expires_in_seconds": {
+            "type": "integer",
+            "maximum": 15552000.0,
+            "minimum": 3600.0,
+            "title": "Refresh Expires In Seconds",
+            "default": 2592000
+          }
+        },
+        "type": "object",
+        "title": "TokenRequest"
       },
       "TradeRequest": {
         "properties": {
@@ -7412,6 +13341,26 @@
           "quantity"
         ],
         "title": "TradeRequest"
+      },
+      "TradingJournalUpdateRequest": {
+        "properties": {
+          "notes": {
+            "additionalProperties": {
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Notes"
+          },
+          "strategy_lifecycle": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Strategy Lifecycle"
+          }
+        },
+        "type": "object",
+        "title": "TradingJournalUpdateRequest"
       },
       "TrendAnalysisRequest": {
         "properties": {
@@ -7609,6 +13558,38 @@
         ],
         "title": "ValidationError"
       },
+      "ValuationLabRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "title": "Symbol"
+          },
+          "period": {
+            "type": "string",
+            "title": "Period",
+            "default": "1y"
+          },
+          "peer_symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Peer Symbols"
+          },
+          "peer_limit": {
+            "type": "integer",
+            "maximum": 12.0,
+            "minimum": 2.0,
+            "title": "Peer Limit",
+            "default": 6
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol"
+        ],
+        "title": "ValuationLabRequest"
+      },
       "ValuationRequest": {
         "properties": {
           "symbol": {
@@ -7805,6 +13786,26 @@
             "title": "Market Impact Bps",
             "default": 0.0
           },
+          "market_impact_model": {
+            "type": "string",
+            "title": "Market Impact Model",
+            "default": "constant"
+          },
+          "impact_reference_notional": {
+            "type": "number",
+            "title": "Impact Reference Notional",
+            "default": 100000.0
+          },
+          "impact_coefficient": {
+            "type": "number",
+            "title": "Impact Coefficient",
+            "default": 1.0
+          },
+          "permanent_impact_bps": {
+            "type": "number",
+            "title": "Permanent Impact Bps",
+            "default": 0.0
+          },
           "max_holding_days": {
             "anyOf": [
               {
@@ -7854,11 +13855,15 @@
           },
           "monte_carlo_simulations": {
             "type": "integer",
+            "maximum": 10000.0,
+            "minimum": 10.0,
             "title": "Monte Carlo Simulations",
             "default": 250
           },
           "timeout_seconds": {
             "type": "number",
+            "maximum": 600.0,
+            "exclusiveMinimum": 0.0,
             "title": "Timeout Seconds",
             "default": 60.0
           }

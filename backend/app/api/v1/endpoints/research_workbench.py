@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query
 
 from backend.app.schemas.research_workbench import (
+    ResearchTaskBulkUpdateRequest,
     ResearchTaskCommentCreateRequest,
     ResearchTaskCreateRequest,
     ResearchWorkbenchReorderRequest,
@@ -61,6 +62,20 @@ async def create_research_task(request: ResearchTaskCreateRequest):
     )
 
 
+@router.post("/tasks/bulk-update", summary="批量更新研究工作台任务")
+async def bulk_update_research_tasks(request: ResearchTaskBulkUpdateRequest):
+    def _bulk_update_action():
+        tasks = _get_research_workbench().bulk_update_tasks(
+            request.task_ids,
+            status=request.status,
+            comment=request.comment,
+            author=request.author,
+        )
+        return success_response(tasks, total=len(tasks))
+
+    return _run_workbench_action("bulk update research tasks", _bulk_update_action)
+
+
 @router.get("/tasks/{task_id}", summary="获取研究工作台任务详情")
 async def get_research_task(task_id: str):
     task = ensure_task(_get_research_workbench().get_task(task_id), task_id)
@@ -104,7 +119,19 @@ async def delete_research_task_comment(task_id: str, comment_id: str):
 
 @router.post("/tasks/{task_id}/snapshot", summary="追加研究任务快照")
 async def add_research_task_snapshot(task_id: str, request: ResearchTaskSnapshotCreateRequest):
-    task = ensure_task(_get_research_workbench().add_snapshot(task_id, request.snapshot.model_dump()), task_id)
+    refresh_priority_event = (
+        request.refresh_priority_event.model_dump()
+        if request.refresh_priority_event
+        else None
+    )
+    task = ensure_task(
+        _get_research_workbench().add_snapshot(
+            task_id,
+            request.snapshot.model_dump(),
+            refresh_priority_event=refresh_priority_event,
+        ),
+        task_id,
+    )
     return success_response(task)
 
 

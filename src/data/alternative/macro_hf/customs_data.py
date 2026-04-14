@@ -97,6 +97,7 @@ class CustomsDataProvider(AntiCrawlMixin):
             "hs_codes": cat_info["hs_codes"],
             "data": data,
             "source": "customs_public",
+            "source_mode": "official" if data and data.get("source_accessible") else "proxy",
             "timestamp": datetime.now().isoformat(),
         }
 
@@ -117,6 +118,10 @@ class CustomsDataProvider(AntiCrawlMixin):
                 "signal": 0,
                 "confidence": 0,
                 "reason": data["error"],
+                "source_mode": "curated",
+                "fallback_reason": data["error"],
+                "lag_days": 30,
+                "coverage": 0.0,
             }
 
         # 无数据时返回中性信号
@@ -126,6 +131,10 @@ class CustomsDataProvider(AntiCrawlMixin):
             "signal": 0,
             "confidence": 0.3,
             "reason": "数据暂不充足，待接入海关高频数据后增强",
+            "source_mode": "proxy" if data and data.get("source_accessible") else "curated",
+            "fallback_reason": "customs_series_not_parsed",
+            "lag_days": 30,
+            "coverage": 0.18 if data and data.get("source_accessible") else 0.08,
             "timestamp": datetime.now().isoformat(),
         }
 

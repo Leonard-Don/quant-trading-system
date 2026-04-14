@@ -460,14 +460,14 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
                             </div>
 
                             {onCreateAlertFromPlan ? (
-                                <Space wrap>
-                                    <Button icon={<BellOutlined />} onClick={() => handleCreateAlert('entry')}>
+                                <Space wrap size={8}>
+                                    <Button className="trade-panel-secondary-button" size="small" icon={<BellOutlined />} onClick={() => handleCreateAlert('entry')}>
                                         转入场提醒
                                     </Button>
-                                    <Button icon={<BellOutlined />} onClick={() => handleCreateAlert('stop')}>
+                                    <Button className="trade-panel-secondary-button" size="small" icon={<BellOutlined />} onClick={() => handleCreateAlert('stop')}>
                                         转止损提醒
                                     </Button>
-                                    <Button icon={<BellOutlined />} onClick={() => handleCreateAlert('take')}>
+                                    <Button className="trade-panel-secondary-button" size="small" icon={<BellOutlined />} onClick={() => handleCreateAlert('take')}>
                                         转止盈提醒
                                     </Button>
                                 </Space>
@@ -602,7 +602,7 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
                                         : '填入交易计划或止损位后，这里会按账户总资产给出建议仓位。'}
                                 </div>
                                 {hasFinitePositiveNumber(suggestedQuantity) ? (
-                                    <Button style={{ marginTop: 10 }} onClick={() => setQuantity(suggestedQuantity)}>
+                                    <Button className="trade-panel-secondary-button" style={{ marginTop: 10 }} onClick={() => setQuantity(suggestedQuantity)}>
                                         使用建议仓位
                                     </Button>
                                 ) : null}
@@ -630,7 +630,7 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
                                 loading={loading}
                                 danger={action === 'SELL'}
                                 onClick={handleTrade}
-                                style={{ marginTop: 10, height: 46, fontWeight: 700 }}
+                                style={{ marginTop: 10, height: 46, fontWeight: 700, borderRadius: 14 }}
                             >
                                 {action === 'BUY' ? '买入 Buy' : '卖出 Sell'}
                             </Button>
@@ -685,7 +685,7 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
                                             </div>
                                         </div>
                                         <Popconfirm title="确定重置账户吗?" onConfirm={handleReset}>
-                                            <Button icon={<ReloadOutlined />}>重置账户</Button>
+                                            <Button danger icon={<ReloadOutlined />}>重置账户</Button>
                                         </Popconfirm>
                                     </div>
                                 </Card>
@@ -820,6 +820,12 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
                     border-radius: 18px;
                     border: 1px solid var(--border-color);
                     background: color-mix(in srgb, var(--bg-primary) 90%, white 10%);
+                }
+
+                .trade-panel-secondary-button {
+                    border-radius: 12px;
+                    background: color-mix(in srgb, var(--bg-primary) 92%, white 8%);
+                    border-color: color-mix(in srgb, var(--accent-primary) 14%, var(--border-color) 86%);
                 }
 
                 @media (max-width: 640px) {

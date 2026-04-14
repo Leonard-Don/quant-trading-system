@@ -184,6 +184,8 @@ export const buildFactorPanelModel = (overview = {}, snapshot = {}) => {
     evidenceSummary: overview?.evidence_summary || snapshot?.evidence_summary || {},
     confidenceAdjustment: overview?.confidence_adjustment || {},
     inputReliabilitySummary: overview?.input_reliability_summary || snapshot?.input_reliability_summary || {},
+    departmentChaosSummary: overview?.department_chaos_summary || {},
+    peopleLayerSummary: overview?.people_layer_summary || {},
     primaryAction: topFactors[0]?.action || null,
   };
 };

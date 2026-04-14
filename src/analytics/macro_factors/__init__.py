@@ -8,6 +8,8 @@ from .factor_combiner import FactorCombiner
 from .factor_registry import FactorRegistry, build_default_registry
 from .fx_mismatch import FXMismatchFactor
 from .history import MacroHistoryStore
+from .people_fragility import PeopleFragilityFactor
+from .policy_execution_disorder import PolicyExecutionDisorderFactor
 from .rate_curve_pressure import RateCurvePressureFactor
 from .tech_dilution import TechDilutionFactor
 
@@ -21,6 +23,8 @@ __all__ = [
     "FactorRegistry",
     "FXMismatchFactor",
     "MacroHistoryStore",
+    "PeopleFragilityFactor",
+    "PolicyExecutionDisorderFactor",
     "RateCurvePressureFactor",
     "TechDilutionFactor",
     "build_default_registry",

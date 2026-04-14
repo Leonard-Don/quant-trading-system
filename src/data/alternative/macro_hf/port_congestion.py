@@ -109,6 +109,10 @@ class PortCongestionProvider(AntiCrawlMixin):
             },
             "tracked_ports": len(KEY_PORTS),
             "signal": 0,  # -1=看空贸易相关/1=看多
+            "source_mode": "proxy",
+            "fallback_reason": "live_ais_or_port_api_not_connected",
+            "lag_days": 2,
+            "coverage": 0.32,
             "timestamp": datetime.now().isoformat(),
         }
 

@@ -1,7 +1,59 @@
 import axios from 'axios';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
+const DEFAULT_LOCAL_API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = process.env.REACT_APP_API_URL || DEFAULT_LOCAL_API_BASE_URL;
 const API_TIMEOUT = parseInt(process.env.REACT_APP_API_TIMEOUT) || 300000;
+const API_AUTH_TOKEN_KEY = 'quant_lab_auth_token';
+const API_REFRESH_TOKEN_KEY = 'quant_lab_refresh_token';
+
+let authTokenCache = '';
+let refreshTokenCache = '';
+let refreshInFlight = null;
+if (typeof window !== 'undefined') {
+  authTokenCache = window.localStorage.getItem(API_AUTH_TOKEN_KEY) || '';
+  refreshTokenCache = window.localStorage.getItem(API_REFRESH_TOKEN_KEY) || '';
+}
+
+export const getApiAuthToken = () => authTokenCache;
+export const getApiRefreshToken = () => refreshTokenCache;
+
+export const setApiAuthToken = (token) => {
+  authTokenCache = token || '';
+  if (typeof window !== 'undefined') {
+    if (authTokenCache) {
+      window.localStorage.setItem(API_AUTH_TOKEN_KEY, authTokenCache);
+    } else {
+      window.localStorage.removeItem(API_AUTH_TOKEN_KEY);
+    }
+  }
+};
+
+export const setApiRefreshToken = (token) => {
+  refreshTokenCache = token || '';
+  if (typeof window !== 'undefined') {
+    if (refreshTokenCache) {
+      window.localStorage.setItem(API_REFRESH_TOKEN_KEY, refreshTokenCache);
+    } else {
+      window.localStorage.removeItem(API_REFRESH_TOKEN_KEY);
+    }
+  }
+};
+
+const parseTimeout = (value, fallback) => {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+export const API_TIMEOUT_PROFILES = {
+  default: API_TIMEOUT,
+  analysis: parseTimeout(process.env.REACT_APP_API_TIMEOUT_ANALYSIS, 120000),
+  standard: parseTimeout(process.env.REACT_APP_API_TIMEOUT_STANDARD, 30000),
+  dashboard: parseTimeout(process.env.REACT_APP_API_TIMEOUT_DASHBOARD, 45000),
+  workbench: parseTimeout(process.env.REACT_APP_API_TIMEOUT_WORKBENCH, 30000),
+};
+export const withTimeoutProfile = (profile = 'default', config = {}) => ({
+  ...config,
+  timeout: config.timeout ?? API_TIMEOUT_PROFILES[profile] ?? API_TIMEOUT_PROFILES.default,
+});
 const isCanceledRequest = (error) => (
   axios.isCancel(error)
   || error?.code === 'ERR_CANCELED'
@@ -17,9 +69,49 @@ const api = axios.create({
   },
 });
 
+const refreshAccessTokenIfNeeded = async () => {
+  if (!refreshTokenCache) {
+    throw new Error('No refresh token available');
+  }
+  if (!refreshInFlight) {
+    refreshInFlight = api.post(
+      '/infrastructure/auth/refresh',
+      {
+        refresh_token: refreshTokenCache,
+      },
+      withTimeoutProfile('standard', { headers: { 'X-Skip-Auth-Refresh': '1' } }),
+    )
+      .then((response) => {
+        const payload = response.data || {};
+        if (payload.access_token) {
+          setApiAuthToken(payload.access_token);
+        }
+        if (payload.refresh_token) {
+          setApiRefreshToken(payload.refresh_token);
+        }
+        return payload;
+      })
+      .catch((error) => {
+        setApiAuthToken('');
+        setApiRefreshToken('');
+        throw error;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
+};
+
 // 请求拦截器
 api.interceptors.request.use(
   (config) => {
+    if (authTokenCache && !config.headers?.Authorization) {
+      config.headers = {
+        ...config.headers,
+        Authorization: `Bearer ${authTokenCache}`,
+      };
+    }
     if (process.env.NODE_ENV === 'development') {
       console.log('API Request:', config.method?.toUpperCase(), config.url);
     }
@@ -43,6 +135,29 @@ api.interceptors.response.use(
       error.userMessage = '请求已取消';
       error.errorCode = 'REQUEST_CANCELED';
       return Promise.reject(error);
+    }
+
+    const originalRequest = error.config || {};
+    const canRefresh = (
+      error.response?.status === 401
+      && refreshTokenCache
+      && !originalRequest._retry
+      && originalRequest.headers?.['X-Skip-Auth-Refresh'] !== '1'
+      && !String(originalRequest.url || '').includes('/infrastructure/auth/login')
+      && !String(originalRequest.url || '').includes('/infrastructure/auth/refresh')
+      && !String(originalRequest.url || '').includes('/infrastructure/oauth/token')
+    );
+
+    if (canRefresh) {
+      originalRequest._retry = true;
+      return refreshAccessTokenIfNeeded()
+        .then(() => {
+          originalRequest.headers = {
+            ...(originalRequest.headers || {}),
+            Authorization: `Bearer ${authTokenCache}`,
+          };
+          return api(originalRequest);
+        });
     }
 
     // 统一错误处理
@@ -242,6 +357,46 @@ export const runMarketRegimeBacktest = async (payload) => {
   return response.data;
 };
 
+export const runBacktestMonteCarlo = async (payload) => {
+  const response = await api.post('/backtest/monte-carlo', payload, withTimeoutProfile('analysis'));
+  return response.data;
+};
+
+export const queueBacktestMonteCarlo = async (payload) => {
+  const response = await api.post('/backtest/monte-carlo/async', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const runMarketImpactAnalysis = async (payload) => {
+  const response = await api.post('/backtest/impact-analysis', payload, withTimeoutProfile('analysis'));
+  return response.data;
+};
+
+export const queueMarketImpactAnalysis = async (payload) => {
+  const response = await api.post('/backtest/impact-analysis/async', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const compareStrategySignificance = async (payload) => {
+  const response = await api.post('/backtest/compare/significance', payload, withTimeoutProfile('analysis'));
+  return response.data;
+};
+
+export const queueStrategySignificance = async (payload) => {
+  const response = await api.post('/backtest/compare/significance/async', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const runMultiPeriodBacktest = async (payload) => {
+  const response = await api.post('/backtest/multi-period', payload, withTimeoutProfile('analysis'));
+  return response.data;
+};
+
+export const queueMultiPeriodBacktest = async (payload) => {
+  const response = await api.post('/backtest/multi-period/async', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
 export const runPortfolioStrategyBacktest = async (payload) => {
   const response = await api.post('/backtest/portfolio-strategy', payload);
   return response.data;
@@ -303,6 +458,284 @@ export const optimizePortfolio = async (symbols, period = '1y', objective = 'max
   return response.data;
 };
 
+export const runStrategyOptimizer = async (payload) => {
+  const response = await api.post('/quant-lab/optimizer', payload, withTimeoutProfile('analysis'));
+  return response.data;
+};
+
+export const getRiskCenterAnalysis = async (payload) => {
+  const response = await api.post('/quant-lab/risk-center', payload, withTimeoutProfile('analysis'));
+  return response.data;
+};
+
+export const getQuantTradingJournal = async (profileId) => {
+  const response = await api.get('/quant-lab/trading-journal', {
+    params: profileId ? { profile_id: profileId } : undefined,
+  });
+  return response.data;
+};
+
+export const updateQuantTradingJournal = async (payload, profileId) => {
+  const response = await api.put('/quant-lab/trading-journal', payload, {
+    params: profileId ? { profile_id: profileId } : undefined,
+  });
+  return response.data;
+};
+
+export const getQuantAlertOrchestration = async (profileId) => {
+  const response = await api.get('/quant-lab/alerts', {
+    params: profileId ? { profile_id: profileId } : undefined,
+  });
+  return response.data;
+};
+
+export const updateQuantAlertOrchestration = async (payload, profileId) => {
+  const response = await api.put('/quant-lab/alerts', payload, {
+    params: profileId ? { profile_id: profileId } : undefined,
+  });
+  return response.data;
+};
+
+export const publishQuantAlertEvent = async (payload, profileId) => {
+  const response = await api.post('/quant-lab/alerts/publish', payload, {
+    params: profileId ? { profile_id: profileId } : undefined,
+  });
+  return response.data;
+};
+
+export const getQuantDataQuality = async () => {
+  const response = await api.get('/quant-lab/data-quality');
+  return response.data;
+};
+
+export const runQuantValuationLab = async (payload) => {
+  const response = await api.post('/quant-lab/valuation-lab', payload, withTimeoutProfile('analysis'));
+  return response.data;
+};
+
+export const queueQuantValuationLab = async (payload) => {
+  const response = await api.post('/quant-lab/valuation-lab/async', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const runQuantIndustryRotationLab = async (payload) => {
+  const response = await api.post('/quant-lab/industry-rotation', payload, withTimeoutProfile('analysis', { timeout: Math.max(API_TIMEOUT_PROFILES.analysis, 180000) }));
+  return response.data;
+};
+
+export const queueQuantIndustryRotationLab = async (payload) => {
+  const response = await api.post('/quant-lab/industry-rotation/async', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const runQuantFactorExpression = async (payload) => {
+  const response = await api.post('/quant-lab/factor-expression', payload, withTimeoutProfile('analysis'));
+  return response.data;
+};
+
+export const queueStrategyOptimizerTask = async (payload) => {
+  const response = await api.post('/quant-lab/optimizer/async', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const queueQuantRiskCenterTask = async (payload) => {
+  const response = await api.post('/quant-lab/risk-center/async', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const queueQuantFactorExpressionTask = async (payload) => {
+  const response = await api.post('/quant-lab/factor-expression/async', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const getInfrastructureStatus = async () => {
+  const response = await api.get('/infrastructure/status', withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const createInfrastructureTask = async (payload) => {
+  const response = await api.post('/infrastructure/tasks', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const saveInfrastructureRecord = async (payload) => {
+  const response = await api.post('/infrastructure/persistence/records', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const getInfrastructurePersistenceDiagnostics = async () => {
+  const response = await api.get('/infrastructure/persistence/diagnostics', withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const bootstrapInfrastructurePersistence = async (payload) => {
+  const response = await api.post('/infrastructure/persistence/bootstrap', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const getInfrastructurePersistenceMigrationPreview = async ({ sqlitePath } = {}) => {
+  const params = new URLSearchParams();
+  if (sqlitePath) params.set('sqlite_path', sqlitePath);
+  const suffix = params.toString() ? `?${params.toString()}` : '';
+  const response = await api.get(`/infrastructure/persistence/migration/preview${suffix}`, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const runInfrastructurePersistenceMigration = async (payload) => {
+  const response = await api.post('/infrastructure/persistence/migration/run', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const getInfrastructureRecords = async ({ recordType, limit = 20 } = {}) => {
+  const params = new URLSearchParams();
+  if (recordType) params.set('record_type', recordType);
+  params.set('limit', String(limit));
+  const response = await api.get(`/infrastructure/persistence/records?${params.toString()}`, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const saveInfrastructureTimeseries = async (payload) => {
+  const response = await api.post('/infrastructure/persistence/timeseries', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const getInfrastructureTimeseries = async ({ seriesName, symbol, limit = 20 } = {}) => {
+  const params = new URLSearchParams();
+  if (seriesName) params.set('series_name', seriesName);
+  if (symbol) params.set('symbol', symbol);
+  params.set('limit', String(limit));
+  const response = await api.get(`/infrastructure/persistence/timeseries?${params.toString()}`, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const getInfrastructureTasks = async (limit = 20) => {
+  const response = await api.get(`/infrastructure/tasks?limit=${limit}`, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const cancelInfrastructureTask = async (taskId) => {
+  const response = await api.post(`/infrastructure/tasks/${encodeURIComponent(taskId)}/cancel`, undefined, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const updateInfrastructureRateLimits = async (payload) => {
+  const response = await api.post('/infrastructure/rate-limits', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const createInfrastructureToken = async (payload) => {
+  const response = await api.post('/infrastructure/auth/token', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const loginInfrastructureUser = async (payload) => {
+  const response = await api.post('/infrastructure/auth/login', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const refreshInfrastructureToken = async (payload) => {
+  const response = await api.post('/infrastructure/auth/refresh', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const getInfrastructureAuthUsers = async () => {
+  const response = await api.get('/infrastructure/auth/users', withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const saveInfrastructureAuthUser = async (payload) => {
+  const response = await api.post('/infrastructure/auth/users', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const updateInfrastructureAuthPolicy = async (payload) => {
+  const response = await api.post('/infrastructure/auth/policy', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const revokeInfrastructureAuthSession = async (sessionId) => {
+  const response = await api.post(`/infrastructure/auth/sessions/${encodeURIComponent(sessionId)}/revoke`, undefined, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const getInfrastructureAuthProviders = async () => {
+  const response = await api.get('/infrastructure/auth/oauth/providers', withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const saveInfrastructureAuthProvider = async (payload) => {
+  const response = await api.post('/infrastructure/auth/oauth/providers', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const syncInfrastructureAuthProvidersFromEnv = async () => {
+  const response = await api.post('/infrastructure/auth/oauth/providers/sync-env', undefined, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const getInfrastructureAuthProviderDiagnostics = async (providerId) => {
+  const response = await api.get(`/infrastructure/auth/oauth/providers/${encodeURIComponent(providerId)}/diagnostics`, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const startInfrastructureOAuthProvider = async (providerId, payload = {}) => {
+  const response = await api.post(`/infrastructure/auth/oauth/providers/${encodeURIComponent(providerId)}/authorize`, payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const exchangeInfrastructureOAuthProvider = async (providerId, payload) => {
+  const response = await api.post(`/infrastructure/auth/oauth/providers/${encodeURIComponent(providerId)}/exchange`, payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const testNotificationChannel = async (payload) => {
+  const response = await api.post('/infrastructure/notifications/test', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const saveNotificationChannel = async (payload) => {
+  const response = await api.post('/infrastructure/notifications/channels', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const deleteNotificationChannel = async (channelId) => {
+  const response = await api.delete(`/infrastructure/notifications/channels/${encodeURIComponent(channelId)}`, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const saveConfigVersion = async (payload) => {
+  const response = await api.post('/infrastructure/config-versions', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const getConfigVersions = async ({ configType, configKey, ownerId = 'default', limit = 20 }) => {
+  const params = new URLSearchParams({
+    config_type: configType,
+    config_key: configKey,
+    owner_id: ownerId,
+    limit: String(limit),
+  });
+  const response = await api.get(`/infrastructure/config-versions?${params.toString()}`, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const diffConfigVersions = async ({ configType, configKey, fromVersion, toVersion, ownerId = 'default' }) => {
+  const params = new URLSearchParams({
+    config_type: configType,
+    config_key: configKey,
+    owner_id: ownerId,
+    from_version: String(fromVersion),
+    to_version: String(toVersion),
+  });
+  const response = await api.get(`/infrastructure/config-versions/diff?${params.toString()}`, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const restoreConfigVersion = async (payload) => {
+  const response = await api.post('/infrastructure/config-versions/restore', payload, withTimeoutProfile('standard'));
+  return response.data;
+};
+
 
 export const getPortfolio = async () => {
   const response = await api.get('/trade/portfolio');
@@ -311,6 +744,37 @@ export const getPortfolio = async () => {
 
 export const getRealtimeQuote = async (symbol) => {
   const response = await api.get(`/realtime/quote/${encodeURIComponent(symbol)}`);
+  return response.data;
+};
+
+export const getRealtimeReplay = async (symbol, params = {}) => {
+  const search = new URLSearchParams();
+  if (params.period) search.set('period', params.period);
+  if (params.interval) search.set('interval', params.interval);
+  if (params.limit) search.set('limit', String(params.limit));
+  const query = search.toString();
+  const response = await api.get(`/realtime/replay/${encodeURIComponent(symbol)}${query ? `?${query}` : ''}`, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const getRealtimeOrderbook = async (symbol, levels = 10) => {
+  const response = await api.get(`/realtime/orderbook/${encodeURIComponent(symbol)}?levels=${levels}`, withTimeoutProfile('standard'));
+  return response.data;
+};
+
+export const getRealtimeAnomalyDiagnostics = async (symbol, params = {}) => {
+  const search = new URLSearchParams();
+  if (params.period) search.set('period', params.period);
+  if (params.interval) search.set('interval', params.interval);
+  if (params.limit) search.set('limit', String(params.limit));
+  if (params.z_window) search.set('z_window', String(params.z_window));
+  if (params.return_z_threshold) search.set('return_z_threshold', String(params.return_z_threshold));
+  if (params.volume_z_threshold) search.set('volume_z_threshold', String(params.volume_z_threshold));
+  if (params.cusum_threshold_sigma) search.set('cusum_threshold_sigma', String(params.cusum_threshold_sigma));
+  if (params.pattern_lookback) search.set('pattern_lookback', String(params.pattern_lookback));
+  if (params.pattern_matches) search.set('pattern_matches', String(params.pattern_matches));
+  const query = search.toString();
+  const response = await api.get(`/realtime/anomaly-diagnostics/${encodeURIComponent(symbol)}${query ? `?${query}` : ''}`, withTimeoutProfile('standard'));
   return response.data;
 };
 
@@ -329,6 +793,27 @@ export const updateRealtimeAlerts = async (alerts, profileId, alertHitHistory = 
   const response = await api.put(
     '/realtime/alerts',
     { alerts, alert_hit_history: alertHitHistory },
+    {
+      headers: profileId
+        ? {
+            'X-Realtime-Profile': profileId,
+          }
+        : undefined,
+    }
+  );
+  return response.data;
+};
+
+export const recordRealtimeAlertHit = async (entry, profileId, options = {}) => {
+  const response = await api.post(
+    '/realtime/alerts/hits',
+    {
+      entry,
+      notify_channels: options.notify_channels || [],
+      create_workbench_task: options.create_workbench_task === true,
+      persist_event_record: options.persist_event_record !== false,
+      severity: options.severity || 'warning',
+    },
     {
       headers: profileId
         ? {
@@ -551,6 +1036,22 @@ export const getIndustryRotation = async (industries, periods = [], options = {}
   return response.data;
 };
 
+export const getIndustryIntelligence = async (topN = 12, lookbackDays = 5, options = {}) => {
+  const response = await api.get(
+    `/industry/industries/intelligence?top_n=${topN}&lookback_days=${lookbackDays}`,
+    options
+  );
+  return response.data;
+};
+
+export const getIndustryNetwork = async (topN = 18, lookbackDays = 5, minSimilarity = 0.92, options = {}) => {
+  const response = await api.get(
+    `/industry/industries/network?top_n=${topN}&lookback_days=${lookbackDays}&min_similarity=${minSimilarity}`,
+    options
+  );
+  return response.data;
+};
+
 // 行业分析模块健康检查
 export const checkIndustryHealth = async () => {
   const response = await api.get('/industry/health');
@@ -561,29 +1062,33 @@ export const checkIndustryHealth = async () => {
 
 // 因子模型分析（CAPM + Fama-French）
 export const getFactorModelAnalysis = async (symbol, period = '1y') => {
-  const response = await api.post('/pricing/factor-model', { symbol, period });
+  const response = await api.post('/pricing/factor-model', { symbol, period }, withTimeoutProfile('analysis'));
   return response.data;
 };
 
 // 内在价值估值（DCF + 可比估值）
 export const getValuationAnalysis = async (symbol) => {
-  const response = await api.post('/pricing/valuation', { symbol });
+  const response = await api.post('/pricing/valuation', { symbol }, withTimeoutProfile('analysis'));
   return response.data;
 };
 
 export const getValuationSensitivityAnalysis = async (payload) => {
-  const response = await api.post('/pricing/valuation-sensitivity', payload);
+  const response = await api.post('/pricing/valuation-sensitivity', payload, withTimeoutProfile('analysis'));
   return response.data;
 };
 
 // 定价差异分析（综合分析）
 export const getGapAnalysis = async (symbol, period = '1y') => {
-  const response = await api.post('/pricing/gap-analysis', { symbol, period });
+  const response = await api.post('/pricing/gap-analysis', { symbol, period }, withTimeoutProfile('analysis'));
   return response.data;
 };
 
-export const runPricingScreener = async (symbols, period = '1y', limit = 10) => {
-  const response = await api.post('/pricing/screener', { symbols, period, limit });
+export const runPricingScreener = async (symbols, period = '1y', limit = 10, maxWorkers = 3) => {
+  const response = await api.post(
+    '/pricing/screener',
+    { symbols, period, limit, max_workers: maxWorkers },
+    withTimeoutProfile('analysis', { timeout: Math.max(API_TIMEOUT_PROFILES.analysis, 180000) })
+  );
   return response.data;
 };
 
@@ -593,7 +1098,7 @@ export const getPricingSymbolSuggestions = async (query = '', limit = 8) => {
     params.set('q', query);
   }
   params.set('limit', String(limit));
-  const response = await api.get(`/pricing/symbol-suggestions?${params.toString()}`);
+  const response = await api.get(`/pricing/symbol-suggestions?${params.toString()}`, withTimeoutProfile('standard'));
   return response.data;
 };
 
@@ -603,7 +1108,7 @@ export const getPricingGapHistory = async (symbol, period = '1y', points = 60) =
     period,
     points: String(points),
   });
-  const response = await api.get(`/pricing/gap-history?${params.toString()}`);
+  const response = await api.get(`/pricing/gap-history?${params.toString()}`, withTimeoutProfile('standard'));
   return response.data;
 };
 
@@ -612,28 +1117,32 @@ export const getPricingPeerComparison = async (symbol, limit = 5) => {
     symbol,
     limit: String(limit),
   });
-  const response = await api.get(`/pricing/peers?${params.toString()}`);
+  const response = await api.get(`/pricing/peers?${params.toString()}`, withTimeoutProfile('standard'));
   return response.data;
 };
 
 // 获取市场因子数据快照
 export const getBenchmarkFactors = async () => {
-  const response = await api.get('/pricing/benchmark-factors');
+  const response = await api.get('/pricing/benchmark-factors', withTimeoutProfile('standard'));
   return response.data;
 };
 
 export const getAltDataSnapshot = async (refresh = false) => {
-  const response = await api.get(`/alt-data/snapshot?refresh=${refresh}`);
+  const response = await api.get(`/alt-data/snapshot?refresh=${refresh}`, withTimeoutProfile('dashboard'));
   return response.data;
 };
 
 export const getAltDataStatus = async () => {
-  const response = await api.get('/alt-data/status');
+  const response = await api.get('/alt-data/status', withTimeoutProfile('dashboard'));
   return response.data;
 };
 
 export const refreshAltData = async (provider = 'all') => {
-  const response = await api.post(`/alt-data/refresh?provider=${encodeURIComponent(provider)}`);
+  const response = await api.post(
+    `/alt-data/refresh?provider=${encodeURIComponent(provider)}`,
+    undefined,
+    withTimeoutProfile('analysis')
+  );
   return response.data;
 };
 
@@ -643,22 +1152,44 @@ export const getAltDataHistory = async (params = {}) => {
   if (params.timeframe) search.set('timeframe', params.timeframe);
   if (params.limit) search.set('limit', String(params.limit));
   const query = search.toString();
-  const response = await api.get(`/alt-data/history${query ? `?${query}` : ''}`);
+  const response = await api.get(`/alt-data/history${query ? `?${query}` : ''}`, withTimeoutProfile('dashboard'));
+  return response.data;
+};
+
+export const getAltSignalDiagnostics = async (params = {}) => {
+  const search = new URLSearchParams();
+  if (params.category) search.set('category', params.category);
+  if (params.timeframe) search.set('timeframe', params.timeframe);
+  if (params.limit) search.set('limit', String(params.limit));
+  if (params.half_life_days) search.set('half_life_days', String(params.half_life_days));
+  const query = search.toString();
+  const response = await api.get(`/alt-data/diagnostics/signals${query ? `?${query}` : ''}`, withTimeoutProfile('dashboard'));
   return response.data;
 };
 
 export const getMacroOverview = async (refresh = false) => {
-  const response = await api.get(`/macro/overview?refresh=${refresh}`);
+  const response = await api.get(`/macro/overview?refresh=${refresh}`, withTimeoutProfile('dashboard'));
+  return response.data;
+};
+
+export const getMacroFactorBacktest = async (params = {}) => {
+  const search = new URLSearchParams();
+  if (params.benchmark) search.set('benchmark', params.benchmark);
+  if (params.period) search.set('period', params.period);
+  if (params.horizons) search.set('horizons', Array.isArray(params.horizons) ? params.horizons.join(',') : params.horizons);
+  if (params.limit) search.set('limit', String(params.limit));
+  const query = search.toString();
+  const response = await api.get(`/macro/factor-backtest${query ? `?${query}` : ''}`, withTimeoutProfile('analysis'));
   return response.data;
 };
 
 export const getCrossMarketTemplates = async () => {
-  const response = await api.get('/cross-market/templates');
+  const response = await api.get('/cross-market/templates', withTimeoutProfile('dashboard'));
   return response.data;
 };
 
 export const runCrossMarketBacktest = async (payload) => {
-  const response = await api.post('/cross-market/backtest', payload);
+  const response = await api.post('/cross-market/backtest', payload, withTimeoutProfile('analysis'));
   return response.data;
 };
 
@@ -670,59 +1201,69 @@ export const getResearchTasks = async (params = {}) => {
   if (params.source) search.set('source', params.source);
   if (params.view) search.set('view', params.view);
   const query = search.toString();
-  const response = await api.get(`/research-workbench/tasks${query ? `?${query}` : ''}`);
+  const response = await api.get(`/research-workbench/tasks${query ? `?${query}` : ''}`, withTimeoutProfile('workbench'));
   return response.data;
 };
 
 export const createResearchTask = async (payload) => {
-  const response = await api.post('/research-workbench/tasks', payload);
+  const response = await api.post('/research-workbench/tasks', payload, withTimeoutProfile('workbench'));
   return response.data;
 };
 
 export const getResearchTask = async (taskId) => {
-  const response = await api.get(`/research-workbench/tasks/${encodeURIComponent(taskId)}`);
+  const response = await api.get(`/research-workbench/tasks/${encodeURIComponent(taskId)}`, withTimeoutProfile('workbench'));
   return response.data;
 };
 
 export const updateResearchTask = async (taskId, payload) => {
-  const response = await api.put(`/research-workbench/tasks/${encodeURIComponent(taskId)}`, payload);
+  const response = await api.put(`/research-workbench/tasks/${encodeURIComponent(taskId)}`, payload, withTimeoutProfile('workbench'));
   return response.data;
 };
 
 export const getResearchTaskTimeline = async (taskId) => {
-  const response = await api.get(`/research-workbench/tasks/${encodeURIComponent(taskId)}/timeline`);
+  const response = await api.get(`/research-workbench/tasks/${encodeURIComponent(taskId)}/timeline`, withTimeoutProfile('workbench'));
   return response.data;
 };
 
 export const addResearchTaskComment = async (taskId, payload) => {
-  const response = await api.post(`/research-workbench/tasks/${encodeURIComponent(taskId)}/comments`, payload);
+  const response = await api.post(`/research-workbench/tasks/${encodeURIComponent(taskId)}/comments`, payload, withTimeoutProfile('workbench'));
   return response.data;
 };
 
 export const deleteResearchTaskComment = async (taskId, commentId) => {
   const response = await api.delete(
-    `/research-workbench/tasks/${encodeURIComponent(taskId)}/comments/${encodeURIComponent(commentId)}`
+    `/research-workbench/tasks/${encodeURIComponent(taskId)}/comments/${encodeURIComponent(commentId)}`,
+    withTimeoutProfile('workbench')
   );
   return response.data;
 };
 
 export const addResearchTaskSnapshot = async (taskId, payload) => {
-  const response = await api.post(`/research-workbench/tasks/${encodeURIComponent(taskId)}/snapshot`, payload);
+  const response = await api.post(
+    `/research-workbench/tasks/${encodeURIComponent(taskId)}/snapshot`,
+    payload,
+    withTimeoutProfile('workbench')
+  );
   return response.data;
 };
 
 export const reorderResearchBoard = async (payload) => {
-  const response = await api.post('/research-workbench/board/reorder', payload);
+  const response = await api.post('/research-workbench/board/reorder', payload, withTimeoutProfile('workbench'));
+  return response.data;
+};
+
+export const bulkUpdateResearchTasks = async (payload) => {
+  const response = await api.post('/research-workbench/tasks/bulk-update', payload, withTimeoutProfile('workbench'));
   return response.data;
 };
 
 export const deleteResearchTask = async (taskId) => {
-  const response = await api.delete(`/research-workbench/tasks/${encodeURIComponent(taskId)}`);
+  const response = await api.delete(`/research-workbench/tasks/${encodeURIComponent(taskId)}`, withTimeoutProfile('workbench'));
   return response.data;
 };
 
 export const getResearchTaskStats = async () => {
-  const response = await api.get('/research-workbench/stats');
+  const response = await api.get('/research-workbench/stats', withTimeoutProfile('workbench'));
   return response.data;
 };
 

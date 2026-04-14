@@ -5,6 +5,7 @@ import api from '../services/api';
 export const REALTIME_SYMBOLS_STORAGE_KEY = 'realtime-panel:symbols';
 export const REALTIME_ACTIVE_TAB_STORAGE_KEY = 'realtime-panel:active-tab';
 export const REALTIME_SYMBOL_CATEGORIES_STORAGE_KEY = 'realtime-panel:symbol-categories';
+export const REALTIME_WATCH_GROUPS_STORAGE_KEY = 'realtime-panel:watch-groups';
 const REALTIME_PROFILE_STORAGE_KEY = 'realtime-panel:profile-id';
 export const REALTIME_PREFERENCES_DEBOUNCE_MS = 500;
 
@@ -14,6 +15,35 @@ const generateRealtimeProfileId = () => {
   }
 
   return `rtp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const normalizeWatchGroup = (group, index = 0) => {
+  const symbols = Array.isArray(group?.symbols)
+    ? group.symbols
+        .filter((symbol) => typeof symbol === 'string')
+        .map((symbol) => symbol.trim().toUpperCase())
+        .filter(Boolean)
+    : [];
+  const weights = group?.weights && typeof group.weights === 'object' && !Array.isArray(group.weights)
+    ? Object.entries(group.weights).reduce((result, [rawSymbol, rawWeight]) => {
+        const symbol = String(rawSymbol || '').trim().toUpperCase();
+        const numericWeight = Number(rawWeight);
+        if (symbol && symbols.includes(symbol) && Number.isFinite(numericWeight)) {
+          result[symbol] = numericWeight;
+        }
+        return result;
+      }, {})
+    : {};
+  const capital = Number(group?.capital);
+
+  return {
+    id: String(group?.id || `group-${index + 1}`),
+    name: String(group?.name || '').trim(),
+    symbols,
+    notes: String(group?.notes || '').trim(),
+    capital: Number.isFinite(capital) ? Math.max(capital, 0) : 0,
+    weights,
+  };
 };
 
 export const loadRealtimeProfileId = () => {
@@ -98,6 +128,31 @@ export const loadPersistedSymbolCategories = () => {
   }
 };
 
+export const loadPersistedWatchGroups = () => {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const raw = window.localStorage.getItem(REALTIME_WATCH_GROUPS_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .filter((group) => group && typeof group === 'object')
+      .map((group, index) => normalizeWatchGroup(group, index))
+      .filter((group) => group.name);
+  } catch (error) {
+    return [];
+  }
+};
+
 export const useRealtimePreferences = ({
   defaultSymbols,
   defaultActiveTab = 'index',
@@ -105,6 +160,7 @@ export const useRealtimePreferences = ({
   const [subscribedSymbols, setSubscribedSymbols] = useState(() => loadPersistedSymbols(defaultSymbols));
   const [activeTab, setActiveTab] = useState(() => loadPersistedActiveTab(defaultActiveTab));
   const [symbolCategoryOverrides, setSymbolCategoryOverrides] = useState(() => loadPersistedSymbolCategories());
+  const [watchGroups, setWatchGroups] = useState(() => loadPersistedWatchGroups());
   const [isPreferencesHydrated, setIsPreferencesHydrated] = useState(false);
 
   const lastSyncedPreferencesRef = useRef('');
@@ -140,12 +196,24 @@ export const useRealtimePreferences = ({
   }, [symbolCategoryOverrides]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    window.localStorage.setItem(
+      REALTIME_WATCH_GROUPS_STORAGE_KEY,
+      JSON.stringify(watchGroups)
+    );
+  }, [watchGroups]);
+
+  useEffect(() => {
     latestPreferencesRef.current = JSON.stringify({
       symbols: subscribedSymbols,
       active_tab: activeTab,
       symbol_categories: symbolCategoryOverrides,
+      watch_groups: watchGroups,
     });
-  }, [activeTab, subscribedSymbols, symbolCategoryOverrides]);
+  }, [activeTab, subscribedSymbols, symbolCategoryOverrides, watchGroups]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -153,6 +221,7 @@ export const useRealtimePreferences = ({
       symbols: subscribedSymbols,
       active_tab: activeTab,
       symbol_categories: symbolCategoryOverrides,
+      watch_groups: watchGroups,
     });
 
     const hydratePreferences = async () => {
@@ -192,6 +261,12 @@ export const useRealtimePreferences = ({
             return result;
           }, {})
           : {};
+        const nextWatchGroups = Array.isArray(response.data.data?.watch_groups)
+          ? response.data.data.watch_groups
+              .filter((group) => group && typeof group === 'object')
+              .map((group, index) => normalizeWatchGroup(group, index))
+              .filter((group) => group.name)
+          : [];
 
         if (!userChangedPreferencesDuringHydration) {
           if (nextSymbols.length > 0) {
@@ -201,11 +276,13 @@ export const useRealtimePreferences = ({
             setActiveTab(nextTab);
           }
           setSymbolCategoryOverrides(nextCategories);
+          setWatchGroups(nextWatchGroups);
 
           lastSyncedPreferencesRef.current = JSON.stringify({
             symbols: nextSymbols.length > 0 ? Array.from(new Set(nextSymbols)) : subscribedSymbols,
             active_tab: nextTab || activeTab,
             symbol_categories: nextCategories,
+            watch_groups: nextWatchGroups,
           });
         }
       } catch (error) {
@@ -234,6 +311,7 @@ export const useRealtimePreferences = ({
       symbols: subscribedSymbols,
       active_tab: activeTab,
       symbol_categories: symbolCategoryOverrides,
+      watch_groups: watchGroups,
     };
     const serializedPayload = JSON.stringify(payload);
     if (serializedPayload === lastSyncedPreferencesRef.current) {
@@ -263,7 +341,7 @@ export const useRealtimePreferences = ({
         preferencesSaveTimerRef.current = null;
       }
     };
-  }, [activeTab, isPreferencesHydrated, subscribedSymbols, symbolCategoryOverrides]);
+  }, [activeTab, isPreferencesHydrated, subscribedSymbols, symbolCategoryOverrides, watchGroups]);
 
   return {
     activeTab,
@@ -273,5 +351,7 @@ export const useRealtimePreferences = ({
     setSubscribedSymbols,
     subscribedSymbols,
     symbolCategoryOverrides,
+    watchGroups,
+    setWatchGroups,
   };
 };

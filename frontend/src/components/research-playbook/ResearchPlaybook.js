@@ -11,10 +11,15 @@ function ResearchPlaybook({
   onAction,
   onSave,
   onSaveTask,
+  onSecondarySaveTask,
   onUpdateSnapshot,
   saveLabel = '保存到研究工作台',
+  secondarySaveLabel = '保存为交易 Thesis',
   updateLabel = '更新当前任务快照',
   saving = false,
+  saveLoading,
+  secondarySaveLoading,
+  updateLoading,
 }) {
   const saveHandler = onSaveTask || onSave;
   const [checkedTaskIds, setCheckedTaskIds] = useState([]);
@@ -39,13 +44,33 @@ function ResearchPlaybook({
       title={playbook.playbook_type === 'pricing' ? '定价研究剧本' : '跨市场研究剧本'}
       extra={(
         <Space>
+          {onSecondarySaveTask ? (
+            <Button
+              data-testid="research-playbook-save-secondary-task"
+              size="small"
+              onClick={onSecondarySaveTask}
+              loading={secondarySaveLoading ?? saving}
+            >
+              {secondarySaveLabel}
+            </Button>
+          ) : null}
           {saveHandler ? (
-            <Button data-testid="research-playbook-save-task" size="small" onClick={saveHandler} loading={saving}>
+            <Button
+              data-testid="research-playbook-save-task"
+              size="small"
+              onClick={saveHandler}
+              loading={saveLoading ?? saving}
+            >
               {saveLabel}
             </Button>
           ) : null}
           {onUpdateSnapshot ? (
-            <Button data-testid="research-playbook-update-snapshot" size="small" onClick={onUpdateSnapshot} loading={saving}>
+            <Button
+              data-testid="research-playbook-update-snapshot"
+              size="small"
+              onClick={onUpdateSnapshot}
+              disabled={Boolean(updateLoading ?? saving)}
+            >
               {updateLabel}
             </Button>
           ) : null}
