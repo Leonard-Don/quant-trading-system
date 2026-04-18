@@ -5,7 +5,7 @@
 **一个基于 FastAPI + React 的量化交易研究平台，聚焦 `策略回测`、`实时行情`、`行业热度` 三块公开能力。**  
 *A public-facing quantitative research workspace focused on backtesting, realtime market monitoring, and industry heat analysis.*
 
-**当前版本：`v4.0.0`** · [查看更新日志](docs/CHANGELOG.md)
+**当前版本：`v5.0.0`** · [查看更新日志](docs/CHANGELOG.md)
 
 [![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)

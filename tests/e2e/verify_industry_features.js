@@ -427,12 +427,18 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   const persistedHintVisible = persistedBodyText.includes('来源: 估算市值');
   console.log(`刷新后 URL 保留: ${normalizeUrl(reloadedUrl) === normalizeUrl(currentUrl) ? '是' : '否'}`);
   console.log(`刷新后状态标签保留: ${persistedHintVisible ? '是' : '否'}`);
-  await page.getByText('颜色: 看净流入%', { exact: false }).click();
+  const focusStateTag = page.locator('.heatmap-state-tag-color_metric, .heatmap-state-tag-market_cap_filter').first();
+  const focusTargetSelector = await focusStateTag.evaluate((node) => (
+    node.classList.contains('heatmap-state-tag-color_metric')
+      ? '.heatmap-control-color-metric'
+      : '.heatmap-control-market-cap-filter'
+  ));
+  await focusStateTag.click();
   await page.waitForTimeout(300);
-  const heatmapTagFocusWorks = await page.evaluate(() => {
-    const node = document.querySelector('.heatmap-control-color-metric');
+  const heatmapTagFocusWorks = await page.evaluate((selector) => {
+    const node = document.querySelector(selector);
     return Boolean(node && getComputedStyle(node).boxShadow && getComputedStyle(node).boxShadow !== 'none');
-  });
+  }, focusTargetSelector);
   console.log(`热力图状态标签定位控件是否生效: ${heatmapTagFocusWorks ? '是' : '否'}`);
   await page.locator('.heatmap-state-tag-market_cap_filter .ant-tag-close-icon').click();
   await page.waitForTimeout(1000);

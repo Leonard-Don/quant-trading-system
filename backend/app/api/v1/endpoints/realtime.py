@@ -44,7 +44,10 @@ class RealtimeAlertsRequest(BaseModel):
 class RealtimeAlertHitRequest(BaseModel):
     entry: dict = Field(default_factory=dict)
     notify_channels: List[str] = Field(default_factory=list)
-    create_workbench_task: bool = False
+    create_workbench_task: bool = Field(
+        default=False,
+        description="兼容旧客户端的保留字段。公开仓会忽略该值，不再创建研究工作台任务。",
+    )
     persist_event_record: bool = True
     severity: str = "warning"
 

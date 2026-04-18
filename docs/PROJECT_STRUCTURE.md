@@ -54,6 +54,6 @@ backend/app/api/v1/api.py
 
 拆出的系统模块保留在本地仓：
 
-- `/Users/leonardodon/PycharmProjects/super-pricing-system`
+- 同级目录中的 `super-pricing-system`
 
 该仓当前不配置远端，仅用于本机继续开发系统部分。
