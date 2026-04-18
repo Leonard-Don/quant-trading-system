@@ -1,5 +1,12 @@
 # 更新日志
 
+## v5.0.0 (2026-04-18)
+- 公开仓正式收敛为 `策略回测 / 实时行情 / 行业热度` 三块能力，`定价研究`、`上帝视角`、`研究工作台` 与 `Quant Lab` 已迁移到本地私有系统仓 `super-pricing-system`
+- 前端公开入口只保留 `backtest / realtime / industry`，历史系统页旧链接会自动回落到 `backtest`
+- 后端公开路由不再挂载 `/pricing/*`、`/macro*`、`/research-workbench/*`、`/quant-lab/*` 与 `/alt-data/*`
+- `realtime` 提醒命中接口继续兼容旧客户端契约，但 `create_workbench_task` 字段现在仅保留兼容语义，公开仓会忽略该值，不再创建系统侧任务
+- 仓库文档与测试元数据同步收口：README、结构说明、API 文档、E2E package 名称和发布说明已全部对齐新的双仓边界
+
 ## v4.0.0 (2026-04-14)
 - 基础设施层正式产品化：新增 `Infrastructure` API、认证令牌、持久化状态、Redis/Celery 任务队列、通知能力与 TimescaleDB schema，并补齐基础设施独立启动、迁移与健康检查脚本
 - Quant Lab 升级为独立量化实验台，覆盖策略优化、批量回测、基准对比、组合实验、Walk-Forward、风险中心、交易日志、告警编排与估值实验等新工作流
@@ -67,4 +74,4 @@
 
 ---
 
-**最后更新**: 2026-04-14
+**最后更新**: 2026-04-18

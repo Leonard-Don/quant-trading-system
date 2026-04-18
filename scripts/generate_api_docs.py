@@ -197,10 +197,11 @@ curl -X POST "http://localhost:8000/backtest" \\
      }'
 ```
 
-## 更新日志
+## 文档说明
 
-- **v3.1.0** (2025-09-09): 添加性能监控、缓存管理、结构化日志
-- **v3.0.0** (2024-12-01): 初始版本，支持8种交易策略
+- 本文档由 `python3 scripts/generate_api_docs.py` 自动生成
+- 版本与仓库边界说明以根目录 `VERSION`、`README.md` 与 `docs/CHANGELOG.md` 为准
+- 兼容字段的公开行为以对应 schema 字段描述为准
 
 ## 支持
 

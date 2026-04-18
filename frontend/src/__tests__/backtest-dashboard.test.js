@@ -23,6 +23,13 @@ jest.mock('../components/AdvancedBacktestLab', () => ({ onImportTemplateToMainBa
 jest.mock('antd', () => {
   const React = require('react');
   return {
+    Card: ({ children, title, extra }) => (
+      <div>
+        <div>{title}</div>
+        <div>{extra}</div>
+        <div>{children}</div>
+      </div>
+    ),
     Tabs: ({ activeKey, items, onChange }) => {
       const activeItem = items.find((item) => item.key === activeKey) || items[0];
       return (
