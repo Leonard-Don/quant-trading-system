@@ -1,7 +1,7 @@
 # 更新日志
 
 ## v5.0.0 (2026-04-18)
-- 公开仓正式收敛为 `策略回测 / 实时行情 / 行业热度` 三块能力，`定价研究`、`上帝视角`、`研究工作台` 与 `Quant Lab` 已迁移到本地私有系统仓 `super-pricing-system`
+- 公开仓正式收敛为 `策略回测 / 实时行情 / 行业热度` 三块能力，`定价研究`、`上帝视角`、`研究工作台` 与 `Quant Lab` 已迁移到私有 companion repo `super-pricing-system`
 - 前端公开入口只保留 `backtest / realtime / industry`，历史系统页旧链接会自动回落到 `backtest`
 - 后端公开路由不再挂载 `/pricing/*`、`/macro*`、`/research-workbench/*`、`/quant-lab/*` 与 `/alt-data/*`
 - `realtime` 提醒命中接口继续兼容旧客户端契约，但 `create_workbench_task` 字段现在仅保留兼容语义，公开仓会忽略该值，不再创建系统侧任务

@@ -50,10 +50,10 @@ backend/app/api/v1/api.py
 - `industry` 只保留页面内告警和桌面通知，不再自动创建工作台任务。
 - `cross-market` 保留在回测模块中，但不再依赖工作台队列和宏观错误定价草稿。
 
-## 本地系统仓
+## 私有系统仓
 
-拆出的系统模块保留在本地仓：
+拆出的系统模块保留在私有仓：
 
-- 同级目录中的 `super-pricing-system`
+- `super-pricing-system`
 
-该仓当前不配置远端，仅用于本机继续开发系统部分。
+该仓当前以 GitHub private repo 形式维护，并继续承接系统部分开发。
