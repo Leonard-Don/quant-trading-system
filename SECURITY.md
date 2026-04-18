@@ -6,8 +6,8 @@
 
 | Version | Supported |
 | --- | --- |
-| v3.5.x | Yes |
-| < v3.5.0 | No |
+| v5.0.x | Yes |
+| < v5.0.0 | No |
 
 ## Reporting a Vulnerability
 
