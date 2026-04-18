@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-    Layout,
     Row,
     Col,
     Card,
@@ -13,7 +12,8 @@ import {
     Space,
     Statistic,
     Modal,
-    Tooltip
+    Tooltip,
+    Typography,
 } from 'antd';
 import {
     FireOutlined,
@@ -53,6 +53,7 @@ import { useSafeMessageApi } from '../utils/messageApi';
 import {
     INDUSTRY_ALERT_RECENCY_OPTIONS,
     INDUSTRY_ALERT_KIND_OPTIONS,
+    activateOnEnterOrSpace,
     formatIndustryAlertMoneyFlow,
     getIndustryScoreTone,
     formatIndustryAlertSeenLabel,
@@ -60,6 +61,7 @@ import {
 } from './industry/industryShared';
 
 const { Option } = Select;
+const { Title, Paragraph } = Typography;
 const INDUSTRY_TIMEFRAME_LABELS = { 1: '1日', 5: '5日', 10: '10日', 20: '20日', 60: '60日' };
 const INDUSTRY_SIZE_METRIC_LABELS = { market_cap: '按市值', net_inflow: '按净流入', turnover: '按成交额(估)' };
 const INDUSTRY_COLOR_METRIC_LABELS = {
@@ -115,6 +117,7 @@ const IndustryDashboard = () => {
     const [detailVisible, setDetailVisible] = useState(false);
     const [heatmapFullscreen, setHeatmapFullscreen] = useState(false);
     const [scoreRadarRecord, setScoreRadarRecord] = useState(null);
+    const [workspaceTab, setWorkspaceTab] = useState('alerts');
 
     const data = useIndustryDashboardData({ message });
 
@@ -127,6 +130,14 @@ const IndustryDashboard = () => {
         data.openSelectedIndustryDetail();
         setDetailVisible(true);
     };
+
+    const heatmapCoveragePct = data.heatmapSummary?.marketCapHealth?.coveragePct;
+    const sentimentTone = data.heatmapSummary?.sentiment;
+    const actionLevelColor = data.industryActionPosture.level === 'warning'
+        ? 'gold'
+        : data.industryActionPosture.level === 'info'
+            ? 'processing'
+            : 'success';
 
     // 热门行业表格列
     const hotIndustryColumns = [
@@ -165,6 +176,10 @@ const IndustryDashboard = () => {
                                 data-market-cap-filter={sourceMeta.filter}
                                 style={{ margin: 0, width: 'fit-content', fontSize: 10, lineHeight: '15px', paddingInline: 6, cursor: 'pointer', borderRadius: 999 }}
                                 onClick={() => data.jumpToMarketCapFilter(sourceMeta.filter)}
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`按 ${sourceMeta.label} 市值来源筛选 ${name}`}
+                                onKeyDown={(event) => activateOnEnterOrSpace(event, () => data.jumpToMarketCapFilter(sourceMeta.filter))}
                             >
                                 {sourceMeta.label}
                             </Tag>
@@ -191,6 +206,7 @@ const IndustryDashboard = () => {
                     size="small"
                     data-testid="industry-score-radar-trigger"
                     onClick={() => setScoreRadarRecord(record)}
+                    aria-label={`查看 ${record.industry_name} 综合评分雷达`}
                     style={{
                         padding: 0,
                         height: 'auto',
@@ -825,6 +841,7 @@ const IndustryDashboard = () => {
                                 size="small"
                                 style={{ width: 108 }}
                                 disabled={data.loadingClusters}
+                                aria-label="选择行业聚类数量"
                             >
                                 <Option value={3}>3 个聚类</Option>
                                 <Option value={4}>4 个聚类</Option>
@@ -863,137 +880,361 @@ const IndustryDashboard = () => {
         }
     ];
 
+    const workspaceTabMeta = {
+        alerts: {
+            title: '提醒中心',
+            summary: '集中处理订阅范围、提醒规则和时间线，先判断哪些行业需要从扫描升级到跟踪。'
+        },
+        replay: {
+            title: '历史回放',
+            summary: '回看最近快照、切换对比基线，确认哪些行业是在持续升温，哪些只是短时异动。'
+        },
+        views: {
+            title: '视图沉淀',
+            summary: '把常用的热力图、排行和提醒配置存成视图，下次可以直接回到熟悉的工作面。'
+        },
+    };
+    const activeWorkspaceMeta = workspaceTabMeta[workspaceTab] || workspaceTabMeta.alerts;
+    const hasAlertsWorkspace = data.industryAlertsWithSeverity.length > 0 || data.rawIndustryAlerts.length > 0 || data.focusIndustrySuggestions.length > 0;
+    const workspaceTabItems = [
+        {
+            key: 'alerts',
+            label: `提醒中心${data.subscribedAlertNewCount > 0 ? ` (${data.subscribedAlertNewCount})` : ''}`,
+            children: hasAlertsWorkspace ? (
+                <IndustryAlertsPanel
+                    industryAlertsWithSeverity={data.industryAlertsWithSeverity}
+                    rawIndustryAlerts={data.rawIndustryAlerts}
+                    focusIndustrySuggestions={data.focusIndustrySuggestions}
+                    subscribedAlertNewCount={data.subscribedAlertNewCount}
+                    industryAlertSubscription={data.industryAlertSubscription}
+                    desktopAlertNotifications={data.desktopAlertNotifications}
+                    industryAlertRule={data.industryAlertRule}
+                    setIndustryAlertRule={data.setIndustryAlertRule}
+                    industryAlertRecency={data.industryAlertRecency}
+                    setIndustryAlertRecency={data.setIndustryAlertRecency}
+                    industryAlertKindOptions={INDUSTRY_ALERT_KIND_OPTIONS}
+                    industryAlertRecencyOptions={INDUSTRY_ALERT_RECENCY_OPTIONS}
+                    setIndustryAlertSubscription={data.setIndustryAlertSubscription}
+                    industryAlertThresholds={data.industryAlertThresholds}
+                    setIndustryAlertThresholds={data.setIndustryAlertThresholds}
+                    requestDesktopAlertPermission={data.requestDesktopAlertPermission}
+                    toggleWatchlistIndustry={data.toggleWatchlistIndustry}
+                    watchlistIndustries={data.watchlistIndustries}
+                    selectedIndustry={data.selectedIndustry}
+                    setSelectedIndustry={data.setSelectedIndustry}
+                    handleIndustryClick={handleIndustryClickWithDetail}
+                    handleAddToComparison={data.handleAddToComparison}
+                    alertTimelineEntries={data.alertTimelineEntries}
+                    formatIndustryAlertSeenLabel={formatIndustryAlertSeenLabel}
+                    message={message}
+                />
+            ) : (
+                <Card size="small">
+                    <Empty description="当前没有需要升级处理的行业提醒" />
+                </Card>
+            ),
+        },
+        {
+            key: 'replay',
+            label: `历史回放${data.heatmapReplaySnapshots.length > 0 ? ` (${data.heatmapReplaySnapshots.length})` : ''}`,
+            children: data.heatmapReplaySnapshots.length > 0 ? (
+                <IndustryReplayPanel
+                    heatmapReplaySnapshots={data.heatmapReplaySnapshots}
+                    activeReplaySnapshot={data.activeReplaySnapshot}
+                    latestReplaySnapshot={data.latestReplaySnapshot}
+                    replayWindow={data.replayWindow}
+                    setReplayWindow={data.setReplayWindow}
+                    heatmapReplayWindowOptions={data.heatmapReplayWindowOptions}
+                    comparisonBaseSnapshotId={data.comparisonBaseSnapshotId}
+                    setComparisonBaseSnapshotId={data.setComparisonBaseSnapshotId}
+                    filteredReplaySnapshots={data.filteredReplaySnapshots}
+                    replayTargetSnapshot={data.replayTargetSnapshot}
+                    formatReplaySnapshotTime={data.formatReplaySnapshotTime}
+                    industryTimeframeLabels={INDUSTRY_TIMEFRAME_LABELS}
+                    setActiveTab={data.setActiveTab}
+                    setSelectedReplaySnapshotId={data.setSelectedReplaySnapshotId}
+                    setHeatmapViewState={data.setHeatmapViewState}
+                    setMarketCapFilter={data.setMarketCapFilter}
+                    panelSurface={PANEL_SURFACE}
+                    panelBorder={PANEL_BORDER}
+                    panelShadow={PANEL_SHADOW}
+                    panelMuted={PANEL_MUTED}
+                    textPrimary={TEXT_PRIMARY}
+                    textSecondary={TEXT_SECONDARY}
+                    replayComparison={data.replayComparison}
+                    activeReplayDiffIndustry={data.activeReplayDiffIndustry}
+                    handleReplayDiffIndustrySelect={data.handleReplayDiffIndustrySelect}
+                    handleIndustryClick={handleIndustryClickWithDetail}
+                    getIndustryScoreTone={getIndustryScoreTone}
+                    formatReplayDelta={data.formatReplayDelta}
+                    replayIndustryDiffDetail={data.replayIndustryDiffDetail}
+                    watchlistIndustries={data.watchlistIndustries}
+                    toggleWatchlistIndustry={data.toggleWatchlistIndustry}
+                    formatReplayMetricPercent={data.formatReplayMetricPercent}
+                    formatReplayMetricMoney={data.formatReplayMetricMoney}
+                />
+            ) : (
+                <Card size="small">
+                    <Empty description="当前还没有可用的行业历史快照" />
+                </Card>
+            ),
+        },
+        {
+            key: 'views',
+            label: `视图沉淀${data.savedIndustryViews.length > 0 ? ` (${data.savedIndustryViews.length})` : ''}`,
+            children: (
+                <IndustrySavedViewsPanel
+                    draftName={data.savedViewDraftName}
+                    onDraftNameChange={data.setSavedViewDraftName}
+                    onSave={data.saveCurrentIndustryView}
+                    savedViews={data.savedIndustryViews}
+                    onApply={data.applySavedIndustryView}
+                    onOverwrite={data.overwriteSavedIndustryView}
+                    onRemove={data.removeSavedIndustryView}
+                    onExport={data.handleExportSavedViews}
+                    onImportClick={data.handleImportSavedViewsClick}
+                />
+            ),
+        },
+    ];
+
     return (
-        <Layout style={{ padding: 24, background: 'var(--bg-primary)', minHeight: '100vh' }}>
-            <Row gutter={[24, 24]}>
-                {/* 左侧：热力图和热门行业 */}
-                <Col xs={24} lg={16}>
-                    <IndustryMarketSnapshotBar
-                        heatmapSummary={data.heatmapSummary}
-                        focusedHeatmapControlKey={data.focusedHeatmapControlKey}
-                        marketCapFilter={data.marketCapFilter}
-                        onIndustryClick={handleIndustryClickWithDetail}
-                        onToggleMarketCapFilter={data.toggleMarketCapFilter}
-                        onResetMarketCapFilter={() => data.setMarketCapFilter('all')}
-                        statusIndicator={<ApiStatusIndicator />}
-                    />
-
-                    <Card
-                        size="small"
-                        style={{
-                            marginBottom: 12,
-                            background: data.industryActionPosture.level === 'warning'
-                                ? 'linear-gradient(180deg, rgba(250, 173, 20, 0.10) 0%, rgba(255,255,255,0.72) 100%)'
-                                : data.industryActionPosture.level === 'info'
-                                    ? 'linear-gradient(180deg, rgba(22, 119, 255, 0.08) 0%, rgba(255,255,255,0.72) 100%)'
-                                    : 'linear-gradient(180deg, rgba(82, 196, 26, 0.08) 0%, rgba(255,255,255,0.72) 100%)',
-                            border: data.industryActionPosture.level === 'warning'
-                                ? '1px solid rgba(250, 173, 20, 0.35)'
-                                : data.industryActionPosture.level === 'info'
-                                    ? '1px solid rgba(22, 119, 255, 0.24)'
-                                    : '1px solid rgba(82, 196, 26, 0.22)',
-                        }}
-                    >
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                            <div style={{ fontSize: 11, color: PANEL_MUTED, fontWeight: 700, letterSpacing: '0.04em' }}>行业动作姿势</div>
-                            <div style={{ fontSize: 15, fontWeight: 700, color: TEXT_PRIMARY }}>{data.industryActionPosture.title}</div>
-                            <div style={{ fontSize: 12, lineHeight: 1.7, color: TEXT_PRIMARY }}>{data.industryActionPosture.actionHint}</div>
-                            <div style={{ fontSize: 11, lineHeight: 1.7, color: TEXT_SECONDARY }}>{data.industryActionPosture.reason}</div>
+        <div className="app-page-shell app-page-shell--wide industry-page-shell">
+            <Card className="app-page-hero app-page-hero--industry" variant="borderless">
+                <div className="app-page-hero__header industry-hero-header">
+                    <div className="app-page-hero__content industry-hero-header__content">
+                        <div className="app-page-eyebrow">
+                            <FireOutlined />
+                            Industry Command
                         </div>
-                    </Card>
+                        <div className="app-page-heading">
+                            <span className="app-page-heading__icon">
+                                <BranchesOutlined />
+                            </span>
+                            <div>
+                                <Title level={3} style={{ margin: 0, color: '#f8fafc' }}>
+                                    行业轮动大屏
+                                </Title>
+                                <Paragraph style={{ margin: '8px 0 0', color: 'rgba(226, 232, 240, 0.88)', maxWidth: 720 }}>
+                                    左侧先完成行业扫描与切换，右侧只保留当前焦点、龙头线索和下一步动作。
+                                </Paragraph>
+                            </div>
+                        </div>
+                        <Space wrap size={[8, 8]} style={{ marginTop: 12 }}>
+                            <Tag color={sentimentTone?.color === '#ff4d4f' ? 'error' : sentimentTone?.color === '#52c41a' ? 'success' : 'processing'} style={{ marginInlineEnd: 0 }}>
+                                市场情绪：{sentimentTone?.label || '待刷新'}
+                            </Tag>
+                            {heatmapCoveragePct != null ? (
+                                <Tag color="default" style={{ marginInlineEnd: 0 }}>
+                                    市值覆盖：{heatmapCoveragePct}%
+                                </Tag>
+                            ) : null}
+                        </Space>
+                        <div className="industry-hero-summary-grid">
+                            <div className="industry-hero-brief">
+                                <div>
+                                    <div className="industry-hero-brief__eyebrow">当前动作</div>
+                                    <div className="industry-hero-brief__title" style={{ color: actionLevelColor === 'gold' ? '#fde68a' : actionLevelColor === 'processing' ? '#bfdbfe' : '#bbf7d0' }}>
+                                        {data.industryActionPosture.title}
+                                    </div>
+                                    {data.selectedIndustry ? (
+                                        <Space wrap size={[6, 6]} className="industry-hero-brief__meta">
+                                            <Tag color="cyan" style={{ marginInlineEnd: 0, borderRadius: 999 }}>
+                                                焦点：{data.selectedIndustry}
+                                            </Tag>
+                                            <Tag color="default" style={{ marginInlineEnd: 0, borderRadius: 999 }}>
+                                                详情 / 龙头 / 对比
+                                            </Tag>
+                                        </Space>
+                                    ) : null}
+                                </div>
+                                <div className="industry-hero-brief__text">
+                                    {data.selectedIndustry
+                                        ? `${data.selectedIndustry} 已进入研究焦点，建议先确认行业详情、龙头承接和轮动位置，再决定是否加入观察或进入对比。`
+                                        : data.industryActionPosture.actionHint}
+                                </div>
+                            </div>
+                            <div className="app-page-metric-strip industry-hero-metrics">
+                                <div className="app-page-metric-card">
+                                    <span className="app-page-metric-card__label">热力覆盖</span>
+                                    <span className="app-page-metric-card__value">{data.heatmapIndustries.length} 个行业</span>
+                                </div>
+                                <div className="app-page-metric-card">
+                                    <span className="app-page-metric-card__label">上涨占比</span>
+                                    <span className="app-page-metric-card__value">
+                                        {data.heatmapSummary?.upRatio != null ? `${data.heatmapSummary.upRatio}%` : '--'}
+                                    </span>
+                                </div>
+                                <div className="app-page-metric-card">
+                                    <span className="app-page-metric-card__label">市值覆盖</span>
+                                    <span className="app-page-metric-card__value">
+                                        {heatmapCoveragePct != null ? `${heatmapCoveragePct}%` : '--'}
+                                    </span>
+                                </div>
+                                <div className="app-page-metric-card">
+                                    <span className="app-page-metric-card__label">观察 / 新提醒</span>
+                                    <span className="app-page-metric-card__value">
+                                        {data.watchlistEntries.length} / {data.subscribedAlertNewCount || 0}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </Card>
 
-                    <IndustryHeatmapStateBar
-                        visible={shouldShowHeatmapStateBar}
-                        activeHeatmapStateTags={activeHeatmapStateTags}
-                        onFocusHeatmapControl={data.focusHeatmapControl}
-                        onClearHeatmapStateTag={data.clearHeatmapStateTag}
-                        onResetHeatmapViewState={data.resetHeatmapViewState}
-                        panelSurface={PANEL_SURFACE}
-                        panelBorder={PANEL_BORDER}
-                        panelShadow={PANEL_SHADOW}
-                        panelMuted={PANEL_MUTED}
-                    />
+            <div className="app-page-section-block">
+                <div className="app-page-section-kicker">行业扫描与轮动</div>
+                <Row gutter={[20, 20]}>
+                    <Col xs={24} lg={16}>
+                        <IndustryHeatmapStateBar
+                            visible={shouldShowHeatmapStateBar}
+                            activeHeatmapStateTags={activeHeatmapStateTags}
+                            onFocusHeatmapControl={data.focusHeatmapControl}
+                            onClearHeatmapStateTag={data.clearHeatmapStateTag}
+                            onResetHeatmapViewState={data.resetHeatmapViewState}
+                            panelSurface={PANEL_SURFACE}
+                            panelBorder={PANEL_BORDER}
+                            panelShadow={PANEL_SHADOW}
+                            panelMuted={PANEL_MUTED}
+                        />
 
+                        <Tabs
+                            activeKey={data.activeTab}
+                            onChange={data.setActiveTab}
+                            items={tabItems}
+                        />
+
+                        <div className="industry-scan-summary">
+                            <IndustryMarketSnapshotBar
+                                heatmapSummary={data.heatmapSummary}
+                                focusedHeatmapControlKey={data.focusedHeatmapControlKey}
+                                marketCapFilter={data.marketCapFilter}
+                                onIndustryClick={handleIndustryClickWithDetail}
+                                onToggleMarketCapFilter={data.toggleMarketCapFilter}
+                                onResetMarketCapFilter={() => data.setMarketCapFilter('all')}
+                                statusIndicator={<ApiStatusIndicator />}
+                            />
+                        </div>
+                    </Col>
+
+                    <Col xs={24} lg={8}>
+                        <IndustryResearchFocusPanel
+                            selectedIndustry={data.selectedIndustry}
+                            selectedIndustrySnapshot={data.selectedIndustrySnapshot}
+                            selectedIndustryMarketCapBadge={data.selectedIndustryMarketCapBadge}
+                            selectedIndustryVolatilityMeta={data.selectedIndustryVolatilityMeta}
+                            selectedIndustryFocusNarrative={data.selectedIndustryFocusNarrative}
+                            selectedIndustryScoreBreakdown={data.selectedIndustryScoreBreakdown}
+                            selectedIndustryScoreSummary={data.selectedIndustryScoreSummary}
+                            selectedIndustryReasons={data.selectedIndustryReasons}
+                            selectedIndustryWatched={data.selectedIndustryWatched}
+                            focusIndustrySuggestions={data.focusIndustrySuggestions}
+                            onClearIndustry={() => data.setSelectedIndustry(null)}
+                            onOpenIndustryDetail={openSelectedIndustryDetailWithModal}
+                            onToggleWatchlist={() => data.toggleWatchlistIndustry(data.selectedIndustry)}
+                            onAddToComparison={() => data.handleAddToComparison(data.selectedIndustry)}
+                            onSelectIndustry={handleIndustryClickWithDetail}
+                        />
+
+                        <Card
+                            size="small"
+                            style={{ borderRadius: 16 }}
+                            styles={{ body: { paddingTop: 8, paddingBottom: 8 } }}
+                        >
+                            <Tabs
+                                defaultActiveKey="leaders"
+                                items={[
+                                    {
+                                        key: 'leaders',
+                                        label: '龙头股',
+                                        children: data.shouldRenderLeaderPanel ? (
+                                            <LeaderStockPanel
+                                                topN={5}
+                                                topIndustries={5}
+                                                perIndustry={3}
+                                                focusIndustry={data.selectedIndustry}
+                                                onClearFocusIndustry={() => data.setSelectedIndustry(null)}
+                                            />
+                                        ) : (
+                                            <div
+                                                style={{
+                                                    borderRadius: 12,
+                                                    border: '1px solid color-mix(in srgb, var(--border-color) 84%, var(--accent-warning) 16%)',
+                                                    background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 92%, var(--accent-warning) 8%) 0%, color-mix(in srgb, var(--bg-secondary) 98%, var(--bg-primary) 2%) 100%)',
+                                                    padding: '14px 14px 12px',
+                                                }}
+                                            >
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 12 }}>
+                                                    <span style={{ fontWeight: 700, color: TEXT_PRIMARY }}>
+                                                        <CrownOutlined style={{ marginRight: 8, color: '#faad14' }} />
+                                                        龙头股推荐
+                                                    </span>
+                                                    <span style={{ fontSize: 11, color: TEXT_SECONDARY }}>热力图优先渲染完成后，龙头股榜单会接着补上。</span>
+                                                </div>
+                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                    {[0, 1, 2].map((item) => (
+                                                        <div
+                                                            key={item}
+                                                            style={{
+                                                                display: 'grid',
+                                                                gridTemplateColumns: '1fr 72px',
+                                                                gap: 12,
+                                                                alignItems: 'center',
+                                                                padding: '10px 12px',
+                                                                borderRadius: 10,
+                                                                background: 'color-mix(in srgb, var(--bg-primary) 16%, transparent)',
+                                                                border: '1px solid color-mix(in srgb, var(--border-color) 86%, transparent 14%)',
+                                                            }}
+                                                        >
+                                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                                                <div style={{ width: `${68 - item * 8}%`, height: 10, borderRadius: 999, background: 'rgba(255,255,255,0.12)' }} />
+                                                                <div style={{ width: `${44 - item * 4}%`, height: 8, borderRadius: 999, background: 'rgba(255,255,255,0.08)' }} />
+                                                            </div>
+                                                            <div style={{ width: '100%', height: 26, borderRadius: 999, background: 'rgba(250,173,20,0.12)' }} />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ),
+                                    },
+                                    {
+                                        key: 'watchlist',
+                                        label: `观察列表${data.watchlistEntries.length > 0 ? ` (${data.watchlistEntries.length})` : ''}`,
+                                        children: (
+                                            <IndustryWatchlistPanel
+                                                watchlistEntries={data.watchlistEntries}
+                                                watchlistSuggestions={data.watchlistSuggestions}
+                                                selectedIndustry={data.selectedIndustry}
+                                                maxWatchlistIndustries={data.maxWatchlistIndustries}
+                                                toggleWatchlistIndustry={data.toggleWatchlistIndustry}
+                                                setSelectedIndustry={data.setSelectedIndustry}
+                                                handleIndustryClick={handleIndustryClickWithDetail}
+                                                handleAddToComparison={data.handleAddToComparison}
+                                                formatIndustryAlertMoneyFlow={formatIndustryAlertMoneyFlow}
+                                            />
+                                        ),
+                                    },
+                                ]}
+                            />
+                        </Card>
+                    </Col>
+                </Row>
+            </div>
+
+            <div className="app-page-section-block">
+                <div className="app-page-section-kicker">行业工作台</div>
+                <div className="industry-workspace-shell">
+                    <div className="industry-workspace-shell__header">
+                        <div>
+                            <div className="industry-workspace-shell__title">{activeWorkspaceMeta.title}</div>
+                            <div className="industry-workspace-shell__summary">{activeWorkspaceMeta.summary}</div>
+                        </div>
+                    </div>
                     <Tabs
-                        activeKey={data.activeTab}
-                        onChange={data.setActiveTab}
-                        items={tabItems}
-                    />
-
-                    <IndustryReplayPanel
-                        heatmapReplaySnapshots={data.heatmapReplaySnapshots}
-                        activeReplaySnapshot={data.activeReplaySnapshot}
-                        latestReplaySnapshot={data.latestReplaySnapshot}
-                        replayWindow={data.replayWindow}
-                        setReplayWindow={data.setReplayWindow}
-                        heatmapReplayWindowOptions={data.heatmapReplayWindowOptions}
-                        comparisonBaseSnapshotId={data.comparisonBaseSnapshotId}
-                        setComparisonBaseSnapshotId={data.setComparisonBaseSnapshotId}
-                        filteredReplaySnapshots={data.filteredReplaySnapshots}
-                        replayTargetSnapshot={data.replayTargetSnapshot}
-                        formatReplaySnapshotTime={data.formatReplaySnapshotTime}
-                        industryTimeframeLabels={INDUSTRY_TIMEFRAME_LABELS}
-                        setActiveTab={data.setActiveTab}
-                        setSelectedReplaySnapshotId={data.setSelectedReplaySnapshotId}
-                        setHeatmapViewState={data.setHeatmapViewState}
-                        setMarketCapFilter={data.setMarketCapFilter}
-                        panelSurface={PANEL_SURFACE}
-                        panelBorder={PANEL_BORDER}
-                        panelShadow={PANEL_SHADOW}
-                        panelMuted={PANEL_MUTED}
-                        textPrimary={TEXT_PRIMARY}
-                        textSecondary={TEXT_SECONDARY}
-                        replayComparison={data.replayComparison}
-                        activeReplayDiffIndustry={data.activeReplayDiffIndustry}
-                        handleReplayDiffIndustrySelect={data.handleReplayDiffIndustrySelect}
-                        handleIndustryClick={handleIndustryClickWithDetail}
-                        getIndustryScoreTone={getIndustryScoreTone}
-                        formatReplayDelta={data.formatReplayDelta}
-                        replayIndustryDiffDetail={data.replayIndustryDiffDetail}
-                        watchlistIndustries={data.watchlistIndustries}
-                        toggleWatchlistIndustry={data.toggleWatchlistIndustry}
-                        formatReplayMetricPercent={data.formatReplayMetricPercent}
-                        formatReplayMetricMoney={data.formatReplayMetricMoney}
-                    />
-
-                    <IndustryAlertsPanel
-                        industryAlertsWithSeverity={data.industryAlertsWithSeverity}
-                        rawIndustryAlerts={data.rawIndustryAlerts}
-                        focusIndustrySuggestions={data.focusIndustrySuggestions}
-                        subscribedAlertNewCount={data.subscribedAlertNewCount}
-                        industryAlertSubscription={data.industryAlertSubscription}
-                        desktopAlertNotifications={data.desktopAlertNotifications}
-                        industryAlertRule={data.industryAlertRule}
-                        setIndustryAlertRule={data.setIndustryAlertRule}
-                        industryAlertRecency={data.industryAlertRecency}
-                        setIndustryAlertRecency={data.setIndustryAlertRecency}
-                        industryAlertKindOptions={INDUSTRY_ALERT_KIND_OPTIONS}
-                        industryAlertRecencyOptions={INDUSTRY_ALERT_RECENCY_OPTIONS}
-                        setIndustryAlertSubscription={data.setIndustryAlertSubscription}
-                        industryAlertThresholds={data.industryAlertThresholds}
-                        setIndustryAlertThresholds={data.setIndustryAlertThresholds}
-                        requestDesktopAlertPermission={data.requestDesktopAlertPermission}
-                        toggleWatchlistIndustry={data.toggleWatchlistIndustry}
-                        watchlistIndustries={data.watchlistIndustries}
-                        selectedIndustry={data.selectedIndustry}
-                        setSelectedIndustry={data.setSelectedIndustry}
-                        handleIndustryClick={handleIndustryClickWithDetail}
-                        handleAddToComparison={data.handleAddToComparison}
-                        alertTimelineEntries={data.alertTimelineEntries}
-                        formatIndustryAlertSeenLabel={formatIndustryAlertSeenLabel}
-                        message={message}
-                    />
-
-                    <IndustrySavedViewsPanel
-                        draftName={data.savedViewDraftName}
-                        onDraftNameChange={data.setSavedViewDraftName}
-                        onSave={data.saveCurrentIndustryView}
-                        savedViews={data.savedIndustryViews}
-                        onApply={data.applySavedIndustryView}
-                        onOverwrite={data.overwriteSavedIndustryView}
-                        onRemove={data.removeSavedIndustryView}
-                        onExport={data.handleExportSavedViews}
-                        onImportClick={data.handleImportSavedViewsClick}
+                        activeKey={workspaceTab}
+                        onChange={setWorkspaceTab}
+                        items={workspaceTabItems}
                     />
                     <input
                         ref={data.savedViewImportInputRef}
@@ -1002,91 +1243,8 @@ const IndustryDashboard = () => {
                         onChange={data.handleImportSavedViews}
                         style={{ display: 'none' }}
                     />
-                </Col>
-
-                {/* 右侧：龙头股推荐 */}
-                <Col xs={24} lg={8}>
-                    <IndustryResearchFocusPanel
-                        selectedIndustry={data.selectedIndustry}
-                        selectedIndustrySnapshot={data.selectedIndustrySnapshot}
-                        selectedIndustryMarketCapBadge={data.selectedIndustryMarketCapBadge}
-                        selectedIndustryVolatilityMeta={data.selectedIndustryVolatilityMeta}
-                        selectedIndustryFocusNarrative={data.selectedIndustryFocusNarrative}
-                        selectedIndustryScoreBreakdown={data.selectedIndustryScoreBreakdown}
-                        selectedIndustryScoreSummary={data.selectedIndustryScoreSummary}
-                        selectedIndustryReasons={data.selectedIndustryReasons}
-                        selectedIndustryWatched={data.selectedIndustryWatched}
-                        focusIndustrySuggestions={data.focusIndustrySuggestions}
-                        onClearIndustry={() => data.setSelectedIndustry(null)}
-                        onOpenIndustryDetail={openSelectedIndustryDetailWithModal}
-                        onToggleWatchlist={() => data.toggleWatchlistIndustry(data.selectedIndustry)}
-                        onAddToComparison={() => data.handleAddToComparison(data.selectedIndustry)}
-                        onSelectIndustry={handleIndustryClickWithDetail}
-                    />
-
-                    <Card
-                        size="small"
-                        style={{ borderRadius: 12 }}
-                        styles={{ body: { paddingTop: 10 } }}
-                    >
-                        <Tabs
-                            defaultActiveKey="leaders"
-                            items={[
-                                {
-                                    key: 'leaders',
-                                    label: '龙头股',
-                                    children: data.shouldRenderLeaderPanel ? (
-                                        <LeaderStockPanel
-                                            topN={5}
-                                            topIndustries={5}
-                                            perIndustry={3}
-                                            focusIndustry={data.selectedIndustry}
-                                            onClearFocusIndustry={() => data.setSelectedIndustry(null)}
-                                        />
-                                    ) : (
-                                        <Card
-                                            title={
-                                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                                    <span>
-                                                        <CrownOutlined style={{ marginRight: 8, color: '#faad14' }} />
-                                                        龙头股推荐
-                                                    </span>
-                                                    <span style={{ fontSize: 11, color: TEXT_SECONDARY, fontWeight: 400 }}>首屏优先渲染行业热力图，龙头股榜单稍后加载</span>
-                                                </div>
-                                            }
-                                            styles={{ body: { paddingTop: 20, paddingBottom: 20 } }}
-                                        >
-                                            <div style={{ textAlign: 'center', padding: '18px 0 10px' }}>
-                                                <Spin size="small" />
-                                                <div style={{ marginTop: 12, fontSize: 12, color: TEXT_SECONDARY }}>
-                                                    正在后台准备龙头股榜单...
-                                                </div>
-                                            </div>
-                                        </Card>
-                                    ),
-                                },
-                                {
-                                    key: 'watchlist',
-                                    label: `观察列表${data.watchlistEntries.length > 0 ? ` (${data.watchlistEntries.length})` : ''}`,
-                                    children: (
-                                        <IndustryWatchlistPanel
-                                            watchlistEntries={data.watchlistEntries}
-                                            watchlistSuggestions={data.watchlistSuggestions}
-                                            selectedIndustry={data.selectedIndustry}
-                                            maxWatchlistIndustries={data.maxWatchlistIndustries}
-                                            toggleWatchlistIndustry={data.toggleWatchlistIndustry}
-                                            setSelectedIndustry={data.setSelectedIndustry}
-                                            handleIndustryClick={handleIndustryClickWithDetail}
-                                            handleAddToComparison={data.handleAddToComparison}
-                                            formatIndustryAlertMoneyFlow={formatIndustryAlertMoneyFlow}
-                                        />
-                                    ),
-                                },
-                            ]}
-                        />
-                    </Card>
-                </Col>
-            </Row>
+                </div>
+            </div>
 
             <Modal
                 title="行业热力图全屏"
@@ -1132,10 +1290,10 @@ const IndustryDashboard = () => {
                 open={detailVisible}
                 onCancel={() => setDetailVisible(false)}
                 footer={null}
-                width={1000}
+                width={1120}
                 destroyOnHidden
-                modalRender={(node) => <div data-testid="industry-detail-modal">{node}</div>}
-                styles={{ body: { padding: '0 24px 24px' } }}
+                modalRender={(node) => <div className="industry-detail-modal-shell" data-testid="industry-detail-modal">{node}</div>}
+                styles={{ body: { padding: '0 20px 20px', maxHeight: 'calc(100vh - 160px)', overflowY: 'auto', overscrollBehavior: 'contain' } }}
             >
                 <IndustryTrendPanel
                     industryName={data.selectedIndustry}
@@ -1168,7 +1326,7 @@ const IndustryDashboard = () => {
                     ? data.selectedIndustrySnapshot
                     : (data.heatmapIndustries || []).find((item) => item?.name === scoreRadarRecord.industry_name) : null}
             />
-        </Layout>
+        </div>
     );
 };
 

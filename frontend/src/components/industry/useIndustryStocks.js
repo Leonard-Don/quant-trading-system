@@ -10,6 +10,9 @@ const INDUSTRY_STOCK_FULL_POLL_ATTEMPTS = 30;
 const INDUSTRY_STOCK_FULL_POLL_INTERVAL_MS = 900;
 const INDUSTRY_API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
 
+const INDUSTRY_STOCK_DISPLAY_ROW_TARGET = 5;
+const INDUSTRY_STOCK_DISPLAY_DETAIL_ROW_TARGET = 2;
+
 const getIndustryStockScoreStage = (stocks = []) => {
     if (!Array.isArray(stocks) || stocks.length === 0) return null;
     if (stocks.some((stock) => stock?.scoreStage === 'full')) return 'full';
@@ -17,21 +20,32 @@ const getIndustryStockScoreStage = (stocks = []) => {
     return stocks.some((stock) => Number(stock?.total_score || 0) > 0) ? 'full' : 'quick';
 };
 
-const hasDisplayReadyIndustryStockDetails = (stocks = []) => {
-    if (!Array.isArray(stocks) || stocks.length === 0) return false;
+const hasDisplayReadyIndustryStockDetailValue = (value, { positiveOnly = false } = {}) => {
+    if (value === null || value === undefined || value === '') return false;
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) return false;
+    return positiveOnly ? numericValue > 0 : true;
+};
 
-    const hasDetailValue = (value) => value !== null && value !== undefined && value !== '' && Number.isFinite(Number(value));
-    const detailThreshold = Math.max(3, Math.ceil(stocks.length * 0.5));
-    const detailedRows = stocks.filter((stock) => [stock?.market_cap, stock?.pe_ratio, stock?.change_pct]
-        .some((value) => hasDetailValue(value)));
-    if (detailedRows.length >= detailThreshold) {
+const getIndustryStockDetailFieldCount = (stock = {}) => (
+    [
+        hasDisplayReadyIndustryStockDetailValue(stock?.market_cap, { positiveOnly: true }),
+        hasDisplayReadyIndustryStockDetailValue(stock?.pe_ratio, { positiveOnly: true }),
+        hasDisplayReadyIndustryStockDetailValue(stock?.money_flow),
+        hasDisplayReadyIndustryStockDetailValue(stock?.turnover_rate, { positiveOnly: true })
+            || hasDisplayReadyIndustryStockDetailValue(stock?.turnover, { positiveOnly: true }),
+    ].filter(Boolean).length
+);
+
+export const hasDisplayReadyIndustryStockDetails = (stocks = []) => {
+    if (!Array.isArray(stocks) || stocks.length === 0) return false;
+    const visibleRows = stocks.slice(0, Math.min(INDUSTRY_STOCK_DISPLAY_ROW_TARGET, stocks.length));
+    const strongDetailRows = visibleRows.filter((stock) => getIndustryStockDetailFieldCount(stock) >= 2);
+    if (strongDetailRows.length >= 1) {
         return true;
     }
-
-    const scoredDetailRows = stocks.filter((stock) => Number(stock?.total_score || 0) > 0
-        && [stock?.market_cap, stock?.pe_ratio, stock?.change_pct].some((value) => hasDetailValue(value)));
-
-    return scoredDetailRows.length >= detailThreshold;
+    const visibleDetailedRows = visibleRows.filter((stock) => getIndustryStockDetailFieldCount(stock) >= 1);
+    return visibleDetailedRows.length >= Math.min(INDUSTRY_STOCK_DISPLAY_DETAIL_ROW_TARGET, visibleRows.length);
 };
 
 const waitForAbortableDelay = (signal, timeoutMs) => (

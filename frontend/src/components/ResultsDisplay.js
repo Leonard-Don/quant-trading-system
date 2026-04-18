@@ -42,7 +42,7 @@ import MonthlyHeatmap from './MonthlyHeatmap';
 import RiskRadar from './RiskRadar';
 import ReturnHistogram from './ReturnHistogram';
 
-const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperiment }) => {
+const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, onContinueAdvancedExperiment }) => {
   const message = useSafeMessageApi();
   const [activeTab, setActiveTab] = useState('overview');
   const [marketRegimeLoading, setMarketRegimeLoading] = useState(false);
@@ -194,6 +194,42 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
       icon: <ThunderboltOutlined style={{ fontSize: '14px' }} />,
     },
   ];
+  const resultSummaryItems = [
+    { label: '策略', value: getStrategyName(normalizedResults.strategy) },
+    { label: '标的', value: normalizedResults.symbol || '未提供' },
+    { label: '总收益', value: formatPercentage(normalizedResults.total_return || 0) },
+    { label: '夏普', value: normalizedResults.sharpe_ratio?.toFixed(2) || '不适用' },
+    { label: '最大回撤', value: formatPercentage(Math.abs(normalizedResults.max_drawdown || 0)) },
+  ];
+  const secondaryMetrics = [
+    {
+      key: 'sortino_ratio',
+      title: '索提诺比率',
+      value: normalizedResults.sortino_ratio,
+      precision: 2,
+      color: getValueColor(normalizedResults.sortino_ratio),
+      icon: <RiseOutlined style={{ fontSize: '14px' }} />,
+    },
+    {
+      key: 'var_95',
+      title: '在险价值 (95%)',
+      value: Math.abs(normalizedResults.var_95 || 0) * 100,
+      precision: 2,
+      suffix: '%',
+      color: 'var(--accent-warning)',
+      icon: <ThunderboltOutlined style={{ fontSize: '14px' }} />,
+    },
+    {
+      key: 'avg_trade',
+      title: '平均单笔收益',
+      value: normalizedResults.avg_trade,
+      precision: 2,
+      color: getValueColor(normalizedResults.avg_trade),
+      icon: <TransactionOutlined style={{ fontSize: '14px' }} />,
+    },
+    ...extendedMetrics,
+  ];
+  const signalLeadItems = signalExplanation.slice(0, 2);
 
   const runMarketRegimeAnalysis = async () => {
     if (!normalizedResults.symbol || !normalizedResults.strategy) {
@@ -467,16 +503,16 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
         <div className="workspace-analysis-stack">
           <Row gutter={[16, 16]}>
             <Col xs={24} xl={16}>
-              <div className="workspace-section workspace-section--accent">
+              <div className="workspace-section workspace-section--accent results-overview-hero">
                 <div className="workspace-section__header">
                   <div>
-                    <div className="workspace-section__title">首屏结论</div>
-                    <div className="workspace-section__description">先看收益、风险和最终价值，再决定是否继续深入图表与交易诊断。</div>
+                    <div className="workspace-section__title">结果总览</div>
+                    <div className="workspace-section__description">先抓住收益、风险和最终价值，再决定要不要继续钻图表、执行细节和市场状态。</div>
                   </div>
                 </div>
-                <Row gutter={[16, 16]}>
+                <div className="results-primary-kpi-grid">
                   {primaryMetrics.map((metric) => (
-                    <Col xs={24} sm={12} lg={8} key={metric.key}>
+                    <div key={metric.key}>
                       <Card className="metric-card workspace-kpi-card" size="small">
                         <Statistic
                           title={metric.title}
@@ -488,20 +524,20 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
                           prefix={metric.icon}
                         />
                       </Card>
-                    </Col>
+                    </div>
                   ))}
-                </Row>
+                </div>
               </div>
             </Col>
             <Col xs={24} xl={8}>
-              <div className="workspace-section">
+              <div className="workspace-section results-diagnostic-panel">
                 <div className="workspace-section__header">
                   <div>
-                    <div className="workspace-section__title">次级诊断</div>
-                    <div className="workspace-section__description">补充交易效率、持仓状态和完成交易数，帮助快速判断结果质量。</div>
+                    <div className="workspace-section__title">运行诊断</div>
+                    <div className="workspace-section__description">用更短的检查项确认这次结果是否值得继续投入时间。</div>
                   </div>
                 </div>
-                <div className="summary-strip summary-strip--stack">
+                <div className="results-diagnostic-grid">
                   {diagnosticMetrics.map((item) => (
                     <div key={item.label} className="summary-strip__item">
                       <span className="summary-strip__label">{item.label}</span>
@@ -513,47 +549,16 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
             </Col>
           </Row>
 
-          <Row gutter={[16, 16]}>
-            <Col xs={24} md={8}>
-              <Card className="metric-card workspace-kpi-card" size="small">
-                <Statistic
-                  title="索提诺比率"
-                  value={normalizedResults.sortino_ratio}
-                  precision={2}
-                  valueStyle={{ color: getValueColor(normalizedResults.sortino_ratio), fontSize: '18px' }}
-                  prefix={<RiseOutlined style={{ fontSize: '14px' }} />}
-                />
-              </Card>
-            </Col>
-            <Col xs={24} md={8}>
-              <Card className="metric-card workspace-kpi-card" size="small">
-                <Statistic
-                  title="在险价值 (95%)"
-                  value={Math.abs(normalizedResults.var_95 || 0) * 100}
-                  precision={2}
-                  suffix="%"
-                  valueStyle={{ color: 'var(--accent-warning)', fontSize: '18px' }}
-                  prefix={<ThunderboltOutlined style={{ fontSize: '14px' }} />}
-                />
-              </Card>
-            </Col>
-            <Col xs={24} md={8}>
-              <Card className="metric-card workspace-kpi-card" size="small">
-                <Statistic
-                  title="平均单笔收益"
-                  value={normalizedResults.avg_trade}
-                  precision={2}
-                  valueStyle={{ color: getValueColor(normalizedResults.avg_trade), fontSize: '18px' }}
-                  prefix={<TransactionOutlined style={{ fontSize: '14px' }} />}
-                />
-              </Card>
-            </Col>
-          </Row>
-
-          <Row gutter={[16, 16]}>
-            {extendedMetrics.map((metric) => (
-              <Col xs={24} sm={12} xl={6} key={metric.key}>
-                <Card className="metric-card workspace-kpi-card" size="small">
+          <div className="workspace-section">
+            <div className="workspace-section__header">
+              <div>
+                <div className="workspace-section__title">补充指标</div>
+                <div className="workspace-section__description">把风险、持仓效率和盈亏结构压成一组紧凑卡片，不再拆成多段往下堆。</div>
+              </div>
+            </div>
+            <div className="results-secondary-kpi-grid">
+              {secondaryMetrics.map((metric) => (
+                <Card key={metric.key} className="metric-card workspace-kpi-card" size="small">
                   <Statistic
                     title={metric.title}
                     value={metric.value}
@@ -564,19 +569,19 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
                     prefix={metric.icon}
                   />
                 </Card>
-              </Col>
-            ))}
-          </Row>
+              ))}
+            </div>
+          </div>
 
           {signalExplanation.length ? (
             <div className="workspace-section">
               <div className="workspace-section__header">
                 <div>
                   <div className="workspace-section__title">信号解释</div>
-                  <div className="workspace-section__description">把结果翻译成更容易复盘的结论，帮助判断策略为什么赚钱、亏钱或还不够稳。</div>
+                  <div className="workspace-section__description">把结果翻译成短句结论，帮助快速理解策略为什么有效、哪里还不稳。</div>
                 </div>
               </div>
-              <div className="summary-strip summary-strip--stack">
+              <div className="results-note-grid">
                 {signalExplanation.map((item, index) => (
                   <div key={`${index + 1}-${item.slice(0, 12)}`} className="summary-strip__item">
                     <span className="summary-strip__label">结论 {index + 1}</span>
@@ -605,7 +610,7 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
                     : '当前结果已经附带执行层诊断信息，便于区分事件信号回测和目标仓位回测。'
                 }
               />
-              <div className="summary-strip summary-strip--stack" style={{ marginTop: 12 }}>
+              <div className="results-note-grid" style={{ marginTop: 12 }}>
                 {executionDiagnosticItems.map((item) => (
                   <div key={item.label} className="summary-strip__item">
                     <span className="summary-strip__label">{item.label}</span>
@@ -809,7 +814,7 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
   ];
 
   return (
-    <div className="results-container backtest-results" style={{ marginTop: '16px' }}>
+    <div className="results-container backtest-results">
       <Card
         className="workspace-panel workspace-panel--result"
         title={
@@ -857,36 +862,37 @@ const ResultsDisplay = ({ results, onOpenHistoryRecord, onContinueAdvancedExperi
         }
         size="small"
       >
-        <div className="summary-strip summary-strip--compact">
-          <div className="summary-strip__item">
-            <span className="summary-strip__label">策略</span>
-            <span className="summary-strip__value">{getStrategyName(normalizedResults.strategy)}</span>
-          </div>
-          <div className="summary-strip__item">
-            <span className="summary-strip__label">标的</span>
-            <span className="summary-strip__value">{normalizedResults.symbol || '未提供'}</span>
-          </div>
-          <div className="summary-strip__item">
-            <span className="summary-strip__label">状态</span>
-            <span className="summary-strip__value">{Number(normalizedResults.total_return || 0) >= 0 ? '收益为正' : '收益承压'}</span>
-          </div>
+        <div className="summary-strip summary-strip--compact results-summary-strip">
+          {resultSummaryItems.map((item) => (
+            <div key={item.label} className="summary-strip__item">
+              <span className="summary-strip__label">{item.label}</span>
+              <span className="summary-strip__value">{item.value}</span>
+            </div>
+          ))}
         </div>
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message={`${getStrategyName(normalizedResults.strategy)} · ${strategyDetails.style}`}
-          description={`${strategyDetails.summary} ${strategyDetails.marketFit}`}
-        />
-        {actionPosture ? (
+        {isRefreshing ? (
           <Alert
-            type={actionPosture.type}
+            type="info"
             showIcon
             style={{ marginBottom: 16 }}
-            message={actionPosture.title}
-            description={`${actionPosture.actionHint} ${actionPosture.reason}`.trim()}
+            message="正在基于新配置刷新回测结果"
+            description="当前先保留上一版分析面板，等新结果返回后会自动替换。"
           />
         ) : null}
+        <div className="results-lead-grid">
+          <div className="workspace-section results-lead-card results-lead-card--profile">
+            <div className="results-lead-card__eyebrow">策略画像</div>
+            <div className="results-lead-card__title">{`${getStrategyName(normalizedResults.strategy)} · ${strategyDetails.style}`}</div>
+            <div className="results-lead-card__copy">{strategyDetails.summary}</div>
+            <div className="results-lead-card__meta">{strategyDetails.marketFit}</div>
+          </div>
+          <div className={`workspace-section results-lead-card results-lead-card--${actionPosture?.type || 'info'}`}>
+            <div className="results-lead-card__eyebrow">当前建议</div>
+            <div className="results-lead-card__title">{actionPosture?.title || '继续观察结果'}</div>
+            <div className="results-lead-card__copy">{actionPosture?.actionHint || '先看概览指标，再决定是否继续分析图表和交易记录。'}</div>
+            <div className="results-lead-card__meta">{actionPosture?.reason || signalLeadItems[0] || '当前结果已经进入结果工作区，可以继续做对照和稳健性验证。'}</div>
+          </div>
+        </div>
         <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
       </Card>
     </div>

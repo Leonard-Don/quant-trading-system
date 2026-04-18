@@ -22,11 +22,20 @@ function BenchmarkSection({
   benchmarkContext,
   benchmarkSummary,
   benchmarkChartData,
+  benchmarkLoading,
 }) {
   return (
     <Card className="workspace-panel workspace-chart-card" title="基准对照">
       {benchmarkResult?.data && benchmarkContext?.strategy ? (
         <Space direction="vertical" style={{ width: '100%' }} size="large">
+          {benchmarkLoading ? (
+            <Alert
+              type="info"
+              showIcon
+              message="正在刷新基准对照"
+              description="当前先保留上一版和买入持有的对比，新的基准结果返回后会自动替换。"
+            />
+          ) : null}
           <Alert
             type={benchmarkSummary?.beatBenchmark ? 'success' : 'warning'}
             showIcon

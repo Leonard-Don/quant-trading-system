@@ -272,6 +272,7 @@ function WalkForwardResults({
   walkResult,
   walkForwardChartData,
   walkInsight,
+  walkLoading,
   focusedWalkRecord,
   focusedWalkWindowKey,
   setFocusedWalkWindowKey,
@@ -292,6 +293,14 @@ function WalkForwardResults({
     >
       {walkResult ? (
         <Space direction="vertical" style={{ width: '100%' }} size="large">
+          {walkLoading ? (
+            <Alert
+              type="info"
+              showIcon
+              message="正在刷新滚动前瞻结果"
+              description="上一版窗口稳定性分析会先保留，新的样本外验证完成后会自动替换。"
+            />
+          ) : null}
           <div className="summary-strip">
             <div className="summary-strip__item">
               <span className="summary-strip__label">滚动窗口</span>
@@ -394,8 +403,10 @@ function WalkForwardResults({
                       strokeWidth={2.5}
                       dot={(props) => {
                         const isFocused = props?.payload?.key === focusedWalkWindowKey;
+                        const pointKey = props?.payload?.key || `${props?.cx ?? 'x'}-${props?.cy ?? 'y'}`;
                         return (
                           <circle
+                            key={pointKey}
                             cx={props.cx}
                             cy={props.cy}
                             r={isFocused ? 5 : 3}

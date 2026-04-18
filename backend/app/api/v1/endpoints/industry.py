@@ -18,6 +18,7 @@ from pathlib import Path
 
 from src.data.providers.sina_ths_adapter import map_ths_to_sina
 from src.analytics.industry_stock_details import (
+    backfill_stock_details_with_valuation,
     build_enriched_industry_stocks,
     extract_stock_detail_fields,
     has_meaningful_numeric,
@@ -486,6 +487,69 @@ def _build_stock_responses(
     return normalized_stocks
 
 
+def _count_quick_stock_detail_fields(stock: Dict[str, Any]) -> int:
+    detail_fields = extract_stock_detail_fields(stock)
+    return sum([
+        1 if has_meaningful_numeric(detail_fields.get("market_cap")) else 0,
+        1 if has_meaningful_numeric(detail_fields.get("pe_ratio")) else 0,
+        1 if detail_fields.get("money_flow") is not None else 0,
+        1 if has_meaningful_numeric(detail_fields.get("turnover_rate")) else 0,
+    ])
+
+
+def _promote_detail_ready_quick_rows(
+    stocks: List[Dict[str, Any]],
+    visible_top_n: int = 5,
+    detail_target: int = 2,
+) -> List[Dict[str, Any]]:
+    """在 quick 阶段尽量让首屏先出现有真实明细的成分股。"""
+    if not stocks:
+        return stocks
+
+    front_size = min(len(stocks), visible_top_n)
+    target_count = min(detail_target, front_size)
+    front_rows = list(stocks[:front_size])
+    back_rows = list(stocks[front_size:])
+
+    front_detail_indexes = [
+        index for index, stock in enumerate(front_rows)
+        if _count_quick_stock_detail_fields(stock) > 0
+    ]
+    if len(front_detail_indexes) >= target_count:
+        return stocks
+
+    promoted_rows: List[Dict[str, Any]] = []
+    remaining_back_rows: List[Dict[str, Any]] = []
+    needed_promotions = target_count - len(front_detail_indexes)
+
+    for stock in back_rows:
+        if len(promoted_rows) < needed_promotions and _count_quick_stock_detail_fields(stock) > 0:
+            promoted_rows.append(stock)
+            continue
+        remaining_back_rows.append(stock)
+
+    if not promoted_rows:
+        return stocks
+
+    replacement_positions = [
+        index for index, stock in reversed(list(enumerate(front_rows)))
+        if _count_quick_stock_detail_fields(stock) == 0
+    ][:len(promoted_rows)]
+    if not replacement_positions:
+        return stocks
+
+    replacement_positions_set = set(replacement_positions)
+    kept_front_rows = [
+        stock for index, stock in enumerate(front_rows)
+        if index not in replacement_positions_set
+    ]
+    displaced_front_rows = [
+        stock for index, stock in enumerate(front_rows)
+        if index in replacement_positions_set
+    ]
+    return kept_front_rows + promoted_rows + displaced_front_rows + remaining_back_rows
+
+
 def _build_full_industry_stock_response(
     industry_name: str,
     top_n: int,
@@ -522,6 +586,8 @@ def _build_quick_industry_stock_response(
     industry_name: str,
     top_n: int,
     provider_stocks: List[dict],
+    provider=None,
+    enable_valuation_backfill: bool = True,
 ) -> List[StockResponse]:
     """构造快速版行业成分股结果（仅用现有行情做轻量评分，不做估值回填）。"""
     if not provider_stocks:
@@ -529,6 +595,7 @@ def _build_quick_industry_stock_response(
 
     try:
         scorer = get_leader_scorer()
+        provider = provider or getattr(scorer, "provider", None) or _get_or_create_provider()
         industry_stats = scorer.calculate_industry_stats(provider_stocks)
         quick_scored_stocks = []
         for stock in provider_stocks:
@@ -547,12 +614,222 @@ def _build_quick_industry_stock_response(
             key=lambda item: float(item.get("total_score") or 0),
             reverse=True,
         )
-        for idx, stock in enumerate(quick_scored_stocks[:top_n], 1):
+
+        quick_display_stocks = quick_scored_stocks[:top_n]
+        if provider is not None:
+            # 本地快照首屏优先保证尽快可渲染，避免首次请求重新被估值回填拖回远端冷启动。
+            if enable_valuation_backfill:
+                quick_display_stocks = backfill_stock_details_with_valuation(quick_display_stocks, provider)
+            quick_display_stocks = _promote_detail_ready_quick_rows(quick_display_stocks)
+
+        for idx, stock in enumerate(quick_display_stocks, 1):
             stock["rank"] = idx
-        return _build_stock_responses(quick_scored_stocks, industry_name, top_n, score_stage="quick")
+        return _build_stock_responses(quick_display_stocks, industry_name, top_n, score_stage="quick")
     except Exception as e:
         logger.warning(f"Failed to build quick stock scores for {industry_name}: {e}")
         return _build_stock_responses(provider_stocks, industry_name, top_n, score_stage="quick")
+
+
+def _coerce_trend_alignment_stock_rows(stocks: List[Any]) -> List[Dict[str, Any]]:
+    """将 StockResponse / dict 统一转成趋势面板可复用的成分股字典。"""
+    rows: List[Dict[str, Any]] = []
+    for stock in stocks or []:
+        payload = _model_to_dict(stock)
+        symbol = normalize_symbol(payload.get("symbol") or payload.get("code") or "")
+        if not symbol:
+            continue
+        rows.append(
+            {
+                "symbol": symbol,
+                "code": symbol,
+                "name": payload.get("name", ""),
+                "market_cap": payload.get("market_cap"),
+                "pe_ratio": payload.get("pe_ratio"),
+                "change_pct": payload.get("change_pct"),
+                "money_flow": payload.get("money_flow"),
+                "turnover_rate": payload.get("turnover_rate"),
+                "turnover": payload.get("turnover_rate"),
+                "total_score": payload.get("total_score"),
+            }
+        )
+    return rows
+
+
+def _load_trend_alignment_stock_rows(
+    industry_name: str,
+    expected_count: int,
+    provider=None,
+) -> List[Dict[str, Any]]:
+    """
+    为趋势详情加载一组与弹窗成分股列表更一致的股票行。
+
+    这里优先复用 stocks 接口缓存；若没有缓存，再走 quick 构建，避免趋势接口被完整评分阻塞。
+    """
+    provider = provider or _get_or_create_provider()
+    target_top_n = min(max(int(expected_count or 0), 12), 30) if expected_count else 20
+    quick_cache_key, full_cache_key = _get_stock_cache_keys(industry_name, target_top_n)
+
+    cached_rows = _get_endpoint_cache(full_cache_key)
+    if cached_rows is None:
+        cached_rows = _get_endpoint_cache(quick_cache_key)
+    if cached_rows is not None:
+        return _coerce_trend_alignment_stock_rows(cached_rows)
+
+    provider_rows: List[Dict[str, Any]] = []
+    cached_stock_loader = getattr(provider, "get_cached_stock_list_by_industry", None)
+    if callable(cached_stock_loader):
+        try:
+            provider_rows = cached_stock_loader(industry_name) or []
+        except Exception as exc:
+            logger.warning("Failed to load cached trend-alignment stocks for %s: %s", industry_name, exc)
+
+    if not provider_rows:
+        try:
+            provider_rows = provider.get_stock_list_by_industry(industry_name) or []
+        except Exception as exc:
+            logger.warning("Failed to load provider trend-alignment stocks for %s: %s", industry_name, exc)
+            provider_rows = []
+
+    if provider_rows:
+        quick_rows = _build_quick_industry_stock_response(
+            industry_name,
+            target_top_n,
+            provider_rows,
+            provider=provider,
+            enable_valuation_backfill=False,
+        )
+        if quick_rows:
+            return _coerce_trend_alignment_stock_rows(quick_rows)
+
+    full_rows = _build_full_industry_stock_response(
+        industry_name,
+        target_top_n,
+        provider=provider,
+    )
+    return _coerce_trend_alignment_stock_rows(full_rows)
+
+
+def _build_trend_summary_from_stock_rows(
+    stocks: List[Dict[str, Any]],
+    expected_count: int,
+    fallback_total_market_cap: float = 0.0,
+    fallback_avg_pe: float = 0.0,
+) -> Dict[str, Any]:
+    """根据统一股票列表重建趋势面板的成分股摘要字段。"""
+    expected_count = max(int(expected_count or 0), 0)
+    expected_count_base = max(expected_count, 1)
+
+    detailed_stocks = []
+    valid_change_stocks = []
+    for stock in stocks or []:
+        detail = extract_stock_detail_fields(stock)
+        enriched_stock = {**stock, **detail}
+        detailed_stocks.append(enriched_stock)
+        if detail.get("change_pct") is not None:
+            valid_change_stocks.append(enriched_stock)
+
+    valid_market_caps = [
+        stock["market_cap"]
+        for stock in detailed_stocks
+        if has_meaningful_numeric(stock.get("market_cap"))
+    ]
+    valid_pe_ratios = [
+        stock["pe_ratio"]
+        for stock in detailed_stocks
+        if stock.get("pe_ratio") is not None and 0 < stock["pe_ratio"] < 500
+    ]
+    valid_pe_weighted_pairs = [
+        (stock["market_cap"], stock["pe_ratio"])
+        for stock in detailed_stocks
+        if has_meaningful_numeric(stock.get("market_cap"))
+        and stock.get("pe_ratio") is not None
+        and 0 < stock["pe_ratio"] < 500
+    ]
+
+    total_market_cap = sum(float(value) for value in valid_market_caps)
+    total_market_cap_fallback = False
+    if not total_market_cap and fallback_total_market_cap > 0:
+        total_market_cap = float(fallback_total_market_cap)
+        total_market_cap_fallback = True
+
+    if valid_pe_weighted_pairs:
+        total_pe_market_cap = sum(float(market_cap) for market_cap, _ in valid_pe_weighted_pairs)
+        total_earnings_proxy = sum(
+            float(market_cap) / float(pe_ratio)
+            for market_cap, pe_ratio in valid_pe_weighted_pairs
+            if float(pe_ratio) > 0
+        )
+        avg_pe = (total_pe_market_cap / total_earnings_proxy) if total_pe_market_cap > 0 and total_earnings_proxy > 0 else None
+    elif valid_pe_ratios:
+        avg_pe = sum(float(value) for value in valid_pe_ratios) / len(valid_pe_ratios)
+    else:
+        avg_pe = None
+
+    avg_pe_fallback = False
+    if avg_pe is None and fallback_avg_pe > 0:
+        avg_pe = float(fallback_avg_pe)
+        avg_pe_fallback = True
+
+    stock_coverage_ratio = min(len(stocks) / expected_count_base, 1.0) if expected_count > 0 else (1.0 if stocks else 0.0)
+    change_coverage_ratio = min(len(valid_change_stocks) / expected_count_base, 1.0) if expected_count > 0 else (1.0 if valid_change_stocks else 0.0)
+    market_cap_coverage_ratio = min(len(valid_market_caps) / expected_count_base, 1.0) if expected_count > 0 else (1.0 if valid_market_caps else 0.0)
+    pe_coverage_base = len(valid_pe_weighted_pairs) if valid_pe_weighted_pairs else len(valid_pe_ratios)
+    pe_coverage_ratio = min(pe_coverage_base / expected_count_base, 1.0) if expected_count > 0 else (1.0 if pe_coverage_base > 0 else 0.0)
+
+    top_gainers = sorted(valid_change_stocks, key=lambda item: item.get("change_pct", 0), reverse=True)[:5]
+    top_losers = sorted(valid_change_stocks, key=lambda item: item.get("change_pct", 0))[:5]
+    rise_count = sum(1 for item in valid_change_stocks if item.get("change_pct", 0) > 0)
+    fall_count = sum(1 for item in valid_change_stocks if item.get("change_pct", 0) < 0)
+    flat_count = sum(1 for item in valid_change_stocks if item.get("change_pct", 0) == 0)
+
+    note = None
+    degraded = False
+    if len(stocks) <= 3 and expected_count > 10:
+        degraded = True
+        note = f"成分股列表可能不完整（获取到 {len(stocks)} 只，预期约 {expected_count} 只）。当前展示可能存在偏差。"
+    elif len(stocks) == 1:
+        note = "该行业目前仅获取到单只成分股明细，分布数据仅供参考。"
+
+    return {
+        "stock_count": len(stocks),
+        "expected_stock_count": expected_count,
+        "total_market_cap": total_market_cap,
+        "avg_pe": round(avg_pe, 2) if avg_pe is not None and not (isinstance(avg_pe, float) and math.isnan(avg_pe)) else 0,
+        "top_gainers": top_gainers,
+        "top_losers": top_losers,
+        "rise_count": rise_count,
+        "fall_count": fall_count,
+        "flat_count": flat_count,
+        "stock_coverage_ratio": round(stock_coverage_ratio, 4),
+        "change_coverage_ratio": round(change_coverage_ratio, 4),
+        "market_cap_coverage_ratio": round(market_cap_coverage_ratio, 4),
+        "pe_coverage_ratio": round(pe_coverage_ratio, 4),
+        "total_market_cap_fallback": total_market_cap_fallback,
+        "avg_pe_fallback": avg_pe_fallback,
+        "degraded": degraded,
+        "note": note,
+    }
+
+
+def _should_align_trend_with_stock_rows(
+    trend_data: Dict[str, Any],
+    stock_rows: List[Dict[str, Any]],
+) -> bool:
+    """判断趋势摘要是否应该回收成分股列表口径。"""
+    if not stock_rows:
+        return False
+
+    trend_count = int(trend_data.get("stock_count", 0) or 0)
+    expected_count = int(trend_data.get("expected_stock_count", 0) or 0)
+    aligned_count = len(stock_rows)
+
+    if trend_data.get("degraded") and aligned_count > trend_count:
+        return True
+    if trend_count <= 3 and aligned_count >= 5:
+        return True
+    if expected_count > 0 and trend_count > max(expected_count * 2, expected_count + 15):
+        return aligned_count >= min(max(expected_count // 3, 4), 30)
+    return False
 
 
 def _schedule_full_stock_cache_build(
@@ -799,6 +1076,26 @@ def get_industry_stocks(
             return quick_cached
 
         provider = _get_or_create_provider()
+        cached_provider_rows = []
+        cached_stock_loader = getattr(provider, "get_cached_stock_list_by_industry", None)
+        if callable(cached_stock_loader):
+            try:
+                cached_provider_rows = cached_stock_loader(industry_name)
+            except Exception as e:
+                logger.warning(f"Failed to load cached industry stocks for {industry_name}: {e}")
+
+        if cached_provider_rows:
+            quick_result = _build_quick_industry_stock_response(
+                industry_name,
+                top_n,
+                cached_provider_rows,
+                provider=provider,
+                enable_valuation_backfill=False,
+            )
+            _set_endpoint_cache(quick_cache_key, quick_result)
+            _schedule_full_stock_cache_build(industry_name, top_n)
+            return quick_result
+
         provider_stocks = provider.get_stock_list_by_industry(industry_name)
 
         # 首次请求优先返回 provider 的原始行业成分股，避免评分排序和估值回填阻塞首屏。
@@ -807,6 +1104,7 @@ def get_industry_stocks(
                 industry_name,
                 top_n,
                 provider_stocks,
+                provider=provider,
             )
             _set_endpoint_cache(quick_cache_key, quick_result)
             _schedule_full_stock_cache_build(industry_name, top_n)
@@ -1009,7 +1307,7 @@ def get_industry_trend(
     
     返回指定行业的详细趋势分析，包括涨幅/跌幅前5的股票。
     """
-    cache_key = f"trend:v4:{industry_name}:{days}"
+    cache_key = f"trend:v5:{industry_name}:{days}"
     try:
         # 1. 检查有效缓存
         cached = _get_endpoint_cache(cache_key)
@@ -1052,6 +1350,31 @@ def get_industry_trend(
             note=trend_data.get("note"),
             update_time=trend_data.get("update_time", ""),
         )
+
+        should_attempt_alignment = (
+            result.degraded
+            or (
+                result.expected_stock_count > 0
+                and result.stock_count > max(result.expected_stock_count * 2, result.expected_stock_count + 15)
+            )
+        )
+        if should_attempt_alignment:
+            provider = getattr(analyzer, "provider", None) or _get_or_create_provider()
+            aligned_stock_rows = _load_trend_alignment_stock_rows(
+                industry_name,
+                result.expected_stock_count,
+                provider=provider,
+            )
+            if _should_align_trend_with_stock_rows(result.model_dump(), aligned_stock_rows):
+                aligned_summary = _build_trend_summary_from_stock_rows(
+                    aligned_stock_rows,
+                    expected_count=result.expected_stock_count,
+                    fallback_total_market_cap=result.total_market_cap,
+                    fallback_avg_pe=result.avg_pe,
+                )
+                aligned_payload = result.model_dump()
+                aligned_payload.update(aligned_summary)
+                result = IndustryTrendResponse(**aligned_payload)
         
         # 2. 如果当前数据降级，尝试使用健康的过期缓存兜底
         if result.degraded:
@@ -1455,12 +1778,19 @@ def get_leader_stocks(
                 # 保存快照状态到独立 parity 缓存（30分钟 TTL）
                 for l in core_leaders:
                     _set_parity_cache(l.symbol, "core", l)
+            else:
+                stale = _get_stale_endpoint_cache(cache_key)
+                if stale is not None:
+                    logger.warning("Core leaders empty, using stale cache: %s", cache_key)
+                    return stale
             return core_leaders
 
         # ========== 热点先锋 (Hot Movers) 逻辑 ==========
         # 优先路径：从热力图数据中提取 leading_stock（THS 已有领涨股信息）
         heatmap_df = analyzer.analyze_money_flow(days=1)
         leaders_from_heatmap = []
+        scorer = get_leader_scorer()
+        valuation_provider = getattr(analyzer, "provider", None)
 
         if not heatmap_df.empty and "leading_stock" in heatmap_df.columns:
             sort_col = "main_net_inflow" if "main_net_inflow" in heatmap_df.columns else "change_pct"
@@ -1494,20 +1824,28 @@ def get_leader_stocks(
                     real_symbol = quick_symbol
                 else:
                     real_symbol = _resolve_symbol_with_provider(leading_stock)
-                
+
+                valuation_snapshot = {}
+                if re.fullmatch(r"\d{6}", real_symbol) and valuation_provider and hasattr(valuation_provider, "get_stock_valuation"):
+                    try:
+                        candidate = valuation_provider.get_stock_valuation(real_symbol)
+                        if isinstance(candidate, dict) and "error" not in candidate:
+                            valuation_snapshot = candidate
+                    except Exception as exc:
+                        logger.warning("Failed to hydrate hot leader valuation for %s: %s", real_symbol, exc)
+
                 snapshot_data = {
                     "symbol": real_symbol,
                     "name": leading_stock,
-                    "market_cap": 0,
-                    "pe_ratio": 0,
+                    "market_cap": float(valuation_snapshot.get("market_cap") or 0),
+                    "pe_ratio": float(valuation_snapshot.get("pe_ttm") or valuation_snapshot.get("pe_ratio") or 0),
                     "change_pct": change_pct,
-                    "amount": abs(float(row.get("main_net_inflow", 0) or 0)),
-                    "turnover": 0,
+                    "amount": float(valuation_snapshot.get("amount") or abs(float(row.get("main_net_inflow", 0) or 0))),
+                    "turnover": float(valuation_snapshot.get("turnover") or 0),
                     "net_inflow_ratio": net_inflow_ratio,
                 }
 
                 # [性能优化] 使用 snapshot 快速评分，避免逐股请求 AKShare 财务接口
-                scorer = get_leader_scorer()
                 score_detail = scorer.score_stock_from_snapshot(snapshot_data, score_type="hot")
 
                 if "error" not in score_detail:
@@ -1635,6 +1973,11 @@ def get_leader_stocks(
             _set_endpoint_cache(cache_key, result)
             for l in result:
                 _set_parity_cache(l.symbol, "hot", l)
+        else:
+            stale = _get_stale_endpoint_cache(cache_key)
+            if stale is not None:
+                logger.warning("Hot leaders empty, using stale cache: %s", cache_key)
+                return stale
         return result
 
     except HTTPException:

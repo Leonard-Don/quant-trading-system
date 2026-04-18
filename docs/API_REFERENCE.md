@@ -61,37 +61,6 @@
 - `metrics` (object): 无描述
 - `result` (object): 无描述
 
-### AlertEventPublishRequest
-
-**字段: **
-
-- `source_module` (string): 无描述
-- `rule_name` (string): 无描述
-- `symbol` (string): 无描述
-- `severity` (string): 无描述
-- `message` (string): 无描述
-- `condition_summary` (string): 无描述
-- `condition` (unknown): 无描述
-- `trigger_value` (unknown): 无描述
-- `threshold` (unknown): 无描述
-- `rule_ids` (array): 无描述
-- `notify_channels` (array): 无描述
-- `create_workbench_task` (boolean): 无描述
-- `workbench_task_type` (string): 无描述
-- `workbench_status` (string): 无描述
-- `persist_event_record` (boolean): 无描述
-- `cascade_actions` (array): 无描述
-
-### AlertOrchestrationUpdateRequest
-
-**字段: **
-
-- `composite_rules` (array): 无描述
-- `channels` (array): 无描述
-- `module_alerts` (array): 无描述
-- `history_entry` (unknown): 无描述
-- `history_updates` (array): 无描述
-
 ### AuthPolicyRequest
 
 **字段: **
@@ -381,15 +350,6 @@
 
 - `symbol` (string): 无描述
 
-### FactorExpressionRequest
-
-**字段: **
-
-- `symbol` (string): 无描述
-- `expression` (string): 无描述
-- `period` (string): 无描述
-- `preview_rows` (integer): 无描述
-
 ### HTTPValidationError
 
 **字段: **
@@ -490,20 +450,6 @@
 - `marketCapSource` (string): 行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*
 - `mini_trend` (array): 近5日相对走势火花线数据
 - `score_breakdown` (array): 后端统一评分拆解数据
-
-### IndustryRotationLabRequest
-
-**字段: **
-
-- `start_date` (string): 无描述
-- `end_date` (string): 无描述
-- `rebalance_freq` (string): 无描述
-- `top_industries` (integer): 无描述
-- `stocks_per_industry` (integer): 无描述
-- `weight_method` (string): 无描述
-- `initial_capital` (number): 无描述
-- `commission` (number): 无描述
-- `slippage` (number): 无描述
 
 ### IndustryRotationResponse
 
@@ -835,22 +781,6 @@
 - `min_rebalance_weight_delta` (number): 无描述
 - `max_turnover_per_rebalance` (unknown): 无描述
 
-### PricingRequest
-
-**字段: **
-
-- `symbol` (string): 股票代码，如 AAPL
-- `period` (string): 分析周期: 6mo, 1y, 2y, 3y, 5y
-
-### PricingScreenerRequest
-
-**字段: **
-
-- `symbols` (array): 候选股票代码列表
-- `period` (string): 分析周期: 6mo, 1y, 2y, 3y, 5y
-- `limit` (integer): 返回前 N 个结果
-- `max_workers` (integer): 并行执行数
-
 ### RateLimitRuleRequest
 
 **字段: **
@@ -935,104 +865,6 @@
 - `commission` (number): 无描述
 - `slippage` (number): 无描述
 
-### ResearchTaskBulkUpdateRequest
-
-**字段: **
-
-- `task_ids` (array): 无描述
-- `status` (unknown): 无描述
-- `comment` (string): 无描述
-- `author` (string): 无描述
-
-### ResearchTaskCommentCreateRequest
-
-**字段: **
-
-- `author` (string): 无描述
-- `body` (string): 无描述
-
-### ResearchTaskCreateRequest
-
-**字段: **
-
-- `type` (string): 无描述
-- `title` (string): 无描述
-- `status` (string): 无描述
-- `source` (string): 无描述
-- `symbol` (string): 无描述
-- `template` (string): 无描述
-- `note` (string): 无描述
-- `board_order` (unknown): 无描述
-- `context` (object): 无描述
-- `snapshot` (unknown): 无描述
-- `refresh_priority_event` (unknown): 无描述
-
-### ResearchTaskRefreshPriorityEvent
-
-**字段: **
-
-- `reason_key` (string): 无描述
-- `reason_label` (string): 无描述
-- `severity` (string): 无描述
-- `lead` (string): 无描述
-- `detail` (string): 无描述
-- `urgency_score` (unknown): 无描述
-- `priority_weight` (unknown): 无描述
-- `recommendation` (string): 无描述
-- `summary` (string): 无描述
-
-### ResearchTaskReorderItem
-
-**字段: **
-
-- `task_id` (string): 无描述
-- `status` (string): 无描述
-- `board_order` (integer): 无描述
-- `refresh_priority_event` (unknown): 无描述
-
-### ResearchTaskSnapshot
-
-**字段: **
-
-- `headline` (string): 无描述
-- `summary` (string): 无描述
-- `highlights` (array): 无描述
-- `payload` (object): 无描述
-- `saved_at` (string): 无描述
-
-### ResearchTaskSnapshotCreateRequest
-
-**字段: **
-
-- `snapshot` (unknown): 无描述
-- `refresh_priority_event` (unknown): 无描述
-
-### ResearchTaskUpdateRequest
-
-**字段: **
-
-- `status` (unknown): 无描述
-- `title` (unknown): 无描述
-- `note` (unknown): 无描述
-- `board_order` (unknown): 无描述
-- `context` (unknown): 无描述
-- `snapshot` (unknown): 无描述
-- `refresh_priority_event` (unknown): 无描述
-
-### ResearchWorkbenchReorderRequest
-
-**字段: **
-
-- `items` (array): 无描述
-
-### RiskCenterRequest
-
-**字段: **
-
-- `symbols` (array): 无描述
-- `weights` (unknown): 无描述
-- `period` (string): 无描述
-
 ### SignificanceCompareRequest
 
 **字段: **
@@ -1083,29 +915,6 @@
 - `description` (string): 无描述
 - `parameters` (object): 无描述
 
-### StrategyOptimizationRequest
-
-**字段: **
-
-- `symbol` (string): 无描述
-- `strategy` (string): 无描述
-- `parameters` (object): 无描述
-- `parameter_grid` (unknown): 无描述
-- `start_date` (unknown): 无描述
-- `end_date` (unknown): 无描述
-- `initial_capital` (number): 无描述
-- `commission` (number): 无描述
-- `slippage` (number): 无描述
-- `density` (integer): 无描述
-- `optimization_metric` (string): 无描述
-- `optimization_method` (string): 无描述
-- `optimization_budget` (unknown): 无描述
-- `run_walk_forward` (boolean): 无描述
-- `train_period` (integer): 无描述
-- `test_period` (integer): 无描述
-- `step_size` (integer): 无描述
-- `monte_carlo_simulations` (integer): 无描述
-
 ### SubscriptionRequest
 
 兼容层订阅请求。
@@ -1151,13 +960,6 @@
 - `quantity` (integer): 无描述
 - `price` (unknown): 无描述
 
-### TradingJournalUpdateRequest
-
-**字段: **
-
-- `notes` (object): 无描述
-- `strategy_lifecycle` (array): 无描述
-
 ### TrendAnalysisRequest
 
 **字段: **
@@ -1193,33 +995,6 @@
 - `loc` (array): 无描述
 - `msg` (string): 无描述
 - `type` (string): 无描述
-
-### ValuationLabRequest
-
-**字段: **
-
-- `symbol` (string): 无描述
-- `period` (string): 无描述
-- `peer_symbols` (array): 无描述
-- `peer_limit` (integer): 无描述
-
-### ValuationRequest
-
-**字段: **
-
-- `symbol` (string): 股票代码
-
-### ValuationSensitivityRequest
-
-**字段: **
-
-- `symbol` (string): 股票代码
-- `wacc` (unknown): 覆盖 WACC
-- `initial_growth` (unknown): 覆盖初始增长率
-- `terminal_growth` (unknown): 覆盖终值增长率
-- `fcf_margin` (unknown): 覆盖现金流转化率
-- `dcf_weight` (unknown): 覆盖 DCF 权重
-- `comparable_weight` (unknown): 覆盖可比估值权重
 
 ### WalkForwardRequest
 

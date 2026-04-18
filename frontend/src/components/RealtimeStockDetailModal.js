@@ -306,6 +306,11 @@ const buildQuickTradeDraft = (symbol, quote, signalSummary) => {
 };
 
 const buildCompareCards = (displaySymbol, quote, compareCandidates = [], selectedCompareSymbols = [], timelineBySymbol = {}) => {
+    const compareCandidateMap = new Map(
+        compareCandidates
+            .filter((item) => item?.symbol)
+            .map((item) => [item.symbol, item])
+    );
     const currentCard = {
         symbol: displaySymbol,
         name: getDisplayName(displaySymbol),
@@ -314,7 +319,7 @@ const buildCompareCards = (displaySymbol, quote, compareCandidates = [], selecte
     };
 
     const selectedCards = selectedCompareSymbols
-        .map((targetSymbol) => compareCandidates.find((item) => item?.symbol === targetSymbol))
+        .map((targetSymbol) => compareCandidateMap.get(targetSymbol))
         .filter(Boolean)
         .map((item) => ({
             symbol: item.symbol,
@@ -329,6 +334,31 @@ const buildCompareCards = (displaySymbol, quote, compareCandidates = [], selecte
 const isSameSymbolList = (left = [], right = []) => (
     left.length === right.length && left.every((item, index) => item === right[index])
 );
+
+const dedupeCompareCandidates = (items = []) => {
+    const seenSymbols = new Set();
+    return items.filter((item) => {
+        const symbol = item?.symbol;
+        if (!symbol || seenSymbols.has(symbol)) {
+            return false;
+        }
+        seenSymbols.add(symbol);
+        return true;
+    });
+};
+
+const sanitizeCompareSymbols = (symbols = [], availableTargets = [], displaySymbol) => {
+    const availableSet = new Set(availableTargets);
+    const seenSymbols = new Set();
+
+    return symbols.filter((symbol) => {
+        if (!symbol || symbol === displaySymbol || !availableSet.has(symbol) || seenSymbols.has(symbol)) {
+            return false;
+        }
+        seenSymbols.add(symbol);
+        return true;
+    }).slice(0, 3);
+};
 
 // eslint-disable-next-line no-unused-vars
 const getFollowThroughSummary = (event = {}, quote = null) => {
@@ -482,7 +512,7 @@ const renderMetricCard = (label, value, subtle, accentColor) => (
 
 const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCancel, onQuickTrade = null, eventTimeline = EMPTY_LIST, compareCandidates, compareTimelineMap }) => {
     const safeCompareCandidates = useMemo(
-        () => (Array.isArray(compareCandidates) ? compareCandidates : EMPTY_LIST),
+        () => dedupeCompareCandidates(Array.isArray(compareCandidates) ? compareCandidates : EMPTY_LIST),
         [compareCandidates]
     );
     const safeCompareTimelineMap = useMemo(
@@ -507,6 +537,16 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
     const snapshotTrendSeries = useMemo(() => buildSnapshotTrendSeries(quote), [quote]);
     const snapshotTrendPolyline = useMemo(() => buildTrendPolyline(snapshotTrendSeries), [snapshotTrendSeries]);
     const intradayTrendPolyline = useMemo(() => buildTrendPolyline(intradayTrendSeries), [intradayTrendSeries]);
+    const compareTargetSymbols = useMemo(
+        () => safeCompareCandidates
+            .filter((item) => item?.symbol && item.symbol !== displaySymbol)
+            .map((item) => item.symbol),
+        [displaySymbol, safeCompareCandidates]
+    );
+    const effectiveSelectedCompareSymbols = useMemo(
+        () => sanitizeCompareSymbols(selectedCompareSymbols, compareTargetSymbols, displaySymbol),
+        [compareTargetSymbols, displaySymbol, selectedCompareSymbols]
+    );
 
     useEffect(() => {
         if (!open || !displaySymbol || displaySymbol === '--') {
@@ -541,31 +581,35 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
             return;
         }
 
-        const availableTargets = safeCompareCandidates
-            .filter((item) => item?.symbol && item.symbol !== displaySymbol)
-            .map((item) => item.symbol);
         const rememberedTargets = Array.isArray(compareSelectionMemoryRef.current[displaySymbol])
-            ? compareSelectionMemoryRef.current[displaySymbol].filter((item) => availableTargets.includes(item))
+            ? sanitizeCompareSymbols(compareSelectionMemoryRef.current[displaySymbol], compareTargetSymbols, displaySymbol)
             : [];
-        const nextTargets = (rememberedTargets.length > 0 ? rememberedTargets : availableTargets.slice(0, 2)).slice(0, 3);
+        const nextTargets = rememberedTargets.length > 0
+            ? rememberedTargets
+            : compareTargetSymbols.slice(0, 2);
         compareSelectionMemoryRef.current[displaySymbol] = nextTargets;
         setSelectedCompareSymbols((prev) => (isSameSymbolList(prev, nextTargets) ? prev : nextTargets));
-    }, [displaySymbol, open, safeCompareCandidates]);
+    }, [compareTargetSymbols, displaySymbol, open]);
 
     const signalSummary = useMemo(() => buildSignalSummary(quote, eventTimeline), [eventTimeline, quote]);
     const quickTradeDraft = useMemo(() => buildQuickTradeDraft(displaySymbol, quote, signalSummary), [displaySymbol, quote, signalSummary]);
     const compareCards = useMemo(
-        () => buildCompareCards(displaySymbol, quote, safeCompareCandidates, selectedCompareSymbols, safeCompareTimelineMap),
-        [displaySymbol, quote, safeCompareCandidates, safeCompareTimelineMap, selectedCompareSymbols]
+        () => buildCompareCards(displaySymbol, quote, safeCompareCandidates, effectiveSelectedCompareSymbols, safeCompareTimelineMap),
+        [displaySymbol, effectiveSelectedCompareSymbols, quote, safeCompareCandidates, safeCompareTimelineMap]
     );
 
     const toggleCompareSymbol = (targetSymbol) => {
+        if (!compareTargetSymbols.includes(targetSymbol)) {
+            return;
+        }
+
         setSelectedCompareSymbols((prev) => {
+            const normalizedPrev = sanitizeCompareSymbols(prev, compareTargetSymbols, displaySymbol);
             let nextSelection;
-            if (prev.includes(targetSymbol)) {
-                nextSelection = prev.filter((item) => item !== targetSymbol);
+            if (normalizedPrev.includes(targetSymbol)) {
+                nextSelection = normalizedPrev.filter((item) => item !== targetSymbol);
             } else {
-                nextSelection = [...prev, targetSymbol].slice(0, 3);
+                nextSelection = [...normalizedPrev, targetSymbol].slice(0, 3);
             }
             compareSelectionMemoryRef.current[displaySymbol] = nextSelection;
             return nextSelection;
@@ -828,17 +872,20 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
                             </Text>
                         </div>
                         <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 10, fontWeight: 700 }}>
-                            已选对比 {selectedCompareSymbols.length}
+                            已选对比 {effectiveSelectedCompareSymbols.length}
                         </Tag>
                     </div>
 
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 14 }}>
                         {safeCompareCandidates.filter((item) => item?.symbol !== displaySymbol).slice(0, 6).map((item) => {
-                            const selected = selectedCompareSymbols.includes(item.symbol);
+                            const selected = effectiveSelectedCompareSymbols.includes(item.symbol);
                             return (
-                                <button
+                                <Button
                                     key={item.symbol}
-                                    type="button"
+                                    type={selected ? 'primary' : 'default'}
+                                    size="small"
+                                    className="realtime-compare-toggle"
+                                    aria-pressed={selected}
                                     onClick={() => toggleCompareSymbol(item.symbol)}
                                     style={{
                                         borderRadius: 999,
@@ -847,11 +894,10 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
                                         color: selected ? '#1d4ed8' : 'var(--text-primary)',
                                         padding: '8px 12px',
                                         fontWeight: 700,
-                                        cursor: 'pointer',
                                     }}
                                 >
                                     {item.symbol}
-                                </button>
+                                </Button>
                             );
                         })}
                     </div>

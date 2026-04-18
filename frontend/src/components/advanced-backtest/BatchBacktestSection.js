@@ -249,6 +249,8 @@ function BatchBacktestResults({
   batchRankingData,
   batchInsight,
   batchExperimentMeta,
+  batchPendingMeta,
+  batchLoading,
   focusedBatchRecord,
   focusedBatchTaskId,
   setFocusedBatchTaskId,
@@ -269,6 +271,14 @@ function BatchBacktestResults({
     >
       {batchResult ? (
         <Space direction="vertical" style={{ width: '100%' }} size="large">
+          {batchLoading ? (
+            <Alert
+              type="info"
+              showIcon
+              message={`正在刷新：${batchPendingMeta?.title || batchExperimentMeta.title}`}
+              description="当前先保留上一版结果，新的批量实验完成后会自动替换。"
+            />
+          ) : null}
           <Alert type="info" showIcon message={batchExperimentMeta.title} description={batchExperimentMeta.description} />
           <div className="summary-strip">
             <div className="summary-strip__item">

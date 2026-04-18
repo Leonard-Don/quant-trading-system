@@ -123,12 +123,15 @@ src/data/*
 !src/data/*.py
 !src/data/providers/
 !src/data/providers/**
+src/data/providers/**/__pycache__/
+src/data/providers/**/*.py[cod]
 !src/data/alternative/
 !src/data/alternative/**
 src/data/alternative/**/__pycache__/
 
 # Output / Reports / Metrics (runtime generated)
 output/
+tmp/
 reports/
 metrics/
 profiles/

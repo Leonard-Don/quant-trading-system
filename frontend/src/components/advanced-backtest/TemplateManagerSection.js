@@ -5,6 +5,7 @@ import { ADVANCED_TEMPLATE_CATEGORY_LABELS } from '../../utils/advancedExperimen
 import { getStrategyName, getStrategyParameterLabel } from '../../constants/strategies';
 
 function TemplateManagerSection({
+  compact = false,
   templateName,
   setTemplateName,
   templateNote,
@@ -32,7 +33,7 @@ function TemplateManagerSection({
   experimentComparison,
 }) {
   return (
-    <Card className="workspace-panel" style={{ marginBottom: 20 }}>
+    <Card className={`workspace-panel advanced-lab-control-card${compact ? ' advanced-lab-control-card--compact' : ''}`}>
       <div className="workspace-section__header">
         <div>
           <div className="workspace-section__title">实验模板与版本对比</div>
@@ -40,7 +41,7 @@ function TemplateManagerSection({
         </div>
       </div>
       <Row gutter={[16, 16]} align="top">
-        <Col xs={24} xl={10}>
+        <Col xs={24} xl={compact ? 24 : 10}>
           <div className="workspace-field-label">模板名称</div>
           <Input
             value={templateName}
@@ -137,7 +138,7 @@ function TemplateManagerSection({
             </div>
           ) : null}
         </Col>
-        <Col xs={24} xl={14}>
+        <Col xs={24} xl={compact ? 24 : 14}>
           <div className="workspace-section">
             <div className="workspace-section__header">
               <div>

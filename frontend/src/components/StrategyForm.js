@@ -7,14 +7,10 @@ import {
   DatePicker,
   Button,
   Card,
-  Row,
-  Col,
   Dropdown,
-  Space,
   Modal,
   Tag,
   Popconfirm,
-  Alert,
 } from 'antd';
 import { PlayCircleOutlined, SaveOutlined, FolderOpenOutlined, DeleteOutlined, DownOutlined } from '@ant-design/icons';
 import dayjs from '../utils/dayjs';
@@ -40,6 +36,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
   const [configName, setConfigName] = useState('');
   const watchedValues = Form.useWatch([], form);
   const selectedStrategyDetails = selectedStrategy ? getStrategyDetails(selectedStrategy.name) : null;
+  const hasStrategyParameters = Boolean(selectedStrategy && selectedStrategy.parameters && Object.keys(selectedStrategy.parameters).length > 0);
 
   // Load saved configs from localStorage on mount
   useEffect(() => {
@@ -244,45 +241,59 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
     if (!selectedStrategy || !selectedStrategy.parameters) return null;
 
     return Object.entries(selectedStrategy.parameters).map(([key, param]) => (
-      <Col span={8} key={key}>
-        <Form.Item label={getStrategyParameterLabel(key, param.description)}>
-          <InputNumber
-            value={strategyParams[key] || param.default}
-            onChange={(value) => handleParamChange(key, value)}
-            min={param.min}
-            max={param.max}
-            step={param.step || 0.01}
-            style={{ width: '100%' }}
-          />
-        </Form.Item>
-      </Col>
+      <Form.Item
+        key={key}
+        className="strategy-form-grid__item"
+        label={getStrategyParameterLabel(key, param.description)}
+      >
+        <InputNumber
+          value={strategyParams[key] || param.default}
+          onChange={(value) => handleParamChange(key, value)}
+          min={param.min}
+          max={param.max}
+          step={param.step || 0.01}
+          style={{ width: '100%' }}
+        />
+      </Form.Item>
     ));
   };
 
+  const renderSectionHeader = (step, title, description, extra = null) => (
+    <div className="workspace-section__header strategy-form-section-header">
+      <div>
+        <div className="strategy-form-section-header__eyebrow">步骤 {step}</div>
+        <div className="workspace-section__title">{title}</div>
+        <div className="workspace-section__description">{description}</div>
+      </div>
+      {extra}
+    </div>
+  );
+
   const summaryItems = [
     {
-      label: '当前策略',
+      label: '标的',
+      value: watchedValues?.symbol || 'AAPL',
+    },
+    {
+      label: '策略',
       value: selectedStrategy ? getStrategyName(selectedStrategy.name) : '待选择',
     },
     {
-      label: '回测区间',
+      label: '区间',
       value: watchedValues?.dateRange
         ? `${watchedValues.dateRange[0]?.format('YYYY-MM-DD')} ~ ${watchedValues.dateRange[1]?.format('YYYY-MM-DD')}`
         : '最近一年',
     },
     {
-      label: '初始资金',
-      value: watchedValues?.initial_capital ? `$${Number(watchedValues.initial_capital).toLocaleString()}` : '$10,000',
-    },
-    {
-      label: '成本设置',
-      value: `${watchedValues?.commission ?? 0.1}% / ${watchedValues?.slippage ?? 0.1}%`,
+      label: '资金 / 成本',
+      value: `${watchedValues?.initial_capital ? `$${Number(watchedValues.initial_capital).toLocaleString()}` : '$10,000'} · ${watchedValues?.commission ?? 0.1}% / ${watchedValues?.slippage ?? 0.1}%`,
     },
   ];
   const runBriefSymbol = watchedValues?.symbol || 'AAPL';
   const runBriefCapital = Number(watchedValues?.initial_capital ?? 10000).toLocaleString();
   const runBriefCommission = watchedValues?.commission ?? 0.1;
   const runBriefSlippage = watchedValues?.slippage ?? 0.1;
+  const recentConfigs = savedConfigs.slice(-6).reverse();
 
   return (
     <Card
@@ -294,22 +305,21 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
           </div>
           <div>
             <div className="workspace-title__text">策略回测配置</div>
-            <div className="workspace-title__hint">先配置标的与策略，再运行并进入结果工作区。</div>
+            <div className="workspace-title__hint">把输入、参数和本地配置整理成一条清晰的实验流，再运行进入结果工作区。</div>
           </div>
         </div>
       }
       extra={
-        <Space wrap>
-          {selectedStrategy ? <Tag color="geekblue">{getStrategyName(selectedStrategy.name)}</Tag> : null}
-          <Tag color="blue">{savedConfigs.length} 个已保存配置</Tag>
-        </Space>
+        <Tag color={savedConfigs.length > 0 ? 'blue' : 'default'}>
+          {savedConfigs.length > 0 ? `${savedConfigs.length} 个本地配置` : '未保存配置'}
+        </Tag>
       }
       style={{
         margin: '0 0 20px 0',
       }}
       styles={{ body: { padding: '24px' } }}
     >
-      <div className="summary-strip summary-strip--compact">
+      <div className="summary-strip summary-strip--compact strategy-form-summary">
         {summaryItems.map((item) => (
           <div key={item.label} className="summary-strip__item">
             <span className="summary-strip__label">{item.label}</span>
@@ -322,6 +332,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
         form={form}
         layout="vertical"
         onFinish={handleSubmit}
+        className="strategy-form"
         size="middle"
         initialValues={{
           symbol: 'AAPL',
@@ -332,235 +343,225 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
           slippage: 0.1
         }}
       >
-        <Row gutter={[20, 20]}>
-          <Col xs={24} xl={15}>
-            <div className="workspace-section">
-              <div className="workspace-section__header">
-                <div>
-                  <div className="workspace-section__title">基础配置</div>
-                  <div className="workspace-section__description">选择标的、策略和回测区间，建立本次实验的基本上下文。</div>
-                </div>
-              </div>
-              <Row gutter={16}>
-                <Col xs={24} md={8}>
-                  <Form.Item
-                    label="股票代码"
-                    name="symbol"
-                    rules={[{ required: true, message: '请输入股票代码' }]}
-                  >
-                    <Input placeholder="输入股票代码 (如: AAPL)" />
-                  </Form.Item>
-                </Col>
+        <div className="strategy-form-layout">
+          <div className="workspace-section strategy-form-section strategy-form-section--primary">
+            {renderSectionHeader('01', '基础配置', '先确定标的、策略和回测区间，建立本次回测的实验上下文。')}
+            <div className="strategy-form-grid strategy-form-grid--primary">
+              <Form.Item
+                className="strategy-form-grid__item"
+                label="标的代码"
+                name="symbol"
+                rules={[{ required: true, message: '请输入股票代码' }]}
+              >
+                <Input placeholder="输入股票代码 (如: AAPL)" />
+              </Form.Item>
 
-                <Col xs={24} md={8}>
-                  <Form.Item
-                    label="交易策略"
-                    name="strategy"
-                    rules={[{ required: true, message: '请选择交易策略' }]}
-                  >
-                    <Select onChange={handleStrategyChange}>
-                      {strategies.map(strategy => (
-                        <Option key={strategy.name} value={strategy.name}>
-                          {getStrategyName(strategy.name)}
-                        </Option>
-                      ))}
-                    </Select>
-                  </Form.Item>
-                </Col>
+              <Form.Item
+                className="strategy-form-grid__item"
+                label="交易策略"
+                name="strategy"
+                rules={[{ required: true, message: '请选择交易策略' }]}
+              >
+                <Select onChange={handleStrategyChange}>
+                  {strategies.map(strategy => (
+                    <Option key={strategy.name} value={strategy.name}>
+                      {getStrategyName(strategy.name)}
+                    </Option>
+                  ))}
+                </Select>
+              </Form.Item>
 
-                <Col xs={24} md={8}>
-                  <Form.Item
-                    label="回测时间范围"
-                    name="dateRange"
-                    rules={[{ required: true, message: '请选择时间范围' }]}
-                  >
-                    <RangePicker placeholder={['开始日期', '结束日期']} separator="至" style={{ width: '100%' }} />
-                  </Form.Item>
-                </Col>
-              </Row>
+              <Form.Item
+                className="strategy-form-grid__item strategy-form-grid__item--span-2"
+                label="回测区间"
+                name="dateRange"
+                rules={[{ required: true, message: '请选择时间范围' }]}
+              >
+                <RangePicker placeholder={['开始日期', '结束日期']} separator="至" style={{ width: '100%' }} />
+              </Form.Item>
             </div>
+          </div>
 
-            <div className="workspace-section">
-              <div className="workspace-section__header">
-                <div>
-                  <div className="workspace-section__title">交易设置</div>
-                  <div className="workspace-section__description">配置资金规模、手续费和滑点，模拟更接近真实执行环境的回测结果。</div>
-                </div>
-              </div>
-              <Row gutter={16}>
-                <Col xs={24} md={8}>
-                  <Form.Item
-                    label="初始资金"
-                    name="initial_capital"
-                    rules={[{ required: true, message: '请输入初始资金' }]}
-                  >
-                    <InputNumber
-                      min={1000}
-                      max={10000000}
-                      step={1000}
-                      style={{ width: '100%' }}
-                      formatter={value => `$ ${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                      parser={value => value.replace(/\$\s?|(,*)/g, '')}
-                    />
-                  </Form.Item>
-                </Col>
+          <div className="workspace-section strategy-form-section">
+            {renderSectionHeader('02', '交易假设', '把资金规模、手续费和滑点放在一起，快速校准执行环境。')}
+            <div className="strategy-form-grid strategy-form-grid--trading">
+              <Form.Item
+                className="strategy-form-grid__item"
+                label="初始资金"
+                name="initial_capital"
+                rules={[{ required: true, message: '请输入初始资金' }]}
+              >
+                <InputNumber
+                  min={1000}
+                  max={10000000}
+                  step={1000}
+                  style={{ width: '100%' }}
+                  formatter={(value) => `$ ${value ?? ''}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={(value) => (value ? value.replace(/\$\s?|(,*)/g, '') : '')}
+                />
+              </Form.Item>
 
-                <Col xs={24} md={8}>
-                  <Form.Item
-                    label="手续费 (%)"
-                    name="commission"
-                    rules={[{ required: true, message: '请输入手续费' }]}
-                  >
-                    <InputNumber
-                      min={0}
-                      max={5}
-                      step={0.01}
-                      style={{ width: '100%' }}
-                    />
-                  </Form.Item>
-                </Col>
+              <Form.Item
+                className="strategy-form-grid__item"
+                label="手续费 (%)"
+                name="commission"
+                rules={[{ required: true, message: '请输入手续费' }]}
+              >
+                <InputNumber
+                  min={0}
+                  max={5}
+                  step={0.01}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
 
-                <Col xs={24} md={8}>
-                  <Form.Item
-                    label="滑点 (%)"
-                    name="slippage"
-                    rules={[{ required: true, message: '请输入滑点' }]}
-                  >
-                    <InputNumber
-                      min={0}
-                      max={5}
-                      step={0.01}
-                      style={{ width: '100%' }}
-                    />
-                  </Form.Item>
-                </Col>
-              </Row>
+              <Form.Item
+                className="strategy-form-grid__item"
+                label="滑点 (%)"
+                name="slippage"
+                rules={[{ required: true, message: '请输入滑点' }]}
+              >
+                <InputNumber
+                  min={0}
+                  max={5}
+                  step={0.01}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
             </div>
-          </Col>
+          </div>
 
-          <Col xs={24} xl={9}>
+          {hasStrategyParameters ? (
+            <div className="workspace-section strategy-form-section">
+              {renderSectionHeader('03', '策略参数', '只展示当前策略的关键参数，集中调参，不再把输入项横向挤在一起。')}
+              <div className="strategy-form-grid strategy-form-grid--params">
+                {renderParameterInputs()}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="strategy-form-support-stack">
             {selectedStrategyDetails ? (
-              <div className="workspace-section">
-                <div className="workspace-section__header">
+              <div className="workspace-section strategy-form-support-card strategy-form-support-card--focus">
+                <div className="workspace-section__header strategy-form-section-header">
                   <div>
-                    <div className="workspace-section__title">策略详情</div>
-                    <div className="workspace-section__description">先确认策略逻辑和适用行情，再决定是否值得继续调参与回测。</div>
+                    <div className="strategy-form-section-header__eyebrow">策略画像</div>
+                    <div className="workspace-section__title">{getStrategyName(selectedStrategy.name)}</div>
+                    <div className="workspace-section__description">先确认信号逻辑和适用场景，再决定是否继续迭代。</div>
+                  </div>
+                  <Tag color="cyan">{selectedStrategyDetails.style}</Tag>
+                </div>
+                <div className="strategy-form-insight">
+                  <div className="strategy-form-insight__block">
+                    <span className="strategy-form-insight__label">逻辑简介</span>
+                    <span className="strategy-form-insight__value">{selectedStrategyDetails.summary}</span>
+                  </div>
+                  <div className="strategy-form-insight__block">
+                    <span className="strategy-form-insight__label">更适合的行情</span>
+                    <span className="strategy-form-insight__value strategy-form-insight__value--muted">{selectedStrategyDetails.marketFit}</span>
                   </div>
                 </div>
-                <Alert
-                  type="info"
-                  showIcon
-                  message={`${getStrategyName(selectedStrategy.name)} · ${selectedStrategyDetails.style}`}
-                  description={(
-                    <div>
-                      <div style={{ marginBottom: 6 }}>{selectedStrategyDetails.summary}</div>
-                      <div style={{ color: 'var(--text-muted)' }}>{selectedStrategyDetails.marketFit}</div>
-                    </div>
-                  )}
-                />
               </div>
             ) : null}
-            {selectedStrategy && selectedStrategy.parameters &&
-              Object.keys(selectedStrategy.parameters).length > 0 && (
-                <div className="workspace-section">
-                  <div className="workspace-section__header">
-                    <div>
-                      <div className="workspace-section__title">策略参数</div>
-                      <div className="workspace-section__description">当前策略的关键参数会在这里动态展开，便于快速迭代假设。</div>
-                    </div>
-                  </div>
-                  <Row gutter={16}>
-                    {renderParameterInputs()}
-                  </Row>
+
+            <div className="workspace-section strategy-form-support-card">
+              <div className="workspace-section__header strategy-form-section-header">
+                <div>
+                  <div className="strategy-form-section-header__eyebrow">本地配置库</div>
+                  <div className="workspace-section__title">常用组合</div>
+                  <div className="workspace-section__description">把稳定的实验输入存起来，后续可以直接加载复用。</div>
+                </div>
+                <Tag color={savedConfigs.length > 0 ? 'blue' : 'default'}>
+                  {savedConfigs.length > 0 ? `${savedConfigs.length} 个已保存配置` : '暂未保存配置'}
+                </Tag>
+              </div>
+              {savedConfigs.length > 0 ? (
+                <div className="strategy-form-config-list">
+                  {recentConfigs.map((config) => (
+                    <Tag key={config.name} color="blue">
+                      {config.name}
+                    </Tag>
+                  ))}
+                </div>
+              ) : (
+                <div className="strategy-form-empty-note">
+                  还没有本地配置。把常用参数和成本假设保存下来，下一次就不用重复录入。
                 </div>
               )}
-
-            <div className="workspace-section">
-              <div className="workspace-section__header">
-                <div>
-                  <div className="workspace-section__title">配置库</div>
-                  <div className="workspace-section__description">把常用实验组合存成浏览器本地配置，后续可直接复用。</div>
-                </div>
-              </div>
-              <Space wrap>
-                {savedConfigs.length > 0 ? savedConfigs.slice(0, 6).map((config) => (
-                  <Tag key={config.name} color="blue">
-                    {config.name}
-                  </Tag>
-                )) : <Tag color="default">暂无已保存配置</Tag>}
-              </Space>
               <div className="workspace-section__hint">
                 当前表单值会在点击“保存配置”后记录到浏览器本地存储。
               </div>
             </div>
-          </Col>
-        </Row>
+          </div>
 
-        <div className="workspace-run-brief">
-          <span className="workspace-run-brief__label">本次运行摘要</span>
-          <span className="workspace-run-brief__value">
-            {`${runBriefSymbol} · ${selectedStrategy ? getStrategyName(selectedStrategy.name) : '待选策略'} · ${runBriefCapital} 美元 · 手续费 ${runBriefCommission}% · 滑点 ${runBriefSlippage}%`}
-          </span>
-        </div>
+          <div className="strategy-form-footer">
+            <div className="workspace-run-brief strategy-form-run-brief">
+              <span className="workspace-run-brief__label">本次运行摘要</span>
+              <span className="workspace-run-brief__value">
+                {`${runBriefSymbol} · ${selectedStrategy ? getStrategyName(selectedStrategy.name) : '待选策略'} · ${runBriefCapital} 美元 · 手续费 ${runBriefCommission}% · 滑点 ${runBriefSlippage}%`}
+              </span>
+            </div>
 
-        <Form.Item>
-          <Space wrap>
-            <Button
-              type="primary"
-              htmlType="submit"
-              loading={loading}
-              size="large"
-              icon={<PlayCircleOutlined />}
-              style={{ width: '160px' }}
-            >
-              开始回测
-            </Button>
-
-            <Button
-              icon={<SaveOutlined />}
-              onClick={() => setSaveModalVisible(true)}
-            >
-              保存配置
-            </Button>
-
-            {savedConfigs.length > 0 && (
-              <Dropdown
-                menu={{
-                  items: savedConfigs.map((config) => ({
-                    key: config.name,
-                    label: (
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minWidth: 200 }}>
-                        <span onClick={() => loadConfig(config)}>{config.name}</span>
-                        <Popconfirm
-                          title="确定删除此配置?"
-                          onConfirm={(e) => {
-                            e.stopPropagation();
-                            deleteConfig(config.name);
-                          }}
-                          okText="删除"
-                          cancelText="取消"
-                        >
-                          <DeleteOutlined
-                            style={{ color: 'var(--accent-danger)', marginLeft: 8 }}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </Popconfirm>
-                      </div>
-                    )
-                  }))
-                }}
-              >
-                <Button icon={<FolderOpenOutlined />}>
-                  加载配置 <DownOutlined />
+            <Form.Item className="strategy-form-actions">
+              <div className="strategy-form-actions__row">
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  loading={loading}
+                  size="large"
+                  icon={<PlayCircleOutlined />}
+                  aria-label="开始回测"
+                  className="strategy-form-actions__run"
+                >
+                  开始回测
                 </Button>
-              </Dropdown>
-            )}
 
-            {savedConfigs.length > 0 && (
-              <Tag color="blue">{savedConfigs.length} 个已保存配置</Tag>
-            )}
-          </Space>
-        </Form.Item>
+                <div className="strategy-form-actions__secondary">
+                  <Button
+                    icon={<SaveOutlined />}
+                    aria-label="保存配置"
+                    onClick={() => setSaveModalVisible(true)}
+                  >
+                    保存配置
+                  </Button>
+
+                  {savedConfigs.length > 0 && (
+                    <Dropdown
+                      menu={{
+                        items: savedConfigs.map((config) => ({
+                          key: config.name,
+                          label: (
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minWidth: 200 }}>
+                              <span onClick={() => loadConfig(config)}>{config.name}</span>
+                              <Popconfirm
+                                title="确定删除此配置?"
+                                onConfirm={(e) => {
+                                  e.stopPropagation();
+                                  deleteConfig(config.name);
+                                }}
+                                okText="删除"
+                                cancelText="取消"
+                              >
+                                <DeleteOutlined
+                                  style={{ color: 'var(--accent-danger)', marginLeft: 8 }}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              </Popconfirm>
+                            </div>
+                          )
+                        }))
+                      }}
+                    >
+                      <Button icon={<FolderOpenOutlined />} aria-label="加载配置">
+                        加载配置 <DownOutlined />
+                      </Button>
+                    </Dropdown>
+                  )}
+                </div>
+              </div>
+            </Form.Item>
+          </div>
+        </div>
       </Form>
 
       {/* Save Config Modal */}

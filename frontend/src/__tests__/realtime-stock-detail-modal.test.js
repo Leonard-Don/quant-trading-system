@@ -62,8 +62,8 @@ jest.mock('antd', () => {
   const Row = ({ children }) => <div>{children}</div>;
   const Col = ({ children }) => <div>{children}</div>;
   const Tag = ({ children }) => <span>{children}</span>;
-  const Button = ({ children, onClick }) => (
-    <button type="button" onClick={onClick}>
+  const Button = ({ children, onClick, 'aria-pressed': ariaPressed, className }) => (
+    <button type="button" onClick={onClick} aria-pressed={ariaPressed} className={className}>
       {children}
     </button>
   );
@@ -314,9 +314,11 @@ describe('RealtimeStockDetailModal', () => {
     expect(screen.getByTestId('detail-compare-grid')).toHaveTextContent('AAPL');
     expect(screen.getByTestId('detail-compare-grid')).toHaveTextContent('NVDA');
     expect(screen.getByTestId('detail-compare-grid')).toHaveTextContent('MSFT');
+    expect(screen.getByRole('button', { name: 'MSFT' })).toHaveAttribute('aria-pressed', 'true');
 
     fireEvent.click(screen.getByRole('button', { name: 'MSFT' }));
 
+    expect(screen.getByRole('button', { name: 'MSFT' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByTestId('detail-compare-grid')).not.toHaveTextContent('MSFT');
   });
 
@@ -404,6 +406,53 @@ describe('RealtimeStockDetailModal', () => {
 
     expect(screen.getByTestId('detail-compare-grid')).toHaveTextContent('NVDA');
     expect(screen.getByTestId('detail-compare-grid')).not.toHaveTextContent('MSFT');
+  });
+
+  test('filters stale compare selections when switching detail symbols', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    try {
+      const { rerender } = await renderRealtimeDetailModal(
+        <RealtimeStockDetailModal
+          open
+          symbol="ETH-USD"
+          quote={{ symbol: 'ETH-USD', price: 3600, change: 40, change_percent: 1.12 }}
+          compareCandidates={[
+            { symbol: 'ETH-USD', quote: { symbol: 'ETH-USD', price: 3600, change_percent: 1.12 } },
+            { symbol: 'BTC-USD', quote: { symbol: 'BTC-USD', price: 68000, change_percent: -0.32 } },
+            { symbol: 'SOL-USD', quote: { symbol: 'SOL-USD', price: 145, change_percent: 0.8 } },
+          ]}
+          onCancel={jest.fn()}
+        />
+      );
+
+      rerender(
+        <RealtimeStockDetailModal
+          open
+          symbol="BTC-USD"
+          quote={{ symbol: 'BTC-USD', price: 68000, change: -220, change_percent: -0.32 }}
+          compareCandidates={[
+            { symbol: 'BTC-USD', quote: { symbol: 'BTC-USD', price: 68000, change_percent: -0.32 } },
+            { symbol: 'ETH-USD', quote: { symbol: 'ETH-USD', price: 3600, change_percent: 1.12 } },
+            { symbol: 'SOL-USD', quote: { symbol: 'SOL-USD', price: 145, change_percent: 0.8 } },
+          ]}
+          onCancel={jest.fn()}
+        />
+      );
+
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      const compareGridText = screen.getByTestId('detail-compare-grid').textContent || '';
+      expect(compareGridText.match(/BTC-USD/g)?.length ?? 0).toBe(1);
+      expect(
+        consoleErrorSpy.mock.calls.some((call) => call.join(' ').includes('Encountered two children with the same key'))
+      ).toBe(false);
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 
   test('can hand off a quick trade draft from the detail signal summary', async () => {

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Card, Table, Empty, Button, Radio, Select, Tooltip, Tag } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
+import { activateOnEnterOrSpace } from './industryShared';
 
 const { Option } = Select;
 
@@ -59,6 +60,7 @@ const IndustryRankingPanel = ({
                                 boxShadow: focusedRankingControlKey === 'rank_type' ? 'var(--industry-focus-ring-secondary)' : 'none',
                                 borderRadius: 8,
                             }}
+                            aria-label="选择行业排行榜榜单类型"
                         >
                             <Radio.Button value="gainers">涨幅榜</Radio.Button>
                             <Radio.Button value="losers">跌幅榜</Radio.Button>
@@ -87,6 +89,7 @@ const IndustryRankingPanel = ({
                                 borderRadius: 8,
                             }}
                             disabled={loadingHot}
+                            aria-label="选择行业排行榜排序方式"
                         >
                             <Option value="change_pct">按涨跌幅</Option>
                             <Option value="total_score">按综合得分</Option>
@@ -105,6 +108,7 @@ const IndustryRankingPanel = ({
                                 borderRadius: 8,
                             }}
                             disabled={loadingHot}
+                            aria-label="选择行业排行榜统计周期"
                         >
                             <Option value={1}>近1日</Option>
                             <Option value={5}>近5日</Option>
@@ -122,6 +126,7 @@ const IndustryRankingPanel = ({
                                 borderRadius: 8,
                             }}
                             disabled={loadingHot}
+                            aria-label="选择行业排行榜波动率筛选"
                         >
                             <Option value="all">全部波动</Option>
                             <Option value="low">低波动</Option>
@@ -140,6 +145,7 @@ const IndustryRankingPanel = ({
                                 borderRadius: 8,
                             }}
                             disabled={loadingHot}
+                            aria-label="选择行业排行榜市值来源筛选"
                         >
                             <Option value="all">全部市值来源</Option>
                             <Option value="live">实时市值</Option>
@@ -156,6 +162,7 @@ const IndustryRankingPanel = ({
                             size="small"
                             type="text"
                             loading={loadingHot}
+                            aria-label="刷新行业排行榜数据"
                         />
                     </Tooltip>
                 </div>
@@ -188,6 +195,17 @@ const IndustryRankingPanel = ({
                                     onClose={(event) => {
                                         event.preventDefault();
                                         onClearRankingStateTag(item.key);
+                                    }}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`当前排行榜筛选 ${item.label} ${item.value}`}
+                                    onKeyDown={(event) => {
+                                        if (event.key === 'Backspace' || event.key === 'Delete') {
+                                            event.preventDefault();
+                                            onClearRankingStateTag(item.key);
+                                            return;
+                                        }
+                                        activateOnEnterOrSpace(event, () => onFocusRankingControl(item.key));
                                     }}
                                     style={{ margin: 0, fontSize: 12, cursor: 'pointer', borderRadius: 999, paddingInline: 8 }}
                                 >

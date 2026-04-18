@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import {
     Card,
     Table,
-    Spin,
     Empty,
     Tag,
     Button,
@@ -49,6 +48,45 @@ const buildLeaderFallbackTrend = (record) => {
     ];
 };
 
+const renderLeaderLoadingScaffold = (accentColor, title, subtitle) => (
+    <div
+        style={{
+            borderRadius: 12,
+            border: `1px solid color-mix(in srgb, ${accentColor} 16%, var(--border-color) 84%)`,
+            background: `linear-gradient(180deg, color-mix(in srgb, ${accentColor} 7%, var(--bg-secondary) 93%) 0%, color-mix(in srgb, var(--bg-secondary) 98%, var(--bg-primary) 2%) 100%)`,
+            padding: '12px 12px 8px',
+        }}
+    >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 12 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{title}</span>
+            <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{subtitle}</span>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {[0, 1, 2, 3].map((item) => (
+                <div
+                    key={item}
+                    style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 72px',
+                        gap: 12,
+                        alignItems: 'center',
+                        padding: '10px 12px',
+                        borderRadius: 10,
+                        background: 'color-mix(in srgb, var(--bg-primary) 18%, transparent)',
+                        border: '1px solid color-mix(in srgb, var(--border-color) 88%, transparent 12%)',
+                    }}
+                >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ width: `${72 - item * 7}%`, height: 10, borderRadius: 999, background: 'rgba(255,255,255,0.12)' }} />
+                        <div style={{ width: `${46 - item * 4}%`, height: 8, borderRadius: 999, background: 'rgba(255,255,255,0.08)' }} />
+                    </div>
+                    <div style={{ width: '100%', height: 28, borderRadius: 999, background: `color-mix(in srgb, ${accentColor} 18%, transparent)` }} />
+                </div>
+            ))}
+        </div>
+    </div>
+);
+
 /**
  * 龙头股面板组件
  * 展示龙头股推荐列表和详细分析
@@ -93,6 +131,7 @@ const LeaderStockPanel = ({
     const detailTrendAbortRef = useRef(null);
     const loadRequestIdRef = useRef(0);
     const detailRequestIdRef = useRef(0);
+    const hotAutoRetryRef = useRef(false);
 
     // 渐进加载：hot 和 core 独立请求，先到先渲染
     const loadData = useCallback(async () => {
@@ -178,6 +217,22 @@ const LeaderStockPanel = ({
             if (detailTrendAbortRef.current) detailTrendAbortRef.current.abort();
         };
     }, [loadData]);
+
+    useEffect(() => {
+        if (hotLoading) return undefined;
+        if (hotLeaders.length > 0) {
+            hotAutoRetryRef.current = false;
+            return undefined;
+        }
+        if (error || hotAutoRetryRef.current) return undefined;
+
+        hotAutoRetryRef.current = true;
+        const retryTimer = window.setTimeout(() => {
+            loadData();
+        }, 1200);
+
+        return () => window.clearTimeout(retryTimer);
+    }, [error, hotLeaders.length, hotLoading, loadData]);
 
     // 合并 loading 状态：全部加载完后如果都为空，显示错误
     const loading = hotLoading && coreLoading;
@@ -585,10 +640,7 @@ const LeaderStockPanel = ({
     if (loading) {
         return (
             <Card title="龙头股推荐">
-                <div style={{ textAlign: 'center', padding: 50 }}>
-                    <Spin size="large" />
-                    <div style={{ marginTop: 16 }}>加载龙头股数据...</div>
-                </div>
+                {renderLeaderLoadingScaffold('#faad14', '正在准备龙头股榜单', '优先补核心资产与热点先锋的首批可读标的。')}
             </Card>
         );
     }
@@ -692,6 +744,10 @@ const LeaderStockPanel = ({
                                     background: 'linear-gradient(180deg, rgba(24,144,255,0.05) 0%, rgba(24,144,255,0.015) 100%)',
                                     border: '1px solid rgba(24,144,255,0.10)'
                                 }} data-testid="leader-stock-table-core">
+                                    {coreLoading && displayedCoreLeaders.length === 0
+                                        ? renderLeaderLoadingScaffold('#1890ff', '核心资产', '正在按基本面与流动性整理行业中军。')
+                                        : (
+                                            <>
                                     {renderSectionHeader(
                                         '核心资产',
                                         focusIndustry && focusedCoreLeaders.length > 0 ? `${focusIndustry} 行业内偏长期基本面与流动性中军` : '偏长期基本面与流动性中军',
@@ -724,6 +780,8 @@ const LeaderStockPanel = ({
                                         style={{ background: 'transparent' }}
                                         locale={{ emptyText: coreLoading ? '正在加载核心资产...' : (focusIndustry ? '当前行业暂无可用核心资产标的' : '当前暂无可用核心资产标的') }}
                                     />
+                                            </>
+                                        )}
                                 </div>
                             ),
                         },
@@ -737,6 +795,10 @@ const LeaderStockPanel = ({
                                     background: 'linear-gradient(180deg, rgba(235,47,150,0.05) 0%, rgba(235,47,150,0.015) 100%)',
                                     border: '1px solid rgba(235,47,150,0.10)'
                                 }} data-testid="leader-stock-table-hot">
+                                    {hotLoading && displayedHotLeaders.length === 0
+                                        ? renderLeaderLoadingScaffold('#eb2f96', '热点先锋', '正在按短线动量与资金关注度筛选热点标的。')
+                                        : (
+                                            <>
                                     {renderSectionHeader(
                                         '热点先锋',
                                         focusIndustry && focusedHotLeaders.length > 0 ? `${focusIndustry} 行业内偏短线涨势与资金关注度` : '偏短线涨势与资金关注度',
@@ -769,6 +831,8 @@ const LeaderStockPanel = ({
                                         style={{ background: 'transparent' }}
                                         locale={{ emptyText: hotLoading ? '正在加载热点先锋...' : (focusIndustry ? '当前行业暂无可用热点先锋标的' : '当前暂无可用热点先锋标的') }}
                                     />
+                                            </>
+                                        )}
                                 </div>
                             ),
                         },

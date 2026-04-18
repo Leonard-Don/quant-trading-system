@@ -93,6 +93,31 @@ const hasDetailedMetrics = (record) => {
     return DETAIL_METRIC_KEYS.every((key) => normalized.metrics?.[key] !== undefined);
 };
 
+const needsRecordDetails = (record) => {
+    if (!record) {
+        return true;
+    }
+    if (record.summary_only) {
+        return true;
+    }
+
+    const recordType = record.record_type || 'backtest';
+    if (recordType === 'batch_backtest') {
+        return !((record.result?.ranked_results?.length || 0) + (record.result?.results?.length || 0));
+    }
+    if (recordType === 'walk_forward') {
+        return !(record.result?.window_results?.length);
+    }
+
+    const result = record.result || {};
+    const hasBacktestArtifacts = (
+        Object.prototype.hasOwnProperty.call(result, 'portfolio_history')
+        || Object.prototype.hasOwnProperty.call(result, 'portfolio')
+        || Object.prototype.hasOwnProperty.call(result, 'trades')
+    );
+    return !hasDetailedMetrics(record) || !hasBacktestArtifacts;
+};
+
 const BacktestHistory = ({ highlightRecordId = '' }) => {
     const message = useSafeMessageApi();
     const initialFilters = readHistoryFiltersFromSearch();
@@ -158,7 +183,7 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
             };
             const offset = (currentPage - 1) * pageSize;
             const [historyResponse, statsResponse] = await Promise.all([
-                getBacktestHistory(pageSize, queryFilters, offset),
+                getBacktestHistory(pageSize, queryFilters, offset, { summaryOnly: true }),
                 getBacktestHistoryStats(queryFilters).catch(() => null),
             ]);
 
@@ -259,7 +284,9 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
                 return;
             }
             const existing = normalizedHistory.find((record) => record.id === highlightRecordId);
-            const record = existing || await fetchRecordDetails(highlightRecordId);
+            const record = existing && !needsRecordDetails(existing)
+                ? existing
+                : (await fetchRecordDetails(highlightRecordId)) || existing;
             if (record) {
                 setSelectedRecord(record);
                 setDetailVisible(true);
@@ -350,7 +377,7 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
     };
 
     const handleViewDetails = async (record) => {
-        const detailedRecord = hasDetailedMetrics(record)
+        const detailedRecord = !needsRecordDetails(record)
             ? record
             : (await fetchRecordDetails(record.id)) || record;
         if (!detailedRecord) {
@@ -363,7 +390,7 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
     const handleDownloadReport = async (record) => {
         setDownloadingId(record.id);
         try {
-            const detailedRecord = hasDetailedMetrics(record)
+            const detailedRecord = !needsRecordDetails(record)
                 ? record
                 : (await fetchRecordDetails(record.id)) || record;
             if (!detailedRecord) {

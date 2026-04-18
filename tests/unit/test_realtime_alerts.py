@@ -57,6 +57,10 @@ def test_realtime_alerts_store_filters_invalid_items(tmp_path):
             }
         ],
         "alert_hit_history": [],
+        "_warnings": [
+            "alerts[0]: skipped (missing symbol)",
+            "alerts[1]: skipped (invalid condition 'not-supported')",
+        ],
     }
 
 

@@ -9,6 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.websocket.connection_manager import manager
+from backend.app.services.realtime_journal import realtime_journal_store
 from backend.main import app
 from src.data.realtime_manager import realtime_manager
 from src.utils.cache import cache_manager
@@ -132,6 +133,69 @@ def test_realtime_compat_subscription_endpoints(client):
     assert subscribe_payload["deprecated"] is True
     assert subscribe_payload["symbols"] == ["AAPL", "MSFT"]
     assert unsubscribe_payload["symbols"] == ["AAPL"]
+
+
+def test_realtime_journal_endpoint_accepts_profile_id_query_param(client):
+    with patch.object(
+        realtime_journal_store,
+        "get_journal",
+        return_value={"review_snapshots": [], "timeline_events": []},
+    ) as get_journal:
+        response = client.get("/realtime/journal?profile_id=query-profile")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    get_journal.assert_called_once_with(profile_id="query-profile")
+
+
+def test_realtime_journal_endpoint_prefers_profile_header_over_query_param(client):
+    with patch.object(
+        realtime_journal_store,
+        "get_journal",
+        return_value={"review_snapshots": [], "timeline_events": []},
+    ) as get_journal:
+        response = client.get(
+            "/realtime/journal?profile_id=query-profile",
+            headers={"X-Realtime-Profile": "header-profile"},
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    get_journal.assert_called_once_with(profile_id="header-profile")
+
+
+def test_realtime_alert_hit_endpoint_keeps_local_contract_without_quant_bus(client):
+    with patch(
+        "backend.app.api.v1.endpoints.realtime.realtime_alerts_store.record_alert_hit",
+        return_value={
+            "entry": {"id": "hit-1", "symbol": "AAPL", "message": "AAPL alert"},
+            "alert_hit_history": [{"id": "hit-1", "symbol": "AAPL"}],
+        },
+    ) as record_alert_hit:
+        response = client.post(
+            "/realtime/alerts/hits?profile_id=realtime-profile",
+            json={
+                "entry": {"id": "hit-1", "symbol": "AAPL", "message": "AAPL alert"},
+                "notify_channels": ["desktop"],
+                "create_workbench_task": True,
+                "persist_event_record": True,
+                "severity": "warning",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["data"]["entry"]["symbol"] == "AAPL"
+    assert payload["data"]["bus_event"] is None
+    assert payload["data"]["cascade_results"] == []
+    assert payload["data"]["orchestration_summary"] == {}
+    record_alert_hit.assert_called_once_with(
+        {"id": "hit-1", "symbol": "AAPL", "message": "AAPL alert"},
+        profile_id="realtime-profile",
+    )
 
 
 def test_websocket_duplicate_subscribe_only_fetches_initial_snapshot_once(client):

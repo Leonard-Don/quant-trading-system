@@ -13,7 +13,8 @@ import {
     Button,
     Typography,
     Divider,
-    Alert
+    Alert,
+    Tabs
 } from 'antd';
 import {
     RiseOutlined,
@@ -42,13 +43,10 @@ import { useSafeMessageApi } from '../utils/messageApi';
 const { Text } = Typography;
 const TEXT_SECONDARY = 'var(--text-secondary)';
 const TEXT_MUTED = 'var(--text-muted)';
-const SURFACE_BG = 'var(--bg-secondary)';
 const POSITIVE = 'var(--accent-danger)';
 const NEGATIVE = 'var(--accent-success)';
 const WARNING = 'var(--accent-warning)';
 const NEUTRAL_LINE = 'color-mix(in srgb, var(--border-color) 78%, var(--text-muted) 22%)';
-const POSITIVE_SOFT = 'color-mix(in srgb, var(--accent-danger) 24%, #ffffff 76%)';
-const NEGATIVE_SOFT = 'color-mix(in srgb, var(--accent-success) 24%, #ffffff 76%)';
 const COMPACT_STAT_VALUE_STYLE = {
     fontSize: 20,
     lineHeight: 1.2,
@@ -274,9 +272,30 @@ const IndustryTrendPanel = ({
     const snapshotTotalMarketCap = Number(industrySnapshot?.total_market_cap || 0);
     const snapshotAvgPe = Number(industrySnapshot?.pe_ttm || 0);
     const snapshotStockCount = Number(industrySnapshot?.stock_count || 0);
+    const trendFallbackStocks = Array.from(
+        new Map(
+            [
+                ...(trendData?.top_gainers || []),
+                ...(trendData?.top_losers || []),
+            ]
+                .filter((stock) => stock?.symbol || stock?.name)
+                .map((stock, index) => [
+                    stock?.symbol || `${stock?.name || 'industry-fallback'}-${index}`,
+                    {
+                        ...stock,
+                        rank: index + 1,
+                    },
+                ])
+        ).values()
+    ).slice(0, 10);
+    const showTrendFallbackStocks = loadingStocks && (!stocks || stocks.length === 0) && trendFallbackStocks.length > 0;
+    const displayedStocks = showTrendFallbackStocks ? trendFallbackStocks : stocks;
+    const displayedScoreStage = stocksScoreStage || (showTrendFallbackStocks ? 'quick' : null);
+    const displayedStocksReady = stocksDisplayReady || showTrendFallbackStocks;
     const loadingTotalMarketCap = stockDerivedTotalMarketCap > 0 ? stockDerivedTotalMarketCap : snapshotTotalMarketCap;
     const loadingAvgPe = stockDerivedAvgPe || (snapshotAvgPe > 0 ? snapshotAvgPe : null);
     const loadingStockCount = (stocks?.length || 0) > 0 ? (stocks?.length || 0) : snapshotStockCount;
+    const visibleStockCount = (stocks?.length || 0) > 0 ? (stocks?.length || 0) : (loadingStocks ? loadingStockCount : 0);
     const handleExportStocks = () => {
         if (!stocks || stocks.length === 0) {
             message.warning('当前没有可导出的成分股数据');
@@ -347,15 +366,32 @@ const IndustryTrendPanel = ({
     const renderStocksSection = () => (
         <div style={{ marginTop: 16 }}>
             <div style={{ marginBottom: 8 }} data-testid="industry-stock-table-header">
-                <Text strong><TeamOutlined /> 行业成分股 ({stocks?.length || 0})</Text>
+                <Text strong><TeamOutlined /> 行业成分股 ({visibleStockCount || 0})</Text>
             </div>
-            {stocksScoreStage === 'quick' && (stocks?.length || 0) > 0 && (
+            {loadingStocks && (!stocks || stocks.length === 0) && (
+                <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message="首批成分股加载中"
+                    description={
+                        showTrendFallbackStocks
+                            ? '先展示行业趋势快照里的候选股，完整评分和更多明细到达后会自动替换。'
+                            : (
+                                visibleStockCount > 0
+                                    ? `已识别该行业约 ${visibleStockCount} 只成分股，明细到达后会自动补齐。`
+                                    : '正在拉取行业成分股明细，先保留行业概览，避免把慢加载误看成空数据。'
+                            )
+                    }
+                />
+            )}
+            {displayedScoreStage === 'quick' && (displayedStocks?.length || 0) > 0 && (
                 <Alert
                     type="info"
                     showIcon
                     style={{ marginBottom: 12 }}
                     message={
-                        stocksDisplayReady
+                        displayedStocksReady
                             ? '当前展示已具备主要明细，完整评分后台仍在构建'
                             : (stocksRefining ? '当前为快速评分，完整评分后台计算中（大行业可能稍慢）' : '当前为快速评分')
                     }
@@ -363,17 +399,21 @@ const IndustryTrendPanel = ({
             )}
             <div
                 data-testid="industry-stock-table"
-                data-score-stage={stocksScoreStage || (loadingStocks ? 'loading' : 'unknown')}
-                data-display-ready={stocksDisplayReady ? 'true' : 'false'}
+                data-score-stage={displayedScoreStage || (loadingStocks ? 'loading' : 'unknown')}
+                data-display-ready={displayedStocksReady ? 'true' : 'false'}
             >
                 <Table
-                    dataSource={stocks}
+                    dataSource={displayedStocks}
                     columns={stockColumns}
                     rowKey={getTrendRowKey}
                     size="small"
-                    loading={loadingStocks && (!stocks || stocks.length === 0)}
+                    loading={loadingStocks && (!stocks || stocks.length === 0) && !showTrendFallbackStocks}
                     pagination={{ pageSize: 10 }}
-                    locale={{ emptyText: trendData?.degraded ? '当前数据源未返回成分股明细' : '暂无成分股数据' }}
+                    locale={{
+                        emptyText: loadingStocks
+                            ? '行业成分股加载中…'
+                            : (trendData?.degraded ? '当前数据源未返回成分股明细' : '暂无成分股数据'),
+                    }}
                 />
             </div>
         </div>
@@ -522,238 +562,161 @@ const IndustryTrendPanel = ({
         : (trendData.period_change_pct || 0) < 0 && (trendData.period_money_flow || 0) < 0
             ? { label: '偏弱研判', color: 'green' }
             : { label: '中性研判', color: 'blue' };
-
-    return (
-        <Card
-            data-testid="industry-detail-panel"
-            title={
-                <span>
-                    <BankOutlined style={{ marginRight: 8, color: 'var(--accent-primary)' }} />
-                    {industryName} 行业概览
-                </span>
-            }
-            extra={renderPanelActions()}
-        >
-            {trendData.degraded && (
-                <Alert
-                    type="warning"
-                    showIcon
-                    style={{ marginBottom: 16 }}
-                    message="当前显示的是降级行业数据"
-                    description={trendData.note || '成分股明细暂不可用，页面仅展示行业聚合指标。'}
-                />
-            )}
-
-            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                <Col xs={24} xl={14}>
-                    <div
-                        data-testid="industry-ai-insight-panel"
-                        style={{
-                            height: '100%',
-                            padding: '12px 12px 10px',
-                            borderRadius: 12,
-                            background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 90%, var(--accent-primary) 10%) 0%, color-mix(in srgb, var(--bg-secondary) 95%, var(--bg-primary) 5%) 100%)',
-                            border: '1px solid color-mix(in srgb, var(--accent-primary) 18%, var(--border-color) 82%)',
-                        }}
-                    >
-                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                <Text strong>AI洞察</Text>
-                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                    基于价格、资金、波动和覆盖率自动生成，帮助先抓主线再深挖成分股。
-                                </Text>
+    const summaryCards = [
+        {
+            key: 'stock_count',
+            label: '成分股数量',
+            value: `${trendData.stock_count || 0} 只`,
+            meta: expectedStockCount > 0 ? `预期 ${expectedStockCount} 只` : null,
+        },
+        {
+            key: 'market_cap',
+            label: '总市值',
+            value: formatMarketCap(derivedTotalMarketCap),
+            meta: trendData.total_market_cap_fallback ? '已回退聚合口径' : null,
+        },
+        {
+            key: 'avg_pe',
+            label: '平均市盈率',
+            value: derivedAvgPe ? Number(derivedAvgPe).toFixed(2) : '-',
+            meta: trendData.avg_pe_fallback ? '已回退聚合口径' : null,
+        },
+        {
+            key: 'volatility',
+            label: '区间波动率',
+            value: volatilityValue ? `${volatilityValue.toFixed(2)}%` : '-',
+            tone: volatilityMeta.color,
+            meta: volatilityValue > 0 ? volatilityMeta.label : null,
+        },
+        {
+            key: 'breadth',
+            label: '涨 / 跌 / 平',
+            value: `${riseCount} / ${fallCount} / ${flatCount}`,
+            meta: `${trendData.period_days || days} 日截面`,
+        },
+    ];
+    const summaryMetaTags = [
+        { key: 'coverage', color: stockCoverageMeta.tagColor, label: stockCoverageMeta.label },
+        { key: 'market_cap_source', color: marketCapSourceMeta.color, label: `市值来源: ${marketCapSourceMeta.label}` },
+        { key: 'valuation_source', color: valuationSourceMeta.color, label: `估值来源: ${valuationSourceMeta.label}` },
+        { key: 'valuation_quality', color: valuationQualityMeta.color, label: valuationQualityMeta.label },
+    ];
+    if (trendData.total_market_cap_fallback) {
+        summaryMetaTags.push({ key: 'mc_fallback', color: 'gold', label: '总市值已回退行业聚合口径' });
+    }
+    if (trendData.avg_pe_fallback) {
+        summaryMetaTags.push({ key: 'pe_fallback', color: 'gold', label: '平均市盈率已回退行业聚合口径' });
+    }
+    const overviewTab = (
+        <div className="industry-detail-tab-panel">
+            <div className="industry-detail-two-column">
+                <div
+                    data-testid="industry-ai-insight-panel"
+                    className="industry-detail-section-card industry-detail-section-card--insight"
+                >
+                    <div className="industry-detail-section-card__header">
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <Text strong>AI洞察</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                                基于价格、资金、波动和覆盖率自动生成，帮助先抓主线再深挖成分股。
+                            </Text>
+                        </div>
+                        <Tag color={insightTone.color} style={{ margin: 0, borderRadius: 999 }}>
+                            {insightTone.label}
+                        </Tag>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {insightItems.map((item, index) => (
+                            <div
+                                key={`${index}-${item.slice(0, 16)}`}
+                                style={{
+                                    padding: '8px 10px',
+                                    borderRadius: 10,
+                                    background: 'rgba(255,255,255,0.52)',
+                                    color: 'var(--text-primary)',
+                                    fontSize: 12,
+                                    lineHeight: 1.75,
+                                }}
+                            >
+                                {item}
                             </div>
-                            <Tag color={insightTone.color} style={{ margin: 0, borderRadius: 999 }}>
-                                {insightTone.label}
-                            </Tag>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {insightItems.map((item, index) => (
-                                <div
-                                    key={`${index}-${item.slice(0, 16)}`}
-                                    style={{
-                                        padding: '8px 10px',
-                                        borderRadius: 10,
-                                        background: 'rgba(255,255,255,0.52)',
-                                        color: 'var(--text-primary)',
-                                        fontSize: 12,
-                                        lineHeight: 1.75,
-                                    }}
-                                >
-                                    {item}
-                                </div>
-                            ))}
-                        </div>
+                        ))}
                     </div>
-                </Col>
-                <Col xs={24} xl={10}>
-                    <div
-                        data-testid="industry-quality-panel"
-                        style={{
-                            height: '100%',
-                            padding: '12px 12px 10px',
-                            borderRadius: 12,
-                            background: `color-mix(in srgb, ${SURFACE_BG} 88%, var(--bg-primary) 12%)`,
-                            border: `1px solid color-mix(in srgb, var(--border-color) 80%, #ffffff 20%)`,
-                        }}
-                    >
-                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                <Text strong>数据质量面板</Text>
-                                <Text type="secondary" style={{ fontSize: 12 }}>
-                                    {expectedStockCount > 0
-                                        ? `当前预计成分股 ${expectedStockCount} 只，详情页已覆盖 ${formatCoveragePercent(trendData.stock_coverage_ratio)}。`
-                                        : '当前缺少可对照的预期成分股口径，以下覆盖率更适合当作参考。'}
-                                </Text>
-                            </div>
-                            <Space size={[6, 6]} wrap>
-                                <Tag color={stockCoverageMeta.tagColor} style={{ margin: 0, borderRadius: 999 }}>{stockCoverageMeta.label}</Tag>
-                                <Tag color={marketCapSourceMeta.color} style={{ margin: 0, borderRadius: 999 }}>{marketCapSourceMeta.label}</Tag>
-                                <Tag color={valuationQualityMeta.color} style={{ margin: 0, borderRadius: 999 }}>{valuationQualityMeta.label}</Tag>
-                            </Space>
-                        </div>
-
-                        <Row gutter={[10, 10]}>
-                            {[
-                                { key: 'stock', label: '成分股覆盖', value: trendData.stock_coverage_ratio, meta: stockCoverageMeta },
-                                { key: 'change', label: '涨跌覆盖', value: trendData.change_coverage_ratio, meta: changeCoverageMeta },
-                                { key: 'market_cap', label: '市值覆盖', value: trendData.market_cap_coverage_ratio, meta: marketCapCoverageMeta },
-                                { key: 'pe', label: 'PE覆盖', value: trendData.pe_coverage_ratio, meta: peCoverageMeta },
-                            ].map((item) => (
-                                <Col xs={12} md={12} key={item.key}>
-                                    <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.55)' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                                            <span style={{ fontSize: 11, color: TEXT_SECONDARY }}>{item.label}</span>
-                                            <span style={{ fontSize: 12, fontWeight: 700, color: item.meta.color }}>{formatCoveragePercent(item.value)}</span>
-                                        </div>
-                                        <Progress
-                                            percent={Math.round(Number(item.value || 0) * 100)}
-                                            showInfo={false}
-                                            strokeColor={item.meta.color}
-                                            trailColor="rgba(0,0,0,0.06)"
-                                            size="small"
-                                        />
-                                    </div>
-                                </Col>
-                            ))}
-                        </Row>
-
-                        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <Tag color={marketCapSourceMeta.color} style={{ margin: 0, borderRadius: 999 }}>
-                                市值来源: {marketCapSourceMeta.label}
-                            </Tag>
-                            <Tag color={valuationSourceMeta.color} style={{ margin: 0, borderRadius: 999 }}>
-                                估值来源: {valuationSourceMeta.label}
-                            </Tag>
-                            {trendData.total_market_cap_fallback && (
-                                <Tag color="gold" style={{ margin: 0, borderRadius: 999 }}>
-                                    总市值已回退行业聚合口径
-                                </Tag>
-                            )}
-                            {trendData.avg_pe_fallback && (
-                                <Tag color="gold" style={{ margin: 0, borderRadius: 999 }}>
-                                    平均市盈率已回退行业聚合口径
-                                </Tag>
-                            )}
-                        </div>
-                    </div>
-                </Col>
-            </Row>
-
-            {/* 行业统计信息 */}
-            <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-                <Col xs={12} sm={12} md={8} lg={6}>
-                    <Statistic
-                        title="成分股数量"
-                        value={trendData.stock_count || 0}
-                        suffix="只"
-                        prefix={<TeamOutlined />}
-                        valueStyle={COMPACT_STAT_VALUE_STYLE}
-                        titleStyle={COMPACT_STAT_TITLE_STYLE}
-                    />
-                </Col>
-                <Col xs={12} sm={12} md={8} lg={8}>
-                    <Statistic
-                        title="总市值"
-                        value={derivedTotalMarketCap}
-                        formatter={() => formatMarketCap(derivedTotalMarketCap)}
-                        prefix={<DollarOutlined />}
-                        valueStyle={COMPACT_STAT_VALUE_STYLE}
-                        titleStyle={COMPACT_STAT_TITLE_STYLE}
-                    />
-                </Col>
-                <Col xs={12} sm={12} md={8} lg={6}>
-                    <Statistic
-                        title="平均市盈率"
-                        value={derivedAvgPe || '-'}
-                        precision={2}
-                        valueStyle={COMPACT_STAT_VALUE_STYLE}
-                        titleStyle={COMPACT_STAT_TITLE_STYLE}
-                    />
-                </Col>
-                <Col xs={12} sm={12} md={12} lg={5}>
-                    <Statistic
-                        title="区间波动率"
-                        value={volatilityValue || '-'}
-                        precision={2}
-                        suffix={volatilityValue ? '%' : ''}
-                        valueStyle={{
-                            ...COMPACT_STAT_VALUE_STYLE,
-                            color: volatilityValue ? volatilityMeta.color : undefined,
-                        }}
-                        titleStyle={COMPACT_STAT_TITLE_STYLE}
-                    />
-                    {volatilityValue > 0 && (
-                        <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                            <Tag color={volatilityMeta.tagColor} style={{ marginRight: 6 }}>
-                                {volatilityMeta.label}
-                            </Tag>
-                            <Text type="secondary" style={{ fontSize: 12 }}>来源: {volatilityMeta.sourceLabel}</Text>
-                        </div>
-                    )}
-                </Col>
-                <Col xs={24} sm={24} md={12} lg={5}>
-                    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                        <Statistic
-                            title={<span style={{ fontSize: 12 }}>涨/跌/平</span>}
-                            valueRender={() => (
-                                <span style={{ fontSize: 16 }}>
-                                    <span style={{ color: POSITIVE }}>{riseCount}</span>
-                                    <span style={{ color: TEXT_MUTED, margin: '0 4px' }}>/</span>
-                                    <span style={{ color: NEGATIVE }}>{fallCount}</span>
-                                    <span style={{ color: TEXT_MUTED, margin: '0 4px' }}>/</span>
-                                    <span style={{ color: TEXT_SECONDARY }}>{flatCount}</span>
-                                </span>
-                            )}
-                            prefix={<RiseOutlined style={{ color: POSITIVE }} />}
-                        />
-                    </div>
-                </Col>
-            </Row>
-
-            {/* 涨跌比例可视化 */}
-            {(riseCount + fallCount + flatCount) > 0 && (
-                <div style={{ marginBottom: 12, display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', background: `color-mix(in srgb, ${SURFACE_BG} 84%, var(--bg-primary) 16%)` }}>
-                    {riseCount > 0 && <div style={{ width: `${riseCount / (riseCount + fallCount + flatCount) * 100}%`, background: `linear-gradient(90deg, ${POSITIVE_SOFT}, ${POSITIVE})`, transition: 'width 0.3s' }} />}
-                    {flatCount > 0 && <div style={{ width: `${flatCount / (riseCount + fallCount + flatCount) * 100}%`, background: `color-mix(in srgb, ${TEXT_MUTED} 65%, #d9d9d9 35%)`, transition: 'width 0.3s' }} />}
-                    {fallCount > 0 && <div style={{ width: `${fallCount / (riseCount + fallCount + flatCount) * 100}%`, background: `linear-gradient(90deg, ${NEGATIVE_SOFT}, ${NEGATIVE})`, transition: 'width 0.3s' }} />}
                 </div>
-            )}
 
-            <div style={{ marginBottom: 12 }}>
-                <Text type="secondary">
-                    近 {trendData.period_days || days} 日行业涨跌幅：
-                    <span style={{ color: (trendData.period_change_pct || 0) >= 0 ? POSITIVE : NEGATIVE, fontWeight: 'bold' }}>
-                        {(trendData.period_change_pct || 0) >= 0 ? '+' : ''}{(trendData.period_change_pct || 0).toFixed(2)}%
-                    </span>
-                    {' '}| 主力净流入：{formatMoneyFlow(trendData.period_money_flow)}
-                </Text>
+                <div
+                    data-testid="industry-quality-panel"
+                    className="industry-detail-section-card"
+                >
+                    <div className="industry-detail-section-card__header">
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                            <Text strong>数据质量面板</Text>
+                            <Text type="secondary" style={{ fontSize: 12 }}>
+                                {expectedStockCount > 0
+                                    ? `当前预计成分股 ${expectedStockCount} 只，详情页已覆盖 ${formatCoveragePercent(trendData.stock_coverage_ratio)}。`
+                                    : '当前缺少可对照的预期成分股口径，以下覆盖率更适合当作参考。'}
+                            </Text>
+                        </div>
+                        <Space size={[6, 6]} wrap>
+                            <Tag color={stockCoverageMeta.tagColor} style={{ margin: 0, borderRadius: 999 }}>{stockCoverageMeta.label}</Tag>
+                            <Tag color={marketCapSourceMeta.color} style={{ margin: 0, borderRadius: 999 }}>{marketCapSourceMeta.label}</Tag>
+                            <Tag color={valuationQualityMeta.color} style={{ margin: 0, borderRadius: 999 }}>{valuationQualityMeta.label}</Tag>
+                        </Space>
+                    </div>
+
+                    <Row gutter={[10, 10]}>
+                        {[
+                            { key: 'stock', label: '成分股覆盖', value: trendData.stock_coverage_ratio, meta: stockCoverageMeta },
+                            { key: 'change', label: '涨跌覆盖', value: trendData.change_coverage_ratio, meta: changeCoverageMeta },
+                            { key: 'market_cap', label: '市值覆盖', value: trendData.market_cap_coverage_ratio, meta: marketCapCoverageMeta },
+                            { key: 'pe', label: 'PE覆盖', value: trendData.pe_coverage_ratio, meta: peCoverageMeta },
+                        ].map((item) => (
+                            <Col xs={12} md={12} key={item.key}>
+                                <div style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.55)' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                                        <span style={{ fontSize: 11, color: TEXT_SECONDARY }}>{item.label}</span>
+                                        <span style={{ fontSize: 12, fontWeight: 700, color: item.meta.color }}>{formatCoveragePercent(item.value)}</span>
+                                    </div>
+                                    <Progress
+                                        percent={Math.round(Number(item.value || 0) * 100)}
+                                        showInfo={false}
+                                        strokeColor={item.meta.color}
+                                        trailColor="rgba(0,0,0,0.06)"
+                                        size="small"
+                                    />
+                                </div>
+                            </Col>
+                        ))}
+                    </Row>
+                </div>
+            </div>
+
+            <div className="industry-detail-section-card industry-detail-section-card--soft">
+                <div className="industry-detail-section-card__header">
+                    <div>
+                        <div className="industry-detail-section-card__kicker">区间观察</div>
+                        <Text strong>近 {trendData.period_days || days} 日行业状态</Text>
+                    </div>
+                    <Space size={[6, 6]} wrap>
+                        <Tag color={(trendData.period_change_pct || 0) >= 0 ? 'error' : 'success'} style={{ margin: 0, borderRadius: 999 }}>
+                            {(trendData.period_change_pct || 0) >= 0 ? '+' : ''}{(trendData.period_change_pct || 0).toFixed(2)}%
+                        </Tag>
+                        <Tag color={(trendData.period_money_flow || 0) >= 0 ? 'error' : 'success'} style={{ margin: 0, borderRadius: 999 }}>
+                            主力净流入 {formatMoneyFlow(trendData.period_money_flow)}
+                        </Tag>
+                    </Space>
+                </div>
+                <div className="industry-detail-inline-note">
+                    涨 / 跌 / 平 {riseCount} / {fallCount} / {flatCount}
+                    {' · '}
+                    波动率 {volatilityValue ? `${volatilityValue.toFixed(2)}%` : '暂无'}
+                    {volatilityValue > 0 ? ` (${volatilityMeta.label}，${volatilityMeta.sourceLabel})` : ''}
+                </div>
             </div>
 
             {trendSeries.length > 0 ? (
-                <>
-                    <Divider style={{ margin: '12px 0' }} />
-                    <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div className="industry-detail-section-card">
+                    <div className="industry-detail-section-card__header">
                         <Text strong>行业指数走势</Text>
                         <Space size={[6, 6]} wrap>
                             <Tag color={trendSeriesDeltaPct >= 0 ? 'error' : 'success'} style={{ margin: 0, borderRadius: 999 }}>
@@ -764,75 +727,68 @@ const IndustryTrendPanel = ({
                             </Tag>
                         </Space>
                     </div>
-                    <div
-                        style={{
-                            marginBottom: 12,
-                            padding: '12px 12px 6px',
-                            borderRadius: 12,
-                            background: `color-mix(in srgb, ${SURFACE_BG} 88%, var(--bg-primary) 12%)`,
-                            border: `1px solid color-mix(in srgb, var(--border-color) 82%, #ffffff 18%)`,
-                        }}
-                    >
-                        <ResponsiveContainer width="100%" height={220}>
-                            <LineChart data={trendSeries} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.05)" />
-                                <XAxis
-                                    dataKey="date"
-                                    tick={{ fontSize: 11 }}
-                                    tickFormatter={(value) => String(value || '').slice(5)}
-                                    minTickGap={24}
-                                />
-                                <YAxis
-                                    domain={['dataMin - 5', 'dataMax + 5']}
-                                    tick={{ fontSize: 11 }}
-                                    width={46}
-                                />
-                                <RechartsTooltip
-                                    labelFormatter={(value) => `日期 ${value}`}
-                                    formatter={(value, key, payload) => {
-                                        if (key === 'close') {
-                                            return [`${Number(value || 0).toFixed(2)}`, '收盘'];
-                                        }
-                                        if (key === 'change_pct') {
-                                            return [`${Number(value || 0).toFixed(2)}%`, '涨跌幅'];
-                                        }
-                                        return [String(value ?? '-'), payload?.name || key];
-                                    }}
-                                />
-                                <ReferenceLine y={trendSeriesStartClose || trendSeriesEndClose || 0} stroke={NEUTRAL_LINE} strokeDasharray="4 4" />
-                                <Line
-                                    type="monotone"
-                                    dataKey="close"
-                                    stroke={trendSeriesDeltaPct >= 0 ? POSITIVE : NEGATIVE}
-                                    strokeWidth={2}
-                                    dot={false}
-                                    activeDot={{ r: 4 }}
-                                />
-                            </LineChart>
-                        </ResponsiveContainer>
-                        <div style={{ marginTop: 8, fontSize: 11, color: TEXT_SECONDARY, lineHeight: 1.7 }}>
-                            走势基于行业指数历史收盘价。当前展示近 {trendSeries.length} 个交易日，适合快速判断趋势延续、拐点和波动收敛情况。
-                        </div>
+                    <ResponsiveContainer width="100%" height={220}>
+                        <LineChart data={trendSeries} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(0,0,0,0.05)" />
+                            <XAxis
+                                dataKey="date"
+                                tick={{ fontSize: 11 }}
+                                tickFormatter={(value) => String(value || '').slice(5)}
+                                minTickGap={24}
+                            />
+                            <YAxis
+                                domain={['dataMin - 5', 'dataMax + 5']}
+                                tick={{ fontSize: 11 }}
+                                width={46}
+                            />
+                            <RechartsTooltip
+                                labelFormatter={(value) => `日期 ${value}`}
+                                formatter={(value, key, payload) => {
+                                    if (key === 'close') {
+                                        return [`${Number(value || 0).toFixed(2)}`, '收盘'];
+                                    }
+                                    if (key === 'change_pct') {
+                                        return [`${Number(value || 0).toFixed(2)}%`, '涨跌幅'];
+                                    }
+                                    return [String(value ?? '-'), payload?.name || key];
+                                }}
+                            />
+                            <ReferenceLine y={trendSeriesStartClose || trendSeriesEndClose || 0} stroke={NEUTRAL_LINE} strokeDasharray="4 4" />
+                            <Line
+                                type="monotone"
+                                dataKey="close"
+                                stroke={trendSeriesDeltaPct >= 0 ? POSITIVE : NEGATIVE}
+                                strokeWidth={2}
+                                dot={false}
+                                activeDot={{ r: 4 }}
+                            />
+                        </LineChart>
+                    </ResponsiveContainer>
+                    <div className="industry-detail-inline-note">
+                        走势基于行业指数历史收盘价，适合快速判断趋势延续、拐点和波动收敛情况。
                     </div>
-                </>
+                </div>
             ) : (
                 <Alert
                     type="info"
                     showIcon
-                    style={{ marginBottom: 12 }}
                     message="行业走势暂不可用"
-                    description="当前数据源未返回行业指数历史序列，详情页先展示横截面摘要和成分股分布。"
+                    description="当前数据源未返回行业指数历史序列，先展示横截面摘要和成分股分布。"
                 />
             )}
-
-            {/* 涨跌分布柱状图 */}
+        </div>
+    );
+    const moversTab = (
+        <div className="industry-detail-tab-panel">
             {barChartData.length > 0 && (
-                <>
-                    <Divider style={{ margin: '12px 0' }} />
-                    <div style={{ marginBottom: 8 }}>
+                <div className="industry-detail-section-card">
+                    <div className="industry-detail-section-card__header">
                         <Text strong>涨跌幅分布</Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                            结合前后排个股，快速看分化区间
+                        </Text>
                     </div>
-                    <ResponsiveContainer width="100%" height={Math.max(120, barChartData.length * 30 + 40)}>
+                    <ResponsiveContainer width="100%" height={Math.max(160, barChartData.length * 28 + 40)}>
                         <BarChart data={barChartData} layout="vertical" margin={{ left: 60, right: 20 }}>
                             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
                             <XAxis type="number" tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11 }} />
@@ -856,93 +812,147 @@ const IndustryTrendPanel = ({
                             </Bar>
                         </BarChart>
                     </ResponsiveContainer>
-                </>
+                </div>
             )}
 
-            <Divider style={{ margin: '12px 0' }} />
-
-            {/* 涨跌幅排行 */}
-            <Row gutter={16}>
-                <Col span={12}>
-                    <div style={{ marginBottom: 8 }}>
-                        <Text strong style={{ color: POSITIVE }}>
-                            <RiseOutlined /> 涨幅前5
-                        </Text>
+            <Row gutter={[16, 16]} className="industry-detail-movers-grid">
+                <Col xs={24} xl={12}>
+                    <div className="industry-detail-section-card">
+                        <div className="industry-detail-section-card__header">
+                            <Text strong style={{ color: POSITIVE }}>
+                                <RiseOutlined /> 涨幅前5
+                            </Text>
+                        </div>
+                        <Table
+                            dataSource={(trendData.top_gainers || []).map((s, i) => ({ ...s, _rank: i + 1 }))}
+                            columns={[
+                                { title: '排名', dataIndex: '_rank', key: '_rank', width: 50 },
+                                { title: '代码', dataIndex: 'symbol', key: 'symbol', width: 80, render: (v) => <Tag color="blue">{v}</Tag> },
+                                { title: '名称', dataIndex: 'name', key: 'name', width: 90 },
+                                {
+                                    title: '涨跌幅', dataIndex: 'change_pct', key: 'change_pct', width: 80, render: (v) => (
+                                        <span style={{ color: (v || 0) >= 0 ? POSITIVE : NEGATIVE, fontWeight: 'bold' }}>
+                                            {(v || 0) >= 0 ? '+' : ''}{(v || 0).toFixed(2)}%
+                                        </span>
+                                    )
+                                },
+                                {
+                                    title: '市值', dataIndex: 'market_cap', key: 'mc_g', width: 70, render: (v) => {
+                                        if (!v) return '-';
+                                        const yi = v / 100000000;
+                                        return yi >= 10000 ? `${(yi / 10000).toFixed(1)}万亿` : `${yi.toFixed(0)}亿`;
+                                    }
+                                },
+                            ]}
+                            rowKey={getTrendRowKey}
+                            size="small"
+                            pagination={false}
+                            locale={{ emptyText: trendData.degraded ? '降级模式下无涨幅榜明细' : '暂无数据' }}
+                        />
                     </div>
-                    <Table
-                        dataSource={(trendData.top_gainers || []).map((s, i) => ({ ...s, _rank: i + 1 }))}
-                        columns={[
-                            { title: '排名', dataIndex: '_rank', key: '_rank', width: 50 },
-                            { title: '代码', dataIndex: 'symbol', key: 'symbol', width: 80, render: (v) => <Tag color="blue">{v}</Tag> },
-                            { title: '名称', dataIndex: 'name', key: 'name', width: 90 },
-                            {
-                                title: '涨跌幅', dataIndex: 'change_pct', key: 'change_pct', width: 80, render: (v) => (
-                                    <span style={{ color: (v || 0) >= 0 ? POSITIVE : NEGATIVE, fontWeight: 'bold' }}>
-                                        {(v || 0) >= 0 ? '+' : ''}{(v || 0).toFixed(2)}%
-                                    </span>
-                                )
-                            },
-                            {
-                                title: '市值', dataIndex: 'market_cap', key: 'mc_g', width: 70, render: (v) => {
-                                    if (!v) return '-';
-                                    const yi = v / 100000000;
-                                    return yi >= 10000 ? `${(yi / 10000).toFixed(1)}万亿` : `${yi.toFixed(0)}亿`;
-                                }
-                            },
-                        ]}
-                        rowKey={getTrendRowKey}
-                        size="small"
-                        pagination={false}
-                        locale={{ emptyText: trendData.degraded ? '降级模式下无涨幅榜明细' : '暂无数据' }}
-                    />
                 </Col>
-                <Col span={12}>
-                    <div style={{ marginBottom: 8 }}>
-                        <Text strong style={{ color: NEGATIVE }}>
-                            <FallOutlined /> 跌幅前5
-                        </Text>
+                <Col xs={24} xl={12}>
+                    <div className="industry-detail-section-card">
+                        <div className="industry-detail-section-card__header">
+                            <Text strong style={{ color: NEGATIVE }}>
+                                <FallOutlined /> 跌幅前5
+                            </Text>
+                        </div>
+                        <Table
+                            dataSource={(trendData.top_losers || []).map((s, i) => ({ ...s, _rank: i + 1 }))}
+                            columns={[
+                                { title: '排名', dataIndex: '_rank', key: '_rank', width: 50 },
+                                { title: '代码', dataIndex: 'symbol', key: 'symbol', width: 80, render: (v) => <Tag color="blue">{v}</Tag> },
+                                { title: '名称', dataIndex: 'name', key: 'name', width: 90 },
+                                {
+                                    title: '涨跌幅', dataIndex: 'change_pct', key: 'change_pct', width: 80, render: (v) => (
+                                        <span style={{ color: (v || 0) >= 0 ? POSITIVE : NEGATIVE, fontWeight: 'bold' }}>
+                                            {(v || 0) >= 0 ? '+' : ''}{(v || 0).toFixed(2)}%
+                                        </span>
+                                    )
+                                },
+                                {
+                                    title: '市值', dataIndex: 'market_cap', key: 'mc_l', width: 70, render: (v) => {
+                                        if (!v) return '-';
+                                        const yi = v / 100000000;
+                                        return yi >= 10000 ? `${(yi / 10000).toFixed(1)}万亿` : `${yi.toFixed(0)}亿`;
+                                    }
+                                },
+                            ]}
+                            rowKey={getTrendRowKey}
+                            size="small"
+                            pagination={false}
+                            locale={{ emptyText: trendData.degraded ? '降级模式下无跌幅榜明细' : '暂无数据' }}
+                        />
                     </div>
-                    <Table
-                        dataSource={(trendData.top_losers || []).map((s, i) => ({ ...s, _rank: i + 1 }))}
-                        columns={[
-                            { title: '排名', dataIndex: '_rank', key: '_rank', width: 50 },
-                            { title: '代码', dataIndex: 'symbol', key: 'symbol', width: 80, render: (v) => <Tag color="blue">{v}</Tag> },
-                            { title: '名称', dataIndex: 'name', key: 'name', width: 90 },
-                            {
-                                title: '涨跌幅', dataIndex: 'change_pct', key: 'change_pct', width: 80, render: (v) => (
-                                    <span style={{ color: (v || 0) >= 0 ? POSITIVE : NEGATIVE, fontWeight: 'bold' }}>
-                                        {(v || 0) >= 0 ? '+' : ''}{(v || 0).toFixed(2)}%
-                                    </span>
-                                )
-                            },
-                            {
-                                title: '市值', dataIndex: 'market_cap', key: 'mc_l', width: 70, render: (v) => {
-                                    if (!v) return '-';
-                                    const yi = v / 100000000;
-                                    return yi >= 10000 ? `${(yi / 10000).toFixed(1)}万亿` : `${yi.toFixed(0)}亿`;
-                                }
-                            },
-                        ]}
-                        rowKey={getTrendRowKey}
-                        size="small"
-                        pagination={false}
-                        locale={{ emptyText: trendData.degraded ? '降级模式下无跌幅榜明细' : '暂无数据' }}
-                    />
                 </Col>
             </Row>
-
-            <Divider style={{ margin: '12px 0' }} />
-
-            {/* 行业成分股列表 */}
+        </div>
+    );
+    const stocksTab = (
+        <div className="industry-detail-tab-panel">
             {renderStocksSection()}
+        </div>
+    );
 
-            {trendData.update_time && (
-                <div style={{ textAlign: 'right', marginTop: 8 }}>
+    return (
+        <Card
+            data-testid="industry-detail-panel"
+            title={
+                <span>
+                    <BankOutlined style={{ marginRight: 8, color: 'var(--accent-primary)' }} />
+                    {industryName} 行业概览
+                </span>
+            }
+            extra={renderPanelActions()}
+        >
+            {trendData.degraded && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="当前显示的是降级行业数据"
+                    description={trendData.note || '成分股明细暂不可用，页面仅展示行业聚合指标。'}
+                />
+            )}
+
+            <div className="industry-detail-summary-grid">
+                {summaryCards.map((item) => (
+                    <div key={item.key} className="industry-detail-summary-card">
+                        <div className="industry-detail-summary-card__label">{item.label}</div>
+                        <div className="industry-detail-summary-card__value" style={item.tone ? { color: item.tone } : undefined}>
+                            {item.value}
+                        </div>
+                        {item.meta ? (
+                            <div className="industry-detail-summary-card__meta">{item.meta}</div>
+                        ) : null}
+                    </div>
+                ))}
+            </div>
+
+            <div className="industry-detail-meta-row">
+                <Space size={[6, 6]} wrap>
+                    {summaryMetaTags.map((item) => (
+                        <Tag key={item.key} color={item.color} style={{ margin: 0, borderRadius: 999 }}>
+                            {item.label}
+                        </Tag>
+                    ))}
+                </Space>
+                {trendData.update_time ? (
                     <Text type="secondary" style={{ fontSize: 12 }}>
                         更新时间: {new Date(trendData.update_time).toLocaleString()}
                     </Text>
-                </div>
-            )}
+                ) : null}
+            </div>
+
+            <Tabs
+                className="industry-detail-tabs"
+                items={[
+                    { key: 'overview', label: '概览', children: overviewTab },
+                    { key: 'movers', label: '走势与分化', children: moversTab },
+                    { key: 'stocks', label: `成分股 (${visibleStockCount || 0})`, children: stocksTab },
+                ]}
+            />
         </Card>
     );
 };

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Card, Spin, Empty, Tooltip, Typography, Tag, Row, Col, Statistic, message, Button, Input, Radio, Select, Space, Progress, Slider } from 'antd';
+import { Card, Spin, Empty, Tooltip, Typography, Tag, Row, Col, Statistic, message, Button, Input, Radio, Select, Space, Progress, Slider, Grid } from 'antd';
 import {
     RiseOutlined,
     FallOutlined,
@@ -13,9 +13,11 @@ import {
     FullscreenOutlined,
     FullscreenExitOutlined
 } from '@ant-design/icons';
-import { getIndustryHeatmap } from '../services/api';
+import { getIndustryHeatmap, getIndustryHeatmapHistory } from '../services/api';
+import { activateOnEnterOrSpace } from './industry/industryShared';
 
 const { Text } = Typography;
+const { useBreakpoint } = Grid;
 const HEATMAP_SURFACE = 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary) 10%) 0%, color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-primary) 18%) 100%)';
 const TOOLTIP_BG = 'color-mix(in srgb, var(--bg-primary) 88%, #0f172a 12%)';
 const TOOLTIP_PANEL = 'color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary) 8%)';
@@ -28,6 +30,8 @@ const HEATMAP_POSITIVE = 'var(--accent-danger)';
 const HEATMAP_NEGATIVE = 'var(--accent-success)';
 const HEATMAP_WARNING = 'var(--accent-warning)';
 const TILE_TEXT_SHADOW = '0 1px 3px rgba(15, 23, 42, 0.32)';
+const HEATMAP_LIVE_REQUEST_TIMEOUT_MS = 12000;
+const HEATMAP_HISTORY_FALLBACK_TIMEOUT_MS = 6000;
 
 const normalizeIndustrySearchText = (value) => String(value || '')
     .toLowerCase()
@@ -59,6 +63,32 @@ const matchesIndustrySearch = (name, searchTerm) => {
     return buildIndustrySearchCandidates(name).some(
         (candidate) => normalizeIndustrySearchText(candidate).includes(normalizedQuery)
     );
+};
+
+const syncHeatmapTileFocusState = (node, active) => {
+    if (!node) return;
+    node.style.filter = active ? 'brightness(1.25)' : 'brightness(1)';
+    node.style.zIndex = active ? '10' : '1';
+    node.style.transform = active ? 'scale(1.02)' : 'scale(1)';
+};
+
+export const buildFallbackHeatmapPayload = (historyResponse, timeframe) => {
+    const historyItems = Array.isArray(historyResponse?.items) ? historyResponse.items : [];
+    const matchingItem = historyItems.find(
+        (item) => Number(item?.days || 0) === Number(timeframe || 0) && Array.isArray(item?.industries) && item.industries.length > 0
+    );
+    const fallbackItem = matchingItem || historyItems.find((item) => Array.isArray(item?.industries) && item.industries.length > 0);
+
+    if (!fallbackItem) {
+        return null;
+    }
+
+    return {
+        industries: fallbackItem.industries || [],
+        max_value: fallbackItem.max_value ?? 0,
+        min_value: fallbackItem.min_value ?? 0,
+        update_time: fallbackItem.update_time || fallbackItem.captured_at || '',
+    };
 };
 
 // ... (retain squarified treemap algorithms: worstAspectRatio, squarify, layoutRow) ...
@@ -234,10 +264,13 @@ const IndustryHeatmap = ({
     onToggleFullscreen,
     isFullscreen = false,
 }) => {
+    const screens = useBreakpoint();
+    const isCompactMobile = !screens.md;
     const [refreshSec, setRefreshSec] = useState(60);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [loadSource, setLoadSource] = useState('');
     const [containerNode, setContainerNode] = useState(null);
     const [containerSize, setContainerSize] = useState({ width: 800, height: 450 });
     const [searchTerm, setSearchTerm] = useState('');
@@ -311,6 +344,7 @@ const IndustryHeatmap = ({
         }
         setError(null);
         setLoading(false);
+        setLoadSource('replay');
         setData(replaySnapshot.data);
         return undefined;
     }, [replaySnapshot]);
@@ -345,12 +379,51 @@ const IndustryHeatmap = ({
         return () => observer.disconnect();
     }, [containerNode, displayCount]);
 
+    const loadHistoryFallback = useCallback(async (currentAbort, reason = 'error') => {
+        try {
+            const historyResponse = await getIndustryHeatmapHistory(
+                { limit: 6, days: timeframe },
+                {
+                    signal: currentAbort.signal,
+                    timeout: HEATMAP_HISTORY_FALLBACK_TIMEOUT_MS,
+                }
+            );
+            if (loadDataAbortRef.current !== currentAbort) return false;
+
+            const fallbackPayload = buildFallbackHeatmapPayload(historyResponse, timeframe);
+            if (!fallbackPayload?.industries?.length) {
+                return false;
+            }
+
+            setData(fallbackPayload);
+            setError(null);
+            setLoadSource('history');
+            onDataLoad?.(fallbackPayload);
+            message.warning(
+                reason === 'empty'
+                    ? '行业热力图暂时无实时结果，已切换到最近快照'
+                    : '行业热力图实时链路异常，已切换到最近快照'
+            );
+            return true;
+        } catch (fallbackError) {
+            if (fallbackError?.name === 'CanceledError') {
+                return false;
+            }
+            if (loadDataAbortRef.current !== currentAbort) {
+                return false;
+            }
+            console.error('Failed to load industry heatmap history fallback:', fallbackError);
+            return false;
+        }
+    }, [onDataLoad, timeframe]);
+
     // 加载热力图数据
     const loadData = useCallback(async () => {
         if (replaySnapshot?.data) {
             setData(replaySnapshot.data);
             setLoading(false);
             setError(null);
+            setLoadSource('replay');
             return;
         }
         if (loadDataAbortRef.current) {
@@ -363,11 +436,20 @@ const IndustryHeatmap = ({
         try {
             setLoading(true);
             setError(null);
+            setLoadSource('');
             const result = await getIndustryHeatmap(timeframe, {
-                signal: currentAbort.signal
+                signal: currentAbort.signal,
+                timeout: HEATMAP_LIVE_REQUEST_TIMEOUT_MS,
             });
             if (loadDataAbortRef.current !== currentAbort) return;
+            if (!result?.industries?.length) {
+                const usedFallback = await loadHistoryFallback(currentAbort, 'empty');
+                if (usedFallback) {
+                    return;
+                }
+            }
             setData(result);
+            setLoadSource('live');
             onDataLoad?.(result);
         } catch (err) {
             if (err.name === 'CanceledError') {
@@ -376,14 +458,19 @@ const IndustryHeatmap = ({
             }
             if (loadDataAbortRef.current !== currentAbort) return;
             console.error('Failed to load industry heatmap:', err);
+            const usedFallback = await loadHistoryFallback(currentAbort, 'error');
+            if (usedFallback) {
+                return;
+            }
             setError(err.userMessage || '加载行业数据失败');
+            setLoadSource('');
             message.error('加载行业数据失败');
         } finally {
             if (!isCanceled && loadDataAbortRef.current === currentAbort) {
                 setLoading(false);
             }
         }
-    }, [onDataLoad, replaySnapshot, timeframe]);
+    }, [loadHistoryFallback, onDataLoad, replaySnapshot, timeframe]);
 
     useEffect(() => {
         if (replaySnapshot?.data) {
@@ -653,6 +740,10 @@ const IndustryHeatmap = ({
                                 color={idx === 0 ? 'red' : idx === 1 ? 'volcano' : 'orange'}
                                 style={{ cursor: 'pointer', margin: 0 }}
                                 onClick={() => onIndustryClick?.(ind.name)}
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`查看 ${ind.name} 行业详情，主力净流入 ${(ind.moneyFlow / 1e8).toFixed(1)} 亿`}
+                                onKeyDown={(event) => activateOnEnterOrSpace(event, () => onIndustryClick?.(ind.name))}
                             >
                                 {ind.name} +{(ind.moneyFlow / 1e8).toFixed(1)}亿
                             </Tag>
@@ -828,6 +919,7 @@ const IndustryHeatmap = ({
                     const isMediumBlock = layout.width > 55 && layout.height > 40;
                     const isSmallBlock = layout.width > 35 && layout.height > 22;
                     const canShowValue = layout.width > 68 && layout.height > 48;
+                    const showMediumMeta = isMediumBlock && !isLargeBlock && layout.width > 82 && layout.height > 60;
                     
                     // 箭头方向逻辑：应与当前显示的数值 displayValue 保持一致
                     // 换手率 (turnover_rate) 始终为正，不显示箭头或显示火号
@@ -1020,26 +1112,33 @@ const IndustryHeatmap = ({
                                             }}>
                                                 <div style={{ color: TOOLTIP_SUBTLE, fontSize: 10, fontWeight: 700, letterSpacing: '0.04em', marginBottom: 6 }}>板块龙头</div>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                    <span
-                                                        className="industry-tooltip-link"
-                                                        style={{
-                                                            color: 'var(--accent-primary)',
+                                                        <span
+                                                            className="industry-tooltip-link"
+                                                            style={{
+                                                                color: 'var(--accent-primary)',
                                                             fontWeight: 700,
                                                             fontSize: 13,
                                                             cursor: onLeadingStockClick ? 'pointer' : 'default',
-                                                            textDecoration: onLeadingStockClick ? 'underline' : 'none',
-                                                            textDecorationStyle: 'dotted',
-                                                            textUnderlineOffset: 2,
-                                                        }}
-                                                        onClick={(e) => {
-                                                            if (onLeadingStockClick) {
-                                                                e.stopPropagation();
-                                                                onLeadingStockClick(item.leadingStock);
-                                                            }
-                                                        }}
-                                                    >
-                                                        {item.leadingStock}
-                                                    </span>
+                                                                textDecoration: onLeadingStockClick ? 'underline' : 'none',
+                                                                textDecorationStyle: 'dotted',
+                                                                textUnderlineOffset: 2,
+                                                            }}
+                                                            role={onLeadingStockClick ? 'button' : undefined}
+                                                            tabIndex={onLeadingStockClick ? 0 : undefined}
+                                                            aria-label={onLeadingStockClick ? `查看龙头股 ${item.leadingStock} 详情` : undefined}
+                                                            onClick={(e) => {
+                                                                if (onLeadingStockClick) {
+                                                                    e.stopPropagation();
+                                                                    onLeadingStockClick(item.leadingStock);
+                                                                }
+                                                            }}
+                                                            onKeyDown={(event) => {
+                                                                if (!onLeadingStockClick) return;
+                                                                activateOnEnterOrSpace(event, () => onLeadingStockClick(item.leadingStock));
+                                                            }}
+                                                        >
+                                                            {item.leadingStock}
+                                                        </span>
                                                     {item.leadingStockChange !== 0 && (
                                                         <span style={{ color: item.leadingStockChange >= 0 ? HEATMAP_POSITIVE : HEATMAP_NEGATIVE, fontWeight: 700, fontSize: 13 }}>
                                                             {item.leadingStockChange >= 0 ? '+' : ''}{item.leadingStockChange.toFixed(2)}%
@@ -1083,6 +1182,9 @@ const IndustryHeatmap = ({
                                 data-testid="heatmap-tile"
                                 data-industry-name={item.name}
                                 onClick={() => onIndustryClick?.(item.name)}
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`查看 ${item.name} 行业详情`}
                                 style={{
                                     position: 'absolute',
                                     left: layout.x + gap / 2,
@@ -1104,16 +1206,15 @@ const IndustryHeatmap = ({
                                     border: 'none',
                                     zIndex: 1,
                                 }}
+                                onKeyDown={(event) => activateOnEnterOrSpace(event, () => onIndustryClick?.(item.name))}
                                 onMouseEnter={(e) => {
-                                    e.currentTarget.style.filter = 'brightness(1.25)';
-                                    e.currentTarget.style.zIndex = '10';
-                                    e.currentTarget.style.transform = 'scale(1.02)';
+                                    syncHeatmapTileFocusState(e.currentTarget, true);
                                 }}
                                 onMouseLeave={(e) => {
-                                    e.currentTarget.style.filter = 'brightness(1)';
-                                    e.currentTarget.style.zIndex = '1';
-                                    e.currentTarget.style.transform = 'scale(1)';
+                                    syncHeatmapTileFocusState(e.currentTarget, false);
                                 }}
+                                onFocus={(e) => syncHeatmapTileFocusState(e.currentTarget, true)}
+                                onBlur={(e) => syncHeatmapTileFocusState(e.currentTarget, false)}
                             >
                                 {(layout.width > 70 && layout.height > 40) && (
                                     <div
@@ -1128,8 +1229,22 @@ const IndustryHeatmap = ({
                                                         : marketCapDisplayKind === 'proxy'
                                                             ? 'proxy'
                                                             : 'estimated'
-                                            );
+                                                    );
                                         }}
+                                        role="button"
+                                        tabIndex={0}
+                                        aria-label={`按 ${sourceCornerLabel} 来源筛选 ${item.name}`}
+                                        onKeyDown={(event) => activateOnEnterOrSpace(event, () => (
+                                            onSelectMarketCapFilter?.(
+                                                marketCapDisplayKind === 'live'
+                                                    ? 'live'
+                                                    : marketCapDisplayKind === 'snapshot'
+                                                        ? 'snapshot'
+                                                        : marketCapDisplayKind === 'proxy'
+                                                            ? 'proxy'
+                                                            : 'estimated'
+                                            )
+                                        ))}
                                         style={{
                                             position: 'absolute',
                                             top: 4,
@@ -1163,13 +1278,13 @@ const IndustryHeatmap = ({
                                             strong
                                             style={{
                                                 color: textColor,
-                                                fontSize: isLargeBlock ? 14 : isMediumBlock ? 12 : isSmallBlock ? 10 : 9,
+                                                fontSize: isLargeBlock ? 14 : isMediumBlock ? 11 : isSmallBlock ? 10 : 9,
                                                 textAlign: 'center',
                                                 overflow: 'hidden',
                                                 textOverflow: 'ellipsis',
                                                 whiteSpace: 'nowrap',
                                                 maxWidth: '98%',
-                                                lineHeight: 1.2,
+                                                lineHeight: isMediumBlock && !isLargeBlock ? 1.12 : 1.2,
                                                 textShadow: TILE_TEXT_SHADOW,
                                                 opacity: layout.width < 40 ? 0.8 : 1
                                             }}
@@ -1181,11 +1296,11 @@ const IndustryHeatmap = ({
                                             <Text
                                                 style={{
                                                     color: textColor,
-                                                    fontSize: isLargeBlock ? 15 : isMediumBlock ? 12 : 9,
+                                                    fontSize: isLargeBlock ? 15 : isMediumBlock ? 11 : 9,
                                                     fontWeight: 'bold',
-                                                    lineHeight: 1.3,
+                                                    lineHeight: isMediumBlock && !isLargeBlock ? 1.16 : 1.3,
                                                     textShadow: TILE_TEXT_SHADOW,
-                                                    marginTop: 1,
+                                                    marginTop: isMediumBlock && !isLargeBlock ? 0 : 1,
                                                     maxWidth: '98%',
                                                     whiteSpace: 'nowrap',
                                                     overflow: 'hidden',
@@ -1204,13 +1319,13 @@ const IndustryHeatmap = ({
                                             </Text>
                                         )}
 
-                                        {isMediumBlock && item.stockCount > 0 && (
+                                        {showMediumMeta && item.stockCount > 0 && (
                                             <Text
                                                 style={{
                                                     color: 'color-mix(in srgb, var(--text-primary) 76%, transparent)',
-                                                    fontSize: isLargeBlock ? 11 : 10,
+                                                    fontSize: 9,
                                                     lineHeight: 1.2,
-                                                    marginTop: 2,
+                                                    marginTop: 1,
                                                     maxWidth: '95%',
                                                     whiteSpace: 'nowrap',
                                                     overflow: 'hidden',
@@ -1218,7 +1333,7 @@ const IndustryHeatmap = ({
                                                     textShadow: TILE_TEXT_SHADOW,
                                                 }}
                                             >
-                                                {item.stockCount} 只成分股
+                                                {item.stockCount}只
                                             </Text>
                                         )}
 
@@ -1229,6 +1344,13 @@ const IndustryHeatmap = ({
                                                         event.stopPropagation();
                                                         onLeadingStockClick(item.leadingStock);
                                                     }
+                                                }}
+                                                role={onLeadingStockClick ? 'button' : undefined}
+                                                tabIndex={onLeadingStockClick ? 0 : undefined}
+                                                aria-label={onLeadingStockClick ? `查看 ${item.name} 龙头股 ${item.leadingStock}` : undefined}
+                                                onKeyDown={(event) => {
+                                                    if (!onLeadingStockClick) return;
+                                                    activateOnEnterOrSpace(event, () => onLeadingStockClick(item.leadingStock));
                                                 }}
                                                 style={{
                                                     marginTop: 4,
@@ -1437,6 +1559,10 @@ const IndustryHeatmap = ({
                             color={idx === 0 ? 'red' : idx === 1 ? 'volcano' : 'orange'}
                             style={{ margin: 0, cursor: 'pointer', fontSize: 11 }}
                             onClick={() => onIndustryClick?.(ind.name)}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`查看 ${ind.name} 行业详情`}
+                            onKeyDown={(event) => activateOnEnterOrSpace(event, () => onIndustryClick?.(ind.name))}
                         >
                             {ind.name}
                         </Tag>
@@ -1446,7 +1572,38 @@ const IndustryHeatmap = ({
         </div>
     );
 
-    const renderControls = (
+    const timeframeOptions = [
+        { value: 1, label: '1日' },
+        { value: 5, label: '5日' },
+        { value: 10, label: '10日' },
+        { value: 20, label: '20日' },
+        { value: 60, label: '60日' },
+    ];
+    const sizeMetricOptions = [
+        { value: 'market_cap', label: '按市值' },
+        { value: 'net_inflow', label: '按净流入' },
+        { value: 'turnover', label: '按成交额(估)' },
+    ];
+    const colorMetricOptions = [
+        { value: 'change_pct', label: '看涨跌' },
+        { value: 'net_inflow_ratio', label: '看净流入%' },
+        { value: 'turnover_rate', label: '看换手率' },
+        { value: 'pe_ttm', label: '看市盈率' },
+        { value: 'pb', label: '看市净率' },
+    ];
+    const displayCountOptions = [
+        { value: 30, label: 'Top 30' },
+        { value: 50, label: 'Top 50' },
+        { value: 0, label: '全部' },
+    ];
+    const refreshOptions = [
+        { value: 0, label: isCompactMobile ? '关闭' : '不自动刷新' },
+        { value: 60, label: isCompactMobile ? '60秒' : '⏱ 60秒' },
+        { value: 120, label: isCompactMobile ? '2分钟' : '⏱ 2分钟' },
+        { value: 300, label: isCompactMobile ? '5分钟' : '⏱ 5分钟' },
+    ];
+
+    const renderDesktopControls = (
         <div style={{
             display: 'flex',
             flexDirection: 'column',
@@ -1468,6 +1625,7 @@ const IndustryHeatmap = ({
                         boxShadow: focusControlKey === 'timeframe' ? 'var(--industry-focus-ring)' : 'none',
                         borderRadius: 8,
                     }}
+                    aria-label="选择行业热力图统计时间范围"
                 >
                     <Radio value={1}>1日</Radio>
                     <Radio value={5}>5日</Radio>
@@ -1488,11 +1646,8 @@ const IndustryHeatmap = ({
                         boxShadow: focusControlKey === 'size_metric' ? 'var(--industry-focus-ring)' : 'none',
                         borderRadius: 8,
                     }}
-                    options={[
-                        { value: 'market_cap', label: '按市值' },
-                        { value: 'net_inflow', label: '按净流入' },
-                        { value: 'turnover', label: '按成交额(估)' },
-                    ]}
+                    options={sizeMetricOptions}
+                    aria-label="选择行业热力图方块大小指标"
                 />
                 <Select
                     className="heatmap-control-color-metric"
@@ -1507,19 +1662,19 @@ const IndustryHeatmap = ({
                         boxShadow: focusControlKey === 'color_metric' ? 'var(--industry-focus-ring)' : 'none',
                         borderRadius: 8,
                     }}
-                    options={[
-                        { value: 'change_pct', label: '看涨跌' },
-                        { value: 'net_inflow_ratio', label: '看净流入%' },
-                        { value: 'turnover_rate', label: '看换手率' },
-                        { value: 'pe_ttm', label: '看市盈率' },
-                        { value: 'pb', label: '看市净率' },
-                    ]}
+                    options={colorMetricOptions}
+                    aria-label="选择行业热力图颜色指标"
                 />
             </Space>
             <Space size={8} wrap>
                 {replaySnapshot?.data && (
                     <Tag color="processing" style={{ margin: 0, borderRadius: 999 }}>
                         回放中 {replaySnapshot?.timeframe ? `${replaySnapshot.timeframe}日` : ''}
+                    </Tag>
+                )}
+                {loadSource === 'history' && !replaySnapshot?.data && (
+                    <Tag color="gold" style={{ margin: 0, borderRadius: 999 }}>
+                        已切换到最近快照
                     </Tag>
                 )}
                 <Radio.Group
@@ -1535,6 +1690,7 @@ const IndustryHeatmap = ({
                         boxShadow: focusControlKey === 'display_count' ? 'var(--industry-focus-ring)' : 'none',
                         borderRadius: 8,
                     }}
+                    aria-label="选择行业热力图显示范围"
                 >
                     <Radio.Button value={30}>Top 30</Radio.Button>
                     <Radio.Button value={50}>Top 50</Radio.Button>
@@ -1542,7 +1698,7 @@ const IndustryHeatmap = ({
                 </Radio.Group>
                 <Input
                     className="heatmap-control-search"
-                    placeholder="行业筛选..."
+                    placeholder="行业筛选…"
                     value={searchTerm}
                     prefix={<SearchOutlined style={{ color: 'var(--text-muted)' }} />}
                     onChange={e => {
@@ -1559,18 +1715,16 @@ const IndustryHeatmap = ({
                     }}
                     allowClear
                     size="small"
+                    aria-label="按行业名称筛选热力图"
+                    name="industry-heatmap-search"
                 />
                 <Select
                     value={refreshSec}
                     onChange={setRefreshSec}
                     size="small"
                     style={{ width: 100 }}
-                    options={[
-                        { value: 0, label: '不自动刷新' },
-                        { value: 60, label: '⏱ 60秒' },
-                        { value: 120, label: '⏱ 2分钟' },
-                        { value: 300, label: '⏱ 5分钟' },
-                    ]}
+                    options={refreshOptions}
+                    aria-label="选择行业热力图自动刷新频率"
                 />
                 <Button
                     type="text"
@@ -1578,6 +1732,7 @@ const IndustryHeatmap = ({
                     icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
                     onClick={onToggleFullscreen}
                     style={{ color: 'var(--text-secondary)' }}
+                    aria-label={isFullscreen ? '退出行业热力图全屏' : '进入行业热力图全屏'}
                 />
                 <Button
                     type="text"
@@ -1586,10 +1741,150 @@ const IndustryHeatmap = ({
                     loading={loading}
                     disabled={Boolean(replaySnapshot?.data)}
                     style={{ color: 'var(--text-secondary)' }}
+                    aria-label="刷新行业热力图数据"
                 />
             </Space>
         </div>
     );
+
+    const renderMobileControls = (
+        <div className="industry-heatmap-controls industry-heatmap-controls--compact">
+            {(replaySnapshot?.data || (loadSource === 'history' && !replaySnapshot?.data)) && (
+                <div className="industry-heatmap-controls__badges">
+                    {replaySnapshot?.data && (
+                        <Tag color="processing" style={{ margin: 0, borderRadius: 999 }}>
+                            回放中 {replaySnapshot?.timeframe ? `${replaySnapshot.timeframe}日` : ''}
+                        </Tag>
+                    )}
+                    {loadSource === 'history' && !replaySnapshot?.data && (
+                        <Tag color="gold" style={{ margin: 0, borderRadius: 999 }}>
+                            最近快照
+                        </Tag>
+                    )}
+                </div>
+            )}
+            <div className="industry-heatmap-controls__row">
+                <Select
+                    className="heatmap-control-timeframe"
+                    value={timeframe}
+                    onChange={(value) => {
+                        setTimeframe(value);
+                        onTimeframeChange?.(value);
+                    }}
+                    size="small"
+                    style={{
+                        width: 88,
+                        boxShadow: focusControlKey === 'timeframe' ? 'var(--industry-focus-ring)' : 'none',
+                        borderRadius: 8,
+                    }}
+                    options={timeframeOptions}
+                    aria-label="选择行业热力图统计时间范围"
+                />
+                <Select
+                    className="heatmap-control-display-count"
+                    value={displayCount}
+                    onChange={(value) => {
+                        setDisplayCount(value);
+                        onDisplayCountChange?.(value);
+                    }}
+                    size="small"
+                    style={{
+                        width: 92,
+                        boxShadow: focusControlKey === 'display_count' ? 'var(--industry-focus-ring)' : 'none',
+                        borderRadius: 8,
+                    }}
+                    options={displayCountOptions}
+                    aria-label="选择行业热力图显示范围"
+                />
+                <Input
+                    className="heatmap-control-search"
+                    placeholder="行业筛选…"
+                    value={searchTerm}
+                    prefix={<SearchOutlined style={{ color: 'var(--text-muted)' }} />}
+                    onChange={e => {
+                        setSearchTerm(e.target.value);
+                        onSearchTermChange?.(e.target.value);
+                    }}
+                    style={{
+                        flex: '1 1 0',
+                        minWidth: 0,
+                        borderRadius: 4,
+                        backgroundColor: 'var(--bg-secondary)',
+                        border: '1px solid var(--border-color)',
+                        color: 'var(--text-primary)',
+                        boxShadow: focusControlKey === 'search' ? 'var(--industry-focus-ring)' : 'none',
+                    }}
+                    allowClear
+                    size="small"
+                    aria-label="按行业名称筛选热力图"
+                    name="industry-heatmap-search"
+                />
+            </div>
+            <div className="industry-heatmap-controls__row">
+                <Select
+                    className="heatmap-control-size-metric"
+                    value={sizeMetric}
+                    onChange={(value) => {
+                        setSizeMetric(value);
+                        onSizeMetricChange?.(value);
+                    }}
+                    size="small"
+                    style={{
+                        width: 96,
+                        boxShadow: focusControlKey === 'size_metric' ? 'var(--industry-focus-ring)' : 'none',
+                        borderRadius: 8,
+                    }}
+                    options={sizeMetricOptions}
+                    aria-label="选择行业热力图方块大小指标"
+                />
+                <Select
+                    className="heatmap-control-color-metric"
+                    value={colorMetric}
+                    onChange={(value) => {
+                        setColorMetric(value);
+                        onColorMetricChange?.(value);
+                    }}
+                    size="small"
+                    style={{
+                        width: 108,
+                        boxShadow: focusControlKey === 'color_metric' ? 'var(--industry-focus-ring)' : 'none',
+                        borderRadius: 8,
+                    }}
+                    options={colorMetricOptions}
+                    aria-label="选择行业热力图颜色指标"
+                />
+                <Select
+                    value={refreshSec}
+                    onChange={setRefreshSec}
+                    size="small"
+                    style={{ width: 82 }}
+                    options={refreshOptions}
+                    aria-label="选择行业热力图自动刷新频率"
+                />
+                <div className="industry-heatmap-controls__actions">
+                    <Button
+                        type="text"
+                        data-testid="heatmap-fullscreen-toggle"
+                        icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
+                        onClick={onToggleFullscreen}
+                        style={{ color: 'var(--text-secondary)' }}
+                        aria-label={isFullscreen ? '退出行业热力图全屏' : '进入行业热力图全屏'}
+                    />
+                    <Button
+                        type="text"
+                        icon={<ReloadOutlined />}
+                        onClick={loadData}
+                        loading={loading}
+                        disabled={Boolean(replaySnapshot?.data)}
+                        style={{ color: 'var(--text-secondary)' }}
+                        aria-label="刷新行业热力图数据"
+                    />
+                </div>
+            </div>
+        </div>
+    );
+
+    const renderControls = isCompactMobile ? renderMobileControls : renderDesktopControls;
 
     if (loading) {
         // 骨架屏：模拟热力图方块布局，减少等待焦虑
@@ -1600,8 +1895,10 @@ const IndustryHeatmap = ({
         ];
         return (
             <Card
+                className="industry-heatmap-card"
                 title={<span><FireOutlined style={{ marginRight: 8, color: 'var(--accent-danger)' }} />行业热力图</span>}
                 extra={renderControls}
+                styles={isCompactMobile ? { body: { padding: 12 } } : undefined}
             >
                 <div style={{
                     display: 'flex', flexWrap: 'wrap', gap: 3,
@@ -1614,7 +1911,7 @@ const IndustryHeatmap = ({
                             background: `color-mix(in srgb, var(--bg-tertiary) ${18 + (i % 3) * 8}%, transparent)`,
                             animation: 'pulse 1.8s ease-in-out infinite',
                             animationDelay: `${i * 0.12}s`,
-                        }} />
+                        }} className="industry-heatmap-skeleton-block" />
                     ))}
                     <div style={{
                         position: 'absolute', top: '50%', left: '50%',
@@ -1623,7 +1920,7 @@ const IndustryHeatmap = ({
                     }}>
                         <Spin size="large" />
                         <div style={{ marginTop: 12, color: 'var(--text-secondary)', fontSize: 13 }}>
-                            正在加载行业数据...
+                            正在加载行业数据…
                         </div>
                     </div>
                 </div>
@@ -1635,6 +1932,7 @@ const IndustryHeatmap = ({
     if (error) {
         return (
             <Card
+                className="industry-heatmap-card"
                 title="行业热力图"
                 extra={
                     <Button className="industry-inline-link" type="link" size="small" onClick={loadData} style={{ padding: 0 }}>
@@ -1649,6 +1947,7 @@ const IndustryHeatmap = ({
 
     return (
         <Card
+            className="industry-heatmap-card"
             title={
                 <span>
                     <FireOutlined style={{ marginRight: 8, color: 'var(--accent-danger)' }} />
@@ -1656,8 +1955,9 @@ const IndustryHeatmap = ({
                 </span>
             }
             extra={renderControls}
+            styles={isCompactMobile ? { body: { padding: 12 } } : undefined}
         >
-            {showStats && renderStats}
+            {showStats && !isCompactMobile && renderStats}
             {renderTreemap}
             {renderLegend}
         </Card>

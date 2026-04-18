@@ -1017,6 +1017,104 @@ class SinaIndustryAdapter:
         resolved_code, _ = self._resolve_sina_industry_node(industry_name, industry_code)
         return resolved_code
 
+    @staticmethod
+    def _normalize_sina_stock_rows(stocks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        normalized_rows: List[Dict[str, Any]] = []
+        for stock in stocks or []:
+            symbol = str(stock.get("code") or stock.get("symbol") or "").strip()
+            if not symbol:
+                continue
+            normalized_rows.append(
+                {
+                    "symbol": symbol,
+                    "code": symbol,
+                    "name": stock.get("name", ""),
+                    "change_pct": stock.get("change_pct", 0),
+                    "market_cap": stock.get("mktcap", 0) * 10000,
+                    "volume": stock.get("volume", 0),
+                    "amount": stock.get("amount", 0),
+                    "pe_ratio": stock.get("pe_ratio", 0),
+                    "pb_ratio": stock.get("pb_ratio", 0),
+                }
+            )
+        return normalized_rows
+
+    def _get_cached_sina_industry_codes(self, industry_name: str) -> List[str]:
+        raw_name = str(industry_name or "").strip()
+        if not raw_name:
+            return []
+
+        possible_names = [raw_name]
+        mapped_name = map_sina_to_ths(raw_name)
+        if mapped_name != raw_name:
+            possible_names.append(mapped_name)
+        possible_names.extend(map_ths_to_sina(raw_name))
+        if mapped_name:
+            possible_names.extend(map_ths_to_sina(mapped_name))
+
+        ordered_names: List[str] = []
+        seen_names = set()
+        for name in possible_names:
+            normalized = str(name or "").strip()
+            if normalized and normalized not in seen_names:
+                ordered_names.append(normalized)
+                seen_names.add(normalized)
+
+        candidate_codes: List[str] = []
+        cached_new_nodes = self._get_cached_sina_stock_nodes()
+        for name in ordered_names:
+            alias_code = SINA_NEW_NODE_NAME_MAP.get(name)
+            if alias_code and alias_code in cached_new_nodes:
+                candidate_codes.append(alias_code)
+
+            proxy_code = SINA_PROXY_NODE_NAME_MAP.get(name)
+            if proxy_code and proxy_code in cached_new_nodes:
+                candidate_codes.append(proxy_code)
+
+        persistent_industry_list = SinaFinanceProvider._load_persistent_industry_list()
+        if not persistent_industry_list.empty:
+            for name in ordered_names:
+                match = persistent_industry_list[persistent_industry_list["industry_name"] == name]
+                if match.empty:
+                    continue
+                resolved_code = str(match.iloc[0].get("industry_code") or "").strip()
+                if resolved_code:
+                    candidate_codes.append(resolved_code)
+
+        deduped_codes: List[str] = []
+        seen_codes = set()
+        for code in candidate_codes:
+            normalized = str(code or "").strip()
+            if normalized and normalized not in seen_codes:
+                deduped_codes.append(normalized)
+                seen_codes.add(normalized)
+        return deduped_codes
+
+    def get_cached_stock_list_by_industry(self, industry_name: str) -> List[Dict[str, Any]]:
+        """
+        仅使用本地持久化快照快速返回行业成分股，不触发远端请求。
+        """
+        raw_name = str(industry_name or "").strip()
+        if not raw_name:
+            return []
+
+        for industry_code in self._get_cached_sina_industry_codes(raw_name):
+            cached_rows = self.sina._load_persistent_industry_stocks(industry_code)
+            if not cached_rows:
+                continue
+            refined_rows = self._refine_proxy_constituents(raw_name, cached_rows, industry_code)
+            normalized_rows = self._normalize_sina_stock_rows(refined_rows)
+            if normalized_rows:
+                logger.info(
+                    "Using persistent Sina industry stocks snapshot for %s via %s (%s rows)",
+                    raw_name,
+                    industry_code,
+                    len(normalized_rows),
+                )
+                return normalized_rows
+
+        return []
+
     def get_symbol_by_name(self, name: str) -> str:
         """根据股票名称获取股票代码，如果找不到则返回原名称"""
         if not name:
@@ -1621,20 +1719,10 @@ class SinaIndustryAdapter:
                 if resolved_code:
                     sina_stocks = self.sina.get_industry_stocks(resolved_code)
                     sina_stocks = self._refine_proxy_constituents(ths_industry_name, sina_stocks, resolved_code)
-                    for s in sina_stocks:
-                        sym = str(s.get("code", "")).strip()
-                        if sym and sym not in merged_stocks:
-                            merged_stocks[sym] = {
-                                "symbol": sym,
-                                "code": sym,
-                                "name": s.get("name", ""),
-                                "change_pct": s.get("change_pct", 0),
-                                "market_cap": s.get("mktcap", 0) * 10000,
-                                "volume": s.get("volume", 0),
-                                "amount": s.get("amount", 0),
-                                "pe_ratio": s.get("pe_ratio", 0),
-                                "pb_ratio": s.get("pb_ratio", 0),
-                            }
+                    for stock in self._normalize_sina_stock_rows(sina_stocks):
+                        symbol = str(stock.get("symbol") or "").strip()
+                        if symbol and symbol not in merged_stocks:
+                            merged_stocks[symbol] = stock
             except Exception as e:
                 logger.warning(f"Sina resolved-node fallback for industry {ths_industry_name} failed: {e}")
 
@@ -1652,20 +1740,10 @@ class SinaIndustryAdapter:
                         sina_stocks = self.sina.get_industry_stocks(industry_code)
                         sina_stocks = self._refine_proxy_constituents(ths_industry_name, sina_stocks, industry_code)
 
-                        for s in sina_stocks:
-                            sym = str(s.get("code", "")).strip()
-                            if sym and sym not in merged_stocks:
-                                merged_stocks[sym] = {
-                                    "symbol": sym,
-                                    "code": sym,
-                                    "name": s.get("name", ""),
-                                    "change_pct": s.get("change_pct", 0),
-                                    "market_cap": s.get("mktcap", 0) * 10000,
-                                    "volume": s.get("volume", 0),
-                                    "amount": s.get("amount", 0),
-                                    "pe_ratio": s.get("pe_ratio", 0),
-                                    "pb_ratio": s.get("pb_ratio", 0),
-                                }
+                        for stock in self._normalize_sina_stock_rows(sina_stocks):
+                            symbol = str(stock.get("symbol") or "").strip()
+                            if symbol and symbol not in merged_stocks:
+                                merged_stocks[symbol] = stock
                         if sina_stocks:
                             break
             except Exception as e:

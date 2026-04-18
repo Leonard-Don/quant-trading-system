@@ -107,6 +107,23 @@ class BacktestHistory:
         }
 
     @staticmethod
+    def _build_record_summary(record: Dict[str, Any]) -> Dict[str, Any]:
+        return ensure_json_serializable({
+            "id": record.get("id"),
+            "timestamp": record.get("timestamp"),
+            "record_type": record.get("record_type", "backtest"),
+            "title": record.get("title", ""),
+            "code_version": record.get("code_version", "unknown"),
+            "strategy_version": record.get("strategy_version", record.get("code_version", "unknown")),
+            "symbol": record.get("symbol", "Unknown"),
+            "strategy": record.get("strategy", "Unknown"),
+            "start_date": record.get("start_date", ""),
+            "end_date": record.get("end_date", ""),
+            "metrics": record.get("metrics", {}),
+            "summary_only": True,
+        })
+
+    @staticmethod
     def _get_code_version() -> str:
         try:
             completed = subprocess.run(
@@ -370,6 +387,7 @@ class BacktestHistory:
         strategy: str = None,
         record_type: str = None,
         offset: int = 0,
+        summary_only: bool = False,
     ) -> List[Dict]:
         """
         获取历史记录
@@ -386,7 +404,10 @@ class BacktestHistory:
             filtered = self._filter_history(symbol=symbol, strategy=strategy, record_type=record_type)
             start = max(offset, 0)
             end = start + limit if limit is not None else None
-            return filtered[start:end]
+            page = filtered[start:end]
+            if summary_only:
+                return [self._build_record_summary(record) for record in page]
+            return page
 
     def get_by_id(self, record_id: str) -> Optional[Dict]:
         """
