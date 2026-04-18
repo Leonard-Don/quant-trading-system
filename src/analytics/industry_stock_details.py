@@ -52,12 +52,21 @@ def extract_stock_detail_fields(stock: Dict[str, Any]) -> Dict[str, Optional[flo
         stock.get("pe_ratio", stock.get("pe_ttm", stock.get("pe")))
     )
     change_pct = coerce_optional_float(stock.get("change_pct", stock.get("pct_chg")))
+    money_flow = coerce_optional_float(
+        stock.get("money_flow", stock.get("main_net_inflow", stock.get("amount")))
+    )
+    turnover_rate = coerce_optional_float(
+        stock.get("turnover_rate", stock.get("turnover"))
+    )
 
     return {
         "name": str(stock.get("name") or "").strip() or None,
         "market_cap": market_cap,
         "pe_ratio": pe_ratio,
         "change_pct": change_pct,
+        "money_flow": money_flow,
+        "turnover_rate": turnover_rate,
+        "turnover": turnover_rate,
     }
 
 
@@ -110,6 +119,23 @@ def merge_ranked_stocks_with_provider_details(
             if provider_change_pct is not None
             else ranked_change_pct
         )
+
+        provider_money_flow = detail.get("money_flow")
+        ranked_money_flow = ranked_detail.get("money_flow")
+        merged_stock["money_flow"] = (
+            provider_money_flow
+            if provider_money_flow is not None
+            else ranked_money_flow
+        )
+
+        provider_turnover_rate = detail.get("turnover_rate")
+        ranked_turnover_rate = ranked_detail.get("turnover_rate")
+        merged_stock["turnover_rate"] = (
+            provider_turnover_rate
+            if provider_turnover_rate is not None
+            else ranked_turnover_rate
+        )
+        merged_stock["turnover"] = merged_stock["turnover_rate"]
 
         merged.append(merged_stock)
 

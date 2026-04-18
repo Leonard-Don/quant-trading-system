@@ -29,9 +29,11 @@ const IndustrySavedViewsPanel = ({
                     data-testid="industry-saved-view-name-input"
                     value={draftName}
                     onChange={(event) => onDraftNameChange(event.target.value)}
-                    placeholder="给当前视图起个名字"
+                    placeholder="给当前视图起个名字…"
                     size="small"
                     style={{ width: 180 }}
+                    aria-label="输入保存视图名称"
+                    name="industry-saved-view-name"
                 />
                 <Button size="small" type="primary" icon={<SaveOutlined />} onClick={onSave} data-testid="industry-saved-view-save-button">
                     保存

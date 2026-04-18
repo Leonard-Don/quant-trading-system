@@ -20,6 +20,7 @@ function ResearchInsightsSection({
   marketRegimeResult,
   marketRegimeInsight,
   marketRegimeChartData,
+  marketRegimeLoading,
   CHART_NEUTRAL,
   CHART_POSITIVE,
 }) {
@@ -108,6 +109,14 @@ function ResearchInsightsSection({
           <Card className="workspace-panel workspace-chart-card" title="市场状态分层回测">
             {marketRegimeResult ? (
               <Space direction="vertical" style={{ width: '100%' }} size="large">
+                {marketRegimeLoading ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="正在刷新市场状态分层结果"
+                    description="当前先保留上一版分层表现，新的市场状态分析完成后会自动替换。"
+                  />
+                ) : null}
                 <div className="summary-strip">
                   <div className="summary-strip__item">
                     <span className="summary-strip__label">市场状态数</span>

@@ -16,6 +16,7 @@ describe('useRealtimePreferences', () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     window.localStorage.clear();
+    window.history.replaceState(null, '', '/');
     api.get.mockResolvedValue({
       data: {
         success: true,
@@ -74,5 +75,39 @@ describe('useRealtimePreferences', () => {
         }),
       })
     );
+  });
+
+  test('prefers a realtime tab from the url over persisted local state', async () => {
+    window.localStorage.setItem('realtime-panel:active-tab', 'us');
+    window.history.replaceState(null, '', '/?view=realtime&tab=crypto');
+
+    const { result } = renderHook(() => useRealtimePreferences({
+      defaultSymbols: ['^GSPC'],
+      defaultActiveTab: 'index',
+      validActiveTabs: ['index', 'us', 'crypto'],
+    }));
+
+    await waitFor(() => expect(result.current.subscribedSymbols).toEqual(['AAPL', 'MSFT']));
+    expect(result.current.activeTab).toBe('crypto');
+  });
+
+  test('syncs realtime active tab changes back into the url', async () => {
+    window.history.replaceState(null, '', '/?view=realtime&tab=index');
+
+    const { result } = renderHook(() => useRealtimePreferences({
+      defaultSymbols: ['^GSPC'],
+      defaultActiveTab: 'index',
+      validActiveTabs: ['index', 'us', 'crypto'],
+    }));
+
+    await waitFor(() => expect(result.current.subscribedSymbols).toEqual(['AAPL', 'MSFT']));
+    expect(result.current.activeTab).toBe('index');
+
+    act(() => {
+      result.current.setActiveTab('crypto');
+    });
+
+    expect(window.location.search).toContain('view=realtime');
+    expect(window.location.search).toContain('tab=crypto');
   });
 });

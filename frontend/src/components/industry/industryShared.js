@@ -95,6 +95,13 @@ export const clampNumeric = (value, min = 0, max = 100) => {
     return Math.min(max, Math.max(min, numericValue));
 };
 
+export const activateOnEnterOrSpace = (event, callback) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        callback();
+    }
+};
+
 export const getAlertSubscriptionBucket = (kind) => {
     if (['capital_inflow', 'resonance'].includes(kind)) return 'capital';
     if (kind === 'risk_release') return 'risk';

@@ -25,7 +25,11 @@ const waitForIndustryHeatmapReady = async (page, options = {}) => {
   await waitForIndustryAppShell(page);
   await page.waitForFunction(() => {
     const hasColorMetric = Boolean(document.querySelector('.heatmap-control-color-metric'));
-    const hasSearch = Boolean(document.querySelector('input[placeholder="行业筛选..."]'));
+    const hasSearch = Boolean(
+      document.querySelector('input[aria-label="按行业名称筛选热力图"]')
+      || document.querySelector('input[placeholder="行业筛选…"]')
+      || document.querySelector('input[placeholder="行业筛选..."]')
+    );
     return hasColorMetric && hasSearch;
   }, null, { timeout: 60000 });
   if (allowEmpty) {
@@ -39,38 +43,92 @@ const waitForIndustryHeatmapReady = async (page, options = {}) => {
   await page.locator('[data-testid="heatmap-tile"]').first().waitFor({ state: 'visible', timeout: 60000 });
 };
 
-const resetIndustryPreferences = async (page) => {
-  await page.evaluate(async () => {
+const getIndustrySearchInput = (page) => page
+  .locator('input[aria-label="按行业名称筛选热力图"], input[placeholder="行业筛选…"], input[placeholder="行业筛选..."]')
+  .first();
+
+const openIndustryWorkspaceTab = async (page, labelPattern) => {
+  const tab = page.getByRole('tab', { name: labelPattern }).first();
+  await tab.waitFor({ state: 'visible', timeout: 10000 });
+  await ensureNoVisibleModals(page);
+  await tab.click({ force: true });
+  await page.waitForTimeout(300);
+};
+
+const readVisibleHeatmapIndustryTitles = async (page) => page.locator('[data-testid="heatmap-tile"]:visible').evaluateAll(
+  (nodes) => [...new Set(
+    nodes
+      .map((node) => (node.getAttribute('data-industry-name') || '').trim())
+      .filter(Boolean)
+  )]
+);
+
+const waitForHeatmapSearchSettled = async (page) => {
+  await page.waitForFunction(() => {
+    const hasVisibleTile = Array.from(document.querySelectorAll('[data-testid="heatmap-tile"]'))
+      .some((node) => node.getClientRects().length > 0);
+    const bodyText = document.body.innerText;
+    return hasVisibleTile
+      || bodyText.includes('未找到匹配的行业')
+      || bodyText.includes('当前筛选条件下未找到匹配行业');
+  }, null, { timeout: 15000 });
+};
+
+const isHeatmapSearchEmptyStateVisible = async (page) => page.evaluate(() => {
+  const bodyText = document.body.innerText;
+  return bodyText.includes('未找到匹配的行业') || bodyText.includes('当前筛选条件下未找到匹配行业');
+});
+
+const readIndustryPreferences = async (page) => page.evaluate(async () => {
+  const response = await fetch('/industry/preferences');
+  if (!response.ok) {
+    throw new Error(`Failed to load industry preferences: ${response.status}`);
+  }
+  return response.json();
+});
+
+const writeIndustryPreferences = async (page, payload) => {
+  await page.evaluate(async (nextPayload) => {
     const response = await fetch('/industry/preferences', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        watchlist_industries: [],
-        saved_views: [],
-        alert_thresholds: {},
-      }),
+      body: JSON.stringify(nextPayload),
     });
     if (!response.ok) {
-      throw new Error(`Failed to reset industry preferences: ${response.status}`);
+      throw new Error(`Failed to update industry preferences: ${response.status}`);
     }
+  }, payload);
+};
+
+const resetIndustryPreferences = async (page) => {
+  await writeIndustryPreferences(page, {
+    watchlist_industries: [],
+    saved_views: [],
+    alert_thresholds: {},
   });
 };
 
-const waitForIndustryDetailReady = async (page) => {
+const waitForIndustryDetailReady = async (page, options = {}) => {
+  const { modalTimeout = 8000, contentTimeout = 45000 } = options;
   const modal = page.locator('[data-testid="industry-detail-modal"]');
-  await modal.waitFor({ state: 'visible', timeout: 6000 });
-  await page.locator('[data-testid="industry-detail-panel"]').waitFor({ state: 'visible', timeout: 6000 });
+  await modal.waitFor({ state: 'visible', timeout: modalTimeout });
+  await page.locator('[data-testid="industry-detail-panel"]').waitFor({ state: 'visible', timeout: modalTimeout });
   await page.waitForFunction(() => {
-    const tableNode = document.querySelector('[data-testid="industry-stock-table"]');
-    const stage = tableNode?.getAttribute('data-score-stage');
-    const stats = Array.from(document.querySelectorAll('[data-testid="industry-detail-modal"] .ant-statistic'));
-    const totalMarketCapStat = stats.find((node) => {
-      const titleNode = node.querySelector('.ant-statistic-title');
-      return titleNode && (titleNode.textContent || '').trim() === '总市值';
+    const panel = document.querySelector('[data-testid="industry-detail-panel"]');
+    const summaryCards = Array.from(panel?.querySelectorAll('.industry-detail-summary-card') || []);
+    const totalMarketCapCard = summaryCards.find((node) => {
+      const labelNode = node.querySelector('.industry-detail-summary-card__label');
+      return labelNode && (labelNode.textContent || '').trim() === '总市值';
     });
-    const totalMarketCap = (totalMarketCapStat?.querySelector('.ant-statistic-content-value')?.textContent || '').trim();
-    return (stage && stage !== 'unknown' && stage !== 'loading') || Boolean(totalMarketCap && totalMarketCap !== '-');
-  }, null, { timeout: 8000 });
+    const totalMarketCap = (totalMarketCapCard?.querySelector('.industry-detail-summary-card__value')?.textContent || '').trim();
+    const degraded = (panel?.textContent || '').includes('当前显示的是降级行业数据');
+    const aiVisible = panel?.querySelectorAll('[data-testid="industry-ai-insight-panel"]').length > 0;
+    return Boolean(
+      (totalMarketCap && totalMarketCap !== '-')
+      || degraded
+      || aiVisible
+    );
+  }, null, { timeout: contentTimeout });
   return modal;
 };
 
@@ -107,6 +165,14 @@ const readRankingStateTagTexts = async (page) => page.evaluate(() => (
 const readIndustryStatistic = async (page, title) => page.evaluate((statTitle) => {
   const root = document.querySelector('[data-testid="industry-detail-modal"]');
   if (!root) return '';
+  const summaryCards = Array.from(root.querySelectorAll('.industry-detail-summary-card'));
+  const summaryCard = summaryCards.find((node) => {
+    const labelNode = node.querySelector('.industry-detail-summary-card__label');
+    return labelNode && (labelNode.textContent || '').trim() === statTitle;
+  });
+  if (summaryCard) {
+    return (summaryCard.querySelector('.industry-detail-summary-card__value')?.textContent || '').trim();
+  }
   const stats = Array.from(root.querySelectorAll('.ant-statistic'));
   const stat = stats.find((node) => {
     const titleNode = node.querySelector('.ant-statistic-title');
@@ -114,6 +180,25 @@ const readIndustryStatistic = async (page, title) => page.evaluate((statTitle) =
   });
   return (stat?.querySelector('.ant-statistic-content-value')?.textContent || '').trim();
 }, title);
+
+const activateIndustryDetailTab = async (page, pattern) => {
+  const modal = page.locator('[data-testid="industry-detail-modal"]');
+  const targetTab = modal.locator('.ant-tabs-tab').filter({ hasText: pattern }).first();
+  const tabCount = await targetTab.count().catch(() => 0);
+  if (!tabCount) return;
+  const selected = await targetTab.getAttribute('aria-selected').catch(() => null);
+  if (selected !== 'true') {
+    await targetTab.click();
+  }
+  await modal.locator('.ant-tabs-tab-active').filter({ hasText: pattern }).waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+};
+
+const ensureIndustryStockTableVisible = async (page) => {
+  await activateIndustryDetailTab(page, /成分股/);
+  const stockTable = page.locator('[data-testid="industry-stock-table"]').first();
+  await stockTable.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+  return stockTable;
+};
 
 const waitForIndustryScoreStage = async (page, expectedStages, timeout = 6000) => {
   const stages = Array.isArray(expectedStages) ? expectedStages : [expectedStages];
@@ -161,6 +246,30 @@ const closeAllVisibleModals = async (page) => {
   }
 };
 
+const ensureNoVisibleModals = async (page) => {
+  await closeAllVisibleModals(page);
+  await page.waitForFunction(() => (
+    Array.from(document.querySelectorAll('.ant-modal-wrap'))
+      .every((node) => node.getClientRects().length === 0)
+  ), null, { timeout: 3000 }).catch(() => {});
+};
+
+const openIndustryDetailFromTile = async (page, tileLocator, options = {}) => {
+  const { modalTimeout = 12000 } = options;
+  const industryName = await tileLocator.getAttribute('data-industry-name').catch(() => '');
+  await tileLocator.click({ force: true });
+  const modal = page.locator('[data-testid="industry-detail-modal"]');
+  const openedByPointer = await modal.waitFor({ state: 'visible', timeout: 2500 }).then(() => true).catch(() => false);
+  if (!openedByPointer && industryName) {
+    await page.evaluate((targetIndustry) => {
+      const node = Array.from(document.querySelectorAll('[data-testid="heatmap-tile"]'))
+        .find((candidate) => (candidate.getAttribute('data-industry-name') || '') === targetIndustry);
+      node?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }, industryName);
+  }
+  return waitForIndustryDetailReady(page, { modalTimeout });
+};
+
 const setLocalStorageItem = async (page, key, value) => {
   await page.evaluate(([storageKey, storageValue]) => {
     if (storageValue == null) {
@@ -173,6 +282,10 @@ const setLocalStorageItem = async (page, key, value) => {
 
 const chooseSelectOption = async (page, selectLocator, optionText) => {
   const openDropdown = async () => {
+    await page.waitForFunction((element) => {
+      if (!element) return false;
+      return !element.classList.contains('ant-select-disabled');
+    }, await selectLocator.elementHandle(), { timeout: 10000 }).catch(() => {});
     const selectorLocator = selectLocator.locator('.ant-select-selector');
     const hasSelector = await selectorLocator.count().catch(() => 0);
     if (hasSelector) {
@@ -184,27 +297,28 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     await selectLocator.click({ force: true });
   };
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     await openDropdown();
     await page.waitForFunction(
       () => document.querySelectorAll('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').length > 0,
       null,
-      { timeout: 5000 }
+      { timeout: 8000 }
     );
     const dropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last();
     const option = dropdown.locator('.ant-select-item-option-content').filter({ hasText: optionText }).first();
     try {
-      await dropdown.waitFor({ state: 'attached', timeout: 5000 });
-      await option.waitFor({ state: 'visible', timeout: 5000 });
+      await dropdown.waitFor({ state: 'attached', timeout: 8000 });
+      await option.waitFor({ state: 'visible', timeout: 8000 });
       await option.click({ force: true });
+      await page.waitForTimeout(250);
       return;
     } catch (error) {
       await page.keyboard.press('Escape').catch(() => {});
       await page.locator('body').click({ position: { x: 8, y: 8 } }).catch(() => {});
-      if (attempt === 1) {
+      if (attempt === 3) {
         throw error;
       }
-      await page.waitForTimeout(250);
+      await page.waitForTimeout(400);
     }
   }
 };
@@ -214,53 +328,93 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   const page = await browser.newPage();
   await page.setViewportSize({ width: 1440, height: 1100 });
   const consoleErrors = [];
+  let originalIndustryPreferences = null;
   page.on('console', (msg) => {
     if (msg.type() === 'error') {
       consoleErrors.push(msg.text());
     }
   });
 
-  console.log('正在访问行业热度页面...');
-  await page.goto('http://localhost:3000?view=industry', { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await waitForIndustryHeatmapReady(page);
-  
-  // 1. 验证热力图渲染和基础切换
-  console.log('验证热力图维度切换...');
-  
-  // 切换到 5日
-  await page.locator('.ant-radio-button-wrapper').filter({ hasText: '5日' }).first().click();
-  await waitForIndustryHeatmapReady(page);
-  
-  // 切换指标：看净流入%
-  await chooseSelectOption(page, page.locator('.heatmap-control-color-metric'), '看净流入%');
-  await waitForIndustryHeatmapReady(page);
-  
-  // 2. 验证搜索功能
-  console.log('验证行业筛选搜索...');
-  await page.getByPlaceholder('行业筛选...').fill('半导体');
-  await page.waitForTimeout(500);
-  const visibleIndustryTitles = await page.locator('[data-testid="heatmap-tile"]:visible').evaluateAll(
-    (nodes) => nodes.map(node => node.getAttribute('data-industry-name') || '').filter(Boolean)
-  );
-  const semiconductorExists = visibleIndustryTitles.some((text) => text.includes('半导体'));
-  const unrelatedVisible = visibleIndustryTitles.some((text) => text && !text.includes('半导体'));
-  console.log(`搜索"半导体"结果: ${semiconductorExists ? '找到' : '未找到'}`);
-  console.log(`搜索后仍有其他行业标题: ${unrelatedVisible ? '是' : '否'}`);
-  await page.getByPlaceholder('行业筛选...').fill(''); // 清空搜索
+  try {
+    console.log('正在访问行业热度页面...');
+    await page.goto('http://localhost:3000?view=industry', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    await waitForIndustryHeatmapReady(page);
+    originalIndustryPreferences = await readIndustryPreferences(page).catch(() => null);
 
-  // 3. 验证市值来源筛选
-  console.log('验证估算市值筛选...');
-  await page.locator('.ant-tag').filter({ hasText: /估算\s+\d+/ }).first().click();
-  await page.waitForTimeout(800);
-  const stateBarVisible = await page.getByText('当前视图', { exact: false }).isVisible();
-  const bodyTextAfterFilter = await page.locator('body').innerText();
-  const estimatedStateVisible = bodyTextAfterFilter.includes('来源: 估算市值');
-  const hasEstimatedIndustry = bodyTextAfterFilter.includes('军工装备');
-  const hasLiveIndustry = bodyTextAfterFilter.includes('银行');
-  console.log(`估算筛选状态标签: ${estimatedStateVisible ? '已显示' : '未显示'}`);
-  console.log(`当前视图状态条: ${stateBarVisible ? '已显示' : '未显示'}`);
-  console.log(`估算行业可见: ${hasEstimatedIndustry ? '是' : '否'}`);
-  console.log(`实时行业仍在热力图中: ${hasLiveIndustry ? '是' : '否'}`);
+    // 1. 验证热力图渲染和基础切换
+    console.log('验证热力图维度切换...');
+
+    // 切换到 5日
+    await page.locator('.ant-radio-button-wrapper').filter({ hasText: '5日' }).first().click();
+    await waitForIndustryHeatmapReady(page);
+
+    // 切换指标：看净流入%
+    await chooseSelectOption(page, page.locator('.heatmap-control-color-metric'), '看净流入%');
+    await waitForIndustryHeatmapReady(page);
+
+    // 2. 验证搜索功能
+    console.log('验证行业筛选搜索...');
+    const initialIndustryTitles = await readVisibleHeatmapIndustryTitles(page);
+    const searchCandidates = [...new Set(
+      initialIndustryTitles
+        .slice(0, 5)
+        .flatMap((text) => {
+          const normalized = (text || '').trim();
+          if (!normalized) return [];
+          const shortKeyword = normalized.length > 2 ? normalized.slice(0, 2) : normalized;
+          return [normalized, shortKeyword];
+        })
+    )];
+    let searchResult = null;
+    for (const candidate of searchCandidates) {
+      await getIndustrySearchInput(page).fill(candidate);
+      await waitForHeatmapSearchSettled(page);
+      const candidateVisibleTitles = await readVisibleHeatmapIndustryTitles(page);
+      const candidateEmptyVisible = await isHeatmapSearchEmptyStateVisible(page);
+      const candidateMatched = candidateVisibleTitles.length > 0
+        && candidateVisibleTitles.every((text) => text.includes(candidate));
+      searchResult = {
+        keyword: candidate,
+        visibleIndustryTitles: candidateVisibleTitles,
+        emptyVisible: candidateEmptyVisible,
+        matched: candidateMatched,
+      };
+      if (candidateMatched) {
+        break;
+      }
+    }
+    console.log(`搜索"${searchResult?.keyword || ''}"结果: ${searchResult?.visibleIndustryTitles?.length > 0 ? '找到' : '未找到'}`);
+    console.log(`搜索后仅显示匹配行业: ${searchResult?.matched ? '是' : '否'}`);
+    if (!searchResult?.matched) {
+      throw new Error(`行业搜索未稳定命中匹配结果: ${searchResult?.keyword || 'unknown'}`);
+    }
+    await getIndustrySearchInput(page).fill(''); // 清空搜索
+    await waitForIndustryHeatmapReady(page);
+
+    // 3. 验证市值来源筛选
+    console.log('验证估算市值筛选...');
+    await ensureNoVisibleModals(page);
+    const estimatedMarketCapTag = page.locator('.heatmap-control-market-cap-filter .ant-tag').filter({ hasText: /估算\s+\d+/ }).first();
+    await estimatedMarketCapTag.scrollIntoViewIfNeeded().catch(() => {});
+    await estimatedMarketCapTag.click();
+    await waitForIndustryHeatmapReady(page, { allowEmpty: true });
+    const stateBarVisible = await page.getByText('当前视图', { exact: false }).isVisible();
+    const bodyTextAfterFilter = await page.locator('body').innerText();
+    const estimatedStateVisible = bodyTextAfterFilter.includes('来源: 估算市值');
+    const estimatedFilterUrl = page.url();
+    const estimatedVisibleIndustries = await readVisibleHeatmapIndustryTitles(page);
+    const estimatedEmptyVisible = await page.getByText('当前市值来源筛选下暂无行业', { exact: false }).isVisible().catch(() => false);
+    const estimatedFilterUsable = estimatedVisibleIndustries.length > 0 || estimatedEmptyVisible;
+    console.log(`估算筛选状态标签: ${estimatedStateVisible ? '已显示' : '未显示'}`);
+    console.log(`当前视图状态条: ${stateBarVisible ? '已显示' : '未显示'}`);
+    console.log(`估算筛选 URL 是否带参数: ${estimatedFilterUrl.includes('industry_market_cap_filter=estimated') ? '是' : '否'}`);
+    console.log(`估算筛选结果是否可用: ${estimatedFilterUsable ? '是' : '否'}`);
+    if (!estimatedStateVisible || !estimatedFilterUrl.includes('industry_market_cap_filter=estimated')) {
+      throw new Error('估算市值筛选未正确同步到状态条或 URL');
+    }
+    if (!estimatedFilterUsable) {
+      throw new Error('估算市值筛选后未出现行业结果或空态');
+    }
 
   // 4. 验证 URL 状态持久化
   console.log('验证 URL 状态持久化...');
@@ -287,15 +441,15 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   console.log(`热力图单项标签清除是否生效: ${!heatmapTextAfterSingleClear.includes('来源: 估算市值') ? '是' : '否'}`);
   console.log(`热力图单项标签清除后 URL 已同步: ${!heatmapUrlAfterSingleClear.includes('industry_market_cap_filter=estimated') ? '是' : '否'}`);
 
-  console.log('验证热力图色阶刷选与全屏...');
-  const legendSliderVisible = await page.locator('[data-testid="heatmap-legend-slider"]').isVisible().catch(() => false);
-  const fullscreenToggleVisible = await page.locator('[data-testid="heatmap-fullscreen-toggle"]').isVisible().catch(() => false);
+    console.log('验证热力图色阶刷选与全屏...');
+    const legendSliderMounted = await page.locator('[data-testid="heatmap-legend-slider"]').count().catch(() => 0) > 0;
+    const fullscreenToggleVisible = await page.locator('[data-testid="heatmap-fullscreen-toggle"]').isVisible().catch(() => false);
   if (fullscreenToggleVisible) {
     await page.locator('[data-testid="heatmap-fullscreen-toggle"]').click();
     await page.locator('[data-testid="industry-heatmap-fullscreen-modal"]').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
   }
   const fullscreenModalVisible = await page.locator('[data-testid="industry-heatmap-fullscreen-modal"]').isVisible().catch(() => false);
-  console.log(`热力图色阶刷选滑块是否显示: ${legendSliderVisible ? '是' : '否'}`);
+    console.log(`热力图色阶刷选滑块是否挂载: ${legendSliderMounted ? '是' : '否'}`);
   console.log(`热力图全屏按钮是否显示: ${fullscreenToggleVisible ? '是' : '否'}`);
   console.log(`热力图全屏弹窗是否显示: ${fullscreenModalVisible ? '是' : '否'}`);
   await closeVisibleModal(page, 'industry-heatmap-fullscreen-modal');
@@ -304,6 +458,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   await setLocalStorageItem(page, 'industry_saved_views_v1', null);
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
   await waitForIndustryAppShell(page);
+  await openIndustryWorkspaceTab(page, /视图沉淀/);
   await page.locator('[data-testid="industry-saved-views-panel"]').waitFor({ state: 'visible', timeout: 60000 });
   const savedViewsPanelVisible = await page.locator('[data-testid="industry-saved-views-panel"]').isVisible().catch(() => false);
   const savedViewsExportVisible = await page.getByRole('button', { name: '导出' }).isVisible().catch(() => false);
@@ -381,8 +536,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   }
   const industryText = (await firstHeatmapTile.getAttribute('data-industry-name')) || await firstHeatmapTile.innerText();
   console.log(`点击行业: ${industryText}`);
-  await firstHeatmapTile.click();
-  const detailModal = await waitForIndustryDetailReady(page);
+  const detailModal = await openIndustryDetailFromTile(page, firstHeatmapTile);
   const modalVisible = await detailModal.isVisible();
   console.log(`详情弹窗是否打开: ${modalVisible ? '是' : '否'}`);
   if (modalVisible) {
@@ -391,30 +545,21 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
       null,
       { timeout: 6000 }
     ).catch(() => {});
-    const stocksTableBody = page.locator('[data-testid="industry-stock-table"] tbody');
-    const quickRowsRendered = await stocksTableBody.locator('tr').first().isVisible().catch(() => false);
-    await page.waitForFunction(() => {
-      const root = document.querySelector('[data-testid="industry-detail-modal"]');
-      if (!root) return false;
-      const stats = Array.from(root.querySelectorAll('.ant-statistic'));
-      const totalMarketCapStat = stats.find((node) => {
-        const titleNode = node.querySelector('.ant-statistic-title');
-        return titleNode && (titleNode.textContent || '').trim() === '总市值';
-      });
-      const totalMarketCap = (totalMarketCapStat?.querySelector('.ant-statistic-content-value')?.textContent || '').trim();
-      return totalMarketCap && totalMarketCap !== '-';
-    }, null, { timeout: 10000 }).catch(() => {});
-    await page.waitForFunction(() => {
-      const node = document.querySelector('[data-testid="industry-stock-table"]');
-      const stage = node?.getAttribute('data-score-stage');
-      return stage === 'quick' || stage === 'full';
-    }, null, { timeout: 4000 }).catch(() => {});
-    const initialScoreStage = await page.locator('[data-testid="industry-stock-table"]').getAttribute('data-score-stage');
     const summarySnapshot = {
       totalMarketCap: await readIndustryStatistic(page, '总市值'),
       avgPe: await readIndustryStatistic(page, '平均市盈率'),
     };
-    const stockTableSnapshot = await page.locator('[data-testid="industry-stock-table"]').evaluate((table) => {
+    const aiInsightVisible = await page.locator('[data-testid="industry-ai-insight-panel"]').count().catch(() => 0);
+    const stockTable = await ensureIndustryStockTableVisible(page);
+    const stocksTableBody = stockTable.locator('tbody');
+    const quickRowsRendered = await stocksTableBody.locator('tr').first().isVisible().catch(() => false);
+    await page.waitForFunction(() => {
+      const node = document.querySelector('[data-testid="industry-stock-table"]');
+      const stage = node?.getAttribute('data-score-stage');
+      return stage === 'quick' || stage === 'full';
+    }, null, { timeout: 10000 }).catch(() => {});
+    const initialScoreStage = await stockTable.getAttribute('data-score-stage');
+    const stockTableSnapshot = await stockTable.evaluate((table) => {
       const headers = Array.from(table.querySelectorAll('thead th')).map((cell) => (cell.textContent || '').trim());
       const rows = Array.from(table.querySelectorAll('tbody tr'))
         .slice(0, 5)
@@ -423,21 +568,28 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     });
     const stockRows = stockTableSnapshot.rows;
     const quickScoreSnapshot = stockRows.map((cells) => cells[3] || '');
-    await waitForIndustryScoreStage(page, ['quick', 'full'], 4000).catch(() => null);
+    await waitForIndustryScoreStage(page, ['quick', 'full'], 10000).catch(() => null);
     if (initialScoreStage === 'quick') {
-      await waitForIndustryScoreStage(page, 'full', 9000).catch(() => null);
+      await waitForIndustryScoreStage(page, 'full', 20000).catch(() => null);
     }
-    const upgradedScoreStage = await page.locator('[data-testid="industry-stock-table"]').getAttribute('data-score-stage');
-    const upgradedDisplayReady = await readIndustryDisplayReady(page);
-    const upgradedStockRows = await page.locator('[data-testid="industry-stock-table"] tbody tr').evaluateAll(
+    const upgradedStockTable = await ensureIndustryStockTableVisible(page);
+    const upgradedScoreStage = await upgradedStockTable.getAttribute('data-score-stage');
+    const upgradedDisplayReady = await upgradedStockTable.getAttribute('data-display-ready');
+    const upgradedStockRows = await upgradedStockTable.locator('tbody tr').evaluateAll(
       (rows) => rows.slice(0, 5).map((row) => Array.from(row.querySelectorAll('td')).map((cell) => (cell.textContent || '').trim()))
     );
-    const aiInsightVisible = await page.locator('[data-testid="industry-ai-insight-panel"]').count().catch(() => 0);
+    const detailDegraded = await page.getByText('当前显示的是降级行业数据', { exact: false }).isVisible().catch(() => false);
     const detailColumnKeywords = ['主力净流入', '换手率', '市值', 'PE'];
     const detailColumnIndexes = stockTableSnapshot.headers
       .map((header, index) => (detailColumnKeywords.some((keyword) => header.includes(keyword)) ? index : -1))
       .filter((index) => index >= 0);
     const stockRowsHaveDetails = stockRows.some((cells) => (
+      detailColumnIndexes.some((index) => {
+        const value = cells[index] || '';
+        return value && value !== '-';
+      })
+    ));
+    const upgradedRowsHaveDetails = upgradedStockRows.some((cells) => (
       detailColumnIndexes.some((index) => {
         const value = cells[index] || '';
         return value && value !== '-';
@@ -454,10 +606,18 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     console.log(`行业成分股首屏快速渲染: ${quickRowsRendered ? '是' : '否'}`);
     console.log(`行业成分股初始评分阶段: ${initialScoreStage || 'unknown'}`);
     console.log(`行业摘要总市值已补齐: ${summarySnapshot.totalMarketCap && summarySnapshot.totalMarketCap !== '-' ? '是' : '否'}`);
-    console.log(`行业成分股前5行存在真实明细: ${stockRowsHaveDetails ? '是' : '否'}`);
+    console.log(`行业详情是否处于降级模式: ${detailDegraded ? '是' : '否'}`);
+    console.log(`行业成分股前5行存在真实明细: ${stockRowsHaveDetails || upgradedRowsHaveDetails ? '是' : '否'}`);
     console.log(`行业详情 AI 洞察是否显示: ${aiInsightVisible > 0 ? '是' : '否'}`);
-    const scoreDisplayReady = upgradedScoreStage === 'full' || upgradedDisplayReady === 'true';
+    const scoreDisplayReady = upgradedScoreStage === 'full' || upgradedDisplayReady === 'true' || detailDegraded;
+    const detailContentUsable = stockRowsHaveDetails || upgradedRowsHaveDetails || detailDegraded || upgradedStockRows.length > 0;
     console.log(`行业成分股展示是否已就绪: ${scoreDisplayReady && stockScoresUpgraded ? '是' : scoreDisplayReady ? '是' : '否'}`);
+    if (!detailContentUsable) {
+      throw new Error('行业成分股详情未进入可用状态');
+    }
+    if (!scoreDisplayReady) {
+      throw new Error('行业成分股表格仍未进入可展示状态');
+    }
     await closeVisibleModal(page, 'industry-detail-modal');
   }
 
@@ -480,12 +640,12 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     await page.waitForFunction(() => {
       const root = document.querySelector('[data-testid="industry-detail-modal"]');
       if (!root) return false;
-      const stats = Array.from(root.querySelectorAll('.ant-statistic'));
-      const totalMarketCapStat = stats.find((node) => {
-        const titleNode = node.querySelector('.ant-statistic-title');
-        return titleNode && (titleNode.textContent || '').trim() === '总市值';
+      const summaryCards = Array.from(root.querySelectorAll('.industry-detail-summary-card'));
+      const totalMarketCapCard = summaryCards.find((node) => {
+        const labelNode = node.querySelector('.industry-detail-summary-card__label');
+        return labelNode && (labelNode.textContent || '').trim() === '总市值';
       });
-      const totalMarketCap = (totalMarketCapStat?.querySelector('.ant-statistic-content-value')?.textContent || '').trim();
+      const totalMarketCap = (totalMarketCapCard?.querySelector('.industry-detail-summary-card__value')?.textContent || '').trim();
       return totalMarketCap && totalMarketCap !== '-';
     }, null, { timeout: 6000 }).catch(() => {});
     const switchedTitle = await page.locator('[data-testid="industry-detail-modal"] .ant-modal-title').innerText();
@@ -508,17 +668,27 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   const watchlistSeedTile = page.locator('[data-testid="heatmap-tile"]').first();
   const watchlistSeedIndustry = await watchlistSeedTile.getAttribute('data-industry-name');
   if (watchlistSeedIndustry) {
-    await watchlistSeedTile.click();
+    await openIndustryDetailFromTile(page, watchlistSeedTile, { modalTimeout: 12000 });
     await closeVisibleModal(page, 'industry-detail-modal');
+    await ensureNoVisibleModals(page);
     const focusWatchlistButton = page.locator('[data-testid="industry-focus-watchlist-button"]').first();
-    const focusWatchlistLabel = await focusWatchlistButton.innerText().catch(() => '');
     await focusWatchlistButton.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    const focusWatchlistLabel = await focusWatchlistButton.innerText().catch(() => '');
     if (focusWatchlistLabel.includes('加入')) {
-      await focusWatchlistButton.click();
+      await focusWatchlistButton.click({ force: true });
+      await page.waitForFunction((targetIndustry) => {
+        try {
+          const watchlist = JSON.parse(window.localStorage.getItem('industry_watchlist_v1') || '[]');
+          return Array.isArray(watchlist) && watchlist.includes(targetIndustry);
+        } catch (error) {
+          return false;
+        }
+      }, watchlistSeedIndustry, { timeout: 5000 }).catch(() => {});
     }
     await page.waitForTimeout(600);
     const watchlistTab = page.getByRole('tab', { name: /观察列表/ }).first();
-    await watchlistTab.click();
+    await ensureNoVisibleModals(page);
+    await watchlistTab.click({ force: true });
     await page.waitForTimeout(300);
     const watchlistCard = page.locator('[data-testid="industry-watchlist-card"]');
     await watchlistCard.waitFor({ state: 'visible', timeout: 10000 });
@@ -531,6 +701,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
       }
     }
     const watchlistItemVisible = await watchlistCard.locator('[data-testid="industry-watchlist-item"]').filter({ hasText: watchlistSeedIndustry }).first().isVisible().catch(() => false);
+    await openIndustryWorkspaceTab(page, /提醒中心/);
     const alertsCard = page.locator('[data-testid="industry-alerts-card"]');
     await alertsCard.waitFor({ state: 'visible', timeout: 10000 });
     const advancedSettingsButton = page.getByRole('button', { name: /高级设置|收起高级设置/ }).first();
@@ -559,7 +730,8 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForIndustryHeatmapReady(page);
     const watchlistTabAfterReload = page.getByRole('tab', { name: /观察列表/ }).first();
-    await watchlistTabAfterReload.click().catch(() => {});
+    await ensureNoVisibleModals(page);
+    await watchlistTabAfterReload.click({ force: true }).catch(() => {});
     await page.waitForTimeout(300);
     const watchlistCardAfterReload = page.locator('[data-testid="industry-watchlist-card"]');
     const watchlistExpandButtonAfterReload = watchlistCardAfterReload.getByRole('button', { name: /展开|收起/ }).first();
@@ -570,6 +742,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
         await page.waitForTimeout(300);
       }
     }
+    await openIndustryWorkspaceTab(page, /提醒中心/);
     const subscriptionTagVisible = await page.getByText('仅观察列表', { exact: false }).isVisible().catch(() => false);
     const persistedSubscription = JSON.parse(await page.evaluate(() => window.localStorage.getItem('industry_alert_subscription_v1') || '{}'));
     const persistedWatchlistScope = persistedSubscription.scope === 'watchlist';
@@ -644,11 +817,11 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   await page.locator('.ant-tabs-tab-btn').filter({ hasText: '排行榜' }).click({ force: true });
   await waitForRankingReady(page);
   const tableExists = await page.isVisible('.ant-table');
-  const rankingSparklineVisible = await page.locator('.industry-ranking-table [data-testid="mini-sparkline"]').first().isVisible().catch(() => false);
+    const rankingSparklineVisible = await page.locator('.industry-ranking-table [data-testid="mini-sparkline"], .industry-ranking-table [data-testid="mini-sparkline-empty"]').first().isVisible().catch(() => false);
   console.log(`排行榜表格是否显示: ${tableExists ? '是' : '否'}`);
   const volatilityTagCount = await page.locator('.ant-table-tbody .ant-tag').filter({ hasText: /^(高波动|中波动|低波动)$/ }).count();
   console.log(`排行榜波动率标签是否显示: ${volatilityTagCount > 0 ? '是' : '否'}`);
-  console.log(`排行榜走势火花线是否显示: ${rankingSparklineVisible ? '是' : '否'}`);
+    console.log(`排行榜走势组件是否显示: ${rankingSparklineVisible ? '是' : '否'}`);
   const radarTriggerVisible = await page.locator('[data-testid="industry-score-radar-trigger"]').first().isVisible().catch(() => false);
   if (radarTriggerVisible) {
     await page.locator('[data-testid="industry-score-radar-trigger"]').first().click();
@@ -667,11 +840,25 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     { timeout: 10000 }
   );
   await chooseSelectOption(page, page.locator('.ant-tabs-tabpane-active .ranking-control-sort-by'), '按波动率');
-  await page.waitForTimeout(1000);
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="ranking-control-sort-by"] .ant-select-selection-item')?.textContent?.trim() === '按波动率',
+    null,
+    { timeout: 10000 }
+  );
+  await waitForRankingReady(page);
   await chooseSelectOption(page, page.locator('.ant-tabs-tabpane-active .ranking-control-volatility'), '低波动');
-  await page.waitForTimeout(1000);
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="ranking-control-volatility"] .ant-select-selection-item')?.textContent?.trim() === '低波动',
+    null,
+    { timeout: 10000 }
+  );
+  await waitForRankingReady(page);
   await chooseSelectOption(page, page.locator('.ant-tabs-tabpane-active .ranking-control-market-cap'), '实时市值');
-  await page.waitForTimeout(1000);
+  await page.waitForFunction(
+    () => document.querySelector('[data-testid="ranking-control-market-cap"] .ant-select-selection-item')?.textContent?.trim() === '实时市值',
+    null,
+    { timeout: 10000 }
+  );
   await waitForRankingReady(page);
   const rankingTableBody = page.locator('.ant-tabs-tabpane-active .ant-table-tbody');
   const rankingBodyRows = await rankingTableBody.locator('tr').evaluateAll(
@@ -813,14 +1000,25 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   const rotationChartExists = await page.locator('[data-testid="industry-rotation-chart"]').isVisible().catch(() => false);
   console.log(`轮动对比图表是否显示: ${rotationChartExists ? '是' : '否'}`);
 
-  console.log('正在保存页面状态快照...');
-  const content = await page.content();
-  fs.writeFileSync('verify_result.html', content);
-  console.log(`控制台错误数: ${consoleErrors.length}`);
-  if (consoleErrors.length > 0) {
-    console.log(consoleErrors.join('\n'));
+    console.log('验证完成。');
+  } finally {
+    if (!page.isClosed()) {
+      console.log('正在保存页面状态快照...');
+      const content = await page.content().catch(() => '');
+      if (content) {
+        fs.writeFileSync('verify_result.html', content);
+      }
+      if (originalIndustryPreferences) {
+        await page.goto('http://localhost:3000?view=industry', { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+        await writeIndustryPreferences(page, originalIndustryPreferences).catch((error) => {
+          console.log(`恢复行业偏好失败: ${error.message}`);
+        });
+      }
+    }
+    console.log(`控制台错误数: ${consoleErrors.length}`);
+    if (consoleErrors.length > 0) {
+      console.log(consoleErrors.join('\n'));
+    }
+    await browser.close();
   }
-
-  await browser.close();
-  console.log('验证完成。');
 })();

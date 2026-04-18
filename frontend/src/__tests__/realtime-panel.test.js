@@ -38,6 +38,10 @@ jest.mock('../services/websocket', () => ({
   },
 }));
 
+jest.mock('../utils/messageApi', () => ({
+  useSafeMessageApi: () => mockMessageApi,
+}));
+
 jest.mock('../components/TradePanel', () => (props) => {
   mockTradePanelSpy(props);
   return props.visible ? <div data-testid="trade-panel">{props.defaultSymbol}</div> : null;
@@ -105,9 +109,12 @@ jest.mock('antd', () => {
       onChange={(event) => onChange(event.target.checked)}
     />
   );
-  const Input = ({ value, onChange, placeholder, onPressEnter }) => (
+  const Input = ({ value, onChange, placeholder, onPressEnter, 'aria-label': ariaLabel, name, autoComplete, inputMode }) => (
     <input
-      aria-label={placeholder}
+      aria-label={ariaLabel || placeholder}
+      name={name}
+      autoComplete={autoComplete}
+      inputMode={inputMode}
       value={value}
       onChange={(event) => onChange?.(event)}
       onKeyDown={(event) => {
@@ -118,8 +125,9 @@ jest.mock('antd', () => {
       placeholder={placeholder}
     />
   );
-  const Button = ({ children, onClick }) => (
-    <button type="button" onClick={onClick}>
+  const Button = ({ children, icon, onClick, disabled, 'aria-label': ariaLabel, 'aria-pressed': ariaPressed }) => (
+    <button type="button" onClick={onClick} disabled={disabled} aria-label={ariaLabel} aria-pressed={ariaPressed}>
+      {icon}
       {children}
     </button>
   );
@@ -396,7 +404,7 @@ describe('RealTimePanel', () => {
   test('supports global jump search for tracked symbols across groups', async () => {
     await renderRealtimePanel();
 
-    const jumpInput = screen.getByPlaceholderText('全局搜索并跳转... (例如 AAPL / BTC-USD / 纳指)');
+    const jumpInput = screen.getByRole('textbox', { name: '全局跳转搜索' });
     fireEvent.change(jumpInput, { target: { value: 'BTC-USD' } });
     fireEvent.keyDown(jumpInput, { key: 'Enter' });
 
@@ -405,6 +413,26 @@ describe('RealTimePanel', () => {
     });
     await waitFor(() => {
       expect(screen.getByTestId('realtime-stock-detail-modal')).toHaveTextContent('BTC-USD');
+    });
+  });
+
+  test('exposes accessible names for realtime search inputs', async () => {
+    await renderRealtimePanel();
+
+    expect(screen.getByRole('textbox', { name: '添加跟踪标的搜索' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '全局跳转搜索' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '自选组合名称' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '自选组合标的列表' })).toBeInTheDocument();
+  });
+
+  test('opens realtime detail modal from the keyboard-accessible quote card trigger', async () => {
+    await renderRealtimePanel();
+
+    const detailTrigger = await screen.findByRole('button', { name: '打开 标普500 ^GSPC 深度详情' });
+    fireEvent.keyDown(detailTrigger, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('realtime-stock-detail-modal')).toHaveTextContent('^GSPC');
     });
   });
 
@@ -531,7 +559,8 @@ describe('RealTimePanel', () => {
     expect(screen.getByText('待继续观察')).toBeInTheDocument();
     expect(screen.getByText('价格 ≥ $5100.00')).toBeInTheDocument();
     expect(screen.getByText('^GSPC 当前价格 $5123.45 已突破 $5100.00')).toBeInTheDocument();
-    expect(screen.getByText((_, element) => element?.textContent?.trim() === '提醒 1')).toBeInTheDocument();
+    const alertMetric = screen.getByText('提醒命中').closest('.realtime-hero__metric');
+    expect(alertMetric).toHaveTextContent('1');
 
     const symbolCard = await screen.findByText((content, element) => {
       return element?.tagName === 'SPAN' && content.includes('^GSPC · 行情');
@@ -631,7 +660,8 @@ describe('RealTimePanel', () => {
 
     await renderRealtimePanel();
 
-    expect(await screen.findByText((_, element) => element?.textContent?.trim() === '提醒 1')).toBeInTheDocument();
+    const alertMetric = await screen.findByText('提醒命中');
+    expect(alertMetric.closest('.realtime-hero__metric')).toHaveTextContent('1');
     fireEvent.click(screen.getByRole('button', { name: '展开提醒命中历史' }));
     expect(await screen.findByText('价格 ≥ $5100.00')).toBeInTheDocument();
     expect(screen.getByText('^GSPC 当前价格 $5123.45 已突破 $5100.00')).toBeInTheDocument();
@@ -644,7 +674,8 @@ describe('RealTimePanel', () => {
       expect(screen.getAllByText('行情刚刚更新').length).toBeGreaterThan(0);
     });
 
-    expect(screen.getByText('新鲜 1/6')).toBeInTheDocument();
+    const freshnessMetric = screen.getByText('新鲜行情').closest('.realtime-hero__metric');
+    expect(freshnessMetric).toHaveTextContent('1/6');
     expect(screen.getByText('链路模式：连接中 / REST 补数')).toBeInTheDocument();
     expect(screen.getByText('市场情绪')).toBeInTheDocument();
     expect(screen.getByText('偏强')).toBeInTheDocument();
@@ -1000,7 +1031,7 @@ describe('RealTimePanel', () => {
 
     await renderRealtimePanel();
 
-    fireEvent.click(screen.getByRole('button', { name: '复盘快照' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看复盘快照' }));
     fireEvent.click(screen.getByRole('button', { name: '标记有效' }));
     fireEvent.change(
       screen.getByPlaceholderText('写下这笔快照后来的判断、复盘结论或后续动作'),
@@ -1327,7 +1358,7 @@ describe('RealTimePanel', () => {
       expect(screen.getByText('正在重连实时推送')).toBeInTheDocument();
     });
     expect(screen.getByText('链路模式：重连中 / REST 补数')).toBeInTheDocument();
-    expect(screen.getByText('重连次数：2')).toBeInTheDocument();
+    expect(screen.getByText('重连 2')).toBeInTheDocument();
     expect(screen.getByText(/最近异常：network lost/)).toBeInTheDocument();
 
     act(() => {
@@ -1387,7 +1418,7 @@ describe('RealTimePanel', () => {
     webSocketService.subscribe.mockClear();
 
     fireEvent.change(
-      screen.getByLabelText('搜索... (支持指数、美股、A股、加密货币、债券等)'),
+      screen.getByRole('textbox', { name: '添加跟踪标的搜索' }),
       { target: { value: 'NFLX' } }
     );
     fireEvent.click(screen.getByRole('button', { name: '添加' }));
@@ -1608,7 +1639,7 @@ describe('RealTimePanel', () => {
     await renderRealtimePanel();
 
     fireEvent.change(
-      screen.getByLabelText('搜索... (支持指数、美股、A股、加密货币、债券等)'),
+      screen.getByRole('textbox', { name: '添加跟踪标的搜索' }),
       { target: { value: 'NFLX' } }
     );
     fireEvent.click(screen.getByRole('button', { name: '添加' }));
@@ -1627,7 +1658,7 @@ describe('RealTimePanel', () => {
     await renderRealtimePanel();
 
     fireEvent.change(
-      screen.getByLabelText('搜索... (支持指数、美股、A股、加密货币、债券等)'),
+      screen.getByRole('textbox', { name: '添加跟踪标的搜索' }),
       { target: { value: 'NFLX' } }
     );
     fireEvent.click(screen.getByRole('button', { name: '添加' }));

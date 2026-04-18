@@ -1791,6 +1791,7 @@ async def get_backtest_history(
     symbol: str = None,
     strategy: str = None,
     record_type: str = None,
+    summary_only: bool = False,
 ):
     """
     获取回测历史记录
@@ -1808,6 +1809,7 @@ async def get_backtest_history(
             symbol=symbol,
             strategy=strategy,
             record_type=record_type,
+            summary_only=summary_only,
         )
         return ensure_json_serializable({
             "success": True,

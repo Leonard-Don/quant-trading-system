@@ -122,23 +122,47 @@ def test_resolve_sina_industry_node_marks_proxy_source():
         assert adapter._resolve_sina_industry_node("半导体", "881121") == ("new_dzqj", "sina_proxy_stock_sum")
 
 
-def test_compute_industry_market_caps_falls_back_to_akshare_stock_sum():
+def test_get_cached_stock_list_by_industry_uses_persistent_proxy_snapshot():
     adapter = SinaIndustryAdapter()
     adapter.sina = MagicMock()
-    adapter.akshare = MagicMock()
-    adapter._resolve_sina_industry_code = MagicMock(return_value="new_test")
-    adapter.sina.get_industry_stocks.return_value = []
-    adapter.akshare.get_stock_list_by_industry.return_value = [
-        {"symbol": "000001", "market_cap": 1000},
-        {"symbol": "000002", "market_cap": 2000},
+    adapter.sina._load_persistent_industry_stocks.side_effect = lambda code: [
+        {
+            "code": "688981",
+            "name": "中芯国际",
+            "change_pct": 1.8,
+            "mktcap": 42000000,
+            "volume": 100,
+            "amount": 200,
+            "pe_ratio": 52.7,
+            "pb_ratio": 3.1,
+        }
+    ] if code == "new_dzqj" else []
+
+    with patch.object(SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_dzqj"}):
+        with patch.object(SinaFinanceProvider, "_load_persistent_industry_list", return_value=pd.DataFrame()):
+            stocks = adapter.get_cached_stock_list_by_industry("半导体")
+
+    assert len(stocks) == 1
+    assert stocks[0]["symbol"] == "688981"
+    assert stocks[0]["market_cap"] == 42000000 * 10000
+    assert stocks[0]["pe_ratio"] == 52.7
+
+
+def test_compute_industry_market_caps_marks_standard_sina_source():
+    adapter = SinaIndustryAdapter()
+    adapter.sina = MagicMock()
+    adapter._resolve_sina_industry_node = MagicMock(return_value=("new_test", "sina_stock_sum"))
+    adapter.sina.get_industry_stocks.return_value = [
+        {"code": "000001", "mktcap": 100},
+        {"code": "000002", "mktcap": 200},
     ]
 
     df = pd.DataFrame([{"industry_name": "白酒", "industry_code": "881125"}])
 
     adapter._compute_industry_market_caps(df)
 
-    assert df["total_market_cap"].iloc[0] == 3000
-    assert df["market_cap_source"].iloc[0] == "akshare_stock_sum"
+    assert df["total_market_cap"].iloc[0] == 300 * 10000
+    assert df["market_cap_source"].iloc[0] == "sina_stock_sum"
 
 
 def test_compute_industry_market_caps_marks_proxy_source():
@@ -343,13 +367,16 @@ def test_get_persistent_market_cap_snapshot_status_counts_stale_entries(tmp_path
 def test_enrich_with_akshare_uses_precise_join_keys():
     adapter = SinaIndustryAdapter()
     adapter.get_symbol_by_name = MagicMock(return_value="")
+    SinaIndustryAdapter._akshare_valuation_snapshot_cache = None
+    SinaIndustryAdapter._akshare_valuation_snapshot_cache_time = 0
+    SinaIndustryAdapter._akshare_valuation_snapshot_failure_at = 0
 
     source_df = pd.DataFrame(
         [{"industry_name": "房地产开发", "leading_stock": "万科A"}]
     )
     meta_df = pd.DataFrame(
         [
-            {"industry_name": "房地产服务", "total_market_cap": 999, "turnover_rate": 8.8},
+            {"industry_name": "房地产服务", "total_market_cap": 999, "turnover_rate": 8.8, "market_cap_source": "akshare_metadata"},
         ]
     )
     valuation_df = pd.DataFrame(
@@ -369,8 +396,11 @@ def test_enrich_with_akshare_uses_precise_join_keys():
 def test_enrich_with_akshare_marks_sources_when_matched():
     adapter = SinaIndustryAdapter()
     adapter.get_symbol_by_name = MagicMock(return_value="")
+    SinaIndustryAdapter._akshare_valuation_snapshot_cache = None
+    SinaIndustryAdapter._akshare_valuation_snapshot_cache_time = 0
+    SinaIndustryAdapter._akshare_valuation_snapshot_failure_at = 0
     source_df = pd.DataFrame([{"industry_name": "白酒", "leading_stock": "贵州茅台"}])
-    meta_df = pd.DataFrame([{"industry_name": "白酒", "total_market_cap": 123.0, "turnover_rate": 2.5}])
+    meta_df = pd.DataFrame([{"industry_name": "白酒", "total_market_cap": 123.0, "turnover_rate": 2.5, "market_cap_source": "akshare_metadata"}])
     valuation_df = pd.DataFrame([{"行业名称": "白酒", "TTM(滚动)市盈率": 18.8, "市净率": 3.2, "静态股息率": 1.1}])
 
     with patch("src.data.providers.akshare_provider.AKShareProvider._get_industry_metadata", return_value=meta_df), patch(

@@ -48,7 +48,6 @@ export const API_TIMEOUT_PROFILES = {
   analysis: parseTimeout(process.env.REACT_APP_API_TIMEOUT_ANALYSIS, 120000),
   standard: parseTimeout(process.env.REACT_APP_API_TIMEOUT_STANDARD, 30000),
   dashboard: parseTimeout(process.env.REACT_APP_API_TIMEOUT_DASHBOARD, 45000),
-  workbench: parseTimeout(process.env.REACT_APP_API_TIMEOUT_WORKBENCH, 30000),
 };
 export const withTimeoutProfile = (profile = 'default', config = {}) => ({
   ...config,
@@ -244,9 +243,12 @@ export const runBacktest = async (params) => {
   return response.data;
 };
 
-export const getBacktestHistory = async (limit = 20, filters = {}, offset = 0) => {
+export const getBacktestHistory = async (limit = 20, filters = {}, offset = 0, options = {}) => {
   const params = new URLSearchParams({ limit: String(limit) });
   params.set('offset', String(offset));
+  if (options.summaryOnly !== false) {
+    params.set('summary_only', 'true');
+  }
   if (filters.symbol) {
     params.set('symbol', filters.symbol);
   }
@@ -455,96 +457,6 @@ export const getCorrelationAnalysis = async (symbols, periodDays = 90) => {
 export const optimizePortfolio = async (symbols, period = '1y', objective = 'max_sharpe') => {
   // Wrap symbols in correct JSON structure: { symbols: ["A", "B"] }
   const response = await api.post('/optimization/optimize', { symbols, period, objective });
-  return response.data;
-};
-
-export const runStrategyOptimizer = async (payload) => {
-  const response = await api.post('/quant-lab/optimizer', payload, withTimeoutProfile('analysis'));
-  return response.data;
-};
-
-export const getRiskCenterAnalysis = async (payload) => {
-  const response = await api.post('/quant-lab/risk-center', payload, withTimeoutProfile('analysis'));
-  return response.data;
-};
-
-export const getQuantTradingJournal = async (profileId) => {
-  const response = await api.get('/quant-lab/trading-journal', {
-    params: profileId ? { profile_id: profileId } : undefined,
-  });
-  return response.data;
-};
-
-export const updateQuantTradingJournal = async (payload, profileId) => {
-  const response = await api.put('/quant-lab/trading-journal', payload, {
-    params: profileId ? { profile_id: profileId } : undefined,
-  });
-  return response.data;
-};
-
-export const getQuantAlertOrchestration = async (profileId) => {
-  const response = await api.get('/quant-lab/alerts', {
-    params: profileId ? { profile_id: profileId } : undefined,
-  });
-  return response.data;
-};
-
-export const updateQuantAlertOrchestration = async (payload, profileId) => {
-  const response = await api.put('/quant-lab/alerts', payload, {
-    params: profileId ? { profile_id: profileId } : undefined,
-  });
-  return response.data;
-};
-
-export const publishQuantAlertEvent = async (payload, profileId) => {
-  const response = await api.post('/quant-lab/alerts/publish', payload, {
-    params: profileId ? { profile_id: profileId } : undefined,
-  });
-  return response.data;
-};
-
-export const getQuantDataQuality = async () => {
-  const response = await api.get('/quant-lab/data-quality');
-  return response.data;
-};
-
-export const runQuantValuationLab = async (payload) => {
-  const response = await api.post('/quant-lab/valuation-lab', payload, withTimeoutProfile('analysis'));
-  return response.data;
-};
-
-export const queueQuantValuationLab = async (payload) => {
-  const response = await api.post('/quant-lab/valuation-lab/async', payload, withTimeoutProfile('standard'));
-  return response.data;
-};
-
-export const runQuantIndustryRotationLab = async (payload) => {
-  const response = await api.post('/quant-lab/industry-rotation', payload, withTimeoutProfile('analysis', { timeout: Math.max(API_TIMEOUT_PROFILES.analysis, 180000) }));
-  return response.data;
-};
-
-export const queueQuantIndustryRotationLab = async (payload) => {
-  const response = await api.post('/quant-lab/industry-rotation/async', payload, withTimeoutProfile('standard'));
-  return response.data;
-};
-
-export const runQuantFactorExpression = async (payload) => {
-  const response = await api.post('/quant-lab/factor-expression', payload, withTimeoutProfile('analysis'));
-  return response.data;
-};
-
-export const queueStrategyOptimizerTask = async (payload) => {
-  const response = await api.post('/quant-lab/optimizer/async', payload, withTimeoutProfile('standard'));
-  return response.data;
-};
-
-export const queueQuantRiskCenterTask = async (payload) => {
-  const response = await api.post('/quant-lab/risk-center/async', payload, withTimeoutProfile('standard'));
-  return response.data;
-};
-
-export const queueQuantFactorExpressionTask = async (payload) => {
-  const response = await api.post('/quant-lab/factor-expression/async', payload, withTimeoutProfile('standard'));
   return response.data;
 };
 
@@ -1058,131 +970,6 @@ export const checkIndustryHealth = async () => {
   return response.data;
 };
 
-// ============ 资产定价研究 API ============
-
-// 因子模型分析（CAPM + Fama-French）
-export const getFactorModelAnalysis = async (symbol, period = '1y') => {
-  const response = await api.post('/pricing/factor-model', { symbol, period }, withTimeoutProfile('analysis'));
-  return response.data;
-};
-
-// 内在价值估值（DCF + 可比估值）
-export const getValuationAnalysis = async (symbol) => {
-  const response = await api.post('/pricing/valuation', { symbol }, withTimeoutProfile('analysis'));
-  return response.data;
-};
-
-export const getValuationSensitivityAnalysis = async (payload) => {
-  const response = await api.post('/pricing/valuation-sensitivity', payload, withTimeoutProfile('analysis'));
-  return response.data;
-};
-
-// 定价差异分析（综合分析）
-export const getGapAnalysis = async (symbol, period = '1y') => {
-  const response = await api.post('/pricing/gap-analysis', { symbol, period }, withTimeoutProfile('analysis'));
-  return response.data;
-};
-
-export const runPricingScreener = async (symbols, period = '1y', limit = 10, maxWorkers = 3) => {
-  const response = await api.post(
-    '/pricing/screener',
-    { symbols, period, limit, max_workers: maxWorkers },
-    withTimeoutProfile('analysis', { timeout: Math.max(API_TIMEOUT_PROFILES.analysis, 180000) })
-  );
-  return response.data;
-};
-
-export const getPricingSymbolSuggestions = async (query = '', limit = 8) => {
-  const params = new URLSearchParams();
-  if (query) {
-    params.set('q', query);
-  }
-  params.set('limit', String(limit));
-  const response = await api.get(`/pricing/symbol-suggestions?${params.toString()}`, withTimeoutProfile('standard'));
-  return response.data;
-};
-
-export const getPricingGapHistory = async (symbol, period = '1y', points = 60) => {
-  const params = new URLSearchParams({
-    symbol,
-    period,
-    points: String(points),
-  });
-  const response = await api.get(`/pricing/gap-history?${params.toString()}`, withTimeoutProfile('standard'));
-  return response.data;
-};
-
-export const getPricingPeerComparison = async (symbol, limit = 5) => {
-  const params = new URLSearchParams({
-    symbol,
-    limit: String(limit),
-  });
-  const response = await api.get(`/pricing/peers?${params.toString()}`, withTimeoutProfile('standard'));
-  return response.data;
-};
-
-// 获取市场因子数据快照
-export const getBenchmarkFactors = async () => {
-  const response = await api.get('/pricing/benchmark-factors', withTimeoutProfile('standard'));
-  return response.data;
-};
-
-export const getAltDataSnapshot = async (refresh = false) => {
-  const response = await api.get(`/alt-data/snapshot?refresh=${refresh}`, withTimeoutProfile('dashboard'));
-  return response.data;
-};
-
-export const getAltDataStatus = async () => {
-  const response = await api.get('/alt-data/status', withTimeoutProfile('dashboard'));
-  return response.data;
-};
-
-export const refreshAltData = async (provider = 'all') => {
-  const response = await api.post(
-    `/alt-data/refresh?provider=${encodeURIComponent(provider)}`,
-    undefined,
-    withTimeoutProfile('analysis')
-  );
-  return response.data;
-};
-
-export const getAltDataHistory = async (params = {}) => {
-  const search = new URLSearchParams();
-  if (params.category) search.set('category', params.category);
-  if (params.timeframe) search.set('timeframe', params.timeframe);
-  if (params.limit) search.set('limit', String(params.limit));
-  const query = search.toString();
-  const response = await api.get(`/alt-data/history${query ? `?${query}` : ''}`, withTimeoutProfile('dashboard'));
-  return response.data;
-};
-
-export const getAltSignalDiagnostics = async (params = {}) => {
-  const search = new URLSearchParams();
-  if (params.category) search.set('category', params.category);
-  if (params.timeframe) search.set('timeframe', params.timeframe);
-  if (params.limit) search.set('limit', String(params.limit));
-  if (params.half_life_days) search.set('half_life_days', String(params.half_life_days));
-  const query = search.toString();
-  const response = await api.get(`/alt-data/diagnostics/signals${query ? `?${query}` : ''}`, withTimeoutProfile('dashboard'));
-  return response.data;
-};
-
-export const getMacroOverview = async (refresh = false) => {
-  const response = await api.get(`/macro/overview?refresh=${refresh}`, withTimeoutProfile('dashboard'));
-  return response.data;
-};
-
-export const getMacroFactorBacktest = async (params = {}) => {
-  const search = new URLSearchParams();
-  if (params.benchmark) search.set('benchmark', params.benchmark);
-  if (params.period) search.set('period', params.period);
-  if (params.horizons) search.set('horizons', Array.isArray(params.horizons) ? params.horizons.join(',') : params.horizons);
-  if (params.limit) search.set('limit', String(params.limit));
-  const query = search.toString();
-  const response = await api.get(`/macro/factor-backtest${query ? `?${query}` : ''}`, withTimeoutProfile('analysis'));
-  return response.data;
-};
-
 export const getCrossMarketTemplates = async () => {
   const response = await api.get('/cross-market/templates', withTimeoutProfile('dashboard'));
   return response.data;
@@ -1190,80 +977,6 @@ export const getCrossMarketTemplates = async () => {
 
 export const runCrossMarketBacktest = async (payload) => {
   const response = await api.post('/cross-market/backtest', payload, withTimeoutProfile('analysis'));
-  return response.data;
-};
-
-export const getResearchTasks = async (params = {}) => {
-  const search = new URLSearchParams();
-  if (params.limit) search.set('limit', String(params.limit));
-  if (params.type) search.set('type', params.type);
-  if (params.status) search.set('status', params.status);
-  if (params.source) search.set('source', params.source);
-  if (params.view) search.set('view', params.view);
-  const query = search.toString();
-  const response = await api.get(`/research-workbench/tasks${query ? `?${query}` : ''}`, withTimeoutProfile('workbench'));
-  return response.data;
-};
-
-export const createResearchTask = async (payload) => {
-  const response = await api.post('/research-workbench/tasks', payload, withTimeoutProfile('workbench'));
-  return response.data;
-};
-
-export const getResearchTask = async (taskId) => {
-  const response = await api.get(`/research-workbench/tasks/${encodeURIComponent(taskId)}`, withTimeoutProfile('workbench'));
-  return response.data;
-};
-
-export const updateResearchTask = async (taskId, payload) => {
-  const response = await api.put(`/research-workbench/tasks/${encodeURIComponent(taskId)}`, payload, withTimeoutProfile('workbench'));
-  return response.data;
-};
-
-export const getResearchTaskTimeline = async (taskId) => {
-  const response = await api.get(`/research-workbench/tasks/${encodeURIComponent(taskId)}/timeline`, withTimeoutProfile('workbench'));
-  return response.data;
-};
-
-export const addResearchTaskComment = async (taskId, payload) => {
-  const response = await api.post(`/research-workbench/tasks/${encodeURIComponent(taskId)}/comments`, payload, withTimeoutProfile('workbench'));
-  return response.data;
-};
-
-export const deleteResearchTaskComment = async (taskId, commentId) => {
-  const response = await api.delete(
-    `/research-workbench/tasks/${encodeURIComponent(taskId)}/comments/${encodeURIComponent(commentId)}`,
-    withTimeoutProfile('workbench')
-  );
-  return response.data;
-};
-
-export const addResearchTaskSnapshot = async (taskId, payload) => {
-  const response = await api.post(
-    `/research-workbench/tasks/${encodeURIComponent(taskId)}/snapshot`,
-    payload,
-    withTimeoutProfile('workbench')
-  );
-  return response.data;
-};
-
-export const reorderResearchBoard = async (payload) => {
-  const response = await api.post('/research-workbench/board/reorder', payload, withTimeoutProfile('workbench'));
-  return response.data;
-};
-
-export const bulkUpdateResearchTasks = async (payload) => {
-  const response = await api.post('/research-workbench/tasks/bulk-update', payload, withTimeoutProfile('workbench'));
-  return response.data;
-};
-
-export const deleteResearchTask = async (taskId) => {
-  const response = await api.delete(`/research-workbench/tasks/${encodeURIComponent(taskId)}`, withTimeoutProfile('workbench'));
-  return response.data;
-};
-
-export const getResearchTaskStats = async () => {
-  const response = await api.get('/research-workbench/stats', withTimeoutProfile('workbench'));
   return response.data;
 };
 

@@ -63,6 +63,29 @@ const StrategyComparison = ({ strategies }) => {
     const strategyDefinitions = useMemo(() => (
         Object.fromEntries(strategies.map((strategy) => [strategy.name, strategy]))
     ), [strategies]);
+    const comparisonPresets = useMemo(() => {
+        const availableStrategies = new Set(strategies.map((strategy) => strategy.name));
+        return [
+            {
+                key: 'trend-vs-benchmark',
+                label: '均线 vs 基准',
+                description: '快速比较趋势策略和买入持有。',
+                strategies: ['moving_average', 'buy_and_hold'],
+            },
+            {
+                key: 'macd-vs-trend',
+                label: 'MACD vs 均线',
+                description: '对比两种常见趋势跟随思路。',
+                strategies: ['macd', 'moving_average'],
+            },
+            {
+                key: 'reversion-vs-momentum',
+                label: '均值回归 vs 动量',
+                description: '观察反转逻辑和动量逻辑在同一标的下的差异。',
+                strategies: ['mean_reversion', 'momentum'],
+            },
+        ].filter((preset) => preset.strategies.every((strategyName) => availableStrategies.has(strategyName)));
+    }, [strategies]);
 
     useEffect(() => {
         setStrategyParameters((previous) => {
@@ -103,7 +126,6 @@ const StrategyComparison = ({ strategies }) => {
         }
 
         setLoading(true);
-        setResults(null);
 
         try {
             const response = await compareStrategies({
@@ -131,6 +153,10 @@ const StrategyComparison = ({ strategies }) => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const applyPreset = (presetStrategies) => {
+        setParams((previous) => ({ ...previous, selectedStrategies: presetStrategies }));
     };
 
     const renderStrategyParameterPanels = () => {
@@ -351,7 +377,7 @@ const StrategyComparison = ({ strategies }) => {
             </div>
 
             <Card className="workspace-panel" style={{ marginBottom: 20 }}>
-                <Space size="large" wrap>
+                <Space size="large" wrap style={{ marginBottom: comparisonPresets.length ? 12 : 0 }}>
                     <div style={{ width: 180 }}>
                         <Input
                             value={params.symbol}
@@ -362,6 +388,7 @@ const StrategyComparison = ({ strategies }) => {
                     <div style={{ width: 300 }}>
                         <Select
                             mode="multiple"
+                            value={params.selectedStrategies}
                             style={{ width: '100%' }}
                             placeholder="选择要对比的策略"
                             onChange={(values) => setParams(prev => ({ ...prev, selectedStrategies: values }))}
@@ -425,12 +452,36 @@ const StrategyComparison = ({ strategies }) => {
                         </Button>
                     )}
                 </Space>
+                {comparisonPresets.length ? (
+                    <Space wrap>
+                        <Text type="secondary">快速开始</Text>
+                        {comparisonPresets.map((preset) => (
+                            <Button
+                                key={preset.key}
+                                size="small"
+                                onClick={() => applyPreset(preset.strategies)}
+                            >
+                                {preset.label}
+                            </Button>
+                        ))}
+                    </Space>
+                ) : null}
             </Card>
 
             {renderStrategyParameterPanels()}
 
             {results && (
                 <Row gutter={[16, 16]}>
+                    {loading ? (
+                        <Col span={24}>
+                            <Alert
+                                type="info"
+                                showIcon
+                                message="正在基于新配置刷新对比结果"
+                                description="上一版对比结果会先保留，新的评分和图表返回后会自动覆盖。"
+                            />
+                        </Col>
+                    ) : null}
                     {/* 综合评分排名卡片 */}
                     <Col span={24}>
                         <Card

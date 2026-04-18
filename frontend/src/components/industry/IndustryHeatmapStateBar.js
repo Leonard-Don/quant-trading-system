@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button, Tag } from 'antd';
+import { activateOnEnterOrSpace } from './industryShared';
 
 const IndustryHeatmapStateBar = ({
     visible,
@@ -40,6 +41,17 @@ const IndustryHeatmapStateBar = ({
                             onClose={(event) => {
                                 event.preventDefault();
                                 onClearHeatmapStateTag(item.key);
+                            }}
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`当前热力图筛选 ${item.label} ${item.value}`}
+                            onKeyDown={(event) => {
+                                if (event.key === 'Backspace' || event.key === 'Delete') {
+                                    event.preventDefault();
+                                    onClearHeatmapStateTag(item.key);
+                                    return;
+                                }
+                                activateOnEnterOrSpace(event, () => onFocusHeatmapControl(item.key));
                             }}
                             style={{ margin: 0, fontSize: 12, cursor: 'pointer', borderRadius: 999, paddingInline: 8 }}
                         >

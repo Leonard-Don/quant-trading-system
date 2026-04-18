@@ -528,10 +528,11 @@ class TaskQueueManager:
             "backtest.impact_analysis": "backtest_impact_analysis",
         }
         normalized = aliases.get(normalized, normalized)
-        if not normalized.startswith("quant_") and not normalized.startswith("backtest_"):
+        if normalized.startswith("quant_"):
+            return None
+        if not normalized.startswith("backtest_"):
             return None
 
-        from backend.app.services.quant_lab import quant_lab_service
         from backend.app.api.v1.endpoints.backtest import (
             compare_strategy_significance_sync,
             run_backtest_monte_carlo_sync,
@@ -540,11 +541,6 @@ class TaskQueueManager:
         )
 
         registry: Dict[str, TaskHandler] = {
-            "quant_strategy_optimizer": quant_lab_service.optimize_strategy,
-            "quant_risk_center": quant_lab_service.analyze_risk_center,
-            "quant_valuation_lab": quant_lab_service.analyze_valuation_lab,
-            "quant_industry_rotation": quant_lab_service.run_industry_rotation_lab,
-            "quant_factor_expression": quant_lab_service.evaluate_factor_expression,
             "backtest_monte_carlo": run_backtest_monte_carlo_sync,
             "backtest_significance": compare_strategy_significance_sync,
             "backtest_multi_period": run_multi_period_backtest_sync,

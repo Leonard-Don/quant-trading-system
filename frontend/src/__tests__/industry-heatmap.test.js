@@ -1,0 +1,125 @@
+import React from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+
+import IndustryHeatmap, { buildFallbackHeatmapPayload } from '../components/IndustryHeatmap';
+import { getIndustryHeatmap, getIndustryHeatmapHistory } from '../services/api';
+
+jest.mock('../services/api', () => ({
+  getIndustryHeatmap: jest.fn(),
+  getIndustryHeatmapHistory: jest.fn(),
+}));
+
+describe('IndustryHeatmap history fallback', () => {
+  let consoleErrorSpy;
+
+  beforeAll(() => {
+    global.ResizeObserver = class ResizeObserver {
+      observe() {}
+      disconnect() {}
+    };
+    const createMediaQueryList = (query) => {
+      const mediaQueryList = {
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: jest.fn((listener) => listener(mediaQueryList)),
+        removeListener: jest.fn(),
+        addEventListener: jest.fn((_, listener) => listener(mediaQueryList)),
+        removeEventListener: jest.fn(),
+        dispatchEvent: jest.fn(),
+      };
+      return mediaQueryList;
+    };
+    const matchMedia = (query) => createMediaQueryList(query);
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: matchMedia,
+    });
+    Object.defineProperty(global, 'matchMedia', {
+      writable: true,
+      value: matchMedia,
+    });
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+  });
+
+  it('prefers the matching timeframe snapshot when building a fallback payload', () => {
+    const payload = buildFallbackHeatmapPayload({
+      items: [
+        {
+          days: 5,
+          update_time: '2026-04-17T06:00:00Z',
+          max_value: 3,
+          min_value: -2,
+          industries: [{ name: '军工', value: 1.2 }],
+        },
+        {
+          days: 1,
+          update_time: '2026-04-17T08:00:00Z',
+          max_value: 2,
+          min_value: -1,
+          industries: [{ name: '半导体', value: 2.1 }],
+        },
+      ],
+    }, 1);
+
+    expect(payload).toEqual({
+      industries: [{ name: '半导体', value: 2.1 }],
+      max_value: 2,
+      min_value: -1,
+      update_time: '2026-04-17T08:00:00Z',
+    });
+  });
+
+  it('falls back to the latest history snapshot when the live heatmap request fails', async () => {
+    const onDataLoad = jest.fn();
+    getIndustryHeatmap.mockRejectedValueOnce(new Error('live heatmap unavailable'));
+    getIndustryHeatmapHistory.mockResolvedValueOnce({
+      items: [
+        {
+          days: 1,
+          update_time: '2026-04-17T08:00:00Z',
+          max_value: 2,
+          min_value: -1,
+          industries: [
+            {
+              name: '半导体',
+              value: 2.1,
+              size: 100,
+              stockCount: 10,
+              moneyFlow: 120000000,
+              turnoverRate: 3.2,
+              marketCapSource: 'snapshot_manual',
+            },
+          ],
+        },
+      ],
+    });
+
+    render(
+      <IndustryHeatmap
+        onIndustryClick={jest.fn()}
+        onDataLoad={onDataLoad}
+        showStats={false}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('最近快照')).toBeTruthy();
+    });
+    expect(screen.getAllByText('半导体').length).toBeGreaterThan(0);
+    expect(onDataLoad).toHaveBeenCalledWith(expect.objectContaining({
+      industries: expect.arrayContaining([
+        expect.objectContaining({ name: '半导体', value: 2.1 }),
+      ]),
+      update_time: '2026-04-17T08:00:00Z',
+    }));
+  });
+});

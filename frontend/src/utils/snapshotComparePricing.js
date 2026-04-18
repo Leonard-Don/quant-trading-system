@@ -1,4 +1,4 @@
-import { getPriceSourceLabel } from '../../utils/pricingResearch';
+import { getPriceSourceLabel } from './pricingResearch';
 import {
   formatNumber,
   formatPercentPoints,

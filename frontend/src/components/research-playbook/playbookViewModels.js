@@ -1,8 +1,6 @@
 import { formatResearchSource } from '../../utils/researchContext';
-import { buildWorkbenchViewFingerprint } from '../../utils/workbenchViewFingerprint';
 import {
   buildCrossMarketRefreshPriorityEvent,
-  buildPricingRefreshPriorityEvent,
   buildTradeThesisRefreshPriorityEvent,
 } from '../../utils/workbenchPriorityEvents';
 
@@ -34,96 +32,43 @@ const toSignedPercentPoints = (value, digits = 1) => {
 
 const compactText = (value = '') => String(value || '').replace(/\s+/g, ' ').trim();
 
-const WORKBENCH_REFRESH_LABELS = {
-  high: '建议更新',
-  medium: '建议复核',
-  low: '继续观察',
-};
-
-const WORKBENCH_TYPE_LABELS = {
-  pricing: 'Pricing',
-  cross_market: 'Cross-Market',
-  macro_mispricing: 'Macro Mispricing',
-  trade_thesis: 'Trade Thesis',
-};
-
-const WORKBENCH_SNAPSHOT_VIEW_LABELS = {
-  filtered: '带筛选视角快照',
-  scoped: '带任务焦点快照',
-};
-
-const WORKBENCH_REASON_LABELS = {
-  priority_new: '自动排序首次入列',
-  priority_escalated: '自动排序升档',
-  priority_relaxed: '自动排序缓和',
-  priority_updated: '自动排序同类更新',
-  resonance: '共振驱动',
-  bias_quality_core: '核心腿受压',
-  selection_quality_active: '降级运行',
-  review_context: '复核语境切换',
-  structural_decay: '结构衰败/系统雷达',
-  trade_thesis: '交易 Thesis 漂移',
-  people_layer: '人的维度',
-  people_fragility: '人的维度',
-  department_chaos: '部门混乱',
-  policy_execution: '政策执行混乱',
-  selection_quality: '自动降级',
-  input_reliability: '输入可靠度',
-  source_health_degradation: '来源健康退化',
-  policy_source: '政策源驱动',
-  bias_quality: '偏置收缩',
-};
-
 const buildWorkbenchViewContext = (context = {}) => {
   const refresh = String(context?.workbenchRefresh || '').trim();
   const type = String(context?.workbenchType || '').trim();
   const sourceFilter = String(context?.workbenchSource || '').trim();
   const reason = String(context?.workbenchReason || '').trim();
   const snapshotView = String(context?.workbenchSnapshotView || '').trim();
-  const snapshotFingerprint = String(context?.workbenchSnapshotFingerprint || '').trim();
   const snapshotSummary = String(context?.workbenchSnapshotSummary || '').trim();
   const keyword = String(context?.workbenchKeyword || '').trim();
-  const taskId = String(context?.task || '').trim();
+  const taskId = String(context?.task || context?.taskId || context?.task_id || '').trim();
 
-  if (![refresh, type, sourceFilter, reason, snapshotView, snapshotFingerprint, snapshotSummary, keyword, taskId].some(Boolean)) {
+  if (![refresh, type, sourceFilter, reason, snapshotView, snapshotSummary, keyword, taskId].some(Boolean)) {
     return null;
   }
 
   const summaryParts = [];
 
   if (reason) {
-    summaryParts.push(
-      `${reason.startsWith('priority_') ? '快速视图' : '更新原因'}：${WORKBENCH_REASON_LABELS[reason] || reason}`
-    );
+    summaryParts.push(`更新原因：${reason}`);
   }
   if (keyword) {
     summaryParts.push(`关键词：${keyword}`);
   }
   if (refresh) {
-    summaryParts.push(`更新级别：${WORKBENCH_REFRESH_LABELS[refresh] || refresh}`);
+    summaryParts.push(`更新级别：${refresh}`);
   }
   if (snapshotView) {
-    summaryParts.push(`快照视角：${WORKBENCH_SNAPSHOT_VIEW_LABELS[snapshotView] || snapshotView}`);
+    summaryParts.push(`快照视角：${snapshotView}`);
   }
   if (snapshotSummary) {
     summaryParts.push(`研究视角：${snapshotSummary}`);
   }
   if (type) {
-    summaryParts.push(`类型：${WORKBENCH_TYPE_LABELS[type] || type}`);
+    summaryParts.push(`类型：${type}`);
   }
   if (sourceFilter) {
     summaryParts.push(`来源：${formatResearchSource(sourceFilter)}`);
   }
-
-  const viewFingerprint = snapshotFingerprint || buildWorkbenchViewFingerprint({
-    refresh,
-    type,
-    source_filter: sourceFilter,
-    reason,
-    snapshot_view: snapshotView,
-    keyword,
-    task_id: taskId,
-  });
 
   return {
     source_view: 'workbench',
@@ -133,15 +78,14 @@ const buildWorkbenchViewContext = (context = {}) => {
     source_filter: sourceFilter,
     reason,
     snapshot_view: snapshotView,
-    view_fingerprint: viewFingerprint,
     snapshot_summary: snapshotSummary,
     keyword,
     task_id: taskId,
     summary: summaryParts.length ? summaryParts.join(' · ') : '全部任务视图',
     scoped_task_label: taskId ? `当前定位：${taskId}` : '',
     note: summaryParts.length
-      ? '这次快照是在带筛选的工作台视图下保存的。'
-      : '这次快照是在完整工作台视图下保存的。',
+      ? '这次快照来自已收敛后的轻量研究上下文。'
+      : '这次快照来自默认研究上下文。',
   };
 };
 
@@ -645,109 +589,6 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
 };
 
 export { STATUS_LABELS };
-
-export const buildPricingWorkbenchPayload = (context = {}, pricingResult = null, playbook = null) => {
-  const symbol = String(context.symbol || pricingResult?.symbol || '').trim().toUpperCase();
-  if (!symbol) {
-    return null;
-  }
-
-  const gap = pricingResult?.gap_analysis || {};
-  const valuation = pricingResult?.valuation || {};
-  const implications = pricingResult?.implications || {};
-  const drivers = pricingResult?.deviation_drivers?.drivers || [];
-  const primaryDriver = pricingResult?.deviation_drivers?.primary_driver || drivers[0] || null;
-  const factorModel = pricingResult?.factor_model || {};
-  const peopleGovernanceOverlay = pricingResult?.people_governance_overlay || {};
-  const title = `[Pricing] ${symbol} mispricing review`;
-  const analysisPeriod = context.period || '1y';
-  const workbenchViewContext = buildWorkbenchViewContext(context);
-  const researchInput = {
-    macro: {
-      people_layer: pricingResult?.people_layer || {},
-      policy_execution: peopleGovernanceOverlay?.policy_execution_context || {},
-      source_mode_summary: peopleGovernanceOverlay?.source_mode_summary || {},
-    },
-  };
-
-  const payload = {
-    type: 'pricing',
-    title,
-    source: context.source || 'manual',
-    symbol,
-    template: '',
-    note: context.note || '',
-    context: {
-      view: 'pricing',
-      period: analysisPeriod,
-      source: context.source || 'manual',
-      stage: playbook?.stageLabel || (pricingResult ? '结果已生成' : '待分析'),
-      playbook_context: playbook?.context || [],
-      workbench_view_context: workbenchViewContext || {},
-    },
-    snapshot: {
-      headline: playbook?.headline || `${symbol} 定价研究任务`,
-      summary: playbook?.thesis || `${symbol} 的定价研究任务已保存。`,
-      highlights: buildHighlights(playbook, (implications.insights || []).slice(0, 2)),
-      payload: {
-        gap_analysis: gap,
-        fair_value: valuation?.fair_value || {},
-        dcf_scenarios: (valuation?.dcf?.scenarios || []).map((item) => ({
-          name: item?.name || '',
-          label: item?.label || '',
-          intrinsic_value: item?.intrinsic_value ?? null,
-          premium_discount: item?.premium_discount ?? null,
-          assumptions: {
-            wacc: item?.assumptions?.wacc ?? null,
-            initial_growth: item?.assumptions?.initial_growth ?? null,
-            terminal_growth: item?.assumptions?.terminal_growth ?? null,
-            fcf_margin: item?.assumptions?.fcf_margin ?? null,
-          },
-        })),
-        current_price_source: valuation?.current_price_source || '',
-        factor_model: {
-          period: factorModel?.period || analysisPeriod,
-          data_points: factorModel?.data_points ?? null,
-          capm_alpha_pct: factorModel?.capm?.alpha_pct ?? null,
-          capm_beta: factorModel?.capm?.beta ?? null,
-          capm_r_squared: factorModel?.capm?.r_squared ?? null,
-          ff3_alpha_pct: factorModel?.fama_french?.alpha_pct ?? null,
-          ff3_r_squared: factorModel?.fama_french?.r_squared ?? null,
-          ff5_alpha_pct: factorModel?.fama_french_five_factor?.alpha_pct ?? null,
-          ff5_profitability: factorModel?.fama_french_five_factor?.factor_loadings?.profitability ?? null,
-          ff5_investment: factorModel?.fama_french_five_factor?.factor_loadings?.investment ?? null,
-        },
-        monte_carlo: valuation?.monte_carlo || {},
-        audit_trail: {
-          generated_at: new Date().toISOString(),
-          price_source: valuation?.current_price_source || '',
-          factor_source: factorModel?.factor_source || {},
-          five_factor_source: factorModel?.five_factor_source || {},
-          comparable_benchmark_source: valuation?.comparable?.benchmark_source || '',
-          comparable_peer_symbols: valuation?.comparable?.benchmark_peer_symbols || [],
-          analysis_overrides: valuation?.analysis_overrides || {},
-        },
-        implications,
-        period: analysisPeriod,
-        people_layer: pricingResult?.people_layer || {},
-        people_governance_overlay: peopleGovernanceOverlay,
-        structural_decay: pricingResult?.structural_decay || implications?.structural_decay || {},
-        macro_mispricing_thesis:
-          pricingResult?.macro_mispricing_thesis
-          || implications?.macro_mispricing_thesis
-          || {},
-        primary_driver: primaryDriver,
-        drivers: drivers.slice(0, 3),
-        research_input: researchInput,
-        view_context: workbenchViewContext || {},
-      },
-    },
-  };
-  const refreshPriorityEvent = buildPricingRefreshPriorityEvent(pricingResult, context);
-  return refreshPriorityEvent
-    ? { ...payload, refresh_priority_event: refreshPriorityEvent }
-    : payload;
-};
 
 export const buildCrossMarketWorkbenchPayload = (
   context = {},

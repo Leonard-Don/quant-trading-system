@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { publishQuantAlertEvent } from '../../services/api';
 
 import {
     DEFAULT_INDUSTRY_ALERT_THRESHOLDS,
@@ -384,43 +383,6 @@ export default function useIndustryAlerts({
                 });
             });
     }, [desktopAlertNotifications, industryAlertsWithSeverity]);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') {
-            return;
-        }
-
-        industryAlertsWithSeverity
-            .filter((alert) => alert.isNew)
-            .filter((alert) => ['high', 'medium'].includes(alert.severity?.level))
-            .slice(0, 4)
-            .forEach((alert) => {
-                const publishKey = `industry-alert-bus-published:${alert.industry_name}:${alert.kind}:${alert.firstSeenAt || 'na'}`;
-                if (window.sessionStorage.getItem(publishKey)) {
-                    return;
-                }
-                window.sessionStorage.setItem(publishKey, 'true');
-                void publishQuantAlertEvent({
-                    source_module: 'industry',
-                    rule_name: `${alert.title} · ${alert.industry_name}`,
-                    symbol: alert.industry_name,
-                    severity: alert.severity?.level === 'high' ? 'critical' : 'warning',
-                    message: `${alert.summary} ${alert.reason}`,
-                    condition_summary: `industry:${alert.kind}`,
-                    trigger_value: Number(alert.priority || 0),
-                    notify_channels: [],
-                    create_workbench_task: alert.severity?.level === 'high',
-                    workbench_task_type: 'cross_market',
-                    persist_event_record: true,
-                    cascade_actions: [
-                        { type: 'persist_record', record_type: 'industry_alert_hit' },
-                    ],
-                }).catch((error) => {
-                    console.warn('Failed to publish industry alert to unified bus:', error);
-                    window.sessionStorage.removeItem(publishKey);
-                });
-            });
-    }, [industryAlertsWithSeverity]);
 
     return {
         alertTimelineEntries,

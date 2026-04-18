@@ -1,7 +1,8 @@
 import React from 'react';
-import { Button, Card, Col, Input, InputNumber, Row, Select, Space } from 'antd';
+import { Button, Card, Col, Input, InputNumber, Row, Select } from 'antd';
 
 function ResearchToolsPanel({
+  compact = false,
   researchSymbolsInput,
   setResearchSymbolsInput,
   optimizationDensity,
@@ -21,7 +22,7 @@ function ResearchToolsPanel({
   handleRunPortfolioStrategy,
 }) {
   return (
-    <Card className="workspace-panel" style={{ marginBottom: 20 }}>
+    <Card className={`workspace-panel advanced-lab-tool-panel${compact ? ' advanced-lab-tool-panel--compact' : ''}`}>
       <div className="workspace-section__header">
         <div>
           <div className="workspace-section__title">研究增强工具</div>
@@ -29,7 +30,7 @@ function ResearchToolsPanel({
         </div>
       </div>
       <Row gutter={[16, 16]} align="middle">
-        <Col xs={24} xl={10}>
+        <Col xs={24} xl={compact ? 24 : 10}>
           <div className="workspace-field-label">研究标的池</div>
           <Input
             value={researchSymbolsInput}
@@ -40,7 +41,7 @@ function ResearchToolsPanel({
             参数寻优、基准对照会优先使用当前滚动前瞻表单里的单一标的；多标的和组合级回测会读取这里的标的池。
           </div>
         </Col>
-        <Col xs={12} xl={4}>
+        <Col xs={12} xl={compact ? 12 : 4}>
           <div className="workspace-field-label">寻优密度</div>
           <InputNumber
             min={3}
@@ -51,7 +52,7 @@ function ResearchToolsPanel({
             onChange={(value) => setOptimizationDensity(Number(value || 3))}
           />
         </Col>
-        <Col xs={12} xl={4}>
+        <Col xs={12} xl={compact ? 12 : 4}>
           <div className="workspace-field-label">组合权重模式</div>
           <Select
             value={portfolioObjective}
@@ -64,8 +65,8 @@ function ResearchToolsPanel({
             onChange={setPortfolioObjective}
           />
         </Col>
-        <Col xs={24} xl={6}>
-          <Space wrap style={{ width: '100%' }}>
+        <Col xs={24} xl={compact ? 24 : 6}>
+          <div className={`advanced-lab-tool-panel__actions${compact ? ' advanced-lab-tool-panel__actions--compact' : ''}`}>
             <Button onClick={handleRunParameterOptimization} loading={batchLoading}>参数寻优</Button>
             <Button onClick={handleRunBenchmarkComparison} loading={benchmarkLoading}>基准对照</Button>
             <Button onClick={handleRunMultiSymbolResearch} loading={batchLoading}>多标的研究</Button>
@@ -73,7 +74,7 @@ function ResearchToolsPanel({
             <Button onClick={handleRunRobustnessDiagnostic} loading={batchLoading}>稳健性诊断</Button>
             <Button onClick={handleRunMarketRegimeAnalysis} loading={marketRegimeLoading}>市场状态</Button>
             <Button type="primary" onClick={handleRunPortfolioStrategy} loading={portfolioLoading}>组合级策略回测</Button>
-          </Space>
+          </div>
         </Col>
       </Row>
     </Card>

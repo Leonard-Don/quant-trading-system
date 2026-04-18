@@ -40,17 +40,10 @@ import CrossMarketDiagnosticsSection from './cross-market/CrossMarketDiagnostics
 import CrossMarketBasketSummaryCard from './cross-market/CrossMarketBasketSummaryCard';
 import {
   buildCrossMarketPlaybook,
-  buildCrossMarketWorkbenchPayload,
-  buildTradeThesisWorkbenchPayload,
 } from './research-playbook/playbookViewModels';
-import { buildSnapshotComparison } from './research-workbench/snapshotCompare';
+import { buildSnapshotComparison } from '../utils/snapshotCompare';
 import {
-  addResearchTaskSnapshot,
-  createResearchTask,
-  getAltDataSnapshot,
   getCrossMarketTemplates,
-  getMacroOverview,
-  getResearchTasks,
   runCrossMarketBacktest,
 } from '../services/api';
 import dayjs from '../utils/dayjs';
@@ -61,8 +54,6 @@ import {
   CROSS_MARKET_DIMENSION_LABELS,
   CROSS_MARKET_FACTOR_LABELS,
 } from '../utils/crossMarketRecommendations';
-import { loadMacroMispricingDraft } from '../utils/macroMispricingDraft';
-import { buildResearchTaskRefreshSignals } from '../utils/researchTaskSignals';
 import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
 
 const { Paragraph, Text } = Typography;
@@ -421,7 +412,6 @@ function CrossMarketBacktestPanel() {
   const [templates, setTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [running, setRunning] = useState(false);
-  const [savingTask, setSavingTask] = useState(false);
   const [assets, setAssets] = useState([
     createAsset('long', 0),
     createAsset('short', 0),
@@ -438,34 +428,18 @@ function CrossMarketBacktestPanel() {
   });
   const [results, setResults] = useState(null);
   const [researchContext, setResearchContext] = useState(readResearchContext());
-  const [queueResumeHint, setQueueResumeHint] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
-  const [savedTaskId, setSavedTaskId] = useState('');
-  const [savedTaskType, setSavedTaskType] = useState('');
   const [appliedBiasMeta, setAppliedBiasMeta] = useState(null);
-  const [macroOverview, setMacroOverview] = useState(null);
-  const [altSnapshot, setAltSnapshot] = useState(null);
-  const [researchTasks, setResearchTasks] = useState([]);
   const [draftTemplateContext, setDraftTemplateContext] = useState(null);
-  const [macroMispricingDraft, setMacroMispricingDraft] = useState(null);
   const appliedTemplateRef = useRef('');
   const autoRecommendedRef = useRef('');
-  const appliedDraftRef = useRef('');
 
   useEffect(() => {
     const loadTemplates = async () => {
       setLoadingTemplates(true);
       try {
-        const [templateResponse, macroResponse, snapshotResponse, researchTaskResponse] = await Promise.all([
-          getCrossMarketTemplates(),
-          getMacroOverview(),
-          getAltDataSnapshot(),
-          getResearchTasks({ limit: 40, type: 'cross_market' }),
-        ]);
+        const templateResponse = await getCrossMarketTemplates();
         setTemplates(templateResponse.templates || []);
-        setMacroOverview(macroResponse);
-        setAltSnapshot(snapshotResponse);
-        setResearchTasks(researchTaskResponse?.data || []);
       } catch (error) {
         message.error(error.userMessage || error.message || '加载模板失败');
       } finally {
@@ -483,29 +457,14 @@ function CrossMarketBacktestPanel() {
     return () => window.removeEventListener('popstate', syncContext);
   }, []);
 
-  useEffect(() => {
-    if (
-      researchContext?.source === 'research_workbench'
-      && researchContext?.task
-      && savedTaskId !== researchContext.task
-    ) {
-      setSavedTaskId(researchContext.task);
-      setSavedTaskType((current) => current || 'cross_market');
-    }
-  }, [researchContext?.source, researchContext?.task, savedTaskId]);
-
-  useEffect(() => {
-    setQueueResumeHint('');
-  }, [researchContext?.task, researchContext?.template]);
-
   const longAssets = useMemo(() => normalizeAssets(assets, 'long'), [assets]);
   const shortAssets = useMemo(() => normalizeAssets(assets, 'short'), [assets]);
   const recommendedTemplates = useMemo(
     () =>
       buildCrossMarketCards(
         { templates },
-        macroOverview || {},
-        altSnapshot || {},
+        {},
+        {},
         (templateId, note) => ({
           label: '载入推荐模板',
           target: 'cross-market',
@@ -514,30 +473,10 @@ function CrossMarketBacktestPanel() {
           note,
         })
       ),
-    [altSnapshot, macroOverview, templates]
+    [templates]
   );
-  const refreshByTemplate = useMemo(
-    () => (buildResearchTaskRefreshSignals({ researchTasks, overview: macroOverview, snapshot: altSnapshot }) || {}).byTemplateId || {},
-    [altSnapshot, macroOverview, researchTasks]
-  );
-  const taskByTemplate = useMemo(
-    () =>
-      Object.fromEntries(
-        (researchTasks || [])
-          .filter((task) => task?.type === 'cross_market' && task?.status !== 'archived')
-          .sort((left, right) => String(right.updated_at || '').localeCompare(String(left.updated_at || '')))
-          .map((task) => {
-            const templateId =
-              task?.template
-              || task?.snapshot?.payload?.template_meta?.template_id
-              || task?.snapshot_history?.[0]?.payload?.template_meta?.template_id
-              || '';
-            return [templateId, task];
-          })
-          .filter(([templateId]) => Boolean(templateId))
-      ),
-    [researchTasks]
-  );
+  const refreshByTemplate = useMemo(() => ({}), []);
+  const taskByTemplate = useMemo(() => ({}), []);
   const displayRecommendedTemplates = useMemo(
     () =>
       recommendedTemplates
@@ -739,7 +678,6 @@ function CrossMarketBacktestPanel() {
           }
         : null
     );
-    setMacroMispricingDraft(null);
     setDraftTemplateContext(null);
     setParameters({
       lookback: template.parameters?.lookback ?? DEFAULT_PARAMETERS.lookback,
@@ -771,52 +709,8 @@ function CrossMarketBacktestPanel() {
   }, [applyTemplate, researchContext, templates]);
 
   useEffect(() => {
-    const draftId = researchContext?.draft || '';
-    if (!draftId) {
-      setMacroMispricingDraft(null);
-      return;
-    }
-    if (appliedDraftRef.current === draftId) {
-      return;
-    }
-
-    const draft = loadMacroMispricingDraft(draftId);
-    if (!draft?.assets?.length) {
-      return;
-    }
-
-    appliedDraftRef.current = draftId;
-    setSelectedTemplateId(draft.templateId || '');
-    setAppliedBiasMeta(null);
-    setMacroMispricingDraft(draft);
-    setDraftTemplateContext(draft.templateContext || null);
-    setAssets(
-      draft.assets.map((asset, index) => ({
-        key: `${asset.side}-${index}-${draft.id}`,
-        side: asset.side,
-        symbol: asset.symbol,
-        asset_class: asset.asset_class || 'ETF',
-        weight: asset.weight ?? null,
-      }))
-    );
-    setParameters((prev) => ({
-      ...prev,
-      ...(draft.parameters || {}),
-    }));
-    setQuality((prev) => ({
-      ...prev,
-      ...(draft.quality || {}),
-    }));
-    setConstraints((prev) => ({
-      ...prev,
-      ...(draft.constraints || {}),
-    }));
-    setMeta((prev) => ({
-      ...prev,
-      ...(draft.meta || {}),
-    }));
-    message.info(`已载入宏观错误定价草案: ${draft.title || draft.symbol || '组合草案'}`);
-  }, [message, researchContext]);
+    setDraftTemplateContext(null);
+  }, [researchContext?.draft]);
 
   useEffect(() => {
     if (researchContext?.template || selectedTemplateId || !displayRecommendedTemplates.length) {
@@ -882,135 +776,6 @@ function CrossMarketBacktestPanel() {
     }
   };
 
-  const handleSaveTask = async () => {
-    const payload = buildCrossMarketWorkbenchPayload(
-      researchContext,
-      templateForPayload,
-      results,
-      assets,
-      { macroOverview, altSnapshot }
-    );
-    if (!payload) {
-      message.error('请先载入模板或配置篮子后再保存到研究工作台');
-      return;
-    }
-
-    setSavingTask(true);
-    try {
-      const response = await createResearchTask(payload);
-      setSavedTaskId(response.data?.id || '');
-      setSavedTaskType('cross_market');
-      if (canReturnToWorkbenchQueue) {
-        setQueueResumeHint('saved');
-      }
-      message.success(`已保存到研究工作台: ${response.data?.title || payload.title}`);
-    } catch (error) {
-      message.error(error.userMessage || error.message || '保存研究任务失败');
-    } finally {
-      setSavingTask(false);
-    }
-  };
-
-  const handleSaveTradeThesis = async () => {
-    const payload = buildTradeThesisWorkbenchPayload(
-      researchContext,
-      macroMispricingDraft,
-      templateForPayload,
-      results,
-      assets,
-      { macroOverview, altSnapshot }
-    );
-    if (!payload) {
-      message.error('请先载入宏观错误定价草案后再保存为交易 Thesis');
-      return;
-    }
-
-    setSavingTask(true);
-    try {
-      const response = await createResearchTask(payload);
-      setSavedTaskId(response.data?.id || '');
-      setSavedTaskType('trade_thesis');
-      if (canReturnToWorkbenchQueue) {
-        setQueueResumeHint('saved');
-      }
-      message.success(`已保存为交易 Thesis: ${response.data?.title || payload.title}`);
-    } catch (error) {
-      message.error(error.userMessage || error.message || '保存交易 Thesis 失败');
-    } finally {
-      setSavingTask(false);
-    }
-  };
-
-  const handleUpdateSnapshot = async () => {
-    if (!savedTaskId) {
-      message.info('请先保存任务，再更新当前任务快照');
-      return;
-    }
-
-    const payload = savedTaskType === 'trade_thesis'
-      ? buildTradeThesisWorkbenchPayload(
-          researchContext,
-          macroMispricingDraft,
-          templateForPayload,
-          results,
-          assets,
-          { macroOverview, altSnapshot }
-        )
-      : buildCrossMarketWorkbenchPayload(
-          researchContext,
-          templateForPayload,
-          results,
-          assets,
-          { macroOverview, altSnapshot }
-        );
-    if (!payload?.snapshot) {
-      message.error('当前还没有可更新的研究快照');
-      return;
-    }
-
-    setSavingTask(true);
-    try {
-      await addResearchTaskSnapshot(savedTaskId, {
-        snapshot: payload.snapshot,
-        ...(payload.refresh_priority_event
-          ? { refresh_priority_event: payload.refresh_priority_event }
-          : {}),
-      });
-      if (canReturnToWorkbenchQueue) {
-        setQueueResumeHint('snapshot');
-      }
-      message.success('当前任务快照已更新');
-    } catch (error) {
-      message.error(error.userMessage || error.message || '更新任务快照失败');
-    } finally {
-      setSavingTask(false);
-    }
-  };
-
-  const canReturnToWorkbenchQueue = Boolean(
-    researchContext?.source === 'research_workbench'
-    && researchContext?.task
-    && researchContext?.workbenchQueueMode === 'cross_market'
-  );
-
-  const handleReturnToWorkbenchNextTask = useCallback(() => {
-    if (!canReturnToWorkbenchQueue) return;
-    navigateByResearchAction({
-      target: 'workbench',
-      refresh: researchContext.workbenchRefresh || '',
-      type: researchContext.workbenchType || '',
-      sourceFilter: researchContext.workbenchSource || '',
-      reason: researchContext.workbenchReason || '',
-      snapshotView: researchContext.workbenchSnapshotView || '',
-      snapshotFingerprint: researchContext.workbenchSnapshotFingerprint || '',
-      snapshotSummary: researchContext.workbenchSnapshotSummary || '',
-      keyword: researchContext.workbenchKeyword || '',
-      queueMode: researchContext.workbenchQueueMode || 'cross_market',
-      queueAction: 'next_same_type',
-      taskId: researchContext.task || '',
-    }, window.location.search);
-  }, [canReturnToWorkbenchQueue, researchContext]);
-
   const renderAssetSection = (title, sideAssets, side) => (
     <Card
       title={title}
@@ -1020,6 +785,7 @@ function CrossMarketBacktestPanel() {
         </Button>
       }
       variant="borderless"
+      className="workspace-panel cross-market-asset-card"
     >
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         {sideAssets.map((asset) => (
@@ -1126,6 +892,141 @@ function CrossMarketBacktestPanel() {
   const assetContributionRows = useMemo(
     () => Object.values(results?.asset_contributions || {}),
     [results]
+  );
+  const hasResults = Boolean(results);
+  const activeConstraintCount = Number(Boolean(constraints.max_single_weight)) + Number(Boolean(constraints.min_single_weight));
+  const heroMetrics = useMemo(
+    () => [
+      {
+        label: '当前主题',
+        value: selectedTemplate?.theme || selectedTemplate?.name || '自动推荐模板',
+      },
+      {
+        label: '篮子规模',
+        value: `多 ${longAssets.length} / 空 ${shortAssets.length}`,
+      },
+      {
+        label: '构造模式',
+        value: formatConstructionMode(quality.construction_mode),
+      },
+      {
+        label: '当前状态',
+        value: running
+          ? '运行中'
+          : (hasResults ? '结果已生成' : '待运行'),
+      },
+    ],
+    [hasResults, longAssets.length, quality.construction_mode, running, selectedTemplate, shortAssets.length]
+  );
+  const heroWorkflow = useMemo(
+    () => [
+      {
+        label: '模板与偏置',
+        value: selectedTemplate
+          ? `${selectedTemplate.name}${appliedBiasMeta ? ' · 宏观偏置已启用' : ' · 原始权重'}`
+          : '等待绑定模板',
+        detail: selectedTemplate?.driverHeadline || '先确认主题模板，再决定长短腿篮子的构造方式。',
+      },
+      {
+        label: '时间与成本',
+        value: `${meta.start_date || '自动开始'} 至 ${meta.end_date || '自动结束'}`,
+        detail: `资金 ${formatCurrency(Number(meta.initial_capital || 0))} · 手续费 ${Number(meta.commission || 0).toFixed(2)}% · 滑点 ${Number(meta.slippage || 0).toFixed(2)}%`,
+      },
+      {
+        label: '结果理解',
+        value: hasResults
+          ? `${(Number(results?.total_return || 0) * 100).toFixed(2)}% 总收益 · Sharpe ${Number(results?.sharpe_ratio || 0).toFixed(2)}`
+          : '运行后在主画布查看组合结论',
+        detail: hasResults
+          ? `样本 ${results?.price_matrix_summary?.row_count || 0} 个对齐交易日`
+          : (activeConstraintCount
+            ? `当前已启用 ${activeConstraintCount} 个单资产约束`
+            : '当前未启用单资产约束'),
+      },
+    ],
+    [
+      activeConstraintCount,
+      appliedBiasMeta,
+      hasResults,
+      meta.commission,
+      meta.end_date,
+      meta.initial_capital,
+      meta.slippage,
+      meta.start_date,
+      results,
+      selectedTemplate,
+    ]
+  );
+  const sidebarOverviewItems = useMemo(
+    () => [
+      {
+        label: '策略骨架',
+        value: `spread_zscore · ${formatConstructionMode(quality.construction_mode)}`,
+      },
+      {
+        label: '时间窗口',
+        value: `${meta.start_date || '自动'} 至 ${meta.end_date || '自动'}`,
+      },
+      {
+        label: '成本设置',
+        value: `手续费 ${Number(meta.commission || 0).toFixed(2)}% · 滑点 ${Number(meta.slippage || 0).toFixed(2)}%`,
+      },
+      {
+        label: '单资产约束',
+        value: activeConstraintCount
+          ? [
+              constraints.max_single_weight ? `上限 ${Number(constraints.max_single_weight).toFixed(0)}%` : '',
+              constraints.min_single_weight ? `下限 ${Number(constraints.min_single_weight).toFixed(0)}%` : '',
+            ].filter(Boolean).join(' · ')
+          : '未启用',
+      },
+    ],
+    [
+      activeConstraintCount,
+      constraints.max_single_weight,
+      constraints.min_single_weight,
+      meta.commission,
+      meta.end_date,
+      meta.slippage,
+      meta.start_date,
+      quality.construction_mode,
+    ]
+  );
+  const basketPreviewGroups = useMemo(
+    () => [
+      {
+        key: 'long',
+        title: '多头篮子',
+        empty: '继续补充多头资产，形成清晰的主题暴露。',
+        items: longAssets,
+      },
+      {
+        key: 'short',
+        title: '空头篮子',
+        empty: '继续补充空头资产，完成对冲或相对价值表达。',
+        items: shortAssets,
+      },
+    ],
+    [longAssets, shortAssets]
+  );
+  const previewHighlights = useMemo(
+    () => [
+      {
+        label: '模板结论',
+        value: selectedTemplate?.driverHeadline || topRecommendation?.driverHeadline || '当前还没有模板结论，可先从推荐模板开始。',
+      },
+      {
+        label: '风险预算',
+        value: appliedBiasMeta
+          ? `${Number(appliedBiasMeta.strength || 0).toFixed(1)}pp 偏置强度 · ${appliedBiasMeta.qualityLabel || 'full'}`
+          : '按模板原始权重执行',
+      },
+      {
+        label: '资金与样本',
+        value: `${formatCurrency(Number(meta.initial_capital || 0))} 初始资金 · lookback ${parameters.lookback} 天`,
+      },
+    ],
+    [appliedBiasMeta, meta.initial_capital, parameters.lookback, selectedTemplate, topRecommendation]
   );
   const executionBatchColumns = useMemo(
     () => [
@@ -1499,100 +1400,94 @@ function CrossMarketBacktestPanel() {
   const cointegrationMeta = getCointegrationMeta(results?.execution_diagnostics?.cointegration_level);
 
   return (
-    <div className="workspace-tab-view" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div className="workspace-section workspace-section--accent">
+    <div className="workspace-tab-view app-page-shell app-page-shell--wide" style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div className="workspace-section workspace-section--accent app-page-hero app-page-hero--cross-market">
         <div className="workspace-section__header">
           <div>
             <div className="workspace-section__title">跨市场回测</div>
             <div className="workspace-section__description">围绕模板、篮子构造、质量约束和研究联动完成跨资产策略实验，保持与主回测一致的工作台体验。</div>
           </div>
         </div>
-        <Space direction="vertical" size={10} style={{ width: '100%' }}>
-          <Tag color="geekblue" style={{ width: 'fit-content', marginInlineEnd: 0 }}>
-            跨市场实验版
-          </Tag>
-          <div className="summary-strip summary-strip--compact">
-            <div className="summary-strip__item">
-              <span className="summary-strip__label">多头篮子</span>
-              <span className="summary-strip__value">{longAssets.length} 个资产</span>
-            </div>
-            <div className="summary-strip__item">
-              <span className="summary-strip__label">空头篮子</span>
-              <span className="summary-strip__value">{shortAssets.length} 个资产</span>
-            </div>
-            <div className="summary-strip__item">
-              <span className="summary-strip__label">构造模式</span>
-              <span className="summary-strip__value">{formatConstructionMode(quality.construction_mode)}</span>
-            </div>
-            <div className="summary-strip__item">
-              <span className="summary-strip__label">状态</span>
-              <span className="summary-strip__value">{running ? '运行中' : (results ? '结果已生成' : '待运行')}</span>
+        <div className="cross-market-hero-grid">
+          <div className="cross-market-hero-story">
+            <Space wrap size={[8, 8]}>
+              <Tag color="geekblue" style={{ width: 'fit-content', marginInlineEnd: 0 }}>
+                跨市场实验版
+              </Tag>
+              <Tag color={hasResults ? 'green' : (running ? 'processing' : 'default')}>
+                {running ? '运行中' : (hasResults ? '结果已生成' : '待运行')}
+              </Tag>
+              {activeConstraintCount ? (
+                <Tag color="gold">{`单资产约束 ${activeConstraintCount} 个`}</Tag>
+              ) : null}
+            </Space>
+            <Paragraph style={{ marginBottom: 0 }}>
+              用一条主画布把模板选择、长短腿篮子、质量约束和回测结果串起来。
+              右侧侧栏负责快选模板与参数调整，主区域专注查看篮子和实验结论。
+            </Paragraph>
+            <div className="cross-market-hero-lanes">
+              {heroWorkflow.map((item) => (
+                <div key={item.label} className="cross-market-hero-lane">
+                  <span className="cross-market-hero-lane__label">{item.label}</span>
+                  <span className="cross-market-hero-lane__value">{item.value}</span>
+                  <span className="cross-market-hero-lane__detail">{item.detail}</span>
+                </div>
+              ))}
             </div>
           </div>
-          <Paragraph style={{ marginBottom: 0 }}>
-            这一页专门用来演示跨资产长短腿组合。当前版本支持美元计价、日频数据，
-            并使用 `spread_zscore` 价差策略完成实验。
-          </Paragraph>
-        </Space>
+          <div className="cross-market-hero-summary">
+            {heroMetrics.map((item) => (
+              <div key={item.label} className="app-page-metric-card">
+                <span className="app-page-metric-card__label">{item.label}</span>
+                <span className="app-page-metric-card__value">{item.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {researchContext?.template ? (
-        <Alert
-          type="info"
-          showIcon
-          message={`已载入来自 ${formatResearchSource(researchContext.source)} 的跨市场模板 · ${playbook?.stageLabel || '待运行'}`}
-          description={
-            researchContext.note
-              ? researchContext.note
-              : `模板 ${researchContext.template} 已自动预载，可继续编辑后再运行回测。当前剧本阶段为 ${playbook?.stageLabel || '待运行'}。`
-          }
-        />
-      ) : null}
-
-      {canReturnToWorkbenchQueue ? (
-        <Alert
-          type="success"
-          showIcon
-          message="当前任务来自工作台复盘队列"
-          description="回测或更新完成后，可以直接回到工作台并切到下一条跨市场任务，保持同类型连续复盘。"
-          action={(
-            <Button type="primary" size="small" onClick={handleReturnToWorkbenchNextTask}>
-              回到工作台下一条跨市场任务
-            </Button>
-          )}
-        />
-      ) : null}
-
-      {canReturnToWorkbenchQueue && queueResumeHint ? (
-        <Alert
-          type="success"
-          showIcon
-          message={queueResumeHint === 'snapshot' ? '当前跨市场复盘快照已更新' : '当前跨市场复盘任务已保存'}
-          description={
-            queueResumeHint === 'snapshot'
-              ? '这条跨市场任务的最新判断已经写回工作台，可以继续推进到同类型队列的下一条。'
-              : '这条跨市场任务已经落到工作台，可以继续推进到同类型队列的下一条。'
-          }
-          action={(
-            <Button type="primary" size="small" onClick={handleReturnToWorkbenchNextTask}>
-              完成当前复盘并继续下一条
-            </Button>
-          )}
-        />
+        <Card className="app-page-context-rail" variant="borderless">
+          <div className="app-page-context-rail__header">
+            <div>
+              <div className="app-page-context-rail__eyebrow">Execution Context</div>
+              <Text strong style={{ fontSize: 18, color: 'var(--text-primary)' }}>
+                当前跨市场执行上下文
+              </Text>
+              <Paragraph type="secondary" style={{ margin: '8px 0 0' }}>
+                当前仓只保留模板载入语境，让首屏重点继续回到模板构造、风险预算和执行结果。
+              </Paragraph>
+            </div>
+            <div className="app-page-context-rail__actions" />
+          </div>
+          <div className="app-page-context-rail__grid">
+            {researchContext?.template ? (
+              <div className="app-page-context-item">
+                <span className="app-page-context-item__title">
+                  {`已载入来自 ${formatResearchSource(researchContext.source)} 的跨市场模板 · ${playbook?.stageLabel || '待运行'}`}
+                </span>
+                <span className="app-page-context-item__detail">
+                  {researchContext.note
+                    ? researchContext.note
+                    : `模板 ${researchContext.template} 已自动预载，可继续编辑后再运行回测。当前剧本阶段为 ${playbook?.stageLabel || '待运行'}。`}
+                </span>
+              </div>
+            ) : null}
+          </div>
+        </Card>
       ) : null}
 
       {playbook ? (
-        <ResearchPlaybook
-          playbook={playbook}
-          onAction={(action) => navigateByResearchAction(action)}
-          onSaveTask={handleSaveTask}
-          onSecondarySaveTask={macroMispricingDraft ? handleSaveTradeThesis : null}
-          secondarySaveLabel="保存为交易 Thesis"
-          onUpdateSnapshot={savedTaskId && (results || selectedTemplate || assets.length) ? handleUpdateSnapshot : null}
-          saving={savingTask}
-        />
+        <div className="app-page-section-block">
+          <div className="app-page-section-kicker">跨市场剧本</div>
+          <ResearchPlaybook
+            playbook={playbook}
+            onAction={(action) => navigateByResearchAction(action)}
+          />
+        </div>
       ) : null}
 
+      <div className="app-page-banner-stack">
       {selectedTemplate ? (
         <Alert
           type="info"
@@ -1818,176 +1713,137 @@ function CrossMarketBacktestPanel() {
           }`}
         />
       ) : null}
+      </div>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} xl={16}>
-          <Space direction="vertical" style={{ width: '100%' }} size={16}>
+      <div className="cross-market-layout">
+        <div className="cross-market-main">
+          <div className="cross-market-asset-grid">
             {renderAssetSection('多头篮子', longAssets, 'long')}
             {renderAssetSection('空头篮子', shortAssets, 'short')}
-          </Space>
-        </Col>
+          </div>
 
-        <Col xs={24} xl={8}>
-          <Card title="参数与模板" variant="borderless" className="workspace-panel">
-            <Space direction="vertical" style={{ width: '100%' }} size={14}>
-              <Card size="small" className="workspace-panel workspace-panel--subtle" title="宏观推荐模板">
-                <Space direction="vertical" style={{ width: '100%' }} size={10}>
-                  {displayRecommendedTemplates.slice(0, 3).map((template) => (
-                    <div
-                      key={template.id}
-                      style={{
-                        padding: 12,
-                        borderRadius: 12,
-                        border: selectedTemplate?.id === template.id ? '1px solid rgba(45, 183, 245, 0.65)' : '1px solid rgba(148, 163, 184, 0.16)',
-                        background: selectedTemplate?.id === template.id ? 'rgba(24, 144, 255, 0.08)' : 'rgba(15, 23, 42, 0.24)',
-                      }}
-                    >
-                      <Space wrap size={[6, 6]} style={{ marginBottom: 8 }}>
-                        <Tag color={template.recommendationTone}>{template.recommendationTier}</Tag>
-                        <Tag color="cyan">score {Number(template.recommendationScore || 0).toFixed(2)}</Tag>
-                        {template.executionPosture ? (
-                          <Tag color="lime">{template.executionPosture}</Tag>
-                        ) : null}
-                        {template.refreshMeta?.selectionQualityRunState?.active ? (
-                          <Tag color="gold">优先重看</Tag>
-                        ) : null}
-                        {template.refreshMeta?.reviewContextDriven && !template.refreshMeta?.selectionQualityRunState?.active ? (
-                          <Tag color="geekblue">复核语境切换</Tag>
-                        ) : null}
-                        {template.resonanceLabel && template.resonanceLabel !== 'mixed' ? (
-                          <Tag color="magenta">resonance {template.resonanceLabel}</Tag>
-                        ) : null}
-                        {template.policySourceHealthLabel && template.policySourceHealthLabel !== 'unknown' ? (
-                          <Tag color={template.policySourceHealthLabel === 'fragile' ? 'red' : template.policySourceHealthLabel === 'watch' ? 'gold' : 'green'}>
-                            policy source {template.policySourceHealthLabel}
-                          </Tag>
-                        ) : null}
-                        {template.inputReliabilityLabel && template.inputReliabilityLabel !== 'unknown' ? (
-                          <Tag color={template.inputReliabilityLabel === 'fragile' ? 'red' : template.inputReliabilityLabel === 'watch' ? 'gold' : 'green'}>
-                            input {template.inputReliabilityLabel}
-                          </Tag>
-                        ) : null}
-                        {template.sourceModeLabel && template.sourceModeLabel !== 'mixed' ? (
-                          <Tag color={template.sourceModeLabel === 'official-led' ? 'green' : template.sourceModeLabel === 'fallback-heavy' ? 'orange' : 'blue'}>
-                            来源 {template.sourceModeLabel}
-                          </Tag>
-                        ) : null}
-                        {template.policyExecutionLabel && template.policyExecutionLabel !== 'unknown' ? (
-                          <Tag color={template.policyExecutionLabel === 'chaotic' ? 'red' : template.policyExecutionLabel === 'watch' ? 'gold' : 'green'}>
-                            政策执行 {template.policyExecutionLabel}
-                          </Tag>
-                        ) : null}
-                      </Space>
-                      <div style={{ fontWeight: 600, marginBottom: 6 }}>{template.name}</div>
-                      <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                        {template.driverHeadline}
-                      </Text>
-                      {(template.themeCore || template.themeSupport) ? (
-                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          核心腿：{template.themeCore || '暂无'} · 辅助腿：{template.themeSupport || '暂无'}
-                        </Text>
-                      ) : null}
-                      {template.recentComparisonLead ? (
-                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          最近两版：{template.recentComparisonLead}
-                        </Text>
-                      ) : null}
-                      {template.resonanceReason && template.resonanceLabel !== 'mixed' ? (
-                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          {template.resonanceReason}
-                        </Text>
-                      ) : null}
-                      {template.policySourceHealthReason ? (
-                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          {template.policySourceHealthReason}
-                        </Text>
-                      ) : null}
-                      {template.policyExecutionReason ? (
-                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          政策执行：{template.policyExecutionReason}
-                          {template.policyExecutionTopDepartment ? ` · ${template.policyExecutionTopDepartment}` : ''}
-                        </Text>
-                      ) : null}
-                      {template.sourceModeReason ? (
-                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          来源治理：{template.sourceModeReason}
-                        </Text>
-                      ) : null}
-                      {template.inputReliabilityLead ? (
-                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          输入可靠度：{template.inputReliabilityLead}
-                          {template.inputReliabilityScore
-                            ? ` · score ${Number(template.inputReliabilityScore || 0).toFixed(2)}`
-                            : ''}
-                        </Text>
-                      ) : null}
-                      {template.inputReliabilityPosture ? (
-                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          使用姿势：{template.inputReliabilityPosture}
-                        </Text>
-                      ) : null}
-                      {template.refreshMeta?.inputReliabilityShift?.actionHint ? (
-                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          {template.refreshMeta.inputReliabilityShift.actionHint}
-                        </Text>
-                      ) : null}
-                      {getSelectionQualityExplanationLines(template.refreshMeta).map((line) => (
-                        <Text key={line} type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          {line}
-                        </Text>
-                      ))}
-                      {template.rankingPenaltyReason ? (
-                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          {template.rankingPenaltyReason}
-                        </Text>
-                      ) : null}
-                      {template.biasQualityLabel && template.biasQualityLabel !== 'full' ? (
-                        <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                          偏置收缩 {template.biasQualityLabel} · {template.biasQualityReason}
-                        </Text>
-                      ) : null}
-                      {template.biasSummary ? (
-                        <Text style={{ display: 'block', marginBottom: 8 }}>
-                          {template.biasSummary}
-                        </Text>
-                      ) : null}
-                      <Space wrap size={[6, 6]} style={{ marginBottom: 10 }}>
-                        {(template.matchedDrivers || []).slice(0, 3).map((driver) => (
-                          <Tag
-                            key={driver.key}
-                            color={
-                              driver.type === 'factor'
-                                ? 'purple'
-                                : driver.type === 'alert'
-                                  ? 'red'
-                                  : driver.type === 'resonance'
-                                    ? 'magenta'
-                                    : driver.type === 'quality'
-                                      ? 'orange'
-                                    : 'blue'
-                            }
-                          >
-                            {driver.label}
-                          </Tag>
-                        ))}
-                        {template.biasStrength ? (
-                          <Tag color="green">bias {Number(template.biasStrength).toFixed(1)}pp</Tag>
-                        ) : null}
-                        {template.biasScale && template.biasScale < 1 ? (
-                          <Tag color="orange">scale {Number(template.biasScale).toFixed(2)}x</Tag>
-                        ) : null}
-                        {template.rankingPenalty ? (
-                          <Tag color="volcano">降级 {Number(template.baseRecommendationScore || 0).toFixed(2)}→{Number(template.recommendationScore || 0).toFixed(2)}</Tag>
-                        ) : null}
-                      </Space>
-                      <Button size="small" type={selectedTemplate?.id === template.id ? 'default' : 'primary'} onClick={() => applyTemplate(template, { useBias: true })}>
-                        {selectedTemplate?.id === template.id ? '当前已载入' : '载入推荐模板'}
-                      </Button>
+          <Card variant="borderless" className="workspace-panel cross-market-preview-card">
+            <div className="cross-market-preview-grid">
+              <div className="cross-market-preview-copy">
+                <Text strong className="cross-market-preview-card__title">
+                  {selectedTemplate?.name || draftTemplateContext?.template_name || '当前实验还未绑定模板'}
+                </Text>
+                <Paragraph type="secondary" style={{ margin: '10px 0 0' }}>
+                  {selectedTemplate?.narrative
+                    || selectedTemplate?.description
+                    || draftTemplateContext?.recommendation_reason
+                    || topRecommendation?.narrative
+                    || '先从侧栏模板快选开始，锁定主题、约束和时间窗口，再运行跨市场实验。'}
+                </Paragraph>
+                <div className="cross-market-preview-copy__list">
+                  {previewHighlights.map((item) => (
+                    <div key={item.label} className="cross-market-sidebar-card__item">
+                      <span className="cross-market-sidebar-card__item-label">{item.label}</span>
+                      <span className="cross-market-sidebar-card__item-value">{item.value}</span>
                     </div>
                   ))}
-                </Space>
-              </Card>
+                </div>
+              </div>
+              <div className="cross-market-preview-baskets">
+                {basketPreviewGroups.map((group) => {
+                  const filledItems = group.items.filter((asset) => asset.symbol || asset.weight);
+                  return (
+                    <div key={group.key} className="cross-market-preview-basket">
+                      <div className="cross-market-preview-basket__title">{group.title}</div>
+                      {filledItems.length ? (
+                        <div className="cross-market-preview-basket__tags">
+                          {filledItems.map((asset) => (
+                            <Tag key={`${group.key}-${asset.key}`} color={group.key === 'long' ? 'green' : 'volcano'}>
+                              {asset.symbol || '待填写'}
+                              {asset.asset_class ? ` · ${ASSET_CLASS_LABELS[asset.asset_class] || asset.asset_class}` : ''}
+                              {asset.weight ? ` · ${formatPercentage(Number(asset.weight || 0))}` : ''}
+                            </Tag>
+                          ))}
+                        </div>
+                      ) : (
+                        <Text type="secondary">{group.empty}</Text>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </Card>
+        </div>
 
+        <aside className="cross-market-sidebar">
+          <Card variant="borderless" className="workspace-panel cross-market-sidebar-card cross-market-sidebar-card--overview">
+            <div className="app-page-section-kicker">控制总览</div>
+            <Text strong className="cross-market-sidebar-card__title">右侧保持输入，左侧专注结果</Text>
+            <Paragraph type="secondary" style={{ margin: '8px 0 0' }}>
+              模板快选、参数和约束都固定在侧栏里，主画布只保留篮子和运行预览，减少宽屏下的视线往返。
+            </Paragraph>
+            <div className="cross-market-sidebar-card__grid">
+              {sidebarOverviewItems.map((item) => (
+                <div key={item.label} className="cross-market-sidebar-card__item">
+                  <span className="cross-market-sidebar-card__item-label">{item.label}</span>
+                  <span className="cross-market-sidebar-card__item-value">{item.value}</span>
+                </div>
+              ))}
+            </div>
+            <div className="cross-market-sidebar-card__note">
+              {selectedTemplate
+                ? `当前模板：${selectedTemplate.name}${selectedTemplate.theme ? ` · ${selectedTemplate.theme}` : ''}`
+                : '当前未锁定模板，建议先从模板快选开始。'}
+            </div>
+          </Card>
+
+          <Card title="模板快选" variant="borderless" className="workspace-panel cross-market-sidebar-card">
+            <div className="cross-market-template-list">
+              {displayRecommendedTemplates.slice(0, 3).map((template) => (
+                <div
+                  key={template.id}
+                  className={`cross-market-template-card${selectedTemplate?.id === template.id ? ' cross-market-template-card--active' : ''}`}
+                >
+                  <div className="cross-market-template-card__header">
+                    <div>
+                      <div className="cross-market-template-card__title">{template.name}</div>
+                      <Text type="secondary">{template.driverHeadline}</Text>
+                    </div>
+                    <Button size="small" type={selectedTemplate?.id === template.id ? 'default' : 'primary'} onClick={() => applyTemplate(template, { useBias: true })}>
+                      {selectedTemplate?.id === template.id ? '已载入' : '载入'}
+                    </Button>
+                  </div>
+                  <Space wrap size={[6, 6]} className="cross-market-template-card__tags">
+                    <Tag color={template.recommendationTone}>{template.recommendationTier}</Tag>
+                    <Tag color="cyan">score {Number(template.recommendationScore || 0).toFixed(2)}</Tag>
+                    {template.executionPosture ? (
+                      <Tag color="lime">{template.executionPosture}</Tag>
+                    ) : null}
+                    {template.refreshMeta?.selectionQualityRunState?.active ? (
+                      <Tag color="gold">优先重看</Tag>
+                    ) : null}
+                    {template.refreshMeta?.reviewContextDriven && !template.refreshMeta?.selectionQualityRunState?.active ? (
+                      <Tag color="geekblue">语境切换</Tag>
+                    ) : null}
+                  </Space>
+                  {(template.themeCore || template.themeSupport) ? (
+                    <Text type="secondary" className="cross-market-template-card__line">
+                      核心腿：{template.themeCore || '暂无'} · 辅助腿：{template.themeSupport || '暂无'}
+                    </Text>
+                  ) : null}
+                  {template.recentComparisonLead ? (
+                    <Text type="secondary" className="cross-market-template-card__line">
+                      最近两版：{template.recentComparisonLead}
+                    </Text>
+                  ) : null}
+                  {(template.rankingPenaltyReason || getSelectionQualityExplanationLines(template.refreshMeta)[0]) ? (
+                    <Text type="secondary" className="cross-market-template-card__line">
+                      {template.rankingPenaltyReason || getSelectionQualityExplanationLines(template.refreshMeta)[0]}
+                    </Text>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card title="参数与模板" variant="borderless" className="workspace-panel cross-market-sidebar-card">
+            <Space direction="vertical" style={{ width: '100%' }} size={14}>
               <Select
                 placeholder="载入演示模板"
                 loading={loadingTemplates}
@@ -2152,29 +2008,29 @@ function CrossMarketBacktestPanel() {
                       ? ` · ${selectedTemplate.refreshMeta.selectionQualityRunState.reason}`
                       : selectedTemplate?.refreshMeta?.reviewContextShift?.actionHint
                         ? ` · ${selectedTemplate.refreshMeta.reviewContextShift.actionHint}`
-                      : selectedTemplate?.refreshMeta?.inputReliabilityShift?.actionHint
-                        ? ` · ${selectedTemplate.refreshMeta.inputReliabilityShift.actionHint}`
-                      : selectedTemplate?.refreshMeta?.reviewContextShift?.lead
-                        ? ` · ${selectedTemplate.refreshMeta.reviewContextShift.lead}`
-                        : selectedTemplate?.refreshMeta?.inputReliabilityShift?.currentLead
-                          ? ` · ${selectedTemplate.refreshMeta.inputReliabilityShift.currentLead}`
-                        : ''
+                        : selectedTemplate?.refreshMeta?.inputReliabilityShift?.actionHint
+                          ? ` · ${selectedTemplate.refreshMeta.inputReliabilityShift.actionHint}`
+                          : selectedTemplate?.refreshMeta?.reviewContextShift?.lead
+                            ? ` · ${selectedTemplate.refreshMeta.reviewContextShift.lead}`
+                            : selectedTemplate?.refreshMeta?.inputReliabilityShift?.currentLead
+                              ? ` · ${selectedTemplate.refreshMeta.inputReliabilityShift.currentLead}`
+                              : ''
                   }`}
                 />
               ) : null}
 
-              <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+              <div className="cross-market-parameter-actions">
                 <Button icon={<ReloadOutlined />} onClick={() => setResults(null)}>
                   清空结果
                 </Button>
                 <Button type="primary" icon={<ThunderboltOutlined />} loading={running} onClick={handleRun}>
                   运行回测
                 </Button>
-              </Space>
+              </div>
             </Space>
           </Card>
-        </Col>
-      </Row>
+        </aside>
+      </div>
 
       {running && !results ? (
         <Card variant="borderless" className="workspace-panel">

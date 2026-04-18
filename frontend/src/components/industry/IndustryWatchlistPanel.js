@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Card, Tag, Button, Space } from 'antd';
 import { StarFilled, BranchesOutlined } from '@ant-design/icons';
+import { activateOnEnterOrSpace } from './industryShared';
 
 const IndustryWatchlistPanel = ({
     watchlistEntries,
@@ -153,6 +154,11 @@ const IndustryWatchlistPanel = ({
                                 color="gold"
                                 style={{ margin: 0, cursor: 'pointer', borderRadius: 999, paddingInline: 8 }}
                                 onClick={() => toggleWatchlistIndustry(industry)}
+                                role="button"
+                                tabIndex={0}
+                                aria-label={`把 ${industry} 加入观察列表`}
+                                className="industry-watchlist-suggestion"
+                                onKeyDown={(event) => activateOnEnterOrSpace(event, () => toggleWatchlistIndustry(industry))}
                             >
                                 + {industry}
                             </Tag>

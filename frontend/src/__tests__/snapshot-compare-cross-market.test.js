@@ -1,4 +1,4 @@
-import { buildSnapshotComparison } from '../components/research-workbench/snapshotCompare';
+import { buildSnapshotComparison } from '../utils/snapshotCompare';
 
 describe('buildSnapshotComparison for cross-market snapshots', () => {
   it('includes execution-plan and recommendation metadata deltas', () => {

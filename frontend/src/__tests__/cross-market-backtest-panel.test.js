@@ -75,31 +75,14 @@ jest.mock('../components/research-playbook/playbookViewModels', () => ({
     stageLabel: '待运行',
     steps: [],
   })),
-  buildCrossMarketWorkbenchPayload: jest.fn(() => ({
-    title: 'Cross Review',
-    snapshot: {
-      title: 'Cross Snapshot',
-      payload: {
-        template_meta: {
-          theme: 'People Decay',
-        },
-      },
-    },
-  })),
-  buildTradeThesisWorkbenchPayload: jest.fn(() => null),
 }));
 
-jest.mock('../components/research-workbench/snapshotCompare', () => ({
+jest.mock('../utils/snapshotCompare', () => ({
   buildSnapshotComparison: jest.fn(() => null),
 }));
 
 jest.mock('../services/api', () => ({
-  addResearchTaskSnapshot: jest.fn(),
-  createResearchTask: jest.fn(),
-  getAltDataSnapshot: jest.fn(),
   getCrossMarketTemplates: jest.fn(),
-  getMacroOverview: jest.fn(),
-  getResearchTasks: jest.fn(),
   runCrossMarketBacktest: jest.fn(),
 }));
 
@@ -129,18 +112,6 @@ jest.mock('../utils/crossMarketRecommendations', () => ({
   },
 }));
 
-jest.mock('../utils/macroMispricingDraft', () => ({
-  loadMacroMispricingDraft: jest.fn(() => null),
-}));
-
-jest.mock('../utils/researchTaskSignals', () => ({
-  buildResearchTaskRefreshSignals: jest.fn(() => ({
-    byTaskId: {},
-    byTemplateId: {},
-    prioritized: [],
-  })),
-}));
-
 const mockNavigateByResearchAction = jest.fn();
 const mockReadResearchContext = jest.fn();
 
@@ -151,19 +122,11 @@ jest.mock('../utils/researchContext', () => ({
 }));
 
 const {
-  addResearchTaskSnapshot,
-  createResearchTask,
-  getAltDataSnapshot,
   getCrossMarketTemplates,
-  getMacroOverview,
-  getResearchTasks,
   runCrossMarketBacktest,
 } = require('../services/api');
 const { buildCrossMarketCards } = require('../utils/crossMarketRecommendations');
-const {
-  buildCrossMarketPlaybook,
-  buildCrossMarketWorkbenchPayload,
-  } = require('../components/research-playbook/playbookViewModels');
+const { buildCrossMarketPlaybook } = require('../components/research-playbook/playbookViewModels');
 const { formatResearchSource } = require('../utils/researchContext');
 
 const queueContext = {
@@ -346,7 +309,7 @@ beforeAll(() => {
   });
 });
 
-describe('CrossMarketBacktestPanel workbench guardrails', () => {
+describe('CrossMarketBacktestPanel retained cross-market flow', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     formatResearchSource.mockReturnValue('研究工作台');
@@ -355,63 +318,20 @@ describe('CrossMarketBacktestPanel workbench guardrails', () => {
       stageLabel: '待运行',
       steps: [],
     });
-    buildCrossMarketWorkbenchPayload.mockReturnValue({
-      title: 'Cross Review',
-      snapshot: {
-        title: 'Cross Snapshot',
-        payload: {
-          template_meta: {
-            theme: 'People Decay',
-          },
-        },
-      },
-    });
     getCrossMarketTemplates.mockResolvedValue({ templates: [template] });
-    getMacroOverview.mockResolvedValue({
-      department_chaos_summary: {
-        label: 'chaotic',
-      },
-    });
-    getAltDataSnapshot.mockResolvedValue({
-      source_mode_summary: {
-        label: 'fallback-heavy',
-      },
-    });
-    getResearchTasks.mockResolvedValue({ data: [] });
-    createResearchTask.mockResolvedValue({ data: { id: 'rw_new_1', title: 'Cross Review' } });
-    addResearchTaskSnapshot.mockResolvedValue({ data: { id: 'snap_1' } });
     runCrossMarketBacktest.mockResolvedValue(backtestResponse);
     buildCrossMarketCards.mockReturnValue([template]);
   });
 
-  it('updates the current workbench task snapshot directly and keeps queue continuation intact', async () => {
+  it('drops workbench save and queue controls while preserving template context', async () => {
     render(<CrossMarketBacktestPanel />);
 
-    await screen.findByText('当前任务来自工作台复盘队列');
-    await screen.findByRole('button', { name: '保存到研究工作台' });
-    expect(screen.getByText('回到工作台下一条跨市场任务')).toBeTruthy();
-
-    fireEvent.click(await screen.findByRole('button', { name: '更新当前任务快照' }));
-
-    await waitFor(() => {
-      expect(addResearchTaskSnapshot).toHaveBeenCalledWith('rw_ctx_1', expect.objectContaining({
-        snapshot: expect.any(Object),
-      }));
-    });
-    expect(mockMessageApi.success).toHaveBeenCalledWith('当前任务快照已更新');
-    expect(await screen.findByText('当前跨市场复盘快照已更新')).toBeTruthy();
-
-    fireEvent.click(screen.getByRole('button', { name: '完成当前复盘并继续下一条' }));
-
-    expect(mockNavigateByResearchAction).toHaveBeenCalledWith(expect.objectContaining({
-      target: 'workbench',
-      queueMode: 'cross_market',
-      queueAction: 'next_same_type',
-      taskId: 'rw_ctx_1',
-      keyword: 'decay',
-      sourceFilter: 'godeye_people_watchlist',
-      reason: 'people_fragility',
-    }), window.location.search);
+    expect(await screen.findByText(/已载入来自 研究工作台 的跨市场模板/)).toBeTruthy();
+    expect(screen.queryByText('当前任务来自工作台复盘队列')).toBeNull();
+    expect(screen.queryByRole('button', { name: '保存到研究工作台' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '更新当前任务快照' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '回到工作台下一条跨市场任务' })).toBeNull();
+    expect(mockNavigateByResearchAction).not.toHaveBeenCalled();
   });
 
   it('shows governance overlays on the template panel and inside backtest results', async () => {

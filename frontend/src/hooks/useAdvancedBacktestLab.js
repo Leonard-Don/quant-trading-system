@@ -65,6 +65,10 @@ const DATE_FORMAT = 'YYYY-MM-DD';
 const DEFAULT_CAPITAL = 10000;
 const DEFAULT_COMMISSION = 0.1;
 const DEFAULT_SLIPPAGE = 0.1;
+const DEFAULT_BATCH_EXPERIMENT_META = {
+  title: '批量回测结果',
+  description: '同一实验上下文下的多任务回测结果会集中展示在这里。',
+};
 
 const buildDefaultParams = (strategy) =>
   Object.fromEntries(
@@ -109,10 +113,9 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
   const [savedTemplates, setSavedTemplates] = useState([]);
   const [savedSnapshots, setSavedSnapshots] = useState([]);
   const [selectedSnapshotId, setSelectedSnapshotId] = useState('');
-  const [batchExperimentMeta, setBatchExperimentMeta] = useState({
-    title: '批量回测结果',
-    description: '同一实验上下文下的多任务回测结果会集中展示在这里。',
-  });
+  const [batchExperimentMeta, setBatchExperimentMeta] = useState(DEFAULT_BATCH_EXPERIMENT_META);
+  const [batchPendingMeta, setBatchPendingMeta] = useState(null);
+  const [importedMainDraftSummary, setImportedMainDraftSummary] = useState(null);
 
   // --- Forms ---
   const [batchForm] = Form.useForm();
@@ -612,11 +615,8 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
     }
 
     setBatchLoading(true);
-    setBatchResult(null);
-    setBatchExperimentMeta({
-      title: '批量回测结果',
-      description: '同一实验上下文下的多任务回测结果会集中展示在这里。',
-    });
+    const nextMeta = DEFAULT_BATCH_EXPERIMENT_META;
+    setBatchPendingMeta(nextMeta);
     try {
       const payload = {
         ranking_metric: values.ranking_metric || 'sharpe_ratio',
@@ -638,10 +638,12 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
         throw new Error(response.error || '批量回测失败');
       }
       setBatchResult(response.data);
+      setBatchExperimentMeta(nextMeta);
       message.success('批量实验已完成');
     } catch (error) {
       message.error(getApiErrorMessage(error, '批量实验失败'));
     } finally {
+      setBatchPendingMeta(null);
       setBatchLoading(false);
     }
   };
@@ -657,7 +659,6 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
     }
 
     setWalkLoading(true);
-    setWalkResult(null);
     try {
       const walkStrategyDefinition = strategyDefinitions[values.strategy];
       const parameterCandidates = buildWalkForwardParameterCandidates({
@@ -718,16 +719,17 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
       return;
     }
     setBatchLoading(true);
-    setBatchResult(null);
-    setBatchExperimentMeta(meta);
+    setBatchPendingMeta(meta);
     try {
       const response = await runBatchBacktest({ ranking_metric: 'sharpe_ratio', tasks });
       if (!response.success) throw new Error(response.error || '实验执行失败');
       setBatchResult(response.data);
+      setBatchExperimentMeta(meta);
       message.success(`${meta.title}已完成`);
     } catch (error) {
       message.error(getApiErrorMessage(error, '实验执行失败'));
     } finally {
+      setBatchPendingMeta(null);
       setBatchLoading(false);
     }
   };
@@ -752,8 +754,6 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
       return;
     }
     setBenchmarkLoading(true);
-    setBenchmarkResult(null);
-    setBenchmarkContext(null);
     try {
       const response = await compareStrategies({
         symbol: baseline.symbol,
@@ -839,7 +839,6 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
       return;
     }
     setPortfolioLoading(true);
-    setPortfolioStrategyResult(null);
     try {
       const response = await runPortfolioStrategyBacktest({
         symbols,
@@ -869,7 +868,6 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
       return;
     }
     setMarketRegimeLoading(true);
-    setMarketRegimeResult(null);
     try {
       const response = await runMarketRegimeBacktest({
         symbol: baseline.symbol,
@@ -1034,9 +1032,43 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
     }
 
     const strategyExists = Boolean(strategyDefinitions[draft.strategy]);
+    const previousBatchValues = batchForm.getFieldsValue();
+    const previousWalkValues = walkForm.getFieldsValue();
+    const previousDateRange = [
+      previousWalkValues.dateRange?.[0]?.format(DATE_FORMAT) || previousBatchValues.dateRange?.[0]?.format(DATE_FORMAT),
+      previousWalkValues.dateRange?.[1]?.format(DATE_FORMAT) || previousBatchValues.dateRange?.[1]?.format(DATE_FORMAT),
+    ];
+    const nextDateRangeLabel = (draft.dateRange || []).filter(Boolean).join(' ~ ') || '未设置';
     const nextDateRange = draft.dateRange
       ? [dayjs(draft.dateRange[0], DATE_FORMAT), dayjs(draft.dateRange[1], DATE_FORMAT)]
       : undefined;
+    const changedFields = [];
+    if ((previousWalkValues.symbol || previousBatchValues.symbol || '') !== draft.symbol) {
+      changedFields.push('标的');
+    }
+    if (previousDateRange[0] !== draft.dateRange?.[0] || previousDateRange[1] !== draft.dateRange?.[1]) {
+      changedFields.push('区间');
+    }
+    if ((previousWalkValues.strategy || previousBatchValues.strategies?.[0] || '') !== draft.strategy) {
+      changedFields.push('策略');
+    }
+    if (
+      Number(previousWalkValues.initial_capital ?? previousBatchValues.initial_capital ?? DEFAULT_CAPITAL)
+      !== Number(draft.initial_capital ?? DEFAULT_CAPITAL)
+    ) {
+      changedFields.push('资金');
+    }
+    if (
+      Number(previousWalkValues.commission ?? previousBatchValues.commission ?? DEFAULT_COMMISSION)
+      !== Number(draft.commission ?? DEFAULT_COMMISSION)
+      || Number(previousWalkValues.slippage ?? previousBatchValues.slippage ?? DEFAULT_SLIPPAGE)
+      !== Number(draft.slippage ?? DEFAULT_SLIPPAGE)
+    ) {
+      changedFields.push('成本');
+    }
+    if (JSON.stringify(walkParams || {}) !== JSON.stringify(draft.parameters || {})) {
+      changedFields.push('参数');
+    }
 
     batchForm.setFieldsValue({
       symbol: draft.symbol,
@@ -1061,11 +1093,23 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
       const mergedParams = { ...defaultParams, ...(draft.parameters || {}) };
       setBatchConfigs((previous) => ({ ...previous, [draft.strategy]: mergedParams }));
       setWalkParams(mergedParams);
+      setImportedMainDraftSummary({
+        symbol: draft.symbol,
+        dateRangeLabel: nextDateRangeLabel,
+        strategyLabel: getStrategyName(draft.strategy),
+        changedFields: changedFields.length ? changedFields : ['未检测到字段变化'],
+      });
       message.success('已带入主回测当前配置，可直接运行高级实验');
       return;
     }
+    setImportedMainDraftSummary({
+      symbol: draft.symbol,
+      dateRangeLabel: nextDateRangeLabel,
+      strategyLabel: draft.strategy || '当前策略未匹配',
+      changedFields: changedFields.length ? changedFields : ['未检测到字段变化'],
+    });
     message.warning('主回测策略已带入，但当前高级实验页暂不支持该策略参数面板。');
-  }, [batchForm, message, strategyDefinitions, walkForm]);
+  }, [batchForm, message, strategyDefinitions, walkForm, walkParams]);
 
   useEffect(() => {
     const intent = consumeAdvancedExperimentIntent();
@@ -1110,6 +1154,8 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
     overfittingWarnings,
     researchConclusion,
     batchExperimentMeta,
+    batchPendingMeta,
+    importedMainDraftSummary,
     // Focus state
     focusedBatchTaskId,
     setFocusedBatchTaskId,

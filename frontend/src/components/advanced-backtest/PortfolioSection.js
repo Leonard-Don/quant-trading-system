@@ -24,11 +24,20 @@ function PortfolioSection({
   portfolioChartData,
   portfolioPositionSnapshot,
   portfolioExposureSummary,
+  portfolioLoading,
 }) {
   return (
     <Card className="workspace-panel workspace-chart-card" title="组合级策略回测">
       {portfolioStrategyResult ? (
         <Space direction="vertical" style={{ width: '100%' }} size="large">
+          {portfolioLoading ? (
+            <Alert
+              type="info"
+              showIcon
+              message="正在刷新组合级结果"
+              description="当前先保留上一版组合净值和暴露分析，新的回测完成后会自动替换。"
+            />
+          ) : null}
           <div className="summary-strip">
             <div className="summary-strip__item">
               <span className="summary-strip__label">组合收益</span>

@@ -14,6 +14,8 @@ def test_realtime_preferences_store_normalizes_symbols_and_active_tab(tmp_path):
         "symbols": ["AAPL", "MSFT"],
         "active_tab": "us",
         "symbol_categories": {"AAPL": "us", "MSFT": "other"},
+        "watch_groups": [],
+        "_warnings": ["symbol_categories['BAD']: skipped (invalid category 'invalid')"],
     }
 
 
@@ -48,11 +50,13 @@ def test_realtime_preferences_store_isolated_by_profile_id(tmp_path):
         "symbols": ["AAPL"],
         "active_tab": "us",
         "symbol_categories": {"AAPL": "us"},
+        "watch_groups": [],
     }
     assert store.get_preferences(profile_id="browser-b") == {
         "symbols": ["BTC-USD"],
         "active_tab": "crypto",
         "symbol_categories": {"BTC-USD": "crypto"},
+        "watch_groups": [],
     }
 
 
@@ -69,4 +73,5 @@ def test_realtime_preferences_store_sanitizes_profile_id(tmp_path):
         "symbols": ["MSFT"],
         "active_tab": "us",
         "symbol_categories": {"MSFT": "us"},
+        "watch_groups": [],
     }

@@ -1,9 +1,8 @@
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { Tabs, Spin, Space, Tag, Typography } from 'antd';
+import { Card, Spin, Space, Tabs, Tag, Typography } from 'antd';
 import { BarChartOutlined, HistoryOutlined, ExperimentOutlined, PieChartOutlined, GlobalOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import StrategyForm from './StrategyForm';
 import ResultsDisplay from './ResultsDisplay';
-import LoadingSpinner from './LoadingSpinner';
 import CrossMarketBacktestPanel from './CrossMarketBacktestPanel';
 import { buildAppUrl, navigateToAppUrl, sanitizeParamsForView } from '../utils/researchContext';
 import { saveAdvancedExperimentIntent } from '../utils/backtestWorkspace';
@@ -154,6 +153,110 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
         setBacktestTab('new');
     };
 
+    const mainWorkspaceStatus = loading
+        ? '首轮回测运行中'
+        : results
+            ? '最新结果已生成'
+            : '等待第一次回测';
+    const mainWorkspaceGuides = [
+        {
+            step: '01',
+            title: '先整理左侧实验输入',
+            description: '在同一块控制台里完成标的、策略、区间和成本设置，再决定要不要保存成本地配置。',
+        },
+        {
+            step: '02',
+            title: '点击运行后右侧直接接结果',
+            description: '首轮结果会直接进入右侧工作区；后续重跑时，旧结果会先保留，新的分析完成后自动替换。',
+        },
+        {
+            step: '03',
+            title: '把工作流延伸到历史或高级实验',
+            description: '右侧结果区会继续承接历史记录、报告导出和高级实验联动，减少页面切换带来的割裂感。',
+        },
+    ];
+
+    const renderMainBacktestWorkspace = () => (
+        <div className="workspace-tab-view backtest-main-stage">
+            <div className="backtest-main-stage__config">
+                <StrategyForm
+                    strategies={strategies}
+                    onSubmit={onSubmit}
+                    loading={loading}
+                />
+            </div>
+
+            <div className="backtest-main-stage__results">
+                <div className="backtest-main-stage__result-pane">
+                    {results ? (
+                        <ResultsDisplay
+                            results={results}
+                            isRefreshing={loading}
+                            onOpenHistoryRecord={handleOpenHistoryRecord}
+                            onContinueAdvancedExperiment={handleContinueToAdvancedExperiment}
+                        />
+                    ) : (
+                        <Card
+                            className="workspace-panel workspace-panel--result backtest-main-stage__empty-card"
+                            title={(
+                                <div className="workspace-title">
+                                    <div className="workspace-title__icon workspace-title__icon--accent">
+                                        <DeploymentUnitOutlined />
+                                    </div>
+                                    <div>
+                                        <div className="workspace-title__text">结果工作区</div>
+                                        <div className="workspace-title__hint">让配置区和分析区在同一屏协作，避免每次运行后重新找上下文。</div>
+                                    </div>
+                                </div>
+                            )}
+                            extra={(
+                                <Tag color={loading ? 'processing' : 'default'}>
+                                    {mainWorkspaceStatus}
+                                </Tag>
+                            )}
+                            size="small"
+                        >
+                            <div className="summary-strip summary-strip--compact">
+                                <div className="summary-strip__item">
+                                    <span className="summary-strip__label">状态</span>
+                                    <span className="summary-strip__value">{mainWorkspaceStatus}</span>
+                                </div>
+                                <div className="summary-strip__item">
+                                    <span className="summary-strip__label">结果内容</span>
+                                    <span className="summary-strip__value">绩效、图表、交易与导出</span>
+                                </div>
+                                <div className="summary-strip__item">
+                                    <span className="summary-strip__label">工作方式</span>
+                                    <span className="summary-strip__value">左配右看的一体化回测流</span>
+                                </div>
+                            </div>
+
+                            {loading ? (
+                                <div className="backtest-main-stage__loading-state">
+                                    <Spin size="large" />
+                                    <div className="backtest-main-stage__loading-title">正在生成首轮回测结果</div>
+                                    <div className="backtest-main-stage__loading-copy">
+                                        这次运行结束后，绩效指标、净值图、交易明细和后续导出入口都会直接出现在右侧工作区。
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="backtest-main-stage__empty-grid">
+                                    {mainWorkspaceGuides.map((item) => (
+                                        <div key={item.step} className="backtest-main-stage__empty-item">
+                                            <div className="backtest-main-stage__empty-index">{item.step}</div>
+                                            <div className="backtest-main-stage__empty-title">{item.title}</div>
+                                            <div className="backtest-main-stage__empty-copy">{item.description}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </Card>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+
     const tabItems = [
         {
             key: 'new',
@@ -163,32 +266,7 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
                     策略回测
                 </span>
             ),
-            children: (
-                <div className="workspace-tab-view">
-                    <StrategyForm
-                        strategies={strategies}
-                        onSubmit={onSubmit}
-                        loading={loading}
-                    />
-
-                    {loading && (
-                        <div className="workspace-section">
-                            <LoadingSpinner
-                                message="正在运行回测，请稍候..."
-                                size="large"
-                            />
-                        </div>
-                    )}
-
-                    {results && (
-                        <ResultsDisplay
-                            results={results}
-                            onOpenHistoryRecord={handleOpenHistoryRecord}
-                            onContinueAdvancedExperiment={handleContinueToAdvancedExperiment}
-                        />
-                    )}
-                </div>
-            )
+            children: renderMainBacktestWorkspace(),
         },
         {
             key: 'history',

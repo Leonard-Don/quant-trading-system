@@ -10,7 +10,6 @@ from pydantic import BaseModel, Field
 from backend.app.services.realtime_alerts import realtime_alerts_store
 from backend.app.services.realtime_journal import realtime_journal_store
 from backend.app.services.realtime_preferences import realtime_preferences_store
-from backend.app.services.quant_lab import quant_lab_service
 from src.data.data_manager import DataManager
 from src.data.realtime_manager import realtime_manager
 
@@ -551,7 +550,15 @@ async def get_orderbook(symbol: str, levels: int = 10):
 
 
 def _resolve_realtime_profile(request: Request) -> str:
-    return request.headers.get("X-Realtime-Profile", "default")
+    header_profile = request.headers.get("X-Realtime-Profile")
+    if header_profile:
+        return header_profile
+
+    query_profile = request.query_params.get("profile_id")
+    if query_profile:
+        return query_profile
+
+    return "default"
 
 
 @router.get("/preferences", summary="获取实时行情偏好配置")
@@ -588,7 +595,7 @@ async def update_alerts(payload: RealtimeAlertsRequest, request: Request):
     return result
 
 
-@router.post("/alerts/hits", summary="记录实时提醒命中并发布到统一告警总线")
+@router.post("/alerts/hits", summary="记录实时提醒命中")
 async def record_alert_hit(payload: RealtimeAlertHitRequest, request: Request):
     profile_id = _resolve_realtime_profile(request)
     try:
@@ -596,34 +603,14 @@ async def record_alert_hit(payload: RealtimeAlertHitRequest, request: Request):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    entry = stored.get("entry") or {}
-    event_payload = {
-        "source_module": "realtime",
-        "rule_name": entry.get("conditionLabel") or entry.get("condition") or "Realtime alert",
-        "symbol": entry.get("symbol"),
-        "severity": str(payload.severity or "warning").lower(),
-        "message": entry.get("message") or f"{entry.get('symbol') or 'symbol'} alert triggered",
-        "condition_summary": entry.get("conditionLabel") or entry.get("condition") or "Realtime alert triggered",
-        "condition": entry.get("condition"),
-        "trigger_value": entry.get("triggerValue"),
-        "threshold": entry.get("threshold"),
-        "trigger_time": entry.get("triggerTime"),
-        "notify_channels": payload.notify_channels,
-        "create_workbench_task": payload.create_workbench_task,
-        "persist_event_record": payload.persist_event_record,
-        "cascade_actions": [
-            {"type": "persist_record", "record_type": "realtime_alert_hit"},
-        ],
-    }
-    published = quant_lab_service.publish_alert_event(event_payload, profile_id=profile_id)
     return {
         "success": True,
         "data": {
             "entry": stored.get("entry"),
             "alert_hit_history": stored.get("alert_hit_history"),
-            "bus_event": published.get("published_event"),
-            "cascade_results": published.get("cascade_results"),
-            "orchestration_summary": (published.get("orchestration") or {}).get("summary") or {},
+            "bus_event": None,
+            "cascade_results": [],
+            "orchestration_summary": {},
         },
     }
 

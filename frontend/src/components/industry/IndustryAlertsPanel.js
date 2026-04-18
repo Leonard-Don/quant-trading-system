@@ -115,7 +115,13 @@ const IndustryAlertsPanel = ({
 
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
                 <Space size={[8, 8]} wrap>
-                    <Radio.Group value={industryAlertRule} onChange={(event) => setIndustryAlertRule(event.target.value)} size="small" buttonStyle="solid">
+                    <Radio.Group
+                        value={industryAlertRule}
+                        onChange={(event) => setIndustryAlertRule(event.target.value)}
+                        size="small"
+                        buttonStyle="solid"
+                        aria-label="选择行业提醒规则"
+                    >
                         <Radio.Button value="all">全部</Radio.Button>
                         <Radio.Button value="new">新增</Radio.Button>
                         <Radio.Button value="capital">资金</Radio.Button>
@@ -123,7 +129,7 @@ const IndustryAlertsPanel = ({
                         <Radio.Button value="rotation">轮动</Radio.Button>
                     </Radio.Group>
 
-                    <Select value={industryAlertRecency} onChange={setIndustryAlertRecency} size="small" style={{ width: 128 }} disabled={industryAlertRule !== 'new'}>
+                    <Select value={industryAlertRecency} onChange={setIndustryAlertRecency} size="small" style={{ width: 128 }} disabled={industryAlertRule !== 'new'} aria-label="选择新增提醒时间范围">
                         {industryAlertRecencyOptions.map((item) => (
                             <Option key={item.value} value={item.value}>{item.label}</Option>
                         ))}
@@ -136,6 +142,7 @@ const IndustryAlertsPanel = ({
                         onChange={(event) => setIndustryAlertSubscription((current) => ({ ...current, scope: event.target.value }))}
                         size="small"
                         buttonStyle="solid"
+                        aria-label="选择提醒订阅范围"
                     >
                         <Radio.Button value="all">全部行业</Radio.Button>
                         <Radio.Button value="watchlist">观察列表</Radio.Button>
@@ -163,6 +170,7 @@ const IndustryAlertsPanel = ({
                             <Checkbox.Group
                                 value={industryAlertSubscription.kinds}
                                 options={industryAlertKindOptions}
+                                aria-label="选择提醒种类"
                                 onChange={(values) => {
                                     const nextKinds = values.filter((item) => industryAlertKindOptions.some((option) => option.value === item));
                                     if (nextKinds.length === 0) {
@@ -187,6 +195,7 @@ const IndustryAlertsPanel = ({
                                 value={draftThresholds.resonance_score}
                                 style={{ width: '100%' }}
                                 onChange={(value) => updateDraftThreshold('resonance_score', value)}
+                                aria-label="设置强势共振分数阈值"
                             />
                         </Col>
                         <Col xs={12} md={8} lg={4}>
@@ -198,6 +207,7 @@ const IndustryAlertsPanel = ({
                                 value={Number(draftThresholds.capital_inflow_yi || 0)}
                                 style={{ width: '100%' }}
                                 onChange={(value) => updateDraftThreshold('capital_inflow_yi', value)}
+                                aria-label="设置资金突入阈值"
                             />
                         </Col>
                         <Col xs={12} md={8} lg={4}>
@@ -209,6 +219,7 @@ const IndustryAlertsPanel = ({
                                 value={Number(draftThresholds.risk_release_outflow_yi || 0)}
                                 style={{ width: '100%' }}
                                 onChange={(value) => updateDraftThreshold('risk_release_outflow_yi', value)}
+                                aria-label="设置风险释放阈值"
                             />
                         </Col>
                         <Col xs={12} md={8} lg={4}>
@@ -221,6 +232,7 @@ const IndustryAlertsPanel = ({
                                 value={Number(draftThresholds.high_volatility_threshold || 0)}
                                 style={{ width: '100%' }}
                                 onChange={(value) => updateDraftThreshold('high_volatility_threshold', value)}
+                                aria-label="设置高波动阈值"
                             />
                         </Col>
                         <Col xs={12} md={8} lg={4}>
@@ -233,6 +245,7 @@ const IndustryAlertsPanel = ({
                                 value={Number(draftThresholds.rotation_turnover_threshold || 0)}
                                 style={{ width: '100%' }}
                                 onChange={(value) => updateDraftThreshold('rotation_turnover_threshold', value)}
+                                aria-label="设置轮动换手阈值"
                             />
                         </Col>
                         <Col xs={12} md={8} lg={4}>
@@ -247,6 +260,7 @@ const IndustryAlertsPanel = ({
                                 onChange={(value) => updateDraftThreshold('capital_inflow_change_pct', value, {
                                     risk_release_change_pct: Number(value || 0),
                                 })}
+                                aria-label="设置价格确认阈值"
                             />
                         </Col>
                     </Row>

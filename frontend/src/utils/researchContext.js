@@ -2,7 +2,6 @@ const VIEW_QUERY_KEY = 'view';
 const TAB_QUERY_KEY = 'tab';
 
 const RESEARCH_KEYS = ['symbol', 'symbols', 'template', 'draft', 'action', 'source', 'note'];
-const PRICING_KEYS = ['symbol', 'symbols', 'action', 'source', 'note', 'period'];
 const CROSS_MARKET_KEYS = ['template', 'draft', 'action', 'source', 'note'];
 const WORKBENCH_KEYS = [
   'workbench_refresh',
@@ -57,17 +56,6 @@ const setParam = (params, key, value) => {
 };
 
 export const sanitizeParamsForView = (params, view) => {
-  if (view === 'pricing') {
-    params.delete(TAB_QUERY_KEY);
-    params.delete('record');
-    params.delete('history_symbol');
-    params.delete('history_strategy');
-    RESEARCH_KEYS.forEach((key) => {
-      if (!PRICING_KEYS.includes(key)) params.delete(key);
-    });
-    return params;
-  }
-
   if (view === 'backtest') {
     params.delete('period');
     const activeTab = params.get(TAB_QUERY_KEY) || 'new';
@@ -83,6 +71,7 @@ export const sanitizeParamsForView = (params, view) => {
     } else {
       RESEARCH_KEYS.forEach((key) => params.delete(key));
     }
+    WORKBENCH_KEYS.forEach((key) => params.delete(key));
     return params;
   }
 
@@ -93,6 +82,16 @@ export const sanitizeParamsForView = (params, view) => {
     params.delete('history_symbol');
     params.delete('history_strategy');
     RESEARCH_KEYS.forEach((key) => params.delete(key));
+    return params;
+  }
+
+  if (view === 'realtime') {
+    params.delete('period');
+    params.delete('record');
+    params.delete('history_symbol');
+    params.delete('history_strategy');
+    RESEARCH_KEYS.forEach((key) => params.delete(key));
+    WORKBENCH_KEYS.forEach((key) => params.delete(key));
     return params;
   }
 
@@ -141,7 +140,7 @@ export const buildAppUrl = ({
     params.set(VIEW_QUERY_KEY, view);
   }
 
-  if (view !== 'backtest') {
+  if (view !== 'backtest' && view !== 'realtime') {
     params.delete(TAB_QUERY_KEY);
   } else {
     setParam(params, TAB_QUERY_KEY, tab);
@@ -188,7 +187,7 @@ export const buildViewUrlForCurrentState = (
     pathname,
     currentSearch: `?${params.toString()}`,
     view,
-    tab: view === 'backtest' ? params.get(TAB_QUERY_KEY) : undefined,
+    tab: view === 'backtest' || view === 'realtime' ? params.get(TAB_QUERY_KEY) : undefined,
     symbol: params.get('symbol'),
     symbols: params.get('symbols'),
     template: params.get('template'),
@@ -239,16 +238,16 @@ export const buildPricingLink = (
   period = undefined,
 ) => {
   const params = new URLSearchParams(currentSearch);
-  const resolvedPeriod = period ?? params.get('period') ?? undefined;
   return buildAppUrl({
     currentSearch,
-    view: 'pricing',
-    symbol,
-    source,
-    action: 'pricing',
+    view: 'backtest',
+    symbol: undefined,
+    source: undefined,
+    action: undefined,
     note,
-    period: resolvedPeriod,
-    ...readWorkbenchParamsFromSearch(currentSearch),
+    period: undefined,
+    template: undefined,
+    draft: undefined,
   });
 };
 
@@ -268,13 +267,12 @@ export const buildCrossMarketLink = (
     source,
     action: 'cross_market',
     note,
-    ...readWorkbenchParamsFromSearch(currentSearch),
   });
 
 export const buildGodEyeLink = (currentSearch = window.location.search) =>
   buildAppUrl({
     currentSearch,
-    view: 'godsEye',
+    view: 'backtest',
   });
 
 export const buildWorkbenchLink = (
@@ -295,18 +293,7 @@ export const buildWorkbenchLink = (
 ) =>
   buildAppUrl({
     currentSearch,
-    view: 'workbench',
-    workbenchRefresh: refresh,
-    workbenchType: type,
-    workbenchSource: sourceFilter,
-    workbenchReason: reason,
-    workbenchSnapshotView: snapshotView,
-    workbenchSnapshotFingerprint: snapshotFingerprint,
-    workbenchSnapshotSummary: snapshotSummary,
-    workbenchKeyword: keyword,
-    workbenchQueueMode: queueMode,
-    workbenchQueueAction: queueAction,
-    task: taskId,
+    view: 'backtest',
   });
 
 export const navigateToAppUrl = (url) => {
@@ -319,13 +306,6 @@ export const navigateByResearchAction = (action, currentSearch = window.location
     return;
   }
 
-  if (action.target === 'pricing') {
-    navigateToAppUrl(
-      buildPricingLink(action.symbol, action.source || 'playbook', action.note || '', currentSearch, action.period)
-    );
-    return;
-  }
-
   if (action.target === 'cross-market') {
     navigateToAppUrl(
       buildCrossMarketLink(action.template, action.source || 'playbook', action.note || '', currentSearch, action.draft)
@@ -333,30 +313,8 @@ export const navigateByResearchAction = (action, currentSearch = window.location
     return;
   }
 
-  if (action.target === 'godsEye') {
-    navigateToAppUrl(buildGodEyeLink(currentSearch));
+  if (action.target === 'pricing' || action.target === 'godsEye' || action.target === 'workbench') {
     return;
-  }
-
-  if (action.target === 'workbench') {
-    navigateToAppUrl(
-      buildWorkbenchLink(
-        {
-          refresh: action.refresh,
-          type: action.type,
-          sourceFilter: action.sourceFilter,
-          reason: action.reason,
-          snapshotView: action.snapshotView,
-          snapshotFingerprint: action.snapshotFingerprint,
-          snapshotSummary: action.snapshotSummary,
-          keyword: action.keyword,
-          queueMode: action.queueMode,
-          queueAction: action.queueAction,
-          taskId: action.taskId,
-        },
-        currentSearch
-      )
-    );
   }
 };
 

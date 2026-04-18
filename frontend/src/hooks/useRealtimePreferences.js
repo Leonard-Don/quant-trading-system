@@ -7,7 +7,30 @@ export const REALTIME_ACTIVE_TAB_STORAGE_KEY = 'realtime-panel:active-tab';
 export const REALTIME_SYMBOL_CATEGORIES_STORAGE_KEY = 'realtime-panel:symbol-categories';
 export const REALTIME_WATCH_GROUPS_STORAGE_KEY = 'realtime-panel:watch-groups';
 const REALTIME_PROFILE_STORAGE_KEY = 'realtime-panel:profile-id';
+const REALTIME_TAB_QUERY_KEY = 'tab';
 export const REALTIME_PREFERENCES_DEBOUNCE_MS = 500;
+
+const normalizeAllowedTabs = (validActiveTabs = []) => (
+  Array.isArray(validActiveTabs) ? validActiveTabs.filter((tab) => typeof tab === 'string' && tab.trim()) : []
+);
+
+const isAllowedTab = (value, validActiveTabs = []) => {
+  if (typeof value !== 'string' || !value.trim()) {
+    return false;
+  }
+  const allowedTabs = normalizeAllowedTabs(validActiveTabs);
+  return allowedTabs.length === 0 || allowedTabs.includes(value);
+};
+
+export const readRealtimeTabFromUrl = (validActiveTabs = [], search = window.location.search) => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const params = new URLSearchParams(search);
+  const queryTab = params.get(REALTIME_TAB_QUERY_KEY);
+  return isAllowedTab(queryTab, validActiveTabs) ? queryTab : null;
+};
 
 const generateRealtimeProfileId = () => {
   if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
@@ -88,12 +111,18 @@ export const loadPersistedSymbols = (defaultSymbols) => {
   }
 };
 
-export const loadPersistedActiveTab = (defaultTab) => {
+export const loadPersistedActiveTab = (defaultTab, validActiveTabs = []) => {
   if (typeof window === 'undefined') {
     return defaultTab;
   }
 
-  return window.localStorage.getItem(REALTIME_ACTIVE_TAB_STORAGE_KEY) || defaultTab;
+  const tabFromUrl = readRealtimeTabFromUrl(validActiveTabs);
+  if (tabFromUrl) {
+    return tabFromUrl;
+  }
+
+  const persisted = window.localStorage.getItem(REALTIME_ACTIVE_TAB_STORAGE_KEY);
+  return isAllowedTab(persisted, validActiveTabs) ? persisted : defaultTab;
 };
 
 export const loadPersistedSymbolCategories = () => {
@@ -156,9 +185,10 @@ export const loadPersistedWatchGroups = () => {
 export const useRealtimePreferences = ({
   defaultSymbols,
   defaultActiveTab = 'index',
+  validActiveTabs = [],
 }) => {
   const [subscribedSymbols, setSubscribedSymbols] = useState(() => loadPersistedSymbols(defaultSymbols));
-  const [activeTab, setActiveTab] = useState(() => loadPersistedActiveTab(defaultActiveTab));
+  const [activeTab, setActiveTab] = useState(() => loadPersistedActiveTab(defaultActiveTab, validActiveTabs));
   const [symbolCategoryOverrides, setSymbolCategoryOverrides] = useState(() => loadPersistedSymbolCategories());
   const [watchGroups, setWatchGroups] = useState(() => loadPersistedWatchGroups());
   const [isPreferencesHydrated, setIsPreferencesHydrated] = useState(false);
@@ -182,6 +212,31 @@ export const useRealtimePreferences = ({
     }
 
     window.localStorage.setItem(REALTIME_ACTIVE_TAB_STORAGE_KEY, activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('view') !== 'realtime') {
+      return;
+    }
+
+    if (activeTab) {
+      params.set(REALTIME_TAB_QUERY_KEY, activeTab);
+    } else {
+      params.delete(REALTIME_TAB_QUERY_KEY);
+    }
+
+    const nextSearch = params.toString();
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash || ''}`;
+    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash || ''}`;
+
+    if (nextUrl !== currentUrl) {
+      window.history.replaceState(null, '', nextUrl);
+    }
   }, [activeTab]);
 
   useEffect(() => {
@@ -237,13 +292,14 @@ export const useRealtimePreferences = ({
 
         const currentPreferencesSnapshot = latestPreferencesRef.current || initialPreferencesSnapshot;
         const userChangedPreferencesDuringHydration = currentPreferencesSnapshot !== initialPreferencesSnapshot;
+        const urlActiveTab = readRealtimeTabFromUrl(validActiveTabs);
         const nextSymbols = Array.isArray(response.data.data?.symbols)
           ? response.data.data.symbols
               .filter((symbol) => typeof symbol === 'string')
               .map((symbol) => symbol.trim().toUpperCase())
               .filter(Boolean)
           : [];
-        const nextTab = typeof response.data.data?.active_tab === 'string'
+        const nextTab = isAllowedTab(response.data.data?.active_tab, validActiveTabs)
           ? response.data.data.active_tab
           : null;
         const nextCategories = response.data.data?.symbol_categories
@@ -272,7 +328,7 @@ export const useRealtimePreferences = ({
           if (nextSymbols.length > 0) {
             setSubscribedSymbols(Array.from(new Set(nextSymbols)));
           }
-          if (nextTab) {
+          if (nextTab && !urlActiveTab) {
             setActiveTab(nextTab);
           }
           setSymbolCategoryOverrides(nextCategories);
