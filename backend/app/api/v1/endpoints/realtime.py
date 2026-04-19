@@ -7,15 +7,15 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
 
+from backend.app.services.runtime_state import get_data_manager
 from backend.app.services.realtime_alerts import realtime_alerts_store
 from backend.app.services.realtime_journal import realtime_journal_store
 from backend.app.services.realtime_preferences import realtime_preferences_store
-from src.data.data_manager import DataManager
 from src.data.realtime_manager import realtime_manager
 
 
 router = APIRouter()
-data_manager = DataManager()
+data_manager = get_data_manager()
 
 MAX_SYMBOLS_PER_REQUEST = 100
 MAX_SYMBOLS_PER_WATCH_GROUP = 200

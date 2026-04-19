@@ -2,14 +2,14 @@ from fastapi import APIRouter, HTTPException
 from typing import Optional
 from pydantic import BaseModel
 
+from backend.app.services.runtime_state import get_data_manager
 from backend.app.services.trade_stream import build_trade_stream_payload, resolve_trade_portfolio
 from backend.app.websocket.trade_connection_manager import trade_ws_manager
 from src.data.realtime_manager import realtime_manager
 from src.trading.trade_manager import trade_manager
-from src.data.data_manager import DataManager
 
 router = APIRouter()
-data_manager = DataManager()
+data_manager = get_data_manager()
 
 class TradeRequest(BaseModel):
     symbol: str

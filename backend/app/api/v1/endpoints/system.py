@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from datetime import datetime
 import logging
 from backend.app.core.config import config
+from backend.app.services.runtime_state import get_data_manager
 from src.utils.performance import performance_metrics, performance_monitor
 
 from src.strategy.strategies import (
@@ -203,8 +204,7 @@ async def check_dependencies():
     
     # 2. 检查缓存系统
     try:
-        from src.data.data_manager import DataManager
-        dm = DataManager()
+        dm = get_data_manager()
         cache_info = {
             "status": "healthy",
             "cache_size": len(dm.cache.cache) if hasattr(dm.cache, 'cache') else 0,

@@ -8,6 +8,7 @@ from typing import List
 
 from fastapi import APIRouter, HTTPException
 
+from backend.app.services.runtime_state import get_data_manager
 from backend.app.schemas.cross_market import (
     CrossMarketBacktestRequest,
     CrossMarketBacktestResponse,
@@ -20,7 +21,7 @@ router = APIRouter()
 
 
 def _get_data_manager() -> DataManager:
-    return DataManager()
+    return get_data_manager()
 
 
 def _parse_date(date_str: str | None) -> datetime | None:

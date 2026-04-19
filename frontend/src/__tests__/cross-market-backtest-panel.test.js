@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import CrossMarketBacktestPanel from '../components/CrossMarketBacktestPanel';
 
@@ -312,6 +312,7 @@ beforeAll(() => {
 describe('CrossMarketBacktestPanel retained cross-market flow', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    window.history.replaceState(null, '', '/?tab=cross-market');
     formatResearchSource.mockReturnValue('研究工作台');
     mockReadResearchContext.mockReturnValue(queueContext);
     buildCrossMarketPlaybook.mockReturnValue({
@@ -332,6 +333,33 @@ describe('CrossMarketBacktestPanel retained cross-market flow', () => {
     expect(screen.queryByRole('button', { name: '更新当前任务快照' })).toBeNull();
     expect(screen.queryByRole('button', { name: '回到工作台下一条跨市场任务' })).toBeNull();
     expect(mockNavigateByResearchAction).not.toHaveBeenCalled();
+  });
+
+  it('updates retained template context when browser history changes', async () => {
+    mockReadResearchContext.mockImplementation((search = '') => {
+      const params = new URLSearchParams(search);
+      if (params.get('template') === queueContext.template) {
+        return queueContext;
+      }
+      return {};
+    });
+
+    render(<CrossMarketBacktestPanel />);
+
+    await waitFor(() => {
+      expect(screen.queryByText(/已载入来自 研究工作台 的跨市场模板/)).toBeNull();
+    });
+
+    await act(async () => {
+      window.history.pushState(
+        null,
+        '',
+        `/?tab=cross-market&template=${queueContext.template}&source=${queueContext.source}&note=reload`
+      );
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    expect(await screen.findByText(/已载入来自 研究工作台 的跨市场模板/)).toBeTruthy();
   });
 
   it('shows governance overlays on the template panel and inside backtest results', async () => {

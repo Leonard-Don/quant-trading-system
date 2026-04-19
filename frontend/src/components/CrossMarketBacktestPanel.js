@@ -54,6 +54,7 @@ import {
   CROSS_MARKET_DIMENSION_LABELS,
   CROSS_MARKET_FACTOR_LABELS,
 } from '../utils/crossMarketRecommendations';
+import { useAppUrlState } from '../hooks/useAppUrlState';
 import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
 
 const { Paragraph, Text } = Typography;
@@ -427,12 +428,16 @@ function CrossMarketBacktestPanel() {
     end_date: DEFAULT_CROSS_MARKET_END_DATE,
   });
   const [results, setResults] = useState(null);
-  const [researchContext, setResearchContext] = useState(readResearchContext());
+  const appUrlState = useAppUrlState();
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [appliedBiasMeta, setAppliedBiasMeta] = useState(null);
   const [draftTemplateContext, setDraftTemplateContext] = useState(null);
   const appliedTemplateRef = useRef('');
   const autoRecommendedRef = useRef('');
+  const researchContext = useMemo(
+    () => readResearchContext(appUrlState.search),
+    [appUrlState.search]
+  );
 
   useEffect(() => {
     const loadTemplates = async () => {
@@ -449,13 +454,6 @@ function CrossMarketBacktestPanel() {
 
     loadTemplates();
   }, [message]);
-
-  useEffect(() => {
-    const syncContext = () => setResearchContext(readResearchContext());
-    syncContext();
-    window.addEventListener('popstate', syncContext);
-    return () => window.removeEventListener('popstate', syncContext);
-  }, []);
 
   const longAssets = useMemo(() => normalizeAssets(assets, 'long'), [assets]);
   const shortAssets = useMemo(() => normalizeAssets(assets, 'short'), [assets]);

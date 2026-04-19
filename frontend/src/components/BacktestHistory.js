@@ -20,6 +20,8 @@ import { formatCurrency, formatPercentage, getValueColor } from '../utils/format
 import { normalizeBacktestResult } from '../utils/backtest';
 import { useSafeMessageApi } from '../utils/messageApi';
 import { getStrategyName, getStrategyParameterLabel, STRATEGY_NAMES } from '../constants/strategies';
+import { useAppUrlState } from '../hooks/useAppUrlState';
+import { replaceAppUrl } from '../utils/appUrlState';
 import { navigateToAppUrl } from '../utils/researchContext';
 import PerformanceChart from './PerformanceChart';
 import {
@@ -81,6 +83,12 @@ const readHistoryFiltersFromSearch = (search = window.location.search) => {
     };
 };
 
+const areHistoryFiltersEqual = (left, right) => (
+    (left?.symbol || '') === (right?.symbol || '')
+    && (left?.strategy || '') === (right?.strategy || '')
+    && (left?.recordType || '') === (right?.recordType || '')
+);
+
 const hasDetailedMetrics = (record) => {
     if (!record) {
         return false;
@@ -120,7 +128,11 @@ const needsRecordDetails = (record) => {
 
 const BacktestHistory = ({ highlightRecordId = '' }) => {
     const message = useSafeMessageApi();
-    const initialFilters = readHistoryFiltersFromSearch();
+    const locationState = useAppUrlState();
+    const locationFilters = useMemo(
+        () => readHistoryFiltersFromSearch(locationState.search),
+        [locationState.search],
+    );
     const [history, setHistory] = useState([]);
     const [historyStats, setHistoryStats] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -136,19 +148,11 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
     });
     const currentPage = pagination.current;
     const pageSize = pagination.pageSize;
-    const [filters, setFilters] = useState({
-        symbol: initialFilters.symbol,
-        strategy: initialFilters.strategy,
-        recordType: initialFilters.recordType,
-    });
-    const [filterInputs, setFilterInputs] = useState({
-        symbol: initialFilters.symbol,
-        strategy: initialFilters.strategy,
-        recordType: initialFilters.recordType,
-    });
+    const [filters, setFilters] = useState(() => ({ ...locationFilters }));
+    const [filterInputs, setFilterInputs] = useState(() => ({ ...locationFilters }));
 
     const updateHistoryFilterQuery = useCallback((nextFilters, { replace = false } = {}) => {
-        const params = new URLSearchParams(window.location.search);
+        const params = new URLSearchParams(locationState.search);
         if (nextFilters.symbol) {
             params.set(HISTORY_SYMBOL_QUERY_KEY, nextFilters.symbol);
         } else {
@@ -165,13 +169,13 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
             params.delete(HISTORY_RECORD_TYPE_QUERY_KEY);
         }
         const query = params.toString();
-        const nextUrl = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`;
+        const nextUrl = `${locationState.pathname}${query ? `?${query}` : ''}${locationState.hash || ''}`;
         if (replace) {
-            window.history.replaceState(null, '', nextUrl);
+            replaceAppUrl(nextUrl);
             return;
         }
         navigateToAppUrl(nextUrl);
-    }, []);
+    }, [locationState.hash, locationState.pathname, locationState.search]);
 
     const fetchHistory = useCallback(async () => {
         setLoading(true);
@@ -211,14 +215,14 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
     }, [currentPage, filters.recordType, filters.strategy, filters.symbol, message, pageSize]);
 
     const clearHighlightQuery = useCallback(() => {
-        const params = new URLSearchParams(window.location.search);
+        const params = new URLSearchParams(locationState.search);
         if (!params.get('record')) {
             return;
         }
         params.delete('record');
         const query = params.toString();
-        window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`);
-    }, []);
+        replaceAppUrl(`${locationState.pathname}${query ? `?${query}` : ''}${locationState.hash || ''}`);
+    }, [locationState.hash, locationState.pathname, locationState.search]);
 
     const fetchRecordDetails = useCallback(async (recordId) => {
         if (!recordId) {
@@ -254,16 +258,16 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
     }, [fetchHistory]);
 
     useEffect(() => {
-        const syncFiltersFromLocation = () => {
-            const nextFilters = readHistoryFiltersFromSearch();
-            setFilters(nextFilters);
-            setFilterInputs(nextFilters);
-            setPagination((current) => ({ ...current, current: 1 }));
-        };
-
-        window.addEventListener('popstate', syncFiltersFromLocation);
-        return () => window.removeEventListener('popstate', syncFiltersFromLocation);
-    }, []);
+        setFilters((current) => (
+            areHistoryFiltersEqual(current, locationFilters) ? current : { ...locationFilters }
+        ));
+        setFilterInputs((current) => (
+            areHistoryFiltersEqual(current, locationFilters) ? current : { ...locationFilters }
+        ));
+        setPagination((current) => (
+            current.current === 1 ? current : { ...current, current: 1 }
+        ));
+    }, [locationFilters]);
 
     const normalizedHistory = useMemo(() => (
         history.map((record) => {

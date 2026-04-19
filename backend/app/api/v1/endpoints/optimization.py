@@ -3,12 +3,12 @@ from typing import List, Optional
 from datetime import datetime
 import pandas as pd
 import logging
-from src.data.data_manager import DataManager
+from backend.app.services.runtime_state import get_data_manager
 from src.analytics.portfolio_optimizer import PortfolioOptimizer
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-data_manager = DataManager()
+data_manager = get_data_manager()
 optimizer = PortfolioOptimizer()
 
 @router.post("/optimize", summary="投资组合优化")

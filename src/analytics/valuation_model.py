@@ -15,7 +15,7 @@ from src.analytics.valuation_support import (
     resolve_current_price,
     run_dcf_case,
 )
-from src.data.data_manager import DataManager
+from src.data.data_manager import DataManager, get_shared_data_manager
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +46,8 @@ class ValuationModel:
     整合 DCF 和可比估值法，输出公允价值区间
     """
 
-    def __init__(self):
-        self.data_manager = DataManager()
+    def __init__(self, data_manager: Optional[DataManager] = None):
+        self.data_manager = data_manager or get_shared_data_manager()
         self._peer_benchmark_cache: Dict[str, Dict[str, Any]] = {}
         self._fundamental_cache: Dict[str, Dict[str, Any]] = {}
         self._benchmark_cache_ttl = 3600

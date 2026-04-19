@@ -5,12 +5,12 @@
 from datetime import datetime
 from typing import Any, Dict
 
-from src.data.data_manager import DataManager
+from backend.app.services.runtime_state import get_data_manager
 from src.data.realtime_manager import realtime_manager
 from src.trading.trade_manager import trade_manager
 
 
-data_manager = DataManager()
+data_manager = get_data_manager()
 
 
 def resolve_trade_portfolio() -> Dict[str, Any]:

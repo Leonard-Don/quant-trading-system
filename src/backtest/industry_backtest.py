@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 import logging
 from dataclasses import dataclass
-from src.data.data_manager import DataManager
+from src.data.data_manager import DataManager, get_shared_data_manager
 from .base_backtester import BaseBacktester
 from .metrics import (
     calculate_returns,
@@ -133,7 +133,7 @@ class IndustryBacktester(BaseBacktester):
         )
         self.analyzer = industry_analyzer
         self.scorer = leader_scorer
-        self.data_manager = data_manager or DataManager()
+        self.data_manager = data_manager or get_shared_data_manager()
         self.data_provider = data_provider
         self.commission_rate = commission_rate
         self.slippage = slippage

@@ -16,7 +16,7 @@ import os
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, project_root)
 
-from src.data.data_manager import DataManager  # noqa: E402
+from src.data.data_manager import DataManager, get_shared_data_manager, reset_shared_data_manager  # noqa: E402
 
 
 class TestDataManager:
@@ -265,3 +265,31 @@ class TestDataManager:
 
         assert call_count["value"] == 1
         assert all(isinstance(result, pd.DataFrame) and not result.empty for result in results)
+
+    def test_get_historical_data_prefers_provider_factory(self, data_manager, sample_data):
+        """测试历史数据优先走 provider factory，再回退到遗留 Yahoo 路径。"""
+        start_date = datetime(2023, 1, 1)
+        end_date = datetime(2023, 12, 31)
+
+        with patch.object(
+            data_manager.provider_factory,
+            "get_historical_data",
+            return_value=sample_data.copy(),
+        ) as mock_provider, patch("yfinance.Ticker") as mock_ticker:
+            result = data_manager.get_historical_data("AAPL", start_date, end_date)
+
+        assert isinstance(result, pd.DataFrame)
+        assert not result.empty
+        assert "close" in result.columns
+        mock_provider.assert_called_once()
+        mock_ticker.assert_not_called()
+
+    def test_get_shared_data_manager_returns_cached_instance(self):
+        """测试共享 DataManager 单例返回同一个实例。"""
+        reset_shared_data_manager()
+        first = get_shared_data_manager()
+        second = get_shared_data_manager()
+
+        assert first is second
+
+        reset_shared_data_manager()

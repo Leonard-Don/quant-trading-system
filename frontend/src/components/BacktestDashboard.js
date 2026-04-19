@@ -1,9 +1,10 @@
-import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useMemo } from 'react';
 import { Card, Spin, Space, Tabs, Tag, Typography } from 'antd';
 import { BarChartOutlined, HistoryOutlined, ExperimentOutlined, PieChartOutlined, GlobalOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import StrategyForm from './StrategyForm';
 import ResultsDisplay from './ResultsDisplay';
 import CrossMarketBacktestPanel from './CrossMarketBacktestPanel';
+import { useAppUrlState } from '../hooks/useAppUrlState';
 import { buildAppUrl, navigateToAppUrl, sanitizeParamsForView } from '../utils/researchContext';
 import { saveAdvancedExperimentIntent } from '../utils/backtestWorkspace';
 
@@ -72,17 +73,11 @@ const readBacktestLocationState = (search = window.location.search) => {
 };
 
 const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) => {
-    const [locationState, setLocationState] = useState(() => readBacktestLocationState());
-    const { activeTab, highlightRecordId } = locationState;
-
-    useEffect(() => {
-        const syncLocationState = () => {
-            setLocationState(readBacktestLocationState());
-        };
-
-        window.addEventListener('popstate', syncLocationState);
-        return () => window.removeEventListener('popstate', syncLocationState);
-    }, []);
+    const appUrlState = useAppUrlState();
+    const { activeTab, highlightRecordId } = useMemo(
+        () => readBacktestLocationState(appUrlState.search),
+        [appUrlState.search],
+    );
 
     const activeMeta = TAB_META[activeTab] || TAB_META.new;
     const heroStats = useMemo(() => {
@@ -108,7 +103,7 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
     }, [activeMeta.label, activeTab, loading, results, strategies.length]);
 
     const setBacktestTab = (key, extraParams = {}) => {
-        const params = new URLSearchParams(window.location.search);
+        const params = new URLSearchParams(appUrlState.search);
         if (key === 'new') {
             params.delete(TAB_QUERY_KEY);
         } else {
@@ -123,6 +118,7 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
         });
         sanitizeParamsForView(params, 'backtest');
         const nextUrl = buildAppUrl({
+            pathname: appUrlState.pathname,
             currentSearch: `?${params.toString()}`,
             view: 'backtest',
             tab: params.get(TAB_QUERY_KEY),

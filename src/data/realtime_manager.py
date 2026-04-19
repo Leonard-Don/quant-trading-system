@@ -13,7 +13,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from ..core.base import BaseComponent
 from ..utils.cache import cache_manager
-from .data_manager import DataManager
+from .data_manager import DataManager, get_shared_data_manager
 from .providers.base_provider import BaseDataProvider
 from .providers.provider_factory import get_data_factory
 
@@ -76,7 +76,13 @@ class RealTimeQuote:
 class RealTimeDataManager(BaseComponent):
     """统一的实时行情管理器。"""
 
-    def __init__(self, update_interval: int = 5, max_history: int = 1000, max_global_history: int = 100_000):
+    def __init__(
+        self,
+        update_interval: int = 5,
+        max_history: int = 1000,
+        max_global_history: int = 100_000,
+        data_manager: Optional[DataManager] = None,
+    ):
         super().__init__({})
         self.update_interval = update_interval
         self.max_history = max_history
@@ -85,7 +91,7 @@ class RealTimeDataManager(BaseComponent):
         # 这样能显著缩短重新进入页面时的首包等待。
         self.cache_ttl = max(update_interval * 6, 30)
         self.provider_factory = get_data_factory()
-        self.data_manager = DataManager()
+        self.data_manager = data_manager or get_shared_data_manager()
         self.subscribed_symbols: Set[str] = set()
         self.subscribers: Dict[str, Set[Callable[[RealTimeQuote], None]]] = {}
         self.quote_history: Dict[str, List[RealTimeQuote]] = {}
