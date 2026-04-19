@@ -16,7 +16,7 @@ from src.backtest.metrics import (
     calculate_var,
     calculate_volatility,
 )
-from src.data.data_manager import DataManager
+from src.data.data_manager import DataManager, get_shared_data_manager
 from src.trading.cross_market import (
     AssetSide,
     AssetUniverse,
@@ -48,7 +48,7 @@ class CrossMarketBacktester(BaseBacktester):
             commission=commission,
             slippage=slippage,
         )
-        self.data_manager = data_manager or DataManager()
+        self.data_manager = data_manager or get_shared_data_manager()
 
     def run(
         self,

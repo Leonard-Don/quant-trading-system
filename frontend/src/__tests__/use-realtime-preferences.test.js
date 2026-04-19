@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 
 import api from '../services/api';
 import { useRealtimePreferences } from '../hooks/useRealtimePreferences';
@@ -12,6 +12,15 @@ jest.mock('../services/api', () => ({
 }));
 
 describe('useRealtimePreferences', () => {
+  const flushRealtimePreferenceEffects = async () => {
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
@@ -41,7 +50,8 @@ describe('useRealtimePreferences', () => {
       defaultActiveTab: 'index',
     }));
 
-    await waitFor(() => expect(result.current.activeTab).toBe('us'));
+    await flushRealtimePreferenceEffects();
+    expect(result.current.activeTab).toBe('us');
     expect(result.current.subscribedSymbols).toEqual(['AAPL', 'MSFT']);
   });
 
@@ -51,7 +61,8 @@ describe('useRealtimePreferences', () => {
       defaultActiveTab: 'index',
     }));
 
-    await waitFor(() => expect(result.current.activeTab).toBe('us'));
+    await flushRealtimePreferenceEffects();
+    expect(result.current.activeTab).toBe('us');
 
     act(() => {
       result.current.setActiveTab('crypto');
@@ -87,8 +98,9 @@ describe('useRealtimePreferences', () => {
       validActiveTabs: ['index', 'us', 'crypto'],
     }));
 
-    await waitFor(() => expect(result.current.subscribedSymbols).toEqual(['AAPL', 'MSFT']));
+    await flushRealtimePreferenceEffects();
     expect(result.current.activeTab).toBe('crypto');
+    expect(result.current.subscribedSymbols).toEqual(['AAPL', 'MSFT']);
   });
 
   test('syncs realtime active tab changes back into the url', async () => {
@@ -100,8 +112,9 @@ describe('useRealtimePreferences', () => {
       validActiveTabs: ['index', 'us', 'crypto'],
     }));
 
-    await waitFor(() => expect(result.current.subscribedSymbols).toEqual(['AAPL', 'MSFT']));
+    await flushRealtimePreferenceEffects();
     expect(result.current.activeTab).toBe('index');
+    expect(result.current.subscribedSymbols).toEqual(['AAPL', 'MSFT']);
 
     act(() => {
       result.current.setActiveTab('crypto');

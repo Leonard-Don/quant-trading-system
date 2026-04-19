@@ -17,10 +17,10 @@ from backend.app.schemas.backtest import (
     AdvancedHistorySaveRequest,
 )
 from backend.app.core.task_queue import task_queue_manager
+from backend.app.services.runtime_state import get_data_manager
 from src.backtest.history import backtest_history
 from src.backtest.batch_backtester import BatchBacktester, BacktestTask, WalkForwardAnalyzer
 from src.backtest.impact_model import estimate_market_impact_rate, normalize_market_impact_model
-from src.data.data_manager import DataManager
 from src.strategy.strategies import (
     MovingAverageCrossover,
     RSIStrategy,
@@ -54,7 +54,7 @@ from pydantic import BaseModel
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-data_manager = DataManager()
+data_manager = get_data_manager()
 
 # 策略映射
 STRATEGIES = {

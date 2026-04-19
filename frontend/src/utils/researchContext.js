@@ -1,3 +1,5 @@
+import { pushAppUrl } from './appUrlState';
+
 const VIEW_QUERY_KEY = 'view';
 const TAB_QUERY_KEY = 'tab';
 
@@ -297,8 +299,7 @@ export const buildWorkbenchLink = (
   });
 
 export const navigateToAppUrl = (url) => {
-  window.history.pushState(null, '', url);
-  window.dispatchEvent(new PopStateEvent('popstate'));
+  pushAppUrl(url);
 };
 
 export const navigateByResearchAction = (action, currentSearch = window.location.search) => {

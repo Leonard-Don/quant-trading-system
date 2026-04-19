@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats as scipy_stats
 
-from src.data.data_manager import DataManager
+from src.data.data_manager import get_shared_data_manager
 
 
 DEFAULT_FACTOR_PREMIA = {
@@ -49,7 +49,7 @@ def period_to_days(period: str) -> int:
 
 def estimate_ff_factors(period: str, logger: Any) -> pd.DataFrame:
     """若网络获取失败，使用市场指数代理估算因子。"""
-    dm = DataManager()
+    dm = get_shared_data_manager()
     days = period_to_days(period)
     start = datetime.now() - timedelta(days=days)
 

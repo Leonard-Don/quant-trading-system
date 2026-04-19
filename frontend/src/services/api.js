@@ -229,17 +229,17 @@ api.interceptors.response.use(
 
 // API方法
 export const getStrategies = async () => {
-  const response = await api.get('/strategies');
+  const response = await api.get('/strategies/');
   return response.data;
 };
 
 export const getMarketData = async (params) => {
-  const response = await api.post('/market-data', params);
+  const response = await api.post('/market-data/', params);
   return response.data;
 };
 
 export const runBacktest = async (params) => {
-  const response = await api.post('/backtest', params);
+  const response = await api.post('/backtest/', params);
   return response.data;
 };
 

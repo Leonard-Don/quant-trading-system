@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { useAppUrlState } from '../../hooks/useAppUrlState';
+import { replaceAppUrl } from '../../utils/appUrlState';
 
 export const INDUSTRY_URL_DEFAULTS = {
     tab: 'heatmap',
@@ -23,12 +26,12 @@ const INDUSTRY_VALID_RANK_TYPES = new Set(['gainers', 'losers']);
 const INDUSTRY_VALID_SORTS = new Set(['change_pct', 'total_score', 'money_flow', 'industry_volatility']);
 const INDUSTRY_VALID_VOLATILITY_FILTERS = new Set(['all', 'low', 'medium', 'high']);
 
-const readIndustryUrlState = () => {
+const readIndustryUrlState = (search = window.location.search) => {
     if (typeof window === 'undefined') {
         return { ...INDUSTRY_URL_DEFAULTS };
     }
 
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(search);
     const tab = params.get('industry_tab');
     const marketCapFilter = params.get('industry_market_cap_filter');
     const timeframeParam = params.get('industry_timeframe');
@@ -61,10 +64,36 @@ const readIndustryUrlState = () => {
     };
 };
 
-const writeIndustryUrlState = (state) => {
-    if (typeof window === 'undefined') return;
+const areHeatmapViewStatesEqual = (left, right) => (
+    (left?.timeframe ?? INDUSTRY_URL_DEFAULTS.timeframe) === (right?.timeframe ?? INDUSTRY_URL_DEFAULTS.timeframe)
+    && (left?.sizeMetric ?? INDUSTRY_URL_DEFAULTS.sizeMetric) === (right?.sizeMetric ?? INDUSTRY_URL_DEFAULTS.sizeMetric)
+    && (left?.colorMetric ?? INDUSTRY_URL_DEFAULTS.colorMetric) === (right?.colorMetric ?? INDUSTRY_URL_DEFAULTS.colorMetric)
+    && (left?.displayCount ?? INDUSTRY_URL_DEFAULTS.displayCount) === (right?.displayCount ?? INDUSTRY_URL_DEFAULTS.displayCount)
+    && (left?.searchTerm ?? INDUSTRY_URL_DEFAULTS.searchTerm) === (right?.searchTerm ?? INDUSTRY_URL_DEFAULTS.searchTerm)
+);
 
-    const params = new URLSearchParams(window.location.search);
+const areIndustryUrlStatesEqual = (left, right) => (
+    (left?.tab ?? INDUSTRY_URL_DEFAULTS.tab) === (right?.tab ?? INDUSTRY_URL_DEFAULTS.tab)
+    && (left?.marketCapFilter ?? INDUSTRY_URL_DEFAULTS.marketCapFilter) === (right?.marketCapFilter ?? INDUSTRY_URL_DEFAULTS.marketCapFilter)
+    && (left?.timeframe ?? INDUSTRY_URL_DEFAULTS.timeframe) === (right?.timeframe ?? INDUSTRY_URL_DEFAULTS.timeframe)
+    && (left?.sizeMetric ?? INDUSTRY_URL_DEFAULTS.sizeMetric) === (right?.sizeMetric ?? INDUSTRY_URL_DEFAULTS.sizeMetric)
+    && (left?.colorMetric ?? INDUSTRY_URL_DEFAULTS.colorMetric) === (right?.colorMetric ?? INDUSTRY_URL_DEFAULTS.colorMetric)
+    && (left?.displayCount ?? INDUSTRY_URL_DEFAULTS.displayCount) === (right?.displayCount ?? INDUSTRY_URL_DEFAULTS.displayCount)
+    && (left?.searchTerm ?? INDUSTRY_URL_DEFAULTS.searchTerm) === (right?.searchTerm ?? INDUSTRY_URL_DEFAULTS.searchTerm)
+    && (left?.rankType ?? INDUSTRY_URL_DEFAULTS.rankType) === (right?.rankType ?? INDUSTRY_URL_DEFAULTS.rankType)
+    && (left?.sortBy ?? INDUSTRY_URL_DEFAULTS.sortBy) === (right?.sortBy ?? INDUSTRY_URL_DEFAULTS.sortBy)
+    && (left?.lookbackDays ?? INDUSTRY_URL_DEFAULTS.lookbackDays) === (right?.lookbackDays ?? INDUSTRY_URL_DEFAULTS.lookbackDays)
+    && (left?.volatilityFilter ?? INDUSTRY_URL_DEFAULTS.volatilityFilter) === (right?.volatilityFilter ?? INDUSTRY_URL_DEFAULTS.volatilityFilter)
+    && (left?.rankingMarketCapFilter ?? INDUSTRY_URL_DEFAULTS.rankingMarketCapFilter) === (right?.rankingMarketCapFilter ?? INDUSTRY_URL_DEFAULTS.rankingMarketCapFilter)
+);
+
+const buildIndustryUrlStateUrl = (
+    state,
+    search = window.location.search,
+    pathname = window.location.pathname,
+    hash = window.location.hash,
+) => {
+    const params = new URLSearchParams(search);
     const nextState = { ...INDUSTRY_URL_DEFAULTS, ...state };
 
     const syncParam = (key, value, defaultValue) => {
@@ -89,12 +118,15 @@ const writeIndustryUrlState = (state) => {
     syncParam('industry_rank_market_cap', nextState.rankingMarketCapFilter, INDUSTRY_URL_DEFAULTS.rankingMarketCapFilter);
 
     const nextQuery = params.toString();
-    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash || ''}`;
-    window.history.replaceState(null, '', nextUrl);
+    return `${pathname}${nextQuery ? `?${nextQuery}` : ''}${hash || ''}`;
 };
 
 export default function useIndustryUrlState() {
-    const initialUrlState = readIndustryUrlState();
+    const locationState = useAppUrlState();
+    const initialUrlState = useMemo(
+        () => readIndustryUrlState(locationState.search),
+        [locationState.search],
+    );
     const [activeTab, setActiveTab] = useState(initialUrlState.tab);
     const [marketCapFilter, setMarketCapFilter] = useState(initialUrlState.marketCapFilter);
     const [heatmapViewState, setHeatmapViewState] = useState({
@@ -112,6 +144,35 @@ export default function useIndustryUrlState() {
     const [rankingMarketCapFilter, setRankingMarketCapFilter] = useState(initialUrlState.rankingMarketCapFilter);
     const [focusedHeatmapControlKey, setFocusedHeatmapControlKey] = useState(null);
     const [focusedRankingControlKey, setFocusedRankingControlKey] = useState(null);
+    const syncingUrlStateRef = useRef(false);
+
+    const persistedIndustryUrlState = useMemo(() => ({
+        tab: activeTab,
+        marketCapFilter,
+        timeframe: heatmapViewState.timeframe,
+        sizeMetric: heatmapViewState.sizeMetric,
+        colorMetric: heatmapViewState.colorMetric,
+        displayCount: heatmapViewState.displayCount,
+        searchTerm: heatmapViewState.searchTerm,
+        rankType,
+        sortBy,
+        lookbackDays,
+        volatilityFilter,
+        rankingMarketCapFilter,
+    }), [
+        activeTab,
+        heatmapViewState.colorMetric,
+        heatmapViewState.displayCount,
+        heatmapViewState.searchTerm,
+        heatmapViewState.sizeMetric,
+        heatmapViewState.timeframe,
+        lookbackDays,
+        marketCapFilter,
+        rankType,
+        rankingMarketCapFilter,
+        sortBy,
+        volatilityFilter,
+    ]);
 
     const toggleMarketCapFilter = useCallback((nextFilter) => {
         setMarketCapFilter((current) => (current === nextFilter ? 'all' : nextFilter));
@@ -255,44 +316,59 @@ export default function useIndustryUrlState() {
     }, [focusedHeatmapControlKey]);
 
     useEffect(() => {
-        const applyFromUrl = () => {
-            const nextState = readIndustryUrlState();
-            setActiveTab(nextState.tab);
-            setMarketCapFilter(nextState.marketCapFilter);
-            setHeatmapViewState({
-                timeframe: nextState.timeframe,
-                sizeMetric: nextState.sizeMetric,
-                colorMetric: nextState.colorMetric,
-                displayCount: nextState.displayCount,
-                searchTerm: nextState.searchTerm,
-            });
-            setRankType(nextState.rankType);
-            setSortBy(nextState.sortBy);
-            setLookbackDays(nextState.lookbackDays);
-            setVolatilityFilter(nextState.volatilityFilter);
-            setRankingMarketCapFilter(nextState.rankingMarketCapFilter);
-        };
+        if (areIndustryUrlStatesEqual(persistedIndustryUrlState, initialUrlState)) {
+            syncingUrlStateRef.current = false;
+            return;
+        }
 
-        window.addEventListener('popstate', applyFromUrl);
-        return () => window.removeEventListener('popstate', applyFromUrl);
-    }, []);
+        syncingUrlStateRef.current = true;
+        setActiveTab((current) => (current === initialUrlState.tab ? current : initialUrlState.tab));
+        setMarketCapFilter((current) => (
+            current === initialUrlState.marketCapFilter ? current : initialUrlState.marketCapFilter
+        ));
+        setHeatmapViewState((current) => {
+            const nextHeatmapState = {
+                timeframe: initialUrlState.timeframe,
+                sizeMetric: initialUrlState.sizeMetric,
+                colorMetric: initialUrlState.colorMetric,
+                displayCount: initialUrlState.displayCount,
+                searchTerm: initialUrlState.searchTerm,
+            };
+            return areHeatmapViewStatesEqual(current, nextHeatmapState) ? current : nextHeatmapState;
+        });
+        setRankType((current) => (current === initialUrlState.rankType ? current : initialUrlState.rankType));
+        setSortBy((current) => (current === initialUrlState.sortBy ? current : initialUrlState.sortBy));
+        setLookbackDays((current) => (
+            current === initialUrlState.lookbackDays ? current : initialUrlState.lookbackDays
+        ));
+        setVolatilityFilter((current) => (
+            current === initialUrlState.volatilityFilter ? current : initialUrlState.volatilityFilter
+        ));
+        setRankingMarketCapFilter((current) => (
+            current === initialUrlState.rankingMarketCapFilter ? current : initialUrlState.rankingMarketCapFilter
+        ));
+    }, [initialUrlState]);
 
     useEffect(() => {
-        writeIndustryUrlState({
-            tab: activeTab,
-            marketCapFilter,
-            timeframe: heatmapViewState.timeframe,
-            sizeMetric: heatmapViewState.sizeMetric,
-            colorMetric: heatmapViewState.colorMetric,
-            displayCount: heatmapViewState.displayCount,
-            searchTerm: heatmapViewState.searchTerm,
-            rankType,
-            sortBy,
-            lookbackDays,
-            volatilityFilter,
-            rankingMarketCapFilter,
-        });
-    }, [activeTab, marketCapFilter, heatmapViewState, rankType, sortBy, lookbackDays, volatilityFilter, rankingMarketCapFilter]);
+        if (syncingUrlStateRef.current) {
+            if (areIndustryUrlStatesEqual(persistedIndustryUrlState, initialUrlState)) {
+                syncingUrlStateRef.current = false;
+            } else {
+                return;
+            }
+        }
+
+        const nextUrl = buildIndustryUrlStateUrl(
+            persistedIndustryUrlState,
+            locationState.search,
+            locationState.pathname,
+            locationState.hash,
+        );
+
+        if (nextUrl !== locationState.href) {
+            replaceAppUrl(nextUrl);
+        }
+    }, [initialUrlState, locationState.hash, locationState.href, locationState.pathname, locationState.search, persistedIndustryUrlState]);
 
     return {
         activeTab,

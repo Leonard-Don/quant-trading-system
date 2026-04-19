@@ -2,8 +2,8 @@
 
 # quant-trading-system
 
-**一个基于 FastAPI + React 的量化交易研究平台，聚焦 `策略回测`、`实时行情`、`行业热度` 三块公开能力。**  
-*A public-facing quantitative research workspace focused on backtesting, realtime market monitoring, and industry heat analysis.*
+**一个基于 FastAPI + React 的量化交易研究平台，聚焦 `策略回测`、`实时行情`、`行业热度` 三大工作区。**  
+*A quantitative research workspace focused on backtesting, realtime market monitoring, and industry heat analysis.*
 
 **当前版本：`v5.0.0`** · [查看更新日志](docs/CHANGELOG.md)
 
@@ -16,7 +16,7 @@
 
 <br />
 
-> **89** 自动化测试 · **3** 大公开工作区 · **8** 大数据提供器 · **28** 种内置策略
+> **89** 自动化测试 · **3** 大核心工作区 · **8** 大数据提供器 · **28** 种内置策略
 
 [本地体验](#-本地体验) · [核心能力](#-核心能力) · [系统架构](#️-系统架构) · [快速开始](#-快速开始) · [测试验证](#-测试验证) · [API 文档](#-api-文档)
 
@@ -26,7 +26,7 @@
 
 ## 📌 仓库定位
 
-这个仓库是 **GitHub-facing 主仓**，只保留三块公开能力：
+这个仓库是一个独立维护的量化研究项目，围绕三块核心工作区展开：
 
 | 模块 | 说明 |
 |------|------|
@@ -34,13 +34,11 @@
 | 📈 实时行情 | 多市场实时行情聚合、WebSocket 推送、提醒与复盘 |
 | 🔥 行业热度 | 行业热力图、排行榜、龙头股分析与轮动观察 |
 
-原来系统里的 `定价研究`、`上帝视角`、`研究工作台`、`Quant Lab` 已经拆到私有 companion repo `super-pricing-system`，不再包含在这个公开仓中。
-
 这意味着：
 
-- 当前仓的前端公开 view 只剩 `backtest / realtime / industry`
-- 当前仓的后端公开接口不再挂载 `/pricing/*`、`/macro*`、`/research-workbench/*`、`/quant-lab/*`
-- 历史系统页旧链接会自动回落到 `backtest`
+- 当前仓的前端主入口是 `backtest / realtime / industry`
+- 当前仓的后端接口围绕 `/backtest/*`、`/realtime/*`、`/industry/*`、`/cross-market/*` 等能力展开
+- 项目可以独立 clone、安装、启动和发布，不依赖其他 sibling repo
 
 ---
 
@@ -51,7 +49,7 @@
 <div align="center">
   <img src="docs/screenshots/product-tour-v2.png" alt="产品总览" />
   <br />
-  <sub>公开仓当前聚焦策略回测、实时行情与行业热度三块能力</sub>
+  <sub>当前版本聚焦策略回测、实时行情与行业热度三块能力</sub>
 </div>
 
 <br />
@@ -84,7 +82,7 @@
 ### 📊 策略回测
 
 - 支持主回测、历史复盘、策略对比、组合优化和高级实验
-- 保留 `cross-market` 跨市场回测作为公开仓的一部分
+- 保留 `cross-market` 跨市场回测作为核心研究能力的一部分
 - 内置 **28** 种策略，覆盖 7 大类别（见下表）
 - 回测结果支持收益、Sharpe、回撤、交易事件、月度收益等维度展示
 
@@ -108,14 +106,14 @@
 - 多市场行情聚合，支持指数、美股、A 股、加密等分组
 - 支持 WebSocket 实时更新、复盘快照、提醒命中历史和开发诊断
 - 详情页整合趋势、量价、情绪、风险、相关性、AI 辅助分析
-- 拆分后依然保留提醒记录接口，但不再向 Quant Lab 或研究工作台回流
+- 保留提醒记录、快照与诊断能力，适合作为独立的实时监控工作台
 
 ### 🔥 行业热度
 
 - 行业热力图支持时间窗、颜色维度、来源标签与状态条联动
 - 行业排行榜支持排序、筛选、来源联动、URL 状态持久化
 - 龙头股详情支持火花线、AI 洞察、竞态保护与观察列表提醒
-- 拆分后保留页面内提醒和通知，不再自动创建系统侧研究任务
+- 保留页面内提醒、观察与状态持久化，适合作为独立的行业研究工作区
 
 ---
 
@@ -450,32 +448,18 @@ git push origin feature/your-feature
 
 ---
 
-## 🔀 拆分说明
+## 🔗 相关项目
 
-本仓已经完成"公开三块主仓 + 私有系统仓"的拆分：
+如果你还需要更偏定价研究、宏观因子监控和研究运营闭环的能力，可以查看独立项目 [super-pricing-system](https://github.com/Leonard-Don/super-pricing-system)。
 
-```text
-┌─────────────────────────────┐     ┌──────────────────────────────┐
-│   quant-trading-system      │     │   super-pricing-system       │
-│   (公开仓 · GitHub)          │     │   (私有仓 · Companion)        │
-│                             │     │                              │
-│   ✅ 策略回测                │     │   🔒 定价研究                  │
-│   ✅ 实时行情                │     │   🔒 上帝视角                  │
-│   ✅ 行业热度                │     │   🔒 研究工作台                │
-│   ✅ 跨市场回测              │     │   🔒 Quant Lab               │
-│   ✅ 共享底层算法库           │     │   🔒 基础设施扩展             │
-└─────────────────────────────┘     └──────────────────────────────┘
-```
+两个项目当前按独立仓维护：
 
-- 当前公开仓只负责 `策略回测 / 实时行情 / 行业热度`
-- 系统模块已经迁移到私有 companion repo `super-pricing-system`
-- 当前仓允许保留必要的共享底层代码副本，但不再公开系统模块入口和 API
-
-如果你想继续开发系统侧能力，请切换到私有仓 `super-pricing-system`；如果你要继续维护 GitHub 公开仓，请只在这个仓里处理三块主仓相关功能。
+- `quant-trading-system`：聚焦 `策略回测 / 实时行情 / 行业热度`
+- `super-pricing-system`：聚焦 `定价研究 / 上帝视角 / 研究工作台 / Quant Lab`
+- 两边各自独立 clone、安装、启动、测试和发布
 
 ---
 
 ## 📄 许可证
 
 本项目基于 [MIT License](LICENSE) 发布。
-

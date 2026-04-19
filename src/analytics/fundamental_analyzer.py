@@ -4,8 +4,8 @@
 """
 
 import logging
-from typing import Dict, Any
-from src.data.data_manager import DataManager
+from typing import Dict, Any, Optional
+from src.data.data_manager import DataManager, get_shared_data_manager
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +16,8 @@ class FundamentalAnalyzer:
     评估公司的财务健康状况和估值水平
     """
 
-    def __init__(self):
-        self.data_manager = DataManager()
+    def __init__(self, data_manager: Optional[DataManager] = None):
+        self.data_manager = data_manager or get_shared_data_manager()
 
     def analyze(self, symbol: str) -> Dict[str, Any]:
         """

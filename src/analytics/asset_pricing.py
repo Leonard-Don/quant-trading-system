@@ -6,7 +6,7 @@
 import logging
 import numpy as np
 import pandas as pd
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 
 from src.analytics.asset_pricing_support import (
@@ -72,10 +72,13 @@ class AssetPricingEngine:
     提供 CAPM 和 Fama-French 三因子分析
     """
 
-    def __init__(self):
-        from src.data.data_manager import DataManager
+    def __init__(self, data_manager: Optional["DataManager"] = None):
+        from src.data.data_manager import DataManager, get_shared_data_manager
 
-        self.data_manager = DataManager()
+        resolved_manager = data_manager or get_shared_data_manager()
+        if not isinstance(resolved_manager, DataManager):
+            raise TypeError("data_manager must be a DataManager instance")
+        self.data_manager = resolved_manager
 
     def analyze(self, symbol: str, period: str = "1y") -> Dict[str, Any]:
         """

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 
 import api from '../services/api';
+import { useAppUrlState } from './useAppUrlState';
+import { replaceAppUrl } from '../utils/appUrlState';
 
 export const REALTIME_SYMBOLS_STORAGE_KEY = 'realtime-panel:symbols';
 export const REALTIME_ACTIVE_TAB_STORAGE_KEY = 'realtime-panel:active-tab';
@@ -111,12 +113,12 @@ export const loadPersistedSymbols = (defaultSymbols) => {
   }
 };
 
-export const loadPersistedActiveTab = (defaultTab, validActiveTabs = []) => {
+export const loadPersistedActiveTab = (defaultTab, validActiveTabs = [], search = window.location.search) => {
   if (typeof window === 'undefined') {
     return defaultTab;
   }
 
-  const tabFromUrl = readRealtimeTabFromUrl(validActiveTabs);
+  const tabFromUrl = readRealtimeTabFromUrl(validActiveTabs, search);
   if (tabFromUrl) {
     return tabFromUrl;
   }
@@ -187,8 +189,11 @@ export const useRealtimePreferences = ({
   defaultActiveTab = 'index',
   validActiveTabs = [],
 }) => {
+  const locationState = useAppUrlState();
   const [subscribedSymbols, setSubscribedSymbols] = useState(() => loadPersistedSymbols(defaultSymbols));
-  const [activeTab, setActiveTab] = useState(() => loadPersistedActiveTab(defaultActiveTab, validActiveTabs));
+  const [activeTab, setActiveTab] = useState(
+    () => loadPersistedActiveTab(defaultActiveTab, validActiveTabs, locationState.search)
+  );
   const [symbolCategoryOverrides, setSymbolCategoryOverrides] = useState(() => loadPersistedSymbolCategories());
   const [watchGroups, setWatchGroups] = useState(() => loadPersistedWatchGroups());
   const [isPreferencesHydrated, setIsPreferencesHydrated] = useState(false);
@@ -197,6 +202,7 @@ export const useRealtimePreferences = ({
   const preferencesSaveTimerRef = useRef(null);
   const latestPreferencesRef = useRef('');
   const realtimeProfileIdRef = useRef(loadRealtimeProfileId());
+  const syncingActiveTabFromUrlRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -219,7 +225,16 @@ export const useRealtimePreferences = ({
       return;
     }
 
-    const params = new URLSearchParams(window.location.search);
+    const urlActiveTab = readRealtimeTabFromUrl(validActiveTabs, locationState.search);
+    if (syncingActiveTabFromUrlRef.current) {
+      if (urlActiveTab === activeTab) {
+        syncingActiveTabFromUrlRef.current = false;
+      } else {
+        return;
+      }
+    }
+
+    const params = new URLSearchParams(locationState.search);
     if (params.get('view') !== 'realtime') {
       return;
     }
@@ -231,13 +246,21 @@ export const useRealtimePreferences = ({
     }
 
     const nextSearch = params.toString();
-    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash || ''}`;
-    const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash || ''}`;
+    const nextUrl = `${locationState.pathname}${nextSearch ? `?${nextSearch}` : ''}${locationState.hash || ''}`;
 
-    if (nextUrl !== currentUrl) {
-      window.history.replaceState(null, '', nextUrl);
+    replaceAppUrl(nextUrl);
+  }, [activeTab, locationState.hash, locationState.pathname, locationState.search, validActiveTabs]);
+
+  useEffect(() => {
+    const urlActiveTab = readRealtimeTabFromUrl(validActiveTabs, locationState.search);
+    if (!urlActiveTab || urlActiveTab === activeTab) {
+      syncingActiveTabFromUrlRef.current = false;
+      return;
     }
-  }, [activeTab]);
+
+    syncingActiveTabFromUrlRef.current = true;
+    setActiveTab(urlActiveTab);
+  }, [locationState.search, validActiveTabs]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -292,7 +315,7 @@ export const useRealtimePreferences = ({
 
         const currentPreferencesSnapshot = latestPreferencesRef.current || initialPreferencesSnapshot;
         const userChangedPreferencesDuringHydration = currentPreferencesSnapshot !== initialPreferencesSnapshot;
-        const urlActiveTab = readRealtimeTabFromUrl(validActiveTabs);
+        const urlActiveTab = readRealtimeTabFromUrl(validActiveTabs, locationState.search);
         const nextSymbols = Array.isArray(response.data.data?.symbols)
           ? response.data.data.symbols
               .filter((symbol) => typeof symbol === 'string')

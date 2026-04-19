@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { App as AntdApp, Layout, Typography, Menu, Space, Button, Tooltip, Spin, Grid } from 'antd';
 import {
   DashboardOutlined,
@@ -14,7 +14,9 @@ import ErrorBoundary from './components/ErrorBoundary';
 import { getStrategies, runBacktest } from './services/api';
 import { useTheme } from './contexts/ThemeContext';
 import { APP_VERSION } from './generated/version';
-import { buildViewUrlForCurrentState } from './utils/researchContext';
+import { useAppUrlState } from './hooks/useAppUrlState';
+import { replaceAppUrl } from './utils/appUrlState';
+import { buildViewUrlForCurrentState, navigateToAppUrl } from './utils/researchContext';
 
 // 懒加载非核心组件，减少初始包大小
 
@@ -44,14 +46,14 @@ const VIEW_QUERY_KEY = 'view';
 const VALID_VIEWS = new Set(['backtest', 'realtime', 'industry']);
 const WIDE_VIEW_SET = new Set(['backtest', 'industry']);
 const FULL_VIEW_SET = new Set(['realtime']);
-const readViewStateFromLocation = (search = window.location.search) => {
+const readViewStateFromLocation = (search = window.location.search, revision = 0) => {
   const params = new URLSearchParams(search);
   const requestedView = params.get(VIEW_QUERY_KEY);
 
   if (requestedView === 'alerts') {
     return {
       currentView: 'realtime',
-      realtimeAuxIntent: `alerts:${Date.now()}`,
+      realtimeAuxIntent: `alerts:${revision}`,
     };
   }
 
@@ -72,15 +74,19 @@ function App() {
   const { message } = AntdApp.useApp();
   const screens = useBreakpoint();
   const isMobile = !screens.lg;
+  const locationState = useAppUrlState();
   // Theme
   const { isDarkMode, toggleTheme } = useTheme();
   // ... (existing state)
   const [strategies, setStrategies] = useState([]);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
-  const [viewState, setViewState] = useState(() => readViewStateFromLocation());
   const [strategiesLoaded, setStrategiesLoaded] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const viewState = useMemo(
+    () => readViewStateFromLocation(locationState.search, locationState.revision),
+    [locationState.revision, locationState.search],
+  );
   const { currentView, realtimeAuxIntent } = viewState;
   const primaryNavigationId = 'app-primary-navigation';
   const mobileMenuLabel = mobileMenuOpen ? '收起导航菜单' : '展开导航菜单';
@@ -111,19 +117,16 @@ function App() {
   }, [currentView, strategiesLoaded, loadStrategies]);
 
   useEffect(() => {
-    const applyViewFromUrl = () => {
-      setViewState(readViewStateFromLocation());
-    };
+    const nextUrl = buildViewUrlForCurrentState(
+      currentView,
+      locationState.search,
+      locationState.pathname,
+    );
 
-    applyViewFromUrl();
-    window.addEventListener('popstate', applyViewFromUrl);
-    return () => window.removeEventListener('popstate', applyViewFromUrl);
-  }, []);
-
-  useEffect(() => {
-    const nextUrl = buildViewUrlForCurrentState(currentView);
-    window.history.replaceState(null, '', nextUrl);
-  }, [currentView]);
+    if (nextUrl !== locationState.href) {
+      replaceAppUrl(nextUrl);
+    }
+  }, [currentView, locationState.href, locationState.pathname, locationState.search]);
 
   useEffect(() => {
     if (!isMobile) {
@@ -183,15 +186,16 @@ function App() {
   ];
 
   const setCurrentView = useCallback((nextView) => {
-    setViewState((prev) => ({
-      ...prev,
-      currentView: nextView,
-      realtimeAuxIntent: nextView === 'realtime' ? prev.realtimeAuxIntent : null,
-    }));
+    const nextUrl = buildViewUrlForCurrentState(
+      nextView,
+      locationState.search,
+      locationState.pathname,
+    );
+    navigateToAppUrl(nextUrl);
     if (isMobile) {
       setMobileMenuOpen(false);
     }
-  }, [isMobile]);
+  }, [isMobile, locationState.pathname, locationState.search]);
 
   const renderContent = () => {
     switch (currentView) {

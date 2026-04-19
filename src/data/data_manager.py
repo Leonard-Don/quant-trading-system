@@ -13,6 +13,7 @@ import aiohttp
 from concurrent.futures import ThreadPoolExecutor
 from collections import OrderedDict
 import threading
+from functools import lru_cache
 from ..utils.performance import timing_decorator
 from ..utils.cache import CacheManager
 
@@ -90,6 +91,74 @@ class DataManager:
             return self.provider_factory.check_all_providers()
         return {"yahoo": True}
 
+    def _resolve_period_date_range(
+        self, period: Optional[str]
+    ) -> Optional[tuple[datetime, datetime]]:
+        """Convert yfinance-style periods to explicit date ranges when possible."""
+        normalized = str(period or "").strip().lower()
+        if not normalized:
+            return None
+
+        now = datetime.now()
+        if normalized == "ytd":
+            return datetime(now.year, 1, 1), now
+
+        if normalized == "max":
+            return None
+
+        day_mapping = {
+            "1d": 1,
+            "5d": 5,
+            "1mo": 30,
+            "3mo": 90,
+            "6mo": 180,
+            "1y": 365,
+            "2y": 730,
+            "5y": 1825,
+            "10y": 3650,
+        }
+        days = day_mapping.get(normalized)
+        if days is None:
+            return None
+        return now - timedelta(days=days), now
+
+    def _normalize_historical_frame(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Normalize OHLCV frames regardless of the provider path."""
+        if data is None or data.empty:
+            return pd.DataFrame()
+
+        normalized = data.copy()
+        normalized.columns = normalized.columns.str.lower()
+        normalized.index.name = "date"
+
+        if "returns" not in normalized.columns and "close" in normalized.columns:
+            normalized["returns"] = normalized["close"].pct_change()
+
+        return normalized
+
+    def _fetch_yahoo_historical_data(
+        self,
+        symbol: str,
+        *,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        interval: str = "1d",
+        period: Optional[str] = None,
+    ) -> pd.DataFrame:
+        """Fallback historical fetch that preserves yfinance period support."""
+        ticker = yf.Ticker(symbol)
+
+        if period:
+            data = ticker.history(period=period, interval=interval)
+        else:
+            data = ticker.history(start=start_date, end=end_date, interval=interval)
+
+        if data.empty:
+            logger.warning(f"No data found for {symbol}")
+            return pd.DataFrame()
+
+        return self._normalize_historical_frame(data)
+
 
     @timing_decorator
     def get_historical_data(
@@ -162,29 +231,48 @@ class DataManager:
                 return cached_after_wait
 
         try:
-            # Fetch from Yahoo Finance
-            ticker = yf.Ticker(symbol)
-            
+            data = pd.DataFrame()
+            source_name = "yahoo_legacy"
+            resolved_period_range = (
+                self._resolve_period_date_range(period) if period else None
+            )
+
+            provider_start_date = start_date
+            provider_end_date = end_date
+            provider_path_available = True
             if period:
-                data = ticker.history(period=period, interval=interval)
-            else:
-                data = ticker.history(start=start_date, end=end_date, interval=interval)
+                if resolved_period_range is None:
+                    provider_path_available = False
+                else:
+                    provider_start_date, provider_end_date = resolved_period_range
+
+            if self.provider_factory and provider_path_available:
+                data = self.provider_factory.get_historical_data(
+                    symbol=symbol,
+                    start_date=provider_start_date,
+                    end_date=provider_end_date,
+                    interval=interval,
+                )
+                data = self._normalize_historical_frame(data)
+                if not data.empty:
+                    source_name = "provider_factory"
 
             if data.empty:
-                logger.warning(f"No data found for {symbol}")
+                data = self._fetch_yahoo_historical_data(
+                    symbol,
+                    start_date=start_date,
+                    end_date=end_date,
+                    interval=interval,
+                    period=period,
+                )
+
+            if data.empty:
                 return pd.DataFrame()
-
-            # Clean and standardize column names
-            data.columns = data.columns.str.lower()
-            data.index.name = "date"
-
-            # Add returns
-            data["returns"] = data["close"].pct_change()
 
             # Cache the data
             self.cache.set(cache_key, data)
 
-            logger.info(f"Fetched {len(data)} rows for {symbol}")
+            logger.info(f"Fetched {len(data)} rows for {symbol} via {source_name}")
             return data
 
         except Exception as e:
@@ -324,6 +412,13 @@ class DataManager:
             Dictionary with latest price info
         """
         try:
+            if self.provider_factory:
+                quote = self.provider_factory.get_latest_quote(symbol)
+                if quote and "error" not in quote:
+                    quote.setdefault("symbol", symbol)
+                    quote.setdefault("timestamp", datetime.now().isoformat())
+                    return quote
+
             ticker = yf.Ticker(symbol)
             info = ticker.info
 
@@ -336,6 +431,7 @@ class DataManager:
                 "market_cap": info.get("marketCap", 0),
                 "pe_ratio": info.get("trailingPE", 0),
                 "timestamp": datetime.now().isoformat(),
+                "source": "yahoo_legacy",
             }
         except Exception as e:
             logger.error(f"Error getting latest price for {symbol}: {e}")
@@ -862,3 +958,14 @@ class DataManager:
     def get_alt_dashboard_snapshot(self, refresh: bool = False) -> Dict[str, Any]:
         """获取另类数据作战看板快照。"""
         return self.alt_data_manager.get_dashboard_snapshot(refresh=refresh)
+
+
+@lru_cache(maxsize=1)
+def get_shared_data_manager() -> DataManager:
+    """Return the process-wide shared DataManager instance."""
+    return DataManager()
+
+
+def reset_shared_data_manager() -> None:
+    """Test helper for clearing the shared DataManager singleton."""
+    get_shared_data_manager.cache_clear()

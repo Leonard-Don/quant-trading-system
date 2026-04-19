@@ -3,6 +3,7 @@ from fastapi.concurrency import run_in_threadpool
 from datetime import datetime
 import json
 import logging
+from backend.app.services.runtime_state import get_data_manager
 from backend.app.schemas.analysis import TrendAnalysisRequest, TrendAnalysisResponse
 import numpy as np
 import pandas as pd
@@ -12,12 +13,11 @@ from src.analytics.sentiment_analyzer import SentimentAnalyzer
 from src.analytics.comprehensive_scorer import ComprehensiveScorer
 from src.analytics.pattern_recognizer import PatternRecognizer
 from src.analytics.fundamental_analyzer import FundamentalAnalyzer
-from src.data.data_manager import DataManager
 from src.utils.cache import cache_manager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-data_manager = DataManager()
+data_manager = get_data_manager()
 trend_analyzer = TrendAnalyzer()
 volume_analyzer = VolumePriceAnalyzer()
 sentiment_analyzer = SentimentAnalyzer()

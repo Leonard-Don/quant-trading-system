@@ -1,15 +1,15 @@
 
 from fastapi import APIRouter, HTTPException
 from datetime import datetime
+from backend.app.services.runtime_state import get_data_manager
 from backend.app.schemas.base import MarketDataRequest
-from src.data.data_manager import DataManager
 from src.utils.json_utils import clean_data_for_json
 from src.utils.performance import timing_decorator
 import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-data_manager = DataManager()
+data_manager = get_data_manager()
 
 @router.post("/", summary="获取市场数据")
 @timing_decorator
