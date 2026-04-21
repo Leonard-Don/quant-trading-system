@@ -1,7 +1,11 @@
 import { render, waitFor, cleanup, fireEvent, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
-import MarketAnalysis from '../components/MarketAnalysis';
+import MarketAnalysis, {
+  ANALYSIS_CACHE_MAX_ENTRIES,
+  ANALYSIS_CACHE_TTL_MS,
+  __TEST_ONLY__,
+} from '../components/MarketAnalysis';
 import { getAnalysisOverview } from '../services/api';
 
 jest.mock('../services/api', () => ({
@@ -165,11 +169,13 @@ const overviewPayload = {
 describe('MarketAnalysis cache behavior', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    __TEST_ONLY__.clearAnalysisResponseCache();
     getAnalysisOverview.mockResolvedValue(overviewPayload);
   });
 
   afterEach(() => {
     cleanup();
+    jest.restoreAllMocks();
   });
 
   test('reuses cached overview data when reopening the same symbol and interval', async () => {
@@ -217,5 +223,67 @@ describe('MarketAnalysis cache behavior', () => {
     await waitFor(() => {
       expect(screen.getAllByText(/数据来源 实时拉取|数据来源：实时拉取/).length).toBeGreaterThan(0);
     });
+  });
+
+  test('expires cached entries once ttl has elapsed', async () => {
+    const nowSpy = jest.spyOn(Date, 'now');
+    nowSpy.mockReturnValue(1_000);
+
+    const view = render(<MarketAnalysis symbol="NVDA" embedMode />);
+
+    await waitFor(() => {
+      expect(getAnalysisOverview).toHaveBeenCalledTimes(1);
+    });
+
+    view.unmount();
+
+    nowSpy.mockReturnValue(1_000 + ANALYSIS_CACHE_TTL_MS + 1);
+    render(<MarketAnalysis symbol="NVDA" embedMode />);
+
+    await waitFor(() => {
+      expect(getAnalysisOverview).toHaveBeenCalledTimes(2);
+    });
+
+    nowSpy.mockRestore();
+  });
+});
+
+describe('MarketAnalysis internal cache limits', () => {
+  beforeEach(() => {
+    __TEST_ONLY__.clearAnalysisResponseCache();
+  });
+
+  test('evicts the oldest cache entry when size exceeds the max limit', () => {
+    for (let index = 0; index < ANALYSIS_CACHE_MAX_ENTRIES; index += 1) {
+      __TEST_ONLY__.writeAnalysisCache(`overview|SYM${index}|1d`, { score: index }, index + 1);
+    }
+
+    __TEST_ONLY__.writeAnalysisCache('overview|OVERFLOW|1d', { score: 999 }, ANALYSIS_CACHE_MAX_ENTRIES + 1);
+
+    expect(__TEST_ONLY__.getAnalysisCacheSize()).toBe(ANALYSIS_CACHE_MAX_ENTRIES);
+    expect(__TEST_ONLY__.readAnalysisCacheEntry('overview|SYM0|1d', ANALYSIS_CACHE_MAX_ENTRIES + 2)).toBeNull();
+    expect(__TEST_ONLY__.readAnalysisCacheEntry('overview|OVERFLOW|1d', ANALYSIS_CACHE_MAX_ENTRIES + 2)).toEqual({
+      data: { score: 999 },
+      cachedAt: ANALYSIS_CACHE_MAX_ENTRIES + 1,
+    });
+  });
+
+  test('keeps recently read cache entries hot under lru eviction', () => {
+    for (let index = 0; index < ANALYSIS_CACHE_MAX_ENTRIES; index += 1) {
+      __TEST_ONLY__.writeAnalysisCache(`overview|SYM${index}|1d`, { score: index }, index + 1);
+    }
+
+    expect(__TEST_ONLY__.readAnalysisCacheEntry('overview|SYM0|1d', ANALYSIS_CACHE_MAX_ENTRIES + 1)).toEqual({
+      data: { score: 0 },
+      cachedAt: 1,
+    });
+
+    __TEST_ONLY__.writeAnalysisCache('overview|OVERFLOW|1d', { score: 999 }, ANALYSIS_CACHE_MAX_ENTRIES + 2);
+
+    expect(__TEST_ONLY__.readAnalysisCacheEntry('overview|SYM0|1d', ANALYSIS_CACHE_MAX_ENTRIES + 3)).toEqual({
+      data: { score: 0 },
+      cachedAt: 1,
+    });
+    expect(__TEST_ONLY__.readAnalysisCacheEntry('overview|SYM1|1d', ANALYSIS_CACHE_MAX_ENTRIES + 3)).toBeNull();
   });
 });

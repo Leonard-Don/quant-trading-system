@@ -62,8 +62,22 @@ jest.mock('antd', () => {
   const Row = ({ children }) => <div>{children}</div>;
   const Col = ({ children }) => <div>{children}</div>;
   const Tag = ({ children }) => <span>{children}</span>;
-  const Button = ({ children, onClick, 'aria-pressed': ariaPressed, className }) => (
-    <button type="button" onClick={onClick} aria-pressed={ariaPressed} className={className}>
+  const Button = ({
+    children,
+    onClick,
+    'aria-label': ariaLabel,
+    'aria-pressed': ariaPressed,
+    className,
+    'data-testid': dataTestId,
+  }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel}
+      aria-pressed={ariaPressed}
+      className={className}
+      data-testid={dataTestId}
+    >
       {children}
     </button>
   );
@@ -314,6 +328,7 @@ describe('RealtimeStockDetailModal', () => {
     expect(screen.getByTestId('detail-compare-grid')).toHaveTextContent('AAPL');
     expect(screen.getByTestId('detail-compare-grid')).toHaveTextContent('NVDA');
     expect(screen.getByTestId('detail-compare-grid')).toHaveTextContent('MSFT');
+    expect(screen.getAllByText('实时就绪').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: 'MSFT' })).toHaveAttribute('aria-pressed', 'true');
 
     fireEvent.click(screen.getByRole('button', { name: 'MSFT' }));
@@ -348,6 +363,99 @@ describe('RealtimeStockDetailModal', () => {
 
     expect(screen.getByText('提醒命中 · 价格 ≥ $195.20')).toBeInTheDocument();
     expect(screen.getByText('命中后仍在阈值上方')).toBeInTheDocument();
+  });
+
+  test('can switch detail focus directly from a compare card', async () => {
+    const onNavigateSymbol = jest.fn();
+
+    await renderRealtimeDetailModal(
+      <RealtimeStockDetailModal
+        open
+        symbol="AAPL"
+        quote={{
+          symbol: 'AAPL',
+          price: 184.2,
+          change_percent: 2.8,
+          low: 178,
+          high: 185,
+          previous_close: 179,
+        }}
+        compareCandidates={[
+          {
+            symbol: 'AAPL',
+            name: '苹果',
+            quote: {
+              symbol: 'AAPL',
+              price: 184.2,
+              change_percent: 2.8,
+              low: 178,
+              high: 185,
+              previous_close: 179,
+            },
+          },
+          {
+            symbol: 'NVDA',
+            name: '英伟达',
+            quote: {
+              symbol: 'NVDA',
+              price: 910.5,
+              change_percent: 1.5,
+              low: 896,
+              high: 918,
+              previous_close: 897,
+            },
+          },
+        ]}
+        onNavigateSymbol={onNavigateSymbol}
+        onCancel={jest.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '切换到 NVDA' }));
+
+    expect(onNavigateSymbol).toHaveBeenCalledWith('NVDA');
+    expect(screen.getByTestId('detail-compare-switch-NVDA')).toBeInTheDocument();
+  });
+
+  test('marks compare cards without quotes as pending backfill', async () => {
+    await renderRealtimeDetailModal(
+      <RealtimeStockDetailModal
+        open
+        symbol="AAPL"
+        quote={{
+          symbol: 'AAPL',
+          price: 184.2,
+          change_percent: 2.8,
+          low: 178,
+          high: 185,
+          previous_close: 179,
+        }}
+        compareCandidates={[
+          {
+            symbol: 'AAPL',
+            name: '苹果',
+            quote: {
+              symbol: 'AAPL',
+              price: 184.2,
+              change_percent: 2.8,
+              low: 178,
+              high: 185,
+              previous_close: 179,
+            },
+          },
+          {
+            symbol: 'NVDA',
+            name: '英伟达',
+            quote: null,
+          },
+        ]}
+        onNavigateSymbol={jest.fn()}
+        onCancel={jest.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('detail-compare-card-NVDA')).toHaveTextContent('待补数');
+    expect(screen.getByText('正在补请求这张对比卡的实时 quote，回来后会自动刷新。')).toBeInTheDocument();
   });
 
   test('keeps compare selection stable when switching away and back to the same symbol', async () => {

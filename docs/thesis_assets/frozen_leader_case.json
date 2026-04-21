@@ -1,0 +1,40 @@
+{
+  "captured_at": "2026-04-21T12:55:01+08:00",
+  "focus_industry": "军工电子",
+  "related_heatmap_snapshot_id": "5:2026-04-20T12:18:59.072830",
+  "related_heatmap_captured_at": "2026-04-20T12:20:54.085180",
+  "core": [
+    {
+      "symbol": "600038",
+      "name": "中直股份",
+      "total_score": 52.31
+    },
+    {
+      "symbol": "000768",
+      "name": "中航西飞",
+      "total_score": 51.0
+    },
+    {
+      "symbol": "600372",
+      "name": "中航机载",
+      "total_score": 50.47
+    }
+  ],
+  "hot": [
+    {
+      "symbol": "600118",
+      "name": "中国卫星",
+      "total_score": 57.72
+    },
+    {
+      "symbol": "002111",
+      "name": "威海广泰",
+      "total_score": 49.0
+    },
+    {
+      "symbol": "600038",
+      "name": "中直股份",
+      "total_score": 48.39
+    }
+  ]
+}

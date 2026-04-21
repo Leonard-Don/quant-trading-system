@@ -572,25 +572,6 @@ function CrossMarketBacktestPanel() {
       ),
     [effectiveTemplate, researchContext, results, selectedTemplateId]
   );
-  const templateForPayload = useMemo(
-    () => effectiveTemplate || (
-      draftTemplateContext
-        ? {
-            id: draftTemplateContext.template_id || 'macro_mispricing_relative_value',
-            name: draftTemplateContext.template_name || 'Macro Mispricing Relative Value',
-            theme: draftTemplateContext.theme || '',
-            construction_mode: draftTemplateContext.construction_mode || quality.construction_mode,
-            driverHeadline: draftTemplateContext.recommendation_reason || '',
-            coreLegs: draftTemplateContext.core_legs || [],
-            supportLegs: draftTemplateContext.support_legs || [],
-            themeCore: draftTemplateContext.theme_core || '',
-            themeSupport: draftTemplateContext.theme_support || '',
-            signalAttribution: draftTemplateContext.signal_attribution || [],
-          }
-        : null
-    ),
-    [draftTemplateContext, effectiveTemplate, quality.construction_mode]
-  );
   const topRecommendationSelectionQualityLines = useMemo(
     () => getSelectionQualityExplanationLines(displayRecommendedTemplates[0]?.refreshMeta),
     [displayRecommendedTemplates]

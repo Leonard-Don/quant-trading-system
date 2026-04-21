@@ -7,6 +7,7 @@ import sys
 import os
 import logging
 import asyncio
+from collections.abc import Awaitable
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -89,24 +90,65 @@ async def delayed_warm_up_cache():
     await warm_up_cache()
 
 
+def start_background_task(coroutine: Awaitable[None], *, name: str) -> asyncio.Task:
+    """为后台任务保留句柄，便于关停时统一回收。"""
+    return asyncio.create_task(coroutine, name=name)
+
+
+async def cancel_background_tasks(tasks: list[asyncio.Task]) -> None:
+    """优雅停止后台任务，避免 reload/shutdown 后留下悬挂协程。"""
+    pending_tasks = [task for task in tasks if task and not task.done()]
+    for task in pending_tasks:
+        task.cancel()
+
+    if not pending_tasks:
+        return
+
+    results = await asyncio.gather(*pending_tasks, return_exceptions=True)
+    for task, result in zip(pending_tasks, results):
+        if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
+            logger.warning("Background task %s exited with error during shutdown: %s", task.get_name(), result)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    background_tasks: list[asyncio.Task] = []
+
     # 启动事件
     logger.info("Starting up RealTimeDataManager background task")
-    asyncio.create_task(realtime_manager.start_real_time_updates())
-    
+    background_tasks.append(
+        start_background_task(
+            realtime_manager.start_real_time_updates(),
+            name="realtime-manager",
+        )
+    )
+
     # 非关键后台刷新延后执行，避免与行业模块冷启动竞争资源
-    asyncio.create_task(delayed_background_start())
-    
+    background_tasks.append(
+        start_background_task(
+            delayed_background_start(),
+            name="alt-data-startup",
+        )
+    )
+
     # 缓存预热（后台延后执行，不阻塞启动）
-    asyncio.create_task(delayed_warm_up_cache())
-    
-    yield
-    # 关闭事件
-    logger.info("Stopping RealTimeDataManager")
-    realtime_manager.stop_real_time_updates()
-    stop_alt_data_scheduler()
+    background_tasks.append(
+        start_background_task(
+            delayed_warm_up_cache(),
+            name="cache-warmup",
+        )
+    )
+
+    try:
+        yield
+    finally:
+        # 关闭事件
+        logger.info("Stopping RealTimeDataManager")
+        realtime_manager.stop_real_time_updates()
+        stop_alt_data_scheduler()
+        await cancel_background_tasks(background_tasks)
+        realtime_manager.cleanup()
 
 
 # 创建FastAPI应用

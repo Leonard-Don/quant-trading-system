@@ -1,0 +1,98 @@
+{
+  "snapshot_id": "5:2026-04-20T12:18:59.072830",
+  "days": 5,
+  "captured_at": "2026-04-20T12:20:54.085180",
+  "update_time": "2026-04-20T12:18:59.072830",
+  "industries": [
+    {
+      "name": "能源金属",
+      "total_score": 94.11,
+      "value": 10.26,
+      "moneyFlow": 528000000.0,
+      "turnoverRate": 2.93,
+      "marketCapSource": "akshare_metadata",
+      "industryVolatility": 2.93
+    },
+    {
+      "name": "元件",
+      "total_score": 95.0,
+      "value": 9.76,
+      "moneyFlow": 2764000000.0,
+      "turnoverRate": 2.82,
+      "marketCapSource": "akshare_metadata",
+      "industryVolatility": 2.82
+    },
+    {
+      "name": "非金属材料",
+      "total_score": 70.26,
+      "value": 8.49,
+      "moneyFlow": -339000000.0,
+      "turnoverRate": 2.16,
+      "marketCapSource": "akshare_metadata",
+      "industryVolatility": 2.16
+    },
+    {
+      "name": "军工电子",
+      "total_score": 82.24,
+      "value": 8.12,
+      "moneyFlow": -84000000.0,
+      "turnoverRate": 2.33,
+      "marketCapSource": "akshare_metadata",
+      "industryVolatility": 2.33
+    },
+    {
+      "name": "军工装备",
+      "total_score": 92.04,
+      "value": 7.83,
+      "moneyFlow": 1895000000.0,
+      "turnoverRate": 0.0,
+      "marketCapSource": "unknown",
+      "industryVolatility": 0.0
+    },
+    {
+      "name": "小金属",
+      "total_score": 74.06,
+      "value": 7.63,
+      "moneyFlow": -1245000000.0,
+      "turnoverRate": 2.95,
+      "marketCapSource": "akshare_metadata",
+      "industryVolatility": 2.95
+    },
+    {
+      "name": "电子化学品",
+      "total_score": 81.28,
+      "value": 7.34,
+      "moneyFlow": 134000000.0,
+      "turnoverRate": 2.5,
+      "marketCapSource": "akshare_metadata",
+      "industryVolatility": 2.5
+    },
+    {
+      "name": "通信设备",
+      "total_score": 77.04,
+      "value": 7.19,
+      "moneyFlow": -2391000000.0,
+      "turnoverRate": 3.36,
+      "marketCapSource": "akshare_metadata",
+      "industryVolatility": 3.36
+    },
+    {
+      "name": "互联网电商",
+      "total_score": 73.12,
+      "value": 6.9,
+      "moneyFlow": -105000000.0,
+      "turnoverRate": 0.86,
+      "marketCapSource": "akshare_metadata",
+      "industryVolatility": 0.86
+    },
+    {
+      "name": "其他电源设备",
+      "total_score": 72.3,
+      "value": 6.66,
+      "moneyFlow": -500000000.0,
+      "turnoverRate": 1.27,
+      "marketCapSource": "akshare_metadata",
+      "industryVolatility": 1.27
+    }
+  ]
+}

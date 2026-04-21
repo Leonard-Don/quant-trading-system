@@ -536,3 +536,18 @@ def test_fetch_real_time_data_falls_back_to_historical_snapshot_when_live_quotes
     assert quotes["^GSPC"].source == "history_fallback:test_history"
     assert stats["fetched"] == 1
     assert stats["misses"] == 0
+
+
+def test_cleanup_allows_executors_to_be_recreated():
+    manager = RealTimeDataManager()
+
+    manager.cleanup()
+    manager._ensure_executors()
+
+    try:
+        assert manager.update_executor is not None
+        assert manager.fetch_executor is not None
+        assert not getattr(manager.update_executor, "_shutdown", False)
+        assert not getattr(manager.fetch_executor, "_shutdown", False)
+    finally:
+        manager.cleanup()

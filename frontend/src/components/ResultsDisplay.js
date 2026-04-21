@@ -43,6 +43,7 @@ import RiskRadar from './RiskRadar';
 import ReturnHistogram from './ReturnHistogram';
 
 const NO_TRADE_EPSILON = 1e-6;
+const EMPTY_PORTFOLIO_HISTORY = [];
 
 const buildNoTradeGuideItems = (result = {}, diagnostics = {}) => {
   const strategyName = result.strategy ? getStrategyName(result.strategy) : '当前策略';
@@ -129,7 +130,10 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
     [marketRegimeResult]
   );
   const trades = normalizedResults.trades || [];
-  const portfolioHistory = normalizedResults.portfolio_history || normalizedResults.portfolio || [];
+  const portfolioHistory = useMemo(
+    () => normalizedResults.portfolio_history || normalizedResults.portfolio || EMPTY_PORTFOLIO_HISTORY,
+    [normalizedResults.portfolio, normalizedResults.portfolio_history]
+  );
   const noTradeDiagnostics = useMemo(
     () => normalizedResults.no_trade_diagnostics || {},
     [normalizedResults.no_trade_diagnostics]
