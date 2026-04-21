@@ -56,6 +56,13 @@ class LeaderStockResponse(BaseModel):
     mini_trend: List[float] = Field(default_factory=list, description="近期价格走势火花线数据")
 
 
+class LeaderBoardsResponse(BaseModel):
+    """龙头股双榜单响应"""
+    core: List[LeaderStockResponse] = Field(default_factory=list, description="核心资产榜单")
+    hot: List[LeaderStockResponse] = Field(default_factory=list, description="热点先锋榜单")
+    errors: Dict[str, str] = Field(default_factory=dict, description="部分榜单失败时的错误提示")
+
+
 class LeaderDetailResponse(BaseModel):
     """龙头股详细信息响应"""
     symbol: str = Field(..., description="股票代码")
@@ -66,6 +73,8 @@ class LeaderDetailResponse(BaseModel):
     raw_data: Dict[str, Any] = Field(default_factory=dict, description="原始数据")
     technical_analysis: Dict[str, Any] = Field(default_factory=dict, description="技术分析")
     price_data: List[Dict[str, Any]] = Field(default_factory=list, description="价格数据")
+    degraded: bool = Field(False, description="是否为降级详情")
+    note: Optional[str] = Field(None, description="降级或回退说明")
 
 
 class HeatmapDataItem(BaseModel):
@@ -81,6 +90,7 @@ class HeatmapDataItem(BaseModel):
     industryVolatilitySource: str = Field("unavailable", description="行业波动率来源: historical_index/stock_dispersion/amplitude_proxy/turnover_rate_proxy/change_proxy/unavailable")
     netInflowRatio: float = Field(0, description="主力净流入占比")
     leadingStock: Optional[str] = Field(None, description="领涨股")
+    leadingStockSymbol: Optional[str] = Field(None, description="领涨股代码")
     sizeSource: str = Field("estimated", description="热力图尺寸口径: live/snapshot/proxy/estimated，与 marketCapSource 类别保持一致")
     marketCapSource: str = Field("unknown", description="行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*")
     marketCapSnapshotAgeHours: Optional[float] = Field(None, description="快照市值距今小时数，仅 snapshot_* 来源时存在")
@@ -123,6 +133,19 @@ class HeatmapHistoryItem(BaseModel):
 class HeatmapHistoryResponse(BaseModel):
     """热力图历史响应"""
     items: List[HeatmapHistoryItem] = Field(default_factory=list, description="历史快照列表")
+
+
+class IndustryBootstrapResponse(BaseModel):
+    """行业页首屏 bootstrap 响应"""
+    days: int = Field(..., description="热力图与默认热度排序使用的周期")
+    ranking_top_n: int = Field(..., description="预热的排行榜条数")
+    ranking_type: str = Field("gainers", description="预热排行榜类型")
+    ranking_sort_by: str = Field("total_score", description="预热排行榜排序字段")
+    ranking_order: str = Field("desc", description="预热排行榜排序方向")
+    heatmap: HeatmapResponse = Field(..., description="热力图首屏数据")
+    hot_industries: List[IndustryRankResponse] = Field(default_factory=list, description="预热后的行业排行榜")
+    leaders: LeaderBoardsResponse = Field(default_factory=LeaderBoardsResponse, description="龙头股双榜单")
+    errors: Dict[str, str] = Field(default_factory=dict, description="非阻断预热错误")
 
 
 class IndustryTrendPoint(BaseModel):

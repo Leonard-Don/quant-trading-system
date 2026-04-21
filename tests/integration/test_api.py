@@ -155,6 +155,40 @@ class TestAPIIntegration:
         assert results["metrics"]["total_return"] == results["total_return"]
         assert results["metrics"]["num_trades"] == results["num_trades"]
 
+    def test_backtest_endpoint_returns_no_trade_diagnostics_for_short_lookback(self, client, monkeypatch):
+        """短于策略观察窗口的回测应返回明确的无交易诊断。"""
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
+        monkeypatch.setattr(
+            backtest_endpoint.data_manager,
+            "get_historical_data",
+            lambda *args, **kwargs: build_mock_backtest_data(periods=20),
+        )
+
+        payload = {
+            "symbol": "AAPL",
+            "strategy": "moving_average",
+            "parameters": {"fast_period": 20, "slow_period": 50},
+            "start_date": "2026-03-21",
+            "end_date": "2026-04-21",
+            "initial_capital": 10000,
+            "commission": 0.001,
+            "slippage": 0.001,
+        }
+
+        response = client.post("/backtest", json=payload)
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["success"] is True
+        results = data["data"]
+
+        assert results["num_trades"] == 0
+        assert results["final_value"] == 10000
+        assert results["no_trade_diagnostics"]["reason_code"] == "insufficient_history_window"
+        assert results["no_trade_diagnostics"]["available_bars"] == 20
+        assert results["no_trade_diagnostics"]["estimated_required_bars"] == 50
+
     def test_compare_endpoint_matches_main_backtest_metrics(self, client, monkeypatch):
         """策略对比入口应与主回测入口复用同一指标口径。"""
         from backend.app.api.v1.endpoints import backtest as backtest_endpoint

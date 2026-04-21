@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, Spin, Empty, Tag, Row, Col, Progress, Button, Tooltip } from 'antd';
+import { Alert, Modal, Spin, Empty, Tag, Row, Col, Progress, Button, Tooltip } from 'antd';
 import { ReloadOutlined, StarFilled } from '@ant-design/icons';
 import {
     LineChart,
@@ -459,6 +459,14 @@ const StockDetailModal = ({
             renderErrorState(error, onRetry)
         ) : detailData ? (
             <div data-testid="stock-detail-modal-body">
+                {(detailData.degraded || detailData.note) && (
+                    <Alert
+                        showIcon
+                        type="warning"
+                        message={detailData.note || '当前展示的是降级详情快照。'}
+                        style={{ marginBottom: 16, borderRadius: 12 }}
+                    />
+                )}
                 <div
                     style={{
                         padding: '16px 18px',

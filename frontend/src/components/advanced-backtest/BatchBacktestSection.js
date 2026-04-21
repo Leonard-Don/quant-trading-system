@@ -32,7 +32,7 @@ import {
 import { getStrategyName, getStrategyParameterLabel, getStrategyDetails } from '../../constants/strategies';
 import { formatPercentage, formatCurrency, getValueColor } from '../../utils/formatting';
 import { DEFAULT_CAPITAL, DEFAULT_COMMISSION, DEFAULT_SLIPPAGE, getMetricValue } from '../../hooks/useAdvancedBacktestLab';
-import dayjs from '../../utils/dayjs';
+import { getDefaultBacktestDateRange } from '../../utils/backtestDefaults';
 
 const { RangePicker } = DatePicker;
 
@@ -130,7 +130,7 @@ function BatchBacktestForm({
         initialValues={{
           symbol: 'AAPL',
           strategies: ['buy_and_hold', 'moving_average'],
-          dateRange: [dayjs().subtract(1, 'year'), dayjs()],
+          dateRange: getDefaultBacktestDateRange(),
           initial_capital: DEFAULT_CAPITAL,
           commission: DEFAULT_COMMISSION,
           slippage: DEFAULT_SLIPPAGE,

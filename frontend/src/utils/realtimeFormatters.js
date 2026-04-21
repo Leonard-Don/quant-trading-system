@@ -13,6 +13,68 @@ export const CATEGORY_LABELS = {
   option: '期权',
   other: '其他',
 };
+const SOURCE_KIND_LABELS = Object.freeze({
+  alert: '提醒',
+  dynamic: '动态',
+  fallback: '降级补数',
+  history: '历史',
+  history_fallback: '历史补数',
+  live: '实时',
+  manual: '手动',
+  plan: '计划',
+  realtime: '实时',
+  rest: 'REST',
+  review: '复盘',
+  snapshot: '快照',
+  websocket: 'WebSocket',
+  ws: 'WebSocket',
+});
+const SOURCE_PROVIDER_LABELS = Object.freeze({
+  akshare: 'AkShare',
+  eastmoney: '东方财富',
+  fmp: 'FMP',
+  polygon: 'Polygon',
+  sina: '新浪',
+  test_history: 'Test History',
+  yahoo: 'Yahoo',
+});
+
+const formatSourceWord = (word) => {
+  const trimmedWord = String(word || '').trim();
+
+  if (!trimmedWord) {
+    return '';
+  }
+
+  if (/^[A-Z0-9]+$/.test(trimmedWord)) {
+    return trimmedWord;
+  }
+
+  if (trimmedWord.length <= 3) {
+    return trimmedWord.toUpperCase();
+  }
+
+  return `${trimmedWord.charAt(0).toUpperCase()}${trimmedWord.slice(1)}`;
+};
+
+const formatSourceToken = (token, labels = SOURCE_PROVIDER_LABELS) => {
+  const trimmedToken = String(token || '').trim();
+
+  if (!trimmedToken) {
+    return '';
+  }
+
+  const normalizedToken = trimmedToken.toLowerCase();
+  if (labels[normalizedToken]) {
+    return labels[normalizedToken];
+  }
+
+  return trimmedToken
+    .split(/[_\-\s]+/)
+    .filter(Boolean)
+    .map(formatSourceWord)
+    .join(' ');
+};
 
 export const hasNumericValue = (value) => value !== undefined && value !== null && !Number.isNaN(Number(value));
 
@@ -62,6 +124,30 @@ export const inferSymbolCategory = (symbol) => {
 };
 
 export const getCategoryLabel = (category) => CATEGORY_LABELS[category] || CATEGORY_LABELS.other;
+
+export const getRealtimeQuoteSourceMeta = (source) => {
+  const rawSource = typeof source === 'string' ? source.trim() : '';
+
+  if (!rawSource) {
+    return {
+      label: '--',
+      detail: '',
+      title: '--',
+    };
+  }
+
+  const separatorIndex = rawSource.indexOf(':');
+  const kindToken = separatorIndex >= 0 ? rawSource.slice(0, separatorIndex) : rawSource;
+  const providerToken = separatorIndex >= 0 ? rawSource.slice(separatorIndex + 1) : '';
+  const label = formatSourceToken(kindToken, SOURCE_KIND_LABELS);
+  const detail = providerToken ? formatSourceToken(providerToken, SOURCE_PROVIDER_LABELS) : '';
+
+  return {
+    label: label || rawSource,
+    detail: detail && detail !== label ? detail : '',
+    title: rawSource,
+  };
+};
 
 export const formatPrice = (price, fallback = '--') => {
   if (!hasNumericValue(price)) return fallback;

@@ -1,6 +1,11 @@
-import React, { startTransition, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Button, Space, Tabs, Typography, Tag } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, BellOutlined, DollarOutlined } from '@ant-design/icons';
+import {
+  getRealtimeQuoteBoardDensityMode,
+  getRealtimeQuoteListLayoutMode,
+} from '../../utils/realtimeQuoteBoardLayout';
+import { getRealtimeQuoteSourceMeta } from '../../utils/realtimeFormatters';
 
 const { Text } = Typography;
 const VIRTUALIZATION_THRESHOLD = 50;
@@ -52,8 +57,11 @@ const RealtimeQuoteBoard = ({
   getSymbolsByCategory,
   quoteSortOptions,
 }) => {
+  const boardMeasureRef = useRef(null);
   const [virtualScrollByTab, setVirtualScrollByTab] = useState({});
   const [gridVisibleCountByTab, setGridVisibleCountByTab] = useState({});
+  const [listLayoutMode, setListLayoutMode] = useState('wide');
+  const [boardDensityMode, setBoardDensityMode] = useState('comfortable');
 
   useEffect(() => {
     setVirtualScrollByTab({});
@@ -77,6 +85,50 @@ const RealtimeQuoteBoard = ({
       };
     });
   }, [activeTab, currentTabSymbols.length, quoteViewMode]);
+
+  useEffect(() => {
+    const node = boardMeasureRef.current;
+    if (!node) {
+      return undefined;
+    }
+
+    const updateLayoutMode = (width) => {
+      const nextBoardDensityMode = getRealtimeQuoteBoardDensityMode(width);
+      setBoardDensityMode((currentBoardDensityMode) => (
+        currentBoardDensityMode === nextBoardDensityMode ? currentBoardDensityMode : nextBoardDensityMode
+      ));
+
+      if (quoteViewMode !== 'list') {
+        return;
+      }
+
+      const nextLayoutMode = getRealtimeQuoteListLayoutMode(width);
+      setListLayoutMode((currentLayoutMode) => (
+        currentLayoutMode === nextLayoutMode ? currentLayoutMode : nextLayoutMode
+      ));
+    };
+
+    const measureWidth = () => {
+      updateLayoutMode(node.getBoundingClientRect().width || node.clientWidth || 0);
+    };
+
+    measureWidth();
+
+    if (typeof ResizeObserver === 'function') {
+      const observer = new ResizeObserver((entries) => {
+        const width = entries[0]?.contentRect?.width
+          ?? node.getBoundingClientRect().width
+          ?? node.clientWidth
+          ?? 0;
+        updateLayoutMode(width);
+      });
+      observer.observe(node);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener('resize', measureWidth);
+    return () => window.removeEventListener('resize', measureWidth);
+  }, [quoteViewMode]);
 
   const itemHeight = VIRTUAL_LIST_ITEM_HEIGHT_DEFAULT;
   const activeTabLabel = tabs.find((tab) => tab.key === activeTab)?.label || getCategoryLabel(activeTab);
@@ -119,6 +171,7 @@ const RealtimeQuoteBoard = ({
     const sparklinePoints = buildSparklinePoints(sparklineSeries);
     const isSelected = selectedQuoteSymbols.includes(symbol);
     const isDragging = draggingSymbol === symbol;
+    const sourceMeta = getRealtimeQuoteSourceMeta(quote.source);
     const detailTriggerLabel = `打开 ${getDisplayName(symbol)} ${symbol} 深度详情`;
     const handleCardKeyDown = (event) => {
       if (event.target !== event.currentTarget) {
@@ -131,9 +184,9 @@ const RealtimeQuoteBoard = ({
     };
 
     return (
-      <div key={symbol}>
       <Card
-        className={`realtime-quote-card realtime-quote-card--${quoteViewMode}`}
+        key={symbol}
+        className={`realtime-quote-card realtime-quote-card--${quoteViewMode}${isListMode ? ` realtime-quote-card--list-${listLayoutMode}` : ''}`}
         style={{
           border: isSelected
             ? `1px solid color-mix(in srgb, var(--accent-primary) 54%, ${categoryTheme.accent} 46%)`
@@ -248,13 +301,18 @@ const RealtimeQuoteBoard = ({
               )}
             </div>
 
-            <div className="realtime-quote-card__source">
-              <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: 0.72 }}>
+            <div
+              className="realtime-quote-card__source"
+              title={sourceMeta.title}
+              aria-label={`数据源 ${sourceMeta.title}`}
+            >
+              <div className="realtime-quote-card__source-label">
                 Source
               </div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>
-                {quote.source || '--'}
-              </div>
+              <div className="realtime-quote-card__source-value">{sourceMeta.label}</div>
+              {sourceMeta.detail ? (
+                <div className="realtime-quote-card__source-detail">{sourceMeta.detail}</div>
+              ) : null}
             </div>
           </div>
 
@@ -336,7 +394,6 @@ const RealtimeQuoteBoard = ({
           </div>
         </div>
       </Card>
-      </div>
     );
   }, [
     EMPTY_NUMERIC_TEXT,
@@ -357,6 +414,7 @@ const RealtimeQuoteBoard = ({
     onSetDraggingSymbol,
     onToggleQuoteSelection,
     quoteViewMode,
+    listLayoutMode,
     removeSymbol,
     reorderWithinCategory,
     resolveSymbolCategory,
@@ -517,101 +575,107 @@ const RealtimeQuoteBoard = ({
         border: '1px solid var(--border-color)',
         boxShadow: '0 18px 42px rgba(15, 23, 42, 0.07)',
       }}
+    >
+      <div
+        ref={boardMeasureRef}
+        data-realtime-board-density={boardDensityMode}
+        data-realtime-list-layout={quoteViewMode === 'list' ? listLayoutMode : 'grid'}
       >
-      <div className="realtime-board-head">
-        <div className="realtime-board-headline">
-          <div className="realtime-block-title">多市场看盘面板</div>
-          <div className="realtime-block-subtitle">
-            选中不同市场后按卡片浏览，点开即可进入完整的实时快照与全维分析详情。
-          </div>
-          <div className="realtime-board-badges">
-            <div className="realtime-board-summary">
-              <span>当前 {getCategoryLabel(activeTab)}</span>
-              <strong>{currentTabSymbols.length}</strong>
+        <div className="realtime-board-head">
+          <div className="realtime-board-headline">
+            <div className="realtime-block-title">多市场看盘面板</div>
+            <div className="realtime-block-subtitle">
+              选中不同市场后按卡片浏览，点开即可进入完整的实时快照与全维分析详情。
             </div>
-            <div className="realtime-board-summary">
-              <span>已选</span>
-              <strong>{selectedCurrentTabSymbols.length}</strong>
+            <div className="realtime-board-badges">
+              <div className="realtime-board-summary">
+                <span>当前 {getCategoryLabel(activeTab)}</span>
+                <strong>{currentTabSymbols.length}</strong>
+              </div>
+              <div className="realtime-board-summary">
+                <span>已选</span>
+                <strong>{selectedCurrentTabSymbols.length}</strong>
+              </div>
             </div>
           </div>
-        </div>
-        <div className="realtime-board-controls">
-          <div className="realtime-board-control-group">
-            <Text type="secondary" className="realtime-board-control-label">排序</Text>
-            <Space wrap>
-              {quoteSortOptions.map((option) => (
-                <Button
-                  key={option.key}
-                  size="small"
-                  type={quoteSortMode === option.key ? 'primary' : 'default'}
-                  onClick={() => onQuoteSortModeChange(option.key)}
-                >
-                  {option.label}
-                </Button>
-              ))}
-            </Space>
-          </div>
-          <div className="realtime-board-control-group">
-            <Text type="secondary" className="realtime-board-control-label">视图</Text>
-            <Space wrap>
-              <Button
-                size="small"
-                type={quoteViewMode === 'grid' ? 'primary' : 'default'}
-                onClick={() => onQuoteViewModeChange('grid')}
-              >
-                网格模式
-              </Button>
-              <Button
-                size="small"
-                type={quoteViewMode === 'list' ? 'primary' : 'default'}
-                onClick={() => onQuoteViewModeChange('list')}
-              >
-                列表模式
-              </Button>
-            </Space>
-          </div>
-          <div className="realtime-board-control-group realtime-board-control-group--selection">
-            <Text type="secondary" className="realtime-board-control-label">批量</Text>
-            <Space wrap>
-              <Button size="small" onClick={onSelectAllCurrentTab}>
-                全选当前分组
-              </Button>
-              {selectedCurrentTabSymbols.length > 0 && (
-                <Button size="small" onClick={onClearSelectedQuotes}>
-                  清空选择
-                </Button>
-              )}
-              {selectedCurrentTabSymbols.length > 0 ? categoryOptions
-                .filter((option) => option.key !== activeTab)
-                .slice(0, 4)
-                .map((option) => (
+          <div className="realtime-board-controls">
+            <div className="realtime-board-control-group">
+              <Text type="secondary" className="realtime-board-control-label">排序</Text>
+              <Space wrap>
+                {quoteSortOptions.map((option) => (
                   <Button
                     key={option.key}
                     size="small"
-                    onClick={() => onMoveSelectedQuotesToCategory(option.key)}
+                    type={quoteSortMode === option.key ? 'primary' : 'default'}
+                    onClick={() => onQuoteSortModeChange(option.key)}
                   >
-                    移到{option.label}
+                    {option.label}
                   </Button>
-                )) : null}
-              {selectedCurrentTabSymbols.length > 0 && (
-                <Button size="small" danger onClick={onRemoveSelectedQuotes}>
-                  批量删除
+                ))}
+              </Space>
+            </div>
+            <div className="realtime-board-control-group">
+              <Text type="secondary" className="realtime-board-control-label">视图</Text>
+              <Space wrap>
+                <Button
+                  size="small"
+                  type={quoteViewMode === 'grid' ? 'primary' : 'default'}
+                  onClick={() => onQuoteViewModeChange('grid')}
+                >
+                  网格模式
                 </Button>
-              )}
-            </Space>
+                <Button
+                  size="small"
+                  type={quoteViewMode === 'list' ? 'primary' : 'default'}
+                  onClick={() => onQuoteViewModeChange('list')}
+                >
+                  列表模式
+                </Button>
+              </Space>
+            </div>
+            <div className={`realtime-board-control-group realtime-board-control-group--selection${selectedCurrentTabSymbols.length > 0 ? ' realtime-board-control-group--selection-active' : ''}`}>
+              <Text type="secondary" className="realtime-board-control-label">批量</Text>
+              <Space wrap>
+                <Button size="small" onClick={onSelectAllCurrentTab}>
+                  全选当前分组
+                </Button>
+                {selectedCurrentTabSymbols.length > 0 && (
+                  <Button size="small" onClick={onClearSelectedQuotes}>
+                    清空选择
+                  </Button>
+                )}
+                {selectedCurrentTabSymbols.length > 0 ? categoryOptions
+                  .filter((option) => option.key !== activeTab)
+                  .slice(0, 4)
+                  .map((option) => (
+                    <Button
+                      key={option.key}
+                      size="small"
+                      onClick={() => onMoveSelectedQuotesToCategory(option.key)}
+                    >
+                      移到{option.label}
+                    </Button>
+                  )) : null}
+                {selectedCurrentTabSymbols.length > 0 && (
+                  <Button size="small" danger onClick={onRemoveSelectedQuotes}>
+                    批量删除
+                  </Button>
+                )}
+              </Space>
+            </div>
           </div>
         </div>
-      </div>
 
-      <Tabs
-        type="card"
-        activeKey={activeTab}
-        onChange={onActiveTabChange}
-        size="large"
-        className="market-tabs"
-        destroyOnHidden
-        items={tabItems}
-      />
+        <Tabs
+          type="card"
+          activeKey={activeTab}
+          onChange={onActiveTabChange}
+          size="large"
+          className="market-tabs"
+          destroyOnHidden
+          items={tabItems}
+        />
+      </div>
     </Card>
   );
 };

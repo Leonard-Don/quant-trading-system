@@ -1,18 +1,16 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import React, { startTransition, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
     Card,
-    Table,
     Empty,
     Tag,
     Button,
-    Tooltip,
-    Tabs
+    Tooltip
 } from 'antd';
 import {
     CrownOutlined,
     ReloadOutlined
 } from '@ant-design/icons';
-import { getLeaderStocks, getLeaderDetail, getIndustryTrend } from '../services/api';
+import { getLeaderBoards, getLeaderStocks, getLeaderDetail, getIndustryTrend } from '../services/api';
 import StockDetailModal from './StockDetailModal';
 import MiniSparkline from './common/MiniSparkline';
 import { useSafeMessageApi } from '../utils/messageApi';
@@ -87,6 +85,135 @@ const renderLeaderLoadingScaffold = (accentColor, title, subtitle) => (
     </div>
 );
 
+const getLeaderIndustryTagColor = (industry) => {
+    const tagColors = ['magenta', 'red', 'volcano', 'orange', 'gold', 'green', 'cyan', 'blue', 'geekblue', 'purple'];
+    const hash = (industry || '').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
+    return tagColors[hash % tagColors.length];
+};
+
+const formatLeaderMarketCapText = (value) => {
+    if (!value) return '-';
+    const yi = value / 1e8;
+    if (yi >= 10000) return `${(yi / 10000).toFixed(1)}万亿`;
+    return `${yi.toFixed(0)}亿`;
+};
+
+const formatLeaderPeText = (value) => {
+    if (!value) return '-';
+    return Number(value).toFixed(1);
+};
+
+const LEADER_BOARD_CACHE_VERSION = 1;
+const LEADER_BOARD_CACHE_TTL_MS = 5 * 60 * 1000;
+const FOCUSED_LEADER_MIN_ROWS = 4;
+const leaderBoardMemorySnapshotStore = new Map();
+const leaderBoardInflightRequestStore = new Map();
+
+const buildLeaderBoardCacheKey = (topN, topIndustries, perIndustry) => (
+    `industry:leader-boards:v${LEADER_BOARD_CACHE_VERSION}:${topN}:${topIndustries}:${perIndustry}`
+);
+
+const normalizeLeaderBoardSnapshot = (payload) => {
+    const core = Array.isArray(payload?.core) ? payload.core : [];
+    const hot = Array.isArray(payload?.hot) ? payload.hot : [];
+    const errors = payload?.errors && typeof payload.errors === 'object' ? payload.errors : {};
+    if (core.length === 0 && hot.length === 0) {
+        return null;
+    }
+    return { core, hot, errors };
+};
+
+const isLeaderBoardSnapshotFresh = (payload) => (
+    payload?.version === LEADER_BOARD_CACHE_VERSION
+    && payload?.timestamp
+    && Date.now() - Number(payload.timestamp) <= LEADER_BOARD_CACHE_TTL_MS
+);
+
+const readLeaderBoardMemorySnapshot = (cacheKey) => {
+    const payload = leaderBoardMemorySnapshotStore.get(cacheKey);
+    if (!payload) return null;
+    if (!isLeaderBoardSnapshotFresh(payload)) {
+        leaderBoardMemorySnapshotStore.delete(cacheKey);
+        return null;
+    }
+    return normalizeLeaderBoardSnapshot(payload);
+};
+
+const readLeaderBoardSnapshot = (cacheKey) => {
+    const memorySnapshot = readLeaderBoardMemorySnapshot(cacheKey);
+    if (memorySnapshot) {
+        return memorySnapshot;
+    }
+
+    if (typeof window === 'undefined' || !window.sessionStorage) {
+        return null;
+    }
+
+    try {
+        const raw = window.sessionStorage.getItem(cacheKey);
+        if (!raw) return null;
+        const payload = JSON.parse(raw);
+        if (!isLeaderBoardSnapshotFresh(payload)) {
+            window.sessionStorage.removeItem(cacheKey);
+            return null;
+        }
+
+        const normalized = normalizeLeaderBoardSnapshot(payload);
+        if (!normalized) {
+            return null;
+        }
+        leaderBoardMemorySnapshotStore.set(cacheKey, payload);
+        return normalized;
+    } catch (error) {
+        console.warn('Failed to read cached leader overview snapshot:', error);
+        return null;
+    }
+};
+
+const persistLeaderBoardSnapshot = (cacheKey, overview) => {
+    if (typeof window === 'undefined' || !window.sessionStorage) {
+        return;
+    }
+
+    try {
+        const payload = {
+            version: LEADER_BOARD_CACHE_VERSION,
+            timestamp: Date.now(),
+            core: Array.isArray(overview?.core) ? overview.core : [],
+            hot: Array.isArray(overview?.hot) ? overview.hot : [],
+            errors: overview?.errors && typeof overview.errors === 'object' ? overview.errors : {},
+        };
+        if (!normalizeLeaderBoardSnapshot(payload)) {
+            return;
+        }
+        leaderBoardMemorySnapshotStore.set(cacheKey, payload);
+        window.sessionStorage.setItem(cacheKey, JSON.stringify(payload));
+    } catch (error) {
+        console.warn('Failed to persist leader overview snapshot:', error);
+    }
+};
+
+const requestLeaderBoardsShared = (cacheKey, topN, topIndustries, perIndustry) => {
+    const inflight = leaderBoardInflightRequestStore.get(cacheKey);
+    if (inflight) {
+        return inflight;
+    }
+
+    const request = getLeaderBoards(topN, topIndustries, perIndustry)
+        .finally(() => {
+            if (leaderBoardInflightRequestStore.get(cacheKey) === request) {
+                leaderBoardInflightRequestStore.delete(cacheKey);
+            }
+        });
+    leaderBoardInflightRequestStore.set(cacheKey, request);
+    return request;
+};
+
+export const __resetLeaderBoardClientCacheForTests = () => {
+    leaderBoardMemorySnapshotStore.clear();
+    leaderBoardInflightRequestStore.clear();
+};
+
 /**
  * 龙头股面板组件
  * 展示龙头股推荐列表和详细分析
@@ -97,10 +224,25 @@ const LeaderStockPanel = ({
     perIndustry = 5,
     onStockClick,
     focusIndustry = null,
-    onClearFocusIndustry
+    onClearFocusIndustry,
+    bootstrappedOverview = null,
+    bootstrapLoading = false,
 }) => {
     const message = useSafeMessageApi();
     const normalizeIndustry = useCallback((value) => String(value || '').trim().toLowerCase(), []);
+    const cacheKey = useMemo(
+        () => buildLeaderBoardCacheKey(topN, topIndustries, perIndustry),
+        [perIndustry, topIndustries, topN]
+    );
+    const normalizedBootstrappedOverview = useMemo(
+        () => normalizeLeaderBoardSnapshot(bootstrappedOverview),
+        [bootstrappedOverview]
+    );
+    const initialSnapshot = useMemo(
+        () => normalizedBootstrappedOverview || readLeaderBoardSnapshot(cacheKey),
+        [cacheKey, normalizedBootstrappedOverview]
+    );
+    const hasInitialSnapshot = Boolean(initialSnapshot?.hot?.length || initialSnapshot?.core?.length);
     const resolveScoreType = (record) => {
         if (record?.score_type) return record.score_type;
         return (record?.dimension_scores?.score_type === 'surge' || record?.dimension_scores?.score_type === 'hot')
@@ -108,10 +250,10 @@ const LeaderStockPanel = ({
             : 'core';
     };
     const getLeaderRowKey = (record) => `${record.symbol || 'unknown'}-${record.industry || 'na'}`;
-    const [hotLeaders, setHotLeaders] = useState([]);
-    const [coreLeaders, setCoreLeaders] = useState([]);
-    const [hotLoading, setHotLoading] = useState(true);
-    const [coreLoading, setCoreLoading] = useState(true);
+    const [hotLeaders, setHotLeaders] = useState(() => initialSnapshot?.hot || []);
+    const [coreLeaders, setCoreLeaders] = useState(() => initialSnapshot?.core || []);
+    const [hotLoading, setHotLoading] = useState(() => !initialSnapshot?.hot?.length);
+    const [coreLoading, setCoreLoading] = useState(() => !initialSnapshot?.core?.length);
     const [error, setError] = useState(null);
     const [warning, setWarning] = useState(null);
     const [selectedStock, setSelectedStock] = useState(null);
@@ -122,7 +264,6 @@ const LeaderStockPanel = ({
     const [modalVisible, setModalVisible] = useState(false);
     const [selectedStockRecord, setSelectedStockRecord] = useState(null);
     const [detailIndustryTrend, setDetailIndustryTrend] = useState(null);
-    const [activeBoard, setActiveBoard] = useState('core');
 
     // AbortController refs
     const hotLeadersAbortRef = useRef(null);
@@ -132,33 +273,114 @@ const LeaderStockPanel = ({
     const loadRequestIdRef = useRef(0);
     const detailRequestIdRef = useRef(0);
     const hotAutoRetryRef = useRef(false);
+    const leaderSnapshotRef = useRef({
+        hot: initialSnapshot?.hot || [],
+        core: initialSnapshot?.core || [],
+    });
+
+    useEffect(() => {
+        leaderSnapshotRef.current = {
+            hot: hotLeaders,
+            core: coreLeaders,
+        };
+    }, [coreLeaders, hotLeaders]);
+
+    useEffect(() => {
+        if (!normalizedBootstrappedOverview) return;
+
+        const nextHotLeaders = Array.isArray(normalizedBootstrappedOverview.hot) ? normalizedBootstrappedOverview.hot : [];
+        const nextCoreLeaders = Array.isArray(normalizedBootstrappedOverview.core) ? normalizedBootstrappedOverview.core : [];
+        const nextErrors = normalizedBootstrappedOverview.errors && typeof normalizedBootstrappedOverview.errors === 'object'
+            ? normalizedBootstrappedOverview.errors
+            : {};
+
+        startTransition(() => {
+            setHotLeaders(nextHotLeaders);
+            setCoreLeaders(nextCoreLeaders);
+            setHotLoading(false);
+            setCoreLoading(false);
+        });
+        persistLeaderBoardSnapshot(cacheKey, {
+            hot: nextHotLeaders,
+            core: nextCoreLeaders,
+            errors: nextErrors,
+        });
+        setError(null);
+        setWarning(Object.values(nextErrors).filter(Boolean).join('；') || null);
+    }, [cacheKey, normalizedBootstrappedOverview]);
 
     // 渐进加载：hot 和 core 独立请求，先到先渲染
     const loadData = useCallback(async () => {
         const requestId = ++loadRequestIdRef.current;
+        const hasVisibleSnapshot = (
+            leaderSnapshotRef.current.hot.length > 0
+            || leaderSnapshotRef.current.core.length > 0
+        );
         setError(null);
         setWarning(null);
-        setHotLoading(true);
-        setCoreLoading(true);
+        setHotLoading(!hasVisibleSnapshot);
+        setCoreLoading(!hasVisibleSnapshot);
 
         // 取消之前的请求
         if (hotLeadersAbortRef.current) hotLeadersAbortRef.current.abort();
         if (coreLeadersAbortRef.current) coreLeadersAbortRef.current.abort();
-        
+
+        try {
+            const overview = await requestLeaderBoardsShared(cacheKey, topN, topIndustries, perIndustry);
+            if (requestId !== loadRequestIdRef.current) {
+                return;
+            }
+
+            const nextHotLeaders = Array.isArray(overview?.hot) ? overview.hot : [];
+            const nextCoreLeaders = Array.isArray(overview?.core) ? overview.core : [];
+            const nextErrors = overview?.errors && typeof overview.errors === 'object' ? overview.errors : {};
+            startTransition(() => {
+                setHotLeaders(nextHotLeaders);
+                setCoreLeaders(nextCoreLeaders);
+                setHotLoading(false);
+                setCoreLoading(false);
+            });
+
+            if (nextHotLeaders.length > 0 || nextCoreLeaders.length > 0) {
+                persistLeaderBoardSnapshot(cacheKey, {
+                    hot: nextHotLeaders,
+                    core: nextCoreLeaders,
+                    errors: nextErrors,
+                });
+            }
+
+            if (nextErrors.hot && nextErrors.core && nextHotLeaders.length === 0 && nextCoreLeaders.length === 0) {
+                if (hasVisibleSnapshot) {
+                    setWarning('龙头股榜单刷新失败，当前展示的是稍早快照');
+                } else {
+                    setError('龙头股榜单加载失败，请稍后重试');
+                }
+                return;
+            }
+
+            const partialMessages = [nextErrors.core, nextErrors.hot].filter(Boolean);
+            if (partialMessages.length > 0) {
+                setWarning(partialMessages.join('；'));
+            }
+            return;
+        } catch (overviewError) {
+            console.warn('Leader overview request failed, falling back to legacy dual requests:', overviewError);
+        }
+
+        if (requestId !== loadRequestIdRef.current) return;
         hotLeadersAbortRef.current = new AbortController();
         coreLeadersAbortRef.current = new AbortController();
 
-        // Hot 请求（通常更快）
         const hotPromise = getLeaderStocks(topN, topIndustries, perIndustry, 'hot', {
             signal: hotLeadersAbortRef.current.signal
         })
             .then(data => {
                 if (requestId !== loadRequestIdRef.current) return { canceled: true };
                 setHotLeaders(data || []);
-                return { ok: true, empty: !data || data.length === 0 };
+                return { ok: true };
             })
             .catch(err => {
-                if (err.name === 'CanceledError') return { canceled: true };
+                if (err.name === 'CanceledError' || err.name === 'AbortError') return { canceled: true };
                 console.error('Failed to load hot leaders:', err);
                 if (requestId === loadRequestIdRef.current) {
                     setHotLeaders([]);
@@ -171,17 +393,16 @@ const LeaderStockPanel = ({
                 }
             });
 
-        // Core 请求（较慢）
         const corePromise = getLeaderStocks(topN, topIndustries, perIndustry, 'core', {
             signal: coreLeadersAbortRef.current.signal
         })
             .then(data => {
                 if (requestId !== loadRequestIdRef.current) return { canceled: true };
                 setCoreLeaders(data || []);
-                return { ok: true, empty: !data || data.length === 0 };
+                return { ok: true };
             })
             .catch(err => {
-                if (err.name === 'CanceledError') return { canceled: true };
+                if (err.name === 'CanceledError' || err.name === 'AbortError') return { canceled: true };
                 console.error('Failed to load core leaders:', err);
                 if (requestId === loadRequestIdRef.current) {
                     setCoreLeaders([]);
@@ -199,24 +420,71 @@ const LeaderStockPanel = ({
 
         const failures = [hotResult, coreResult].filter(result => result && result.ok === false);
         if (failures.length >= 2) {
-            setError('龙头股榜单加载失败，请稍后重试');
-            return;
-        }
-        if (failures.length === 1) {
+            if (hasVisibleSnapshot) {
+                setWarning('龙头股榜单刷新失败，当前展示的是稍早快照');
+            } else {
+                setError('龙头股榜单加载失败，请稍后重试');
+            }
+        } else if (failures.length === 1) {
             setWarning(failures[0].message);
+        } else if (requestId === loadRequestIdRef.current) {
+            const latestHot = leaderSnapshotRef.current.hot;
+            const latestCore = leaderSnapshotRef.current.core;
+            if (latestHot.length === 0 && latestCore.length === 0) {
+                return;
+            }
+            persistLeaderBoardSnapshot(cacheKey, {
+                hot: latestHot,
+                core: latestCore,
+                errors: {},
+            });
         }
-    }, [topN, topIndustries, perIndustry]);
+    }, [cacheKey, perIndustry, topIndustries, topN]);
 
     useEffect(() => {
-        loadData();
+        let timeoutId = null;
+        let idleId = null;
+        const hasSeededOverview = Boolean(
+            normalizedBootstrappedOverview?.hot?.length
+            || normalizedBootstrappedOverview?.core?.length
+        );
+        const scheduleLoad = () => {
+            if (bootstrapLoading && !hasInitialSnapshot && !hasSeededOverview) {
+                setHotLoading(true);
+                setCoreLoading(true);
+                return;
+            }
+
+            if (hasSeededOverview) {
+                return;
+            }
+
+            if (hasInitialSnapshot) {
+                if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+                    idleId = window.requestIdleCallback(() => loadData(), { timeout: 1200 });
+                    return;
+                }
+                timeoutId = window.setTimeout(() => loadData(), 180);
+                return;
+            }
+            loadData();
+        };
+
+        scheduleLoad();
         
         return () => {
+            if (idleId != null && typeof window !== 'undefined' && typeof window.cancelIdleCallback === 'function') {
+                window.cancelIdleCallback(idleId);
+            }
+            if (timeoutId != null) {
+                window.clearTimeout(timeoutId);
+            }
             if (hotLeadersAbortRef.current) hotLeadersAbortRef.current.abort();
             if (coreLeadersAbortRef.current) coreLeadersAbortRef.current.abort();
             if (detailAbortRef.current) detailAbortRef.current.abort();
             if (detailTrendAbortRef.current) detailTrendAbortRef.current.abort();
         };
-    }, [loadData]);
+    }, [bootstrapLoading, hasInitialSnapshot, loadData, normalizedBootstrappedOverview]);
 
     useEffect(() => {
         if (hotLoading) return undefined;
@@ -235,7 +503,7 @@ const LeaderStockPanel = ({
     }, [error, hotLeaders.length, hotLoading, loadData]);
 
     // 合并 loading 状态：全部加载完后如果都为空，显示错误
-    const loading = hotLoading && coreLoading;
+    const loading = hotLoading && coreLoading && hotLeaders.length === 0 && coreLeaders.length === 0;
 
     const focusedIndustryKey = normalizeIndustry(focusIndustry);
     const focusedCoreLeaders = useMemo(
@@ -250,9 +518,46 @@ const LeaderStockPanel = ({
             : hotLeaders.filter((item) => normalizeIndustry(item?.industry) === focusedIndustryKey)),
         [hotLeaders, focusedIndustryKey, normalizeIndustry]
     );
-    const displayedCoreLeaders = focusedIndustryKey && focusedCoreLeaders.length > 0 ? focusedCoreLeaders : coreLeaders;
-    const displayedHotLeaders = focusedIndustryKey && focusedHotLeaders.length > 0 ? focusedHotLeaders : hotLeaders;
+    const buildFocusedLeaderDisplay = useCallback((focusedRows, allRows) => {
+        if (!focusedIndustryKey || focusedRows.length === 0) {
+            return allRows;
+        }
+        const targetSize = Math.max(
+            focusedRows.length,
+            Math.min(Math.max(perIndustry, FOCUSED_LEADER_MIN_ROWS), allRows.length),
+        );
+        if (focusedRows.length >= targetSize) {
+            return focusedRows.map((item) => ({ ...item, isFocusSupplemental: false }));
+        }
+
+        const decorated = focusedRows.map((item) => ({ ...item, isFocusSupplemental: false }));
+        const usedKeys = new Set(decorated.map((item) => getLeaderRowKey(item)));
+
+        for (const item of allRows) {
+            const itemKey = getLeaderRowKey(item);
+            if (usedKeys.has(itemKey)) continue;
+            decorated.push({ ...item, isFocusSupplemental: true });
+            usedKeys.add(itemKey);
+            if (decorated.length >= targetSize) break;
+        }
+
+        return decorated;
+    }, [focusedIndustryKey, perIndustry]);
+    const displayedCoreLeaders = useMemo(
+        () => (focusedIndustryKey && focusedCoreLeaders.length > 0
+            ? buildFocusedLeaderDisplay(focusedCoreLeaders, coreLeaders)
+            : coreLeaders),
+        [buildFocusedLeaderDisplay, coreLeaders, focusedCoreLeaders, focusedIndustryKey]
+    );
+    const displayedHotLeaders = useMemo(
+        () => (focusedIndustryKey && focusedHotLeaders.length > 0
+            ? buildFocusedLeaderDisplay(focusedHotLeaders, hotLeaders)
+            : hotLeaders),
+        [buildFocusedLeaderDisplay, focusedHotLeaders, focusedIndustryKey, hotLeaders]
+    );
     const focusHasMatches = focusedCoreLeaders.length > 0 || focusedHotLeaders.length > 0;
+    const coreHasFocusSupplementals = displayedCoreLeaders.some((item) => item?.isFocusSupplemental);
+    const hotHasFocusSupplementals = displayedHotLeaders.some((item) => item?.isFocusSupplemental);
     const activeLeaderPool = useMemo(
         () => (selectedScoreType === 'hot' ? hotLeaders : coreLeaders),
         [coreLeaders, hotLeaders, selectedScoreType]
@@ -353,34 +658,6 @@ const LeaderStockPanel = ({
         };
     }, [activeLeaderPool, detailData, detailIndustryTrend, normalizeIndustry, selectedScoreType, selectedStockRecord]);
 
-    useEffect(() => {
-        if (focusIndustry && focusedCoreLeaders.length === 0 && focusedHotLeaders.length > 0) {
-            setActiveBoard('hot');
-            return;
-        }
-        if (focusIndustry && focusedCoreLeaders.length > 0) {
-            setActiveBoard('core');
-        }
-    }, [focusIndustry, focusedCoreLeaders.length, focusedHotLeaders.length]);
-
-    useEffect(() => {
-        if (focusIndustry) return;
-        if (activeBoard === 'core' && displayedCoreLeaders.length === 0 && !hotLoading && displayedHotLeaders.length > 0) {
-            setActiveBoard('hot');
-            return;
-        }
-        if (activeBoard === 'hot' && displayedHotLeaders.length === 0 && !coreLoading && displayedCoreLeaders.length > 0) {
-            setActiveBoard('core');
-        }
-    }, [
-        activeBoard,
-        coreLoading,
-        displayedCoreLeaders.length,
-        displayedHotLeaders.length,
-        focusIndustry,
-        hotLoading,
-    ]);
-
     // 加载股票详情
     const loadDetail = useCallback(async (symbol, scoreType = 'core', record = null) => {
         if (detailAbortRef.current) detailAbortRef.current.abort();
@@ -436,161 +713,56 @@ const LeaderStockPanel = ({
         }
     }, [message]);
 
-    // 表格列定义 — 含核心指标
-    const columns = [
-        {
-            title: '排名',
-            dataIndex: 'global_rank',
-            key: 'global_rank',
-            width: 40,
-            render: (rank) => {
-                const medals = {
-                    1: { icon: '🥇', color: '#d48806' },
-                    2: { icon: '🥈', color: 'var(--text-secondary)' },
-                    3: { icon: '🥉', color: '#b37feb' },
-                };
-                const medal = medals[rank];
-                if (medal) {
-                    return (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, fontSize: 12, color: medal.color }}>
-                            <span style={{ fontSize: 14 }}>{medal.icon}</span>
-                            {rank}
-                        </span>
-                    );
-                }
-                return (
-                    <span style={{
-                        fontWeight: 700,
-                        fontSize: 12,
-                        color: rank <= 10 ? 'var(--accent-warning)' : 'var(--text-muted)'
-                    }}>
-                        {rank}
-                    </span>
-                );
-            }
-        },
-        {
-            title: '代码',
-            dataIndex: 'symbol',
-            key: 'symbol',
-            width: 62,
-            render: (symbol) => (
-                <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '15px', paddingInline: 6, borderRadius: 999 }}>{symbol}</Tag>
-            )
-        },
-        {
-            title: '名称',
-            dataIndex: 'name',
-            key: 'name',
-            width: 84,
-            ellipsis: true,
-            render: (name, record) => {
-                const scoreType = resolveScoreType(record);
-                return (
-                    <Button
-                        type="link"
-                        size="small"
-                        onClick={(e) => { e.stopPropagation(); loadDetail(record.symbol, scoreType, record); }}
-                        style={{ padding: 0, height: 'auto', fontWeight: 600, fontSize: 13 }}
-                    >
-                        {name}
-                    </Button>
-                );
-            }
-        },
-        {
-            title: '涨跌幅',
-            dataIndex: 'change_pct',
-            key: 'change_pct',
-            width: 68,
-            sorter: (a, b) => (a.change_pct || 0) - (b.change_pct || 0),
-            render: (value) => (
-                <span style={{ color: (value || 0) >= 0 ? '#cf1322' : '#3f8600', fontWeight: 700, fontSize: 12 }}>
-                    {(value || 0) >= 0 ? '+' : ''}{(value || 0).toFixed(2)}%
+    const renderLeaderRank = (rank) => {
+        const medals = {
+            1: { icon: '🥇', color: '#d48806' },
+            2: { icon: '🥈', color: 'var(--text-secondary)' },
+            3: { icon: '🥉', color: '#b37feb' },
+        };
+        const medal = medals[rank];
+        if (medal) {
+            return (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700, fontSize: 12, color: medal.color }}>
+                    <span style={{ fontSize: 14 }}>{medal.icon}</span>
+                    {rank}
                 </span>
-            )
-        },
-        {
-            title: '走势',
-            dataIndex: 'mini_trend',
-            key: 'mini_trend',
-            width: 96,
-            render: (points, record) => (
-                <Tooltip title={`${record.name || record.symbol} 近期价格轨迹`}>
-                    <div style={{ width: 88 }}>
-                        <MiniSparkline points={(points && points.length >= 2) ? points : buildLeaderFallbackTrend(record)} ariaLabel={`${record.name || record.symbol} 近期走势`} />
-                    </div>
-                </Tooltip>
-            )
-        },
-        {
-            title: '得分',
-            dataIndex: 'total_score',
-            key: 'total_score',
-            width: 60,
-            sorter: (a, b) => (a.total_score || 0) - (b.total_score || 0),
-            render: (score, record) => {
-                const isSurge = resolveScoreType(record) === 'hot';
-                const label = isSurge ? '动量评分' : '综合评分';
-                return (
-                    <Tooltip title={`${label} ${(score || 0).toFixed(1)}`}>
-                        <span style={{
-                            fontWeight: 700,
-                            fontSize: 13,
-                            color: (score || 0) >= 70 ? '#52c41a' : (score || 0) >= 50 ? '#faad14' : '#ff4d4f'
-                        }}>
-                            {(score || 0).toFixed(1)}
-                        </span>
-                    </Tooltip>
-                );
-            }
-        },
-        {
-            title: '市值',
-            dataIndex: 'market_cap',
-            key: 'market_cap',
-            width: 62,
-            sorter: (a, b) => (a.market_cap || 0) - (b.market_cap || 0),
-            render: (value) => {
-                if (!value) return <span style={{ color: 'var(--text-muted)' }}>-</span>;
-                const yi = value / 1e8;
-                if (yi >= 10000) return <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{(yi / 10000).toFixed(1)}万亿</span>;
-                return <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{yi.toFixed(0)}亿</span>;
-            }
-        },
-        {
-            title: 'PE',
-            dataIndex: 'pe_ratio',
-            key: 'pe_ratio',
-            width: 48,
-            sorter: (a, b) => (a.pe_ratio || 0) - (b.pe_ratio || 0),
-            render: (value) => {
-                if (!value) return <span style={{ color: 'var(--text-muted)' }}>-</span>;
-                const color = value > 0 && value < 30 ? '#52c41a' : value > 80 ? '#ff4d4f' : 'var(--text-primary)';
-                return <span style={{ fontSize: 11, color }}>{value.toFixed(1)}</span>;
-            }
-        },
-        {
-            title: '行业',
-            dataIndex: 'industry',
-            key: 'industry',
-            width: 68,
-            ellipsis: true,
-            render: (industry, record) => {
-                const tagColors = ['magenta', 'red', 'volcano', 'orange', 'gold', 'green', 'cyan', 'blue', 'geekblue', 'purple'];
-                const hash = (industry || '').split('').reduce((acc, c) => acc + c.charCodeAt(0), 0);
-                const color = tagColors[hash % tagColors.length];
-                const rank = record.industry_rank;
-                return (
-                    <Tooltip title={rank > 0 ? `行业内排名 #${rank}` : undefined}>
-                        <Tag color={color} style={{ fontSize: 10, lineHeight: '15px', paddingInline: 6, borderRadius: 999, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {industry}{rank > 1 ? ` #${rank}` : ''}
-                        </Tag>
-                    </Tooltip>
-                );
-            }
-        },
-    ];
+            );
+        }
+        return (
+            <span style={{
+                fontWeight: 700,
+                fontSize: 12,
+                color: rank <= 10 ? 'var(--accent-warning)' : 'var(--text-muted)'
+            }}>
+                {rank}
+            </span>
+        );
+    };
+
+    const renderLeaderChange = (value) => (
+        <span style={{ color: (value || 0) >= 0 ? '#cf1322' : '#3f8600', fontWeight: 700, fontSize: 12 }}>
+            {(value || 0) >= 0 ? '+' : ''}{(value || 0).toFixed(2)}%
+        </span>
+    );
+
+    const renderLeaderScore = (score, record) => {
+        const isSurge = resolveScoreType(record) === 'hot';
+        const label = isSurge ? '动量' : '综合';
+        return (
+            <Tag
+                color="default"
+                style={{
+                    margin: 0,
+                    borderRadius: 999,
+                    fontSize: 11,
+                    color: (score || 0) >= 70 ? '#52c41a' : (score || 0) >= 50 ? '#faad14' : '#ff4d4f',
+                    borderColor: 'currentColor',
+                }}
+            >
+                {label} {(score || 0).toFixed(1)}
+            </Tag>
+        );
+    };
 
     const renderSectionHeader = (title, subtitle, accentColor, count, scoreHint) => (
         <div style={{
@@ -619,6 +791,136 @@ const LeaderStockPanel = ({
                 <Tag color="default" style={{ margin: 0, borderRadius: 999, fontSize: 11 }}>{count} 只</Tag>
                 <Tag color="default" style={{ margin: 0, borderRadius: 999, fontSize: 11 }}>{scoreHint}</Tag>
             </div>
+        </div>
+    );
+
+    const renderCompactLeaderRow = (record, accentColor) => {
+        const scoreType = resolveScoreType(record);
+        const marketCapText = formatLeaderMarketCapText(record.market_cap);
+        const peText = formatLeaderPeText(record.pe_ratio);
+        const industryColor = getLeaderIndustryTagColor(record.industry);
+        const sparklinePoints = (record.mini_trend && record.mini_trend.length >= 2)
+            ? record.mini_trend
+            : buildLeaderFallbackTrend(record);
+        const openRecord = () => {
+            if (onStockClick) {
+                onStockClick(record.symbol);
+                return;
+            }
+            loadDetail(record.symbol, scoreType, record);
+        };
+
+        return (
+            <div
+                key={getLeaderRowKey(record)}
+                role="button"
+                tabIndex={0}
+                onClick={openRecord}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openRecord();
+                    }
+                }}
+                data-testid="leader-stock-row"
+                data-symbol={record.symbol || ''}
+                data-score-type={scoreType}
+                style={{
+                    padding: '10px 12px',
+                    borderRadius: 12,
+                    background: `linear-gradient(180deg, color-mix(in srgb, ${accentColor} 8%, var(--bg-secondary) 92%) 0%, color-mix(in srgb, var(--bg-secondary) 98%, var(--bg-primary) 2%) 100%)`,
+                    border: `1px solid color-mix(in srgb, ${accentColor} 16%, var(--border-color) 84%)`,
+                    display: 'grid',
+                    gap: 10,
+                    cursor: 'pointer',
+                }}
+            >
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, minWidth: 0, flex: 1 }}>
+                        <div style={{ paddingTop: 2 }}>{renderLeaderRank(record.global_rank)}</div>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontWeight: 700, fontSize: 13, color: 'var(--text-primary)', minWidth: 0 }}>
+                                    {record.name}
+                                </span>
+                                <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '15px', paddingInline: 6, borderRadius: 999 }}>
+                                    {record.symbol}
+                                </Tag>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                                <Tag color={industryColor} style={{ margin: 0, fontSize: 10, lineHeight: '15px', paddingInline: 6, borderRadius: 999 }}>
+                                    {record.industry}{record.industry_rank > 1 ? ` #${record.industry_rank}` : ''}
+                                </Tag>
+                                {record.isFocusSupplemental ? (
+                                    <Tag color="default" style={{ margin: 0, fontSize: 10, lineHeight: '15px', paddingInline: 6, borderRadius: 999 }}>
+                                        补位参考
+                                    </Tag>
+                                ) : null}
+                                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>市值 {marketCapText}</span>
+                                <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>PE {peText}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div style={{ display: 'grid', justifyItems: 'end', gap: 8, flex: 'none' }}>
+                        {renderLeaderChange(record.change_pct)}
+                        <MiniSparkline
+                            width={72}
+                            height={24}
+                            points={sparklinePoints}
+                            ariaLabel={`${record.name || record.symbol} 近期走势`}
+                        />
+                    </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {renderLeaderScore(record.total_score, record)}
+                        <Tag color="default" style={{ margin: 0, borderRadius: 999, fontSize: 11 }}>
+                            {scoreType === 'hot' ? '热点先锋' : '核心资产'}
+                        </Tag>
+                    </div>
+                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>点击查看详情</span>
+                </div>
+            </div>
+        );
+    };
+
+    const renderLeaderBoardSection = ({
+        accentColor,
+        data,
+        emptyText,
+        loading: sectionLoading,
+        scoreHint,
+        subtitle,
+        title,
+        loadingSubtitle,
+        loadingTitle,
+        testId,
+    }) => (
+        <div
+            style={{
+                padding: '12px 12px 6px',
+                borderRadius: 12,
+                background: `linear-gradient(180deg, color-mix(in srgb, ${accentColor} 5%, transparent) 0%, color-mix(in srgb, ${accentColor} 1.5%, transparent) 100%)`,
+                border: `1px solid color-mix(in srgb, ${accentColor} 10%, transparent)`,
+                width: '100%',
+                maxWidth: '100%',
+            }}
+            data-testid={testId}
+        >
+            {sectionLoading && data.length === 0
+                ? renderLeaderLoadingScaffold(accentColor, loadingTitle, loadingSubtitle)
+                : (
+                    <>
+                        {renderSectionHeader(title, subtitle, accentColor, data.length, scoreHint)}
+                        {data.length === 0 ? (
+                            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={emptyText} />
+                        ) : (
+                            <div style={{ display: 'grid', gap: 10 }}>
+                                {data.map((record) => renderCompactLeaderRow(record, accentColor))}
+                            </div>
+                        )}
+                    </>
+                )}
         </div>
     );
 
@@ -718,7 +1020,7 @@ const LeaderStockPanel = ({
                             </div>
                             <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
                                 {focusHasMatches
-                                    ? `核心资产 ${focusedCoreLeaders.length} 只，热点先锋 ${focusedHotLeaders.length} 只`
+                                    ? `核心资产 ${focusedCoreLeaders.length} 只，热点先锋 ${focusedHotLeaders.length} 只${coreHasFocusSupplementals || hotHasFocusSupplementals ? '，已补入参考标的' : ''}`
                                     : '当前榜单里暂无该行业龙头，已回退展示全市场榜单'}
                             </div>
                         </div>
@@ -730,114 +1032,36 @@ const LeaderStockPanel = ({
                     </div>
                 )}
 
-                <Tabs
-                    activeKey={activeBoard}
-                    onChange={setActiveBoard}
-                    items={[
-                        {
-                            key: 'core',
-                            label: `核心资产 ${displayedCoreLeaders.length}`,
-                            children: (
-                                <div style={{
-                                    padding: '12px 12px 6px',
-                                    borderRadius: 12,
-                                    background: 'linear-gradient(180deg, rgba(24,144,255,0.05) 0%, rgba(24,144,255,0.015) 100%)',
-                                    border: '1px solid rgba(24,144,255,0.10)'
-                                }} data-testid="leader-stock-table-core">
-                                    {coreLoading && displayedCoreLeaders.length === 0
-                                        ? renderLeaderLoadingScaffold('#1890ff', '核心资产', '正在按基本面与流动性整理行业中军。')
-                                        : (
-                                            <>
-                                    {renderSectionHeader(
-                                        '核心资产',
-                                        focusIndustry && focusedCoreLeaders.length > 0 ? `${focusIndustry} 行业内偏长期基本面与流动性中军` : '偏长期基本面与流动性中军',
-                                        '#1890ff',
-                                        displayedCoreLeaders.length,
-                                        focusIndustry && focusedCoreLeaders.length > 0 ? '行业内综合评分' : '综合评分'
-                                    )}
-                                    <Table
-                                        className="leader-stock-table leader-stock-table-core"
-                                        dataSource={displayedCoreLeaders}
-                                        columns={columns}
-                                        rowKey={getLeaderRowKey}
-                                        size="small"
-                                        loading={coreLoading}
-                                        scroll={{ x: 760 }}
-                                        pagination={false}
-                                        onRow={(record) => ({
-                                            onClick: () => {
-                                                if (onStockClick) {
-                                                    onStockClick(record.symbol);
-                                                    return;
-                                                }
-                                                loadDetail(record.symbol, resolveScoreType(record), record);
-                                            },
-                                            style: { cursor: 'pointer' },
-                                            'data-testid': 'leader-stock-row',
-                                            'data-symbol': record.symbol || '',
-                                            'data-score-type': resolveScoreType(record),
-                                        })}
-                                        style={{ background: 'transparent' }}
-                                        locale={{ emptyText: coreLoading ? '正在加载核心资产...' : (focusIndustry ? '当前行业暂无可用核心资产标的' : '当前暂无可用核心资产标的') }}
-                                    />
-                                            </>
-                                        )}
-                                </div>
-                            ),
-                        },
-                        {
-                            key: 'hot',
-                            label: `热点先锋 ${displayedHotLeaders.length}`,
-                            children: (
-                                <div style={{
-                                    padding: '12px 12px 6px',
-                                    borderRadius: 12,
-                                    background: 'linear-gradient(180deg, rgba(235,47,150,0.05) 0%, rgba(235,47,150,0.015) 100%)',
-                                    border: '1px solid rgba(235,47,150,0.10)'
-                                }} data-testid="leader-stock-table-hot">
-                                    {hotLoading && displayedHotLeaders.length === 0
-                                        ? renderLeaderLoadingScaffold('#eb2f96', '热点先锋', '正在按短线动量与资金关注度筛选热点标的。')
-                                        : (
-                                            <>
-                                    {renderSectionHeader(
-                                        '热点先锋',
-                                        focusIndustry && focusedHotLeaders.length > 0 ? `${focusIndustry} 行业内偏短线涨势与资金关注度` : '偏短线涨势与资金关注度',
-                                        '#eb2f96',
-                                        displayedHotLeaders.length,
-                                        focusIndustry && focusedHotLeaders.length > 0 ? '行业内动量评分' : '动量评分'
-                                    )}
-                                    <Table
-                                        className="leader-stock-table leader-stock-table-hot"
-                                        dataSource={displayedHotLeaders}
-                                        columns={columns}
-                                        rowKey={getLeaderRowKey}
-                                        size="small"
-                                        loading={hotLoading}
-                                        scroll={{ x: 760 }}
-                                        pagination={false}
-                                        onRow={(record) => ({
-                                            onClick: () => {
-                                                if (onStockClick) {
-                                                    onStockClick(record.symbol);
-                                                    return;
-                                                }
-                                                loadDetail(record.symbol, resolveScoreType(record), record);
-                                            },
-                                            style: { cursor: 'pointer' },
-                                            'data-testid': 'leader-stock-row',
-                                            'data-symbol': record.symbol || '',
-                                            'data-score-type': resolveScoreType(record),
-                                        })}
-                                        style={{ background: 'transparent' }}
-                                        locale={{ emptyText: hotLoading ? '正在加载热点先锋...' : (focusIndustry ? '当前行业暂无可用热点先锋标的' : '当前暂无可用热点先锋标的') }}
-                                    />
-                                            </>
-                                        )}
-                                </div>
-                            ),
-                        },
-                    ]}
-                />
+                <div style={{ display: 'grid', gap: 12 }}>
+                    {renderLeaderBoardSection({
+                        accentColor: '#1890ff',
+                        data: displayedCoreLeaders,
+                        emptyText: coreLoading ? '正在加载核心资产...' : (focusIndustry ? '当前行业暂无可用核心资产标的' : '当前暂无可用核心资产标的'),
+                        loading: coreLoading,
+                        scoreHint: focusIndustry && focusedCoreLeaders.length > 0 ? '行业内综合评分' : '综合评分',
+                        subtitle: focusIndustry && focusedCoreLeaders.length > 0
+                            ? `${focusIndustry} 行业内偏长期基本面与流动性中军${coreHasFocusSupplementals ? ' · 已补入全市场参考' : ''}`
+                            : '偏长期基本面与流动性中军',
+                        title: `核心资产 ${displayedCoreLeaders.length}`,
+                        loadingSubtitle: '正在按基本面与流动性整理行业中军。',
+                        loadingTitle: '核心资产',
+                        testId: 'leader-stock-table-core',
+                    })}
+                    {renderLeaderBoardSection({
+                        accentColor: '#eb2f96',
+                        data: displayedHotLeaders,
+                        emptyText: hotLoading ? '正在加载热点先锋...' : (focusIndustry ? '当前行业暂无可用热点先锋标的' : '当前暂无可用热点先锋标的'),
+                        loading: hotLoading,
+                        scoreHint: focusIndustry && focusedHotLeaders.length > 0 ? '行业内动量评分' : '动量评分',
+                        subtitle: focusIndustry && focusedHotLeaders.length > 0
+                            ? `${focusIndustry} 行业内偏短线涨势与资金关注度${hotHasFocusSupplementals ? ' · 已补入全市场参考' : ''}`
+                            : '偏短线涨势与资金关注度',
+                        title: `热点先锋 ${displayedHotLeaders.length}`,
+                        loadingSubtitle: '正在按短线动量与资金关注度筛选热点标的。',
+                        loadingTitle: '热点先锋',
+                        testId: 'leader-stock-table-hot',
+                    })}
+                </div>
             </Card>
             {renderDetailModal()}
         </>

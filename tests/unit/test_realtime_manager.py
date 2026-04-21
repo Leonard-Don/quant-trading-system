@@ -1,5 +1,8 @@
+import logging
 from datetime import datetime
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 
@@ -180,6 +183,46 @@ def test_prewarm_quote_bundle_uses_cached_quotes_without_refetching():
     assert payload["MSFT"]["price"] == 202.0
 
 
+def test_get_quotes_dict_coalesces_inflight_bundle_requests():
+    manager = RealTimeDataManager()
+    calls = []
+    first_fetch_started = threading.Event()
+    release_fetch = threading.Event()
+
+    def fake_fetch(symbols, use_cache=True):
+        calls.append((tuple(symbols), use_cache))
+        first_fetch_started.set()
+        release_fetch.wait(timeout=1)
+        return {
+            "BTC-USD": manager._build_quote(
+                "BTC-USD",
+                {
+                    "symbol": "BTC-USD",
+                    "price": 64000.0,
+                    "timestamp": datetime.now().isoformat(),
+                },
+                default_source="test",
+            ),
+        }, {"requested": 1}
+
+    manager._fetch_real_time_data = fake_fetch
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            first_future = executor.submit(manager.get_quotes_dict, ["BTC-USD"], True)
+            assert first_fetch_started.wait(timeout=1)
+            second_future = executor.submit(manager.get_quotes_dict, ["BTC-USD"], True)
+            time.sleep(0.05)
+            release_fetch.set()
+            first = first_future.result(timeout=1)
+            second = second_future.result(timeout=1)
+    finally:
+        manager.cleanup()
+
+    assert first == second
+    assert calls == [(("BTC-USD",), True)]
+    assert manager.runtime_stats["bundle_fetch_coalesced"] == 1
+
+
 def test_update_quotes_prewarms_bundle_for_current_subscription_set():
     manager = RealTimeDataManager()
     manager.subscribed_symbols = {"AAPL", "MSFT"}
@@ -217,6 +260,38 @@ def test_update_quotes_prewarms_bundle_for_current_subscription_set():
     assert bundle["AAPL"]["price"] == 100.0
     assert bundle["MSFT"]["price"] == 200.0
     assert manager.runtime_stats["bundle_prewarm_calls"] >= 1
+
+
+def test_update_quotes_reuses_shared_quote_dict_path():
+    manager = RealTimeDataManager()
+    manager.subscribed_symbols = {"BTC-USD"}
+    manager._fetch_real_time_data = lambda *args, **kwargs: (_ for _ in ()).throw(
+        AssertionError("_update_quotes should not bypass get_quotes_dict")
+    )
+
+    def fake_get_quotes_dict(symbols, use_cache=True):
+        manager.runtime_stats["last_fetch_stats"] = {
+            "requested": 1,
+            "cache_hits": 1,
+            "fetched": 0,
+            "misses": 0,
+        }
+        return {
+            "BTC-USD": {
+                "symbol": "BTC-USD",
+                "price": 64000.0,
+                "timestamp": datetime.now().isoformat(),
+                "source": "test",
+            },
+        }
+
+    manager.get_quotes_dict = fake_get_quotes_dict
+    try:
+        manager._update_quotes()
+    finally:
+        manager.cleanup()
+
+    assert manager.quote_history["BTC-USD"][-1].price == 64000.0
 
 
 def test_market_summary_exposes_cache_runtime_stats():
@@ -356,6 +431,66 @@ def test_fetch_with_provider_times_out_slow_batch_quotes(monkeypatch):
             assert "timed out" in str(exc)
     finally:
         manager.cleanup()
+
+
+def test_fetch_with_provider_uses_shorter_timeout_for_crypto_batches(monkeypatch):
+    manager = RealTimeDataManager()
+    monkeypatch.setattr(realtime_manager_module, "PROVIDER_FETCH_TIMEOUT_SECONDS", 1)
+    monkeypatch.setattr(realtime_manager_module, "CRYPTO_PROVIDER_FETCH_TIMEOUT_SECONDS", 0.01)
+
+    try:
+        try:
+            manager._fetch_with_provider(_SlowBatchProvider(), ["BTC-USD", "ETH-USD"])
+            assert False, "Expected crypto batch fetch timeout"
+        except TimeoutError as exc:
+            assert "0.01s" in str(exc)
+    finally:
+        manager.cleanup()
+
+
+def test_fetch_provider_quotes_treats_expected_crypto_yahoo_gaps_as_skip(caplog):
+    manager = RealTimeDataManager()
+
+    class _YahooGapProvider(BaseDataProvider):
+        name = "yahoo"
+        priority = 1
+
+        def get_historical_data(self, *args, **kwargs):
+            raise NotImplementedError
+
+        def get_latest_quote(self, symbol):
+            raise NotImplementedError
+
+        def get_multiple_quotes(self, symbols):
+            return {
+                symbol: {
+                    "symbol": symbol,
+                    "error": f"${symbol}: possibly delisted; no price data found",
+                    "source": "yahoo",
+                }
+                for symbol in symbols
+            }
+
+    provider = _YahooGapProvider()
+    original_providers = manager.provider_factory.providers
+    manager.provider_factory.providers = {"yahoo": provider}
+    manager._get_provider_fetch_order = lambda: [provider]
+    manager._get_preferred_provider_names_for_symbol = lambda symbol: ["yahoo"]
+
+    try:
+        with caplog.at_level(logging.INFO):
+            results = manager._fetch_provider_quotes(["BNB-USD"])
+    finally:
+        manager.provider_factory.providers = original_providers
+        manager.cleanup()
+
+    assert results == {}
+    assert manager.provider_health["yahoo"]["failures"] == 0
+    assert manager.provider_health["yahoo"]["skipped"] == 1
+    assert any(
+        "expected crypto symbol gaps" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_fetch_real_time_data_falls_back_to_historical_snapshot_when_live_quotes_fail():

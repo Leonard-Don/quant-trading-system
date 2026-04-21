@@ -139,23 +139,25 @@ function TemplateManagerSection({
           ) : null}
         </Col>
         <Col xs={24} xl={compact ? 24 : 14}>
-          <div className="workspace-section">
-            <div className="workspace-section__header">
-              <div>
+          <div className="workspace-section advanced-lab-comparison-section">
+            <div className="advanced-lab-comparison-section__header">
+              <div className="advanced-lab-comparison-section__copy">
                 <div className="workspace-section__title">实验版本对比</div>
                 <div className="workspace-section__description">当前结果会与一条已保存实验版本对比，快速确认这次改动到底带来了什么变化。</div>
               </div>
+            </div>
+            <div className="advanced-lab-comparison-section__toolbar">
+              <Select
+                value={selectedSnapshotId || undefined}
+                style={{ minWidth: 260 }}
+                placeholder="选择一个历史版本"
+                options={savedSnapshots.map((snapshot) => ({
+                  value: snapshot.id,
+                  label: snapshot.name,
+                }))}
+                onChange={setSelectedSnapshotId}
+              />
               <Space wrap>
-                <Select
-                  value={selectedSnapshotId || undefined}
-                  style={{ minWidth: 260 }}
-                  placeholder="选择一个历史版本"
-                  options={savedSnapshots.map((snapshot) => ({
-                    value: snapshot.id,
-                    label: snapshot.name,
-                  }))}
-                  onChange={setSelectedSnapshotId}
-                />
                 <Button onClick={handleSaveSnapshot} disabled={!currentSnapshot}>保存本次版本</Button>
               </Space>
             </div>

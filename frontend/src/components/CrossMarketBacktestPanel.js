@@ -46,9 +46,9 @@ import {
   getCrossMarketTemplates,
   runCrossMarketBacktest,
 } from '../services/api';
-import dayjs from '../utils/dayjs';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
 import { useSafeMessageApi } from '../utils/messageApi';
+import { getDefaultBacktestDateRangeStrings } from '../utils/backtestDefaults';
 import {
   buildCrossMarketCards,
   CROSS_MARKET_DIMENSION_LABELS,
@@ -74,8 +74,7 @@ const CONSTRUCTION_MODE_LABELS = {
   ols_hedge: '滚动 OLS 对冲',
 };
 
-const DEFAULT_CROSS_MARKET_START_DATE = dayjs().subtract(1, 'year').format('YYYY-MM-DD');
-const DEFAULT_CROSS_MARKET_END_DATE = dayjs().format('YYYY-MM-DD');
+const [DEFAULT_CROSS_MARKET_START_DATE, DEFAULT_CROSS_MARKET_END_DATE] = getDefaultBacktestDateRangeStrings();
 
 const DEFAULT_PARAMETERS = {
   lookback: 20,

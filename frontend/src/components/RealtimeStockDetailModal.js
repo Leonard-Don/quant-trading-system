@@ -903,53 +903,64 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
                     </div>
 
                     <div data-testid="detail-compare-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                        {compareCards.map((item) => (
+                        {compareCards.map((item) => {
+                            const isPrimaryCard = item.symbol === displaySymbol;
+                            const primaryTextColor = '#f8fafc';
+                            const secondaryTextColor = isPrimaryCard ? 'rgba(219, 234, 254, 0.88)' : 'rgba(226, 232, 240, 0.76)';
+
+                            return (
                             <div
                                 key={item.symbol}
+                                data-testid={`detail-compare-card-${item.symbol}`}
                                 style={{
                                     padding: 16,
                                     borderRadius: 16,
-                                    border: `1px solid ${item.symbol === displaySymbol ? 'rgba(37, 99, 235, 0.28)' : 'var(--border-color)'}`,
-                                    background: item.symbol === displaySymbol ? 'rgba(37, 99, 235, 0.06)' : 'rgba(255,255,255,0.72)',
+                                    border: `1px solid ${isPrimaryCard ? 'rgba(96, 165, 250, 0.44)' : 'rgba(148, 163, 184, 0.18)'}`,
+                                    background: isPrimaryCard
+                                        ? 'linear-gradient(180deg, rgba(30, 64, 175, 0.40) 0%, rgba(15, 23, 42, 0.88) 100%)'
+                                        : 'linear-gradient(180deg, rgba(15, 23, 42, 0.78) 0%, rgba(2, 6, 23, 0.92) 100%)',
+                                    boxShadow: isPrimaryCard
+                                        ? '0 16px 30px rgba(37, 99, 235, 0.18)'
+                                        : '0 12px 24px rgba(2, 6, 23, 0.18)',
                                 }}
                             >
                                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-start', marginBottom: 10 }}>
                                     <div>
-                                        <div style={{ fontWeight: 800, color: 'var(--text-primary)' }}>
+                                        <div style={{ fontWeight: 800, color: primaryTextColor }}>
                                             {item.symbol}
                                         </div>
-                                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+                                        <div style={{ fontSize: 12, color: secondaryTextColor, marginTop: 4 }}>
                                             {item.name}
                                         </div>
                                     </div>
-                                    {item.symbol === displaySymbol ? (
+                                    {isPrimaryCard ? (
                                         <Tag color="blue" style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>当前标的</Tag>
                                     ) : null}
                                 </div>
 
                                 <div style={{ display: 'grid', gap: 8 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 13 }}>
-                                        <span style={{ color: 'var(--text-secondary)' }}>最新价</span>
-                                        <strong>{formatNumber(item.quote?.price)}</strong>
+                                        <span style={{ color: secondaryTextColor }}>最新价</span>
+                                        <strong style={{ color: primaryTextColor }}>{formatNumber(item.quote?.price)}</strong>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 13 }}>
-                                        <span style={{ color: 'var(--text-secondary)' }}>涨跌幅</span>
-                                        <strong>{formatSignedNumber(item.quote?.change_percent, 2, '%')}</strong>
+                                        <span style={{ color: secondaryTextColor }}>涨跌幅</span>
+                                        <strong style={{ color: primaryTextColor }}>{formatSignedNumber(item.quote?.change_percent, 2, '%')}</strong>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 13 }}>
-                                        <span style={{ color: 'var(--text-secondary)' }}>日内振幅</span>
-                                        <strong>{formatRangePercent(item.quote?.low, item.quote?.high, item.quote?.previous_close)}</strong>
+                                        <span style={{ color: secondaryTextColor }}>日内振幅</span>
+                                        <strong style={{ color: primaryTextColor }}>{formatRangePercent(item.quote?.low, item.quote?.high, item.quote?.previous_close)}</strong>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 13 }}>
-                                        <span style={{ color: 'var(--text-secondary)' }}>综合分</span>
-                                        <strong>{item.signalSummary.totalScore}</strong>
+                                        <span style={{ color: secondaryTextColor }}>综合分</span>
+                                        <strong style={{ color: primaryTextColor }}>{item.signalSummary.totalScore}</strong>
                                     </div>
-                                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                                    <div style={{ fontSize: 12, color: secondaryTextColor }}>
                                         {item.signalSummary.conviction} · {item.signalSummary.eventLabel}
                                     </div>
                                 </div>
                             </div>
-                        ))}
+                        )})}
                     </div>
                 </section>
 

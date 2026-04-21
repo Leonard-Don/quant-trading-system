@@ -244,6 +244,8 @@ const IndustryHeatmap = ({
     onDataLoad,
     onLeadingStockClick,
     replaySnapshot = null,
+    initialData = null,
+    bootstrapLoading = false,
     marketCapFilter = 'all',
     onClearMarketCapFilter,
     onSelectMarketCapFilter,
@@ -267,10 +269,10 @@ const IndustryHeatmap = ({
     const screens = useBreakpoint();
     const isCompactMobile = !screens.md;
     const [refreshSec, setRefreshSec] = useState(60);
-    const [data, setData] = useState(null);
-    const [loading, setLoading] = useState(true);
+    const [data, setData] = useState(() => (initialData?.industries?.length ? initialData : null));
+    const [loading, setLoading] = useState(() => !initialData?.industries?.length);
     const [error, setError] = useState(null);
-    const [loadSource, setLoadSource] = useState('');
+    const [loadSource, setLoadSource] = useState(() => (initialData?.industries?.length ? 'bootstrap' : ''));
     const [containerNode, setContainerNode] = useState(null);
     const [containerSize, setContainerSize] = useState({ width: 800, height: 450 });
     const [searchTerm, setSearchTerm] = useState('');
@@ -348,6 +350,18 @@ const IndustryHeatmap = ({
         setData(replaySnapshot.data);
         return undefined;
     }, [replaySnapshot]);
+
+    useEffect(() => {
+        if (!initialData?.industries?.length || replaySnapshot?.data) return;
+        if (loadDataAbortRef.current) {
+            loadDataAbortRef.current.abort();
+        }
+        setError(null);
+        setLoading(false);
+        setLoadSource('bootstrap');
+        setData(initialData);
+        onDataLoad?.(initialData);
+    }, [initialData, onDataLoad, replaySnapshot]);
 
     // 响应式容器尺寸监听
     useEffect(() => {
@@ -480,6 +494,23 @@ const IndustryHeatmap = ({
                 }
             };
         }
+        if (bootstrapLoading) {
+            setLoading(true);
+            setError(null);
+            setLoadSource('');
+            return () => {
+                if (loadDataAbortRef.current) {
+                    loadDataAbortRef.current.abort();
+                }
+            };
+        }
+        if (initialData?.industries?.length) {
+            return () => {
+                if (loadDataAbortRef.current) {
+                    loadDataAbortRef.current.abort();
+                }
+            };
+        }
         loadData();
         
         return () => {
@@ -487,7 +518,7 @@ const IndustryHeatmap = ({
                 loadDataAbortRef.current.abort();
             }
         };
-    }, [loadData, replaySnapshot]);
+    }, [bootstrapLoading, initialData, loadData, replaySnapshot]);
 
     // 自动刷新
     useEffect(() => {
@@ -1118,23 +1149,29 @@ const IndustryHeatmap = ({
                                                                 color: 'var(--accent-primary)',
                                                             fontWeight: 700,
                                                             fontSize: 13,
-                                                            cursor: onLeadingStockClick ? 'pointer' : 'default',
-                                                                textDecoration: onLeadingStockClick ? 'underline' : 'none',
+                                                            cursor: onLeadingStockClick && item.leadingStockSymbol ? 'pointer' : 'default',
+                                                                textDecoration: onLeadingStockClick && item.leadingStockSymbol ? 'underline' : 'none',
                                                                 textDecorationStyle: 'dotted',
                                                                 textUnderlineOffset: 2,
                                                             }}
-                                                            role={onLeadingStockClick ? 'button' : undefined}
-                                                            tabIndex={onLeadingStockClick ? 0 : undefined}
-                                                            aria-label={onLeadingStockClick ? `查看龙头股 ${item.leadingStock} 详情` : undefined}
+                                                            role={onLeadingStockClick && item.leadingStockSymbol ? 'button' : undefined}
+                                                            tabIndex={onLeadingStockClick && item.leadingStockSymbol ? 0 : undefined}
+                                                            aria-label={onLeadingStockClick && item.leadingStockSymbol ? `查看龙头股 ${item.leadingStock} 详情` : undefined}
                                                             onClick={(e) => {
-                                                                if (onLeadingStockClick) {
+                                                                if (onLeadingStockClick && item.leadingStockSymbol) {
                                                                     e.stopPropagation();
-                                                                    onLeadingStockClick(item.leadingStock);
+                                                                    onLeadingStockClick({
+                                                                        name: item.leadingStock,
+                                                                        symbol: item.leadingStockSymbol,
+                                                                    });
                                                                 }
                                                             }}
                                                             onKeyDown={(event) => {
-                                                                if (!onLeadingStockClick) return;
-                                                                activateOnEnterOrSpace(event, () => onLeadingStockClick(item.leadingStock));
+                                                                if (!onLeadingStockClick || !item.leadingStockSymbol) return;
+                                                                activateOnEnterOrSpace(event, () => onLeadingStockClick({
+                                                                    name: item.leadingStock,
+                                                                    symbol: item.leadingStockSymbol,
+                                                                }));
                                                             }}
                                                         >
                                                             {item.leadingStock}
@@ -1340,17 +1377,23 @@ const IndustryHeatmap = ({
                                         {isLargeBlock && item.leadingStock && (
                                             <div
                                                 onClick={(event) => {
-                                                    if (onLeadingStockClick) {
+                                                    if (onLeadingStockClick && item.leadingStockSymbol) {
                                                         event.stopPropagation();
-                                                        onLeadingStockClick(item.leadingStock);
+                                                        onLeadingStockClick({
+                                                            name: item.leadingStock,
+                                                            symbol: item.leadingStockSymbol,
+                                                        });
                                                     }
                                                 }}
-                                                role={onLeadingStockClick ? 'button' : undefined}
-                                                tabIndex={onLeadingStockClick ? 0 : undefined}
-                                                aria-label={onLeadingStockClick ? `查看 ${item.name} 龙头股 ${item.leadingStock}` : undefined}
+                                                role={onLeadingStockClick && item.leadingStockSymbol ? 'button' : undefined}
+                                                tabIndex={onLeadingStockClick && item.leadingStockSymbol ? 0 : undefined}
+                                                aria-label={onLeadingStockClick && item.leadingStockSymbol ? `查看 ${item.name} 龙头股 ${item.leadingStock}` : undefined}
                                                 onKeyDown={(event) => {
-                                                    if (!onLeadingStockClick) return;
-                                                    activateOnEnterOrSpace(event, () => onLeadingStockClick(item.leadingStock));
+                                                    if (!onLeadingStockClick || !item.leadingStockSymbol) return;
+                                                    activateOnEnterOrSpace(event, () => onLeadingStockClick({
+                                                        name: item.leadingStock,
+                                                        symbol: item.leadingStockSymbol,
+                                                    }));
                                                 }}
                                                 style={{
                                                     marginTop: 4,
@@ -1361,7 +1404,7 @@ const IndustryHeatmap = ({
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     gap: 4,
-                                                    cursor: onLeadingStockClick ? 'pointer' : 'default',
+                                                    cursor: onLeadingStockClick && item.leadingStockSymbol ? 'pointer' : 'default',
                                                 }}
                                             >
                                                 <span style={{

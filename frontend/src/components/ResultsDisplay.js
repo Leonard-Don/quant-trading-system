@@ -42,6 +42,42 @@ import MonthlyHeatmap from './MonthlyHeatmap';
 import RiskRadar from './RiskRadar';
 import ReturnHistogram from './ReturnHistogram';
 
+const NO_TRADE_EPSILON = 1e-6;
+
+const buildNoTradeGuideItems = (result = {}, diagnostics = {}) => {
+  const strategyName = result.strategy ? getStrategyName(result.strategy) : '当前策略';
+  const items = [];
+
+  if (
+    diagnostics.reason_code === 'insufficient_history_window'
+    && diagnostics.available_bars
+    && diagnostics.estimated_required_bars
+  ) {
+    items.push(
+      `当前区间只有约 ${diagnostics.available_bars} 根K线，而 ${strategyName} 以当前参数至少需要 ${diagnostics.estimated_required_bars} 根K线才开始形成有效信号。`
+    );
+  } else if (diagnostics.reason_code === 'no_signal_triggered' && diagnostics.available_bars) {
+    items.push(
+      `当前区间虽然已有约 ${diagnostics.available_bars} 根K线，但没有触发任何有效入场/离场信号，所以不会生成成交。`
+    );
+  } else if (diagnostics.reason_code === 'signals_not_executed' && diagnostics.signal_count) {
+    items.push(
+      `这次虽然出现了 ${diagnostics.signal_count} 个原始信号，但最终没有落成交易，建议继续复核仓位、成本和执行约束。`
+    );
+  } else {
+    items.push('这次回测没有产生有效成交，0.00 并不代表策略已经正常跑出了“零收益”。');
+  }
+
+  items.push(
+    result.symbol && result.strategy
+      ? `先检查 ${result.symbol} 在当前区间和参数下，是否真的触发了 ${strategyName} 的入场条件。`
+      : '先检查当前标的、区间和策略参数是否足以触发入场条件。'
+  );
+  items.push('也建议复核日期区间、参数阈值、手续费/滑点设置，以及是否命中了停牌或缺失行情区间。');
+
+  return items;
+};
+
 const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, onContinueAdvancedExperiment }) => {
   const message = useSafeMessageApi();
   const [activeTab, setActiveTab] = useState('overview');
@@ -94,6 +130,63 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
   );
   const trades = normalizedResults.trades || [];
   const portfolioHistory = normalizedResults.portfolio_history || normalizedResults.portfolio || [];
+  const noTradeDiagnostics = useMemo(
+    () => normalizedResults.no_trade_diagnostics || {},
+    [normalizedResults.no_trade_diagnostics]
+  );
+  const hasMeaningfulBacktestOutcome = useMemo(() => {
+    const tradeCount = Number(normalizedResults.num_trades || normalizedResults.total_trades || 0);
+    const completedTradeCount = Number(normalizedResults.total_completed_trades || 0);
+    const significantMetricFound = [
+      normalizedResults.total_return,
+      normalizedResults.annualized_return,
+      normalizedResults.max_drawdown,
+      normalizedResults.sharpe_ratio,
+      normalizedResults.avg_trade,
+      normalizedResults.net_profit,
+    ].some((value) => Math.abs(Number(value || 0)) >= NO_TRADE_EPSILON);
+    const totals = Array.isArray(portfolioHistory)
+      ? portfolioHistory
+        .map((item) => Number(item?.total ?? item?.portfolio_value ?? 0))
+        .filter((value) => Number.isFinite(value))
+      : [];
+    const baseTotal = totals.length ? totals[0] : null;
+    const hasPortfolioMovement = baseTotal !== null
+      && totals.some((value) => Math.abs(value - baseTotal) >= NO_TRADE_EPSILON);
+    return tradeCount > 0 || completedTradeCount > 0 || significantMetricFound || hasPortfolioMovement;
+  }, [
+    normalizedResults.annualized_return,
+    normalizedResults.avg_trade,
+    normalizedResults.max_drawdown,
+    normalizedResults.net_profit,
+    normalizedResults.num_trades,
+    normalizedResults.sharpe_ratio,
+    normalizedResults.total_completed_trades,
+    normalizedResults.total_return,
+    normalizedResults.total_trades,
+    portfolioHistory,
+  ]);
+  const isNoTradeResult = !hasMeaningfulBacktestOutcome;
+  const noTradeGuideItems = useMemo(
+    () => buildNoTradeGuideItems(normalizedResults, noTradeDiagnostics),
+    [noTradeDiagnostics, normalizedResults]
+  );
+  const noTradeDescription = useMemo(() => {
+    if (
+      noTradeDiagnostics.reason_code === 'insufficient_history_window'
+      && noTradeDiagnostics.available_bars
+      && noTradeDiagnostics.estimated_required_bars
+    ) {
+      return `当前收益、回撤和夏普都停在初始状态。更直接的原因是：当前只拿到了约 ${noTradeDiagnostics.available_bars} 根K线，短于这套参数至少需要的 ${noTradeDiagnostics.estimated_required_bars} 根K线。`;
+    }
+    if (noTradeDiagnostics.reason_code === 'no_signal_triggered') {
+      return '当前收益、回撤和夏普都停在初始状态，更像是这段时间没有触发交易，而不是策略已经稳定跑平。';
+    }
+    if (noTradeDiagnostics.reason_code === 'signals_not_executed') {
+      return '当前已经出现原始信号，但最终没有落成实际成交，建议继续复核执行与成本假设。';
+    }
+    return '当前收益、回撤和夏普都停在初始状态，更像是没有触发交易，而不是策略已经稳定跑平。';
+  }, [noTradeDiagnostics]);
 
   useEffect(() => {
     setMarketRegimeResult(null);
@@ -510,23 +603,42 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
                     <div className="workspace-section__description">先抓住收益、风险和最终价值，再决定要不要继续钻图表、执行细节和市场状态。</div>
                   </div>
                 </div>
-                <div className="results-primary-kpi-grid">
-                  {primaryMetrics.map((metric) => (
-                    <div key={metric.key}>
-                      <Card className="metric-card workspace-kpi-card" size="small">
-                        <Statistic
-                          title={metric.title}
-                          value={metric.value}
-                          precision={metric.precision}
-                          suffix={metric.suffix}
-                          formatter={metric.formatter}
-                          valueStyle={{ color: metric.color, fontSize: '20px' }}
-                          prefix={metric.icon}
-                        />
-                      </Card>
+                {isNoTradeResult ? (
+                  <div className="results-no-trade-state">
+                    <Alert
+                      type="warning"
+                      showIcon
+                      message="这次回测没有形成有效成交结果"
+                      description={noTradeDescription}
+                    />
+                    <div className="results-note-grid" style={{ marginTop: 12 }}>
+                      {noTradeGuideItems.map((item, index) => (
+                        <div key={`${index + 1}-${item.slice(0, 12)}`} className="summary-strip__item">
+                          <span className="summary-strip__label">排查建议 {index + 1}</span>
+                          <span className="summary-strip__value" style={{ whiteSpace: 'normal' }}>{item}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ) : (
+                  <div className="results-primary-kpi-grid">
+                    {primaryMetrics.map((metric) => (
+                      <div key={metric.key}>
+                        <Card className="metric-card workspace-kpi-card" size="small">
+                          <Statistic
+                            title={metric.title}
+                            value={metric.value}
+                            precision={metric.precision}
+                            suffix={metric.suffix}
+                            formatter={metric.formatter}
+                            valueStyle={{ color: metric.color, fontSize: '20px' }}
+                            prefix={metric.icon}
+                          />
+                        </Card>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </Col>
             <Col xs={24} xl={8}>

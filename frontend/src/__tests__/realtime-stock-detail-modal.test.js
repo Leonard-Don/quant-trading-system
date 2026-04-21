@@ -455,6 +455,28 @@ describe('RealtimeStockDetailModal', () => {
     }
   });
 
+  test('renders compare cards with dark contrast-friendly surfaces', async () => {
+    await renderRealtimeDetailModal(
+      <RealtimeStockDetailModal
+        open
+        symbol="^IXIC"
+        quote={{ symbol: '^IXIC', price: 24404.39, change_percent: -0.26 }}
+        compareCandidates={[
+          { symbol: '^IXIC', name: '纳斯达克综合', quote: { symbol: '^IXIC', price: 24404.39, change_percent: -0.26 } },
+          { symbol: '^GSPC', name: '标普500', quote: { symbol: '^GSPC', price: 7109.14, change_percent: -0.24 } },
+        ]}
+        onCancel={jest.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('detail-compare-card-^IXIC')).toHaveStyle({
+      background: expect.stringContaining('linear-gradient'),
+    });
+    expect(screen.getByTestId('detail-compare-card-^GSPC')).toHaveStyle({
+      background: expect.stringContaining('linear-gradient'),
+    });
+  });
+
   test('can hand off a quick trade draft from the detail signal summary', async () => {
     const onQuickTrade = jest.fn();
 

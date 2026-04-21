@@ -49,11 +49,6 @@ class AKShareProvider(BaseDataProvider):
     rate_limit: int = 100  # 每分钟请求限制
     requires_api_key: bool = False
     
-    def __init__(self):
-        super().__init__()
-        self._market_cap_cache = {}
-        self._market_cap_cache_time = None
-    
     # 申万一级行业代码映射
     SW_INDUSTRY_MAP = {
         "农林牧渔": "801010",
@@ -88,16 +83,27 @@ class AKShareProvider(BaseDataProvider):
         "美容护理": "801980",
     }
     _industry_meta_cache_path = Path(__file__).resolve().parents[3] / "cache" / "industry_metadata_cache.json"
+    _industry_stock_snapshot_path = Path(__file__).resolve().parents[3] / "cache" / "industry_stock_cache.json"
     _industry_meta_heatmap_fallback_path = Path(__file__).resolve().parents[3] / "data" / "industry" / "heatmap_history.json"
     _shared_industry_meta_cache: pd.DataFrame | None = None
     _shared_industry_meta_cache_time: datetime | None = None
     _shared_industry_meta_failure_at: datetime | None = None
+    _shared_industry_stock_snapshot: Dict[str, Dict[str, Any]] | None = None
+    _shared_industry_stock_snapshot_time: datetime | None = None
     _industry_meta_failure_cooldown_seconds: int = 300
+    _industry_stock_snapshot_stale_after_hours: int = 24
     _industry_meta_lock = threading.Lock()
+    _industry_stock_snapshot_lock = threading.Lock()
     
     def __init__(self, api_key: Optional[str] = None, config: Dict[str, Any] = None):
         """初始化 AKShare 提供器"""
         super().__init__(api_key, config)
+        self._market_cap_cache = {}
+        self._market_cap_cache_time = None
+        self._industry_stock_cache: Dict[str, Dict[str, Any]] = {}
+        self._industry_stock_cache_lock = threading.RLock()
+        self._industry_stock_cache_ttl = timedelta(minutes=5)
+        self._industry_stock_inflight: Dict[str, Dict[str, Any]] = {}
         
         # 清除代理环境变量，因为 AKShare 使用的东方财富 API 在代理环境下会失败
         self._clear_proxy_settings()
@@ -106,6 +112,111 @@ class AKShareProvider(BaseDataProvider):
             logger.warning("AKShare not available, provider will use fallback mode")
         else:
             logger.info("AKShareProvider initialized (proxy settings cleared)")
+
+    def _get_industry_stock_cache_key(
+        self,
+        industry_name: str,
+        include_market_cap_lookup: bool,
+    ) -> str:
+        return f"{str(industry_name or '').strip()}|market_cap:{int(bool(include_market_cap_lookup))}"
+
+    def _get_cached_industry_stock_list(self, cache_key: str) -> Optional[List[Dict[str, Any]]]:
+        with self._industry_stock_cache_lock:
+            entry = self._industry_stock_cache.get(cache_key)
+            if entry is None:
+                return None
+            timestamp = entry.get("timestamp")
+            if not isinstance(timestamp, datetime):
+                self._industry_stock_cache.pop(cache_key, None)
+                return None
+            if datetime.now() - timestamp >= self._industry_stock_cache_ttl:
+                self._industry_stock_cache.pop(cache_key, None)
+                return None
+            return list(entry.get("data") or [])
+
+    def _update_industry_stock_cache(self, cache_key: str, stocks: List[Dict[str, Any]]) -> None:
+        if not stocks:
+            return
+        with self._industry_stock_cache_lock:
+            self._industry_stock_cache[cache_key] = {
+                "data": list(stocks),
+                "timestamp": datetime.now(),
+            }
+
+    def get_cached_stock_list_by_industry(
+        self,
+        industry_name: str,
+        include_market_cap_lookup: bool = False,
+        allow_stale: bool = False,
+    ) -> List[Dict[str, Any]]:
+        cache_key = self._get_industry_stock_cache_key(
+            industry_name,
+            include_market_cap_lookup,
+        )
+        cached = self._get_cached_industry_stock_list(cache_key)
+        if cached is not None:
+            return cached
+
+        snapshot = self._get_persistent_industry_stock_snapshot(
+            cache_key,
+            allow_stale=allow_stale,
+        )
+        if snapshot is not None:
+            self._update_industry_stock_cache(cache_key, snapshot)
+            return snapshot
+
+        return []
+
+    def persist_stock_list_snapshot(
+        self,
+        industry_name: str,
+        stocks: List[Dict[str, Any]],
+        include_market_cap_lookup: bool = False,
+    ) -> None:
+        if not stocks:
+            return
+        cache_key = self._get_industry_stock_cache_key(
+            industry_name,
+            include_market_cap_lookup,
+        )
+        self._update_industry_stock_cache(cache_key, stocks)
+        self._persist_industry_stock_snapshot(cache_key, stocks)
+
+    def _run_industry_stock_singleflight(self, cache_key: str, loader) -> List[Dict[str, Any]]:
+        with self._industry_stock_cache_lock:
+            cached = self._get_cached_industry_stock_list(cache_key)
+            if cached is not None:
+                return cached
+
+            inflight = self._industry_stock_inflight.get(cache_key)
+            if inflight is None:
+                inflight = {
+                    "event": threading.Event(),
+                    "result": None,
+                    "error": None,
+                }
+                self._industry_stock_inflight[cache_key] = inflight
+                is_owner = True
+            else:
+                is_owner = False
+
+        if not is_owner:
+            inflight["event"].wait()
+            if inflight["error"] is not None:
+                raise inflight["error"]
+            return list(inflight["result"] or [])
+
+        try:
+            result = loader()
+            inflight["result"] = list(result or [])
+            return inflight["result"]
+        except Exception as exc:
+            inflight["error"] = exc
+            raise
+        finally:
+            with self._industry_stock_cache_lock:
+                self._industry_stock_inflight.pop(cache_key, None)
+                inflight["event"].set()
     
     def _clear_proxy_settings(self):
         """清除可能干扰 AKShare API 调用的代理设置（彻底阻断苹果系统的 scutil 注入）"""
@@ -130,6 +241,103 @@ class AKShareProvider(BaseDataProvider):
         # 3. 强制 requests 忽略局部代理
         os.environ['NO_PROXY'] = '*'
         os.environ['no_proxy'] = '*'
+
+    @classmethod
+    def _load_persistent_industry_stock_snapshot(cls) -> tuple[Dict[str, Dict[str, Any]], datetime | None]:
+        snapshot_path = cls._industry_stock_snapshot_path
+        if not snapshot_path.exists():
+            return {}, None
+
+        try:
+            payload = json.loads(snapshot_path.read_text(encoding="utf-8"))
+            snapshot = payload.get("data") or {}
+            if not isinstance(snapshot, dict):
+                return {}, None
+            updated_at_raw = payload.get("updated_at")
+            updated_at = datetime.fromisoformat(updated_at_raw) if updated_at_raw else None
+            return snapshot, updated_at
+        except Exception as exc:
+            logger.warning(f"Failed to load persistent industry stock snapshot: {exc}")
+            return {}, None
+
+    @classmethod
+    def _ensure_persistent_industry_stock_snapshot_loaded(cls) -> None:
+        with cls._industry_stock_snapshot_lock:
+            if cls._shared_industry_stock_snapshot is not None:
+                return
+            snapshot, updated_at = cls._load_persistent_industry_stock_snapshot()
+            cls._shared_industry_stock_snapshot = snapshot
+            cls._shared_industry_stock_snapshot_time = updated_at
+
+    @classmethod
+    def _get_persistent_industry_stock_snapshot(
+        cls,
+        cache_key: str,
+        allow_stale: bool = False,
+    ) -> Optional[List[Dict[str, Any]]]:
+        cls._ensure_persistent_industry_stock_snapshot_loaded()
+        with cls._industry_stock_snapshot_lock:
+            snapshot = cls._shared_industry_stock_snapshot or {}
+            entry = snapshot.get(cache_key)
+
+        if not isinstance(entry, dict):
+            return None
+
+        updated_at_raw = entry.get("updated_at")
+        stocks = entry.get("stocks") or []
+        if not stocks:
+            return None
+
+        if allow_stale:
+            return list(stocks)
+
+        try:
+            updated_at = datetime.fromisoformat(updated_at_raw) if updated_at_raw else None
+        except Exception:
+            updated_at = None
+
+        if updated_at is None:
+            return None
+        if datetime.now() - updated_at >= timedelta(hours=cls._industry_stock_snapshot_stale_after_hours):
+            return None
+
+        return list(stocks)
+
+    @classmethod
+    def _persist_industry_stock_snapshot(
+        cls,
+        cache_key: str,
+        stocks: List[Dict[str, Any]],
+    ) -> None:
+        if not stocks:
+            return
+
+        cls._ensure_persistent_industry_stock_snapshot_loaded()
+        updated_at = datetime.now()
+        with cls._industry_stock_snapshot_lock:
+            snapshot = dict(cls._shared_industry_stock_snapshot or {})
+            existing_entry = snapshot.get(cache_key)
+            if isinstance(existing_entry, dict) and list(existing_entry.get("stocks") or []) == list(stocks):
+                return
+            snapshot[cache_key] = {
+                "updated_at": updated_at.isoformat(),
+                "stocks": list(stocks),
+            }
+            cls._shared_industry_stock_snapshot = snapshot
+            cls._shared_industry_stock_snapshot_time = updated_at
+            payload = {
+                "updated_at": updated_at.isoformat(),
+                "data": snapshot,
+            }
+
+        try:
+            cls._industry_stock_snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+            cls._industry_stock_snapshot_path.write_text(
+                json.dumps(payload, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+        except Exception as exc:
+            logger.warning(f"Failed to persist industry stock snapshot: {exc}")
 
     @classmethod
     def _load_persistent_industry_metadata(cls) -> tuple[pd.DataFrame | None, datetime | None]:
@@ -763,7 +971,11 @@ class AKShareProvider(BaseDataProvider):
                 
         return market_cap_map
 
-    def get_stock_list_by_industry(self, industry_name: str) -> List[Dict[str, Any]]:
+    def get_stock_list_by_industry(
+        self,
+        industry_name: str,
+        include_market_cap_lookup: bool = True,
+    ) -> List[Dict[str, Any]]:
         """
         获取行业成分股列表
         
@@ -775,56 +987,85 @@ class AKShareProvider(BaseDataProvider):
         """
         if not AKSHARE_AVAILABLE:
             return []
-        
-        try:
-            # [Fix] Resolve original name if possible
-            # The input industry_name might be a cleaned name (e.g. "白酒")
-            # We need the original name (e.g. "白酒Ⅱ") to fetch stocks
-            target_name = industry_name
-            
-            # Try to find mapping in metadata
-            try:
-                df_meta = self._get_industry_metadata()
-                if not df_meta.empty and "industry_name" in df_meta.columns and "original_name" in df_meta.columns:
-                    # Find identifying row
-                    match = df_meta[df_meta["industry_name"] == industry_name]
-                    if not match.empty:
-                        target_name = match.iloc[0]["original_name"]
-                        if target_name != industry_name:
-                            logger.info(f"Resolved industry name: {industry_name} -> {target_name}")
-            except Exception as e:
-                logger.warning(f"Failed to resolve original industry name: {e}")
 
-            # 获取板块成分股
-            df = ak.stock_board_industry_cons_em(symbol=target_name)
-            
-            if df.empty:
+        cache_key = self._get_industry_stock_cache_key(
+            industry_name,
+            include_market_cap_lookup,
+        )
+        cached = self._get_cached_industry_stock_list(cache_key)
+        if cached is not None:
+            return cached
+
+        def _load_stocks() -> List[Dict[str, Any]]:
+            persistent_snapshot = self._get_persistent_industry_stock_snapshot(
+                cache_key,
+                allow_stale=not include_market_cap_lookup,
+            )
+            if persistent_snapshot is not None and not include_market_cap_lookup:
+                self._update_industry_stock_cache(cache_key, persistent_snapshot)
+                return persistent_snapshot
+
+            try:
+                # [Fix] Resolve original name if possible
+                # The input industry_name might be a cleaned name (e.g. "白酒")
+                # We need the original name (e.g. "白酒Ⅱ") to fetch stocks
+                target_name = industry_name
+
+                # Try to find mapping in metadata
+                try:
+                    df_meta = self._get_industry_metadata()
+                    if not df_meta.empty and "industry_name" in df_meta.columns and "original_name" in df_meta.columns:
+                        # Find identifying row
+                        match = df_meta[df_meta["industry_name"] == industry_name]
+                        if not match.empty:
+                            target_name = match.iloc[0]["original_name"]
+                            if target_name != industry_name:
+                                logger.info(f"Resolved industry name: {industry_name} -> {target_name}")
+                except Exception as e:
+                    logger.warning(f"Failed to resolve original industry name: {e}")
+
+                # 获取板块成分股
+                df = ak.stock_board_industry_cons_em(symbol=target_name)
+
+                if df.empty:
+                    return persistent_snapshot or []
+
+                market_cap_map = self._get_all_stocks_market_cap() if include_market_cap_lookup else {}
+
+                stocks = []
+                for _, row in df.iterrows():
+                    symbol = str(row.get("代码", ""))
+                    market_cap = market_cap_map.get(symbol, 0)
+                    if not market_cap:
+                        market_cap = self._safe_float(row.get("总市值")) or self._safe_float(row.get("流通市值"))
+
+                    stocks.append({
+                        "symbol": symbol,
+                        "name": row.get("名称", ""),
+                        "price": float(row.get("最新价", 0)) if pd.notna(row.get("最新价")) else 0,
+                        "change_pct": float(row.get("涨跌幅", 0)) if pd.notna(row.get("涨跌幅")) else 0,
+                        "volume": float(row.get("成交量", 0)) if pd.notna(row.get("成交量")) else 0,
+                        "amount": float(row.get("成交额", 0)) if pd.notna(row.get("成交额")) else 0,
+                        "turnover_rate": float(row.get("换手率", 0)) if pd.notna(row.get("换手率")) else 0,
+                        "turnover": float(row.get("换手率", 0)) if pd.notna(row.get("换手率")) else 0,
+                        "market_cap": market_cap, # 从全市场数据获取
+                        "pe_ratio": float(row.get("市盈率-动态", 0)) if pd.notna(row.get("市盈率-动态")) else 0,
+                    })
+
+                self._update_industry_stock_cache(cache_key, stocks)
+                self._persist_industry_stock_snapshot(cache_key, stocks)
+                return stocks
+
+            except Exception as e:
+                logger.error(f"Error fetching stocks for industry {industry_name}: {e}")
+                fallback = self._get_persistent_industry_stock_snapshot(cache_key, allow_stale=True)
+                if fallback is not None:
+                    logger.warning("Using persistent industry stock snapshot fallback for %s", industry_name)
+                    self._update_industry_stock_cache(cache_key, fallback)
+                    return fallback
                 return []
-            
-            # 获取全市场市值数据
-            market_cap_map = self._get_all_stocks_market_cap()
-            
-            stocks = []
-            for _, row in df.iterrows():
-                symbol = str(row.get("代码", ""))
-                market_cap = market_cap_map.get(symbol, 0)
-                
-                stocks.append({
-                    "symbol": symbol,
-                    "name": row.get("名称", ""),
-                    "price": float(row.get("最新价", 0)) if pd.notna(row.get("最新价")) else 0,
-                    "change_pct": float(row.get("涨跌幅", 0)) if pd.notna(row.get("涨跌幅")) else 0,
-                    "volume": float(row.get("成交量", 0)) if pd.notna(row.get("成交量")) else 0,
-                    "amount": float(row.get("成交额", 0)) if pd.notna(row.get("成交额")) else 0,
-                    "market_cap": market_cap, # 从全市场数据获取
-                    "pe_ratio": float(row.get("市盈率-动态", 0)) if pd.notna(row.get("市盈率-动态")) else 0,
-                })
-            
-            return stocks
-            
-        except Exception as e:
-            logger.error(f"Error fetching stocks for industry {industry_name}: {e}")
-            return []
+
+        return self._run_industry_stock_singleflight(cache_key, _load_stocks)
     
     def get_stock_financial_data(self, symbol: str) -> Dict[str, Any]:
         """
@@ -874,7 +1115,7 @@ class AKShareProvider(BaseDataProvider):
         """获取基本面数据（实现基类方法）"""
         return self.get_stock_financial_data(symbol)
     
-    def get_stock_valuation(self, symbol: str) -> Dict[str, Any]:
+    def get_stock_valuation(self, symbol: str, cached_only: bool = False) -> Dict[str, Any]:
         """
         获取个股估值数据
         
@@ -888,8 +1129,15 @@ class AKShareProvider(BaseDataProvider):
             return {"symbol": symbol, "error": "AKShare not available"}
         
         try:
-            # 获取实时行情中的估值数据（利用缓存）
-            df = self._get_all_stocks_spot()
+            if cached_only:
+                if not hasattr(self, '_spot_cache') or self._spot_cache.empty:
+                    return {"symbol": symbol, "error": "Spot cache not ready"}
+                if not self._spot_cache_time or datetime.now() - self._spot_cache_time >= timedelta(minutes=5):
+                    return {"symbol": symbol, "error": "Spot cache stale"}
+                df = self._spot_cache
+            else:
+                # 获取实时行情中的估值数据（利用缓存）
+                df = self._get_all_stocks_spot()
             stock_data = df[df["代码"] == symbol]
             
             if stock_data.empty:

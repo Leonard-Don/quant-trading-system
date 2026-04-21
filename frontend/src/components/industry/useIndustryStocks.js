@@ -275,7 +275,7 @@ export default function useIndustryStocks({
         }
     }, [message, setSelectedIndustry]);
 
-    const handleLeadingStockClick = useCallback(async (stockName) => {
+    const handleLeadingStockClick = useCallback(async (stockRef) => {
         if (stockDetailAbortRef.current) {
             stockDetailAbortRef.current.abort();
         }
@@ -283,15 +283,31 @@ export default function useIndustryStocks({
         stockDetailAbortRef.current = currentAbort;
         const requestId = stockDetailRequestIdRef.current + 1;
         stockDetailRequestIdRef.current = requestId;
+        const rawValue = typeof stockRef === 'string'
+            ? stockRef
+            : stockRef?.symbol || stockRef?.code || stockRef?.name || '';
+        const trimmedValue = String(rawValue || '').trim();
+        const matchedStock = Array.isArray(industryStocks)
+            ? industryStocks.find((stock) => (
+                String(stock?.symbol || '').trim() === trimmedValue
+                || String(stock?.name || '').trim() === trimmedValue
+            ))
+            : null;
+        const requestSymbol = String(
+            stockRef?.symbol
+            || stockRef?.code
+            || matchedStock?.symbol
+            || trimmedValue
+        ).trim();
 
         let isCanceled = false;
         try {
             setStockDetailLoading(true);
             setStockDetailVisible(true);
-            setStockDetailSymbol(stockName);
+            setStockDetailSymbol(requestSymbol || trimmedValue);
             setStockDetailError(null);
             setStockDetailData(null);
-            const result = await getLeaderDetail(stockName, 'hot', {
+            const result = await getLeaderDetail(requestSymbol || trimmedValue, 'hot', {
                 signal: currentAbort.signal,
             });
             if (
@@ -300,6 +316,7 @@ export default function useIndustryStocks({
             ) {
                 return;
             }
+            setStockDetailSymbol(result?.symbol || requestSymbol || trimmedValue);
             setStockDetailData(result);
         } catch (err) {
             if (err.name === 'CanceledError' || err.name === 'AbortError') {
@@ -323,7 +340,7 @@ export default function useIndustryStocks({
                 setStockDetailLoading(false);
             }
         }
-    }, []);
+    }, [industryStocks]);
 
     const closeStockDetail = useCallback(() => {
         if (stockDetailAbortRef.current) {

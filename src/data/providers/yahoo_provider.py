@@ -3,15 +3,43 @@ Yahoo Finance 数据提供器
 基于 yfinance 库实现
 """
 
+from contextlib import contextmanager
+from datetime import datetime, timedelta
+import logging
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List
-import logging
+from typing import Any, Dict, Iterator, List, Optional, Set
 
 from .base_provider import BaseDataProvider, DataProviderError
 
 logger = logging.getLogger(__name__)
+YFINANCE_LOGGER_NAMES = (
+    "yfinance",
+    "yfinance.base",
+    "yfinance.scrapers.history",
+    "yfinance.scrapers.quote",
+)
+EXPECTED_YFINANCE_GAP_PATTERNS = (
+    "possibly delisted",
+    "no price data found",
+    "no timezone found",
+    "symbol may be delisted",
+)
+
+
+class _ExpectedYahooGapFilter(logging.Filter):
+    def __init__(self, symbols: Set[str]):
+        super().__init__()
+        self.symbols = {str(symbol or "").strip().upper() for symbol in symbols if symbol}
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        normalized_message = message.lower()
+        if not any(pattern in normalized_message for pattern in EXPECTED_YFINANCE_GAP_PATTERNS):
+            return True
+
+        upper_message = message.upper()
+        return not any(symbol in upper_message or f"${symbol}" in upper_message for symbol in self.symbols)
 
 
 class YahooFinanceProvider(BaseDataProvider):
@@ -36,12 +64,158 @@ class YahooFinanceProvider(BaseDataProvider):
     def __init__(self, api_key: Optional[str] = None, config: Dict[str, Any] = None):
         super().__init__(api_key, config)
         self._ticker_cache: Dict[str, yf.Ticker] = {}
+
+    @staticmethod
+    def _normalize_symbol(symbol: str) -> str:
+        return str(symbol or "").strip().upper()
+
+    def _is_crypto_symbol(self, symbol: str) -> bool:
+        return self._normalize_symbol(symbol).endswith("-USD")
+
+    @staticmethod
+    def _is_expected_gap_error(message: Any) -> bool:
+        normalized = str(message or "").lower()
+        return any(pattern in normalized for pattern in EXPECTED_YFINANCE_GAP_PATTERNS)
+
+    @contextmanager
+    def _suppress_expected_yfinance_noise(self, symbols: List[str]) -> Iterator[None]:
+        normalized_symbols = {
+            self._normalize_symbol(symbol)
+            for symbol in symbols
+            if self._is_crypto_symbol(symbol)
+        }
+        if not normalized_symbols:
+            yield
+            return
+
+        log_filter = _ExpectedYahooGapFilter(normalized_symbols)
+        target_loggers = [logging.getLogger(name) for name in YFINANCE_LOGGER_NAMES]
+        for target_logger in target_loggers:
+            target_logger.addFilter(log_filter)
+
+        try:
+            yield
+        finally:
+            for target_logger in target_loggers:
+                target_logger.removeFilter(log_filter)
+
+    def _build_error_payload(self, symbol: str, error: Any) -> Dict[str, Any]:
+        return {
+            "symbol": self._normalize_symbol(symbol),
+            "error": str(error),
+            "source": self.name,
+        }
+
+    def _build_quote_payload(
+        self,
+        symbol: str,
+        ticker: Any,
+        *,
+        include_bid_ask: bool,
+        include_market_cap: bool,
+    ) -> Dict[str, Any]:
+        normalized_symbol = self._normalize_symbol(symbol)
+        is_crypto = self._is_crypto_symbol(normalized_symbol)
+        fast_info = getattr(ticker, "fast_info", {}) or {}
+        info = None
+
+        def pick_number(*values, default=0):
+            for value in values:
+                if value not in (None, ""):
+                    return value
+            return default
+
+        def pick_number_lazy(*suppliers, default=0):
+            for supplier in suppliers:
+                value = supplier()
+                if value not in (None, ""):
+                    return value
+            return default
+
+        def info_value(key):
+            nonlocal info
+            if is_crypto:
+                return None
+            if info is None:
+                info = ticker.info
+            return info.get(key)
+
+        def cached_info_value(key):
+            if info is None:
+                return None
+            return info.get(key)
+
+        price = pick_number(
+            fast_info.get("lastPrice"),
+            default=None,
+        )
+        if price is None and not is_crypto:
+            price = pick_number(info_value("regularMarketPrice"), default=0)
+
+        if price in (None, "") and is_crypto:
+            return self._build_error_payload(normalized_symbol, "Yahoo crypto fast quote unavailable")
+
+        return {
+            "symbol": normalized_symbol,
+            "price": price,
+            "change": pick_number_lazy(
+                lambda: fast_info.get("regularMarketChange"),
+                lambda: info_value("regularMarketChange"),
+                default=None,
+            ),
+            "change_percent": pick_number_lazy(
+                lambda: fast_info.get("regularMarketChangePercent"),
+                lambda: info_value("regularMarketChangePercent"),
+                default=None,
+            ),
+            "volume": pick_number_lazy(
+                lambda: fast_info.get("lastVolume"),
+                lambda: info_value("regularMarketVolume"),
+                default=None,
+            ),
+            "high": pick_number_lazy(
+                lambda: fast_info.get("dayHigh"),
+                lambda: info_value("dayHigh"),
+                default=None,
+            ),
+            "low": pick_number_lazy(
+                lambda: fast_info.get("dayLow"),
+                lambda: info_value("dayLow"),
+                default=None,
+            ),
+            "open": pick_number_lazy(
+                lambda: fast_info.get("open"),
+                lambda: info_value("regularMarketOpen"),
+                default=None,
+            ),
+            "previous_close": pick_number_lazy(
+                lambda: fast_info.get("previousClose"),
+                lambda: info_value("previousClose"),
+                default=None,
+            ),
+            "bid": pick_number_lazy(
+                lambda: fast_info.get("bid"),
+                lambda: cached_info_value("bid"),
+                default=None,
+            ) if include_bid_ask else None,
+            "ask": pick_number_lazy(
+                lambda: fast_info.get("ask"),
+                lambda: cached_info_value("ask"),
+                default=None,
+            ) if include_bid_ask else None,
+            "timestamp": datetime.now(),
+            "source": self.name,
+        }
+        if include_market_cap:
+            payload["market_cap"] = pick_number(cached_info_value("marketCap"), default=0)
+        return payload
     
     def _get_ticker(self, symbol: str) -> yf.Ticker:
         """获取或创建 Ticker 对象（带缓存）"""
-        if symbol not in self._ticker_cache:
-            self._ticker_cache[symbol] = yf.Ticker(symbol)
-        return self._ticker_cache[symbol]
+        normalized_symbol = self._normalize_symbol(symbol)
+        if normalized_symbol not in self._ticker_cache:
+            self._ticker_cache[normalized_symbol] = yf.Ticker(normalized_symbol)
+        return self._ticker_cache[normalized_symbol]
     
     def get_historical_data(
         self,
@@ -85,87 +259,22 @@ class YahooFinanceProvider(BaseDataProvider):
     
     def get_latest_quote(self, symbol: str) -> Dict[str, Any]:
         """获取最新报价"""
+        normalized_symbol = self._normalize_symbol(symbol)
         try:
-            ticker = self._get_ticker(symbol)
-            fast_info = getattr(ticker, "fast_info", {}) or {}
-            info = None
-
-            def pick_number(*values, default=0):
-                for value in values:
-                    if value not in (None, ""):
-                        return value
-                return default
-
-            def pick_number_lazy(*suppliers, default=0):
-                for supplier in suppliers:
-                    value = supplier()
-                    if value not in (None, ""):
-                        return value
-                return default
-
-            def info_value(key):
-                nonlocal info
-                if info is None:
-                    info = ticker.info
-                return info.get(key)
-
-            # 先走 fast_info，只有关键信息缺失时才访问更慢的 info。
-            price = pick_number(
-                fast_info.get("lastPrice"),
-                default=None,
-            )
-            if price is None:
-                price = pick_number(info_value("regularMarketPrice"), default=0)
-
-            return {
-                "symbol": symbol,
-                "price": price,
-                "change": pick_number_lazy(
-                    lambda: fast_info.get("regularMarketChange"),
-                    lambda: info_value("regularMarketChange"),
-                ),
-                "change_percent": pick_number_lazy(
-                    lambda: fast_info.get("regularMarketChangePercent"),
-                    lambda: info_value("regularMarketChangePercent"),
-                ),
-                "volume": pick_number_lazy(
-                    lambda: fast_info.get("lastVolume"),
-                    lambda: info_value("regularMarketVolume"),
-                ),
-                "high": pick_number_lazy(
-                    lambda: fast_info.get("dayHigh"),
-                    lambda: info_value("dayHigh"),
-                ),
-                "low": pick_number_lazy(
-                    lambda: fast_info.get("dayLow"),
-                    lambda: info_value("dayLow"),
-                ),
-                "open": pick_number_lazy(
-                    lambda: fast_info.get("open"),
-                    lambda: info_value("regularMarketOpen"),
-                ),
-                "previous_close": pick_number_lazy(
-                    lambda: fast_info.get("previousClose"),
-                    lambda: info_value("previousClose"),
-                ),
-                "bid": pick_number_lazy(
-                    lambda: fast_info.get("bid"),
-                    lambda: info_value("bid"),
-                    default=None,
-                ),
-                "ask": pick_number_lazy(
-                    lambda: fast_info.get("ask"),
-                    lambda: info_value("ask"),
-                    default=None,
-                ),
-                "market_cap": pick_number(info.get("marketCap"), default=0) if info is not None else 0,
-                "timestamp": datetime.now(),
-                "source": self.name
-            }
-            
+            with self._suppress_expected_yfinance_noise([normalized_symbol]):
+                ticker = self._get_ticker(normalized_symbol)
+                return self._build_quote_payload(
+                    normalized_symbol,
+                    ticker,
+                    include_bid_ask=True,
+                    include_market_cap=True,
+                )
         except Exception as e:
-            logger.error(f"[Yahoo] Error getting quote for {symbol}: {e}")
-            return {"symbol": symbol, "error": str(e), "source": self.name}
+            if self._is_crypto_symbol(normalized_symbol) and self._is_expected_gap_error(e):
+                logger.info("[Yahoo] Expected crypto quote gap for %s: %s", normalized_symbol, e)
+            else:
+                logger.error(f"[Yahoo] Error getting quote for {normalized_symbol}: {e}")
+            return self._build_error_payload(normalized_symbol, e)
     
     def get_fundamental_data(self, symbol: str) -> Dict[str, Any]:
         """获取基本面数据"""
@@ -207,97 +316,33 @@ class YahooFinanceProvider(BaseDataProvider):
     def get_multiple_quotes(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
         """批量获取报价（优化版）"""
         results = {}
+        normalized_symbols = [self._normalize_symbol(symbol) for symbol in symbols]
         
         try:
             # yfinance 支持批量下载
-            tickers = yf.Tickers(" ".join(symbols))
-            
-            for symbol in symbols:
-                try:
-                    ticker = tickers.tickers.get(symbol)
-                    if ticker:
-                        fast_info = getattr(ticker, "fast_info", {}) or {}
-                        info = None
+            with self._suppress_expected_yfinance_noise(normalized_symbols):
+                tickers = yf.Tickers(" ".join(normalized_symbols))
 
-                        def pick_number(*values, default=0):
-                            for value in values:
-                                if value not in (None, ""):
-                                    return value
-                            return default
-
-                        def pick_number_lazy(*suppliers, default=0):
-                            for supplier in suppliers:
-                                value = supplier()
-                                if value not in (None, ""):
-                                    return value
-                            return default
-
-                        def info_value(key):
-                            nonlocal info
-                            if info is None:
-                                info = ticker.info
-                            return info.get(key)
-
-                        price = pick_number(
-                            fast_info.get("lastPrice"),
-                            default=None,
-                        )
-                        if price is None:
-                            price = pick_number(
-                                info_value("regularMarketPrice"),
-                                default=0,
+                for symbol in normalized_symbols:
+                    try:
+                        ticker = tickers.tickers.get(symbol)
+                        if ticker:
+                            results[symbol] = self._build_quote_payload(
+                                symbol,
+                                ticker,
+                                include_bid_ask=False,
+                                include_market_cap=False,
                             )
-
-                        results[symbol] = {
-                            "symbol": symbol,
-                            "price": price,
-                            "change": pick_number_lazy(
-                                lambda: fast_info.get("regularMarketChange"),
-                                lambda: info_value("regularMarketChange"),
-                            ),
-                            "change_percent": pick_number_lazy(
-                                lambda: fast_info.get("regularMarketChangePercent"),
-                                lambda: info_value("regularMarketChangePercent"),
-                            ),
-                            "volume": pick_number_lazy(
-                                lambda: fast_info.get("lastVolume"),
-                                lambda: info_value("regularMarketVolume"),
-                            ),
-                            "high": pick_number_lazy(
-                                lambda: fast_info.get("dayHigh"),
-                                lambda: info_value("dayHigh"),
-                                default=None,
-                            ),
-                            "low": pick_number_lazy(
-                                lambda: fast_info.get("dayLow"),
-                                lambda: info_value("dayLow"),
-                                default=None,
-                            ),
-                            "open": pick_number_lazy(
-                                lambda: fast_info.get("open"),
-                                lambda: info_value("regularMarketOpen"),
-                                default=None,
-                            ),
-                            "previous_close": pick_number_lazy(
-                                lambda: fast_info.get("previousClose"),
-                                lambda: info_value("previousClose"),
-                                default=None,
-                            ),
-                            # 批量报价优先追求速度，盘口数据留给详情按需补充。
-                            "bid": None,
-                            "ask": None,
-                            "timestamp": datetime.now(),
-                            "source": self.name
-                        }
-                    else:
-                        results[symbol] = {"symbol": symbol, "error": "Ticker not found"}
-                except Exception as e:
-                    results[symbol] = {"symbol": symbol, "error": str(e)}
-                    
+                        else:
+                            results[symbol] = self._build_error_payload(symbol, "Ticker not found")
+                    except Exception as e:
+                        if self._is_crypto_symbol(symbol) and self._is_expected_gap_error(e):
+                            logger.info("[Yahoo] Expected crypto batch quote gap for %s: %s", symbol, e)
+                        results[symbol] = self._build_error_payload(symbol, e)
         except Exception as e:
             # 降级到逐个获取
             logger.warning(f"[Yahoo] Batch fetch failed, falling back to individual: {e}")
-            return super().get_multiple_quotes(symbols)
+            return super().get_multiple_quotes(normalized_symbols)
             
         return results
     

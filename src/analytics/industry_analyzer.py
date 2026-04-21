@@ -6,6 +6,7 @@
 import pandas as pd
 import numpy as np
 import json
+import threading
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Tuple
 import logging
@@ -22,6 +23,9 @@ from src.utils.config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
 _TREND_ALIAS_CACHE: Optional[Dict[str, str]] = None
+_HEATMAP_HISTORY_TREND_CACHE: Optional[Dict[tuple[int | None, int], Dict[str, List[float]]]] = None
+_HEATMAP_HISTORY_TREND_CACHE_MTIME: float = 0.0
+_SINGLE_FLIGHT_MISS = object()
 
 
 def _load_trend_aliases() -> Dict[str, str]:
@@ -47,6 +51,76 @@ def _load_trend_aliases() -> Dict[str, str]:
 
     _TREND_ALIAS_CACHE = {}
     return _TREND_ALIAS_CACHE
+
+
+def _load_heatmap_history_trend_lookup(
+    max_points: int = 5,
+    preferred_days: Optional[int] = None,
+) -> Dict[str, List[float]]:
+    global _HEATMAP_HISTORY_TREND_CACHE, _HEATMAP_HISTORY_TREND_CACHE_MTIME
+
+    history_file = PROJECT_ROOT / "data" / "industry" / "heatmap_history.json"
+    if not history_file.exists():
+        return {}
+
+    try:
+        current_mtime = history_file.stat().st_mtime
+    except OSError:
+        return {}
+
+    cache_key = (preferred_days, max_points)
+    if (
+        _HEATMAP_HISTORY_TREND_CACHE is not None
+        and _HEATMAP_HISTORY_TREND_CACHE_MTIME == current_mtime
+        and cache_key in _HEATMAP_HISTORY_TREND_CACHE
+    ):
+        return _HEATMAP_HISTORY_TREND_CACHE[cache_key]
+
+    try:
+        payload = json.loads(history_file.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("Failed to read heatmap history trend cache: %s", exc)
+        return {}
+
+    if not isinstance(payload, list) or not payload:
+        return {}
+
+    selected_snapshots = payload
+    if preferred_days is not None:
+        preferred_matches = [
+            item for item in payload
+            if int(item.get("days") or 0) == int(preferred_days)
+        ]
+        if len(preferred_matches) >= 2:
+            selected_snapshots = preferred_matches
+
+    selected_snapshots = selected_snapshots[-max(max_points, 2):]
+    trend_lookup: Dict[str, List[float]] = {}
+    for snapshot in selected_snapshots:
+        for industry in snapshot.get("industries") or []:
+            industry_name = str(industry.get("name") or "").strip()
+            if not industry_name:
+                continue
+            point = industry.get("total_score")
+            if point is None:
+                point = industry.get("value")
+            try:
+                numeric_point = float(point)
+            except (TypeError, ValueError):
+                continue
+            trend_lookup.setdefault(industry_name, []).append(round(numeric_point, 3))
+
+    filtered_lookup = {
+        industry_name: values
+        for industry_name, values in trend_lookup.items()
+        if len(values) >= 2
+    }
+
+    if _HEATMAP_HISTORY_TREND_CACHE is None or _HEATMAP_HISTORY_TREND_CACHE_MTIME != current_mtime:
+        _HEATMAP_HISTORY_TREND_CACHE = {}
+        _HEATMAP_HISTORY_TREND_CACHE_MTIME = current_mtime
+    _HEATMAP_HISTORY_TREND_CACHE[cache_key] = filtered_lookup
+    return filtered_lookup
 
 
 class IndustryAnalyzer:
@@ -90,6 +164,8 @@ class IndustryAnalyzer:
         self.weights = weights or self.DEFAULT_WEIGHTS.copy()
         # Cache structure: {key: {"data": data, "timestamp": datetime}}
         self._cached_data: Dict[str, Dict[str, Any]] = {}
+        self._cache_lock = threading.RLock()
+        self._inflight_loads: Dict[str, Dict[str, Any]] = {}
         self._cache_ttl = timedelta(minutes=30)  # 缓存30分钟（行业数据日内变化较慢）
     
     def set_provider(self, provider):
@@ -99,7 +175,8 @@ class IndustryAnalyzer:
     
     def _clear_cache(self):
         """清除缓存"""
-        self._cached_data = {}
+        with self._cache_lock:
+            self._cached_data = {}
     
     def _get_cache_key(self, prefix: str, **kwargs) -> str:
         """生成缓存键"""
@@ -118,28 +195,70 @@ class IndustryAnalyzer:
             return
         if isinstance(data, pd.DataFrame) and data.empty:
             return
-        self._cached_data[key] = {
-            "data": data,
-            "timestamp": datetime.now()
-        }
+        with self._cache_lock:
+            self._cached_data[key] = {
+                "data": data,
+                "timestamp": datetime.now()
+            }
         
     def _get_from_cache(self, key: str) -> Optional[Any]:
         """从缓存获取数据，如果不命中或过期返回 None"""
-        if key not in self._cached_data:
-            return None
-            
-        entry = self._cached_data[key]
-        if datetime.now() - entry["timestamp"] > self._cache_ttl:
-            # 过期但不删除，保留给 _get_stale_cache 使用
-            return None
-            
-        return entry["data"]
+        with self._cache_lock:
+            if key not in self._cached_data:
+                return None
+
+            entry = self._cached_data[key]
+            if datetime.now() - entry["timestamp"] > self._cache_ttl:
+                # 过期但不删除，保留给 _get_stale_cache 使用
+                return None
+
+            return entry["data"]
 
     def _get_stale_cache(self, key: str) -> Optional[Any]:
         """获取过期缓存数据作为兜底（不检查 TTL）"""
-        if key not in self._cached_data:
-            return None
-        return self._cached_data[key]["data"]
+        with self._cache_lock:
+            if key not in self._cached_data:
+                return None
+            return self._cached_data[key]["data"]
+
+    def _run_singleflight(self, key: str, loader):
+        """
+        合并同一个缓存键的并发加载，避免多线程重复打相同数据源。
+        """
+        with self._cache_lock:
+            cached = self._get_from_cache(key)
+            if cached is not None:
+                return cached
+
+            inflight = self._inflight_loads.get(key)
+            if inflight is None:
+                inflight = {
+                    "event": threading.Event(),
+                    "result": _SINGLE_FLIGHT_MISS,
+                    "error": None,
+                }
+                self._inflight_loads[key] = inflight
+                is_owner = True
+            else:
+                is_owner = False
+
+        if not is_owner:
+            inflight["event"].wait()
+            if inflight["error"] is not None:
+                raise inflight["error"]
+            return inflight["result"]
+
+        try:
+            result = loader()
+            inflight["result"] = result
+            return result
+        except Exception as exc:
+            inflight["error"] = exc
+            raise
+        finally:
+            with self._cache_lock:
+                self._inflight_loads.pop(key, None)
+                inflight["event"].set()
 
     @staticmethod
     def _derive_size_source(market_cap_source: Any) -> str:
@@ -604,60 +723,107 @@ class IndustryAnalyzer:
         if self.provider is None:
             logger.error("Data provider not set")
             return pd.DataFrame()
-        
+
         # Check cache
         cache_key = self._get_cache_key("money_flow", days=days)
         cached = self._get_from_cache(cache_key)
         if cached is not None:
             return cached
-        
-        try:
-            # 获取行业资金流向数据
-            money_flow_df = self.provider.get_industry_money_flow(days=days)
-            
-            if money_flow_df.empty:
-                logger.warning(f"No money flow data available for days={days}")
+
+        def _load_money_flow() -> pd.DataFrame:
+            try:
+                # 获取行业资金流向数据
+                money_flow_df = self.provider.get_industry_money_flow(days=days)
+
+                if money_flow_df.empty:
+                    logger.warning(f"No money flow data available for days={days}")
+                    # 使用过期缓存作为兜底
+                    stale = self._get_stale_cache(cache_key)
+                    if stale is not None:
+                        logger.info(f"Using stale cached money flow data for days={days}")
+                        return stale
+                    # 尝试 Sina 回退
+                    money_flow_df = self._try_sina_fallback(days)
+                    if money_flow_df.empty:
+                        return pd.DataFrame()
+
+                money_flow_df = self._normalize_money_flow_dataframe(money_flow_df, days=days)
+                if money_flow_df.empty:
+                    logger.warning("Money flow data normalization produced empty dataframe")
+                    stale = self._get_stale_cache(cache_key)
+                    if stale is not None:
+                        logger.info(f"Using stale cached money flow data for days={days}")
+                        return stale
+                    return pd.DataFrame()
+
+                # Update cache
+                self._update_cache(cache_key, money_flow_df)
+                return money_flow_df
+
+            except Exception as e:
+                logger.error(f"Error analyzing money flow: {e}")
                 # 使用过期缓存作为兜底
                 stale = self._get_stale_cache(cache_key)
                 if stale is not None:
-                    logger.info(f"Using stale cached money flow data for days={days}")
+                    logger.info(f"Using stale cached money flow data for days={days} after error")
                     return stale
                 # 尝试 Sina 回退
-                money_flow_df = self._try_sina_fallback(days)
-                if money_flow_df.empty:
-                    return pd.DataFrame()
-
-            money_flow_df = self._normalize_money_flow_dataframe(money_flow_df, days=days)
-            if money_flow_df.empty:
-                logger.warning("Money flow data normalization produced empty dataframe")
-                stale = self._get_stale_cache(cache_key)
-                if stale is not None:
-                    logger.info(f"Using stale cached money flow data for days={days}")
-                    return stale
-                return pd.DataFrame()
-            
-            # Update cache
-            self._update_cache(cache_key, money_flow_df)
-            return money_flow_df
-            
-        except Exception as e:
-            logger.error(f"Error analyzing money flow: {e}")
-            # 使用过期缓存作为兜底
-            stale = self._get_stale_cache(cache_key)
-            if stale is not None:
-                logger.info(f"Using stale cached money flow data for days={days} after error")
-                return stale
-            # 尝试 Sina 回退
-            try:
-                money_flow_df = self._try_sina_fallback(days)
-                if not money_flow_df.empty:
-                    money_flow_df = self._normalize_money_flow_dataframe(money_flow_df, days=days)
+                try:
+                    money_flow_df = self._try_sina_fallback(days)
                     if not money_flow_df.empty:
-                        self._update_cache(cache_key, money_flow_df)
-                        return money_flow_df
-            except Exception as e2:
-                logger.error(f"Sina fallback also failed: {e2}")
+                        money_flow_df = self._normalize_money_flow_dataframe(money_flow_df, days=days)
+                        if not money_flow_df.empty:
+                            self._update_cache(cache_key, money_flow_df)
+                            return money_flow_df
+                except Exception as e2:
+                    logger.error(f"Sina fallback also failed: {e2}")
+                return pd.DataFrame()
+
+        return self._run_singleflight(cache_key, _load_money_flow)
+
+    def _load_lightweight_money_flow(self, days: int) -> pd.DataFrame:
+        """
+        仅为排行榜火花线准备轻量资金流快照，避免重复触发市值/估值增强。
+        """
+        if self.provider is None:
             return pd.DataFrame()
+
+        cache_key = self._get_cache_key("money_flow_light", days=days)
+        cached = self._get_from_cache(cache_key)
+        if cached is not None:
+            return cached
+
+        provider_loader = getattr(self.provider, "get_industry_money_flow", None)
+        if not callable(provider_loader):
+            return self.analyze_money_flow(days=days)
+
+        def _load_lightweight() -> pd.DataFrame:
+            try:
+                try:
+                    money_flow_df = provider_loader(days=days, lightweight=True)
+                except TypeError:
+                    return self.analyze_money_flow(days=days)
+
+                if money_flow_df.empty:
+                    fallback = self.analyze_money_flow(days=days)
+                    if not fallback.empty:
+                        self._update_cache(cache_key, fallback)
+                    return fallback
+
+                normalized_df = self._normalize_money_flow_dataframe(money_flow_df, days=days)
+                if normalized_df.empty:
+                    fallback = self.analyze_money_flow(days=days)
+                    if not fallback.empty:
+                        self._update_cache(cache_key, fallback)
+                    return fallback
+
+                self._update_cache(cache_key, normalized_df)
+                return normalized_df
+            except Exception as exc:
+                logger.warning("Failed to load lightweight money flow for %s-day mini trend: %s", days, exc)
+                return self.analyze_money_flow(days=days)
+
+        return self._run_singleflight(cache_key, _load_lightweight)
     
     def _try_sina_fallback(self, days: int) -> pd.DataFrame:
         """
@@ -1312,8 +1478,6 @@ class IndustryAnalyzer:
         # 直接使用 analyze_money_flow() 的聚合数据，避免逐行业获取成分股
         use_fast_path = hasattr(self.provider, "get_industry_money_flow")
         
-        mini_trend_lookup = self._build_industry_mini_trend_lookup(max_days=5)
-
         if use_fast_path:
             # 快速路径：直接使用 provider 的行业列表数据（包含涨跌幅）
             df_fast = self.analyze_money_flow(days=lookback_days)
@@ -1336,6 +1500,11 @@ class IndustryAnalyzer:
                 if sort_col in df_fast.columns:
                     df_fast = df_fast.sort_values(sort_col, ascending=ascending)
                     top_df = df_fast.head(top_n)
+                    mini_trend_lookup = self._build_industry_mini_trend_lookup(
+                        max_days=5,
+                        industries=top_df["industry_name"].tolist(),
+                        preferred_days=lookback_days,
+                    )
                     
                     result = []
                     for idx, (_, row) in enumerate(top_df.iterrows(), 1):
@@ -1399,6 +1568,11 @@ class IndustryAnalyzer:
              merged_df = merged_df.sort_values("total_score", ascending=False)
              
         top_industries = merged_df.head(top_n)
+        mini_trend_lookup = self._build_industry_mini_trend_lookup(
+            max_days=5,
+            industries=top_industries["industry_name"].tolist(),
+            preferred_days=lookback_days,
+        )
         
         # 构建结果列表
         result = []
@@ -1445,12 +1619,50 @@ class IndustryAnalyzer:
         points.append(100.0)
         return points
 
-    def _build_industry_mini_trend_lookup(self, max_days: int = 5) -> Dict[str, List[float]]:
+    def _build_industry_mini_trend_lookup(
+        self,
+        max_days: int = 5,
+        industries: Optional[List[str]] = None,
+        preferred_days: Optional[int] = None,
+    ) -> Dict[str, List[float]]:
         max_days = max(2, int(max_days or 5))
+        cache_key = self._get_cache_key("industry_mini_trend", max_days=max_days)
+        cached = self._get_from_cache(cache_key)
+        target_industries = {
+            str(name).strip()
+            for name in (industries or [])
+            if str(name).strip()
+        }
+        if cached is not None:
+            if not target_industries:
+                return cached
+            return {
+                name: values
+                for name, values in cached.items()
+                if name in target_industries
+            }
+
+        trend_lookup = _load_heatmap_history_trend_lookup(
+            max_points=max_days,
+            preferred_days=preferred_days,
+        )
+        if target_industries:
+            trend_lookup = {
+                name: values
+                for name, values in trend_lookup.items()
+                if name in target_industries
+            }
+            if target_industries.issubset(trend_lookup.keys()):
+                self._update_cache(cache_key, trend_lookup)
+                return trend_lookup
+        elif trend_lookup:
+            self._update_cache(cache_key, trend_lookup)
+            return trend_lookup
+
         trend_frames = []
         for day in range(1, max_days + 1):
             try:
-                day_df = self.analyze_money_flow(days=day)
+                day_df = self._load_lightweight_money_flow(days=day)
             except Exception as exc:
                 logger.warning("Failed to build industry mini trend for %s-day lookback: %s", day, exc)
                 continue
@@ -1468,9 +1680,11 @@ class IndustryAnalyzer:
         for frame in trend_frames[1:]:
             merged_trends = merged_trends.merge(frame, on="industry_name", how="outer")
 
-        trend_lookup: Dict[str, List[float]] = {}
+        network_lookup: Dict[str, List[float]] = {}
         for _, row in merged_trends.iterrows():
             industry_name = row.get("industry_name", "")
+            if industry_name in trend_lookup:
+                continue
             changes = []
             for day in range(1, max_days + 1):
                 value = row.get(f"change_pct_{day}")
@@ -1479,8 +1693,16 @@ class IndustryAnalyzer:
                     break
                 changes.append(float(value))
             if len(changes) >= 2:
-                trend_lookup[industry_name] = self._build_relative_trend_points_from_cumulative_changes(changes)
-        return trend_lookup
+                network_lookup[industry_name] = self._build_relative_trend_points_from_cumulative_changes(changes)
+        trend_lookup.update(network_lookup)
+        self._update_cache(cache_key, trend_lookup)
+        if not target_industries:
+            return trend_lookup
+        return {
+            name: values
+            for name, values in trend_lookup.items()
+            if name in target_industries
+        }
     
     def get_industry_heatmap_data(self, days: int = 5) -> Dict[str, Any]:
         """
@@ -1502,20 +1724,28 @@ class IndustryAnalyzer:
         if cached is not None:
             return cached
 
-        # 获取动量数据和资金流向，确保周期对齐
-        momentum_df = self.calculate_industry_momentum(lookback=days)
         money_flow_df = self.analyze_money_flow(days=days)
-        
-        if momentum_df.empty:
-            return {
-                "industries": [],
-                "max_value": 0,
-                "min_value": 0,
-                "update_time": datetime.now().isoformat()
-            }
-        
-        # 使用公共合并方法
-        merged_df = self._merge_momentum_and_flow(momentum_df, money_flow_df)
+
+        if not money_flow_df.empty and "industry_name" in money_flow_df.columns:
+            merged_df = money_flow_df.copy()
+            if "weighted_change" not in merged_df.columns:
+                merged_df["weighted_change"] = merged_df.get("change_pct", 0)
+            if "avg_change" not in merged_df.columns:
+                merged_df["avg_change"] = merged_df.get("change_pct", 0)
+            if "avg_volume" not in merged_df.columns:
+                merged_df["avg_volume"] = merged_df.get("volume", merged_df.get("turnover", 0))
+            merged_df = self._ensure_industry_volatility(merged_df)
+        else:
+            momentum_df = self.calculate_industry_momentum(lookback=days)
+            if momentum_df.empty:
+                return {
+                    "industries": [],
+                    "max_value": 0,
+                    "min_value": 0,
+                    "update_time": datetime.now().isoformat()
+                }
+            merged_df = self._merge_momentum_and_flow(momentum_df, money_flow_df)
+
         if "total_score" not in merged_df.columns:
             try:
                 merged_df["total_score"] = self._calculate_rank_score_series(merged_df)

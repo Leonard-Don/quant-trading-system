@@ -38,6 +38,42 @@ def _is_authorized_websocket(websocket: WebSocket) -> bool:
     return bool(provided_token) and hmac.compare_digest(str(provided_token), expected_token)
 
 
+def _is_expected_websocket_teardown(exc: Exception) -> bool:
+    message = str(exc)
+    return any(
+        token in message
+        for token in (
+            "WebSocket is not connected",
+            'Need to call "accept" first',
+            "Cannot call",
+        )
+    )
+
+
+def _build_subscription_message(action: str, results: list[dict]) -> dict:
+    symbols = [result["symbol"] for result in results if result.get("symbol")]
+    duplicates = [result["symbol"] for result in results if result.get("duplicate")]
+    noop_symbols = [result["symbol"] for result in results if result.get("removed") is False]
+    payload = {
+        "type": "subscription",
+        "action": action,
+        "symbols": symbols,
+        "results": results,
+        "timestamp": datetime.now().isoformat(),
+    }
+    if len(symbols) == 1:
+        payload["symbol"] = symbols[0]
+        if action == "subscribed":
+            payload["duplicate"] = bool(duplicates)
+        elif action == "unsubscribed":
+            payload["noop"] = bool(noop_symbols)
+    if duplicates:
+        payload["duplicates"] = duplicates
+    if noop_symbols:
+        payload["noop_symbols"] = noop_symbols
+    return payload
+
+
 async def _send_quote_snapshot(
     websocket: WebSocket,
     symbols: list[str],
@@ -45,10 +81,10 @@ async def _send_quote_snapshot(
     origin: str,
     cache_first: bool = False,
     allow_fill: bool = True,
-) -> None:
+) -> bool:
     target_symbols = [symbol for symbol in symbols if isinstance(symbol, str)]
     if not target_symbols:
-        return
+        return True
 
     loop = asyncio.get_running_loop()
     cached_snapshot = {}
@@ -58,7 +94,7 @@ async def _send_quote_snapshot(
             lambda: realtime_manager.get_cached_quotes_dict(target_symbols),
         )
         if cached_snapshot:
-            await manager.send_personal_message(websocket, {
+            delivered = await manager.send_personal_message(websocket, {
                 "type": "snapshot",
                 "symbols": list(cached_snapshot.keys()),
                 "data": cached_snapshot,
@@ -66,10 +102,12 @@ async def _send_quote_snapshot(
                 "stage": "cache",
                 "timestamp": datetime.now().isoformat(),
             })
+            if not delivered:
+                return False
 
     missing_symbols = [symbol for symbol in target_symbols if symbol not in cached_snapshot]
     if not missing_symbols or not allow_fill:
-        return
+        return True
 
     quotes = await loop.run_in_executor(
         None,
@@ -81,7 +119,7 @@ async def _send_quote_snapshot(
         if symbol in missing_symbols and quote
     }
     if snapshot_data:
-        await manager.send_personal_message(websocket, {
+        delivered = await manager.send_personal_message(websocket, {
             "type": "snapshot",
             "symbols": list(snapshot_data.keys()),
             "data": snapshot_data,
@@ -89,6 +127,9 @@ async def _send_quote_snapshot(
             "stage": "fill" if cache_first and cached_snapshot else "full",
             "timestamp": datetime.now().isoformat(),
         })
+        if not delivered:
+            return False
+    return True
 
 
 @router.websocket("/ws/quotes")
@@ -125,17 +166,28 @@ async def websocket_quotes(websocket: WebSocket):
                 # 先批量订阅所有股票
                 subscription_results = []
                 for symbol in symbols:
-                    subscription_results.append(await manager.subscribe(websocket, symbol))
+                    result = await manager.subscribe(websocket, symbol)
+                    subscription_results.append(result)
+                if subscription_results:
+                    delivered = await manager.send_personal_message(
+                        websocket,
+                        _build_subscription_message("subscribed", subscription_results),
+                    )
+                    if not delivered:
+                        return
 
                 new_symbols = [result["symbol"] for result in subscription_results if result.get("added")]
                 if new_symbols:
-                    await _send_quote_snapshot(
+                    delivered = await _send_quote_snapshot(
                         websocket,
                         new_symbols,
                         origin="subscribe",
                         cache_first=True,
                         allow_fill=len(new_symbols) <= 8,
                     )
+                    if not delivered:
+                        logger.info("Realtime WebSocket closed before initial snapshot completed")
+                        return
                     logger.info(
                         "Initial realtime snapshot sent: websocket_symbols=%s snapshots=%s duplicates=%s allow_fill=%s",
                         len(symbols),
@@ -146,34 +198,53 @@ async def websocket_quotes(websocket: WebSocket):
             elif action == "snapshot":
                 target_symbols = symbols or list(manager.subscriptions.get(websocket, set()))
                 if target_symbols:
-                    await _send_quote_snapshot(
+                    delivered = await _send_quote_snapshot(
                         websocket,
                         target_symbols,
                         origin="manual_refresh",
                         cache_first=True,
                     )
+                    if not delivered:
+                        logger.info("Realtime WebSocket closed before snapshot refresh completed")
+                        return
 
             elif action == "unsubscribe":
+                unsubscribe_results = []
                 for symbol in symbols:
-                    await manager.unsubscribe(websocket, symbol)
-                
+                    result = await manager.unsubscribe(websocket, symbol)
+                    unsubscribe_results.append(result)
+                if unsubscribe_results:
+                    delivered = await manager.send_personal_message(
+                        websocket,
+                        _build_subscription_message("unsubscribed", unsubscribe_results),
+                    )
+                    if not delivered:
+                        return
+
             elif action == "ping":
-                await manager.send_personal_message(websocket, {
+                delivered = await manager.send_personal_message(websocket, {
                     "type": "pong",
-                    "timestamp": asyncio.get_running_loop().time()
+                    "timestamp": datetime.now().isoformat(),
                 })
+                if not delivered:
+                    return
                 
             else:
-                await manager.send_personal_message(websocket, {
+                delivered = await manager.send_personal_message(websocket, {
                     "type": "error",
                     "message": f"Unknown action: {action}"
                 })
+                if not delivered:
+                    return
                 
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
-        manager.disconnect(websocket)
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        if _is_expected_websocket_teardown(e):
+            logger.info("Realtime WebSocket closed during teardown: %s", e)
+        else:
+            logger.error("WebSocket error: %s", e, exc_info=True)
+    finally:
         manager.disconnect(websocket)
 
 
@@ -189,36 +260,44 @@ async def websocket_trades(websocket: WebSocket):
     await trade_ws_manager.connect(websocket)
     
     try:
-        await trade_ws_manager.send_personal_message(websocket, {
+        if not await trade_ws_manager.send_personal_message(websocket, {
             "type": "connected",
             "channel": "trades",
-        })
-        await trade_ws_manager.send_personal_message(websocket, {
+        }):
+            return
+        if not await trade_ws_manager.send_personal_message(websocket, {
             "type": "trade_snapshot",
             "data": build_trade_stream_payload(),
-        })
+        }):
+            return
 
         while True:
             data = await websocket.receive_json()
             action = str(data.get("action", "")).lower()
 
             if action == "ping":
-                await trade_ws_manager.send_personal_message(websocket, {
+                if not await trade_ws_manager.send_personal_message(websocket, {
                     "type": "pong",
-                })
+                }):
+                    return
             elif action == "snapshot":
-                await trade_ws_manager.send_personal_message(websocket, {
+                if not await trade_ws_manager.send_personal_message(websocket, {
                     "type": "trade_snapshot",
                     "data": build_trade_stream_payload(),
-                })
+                }):
+                    return
             else:
-                await trade_ws_manager.send_personal_message(websocket, {
+                if not await trade_ws_manager.send_personal_message(websocket, {
                     "type": "error",
                     "message": f"Unknown action: {action}",
-                })
+                }):
+                    return
     except WebSocketDisconnect:
         logger.info("Trade WebSocket client disconnected")
     except Exception as e:
-        logger.error(f"Trade WebSocket error: {e}")
+        if _is_expected_websocket_teardown(e):
+            logger.info("Trade WebSocket closed during teardown: %s", e)
+        else:
+            logger.error("Trade WebSocket error: %s", e, exc_info=True)
     finally:
         trade_ws_manager.disconnect(websocket)

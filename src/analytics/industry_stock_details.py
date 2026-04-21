@@ -56,7 +56,19 @@ def extract_stock_detail_fields(stock: Dict[str, Any]) -> Dict[str, Optional[flo
         stock.get("money_flow", stock.get("main_net_inflow", stock.get("amount")))
     )
     turnover_rate = coerce_optional_float(
-        stock.get("turnover_rate", stock.get("turnover"))
+        stock.get(
+            "turnover_rate",
+            stock.get(
+                "turnoverRate",
+                stock.get(
+                    "turnover_ratio",
+                    stock.get(
+                        "turnoverRatio",
+                        stock.get("turnoverratio", stock.get("turnover"))
+                    )
+                )
+            )
+        )
     )
 
     return {
@@ -163,8 +175,9 @@ def backfill_stock_details_with_valuation(
         missing_market_cap = not has_meaningful_numeric(detail_fields.get("market_cap"))
         missing_pe_ratio = not has_meaningful_numeric(detail_fields.get("pe_ratio"))
         missing_change_pct = detail_fields.get("change_pct") is None
+        missing_turnover_rate = not has_meaningful_numeric(detail_fields.get("turnover_rate"))
 
-        if not (missing_market_cap or missing_pe_ratio or missing_change_pct):
+        if not (missing_market_cap or missing_pe_ratio or missing_change_pct or missing_turnover_rate):
             enriched.append(stock)
             continue
 
@@ -179,6 +192,9 @@ def backfill_stock_details_with_valuation(
         valuation_market_cap = coerce_optional_float(valuation.get("market_cap"))
         valuation_pe_ratio = coerce_optional_float(valuation.get("pe_ratio", valuation.get("pe_ttm")))
         valuation_change_pct = coerce_optional_float(valuation.get("change_pct"))
+        valuation_turnover_rate = coerce_optional_float(
+            valuation.get("turnover_rate", valuation.get("turnover"))
+        )
 
         enriched_stock = dict(stock)
         if missing_market_cap and has_meaningful_numeric(valuation_market_cap):
@@ -187,6 +203,9 @@ def backfill_stock_details_with_valuation(
             enriched_stock["pe_ratio"] = valuation_pe_ratio
         if missing_change_pct and valuation_change_pct is not None:
             enriched_stock["change_pct"] = valuation_change_pct
+        if missing_turnover_rate and has_meaningful_numeric(valuation_turnover_rate):
+            enriched_stock["turnover_rate"] = valuation_turnover_rate
+            enriched_stock["turnover"] = valuation_turnover_rate
         if not enriched_stock.get("name") and valuation.get("name"):
             enriched_stock["name"] = valuation["name"]
 

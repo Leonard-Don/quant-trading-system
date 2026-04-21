@@ -2510,6 +2510,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           justify-content: flex-end;
           gap: 10px;
           flex-wrap: wrap;
+          min-width: 0;
         }
 
         .realtime-board-control-label {
@@ -2519,6 +2520,16 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
         .realtime-board-control-group .ant-btn {
           border-radius: 999px;
+        }
+
+        .realtime-board-control-group .ant-space {
+          display: inline-flex;
+          flex-wrap: wrap;
+          row-gap: 8px;
+        }
+
+        .realtime-board-control-group .ant-space-item {
+          margin-inline-end: 0 !important;
         }
 
         .realtime-board-summary {
@@ -2547,6 +2558,70 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           padding-inline: 16px !important;
         }
 
+        [data-realtime-board-density='compact'] .realtime-board-head {
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+
+        [data-realtime-board-density='compact'] .realtime-board-headline {
+          gap: 8px;
+        }
+
+        [data-realtime-board-density='compact'] .realtime-board-badges {
+          gap: 8px;
+        }
+
+        [data-realtime-board-density='compact'] .realtime-board-summary {
+          gap: 8px;
+          padding: 8px 12px;
+        }
+
+        [data-realtime-board-density='compact'] .realtime-board-summary strong {
+          font-size: 18px;
+        }
+
+        [data-realtime-board-density='compact'] .realtime-board-controls {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          justify-content: flex-start;
+          gap: 8px 10px;
+          min-width: 0;
+          width: 100%;
+        }
+
+        [data-realtime-board-density='compact'] .realtime-board-control-group {
+          justify-content: flex-start;
+          gap: 8px;
+          padding: 8px 10px;
+          border-radius: 18px;
+          background: color-mix(in srgb, var(--bg-primary) 90%, white 10%);
+          border: 1px solid color-mix(in srgb, var(--border-color) 82%, white 18%);
+        }
+
+        [data-realtime-board-density='compact'] .realtime-board-control-group--selection-active {
+          flex-basis: 100%;
+        }
+
+        [data-realtime-board-density='compact'] .realtime-board-control-label {
+          font-size: 11px;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+        }
+
+        [data-realtime-board-density='compact'] .realtime-board-control-group .ant-btn {
+          min-height: 30px;
+          padding-inline: 12px;
+        }
+
+        [data-realtime-board-density='compact'] .market-tabs .ant-tabs-nav {
+          margin-bottom: 16px;
+        }
+
+        [data-realtime-board-density='compact'] .market-tabs .ant-tabs-tab {
+          padding-inline: 14px !important;
+        }
+
         .realtime-quote-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -2571,6 +2646,12 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           align-items: flex-start;
           justify-content: space-between;
           gap: 12px;
+        }
+
+        .realtime-quote-card__header > :first-child,
+        .realtime-quote-card__price-row > :first-child {
+          min-width: 0;
+          flex: 1 1 auto;
         }
 
         .realtime-quote-card__tags {
@@ -2605,14 +2686,43 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         }
 
         .realtime-quote-card__source {
+          display: grid;
+          gap: 4px;
+          justify-items: end;
           text-align: right;
-          min-width: 76px;
+          min-width: 0;
+          max-width: min(44%, 164px);
+          flex: 0 1 164px;
           padding: 10px 12px;
           border-radius: 16px;
           background: color-mix(in srgb, var(--bg-secondary) 82%, white 18%);
           border: 1px solid color-mix(in srgb, var(--border-color) 80%, white 20%);
           color: var(--text-secondary);
-          white-space: nowrap;
+        }
+
+        .realtime-quote-card__source-label {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          opacity: 0.72;
+        }
+
+        .realtime-quote-card__source-value {
+          font-size: 13px;
+          font-weight: 700;
+          line-height: 1.3;
+          white-space: normal;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+        }
+
+        .realtime-quote-card__source-detail {
+          font-size: 11px;
+          line-height: 1.3;
+          white-space: normal;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+          opacity: 0.82;
         }
 
         .realtime-quote-card__price {
@@ -2690,6 +2800,11 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           align-items: center;
         }
 
+        .realtime-quote-card--list .realtime-quote-card__header > :first-child,
+        .realtime-quote-card--list .realtime-quote-card__price-row > :first-child {
+          min-width: 0;
+        }
+
         .realtime-quote-card--list .realtime-quote-card__header,
         .realtime-quote-card--list .realtime-quote-card__price-row,
         .realtime-quote-card--list .realtime-quote-card__footer {
@@ -2710,7 +2825,32 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         }
 
         .realtime-quote-card--list .realtime-quote-card__footer {
+          flex-wrap: wrap;
+          gap: 12px;
           justify-content: flex-end;
+        }
+
+        .realtime-quote-card--list .realtime-quote-card__footer .ant-space,
+        .realtime-quote-card--list .realtime-quote-card__footer .ant-space-item {
+          flex-wrap: wrap;
+        }
+
+        .realtime-quote-card--list.realtime-quote-card--list-split .realtime-quote-card__surface--list {
+          grid-template-columns: 1fr 1fr;
+        }
+
+        .realtime-quote-card--list.realtime-quote-card--list-stacked .realtime-quote-card__surface--list {
+          grid-template-columns: 1fr;
+        }
+
+        .realtime-quote-card--list.realtime-quote-card--list-split .realtime-quote-card__footer,
+        .realtime-quote-card--list.realtime-quote-card--list-stacked .realtime-quote-card__footer {
+          justify-content: flex-start;
+        }
+
+        .realtime-quote-card--list.realtime-quote-card--list-stacked .realtime-quote-card__header,
+        .realtime-quote-card--list.realtime-quote-card--list-stacked .realtime-quote-card__price-row {
+          flex-wrap: wrap;
         }
 
         @media (max-width: 1320px) {
@@ -2753,6 +2893,14 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         }
 
         @media (max-width: 900px) {
+          [data-realtime-board-density='compact'] .realtime-board-controls {
+            gap: 8px;
+          }
+
+          [data-realtime-board-density='compact'] .realtime-board-control-group {
+            width: 100%;
+          }
+
           .realtime-overview-stats,
           .realtime-quote-card__metrics {
             grid-template-columns: 1fr 1fr;
@@ -2913,6 +3061,11 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           .realtime-quote-card__source,
           .realtime-quote-card__focus {
             text-align: left;
+          }
+
+          .realtime-quote-card__source {
+            justify-items: start;
+            max-width: none;
           }
 
           .realtime-hero__telemetry span {

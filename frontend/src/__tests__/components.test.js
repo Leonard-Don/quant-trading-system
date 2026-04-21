@@ -5,6 +5,7 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import StrategyForm from '../components/StrategyForm';
+import dayjs from '../utils/dayjs';
 
 // 模拟 API 服务
 jest.mock('../services/api', () => ({
@@ -64,6 +65,10 @@ beforeAll(() => {
             disconnect() {}
         };
     }
+});
+
+afterEach(() => {
+    window.localStorage.clear();
 });
 
 
@@ -154,6 +159,78 @@ describe('StrategyForm Component', () => {
             strategies.forEach(strategy => {
                 expect(strategy.id).toBeDefined();
                 expect(strategy.id.length).toBeGreaterThan(0);
+            });
+        });
+
+        test('shows a short-window warning when the selected range is too small for the strategy lookback', async () => {
+            window.localStorage.setItem('backtest_workspace_draft', JSON.stringify({
+                symbol: 'AAPL',
+                strategy: 'moving_average',
+                dateRange: ['2026-03-21', '2026-04-21'],
+                parameters: {
+                    fast_period: 20,
+                    slow_period: 50,
+                },
+            }));
+
+            render(
+                <StrategyForm
+                    strategies={[
+                        {
+                            name: 'moving_average',
+                            parameters: {
+                                fast_period: { default: 20 },
+                                slow_period: { default: 50 },
+                            },
+                        },
+                    ]}
+                    onSubmit={jest.fn()}
+                    loading={false}
+                />
+            );
+
+            await waitFor(() => {
+                expect(screen.getByText('当前回测区间可能太短，策略很可能不会产生交易')).toBeInTheDocument();
+                expect(screen.getByText(/至少需要约 50 个交易日/)).toBeInTheDocument();
+            });
+        });
+
+        test('refreshes an old rolling one-year workspace draft to end on today', async () => {
+            const staleEnd = dayjs().subtract(5, 'day');
+            window.localStorage.setItem('backtest_workspace_draft', JSON.stringify({
+                symbol: 'AAPL',
+                strategy: 'moving_average',
+                dateRange: [
+                    staleEnd.subtract(1, 'year').format('YYYY-MM-DD'),
+                    staleEnd.format('YYYY-MM-DD'),
+                ],
+                updated_at: staleEnd.toISOString(),
+                dateRangeMode: 'rolling_one_year',
+                parameters: {
+                    fast_period: 20,
+                    slow_period: 50,
+                },
+            }));
+
+            render(
+                <StrategyForm
+                    strategies={[
+                        {
+                            name: 'moving_average',
+                            parameters: {
+                                fast_period: { default: 20 },
+                                slow_period: { default: 50 },
+                            },
+                        },
+                    ]}
+                    onSubmit={jest.fn()}
+                    loading={false}
+                />
+            );
+
+            await waitFor(() => {
+                expect(screen.getByDisplayValue(dayjs().subtract(1, 'year').format('YYYY-MM-DD'))).toBeInTheDocument();
+                expect(screen.getByDisplayValue(dayjs().format('YYYY-MM-DD'))).toBeInTheDocument();
             });
         });
     });

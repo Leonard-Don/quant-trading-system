@@ -122,4 +122,46 @@ describe('IndustryHeatmap history fallback', () => {
       update_time: '2026-04-17T08:00:00Z',
     }));
   });
+
+  it('uses bootstrapped heatmap data without issuing an extra live request', async () => {
+    const onDataLoad = jest.fn();
+    const payload = {
+      industries: [
+        {
+          name: '军工',
+          value: 1.6,
+          size: 200,
+          stockCount: 8,
+          moneyFlow: 98000000,
+          turnoverRate: 2.4,
+          marketCapSource: 'snapshot_manual',
+        },
+      ],
+      max_value: 1.6,
+      min_value: 1.6,
+      update_time: '2026-04-20T08:00:00Z',
+    };
+
+    render(
+      <IndustryHeatmap
+        onIndustryClick={jest.fn()}
+        onDataLoad={onDataLoad}
+        initialData={payload}
+        bootstrapLoading={false}
+        showStats={false}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText('军工').length).toBeGreaterThan(0);
+    });
+
+    expect(getIndustryHeatmap).not.toHaveBeenCalled();
+    expect(onDataLoad).toHaveBeenCalledWith(expect.objectContaining({
+      industries: expect.arrayContaining([
+        expect.objectContaining({ name: '军工', value: 1.6 }),
+      ]),
+      update_time: '2026-04-20T08:00:00Z',
+    }));
+  });
 });

@@ -173,6 +173,55 @@ describe('ResultsDisplay', () => {
       expect(screen.getByText('$500.00')).toBeInTheDocument();
     });
   }, 10000);
+
+  test('surfaces a no-trade warning when the portfolio path is flat even if history points exist', () => {
+    render(
+      <ResultsDisplay
+        results={{
+          symbol: 'AAPL',
+          strategy: 'moving_average',
+          total_return: 0,
+          annualized_return: 0,
+          max_drawdown: 0,
+          sharpe_ratio: 0,
+          final_value: 10000,
+          initial_capital: 10000,
+          num_trades: 0,
+          total_completed_trades: 0,
+          trades: [],
+          portfolio_history: [
+            {
+              date: '2024-01-01',
+              total: 10000,
+              returns: 0,
+              signal: 0,
+            },
+            {
+              date: '2024-01-02',
+              total: 10000,
+              returns: 0,
+              signal: 0,
+            },
+            {
+              date: '2024-01-03',
+              total: 10000,
+              returns: 0,
+              signal: 0,
+            },
+          ],
+          no_trade_diagnostics: {
+            reason_code: 'insufficient_history_window',
+            available_bars: 20,
+            estimated_required_bars: 50,
+          },
+        }}
+      />
+    );
+
+    expect(screen.getAllByText('这次回测没有形成有效成交结果').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/20 根K线/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/排查建议 1/)).toBeInTheDocument();
+  });
 });
 
 describe('BacktestHistory', () => {
@@ -401,7 +450,9 @@ describe('BacktestHistory', () => {
         symbol: 'MSFT',
         strategy: 'macd',
         recordType: 'walk_forward',
-      }, 0);
+      }, 0, {
+        summaryOnly: true,
+      });
       expect(getBacktestHistoryStats).toHaveBeenCalledWith({
         symbol: 'MSFT',
         strategy: 'macd',
@@ -417,7 +468,9 @@ describe('BacktestHistory', () => {
         symbol: undefined,
         strategy: undefined,
         recordType: undefined,
-      }, 0);
+      }, 0, {
+        summaryOnly: true,
+      });
     });
   });
 

@@ -10,6 +10,8 @@ const useIndustryRanking = ({
     volatilityFilter,
     rankingMarketCapFilter,
     heatmapIndustriesLength,
+    bootstrapHotIndustries,
+    bootstrapHotMeta,
     message,
 }) => {
     const [hotIndustries, setHotIndustries] = useState([]);
@@ -20,7 +22,6 @@ const useIndustryRanking = ({
     const [clusterError, setClusterError] = useState(null);
     const [clusterCount, setClusterCount] = useState(4);
     const [selectedClusterPoint, setSelectedClusterPoint] = useState(null);
-    const [shouldRenderLeaderPanel, setShouldRenderLeaderPanel] = useState(false);
 
     const hotRequestIdRef = useRef(0);
     const rankingPrefetchedRef = useRef(false);
@@ -33,6 +34,29 @@ const useIndustryRanking = ({
 
     const buildHotQueryKey = useCallback((topN, type, sort, lookback) =>
         `top_n:${topN}|type:${type}|sort:${sort}|lookback:${lookback}`, []);
+
+    useEffect(() => {
+        if (!Array.isArray(bootstrapHotIndustries) || bootstrapHotIndustries.length === 0 || !bootstrapHotMeta) {
+            return;
+        }
+
+        const bootstrapQueryKey = buildHotQueryKey(
+            bootstrapHotMeta.topN,
+            bootstrapHotMeta.type,
+            bootstrapHotMeta.sortBy,
+            bootstrapHotMeta.lookbackDays
+        );
+        const hasConflictingLoaded = hotLoadedQueryKeyRef.current && hotLoadedQueryKeyRef.current !== bootstrapQueryKey;
+        const hasConflictingInFlight = hotInFlightQueryKeyRef.current && hotInFlightQueryKeyRef.current !== bootstrapQueryKey;
+        if (hasConflictingLoaded || hasConflictingInFlight) {
+            return;
+        }
+
+        setHotIndustries(bootstrapHotIndustries);
+        setLoadingHot(false);
+        hotLoadedQueryKeyRef.current = bootstrapQueryKey;
+        rankingPrefetchedRef.current = true;
+    }, [bootstrapHotIndustries, bootstrapHotMeta, buildHotQueryKey]);
 
     const loadHotIndustries = useCallback(async (
         topN = 15,
@@ -106,22 +130,6 @@ const useIndustryRanking = ({
             }
         };
     }, [activeTab, lookbackDays, loadHotIndustries, heatmapIndustriesLength]);
-
-    // 右侧龙头股面板延后挂载，让热力图优先完成冷启动渲染
-    useEffect(() => {
-        if (shouldRenderLeaderPanel) return undefined;
-        if (activeTab === 'ranking' || heatmapIndustriesLength > 0) {
-            const timeoutId = window.setTimeout(() => {
-                setShouldRenderLeaderPanel(true);
-            }, 900);
-            return () => window.clearTimeout(timeoutId);
-        }
-
-        const fallbackId = window.setTimeout(() => {
-            setShouldRenderLeaderPanel(true);
-        }, 2200);
-        return () => window.clearTimeout(fallbackId);
-    }, [activeTab, heatmapIndustriesLength, shouldRenderLeaderPanel]);
 
     const loadClusters = useCallback(async (silent = false) => {
         if (clustersAbortRef.current) {
@@ -226,7 +234,7 @@ const useIndustryRanking = ({
         setClusterCount,
         selectedClusterPoint,
         setSelectedClusterPoint,
-        shouldRenderLeaderPanel,
+        shouldRenderLeaderPanel: true,
         loadHotIndustries,
         loadClusters,
         filteredHotIndustries,

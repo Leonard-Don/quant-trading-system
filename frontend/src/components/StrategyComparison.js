@@ -32,11 +32,11 @@ import {
     Radar,
     Cell
 } from 'recharts';
-import dayjs from '../utils/dayjs';
 import { compareStrategies } from '../services/api';
 import { getStrategyName, getStrategyParameterLabel, getStrategyDetails } from '../constants/strategies';
 import { normalizeBacktestResult } from '../utils/backtest';
 import { useSafeMessageApi } from '../utils/messageApi';
+import { getDefaultBacktestDateRange } from '../utils/backtestDefaults';
 import {
     buildStrategyComparisonReportHtml,
     openStrategyComparisonPrintWindow,
@@ -54,7 +54,7 @@ const StrategyComparison = ({ strategies }) => {
     const [params, setParams] = useState({
         symbol: 'AAPL',
         selectedStrategies: [],
-        dateRange: [dayjs().subtract(1, 'year'), dayjs()],
+        dateRange: getDefaultBacktestDateRange(),
         initialCapital: 10000,
         commission: 0.1,
         slippage: 0.1,
@@ -493,17 +493,18 @@ const StrategyComparison = ({ strategies }) => {
                                 </Space>
                             }
                         >
-                            <Row gutter={16}>
+                            <Row gutter={[16, 16]}>
                                 {rankedData.slice(0, 4).map((item) => {
                                     const rankStyle = getRankColor(item.rank);
                                     return (
-                                        <Col span={6} key={item.strategy}>
+                                        <Col xs={24} sm={12} xl={6} key={item.strategy}>
                                             <div style={{
                                                 background: 'rgba(255,255,255,0.05)',
                                                 borderRadius: 12,
                                                 padding: 16,
                                                 textAlign: 'center',
-                                                border: item.rank === 1 ? '2px solid #ffd700' : '1px solid rgba(255,255,255,0.1)'
+                                                border: item.rank === 1 ? '2px solid #ffd700' : '1px solid rgba(255,255,255,0.1)',
+                                                height: '100%',
                                             }}>
                                                 <div style={{
                                                     fontSize: 32,
@@ -521,10 +522,10 @@ const StrategyComparison = ({ strategies }) => {
                                                     trailColor="rgba(255,255,255,0.1)"
                                                     format={(pct) => <span style={{ color: '#fff', fontWeight: 600 }}>{pct}</span>}
                                                 />
-                                                <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-around' }}>
-                                                    <Tag color="green">收益 {item.scores.return_score}</Tag>
-                                                    <Tag color="blue">夏普 {item.scores.sharpe_score}</Tag>
-                                                    <Tag color="orange">风控 {item.scores.risk_score}</Tag>
+                                                <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
+                                                    <Tag color="green" style={{ margin: 0 }}>收益 {item.scores.return_score}</Tag>
+                                                    <Tag color="blue" style={{ margin: 0 }}>夏普 {item.scores.sharpe_score}</Tag>
+                                                    <Tag color="orange" style={{ margin: 0 }}>风控 {item.scores.risk_score}</Tag>
                                                 </div>
                                             </div>
                                         </Col>

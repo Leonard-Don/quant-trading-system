@@ -695,6 +695,61 @@ code {
   margin-top: 10px;
 }
 
+.industry-scan-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.industry-scan-insight-shell {
+  padding: 16px 18px 14px;
+  border-radius: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.58), rgba(15, 23, 42, 0.42)),
+    radial-gradient(circle at top right, rgba(250, 173, 20, 0.08), transparent 38%);
+  box-shadow: 0 18px 40px rgba(2, 8, 23, 0.12);
+}
+
+.industry-scan-insight-shell__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.industry-scan-insight-shell__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.industry-scan-insight-shell__summary {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  max-width: 720px;
+}
+
+.industry-scan-insight-shell .ant-tabs-nav {
+  margin-bottom: 12px !important;
+}
+
+.industry-scan-insight-shell .ant-tabs-content-holder,
+.industry-scan-insight-shell .ant-tabs-tabpane {
+  min-width: 0;
+}
+
+.industry-scan-insight-shell .ant-tabs-tab {
+  padding-block: 10px !important;
+}
+
+.industry-scan-insight-shell__loading {
+  max-width: 100%;
+}
+
 .industry-heatmap-card .ant-card-head {
   padding-inline: 16px;
 }
@@ -3242,6 +3297,30 @@ a {
   grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
 }
 
+.advanced-lab-comparison-section__header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.advanced-lab-comparison-section__copy {
+  max-width: 58ch;
+}
+
+.advanced-lab-comparison-section__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.advanced-lab-comparison-section__toolbar .ant-select {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
 .advanced-lab-tool-panel__actions {
   display: flex;
   flex-wrap: wrap;
@@ -3799,6 +3878,11 @@ a {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
+}
+
+.results-no-trade-state {
+  display: grid;
+  gap: 12px;
 }
 
 .results-diagnostic-panel .workspace-section__description {
