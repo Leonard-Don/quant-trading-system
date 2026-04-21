@@ -270,6 +270,7 @@ export const buildBenchmarkSummary = (compareData = {}, strategyName) => {
 export const buildSignalExplanation = (result = {}) => {
   const trades = Array.isArray(result.trades) ? result.trades : [];
   const completedTrades = trades.filter((trade) => String(trade.type || '').toUpperCase() === 'SELL');
+  const tradeCount = Number(result.num_trades || result.total_trades || 0);
   const bestTrade = completedTrades.reduce((best, trade) => (
     Number(trade.pnl || 0) > Number(best?.pnl || -Infinity) ? trade : best
   ), null);
@@ -282,6 +283,10 @@ export const buildSignalExplanation = (result = {}) => {
     summary.push(`这次回测整体取得 ${((Number(result.total_return || 0)) * 100).toFixed(2)}% 收益，策略方向判断是有效的。`);
   } else {
     summary.push(`这次回测整体收益为 ${((Number(result.total_return || 0)) * 100).toFixed(2)}%，当前信号在这段区间内没有形成稳定优势。`);
+  }
+
+  if (!completedTrades.length && tradeCount === 0) {
+    summary.push('这次回测没有产生任何成交，通常意味着参数阈值过严、回测区间不合适，或行情在该段时间内没有触发入场条件。');
   }
 
   if (bestTrade) {
@@ -314,6 +319,31 @@ export const buildBacktestActionPosture = ({
   const winRate = Number(result.win_rate || 0);
   const tradeCount = Number(result.num_trades || 0);
   const beatBenchmark = benchmarkSummary ? Boolean(benchmarkSummary.beatBenchmark) : null;
+  const noTradeDiagnostics = result.no_trade_diagnostics || {};
+
+  if (tradeCount === 0 && Math.abs(totalReturn) < 1e-6) {
+    let reason = '当前交易次数为 0，收益和回撤都停在初始状态，更像是没有触发交易，而不是策略已经稳定跑平。';
+    if (
+      noTradeDiagnostics.reason_code === 'insufficient_history_window'
+      && noTradeDiagnostics.available_bars
+      && noTradeDiagnostics.estimated_required_bars
+    ) {
+      reason = `当前区间只有约 ${noTradeDiagnostics.available_bars} 根K线，短于这套参数至少需要的 ${noTradeDiagnostics.estimated_required_bars} 根K线，所以还没有机会形成有效交易。`;
+    } else if (noTradeDiagnostics.reason_code === 'no_signal_triggered') {
+      reason = '当前区间虽然跑完了回测，但没有触发任何有效入场/离场信号，所以结果停留在初始状态。';
+    } else if (noTradeDiagnostics.reason_code === 'signals_not_executed') {
+      reason = '当前已经出现原始信号，但最终没有落成成交，建议继续复核执行与风险约束。';
+    }
+
+    return {
+      type: 'warning',
+      label: 'review',
+      posture: '先确认是否产生交易',
+      title: '这次回测没有形成有效成交结果',
+      actionHint: '先检查日期区间、参数阈值和信号触发条件，再决定是否继续看后面的收益图表。',
+      reason,
+    };
+  }
 
   if (
     totalReturn <= 0

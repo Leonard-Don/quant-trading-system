@@ -1,9 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 import pytest
+import threading
+from unittest.mock import MagicMock
 
 from backend.app.api.v1.endpoints import industry as industry_endpoint
-from backend.app.schemas.industry import LeaderStockResponse
+from backend.app.schemas.industry import IndustryBootstrapResponse, LeaderBoardsResponse, LeaderStockResponse
 import pandas as pd
 
 
@@ -21,12 +23,38 @@ class _FakeProvider:
         ]
 
 
+class _CountingStockProvider(_FakeProvider):
+    def __init__(self):
+        self.calls = 0
+
+    def get_stock_list_by_industry(self, industry_name, fast_mode=False):
+        self.calls += 1
+        return super().get_stock_list_by_industry(industry_name)
+
+
 class _FakeAnalyzer:
     def __init__(self):
         self.provider = _FakeProvider()
 
-    def rank_industries(self, top_n=5):
-        return [{"industry_name": "测试行业"}]
+    def rank_industries(self, top_n=5, sort_by="total_score", ascending=False, lookback_days=5):
+        return [{
+            "rank": 1,
+            "industry_name": "测试行业",
+            "score": 91.2,
+            "momentum": 4.2,
+            "change_pct": 4.2,
+            "money_flow": 120000000,
+            "flow_strength": 0.64,
+            "industry_volatility": 1.2,
+            "industry_volatility_source": "historical_index",
+            "stock_count": 2,
+            "total_market_cap": 180000000000,
+            "market_cap_source": "snapshot_manual",
+            "mini_trend": [98.2, 99.4, 100.7],
+        }]
+
+    def build_rank_score_breakdown(self, row):
+        return [{"key": "money_flow", "score": 72.0}]
 
     def analyze_money_flow(self, days=1):
         return pd.DataFrame(
@@ -41,6 +69,100 @@ class _FakeAnalyzer:
                 }
             ]
         )
+
+    def get_industry_heatmap_data(self, days=5):
+        return {
+            "industries": [
+                {
+                    "name": "测试行业",
+                    "value": 4.2,
+                    "total_score": 91.2,
+                    "size": 180000000000,
+                    "stockCount": 2,
+                    "moneyFlow": 120000000,
+                    "turnoverRate": 3.1,
+                    "industryVolatility": 1.2,
+                    "industryVolatilitySource": "historical_index",
+                    "netInflowRatio": 6.4,
+                    "leadingStock": "测试龙头",
+                    "sizeSource": "snapshot",
+                    "marketCapSource": "snapshot_manual",
+                    "marketCapSnapshotAgeHours": 2.0,
+                    "marketCapSnapshotIsStale": False,
+                    "valuationSource": "akshare_sw",
+                    "valuationQuality": "industry_level",
+                    "dataSources": ["ths"],
+                    "industryIndex": 3210.5,
+                    "totalInflow": 32.0,
+                    "totalOutflow": 18.0,
+                    "leadingStockChange": 9.8,
+                    "leadingStockPrice": 18.6,
+                    "pe_ttm": 16.8,
+                    "pb": 2.1,
+                    "dividend_yield": 1.2,
+                }
+            ],
+            "max_value": 4.2,
+            "min_value": 4.2,
+            "update_time": "2026-04-20T00:00:00",
+        }
+
+
+class _CountingAnalyzer(_FakeAnalyzer):
+    def __init__(self):
+        super().__init__()
+        self.rank_calls = 0
+
+    def rank_industries(self, top_n=5, sort_by="total_score", ascending=False, lookback_days=5):
+        self.rank_calls += 1
+        return super().rank_industries(
+            top_n=top_n,
+            sort_by=sort_by,
+            ascending=ascending,
+            lookback_days=lookback_days,
+        )
+
+
+class _CountingStockAnalyzer(_FakeAnalyzer):
+    def __init__(self):
+        self.provider = _CountingStockProvider()
+
+
+class _SnapshotWarmupAkshareProvider(_FakeProvider):
+    def __init__(self):
+        self.cached_calls = 0
+        self.live_calls = 0
+        self.persist_stock_list_snapshot = MagicMock()
+
+    def get_cached_stock_list_by_industry(
+        self,
+        industry_name,
+        include_market_cap_lookup=False,
+        allow_stale=True,
+    ):
+        self.cached_calls += 1
+        return []
+
+    def get_stock_list_by_industry(self, industry_name, include_market_cap_lookup=False):
+        self.live_calls += 1
+        return super().get_stock_list_by_industry(industry_name)
+
+
+class _SnapshotWarmupProvider(_FakeProvider):
+    def __init__(self):
+        self.akshare = _SnapshotWarmupAkshareProvider()
+
+    def get_cached_stock_list_by_industry(self, industry_name):
+        return [
+            {
+                "symbol": "000001",
+                "name": f"{industry_name}龙头",
+                "market_cap": 12_000_000_000,
+                "pe_ratio": 18.5,
+                "change_pct": 1.2,
+                "amount": 900_000_000,
+            }
+        ]
 
 
 class _FakeScorer:
@@ -174,6 +296,547 @@ def test_get_leader_stocks_hot_backfills_when_heatmap_underfilled(monkeypatch):
     assert all(leader.score_type == "hot" for leader in leaders)
 
 
+def test_get_leader_stocks_core_prefers_cached_provider_snapshot(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    cached_provider_stocks = [
+        {
+            "symbol": "688981",
+            "name": "中芯国际",
+            "market_cap": 420_000_000_000,
+            "pe_ratio": 52.7,
+            "change_pct": 1.8,
+            "amount": 2_400_000_000,
+        },
+        {
+            "symbol": "603986",
+            "name": "兆易创新",
+            "market_cap": 96_000_000_000,
+            "pe_ratio": 34.2,
+            "change_pct": 0.7,
+            "amount": 1_100_000_000,
+        },
+    ]
+
+    class _CachedLeaderProvider(_FakeProvider):
+        def get_cached_stock_list_by_industry(self, industry_name):
+            return cached_provider_stocks
+
+        def get_stock_list_by_industry(self, industry_name, *args, **kwargs):
+            raise AssertionError("live provider fetch should not run when cached leader snapshot exists")
+
+    class _CachedLeaderAnalyzer(_FakeAnalyzer):
+        def __init__(self):
+            self.provider = _CachedLeaderProvider()
+
+    monkeypatch.setattr(industry_endpoint, "get_industry_analyzer", lambda: _CachedLeaderAnalyzer())
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _FakeScorer())
+
+    leaders = industry_endpoint.get_leader_stocks(
+        top_n=2,
+        top_industries=1,
+        per_industry=2,
+        list_type="core",
+    )
+
+    assert [leader.symbol for leader in leaders] == ["688981", "603986"]
+    assert all(leader.score_type == "core" for leader in leaders)
+
+
+def test_get_leader_stocks_hot_prefers_leading_stock_lookup_before_symbol_resolve(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    class _CachedValuationProvider(_FakeProvider):
+        def get_stock_valuation(self, symbol, cached_only=False):
+            assert cached_only is True
+            return {"symbol": symbol, "error": "cache miss"}
+
+    class _LookupAnalyzer(_FakeAnalyzer):
+        def __init__(self):
+            self.provider = _CachedValuationProvider()
+
+        def analyze_money_flow(self, days=1):
+            return pd.DataFrame(
+                [
+                    {
+                        "industry_name": "测试行业",
+                        "leading_stock": "重庆银行",
+                        "leading_stock_change": 9.8,
+                        "main_net_ratio": 6.4,
+                        "main_net_inflow": 120000000,
+                        "change_pct": 4.2,
+                    }
+                ]
+            )
+
+    monkeypatch.setattr(industry_endpoint, "get_industry_analyzer", lambda: _LookupAnalyzer())
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _FakeScorer())
+    monkeypatch.setattr(industry_endpoint, "_build_leading_stock_symbol_lookup", lambda: {"重庆银行": "601963"})
+    monkeypatch.setattr(
+        industry_endpoint,
+        "_resolve_symbol_with_provider",
+        lambda symbol: (_ for _ in ()).throw(AssertionError("symbol resolver should not run when lookup hit")),
+    )
+
+    leaders = industry_endpoint.get_leader_stocks(
+        top_n=1,
+        top_industries=1,
+        per_industry=1,
+        list_type="hot",
+    )
+
+    assert len(leaders) == 1
+    assert leaders[0].symbol == "601963"
+    assert leaders[0].name == "重庆银行"
+    assert leaders[0].score_type == "hot"
+
+
+def test_leader_boards_overview_reuses_shared_industry_ranking(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    analyzer = _CountingAnalyzer()
+    monkeypatch.setattr(industry_endpoint, "get_industry_analyzer", lambda: analyzer)
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _FakeScorer())
+
+    app = FastAPI()
+    app.include_router(industry_endpoint.router, prefix="/industry")
+    client = TestClient(app)
+
+    response = client.get(
+        "/industry/leaders/overview",
+        params={"top_n": 3, "top_industries": 1, "per_industry": 3},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert analyzer.rank_calls == 1
+    assert payload["errors"] == {}
+    assert len(payload["core"]) == 1
+    assert len(payload["hot"]) == 3
+    assert payload["core"][0]["score_type"] == "core"
+    assert all(item["score_type"] == "hot" for item in payload["hot"])
+
+
+def test_leader_boards_overview_reuses_provider_stock_fetch_between_core_and_hot(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    analyzer = _CountingStockAnalyzer()
+    monkeypatch.setattr(industry_endpoint, "get_industry_analyzer", lambda: analyzer)
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _FakeScorer())
+
+    app = FastAPI()
+    app.include_router(industry_endpoint.router, prefix="/industry")
+    client = TestClient(app)
+
+    response = client.get(
+        "/industry/leaders/overview",
+        params={"top_n": 3, "top_industries": 1, "per_industry": 3},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["core"]) == 1
+    assert len(payload["hot"]) == 3
+    assert analyzer.provider.calls == 1
+
+
+def test_compute_core_leader_stocks_avoids_threadpool_for_local_snapshot_path(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    analyzer = _FakeAnalyzer()
+    analyzer.provider = _SnapshotWarmupProvider()
+    hot_industries = analyzer.rank_industries(top_n=1)
+
+    def _threadpool_should_not_run(*args, **kwargs):
+        raise AssertionError("core leader path should stay serial for local snapshots")
+
+    monkeypatch.setattr(industry_endpoint, "ThreadPoolExecutor", _threadpool_should_not_run)
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _FakeScorer())
+
+    leaders = industry_endpoint._compute_core_leader_stocks(
+        analyzer,
+        hot_industries,
+        top_n=2,
+        per_industry=2,
+        provider_stock_cache={},
+        provider_stock_cache_lock=threading.Lock(),
+    )
+
+    assert len(leaders) == 1
+    assert leaders[0].symbol == "000001"
+
+
+def test_build_leading_stock_symbol_lookup_prefers_persistent_sina_list(monkeypatch):
+    industry_endpoint._leading_stock_symbol_lookup_cache.clear()
+    industry_endpoint._leading_stock_symbol_lookup_cache_time = 0
+
+    persistent_df = pd.DataFrame(
+        [
+            {
+                "industry_code": "new_test",
+                "industry_name": "测试行业",
+                "leading_stock_name": "重庆银行",
+                "leading_stock_code": "sh601963",
+            }
+        ]
+    )
+
+    class _DeadSinaProvider:
+        def get_industry_list(self):
+            raise AssertionError("live sina industry list should not run when persistent cache exists")
+
+    class _Provider:
+        sina = _DeadSinaProvider()
+
+    monkeypatch.setattr(industry_endpoint, "_get_or_create_provider", lambda: _Provider())
+    monkeypatch.setattr(
+        "src.data.providers.sina_provider.SinaFinanceProvider._load_persistent_industry_list",
+        lambda: persistent_df,
+    )
+
+    lookup = industry_endpoint._build_leading_stock_symbol_lookup()
+
+    assert lookup == {"重庆银行": "601963"}
+
+
+def test_leader_boards_overview_schedules_snapshot_prewarm(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    analyzer = _CountingAnalyzer()
+    scheduled = {}
+
+    monkeypatch.setattr(industry_endpoint, "get_industry_analyzer", lambda: analyzer)
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _FakeScorer())
+
+    def _fake_schedule(analyzer_arg, hot_industries):
+        scheduled["analyzer"] = analyzer_arg
+        scheduled["hot_industries"] = hot_industries
+
+    monkeypatch.setattr(industry_endpoint, "_schedule_leader_stock_snapshot_prewarm", _fake_schedule)
+
+    app = FastAPI()
+    app.include_router(industry_endpoint.router, prefix="/industry")
+    client = TestClient(app)
+
+    response = client.get(
+        "/industry/leaders/overview",
+        params={"top_n": 3, "top_industries": 1, "per_industry": 3},
+    )
+
+    assert response.status_code == 200
+    assert scheduled["analyzer"] is analyzer
+    assert scheduled["hot_industries"][0]["industry_name"] == "测试行业"
+
+
+def test_prewarm_leader_stock_snapshot_uses_akshare_provider_when_cache_missing():
+    analyzer = _FakeAnalyzer()
+    analyzer.provider = _SnapshotWarmupProvider()
+
+    industry_endpoint._prewarm_leader_stock_snapshot("测试行业", analyzer)
+
+    assert analyzer.provider.akshare.persist_stock_list_snapshot.called
+    assert analyzer.provider.akshare.cached_calls == 0
+    assert analyzer.provider.akshare.live_calls == 0
+
+
+def test_compute_hot_leader_stocks_backfills_from_provider_before_full_scorer(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    analyzer = _CountingStockAnalyzer()
+
+    def _analyze_money_flow(days=1):
+        return pd.DataFrame(
+            [
+                {
+                    "industry_name": "测试行业",
+                    "leading_stock": "未解析龙头",
+                    "leading_stock_change": 9.8,
+                    "main_net_ratio": 6.4,
+                    "main_net_inflow": 120000000,
+                    "change_pct": 4.2,
+                }
+            ]
+        )
+
+    analyzer.analyze_money_flow = _analyze_money_flow
+
+    class _NoHeavyFallbackScorer(_FakeScorer):
+        def get_leader_stocks(self, hot_industries, top_per_industry=5, score_type="hot"):
+            raise AssertionError("full scorer fallback should not run when provider backfill is available")
+
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _NoHeavyFallbackScorer())
+    monkeypatch.setattr(industry_endpoint, "_build_leading_stock_symbol_lookup", lambda: {})
+    monkeypatch.setattr(industry_endpoint, "_resolve_symbol_with_provider", lambda symbol: symbol)
+
+    leaders = industry_endpoint._compute_hot_leader_stocks(
+        analyzer=analyzer,
+        hot_industries=[{"industry_name": "测试行业"}],
+        top_industry_names={"测试行业"},
+        top_n=1,
+        per_industry=1,
+    )
+
+    assert len(leaders) == 1
+    assert leaders[0].symbol == "000001"
+    assert leaders[0].name == "测试行业龙头"
+    assert analyzer.provider.calls == 1
+
+
+def test_compute_hot_leader_stocks_prefers_lightweight_money_flow_loader(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    analyzer = _CountingStockAnalyzer()
+    analyzer.analyze_money_flow = MagicMock(side_effect=AssertionError("full money flow should not run"))
+    analyzer._load_lightweight_money_flow = MagicMock(
+        return_value=pd.DataFrame(
+            [
+                {
+                    "industry_name": "测试行业",
+                    "leading_stock": "000001",
+                    "leading_stock_change": 9.8,
+                    "main_net_ratio": 6.4,
+                    "main_net_inflow": 120000000,
+                    "change_pct": 4.2,
+                }
+            ]
+        )
+    )
+
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _FakeScorer())
+    monkeypatch.setattr(industry_endpoint, "_build_leading_stock_symbol_lookup", lambda: {})
+    monkeypatch.setattr(industry_endpoint, "_resolve_symbol_with_provider", lambda symbol: symbol)
+
+    leaders = industry_endpoint._compute_hot_leader_stocks(
+        analyzer=analyzer,
+        hot_industries=[{"industry_name": "测试行业"}],
+        top_industry_names={"测试行业"},
+        top_n=1,
+        per_industry=1,
+    )
+
+    assert len(leaders) == 1
+    assert leaders[0].symbol == "000001"
+    analyzer._load_lightweight_money_flow.assert_called_once_with(days=1)
+
+
+def test_industry_bootstrap_reuses_shared_industry_ranking(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    analyzer = _CountingAnalyzer()
+    monkeypatch.setattr(industry_endpoint, "get_industry_analyzer", lambda: analyzer)
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _FakeScorer())
+    monkeypatch.setattr(industry_endpoint, "_build_leading_stock_symbol_lookup", lambda: {"测试龙头": "000001"})
+    industry_endpoint._set_endpoint_cache(
+        industry_endpoint._get_leader_overview_cache_key(3, 1, 3),
+        LeaderBoardsResponse(
+            core=[
+                LeaderStockResponse(
+                    symbol="000001",
+                    name="测试行业龙头",
+                    industry="测试行业",
+                    score_type="core",
+                    global_rank=1,
+                    industry_rank=1,
+                    total_score=61.31,
+                    market_cap=12_000_000_000,
+                    pe_ratio=18.5,
+                    change_pct=1.2,
+                )
+            ],
+            hot=[
+                LeaderStockResponse(
+                    symbol="000001",
+                    name="测试行业龙头",
+                    industry="测试行业",
+                    score_type="hot",
+                    global_rank=1,
+                    industry_rank=1,
+                    total_score=97.2,
+                    market_cap=12_000_000_000,
+                    pe_ratio=18.5,
+                    change_pct=9.8,
+                )
+            ],
+        ),
+    )
+
+    app = FastAPI()
+    app.include_router(industry_endpoint.router, prefix="/industry")
+    client = TestClient(app)
+
+    response = client.get(
+        "/industry/bootstrap",
+        params={"days": 5, "ranking_top_n": 20, "leader_top_n": 3, "top_industries": 1, "per_industry": 3},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert analyzer.rank_calls == 1
+    assert payload["errors"] == {}
+    assert payload["heatmap"]["industries"][0]["name"] == "测试行业"
+    assert len(payload["hot_industries"]) == 1
+    assert len(payload["leaders"]["core"]) == 1
+    assert len(payload["leaders"]["hot"]) == 1
+    assert payload["leaders"]["core"][0]["symbol"] == "000001"
+
+
+def test_industry_bootstrap_schedules_leader_warmup_when_overview_missing(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    analyzer = _CountingAnalyzer()
+    scheduled = {}
+
+    monkeypatch.setattr(industry_endpoint, "get_industry_analyzer", lambda: analyzer)
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _FakeScorer())
+    monkeypatch.setattr(industry_endpoint, "_build_leading_stock_symbol_lookup", lambda: {"测试龙头": "000001"})
+
+    def _fake_schedule(**kwargs):
+        scheduled["kwargs"] = kwargs
+        return object()
+
+    monkeypatch.setattr(industry_endpoint, "_schedule_leader_overview_build", _fake_schedule)
+
+    app = FastAPI()
+    app.include_router(industry_endpoint.router, prefix="/industry")
+    client = TestClient(app)
+
+    response = client.get(
+        "/industry/bootstrap",
+        params={"days": 5, "ranking_top_n": 20, "leader_top_n": 3, "top_industries": 1, "per_industry": 3},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert analyzer.rank_calls == 1
+    assert payload["errors"] == {}
+    assert payload["leaders"]["core"] == []
+    assert payload["leaders"]["hot"] == []
+    assert scheduled["kwargs"]["top_n"] == 3
+    assert scheduled["kwargs"]["top_industries"] == 1
+    assert scheduled["kwargs"]["per_industry"] == 3
+    assert scheduled["kwargs"]["hot_industries"][0]["industry_name"] == "测试行业"
+
+
+def test_industry_bootstrap_cached_partial_payload_hydrates_ready_leader_overview():
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    bootstrap_cache_key = "industry_bootstrap:v2:5:20:3:1:3"
+    overview_cache_key = industry_endpoint._get_leader_overview_cache_key(3, 1, 3)
+
+    industry_endpoint._set_endpoint_cache(
+        bootstrap_cache_key,
+        IndustryBootstrapResponse(
+            days=5,
+            ranking_top_n=20,
+            ranking_type="gainers",
+            ranking_sort_by="total_score",
+            ranking_order="desc",
+            heatmap={
+                "industries": [
+                    {
+                        "name": "测试行业",
+                        "value": 4.2,
+                        "total_score": 91.2,
+                        "size": 180000000000,
+                        "stockCount": 2,
+                        "moneyFlow": 120000000,
+                        "turnoverRate": 3.1,
+                        "industryVolatility": 1.2,
+                        "industryVolatilitySource": "historical_index",
+                        "netInflowRatio": 6.4,
+                        "leadingStock": "测试龙头",
+                        "leadingStockSymbol": "000001",
+                        "sizeSource": "snapshot",
+                        "marketCapSource": "snapshot_manual",
+                        "marketCapSnapshotAgeHours": 2.0,
+                        "marketCapSnapshotIsStale": False,
+                        "valuationSource": "akshare_sw",
+                        "valuationQuality": "industry_level",
+                        "dataSources": ["ths"],
+                        "industryIndex": 3210.5,
+                        "totalInflow": 32.0,
+                        "totalOutflow": 18.0,
+                        "leadingStockChange": 9.8,
+                        "leadingStockPrice": 18.6,
+                        "pe_ttm": 16.8,
+                        "pb": 2.1,
+                        "dividend_yield": 1.2,
+                    }
+                ],
+                "max_value": 4.2,
+                "min_value": 4.2,
+                "update_time": "2026-04-20T00:00:00",
+            },
+            hot_industries=[],
+            leaders=LeaderBoardsResponse(),
+            errors={"leaders": "龙头股榜单预热中"},
+        ),
+    )
+    industry_endpoint._set_endpoint_cache(
+        overview_cache_key,
+        LeaderBoardsResponse(
+            core=[
+                LeaderStockResponse(
+                    symbol="000001",
+                    name="测试行业龙头",
+                    industry="测试行业",
+                    score_type="core",
+                    global_rank=1,
+                    industry_rank=1,
+                    total_score=61.31,
+                    market_cap=12_000_000_000,
+                    pe_ratio=18.5,
+                    change_pct=1.2,
+                )
+            ],
+            hot=[
+                LeaderStockResponse(
+                    symbol="000001",
+                    name="测试行业龙头",
+                    industry="测试行业",
+                    score_type="hot",
+                    global_rank=1,
+                    industry_rank=1,
+                    total_score=97.2,
+                    market_cap=12_000_000_000,
+                    pe_ratio=18.5,
+                    change_pct=9.8,
+                )
+            ],
+        ),
+    )
+
+    app = FastAPI()
+    app.include_router(industry_endpoint.router, prefix="/industry")
+    client = TestClient(app)
+
+    response = client.get(
+        "/industry/bootstrap",
+        params={"days": 5, "ranking_top_n": 20, "leader_top_n": 3, "top_industries": 1, "per_industry": 3},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["errors"] == {}
+    assert len(payload["leaders"]["core"]) == 1
+    assert len(payload["leaders"]["hot"]) == 1
+    hydrated = industry_endpoint._get_endpoint_cache(bootstrap_cache_key)
+    assert hydrated is not None
+    assert len(hydrated.leaders.core) == 1
+    assert len(hydrated.leaders.hot) == 1
+
+
 def test_leader_stocks_rejects_invalid_list_type():
     app = FastAPI()
     app.include_router(industry_endpoint.router, prefix="/industry")
@@ -226,6 +889,60 @@ def test_leader_detail_preserves_real_fundamentals_when_parity_snapshot_is_spars
     assert detail.raw_data["market_cap"] == 15_688_999_999.99
     assert detail.raw_data["pe_ttm"] == 30.1
     assert detail.raw_data["change_pct"] == 13.32
+
+
+class _TransientLeaderDetailScorer:
+    def get_leader_detail(self, symbol, score_type="core"):
+        return {"symbol": symbol, "error": "Remote end closed connection without response"}
+
+
+def test_leader_detail_uses_parity_name_match_as_degraded_fallback(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _TransientLeaderDetailScorer())
+    monkeypatch.setattr(industry_endpoint, "_resolve_symbol_with_provider", lambda symbol: symbol)
+
+    industry_endpoint._set_parity_cache(
+        "601963",
+        "hot",
+        LeaderStockResponse(
+            symbol="601963",
+            name="重庆银行",
+            industry="银行",
+            score_type="hot",
+            global_rank=1,
+            industry_rank=1,
+            total_score=81.6,
+            market_cap=125_000_000_000,
+            pe_ratio=6.4,
+            change_pct=2.18,
+            dimension_scores={"score_type": "hot", "momentum": 0.81, "money_flow": 0.72},
+            mini_trend=[10.1, 10.3, 10.4, 10.25],
+        ),
+    )
+
+    detail = industry_endpoint.get_leader_detail("重庆银行", score_type="hot")
+
+    assert detail.symbol == "601963"
+    assert detail.name == "重庆银行"
+    assert detail.degraded is True
+    assert "榜单快照" in (detail.note or "")
+    assert detail.raw_data["source"] == "leader_parity_cache"
+    assert len(detail.price_data) >= 2
+
+
+def test_leader_detail_returns_502_for_transient_upstream_error_without_parity(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _TransientLeaderDetailScorer())
+    monkeypatch.setattr(industry_endpoint, "_resolve_symbol_with_provider", lambda symbol: symbol)
+
+    with pytest.raises(HTTPException) as excinfo:
+        industry_endpoint.get_leader_detail("重庆银行", score_type="hot")
+
+    assert excinfo.value.status_code == 502
 
 
 class _SparseIndustryScorer:

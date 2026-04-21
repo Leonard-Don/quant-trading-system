@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import useIndustryUrlState from './useIndustryUrlState';
 import useIndustryHeatmapReplay from './useIndustryHeatmapReplay';
 import useIndustryPreferences from './useIndustryPreferences';
@@ -8,14 +8,29 @@ import useIndustryAlerts from './useIndustryAlerts';
 import useIndustrySelection from './useIndustrySelection';
 import useIndustryWatchlist from './useIndustryWatchlist';
 import { INDUSTRY_ALERT_KIND_OPTIONS } from './industryShared';
+import { getIndustryBootstrap } from '../../services/api';
 
 const MAX_WATCHLIST_INDUSTRIES = 12;
+const INDUSTRY_BOOTSTRAP_RANKING_TOP_N = 50;
+const INDUSTRY_BOOTSTRAP_LEADER_TOP_N = 5;
+const INDUSTRY_BOOTSTRAP_TOP_INDUSTRIES = 5;
+const INDUSTRY_BOOTSTRAP_PER_INDUSTRY = 3;
 
 const useIndustryDashboardData = ({ message }) => {
     const [selectedIndustry, setSelectedIndustry] = useState(null);
     const [comparisonIndustries, setComparisonIndustries] = useState([]);
+    const [industryBootstrap, setIndustryBootstrap] = useState(null);
+    const [industryBootstrapLoading, setIndustryBootstrapLoading] = useState(true);
+    const bootstrapAbortRef = useRef(null);
 
     const urlState = useIndustryUrlState();
+    const bootstrapQuery = useMemo(() => ({
+        days: urlState.heatmapViewState.timeframe,
+        ranking_top_n: INDUSTRY_BOOTSTRAP_RANKING_TOP_N,
+        leader_top_n: INDUSTRY_BOOTSTRAP_LEADER_TOP_N,
+        top_industries: INDUSTRY_BOOTSTRAP_TOP_INDUSTRIES,
+        per_industry: INDUSTRY_BOOTSTRAP_PER_INDUSTRY,
+    }), [urlState.heatmapViewState.timeframe]);
 
     const replay = useIndustryHeatmapReplay({
         heatmapViewState: urlState.heatmapViewState,
@@ -23,6 +38,55 @@ const useIndustryDashboardData = ({ message }) => {
         selectedIndustry,
         setSelectedIndustry,
     });
+
+    useEffect(() => {
+        if (replay.activeReplaySnapshot?.data) {
+            setIndustryBootstrapLoading(false);
+            return undefined;
+        }
+
+        if (bootstrapAbortRef.current) {
+            bootstrapAbortRef.current.abort();
+        }
+        const currentAbort = new AbortController();
+        bootstrapAbortRef.current = currentAbort;
+        setIndustryBootstrap(null);
+        setIndustryBootstrapLoading(true);
+
+        getIndustryBootstrap(bootstrapQuery.days, {
+            ranking_top_n: bootstrapQuery.ranking_top_n,
+            leader_top_n: bootstrapQuery.leader_top_n,
+            top_industries: bootstrapQuery.top_industries,
+            per_industry: bootstrapQuery.per_industry,
+        }, {
+            signal: currentAbort.signal,
+            timeout: 25000,
+            suppressNetworkErrorLog: true,
+        })
+            .then((payload) => {
+                if (bootstrapAbortRef.current !== currentAbort) return;
+                setIndustryBootstrap(payload || null);
+            })
+            .catch((error) => {
+                if (error?.name === 'CanceledError' || bootstrapAbortRef.current !== currentAbort) {
+                    return;
+                }
+                console.warn('Industry bootstrap warmup failed, falling back to per-panel loading:', error);
+                setIndustryBootstrap(null);
+            })
+            .finally(() => {
+                if (bootstrapAbortRef.current === currentAbort) {
+                    setIndustryBootstrapLoading(false);
+                }
+            });
+
+        return () => {
+            currentAbort.abort();
+            if (bootstrapAbortRef.current === currentAbort) {
+                bootstrapAbortRef.current = null;
+            }
+        };
+    }, [bootstrapQuery, replay.activeReplaySnapshot]);
 
     const preferences = useIndustryPreferences({
         heatmapIndustriesLength: replay.heatmapIndustries.length,
@@ -38,6 +102,13 @@ const useIndustryDashboardData = ({ message }) => {
         volatilityFilter: urlState.volatilityFilter,
         rankingMarketCapFilter: urlState.rankingMarketCapFilter,
         heatmapIndustriesLength: replay.heatmapIndustries.length,
+        bootstrapHotIndustries: industryBootstrap?.hot_industries || [],
+        bootstrapHotMeta: industryBootstrap ? {
+            topN: industryBootstrap.ranking_top_n,
+            type: industryBootstrap.ranking_type,
+            sortBy: industryBootstrap.ranking_sort_by,
+            lookbackDays: industryBootstrap.days,
+        } : null,
         message,
     });
 
@@ -236,6 +307,12 @@ const useIndustryDashboardData = ({ message }) => {
         loadIndustryStocks(selectedIndustry);
     }, [loadIndustryStocks, selectedIndustry]);
 
+    useEffect(() => () => {
+        if (bootstrapAbortRef.current) {
+            bootstrapAbortRef.current.abort();
+        }
+    }, []);
+
     return {
         // URL state
         ...urlState,
@@ -253,6 +330,8 @@ const useIndustryDashboardData = ({ message }) => {
         ...selection,
         // Watchlist
         ...watchlist,
+        industryBootstrap,
+        industryBootstrapLoading,
         // Cross-cutting state
         selectedIndustry,
         setSelectedIndustry,

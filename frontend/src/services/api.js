@@ -213,7 +213,9 @@ api.interceptors.response.use(
       } else {
         errorMessage = '无法连接到服务器，请检查网络';
       }
-      console.error('API Network Error:', error.config?.url || 'unknown', error.message);
+      if (!error.config?.suppressNetworkErrorLog) {
+        console.error('API Network Error:', error.config?.url || 'unknown', error.message);
+      }
     } else {
       // 请求配置出错
       console.error('API Config Error:', error.message);
@@ -866,6 +868,22 @@ export const getIndustryHeatmap = async (days = 5, options = {}) => {
   return response.data;
 };
 
+export const getIndustryBootstrap = async (
+  days = 5,
+  params = {},
+  options = {},
+) => {
+  const response = await api.get('/industry/bootstrap', {
+    ...options,
+    params: {
+      ...options.params,
+      days,
+      ...params,
+    },
+  });
+  return response.data;
+};
+
 export const getIndustryHeatmapHistory = async (params = {}, options = {}) => {
   const search = new URLSearchParams();
   if (params.limit) search.set('limit', String(params.limit));
@@ -917,6 +935,20 @@ export const getLeaderStocks = async (topN = 20, topIndustries = 5, perIndustry 
       top_industries: topIndustries,
       per_industry: perIndustry,
       list_type: listType
+    }
+  });
+  return response.data;
+};
+
+// 一次性获取核心资产与热点先锋榜单
+export const getLeaderBoards = async (topN = 20, topIndustries = 5, perIndustry = 5, options = {}) => {
+  const response = await api.get('/industry/leaders/overview', {
+    ...options,
+    params: {
+      ...options.params,
+      top_n: topN,
+      top_industries: topIndustries,
+      per_industry: perIndustry
     }
   });
   return response.data;

@@ -36,6 +36,8 @@ FAKE_QUOTE = {
 def reset_ws_manager():
     manager.active_connections.clear()
     manager.subscriptions.clear()
+    manager._send_queues.clear()
+    manager._send_tasks.clear()
     manager.loop = None
     realtime_manager.quote_history.clear()
     realtime_manager._quotes_bundle_cache.clear()
@@ -43,6 +45,8 @@ def reset_ws_manager():
     yield
     manager.active_connections.clear()
     manager.subscriptions.clear()
+    manager._send_queues.clear()
+    manager._send_tasks.clear()
     manager.loop = None
     realtime_manager.quote_history.clear()
     realtime_manager._quotes_bundle_cache.clear()
@@ -256,3 +260,37 @@ def test_websocket_manual_snapshot_reuses_cached_quote_contract(client):
             assert snapshot["data"]["AAPL"]["symbol"] == "AAPL"
 
     assert snapshot_calls == [(("AAPL",), True), (("AAPL",), True)]
+
+
+def test_websocket_batch_subscription_ack_returns_symbols_and_results(client):
+    quotes = {
+        "AAPL": FAKE_QUOTE,
+        "MSFT": {**FAKE_QUOTE, "symbol": "MSFT"},
+    }
+
+    with patch.object(realtime_manager, "get_quotes_dict", return_value=quotes), \
+         patch.object(realtime_manager, "subscribe_symbol", return_value=True), \
+         patch.object(realtime_manager, "unsubscribe_symbol", return_value=True):
+        with client.websocket_connect("/ws/quotes") as websocket:
+            websocket.send_json({"action": "subscribe", "symbols": ["AAPL", "MSFT"]})
+            ack = websocket.receive_json()
+            snapshot = websocket.receive_json()
+
+            assert ack["type"] == "subscription"
+            assert ack["action"] == "subscribed"
+            assert ack["symbols"] == ["AAPL", "MSFT"]
+            assert [item["symbol"] for item in ack["results"]] == ["AAPL", "MSFT"]
+            assert all(item["added"] is True for item in ack["results"])
+            datetime.fromisoformat(ack["timestamp"])
+
+            assert snapshot["type"] == "snapshot"
+            assert snapshot["symbols"] == ["AAPL", "MSFT"]
+
+
+def test_websocket_ping_returns_iso_timestamp(client):
+    with client.websocket_connect("/ws/quotes") as websocket:
+        websocket.send_json({"action": "ping"})
+        pong = websocket.receive_json()
+
+        assert pong["type"] == "pong"
+        datetime.fromisoformat(pong["timestamp"])

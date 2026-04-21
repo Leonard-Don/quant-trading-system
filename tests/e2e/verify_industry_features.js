@@ -195,9 +195,21 @@ const activateIndustryDetailTab = async (page, pattern) => {
 
 const ensureIndustryStockTableVisible = async (page) => {
   await activateIndustryDetailTab(page, /成分股/);
+  await page.waitForFunction(() => {
+    const panel = document.querySelector('[data-testid="industry-detail-panel"]');
+    if (!panel) return false;
+    if (panel.querySelector('[data-testid="industry-stock-table"]')) return true;
+    const text = panel.textContent || '';
+    return text.includes('成分股明细暂不可用')
+      || text.includes('当前数据源未返回成分股明细')
+      || text.includes('暂无成分股数据');
+  }, null, { timeout: 10000 }).catch(() => {});
   const stockTable = page.locator('[data-testid="industry-stock-table"]').first();
-  await stockTable.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
-  return stockTable;
+  if (await stockTable.count().catch(() => 0)) {
+    await stockTable.waitFor({ state: 'visible', timeout: 10000 }).catch(() => {});
+    return stockTable;
+  }
+  return null;
 };
 
 const waitForIndustryScoreStage = async (page, expectedStages, timeout = 6000) => {
@@ -328,11 +340,16 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   const page = await browser.newPage();
   await page.setViewportSize({ width: 1440, height: 1100 });
   const consoleErrors = [];
+  const pageErrors = [];
   let originalIndustryPreferences = null;
+  let runFailed = false;
   page.on('console', (msg) => {
     if (msg.type() === 'error') {
       consoleErrors.push(msg.text());
     }
+  });
+  page.on('pageerror', (error) => {
+    pageErrors.push(error.message || String(error));
   });
 
   try {
@@ -557,33 +574,43 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     };
     const aiInsightVisible = await page.locator('[data-testid="industry-ai-insight-panel"]').count().catch(() => 0);
     const stockTable = await ensureIndustryStockTableVisible(page);
-    const stocksTableBody = stockTable.locator('tbody');
-    const quickRowsRendered = await stocksTableBody.locator('tr').first().isVisible().catch(() => false);
-    await page.waitForFunction(() => {
-      const node = document.querySelector('[data-testid="industry-stock-table"]');
-      const stage = node?.getAttribute('data-score-stage');
-      return stage === 'quick' || stage === 'full';
-    }, null, { timeout: 10000 }).catch(() => {});
-    const initialScoreStage = await stockTable.getAttribute('data-score-stage');
-    const stockTableSnapshot = await stockTable.evaluate((table) => {
-      const headers = Array.from(table.querySelectorAll('thead th')).map((cell) => (cell.textContent || '').trim());
-      const rows = Array.from(table.querySelectorAll('tbody tr'))
-        .slice(0, 5)
-        .map((row) => Array.from(row.querySelectorAll('td')).map((cell) => (cell.textContent || '').trim()));
-      return { headers, rows };
-    });
+    const hasStockTable = Boolean(stockTable);
+    const quickRowsRendered = stockTable
+      ? await stockTable.locator('tbody').locator('tr').first().isVisible().catch(() => false)
+      : false;
+    if (stockTable) {
+      await page.waitForFunction(() => {
+        const node = document.querySelector('[data-testid="industry-stock-table"]');
+        const stage = node?.getAttribute('data-score-stage');
+        return stage === 'quick' || stage === 'full';
+      }, null, { timeout: 10000 }).catch(() => {});
+    }
+    const initialScoreStage = stockTable ? await stockTable.getAttribute('data-score-stage') : 'unavailable';
+    const stockTableSnapshot = stockTable
+      ? await stockTable.evaluate((table) => {
+        const headers = Array.from(table.querySelectorAll('thead th')).map((cell) => (cell.textContent || '').trim());
+        const rows = Array.from(table.querySelectorAll('tbody tr'))
+          .slice(0, 5)
+          .map((row) => Array.from(row.querySelectorAll('td')).map((cell) => (cell.textContent || '').trim()));
+        return { headers, rows };
+      })
+      : { headers: [], rows: [] };
     const stockRows = stockTableSnapshot.rows;
     const quickScoreSnapshot = stockRows.map((cells) => cells[3] || '');
-    await waitForIndustryScoreStage(page, ['quick', 'full'], 10000).catch(() => null);
-    if (initialScoreStage === 'quick') {
-      await waitForIndustryScoreStage(page, 'full', 20000).catch(() => null);
+    if (stockTable) {
+      await waitForIndustryScoreStage(page, ['quick', 'full'], 10000).catch(() => null);
+      if (initialScoreStage === 'quick') {
+        await waitForIndustryScoreStage(page, 'full', 20000).catch(() => null);
+      }
     }
     const upgradedStockTable = await ensureIndustryStockTableVisible(page);
-    const upgradedScoreStage = await upgradedStockTable.getAttribute('data-score-stage');
-    const upgradedDisplayReady = await upgradedStockTable.getAttribute('data-display-ready');
-    const upgradedStockRows = await upgradedStockTable.locator('tbody tr').evaluateAll(
-      (rows) => rows.slice(0, 5).map((row) => Array.from(row.querySelectorAll('td')).map((cell) => (cell.textContent || '').trim()))
-    );
+    const upgradedScoreStage = upgradedStockTable ? await upgradedStockTable.getAttribute('data-score-stage') : 'unavailable';
+    const upgradedDisplayReady = upgradedStockTable ? await upgradedStockTable.getAttribute('data-display-ready') : 'false';
+    const upgradedStockRows = upgradedStockTable
+      ? await upgradedStockTable.locator('tbody tr').evaluateAll(
+        (rows) => rows.slice(0, 5).map((row) => Array.from(row.querySelectorAll('td')).map((cell) => (cell.textContent || '').trim()))
+      )
+      : [];
     const detailDegraded = await page.getByText('当前显示的是降级行业数据', { exact: false }).isVisible().catch(() => false);
     const detailColumnKeywords = ['主力净流入', '换手率', '市值', 'PE'];
     const detailColumnIndexes = stockTableSnapshot.headers
@@ -609,6 +636,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
       const score = cells[3] || '';
       return score !== '-' && score !== '';
     });
+    console.log(`行业成分股表格是否显示: ${hasStockTable ? '是' : '否'}`);
     console.log(`行业成分股首屏快速渲染: ${quickRowsRendered ? '是' : '否'}`);
     console.log(`行业成分股初始评分阶段: ${initialScoreStage || 'unknown'}`);
     console.log(`行业摘要总市值已补齐: ${summarySnapshot.totalMarketCap && summarySnapshot.totalMarketCap !== '-' ? '是' : '否'}`);
@@ -776,23 +804,25 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   await page.waitForTimeout(300);
   const leaderPanel = page.locator('[data-testid="leader-stock-panel"]');
   await page.waitForFunction(() => {
-    const activePane = document.querySelector('[data-testid="leader-stock-panel"] .ant-tabs-tabpane-active');
-    if (!activePane) return false;
-    const hasRows = activePane.querySelectorAll('[data-testid="leader-stock-row"]').length > 0;
-    const loading = Boolean(activePane.querySelector('.ant-spin-spinning'));
-    const text = activePane.textContent || '';
+    const panel = document.querySelector('[data-testid="leader-stock-panel"]');
+    if (!panel) return false;
+    const hasRows = panel.querySelectorAll('[data-testid="leader-stock-row"]').length > 0;
+    const loading = Boolean(panel.querySelector('.ant-spin-spinning'));
+    const text = panel.textContent || '';
     const hasEmpty = text.includes('暂无可用核心资产标的')
       || text.includes('当前行业暂无可用核心资产标的')
       || text.includes('暂无可用热点先锋标的')
       || text.includes('当前行业暂无可用热点先锋标的');
     return (!loading && hasRows) || hasEmpty;
   }, null, { timeout: 10000 }).catch(() => {});
-  const activeLeaderTab = leaderPanel.locator('.ant-tabs-tabpane-active');
-  const leaderSparklineVisible = await activeLeaderTab.locator('[data-testid="mini-sparkline"]').first().isVisible().catch(() => false);
+  const leaderSparklineVisible = await leaderPanel.locator('[data-testid="mini-sparkline"]').first().isVisible().catch(() => false);
   console.log(`龙头股走势火花线是否显示: ${leaderSparklineVisible ? '是' : '否'}`);
+  const leaderCoreSectionVisible = await leaderPanel.locator('[data-testid="leader-stock-table-core"]').isVisible().catch(() => false);
+  const leaderHotSectionVisible = await leaderPanel.locator('[data-testid="leader-stock-table-hot"]').isVisible().catch(() => false);
+  console.log(`龙头股核心资产与热点先锋是否同屏显示: ${leaderCoreSectionVisible && leaderHotSectionVisible ? '是' : '否'}`);
 
   console.log('验证龙头股详情竞态保护...');
-  const leaderRows = activeLeaderTab.locator('[data-testid="leader-stock-row"]');
+  const leaderRows = leaderPanel.locator('[data-testid="leader-stock-row"]');
   const leaderRowCount = await leaderRows.count();
   if (leaderRowCount >= 2) {
     const firstLeaderSymbol = await leaderRows.nth(0).getAttribute('data-symbol');
@@ -802,8 +832,8 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
       close?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     }).catch(() => {});
     await page.evaluate(() => {
-      const activePane = document.querySelector('[data-testid="leader-stock-panel"] .ant-tabs-tabpane-active');
-      const rows = Array.from(activePane?.querySelectorAll('[data-testid="leader-stock-row"]') || []);
+      const panel = document.querySelector('[data-testid="leader-stock-panel"]');
+      const rows = Array.from(panel?.querySelectorAll('[data-testid="leader-stock-row"]') || []);
       rows[0]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       rows[1]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
@@ -1007,6 +1037,9 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   console.log(`轮动对比图表是否显示: ${rotationChartExists ? '是' : '否'}`);
 
     console.log('验证完成。');
+  } catch (error) {
+    runFailed = true;
+    throw error;
   } finally {
     if (!page.isClosed()) {
       console.log('正在保存页面状态快照...');
@@ -1025,6 +1058,13 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     if (consoleErrors.length > 0) {
       console.log(consoleErrors.join('\n'));
     }
+    if (pageErrors.length > 0) {
+      console.log(`页面运行时错误数: ${pageErrors.length}`);
+      console.log(pageErrors.join('\n'));
+    }
     await browser.close();
+    if (!runFailed && (consoleErrors.length > 0 || pageErrors.length > 0)) {
+      throw new Error('检测到行业页 console/page 错误');
+    }
   }
 })();

@@ -6,9 +6,11 @@ import pytest
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock, patch, MagicMock
 import sys
 import os
+import threading
 
 # 添加项目根目录到路径
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -124,6 +126,91 @@ class TestIndustryAnalyzer:
             assert "score" in result[0]
             assert result[0]["rank"] == 1
             assert all(0 <= item["score"] <= 100 for item in result)
+
+    def test_rank_industries_uses_lightweight_money_flow_for_mini_trends(self, analyzer, mock_provider):
+        """迷你走势应优先走 lightweight 资金流通道，避免重复触发重增强链路。"""
+        def _mock_money_flow(days=5, lightweight=False):
+            return pd.DataFrame({
+                "industry_name": ["电子", "医药生物", "计算机"],
+                "change_pct": [2.5 + days, 1.8 + days * 0.5, -0.5 + days * 0.2],
+                "main_net_inflow": [5000000000, 3000000000, -1000000000],
+                "main_net_ratio": [5.0, 3.0, -1.0],
+                "flow_strength": [0.05, 0.03, -0.01],
+                "market_cap_source": ["snapshot_akshare_metadata", "akshare_metadata", "unknown"],
+            })
+
+        mock_provider.get_industry_money_flow.side_effect = _mock_money_flow
+        analyzer._clear_cache()
+
+        with patch("src.analytics.industry_analyzer._load_heatmap_history_trend_lookup", return_value={}):
+            result = analyzer.rank_industries(top_n=2)
+
+        assert len(result) == 2
+        assert all(len(item["mini_trend"]) >= 2 for item in result)
+        lightweight_days = {
+            call.kwargs.get("days")
+            for call in mock_provider.get_industry_money_flow.call_args_list
+            if call.kwargs.get("lightweight") is True
+        }
+        regular_days = [
+            call.kwargs.get("days")
+            for call in mock_provider.get_industry_money_flow.call_args_list
+            if call.kwargs.get("lightweight") is not True
+        ]
+        assert lightweight_days == {1, 2, 3, 4, 5}
+        assert regular_days == [5]
+
+    def test_rank_industries_prefers_heatmap_history_for_mini_trends(self, analyzer, mock_provider):
+        """有热力图历史快照时，不应再为火花线重复拉取 1~5 日轻量资金流。"""
+        history_lookup = {
+            "电子": [60.1, 61.3, 62.4],
+            "医药生物": [55.4, 56.2, 56.9],
+        }
+        analyzer._clear_cache()
+
+        with patch("src.analytics.industry_analyzer._load_heatmap_history_trend_lookup", return_value=history_lookup):
+            result = analyzer.rank_industries(top_n=2)
+
+        assert len(result) == 2
+        by_name = {item["industry_name"]: item["mini_trend"] for item in result}
+        assert by_name["电子"] == history_lookup["电子"]
+        assert by_name["医药生物"] == history_lookup["医药生物"]
+        mock_provider.get_industry_money_flow.assert_called_once_with(days=5)
+
+    def test_analyze_money_flow_dedupes_concurrent_requests(self, analyzer, mock_provider):
+        """同一日资金流并发请求应共享一次 provider 调用。"""
+        call_gate = threading.Event()
+        started = threading.Event()
+        call_count = 0
+        call_count_lock = threading.Lock()
+
+        def _slow_money_flow(days=5, lightweight=False):
+            nonlocal call_count
+            with call_count_lock:
+                call_count += 1
+            started.set()
+            call_gate.wait(timeout=1)
+            return pd.DataFrame({
+                "industry_name": ["电子", "医药生物", "计算机"],
+                "change_pct": [2.5, 1.8, -0.5],
+                "main_net_inflow": [5000000000, 3000000000, -1000000000],
+                "main_net_ratio": [5.0, 3.0, -1.0],
+                "flow_strength": [0.05, 0.03, -0.01],
+            })
+
+        mock_provider.get_industry_money_flow.side_effect = _slow_money_flow
+        analyzer._clear_cache()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_one = executor.submit(analyzer.analyze_money_flow, 5)
+            assert started.wait(timeout=1)
+            future_two = executor.submit(analyzer.analyze_money_flow, 5)
+            call_gate.set()
+            result_one = future_one.result(timeout=1)
+            result_two = future_two.result(timeout=1)
+
+        assert call_count == 1
+        assert result_one.equals(result_two)
     
     def test_get_industry_heatmap_data(self, analyzer):
         """测试热力图数据生成"""
@@ -140,6 +227,16 @@ class TestIndustryAnalyzer:
             assert "marketCapSnapshotIsStale" in first
             assert "industryVolatility" in first
             assert "industryVolatilitySource" in first
+
+    def test_get_industry_heatmap_data_prefers_money_flow_fast_path(self, analyzer):
+        """热力图首屏应直接复用聚合资金流结果，而不是先走整段 momentum 计算。"""
+        analyzer._clear_cache()
+        analyzer.calculate_industry_momentum = MagicMock(side_effect=AssertionError("momentum path should not run"))
+
+        result = analyzer.get_industry_heatmap_data(days=5)
+
+        assert result["industries"]
+        assert any(item["name"] == "电子" for item in result["industries"])
 
     def test_heatmap_size_source_tracks_market_cap_source(self, analyzer):
         """测试 sizeSource 与 marketCapSource 类别保持一致"""

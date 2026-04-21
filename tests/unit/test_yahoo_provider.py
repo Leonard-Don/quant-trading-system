@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -123,3 +124,43 @@ def test_get_latest_quote_prefers_fast_info_before_info():
     assert quote["price"] == 188.2
     assert quote["previous_close"] == 187.1
     assert slow_info_accessed["value"] is False
+
+
+def test_get_latest_quote_skips_info_fallback_for_crypto_symbols():
+    provider = YahooFinanceProvider()
+    slow_info_accessed = {"value": False}
+
+    class FakeTicker:
+        fast_info = {
+            "regularMarketChange": 12.5,
+            "regularMarketChangePercent": 1.8,
+        }
+
+        @property
+        def info(self):
+            slow_info_accessed["value"] = True
+            raise AssertionError("crypto quote path should not touch ticker.info")
+
+    with patch.object(provider, "_get_ticker", return_value=FakeTicker()):
+        quote = provider.get_latest_quote("BNB-USD")
+
+    assert quote == {
+        "symbol": "BNB-USD",
+        "error": "Yahoo crypto fast quote unavailable",
+        "source": "yahoo",
+    }
+    assert slow_info_accessed["value"] is False
+
+
+def test_expected_crypto_yfinance_gap_logs_are_suppressed(caplog):
+    provider = YahooFinanceProvider()
+    yfinance_logger = logging.getLogger("yfinance.scrapers.history")
+
+    with caplog.at_level(logging.ERROR):
+        with provider._suppress_expected_yfinance_noise(["BNB-USD"]):
+            yfinance_logger.error("$BNB-USD: possibly delisted; no price data found")
+            yfinance_logger.error("$AAPL: possibly delisted; no price data found")
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "$BNB-USD: possibly delisted; no price data found" not in messages
+    assert "$AAPL: possibly delisted; no price data found" in messages

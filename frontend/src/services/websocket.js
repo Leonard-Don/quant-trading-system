@@ -320,7 +320,7 @@ class WebSocketService {
                 console.log('Server confirmed connection');
                 break;
             case 'subscription':
-                console.log(`${data.action}:`, data.symbol);
+                console.log(`${data.action}:`, data.symbols || data.symbol);
                 break;
             case 'quote':
             case 'price_update':

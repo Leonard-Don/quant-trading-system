@@ -73,6 +73,94 @@ STRATEGIES = {
 }
 
 
+def _estimate_min_history_bars(strategy_name: str, cleaned_params: Dict[str, Any]) -> int:
+    if strategy_name == "moving_average":
+        return int(cleaned_params.get("slow_period", 50))
+    if strategy_name == "rsi":
+        return int(cleaned_params.get("period", 14))
+    if strategy_name == "bollinger_bands":
+        return int(cleaned_params.get("period", 20))
+    if strategy_name == "macd":
+        return int(
+            max(
+                cleaned_params.get("slow_period", 26),
+                cleaned_params.get("signal_period", 9),
+            )
+        )
+    if strategy_name == "mean_reversion":
+        return int(cleaned_params.get("lookback_period", 20))
+    if strategy_name == "vwap":
+        return int(cleaned_params.get("period", 20))
+    if strategy_name == "momentum":
+        return int(cleaned_params.get("slow_window", 30))
+    if strategy_name == "stochastic":
+        return int(cleaned_params.get("k_period", 14))
+    if strategy_name == "atr_trailing_stop":
+        return int(cleaned_params.get("atr_period", 14))
+    if strategy_name == "turtle_trading":
+        return int(max(cleaned_params.get("entry_period", 20), cleaned_params.get("exit_period", 10)))
+    if strategy_name == "multi_factor":
+        return int(
+            max(
+                cleaned_params.get("momentum_window", 20),
+                cleaned_params.get("mean_reversion_window", 20),
+                cleaned_params.get("volume_window", 10),
+                cleaned_params.get("volatility_window", 20),
+            )
+        )
+    return 1
+
+
+def _build_no_trade_diagnostics(
+    *,
+    strategy_name: str,
+    cleaned_params: Dict[str, Any],
+    data: pd.DataFrame,
+    strategy,
+) -> Dict[str, Any]:
+    available_bars = int(len(data))
+    required_bars = _estimate_min_history_bars(strategy_name, cleaned_params)
+    signal_series = getattr(strategy, "signals", pd.Series(dtype="float64"))
+    signal_series = (
+        pd.Series(signal_series, copy=False)
+        .replace([np.inf, -np.inf], np.nan)
+        .fillna(0)
+        .astype(float)
+    )
+    buy_signal_count = int((signal_series > 0).sum())
+    sell_signal_count = int((signal_series < 0).sum())
+    signal_count = buy_signal_count + sell_signal_count
+
+    reason_code = "no_signal_triggered"
+    summary = "The selected window did not trigger any actionable signals."
+
+    if required_bars > 1 and available_bars < required_bars:
+        reason_code = "insufficient_history_window"
+        summary = (
+            f"Only {available_bars} bars were available, which is below the estimated "
+            f"minimum lookback of {required_bars} bars for {strategy_name}."
+        )
+    elif signal_count == 0:
+        reason_code = "no_signal_triggered"
+    else:
+        reason_code = "signals_not_executed"
+        summary = (
+            f"The strategy produced {signal_count} raw signals, but none were executed into trades."
+        )
+
+    return {
+        "reason_code": reason_code,
+        "summary": summary,
+        "available_bars": available_bars,
+        "estimated_required_bars": required_bars,
+        "buy_signal_count": buy_signal_count,
+        "sell_signal_count": sell_signal_count,
+        "signal_count": signal_count,
+        "strategy_name": strategy_name,
+        "strategy_parameters": dict(cleaned_params),
+    }
+
+
 def _parse_iso_datetime(value: Optional[str], field_name: str) -> Optional[datetime]:
     """Parse ISO datetime strings used by the backtest API."""
     if not value:
@@ -267,6 +355,13 @@ def run_backtest_pipeline(
             "parameters": cleaned_params,
         }
     )
+    if not results.get("trades"):
+        results["no_trade_diagnostics"] = _build_no_trade_diagnostics(
+            strategy_name=strategy_name,
+            cleaned_params=cleaned_params,
+            data=data,
+            strategy=strategy,
+        )
     results = normalize_backtest_results(results)
     results = ensure_json_serializable(results)
     return results, cleaned_params

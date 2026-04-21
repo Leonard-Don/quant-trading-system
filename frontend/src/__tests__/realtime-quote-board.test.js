@@ -1,8 +1,24 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 import RealtimeQuoteBoard from '../components/realtime/RealtimeQuoteBoard';
+
+let resizeObserverWidth = 1440;
+
+class MockResizeObserver {
+  constructor(callback) {
+    this.callback = callback;
+  }
+
+  observe(target) {
+    this.callback([{ target, contentRect: { width: resizeObserverWidth } }]);
+  }
+
+  disconnect() {}
+}
+
+global.ResizeObserver = MockResizeObserver;
 
 jest.mock('@ant-design/icons', () => {
   const React = require('react');
@@ -141,6 +157,10 @@ const createProps = (symbolCount = 60) => {
 };
 
 describe('RealtimeQuoteBoard', () => {
+  beforeEach(() => {
+    resizeObserverWidth = 1440;
+  });
+
   test('progressively renders large grid tabs instead of mounting the whole watchlist at once', () => {
     render(<RealtimeQuoteBoard {...createProps(60)} />);
 
@@ -161,5 +181,47 @@ describe('RealtimeQuoteBoard', () => {
     expect(screen.getByText('名称 SYM6')).toBeInTheDocument();
     expect(screen.queryByText(/已渲染/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /再加载/ })).not.toBeInTheDocument();
+  });
+
+  test('switches list cards to split layout when the board container narrows', async () => {
+    resizeObserverWidth = 1000;
+
+    render(<RealtimeQuoteBoard {...createProps(6)} quoteViewMode="list" />);
+
+    await waitFor(() => {
+      expect(document.querySelector('.realtime-quote-card')).toHaveClass('realtime-quote-card--list-split');
+    });
+  });
+
+  test('stacks list cards when the board container becomes compact', async () => {
+    resizeObserverWidth = 760;
+
+    render(<RealtimeQuoteBoard {...createProps(6)} quoteViewMode="list" />);
+
+    await waitFor(() => {
+      expect(document.querySelector('.realtime-quote-card')).toHaveClass('realtime-quote-card--list-stacked');
+    });
+  });
+
+  test('switches the board header into compact density when the container narrows', async () => {
+    resizeObserverWidth = 920;
+
+    render(<RealtimeQuoteBoard {...createProps(6)} />);
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-realtime-board-density]')).toHaveAttribute('data-realtime-board-density', 'compact');
+    });
+  });
+
+  test('renders fallback source tags with compact labels while preserving the raw source in the tooltip', () => {
+    const props = createProps(1);
+    props.quotes.SYM1.source = 'history_fallback:yahoo';
+
+    render(<RealtimeQuoteBoard {...props} />);
+
+    const sourceBadge = screen.getByLabelText('数据源 history_fallback:yahoo');
+    expect(sourceBadge).toHaveAttribute('title', 'history_fallback:yahoo');
+    expect(within(sourceBadge).getByText('历史补数')).toBeInTheDocument();
+    expect(within(sourceBadge).getByText('Yahoo')).toBeInTheDocument();
   });
 });

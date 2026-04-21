@@ -6,6 +6,7 @@
 
 import re
 import json
+import copy
 import fcntl
 import requests
 from requests.adapters import HTTPAdapter
@@ -81,6 +82,11 @@ class SinaFinanceProvider:
     HQ_URL = "https://hq.sinajs.cn"
     _industry_list_cache_path = Path(__file__).resolve().parents[3] / "cache" / "sina_industry_list_cache.json"
     _industry_stocks_cache_path = Path(__file__).resolve().parents[3] / "cache" / "sina_industry_stocks_cache.json"
+    _json_cache_memory: Dict[str, Dict[str, Any]] = {}
+    _persistent_industry_list_frame_cache: Dict[str, Dict[str, Any]] = {}
+    _persistent_industry_list_lookup_cache: Dict[str, Dict[str, Any]] = {}
+    _persistent_industry_stocks_rows_cache: Dict[str, Dict[str, Any]] = {}
+    _persistent_industry_stock_codes_cache: Dict[str, Dict[str, Any]] = {}
     
     def __init__(self):
         """初始化新浪财经提供器"""
@@ -110,8 +116,25 @@ class SinaFinanceProvider:
     def _load_json_cache(cls, path: Path) -> Dict[str, Any]:
         try:
             if not path.exists():
+                cls._json_cache_memory.pop(str(path), None)
                 return {}
-            return json.loads(path.read_text(encoding="utf-8"))
+            stat = path.stat()
+            cache_key = str(path)
+            cache_entry = cls._json_cache_memory.get(cache_key)
+            if (
+                cache_entry
+                and cache_entry.get("mtime_ns") == stat.st_mtime_ns
+                and cache_entry.get("size") == stat.st_size
+            ):
+                return copy.deepcopy(cache_entry.get("payload") or {})
+
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            cls._json_cache_memory[cache_key] = {
+                "mtime_ns": stat.st_mtime_ns,
+                "size": stat.st_size,
+                "payload": payload,
+            }
+            return copy.deepcopy(payload)
         except Exception as e:
             logger.warning(f"Failed to load Sina persistent cache {path.name}: {e}")
             return {}
@@ -123,6 +146,12 @@ class SinaFinanceProvider:
             tmp_path = path.with_name(f"{path.name}.tmp")
             tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
             tmp_path.replace(path)
+            stat = path.stat()
+            cls._json_cache_memory[str(path)] = {
+                "mtime_ns": stat.st_mtime_ns,
+                "size": stat.st_size,
+                "payload": copy.deepcopy(payload),
+            }
         except Exception as e:
             logger.warning(f"Failed to write Sina persistent cache {path.name}: {e}")
 
@@ -141,13 +170,88 @@ class SinaFinanceProvider:
 
     @classmethod
     def _load_persistent_industry_list(cls) -> pd.DataFrame:
-        payload = cls._load_json_cache(cls._industry_list_cache_path)
+        cache_path = cls._industry_list_cache_path
+        cache_key = str(cache_path)
+        try:
+            if cache_path.exists():
+                stat = cache_path.stat()
+                cache_entry = cls._persistent_industry_list_frame_cache.get(cache_key)
+                if (
+                    cache_entry
+                    and cache_entry.get("mtime_ns") == stat.st_mtime_ns
+                    and cache_entry.get("size") == stat.st_size
+                ):
+                    cached_df = cache_entry.get("data")
+                    if isinstance(cached_df, pd.DataFrame):
+                        return cached_df.copy()
+        except Exception:
+            pass
+
+        payload = cls._load_json_cache(cache_path)
         rows = payload.get("data", [])
         if not rows:
             return pd.DataFrame()
         df = pd.DataFrame(rows)
-        logger.info("Loaded persistent Sina industry list cache with %s industries", len(df))
+        try:
+            if cache_path.exists():
+                stat = cache_path.stat()
+                cls._persistent_industry_list_frame_cache[cache_key] = {
+                    "mtime_ns": stat.st_mtime_ns,
+                    "size": stat.st_size,
+                    "data": df.copy(),
+                }
+        except Exception:
+            pass
+        logger.debug("Loaded persistent Sina industry list cache with %s industries", len(df))
         return df
+
+    @classmethod
+    def _get_persistent_industry_list_lookup(cls) -> Dict[str, List[Dict[str, Any]]]:
+        cache_path = cls._industry_list_cache_path
+        cache_key = str(cache_path)
+        try:
+            if cache_path.exists():
+                stat = cache_path.stat()
+                cache_entry = cls._persistent_industry_list_lookup_cache.get(cache_key)
+                if (
+                    cache_entry
+                    and cache_entry.get("mtime_ns") == stat.st_mtime_ns
+                    and cache_entry.get("size") == stat.st_size
+                ):
+                    rows_by_name = cache_entry.get("rows_by_name") or {}
+                    return rows_by_name
+        except Exception:
+            pass
+
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"Failed to load Sina persistent industry lookup cache {cache_path.name}: {e}")
+            return {}
+
+        rows = payload.get("data", [])
+        rows_by_name: Dict[str, List[Dict[str, Any]]] = {}
+        if isinstance(rows, list):
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                name = str(row.get("industry_name") or "").strip()
+                if not name:
+                    continue
+                rows_by_name.setdefault(name, []).append(dict(row))
+
+        try:
+            if cache_path.exists():
+                stat = cache_path.stat()
+                cls._persistent_industry_list_lookup_cache[cache_key] = {
+                    "mtime_ns": stat.st_mtime_ns,
+                    "size": stat.st_size,
+                    "rows_by_name": rows_by_name,
+                }
+        except Exception:
+            pass
+
+        return rows_by_name
 
     @classmethod
     def _persist_industry_list(cls, df: pd.DataFrame) -> None:
@@ -178,12 +282,121 @@ class SinaFinanceProvider:
         )
 
     @classmethod
-    def _load_persistent_industry_stocks(cls, industry_code: str) -> List[Dict[str, Any]]:
-        payload = cls._load_json_cache(cls._industry_stocks_cache_path)
-        rows = payload.get("data", {}).get(industry_code, {}).get("rows", [])
+    def _get_persistent_industry_stock_rows(cls, industry_code: str) -> List[Dict[str, Any]]:
+        cache_path = cls._industry_stocks_cache_path
+        cache_key = str(cache_path)
+        try:
+            if cache_path.exists():
+                stat = cache_path.stat()
+                cache_entry = cls._persistent_industry_stocks_rows_cache.get(cache_key)
+                if (
+                    cache_entry
+                    and cache_entry.get("mtime_ns") == stat.st_mtime_ns
+                    and cache_entry.get("size") == stat.st_size
+                ):
+                    rows_by_code = cache_entry.get("rows_by_code") or {}
+                    rows = rows_by_code.get(industry_code, [])
+                    if rows:
+                        logger.debug("Loaded persistent Sina stocks cache for %s with %s stocks", industry_code, len(rows))
+                    return rows
+        except Exception:
+            pass
+
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"Failed to load Sina persistent stocks cache {cache_path.name}: {e}")
+            return []
+
+        data = payload.get("data", {})
+        rows_by_code: Dict[str, List[Dict[str, Any]]] = {}
+        if isinstance(data, dict):
+            for code, item in data.items():
+                rows = item.get("rows", []) if isinstance(item, dict) else []
+                if isinstance(rows, list):
+                    rows_by_code[str(code)] = rows
+        try:
+            if cache_path.exists():
+                stat = cache_path.stat()
+                cls._persistent_industry_stocks_rows_cache[cache_key] = {
+                    "mtime_ns": stat.st_mtime_ns,
+                    "size": stat.st_size,
+                    "rows_by_code": rows_by_code,
+                }
+        except Exception:
+            pass
+
+        rows = rows_by_code.get(industry_code, [])
         if rows:
-            logger.info("Loaded persistent Sina stocks cache for %s with %s stocks", industry_code, len(rows))
+            logger.debug("Loaded persistent Sina stocks cache for %s with %s stocks", industry_code, len(rows))
         return rows
+
+    @classmethod
+    def _load_persistent_industry_stocks(cls, industry_code: str) -> List[Dict[str, Any]]:
+        rows = cls._get_persistent_industry_stock_rows(industry_code)
+        return [dict(row) for row in rows]
+
+    @classmethod
+    def _get_persistent_industry_stock_codes(cls) -> set[str]:
+        cache_path = cls._industry_stocks_cache_path
+        cache_key = str(cache_path)
+        try:
+            if cache_path.exists():
+                stat = cache_path.stat()
+                codes_cache_entry = cls._persistent_industry_stock_codes_cache.get(cache_key)
+                if (
+                    codes_cache_entry
+                    and codes_cache_entry.get("mtime_ns") == stat.st_mtime_ns
+                    and codes_cache_entry.get("size") == stat.st_size
+                ):
+                    return set(codes_cache_entry.get("codes") or set())
+                cache_entry = cls._persistent_industry_stocks_rows_cache.get(cache_key)
+                if (
+                    cache_entry
+                    and cache_entry.get("mtime_ns") == stat.st_mtime_ns
+                    and cache_entry.get("size") == stat.st_size
+                ):
+                    rows_by_code = cache_entry.get("rows_by_code") or {}
+                    codes = {
+                        str(code).strip()
+                        for code, rows in rows_by_code.items()
+                        if str(code).strip().startswith("new_") and rows
+                    }
+                    cls._persistent_industry_stock_codes_cache[cache_key] = {
+                        "mtime_ns": stat.st_mtime_ns,
+                        "size": stat.st_size,
+                        "codes": set(codes),
+                    }
+                    return codes
+        except Exception:
+            pass
+
+        try:
+            payload = json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning(f"Failed to load Sina persistent stock-code cache {cache_path.name}: {e}")
+            return set()
+
+        data = payload.get("data", {})
+        codes: set[str] = set()
+        if isinstance(data, dict):
+            for code, item in data.items():
+                normalized_code = str(code).strip()
+                rows = item.get("rows", []) if isinstance(item, dict) else []
+                if normalized_code.startswith("new_") and isinstance(rows, list) and rows:
+                    codes.add(normalized_code)
+        try:
+            if cache_path.exists():
+                stat = cache_path.stat()
+                cls._persistent_industry_stock_codes_cache[cache_key] = {
+                    "mtime_ns": stat.st_mtime_ns,
+                    "size": stat.st_size,
+                    "codes": set(codes),
+                }
+        except Exception:
+            pass
+
+        return codes
 
     @staticmethod
     def _has_preferred_industry_codes(df: pd.DataFrame) -> bool:

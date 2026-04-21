@@ -13,7 +13,7 @@ import threading
 import json
 import math
 from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from src.data.providers.sina_ths_adapter import map_ths_to_sina
@@ -34,6 +34,8 @@ from backend.app.schemas.industry import (
     IndustryRankResponse,
     StockResponse,
     LeaderStockResponse,
+    LeaderBoardsResponse,
+    IndustryBootstrapResponse,
     LeaderDetailResponse,
     HeatmapResponse,
     HeatmapHistoryItem,
@@ -62,6 +64,16 @@ _stocks_full_build_executor = ThreadPoolExecutor(max_workers=2)
 _stocks_full_build_lock = threading.Lock()
 _stocks_full_build_inflight: set[str] = set()
 _stocks_full_build_status: dict[str, dict] = {}
+_leader_overview_build_executor = ThreadPoolExecutor(max_workers=2)
+_leader_overview_build_lock = threading.Lock()
+_leader_overview_build_inflight: dict[str, Future] = {}
+_leader_snapshot_prewarm_executor = ThreadPoolExecutor(max_workers=2)
+_leader_snapshot_prewarm_lock = threading.Lock()
+_leader_snapshot_prewarm_inflight: set[str] = set()
+_leading_stock_symbol_lookup_cache: dict[str, str] = {}
+_leading_stock_symbol_lookup_cache_time: float = 0.0
+_LEADING_STOCK_SYMBOL_LOOKUP_TTL = 600
+_leading_stock_symbol_lookup_lock = threading.Lock()
 _heatmap_history_lock = threading.Lock()
 _heatmap_history: list[dict] = []
 _heatmap_history_loaded = False
@@ -179,6 +191,87 @@ def _get_stale_endpoint_cache(key: str):
     return entry["data"] if entry else None
 
 
+def _serialize_heatmap_response(
+    heatmap_data: Dict[str, Any],
+    leading_stock_symbol_lookup: Optional[Dict[str, str]] = None,
+) -> HeatmapResponse:
+    leading_stock_symbol_lookup = leading_stock_symbol_lookup or _build_leading_stock_symbol_lookup()
+
+    industries = []
+    for ind in heatmap_data.get("industries", []):
+        leading_stock_name = str(ind["leadingStock"]) if ind.get("leadingStock") and ind["leadingStock"] != 0 else None
+        leading_stock_symbol = None
+        if leading_stock_name:
+            lookup_symbol = leading_stock_symbol_lookup.get(leading_stock_name)
+            if re.fullmatch(r"\d{6}", lookup_symbol or ""):
+                leading_stock_symbol = lookup_symbol
+            else:
+                resolved_symbol = _resolve_symbol_with_provider(leading_stock_name)
+                if re.fullmatch(r"\d{6}", resolved_symbol or ""):
+                    leading_stock_symbol = resolved_symbol
+
+        industries.append(
+            HeatmapDataItem(
+                name=ind.get("name", ""),
+                value=ind.get("value", 0),
+                total_score=ind.get("total_score", 0),
+                size=ind.get("size", 0),
+                stockCount=ind.get("stockCount", 0),
+                moneyFlow=ind.get("moneyFlow", 0),
+                turnoverRate=ind.get("turnoverRate", 0),
+                industryVolatility=ind.get("industryVolatility", 0),
+                industryVolatilitySource=ind.get("industryVolatilitySource", "unavailable"),
+                netInflowRatio=ind.get("netInflowRatio", 0),
+                leadingStock=leading_stock_name,
+                leadingStockSymbol=leading_stock_symbol,
+                sizeSource=ind.get("sizeSource", "estimated"),
+                marketCapSource=ind.get("marketCapSource", "unknown"),
+                marketCapSnapshotAgeHours=ind.get("marketCapSnapshotAgeHours"),
+                marketCapSnapshotIsStale=ind.get("marketCapSnapshotIsStale", False),
+                valuationSource=ind.get("valuationSource", "unavailable"),
+                valuationQuality=ind.get("valuationQuality", "unavailable"),
+                dataSources=ind.get("dataSources", []),
+                industryIndex=ind.get("industryIndex", 0),
+                totalInflow=ind.get("totalInflow", 0),
+                totalOutflow=ind.get("totalOutflow", 0),
+                leadingStockChange=ind.get("leadingStockChange", 0),
+                leadingStockPrice=ind.get("leadingStockPrice", 0),
+                pe_ttm=ind.get("pe_ttm"),
+                pb=ind.get("pb"),
+                dividend_yield=ind.get("dividend_yield"),
+            )
+        )
+
+    return HeatmapResponse(
+        industries=industries,
+        max_value=heatmap_data.get("max_value", 0),
+        min_value=heatmap_data.get("min_value", 0),
+        update_time=heatmap_data.get("update_time", ""),
+    )
+
+
+def _build_hot_industry_rank_responses(analyzer, hot_industries: List[Dict[str, Any]]) -> List[IndustryRankResponse]:
+    return [
+        IndustryRankResponse(
+            rank=ind.get("rank", 0),
+            industry_name=ind.get("industry_name", ""),
+            score=ind.get("score", 0),
+            momentum=ind.get("momentum", 0),
+            change_pct=ind.get("change_pct", 0),
+            money_flow=ind.get("money_flow", 0),
+            flow_strength=ind.get("flow_strength", 0),
+            industryVolatility=ind.get("industry_volatility", 0),
+            industryVolatilitySource=ind.get("industry_volatility_source", "unavailable"),
+            stock_count=ind.get("stock_count", 0),
+            total_market_cap=ind.get("total_market_cap", 0),
+            marketCapSource=ind.get("market_cap_source", "unknown"),
+            mini_trend=ind.get("mini_trend", []),
+            score_breakdown=analyzer.build_rank_score_breakdown(ind),
+        )
+        for ind in hot_industries
+    ]
+
+
 def _get_stock_cache_keys(industry_name: str, top_n: int) -> tuple[str, str]:
     """生成行业成分股快/全量缓存键。"""
     return (
@@ -209,6 +302,201 @@ def _get_stale_parity_cache(symbol: str, score_type: str):
     key = f"{symbol}:{score_type}"
     entry = _parity_cache.get(key)
     return entry["data"] if entry else None
+
+
+def _is_fresh_parity_entry(entry: Dict[str, Any]) -> bool:
+    return (time.time() - entry["ts"]) < _PARITY_CACHE_TTL
+
+
+def _get_matching_parity_cache(
+    symbol_or_name: str,
+    score_type: str,
+    allow_stale: bool = True,
+) -> tuple[Any, Optional[str], bool]:
+    """按代码或股票名匹配 parity 快照，必要时允许使用过期条目。"""
+    raw = str(symbol_or_name or "").strip()
+    if not raw:
+        return None, None, False
+
+    normalized = normalize_symbol(raw)
+    raw_casefold = raw.casefold()
+    matched_entries: list[tuple[Dict[str, Any], Optional[str]]] = []
+    seen_entry_ids: set[int] = set()
+
+    if re.fullmatch(r"\d{6}", normalized):
+        exact_entry = _parity_cache.get(f"{normalized}:{score_type}")
+        if exact_entry is not None:
+            matched_entries.append((exact_entry, normalized))
+            seen_entry_ids.add(id(exact_entry))
+
+    for key, entry in _parity_cache.items():
+        if not key.endswith(f":{score_type}") or id(entry) in seen_entry_ids:
+            continue
+
+        payload = _model_to_dict(entry.get("data"))
+        cached_symbol = normalize_symbol(payload.get("symbol") or "")
+        cached_name = str(payload.get("name") or "").strip()
+        cached_name_casefold = cached_name.casefold()
+
+        if re.fullmatch(r"\d{6}", normalized) and cached_symbol == normalized:
+            matched_entries.append((entry, cached_symbol))
+            seen_entry_ids.add(id(entry))
+            continue
+
+        if cached_name and cached_name_casefold == raw_casefold:
+            matched_entries.append((entry, cached_symbol or normalized))
+            seen_entry_ids.add(id(entry))
+
+    ordered_entries = [
+        (entry, matched_symbol)
+        for entry, matched_symbol in matched_entries
+        if _is_fresh_parity_entry(entry)
+    ]
+    if allow_stale:
+        ordered_entries.extend(
+            (entry, matched_symbol)
+            for entry, matched_symbol in matched_entries
+            if not _is_fresh_parity_entry(entry)
+        )
+
+    if not ordered_entries:
+        return None, None, False
+
+    selected_entry, matched_symbol = ordered_entries[0]
+    payload = _model_to_dict(selected_entry.get("data"))
+    return (
+        selected_entry.get("data"),
+        matched_symbol or normalize_symbol(payload.get("symbol") or normalized),
+        not _is_fresh_parity_entry(selected_entry),
+    )
+
+
+def _build_parity_price_data(mini_trend: List[Any]) -> List[Dict[str, Any]]:
+    normalized_points = _normalize_sparkline_points(mini_trend or [], max_points=20)
+    point_count = len(normalized_points)
+    if point_count < 2:
+        return []
+
+    return [
+        {
+            "date": f"T-{point_count - index - 1}",
+            "close": point,
+            "volume": 0,
+        }
+        for index, point in enumerate(normalized_points)
+    ]
+
+
+def _build_leader_detail_fallback(
+    parity_snapshot: Any,
+    score_type: str,
+    note: str,
+    source: str,
+) -> LeaderDetailResponse:
+    payload = _model_to_dict(parity_snapshot)
+    symbol = normalize_symbol(payload.get("symbol") or "")
+
+    return LeaderDetailResponse(
+        symbol=symbol or payload.get("symbol") or "",
+        name=str(payload.get("name") or ""),
+        total_score=float(payload.get("total_score") or 0),
+        score_type=score_type,
+        dimension_scores=payload.get("dimension_scores") or {},
+        raw_data={
+            "symbol": symbol or payload.get("symbol") or "",
+            "name": str(payload.get("name") or ""),
+            "market_cap": payload.get("market_cap"),
+            "pe_ttm": payload.get("pe_ratio"),
+            "change_pct": payload.get("change_pct"),
+            "source": source,
+            "updated_at": datetime.now().isoformat(),
+        },
+        technical_analysis={},
+        price_data=_build_parity_price_data(payload.get("mini_trend") or []),
+        degraded=True,
+        note=note,
+    )
+
+
+def _leader_detail_error_status(error_message: str) -> int:
+    normalized = str(error_message or "").strip().lower()
+    if not normalized:
+        return 502
+
+    not_found_tokens = (
+        "stock not found",
+        "quote not found",
+        "no data for",
+        "missing symbol",
+        "not found",
+        "data provider not set",
+    )
+    if any(token in normalized for token in not_found_tokens):
+        return 404
+
+    return 502
+
+
+def _extract_leading_stock_symbol_lookup(industries) -> Dict[str, str]:
+    if industries is None or industries.empty or not {"leading_stock_name", "leading_stock_code"}.issubset(industries.columns):
+        return {}
+
+    symbol_lookup: Dict[str, str] = {}
+    for _, row in industries.iterrows():
+        leader_name = str(row.get("leading_stock_name") or "").strip()
+        leader_code = normalize_symbol(row.get("leading_stock_code") or "")
+        if leader_name and re.fullmatch(r"\d{6}", leader_code):
+            symbol_lookup.setdefault(leader_name, leader_code)
+    return symbol_lookup
+
+
+def _build_leading_stock_symbol_lookup(force_refresh: bool = False) -> Dict[str, str]:
+    """复用 Sina 行业维表里的领涨股代码，减少热力图点击对名称解析的依赖。"""
+    global _leading_stock_symbol_lookup_cache_time
+
+    now = time.time()
+    with _leading_stock_symbol_lookup_lock:
+        if (
+            not force_refresh
+            and _leading_stock_symbol_lookup_cache
+            and now - _leading_stock_symbol_lookup_cache_time < _LEADING_STOCK_SYMBOL_LOOKUP_TTL
+        ):
+            return dict(_leading_stock_symbol_lookup_cache)
+
+    try:
+        from src.data.providers.sina_provider import SinaFinanceProvider
+
+        persistent_industries = SinaFinanceProvider._load_persistent_industry_list()
+    except Exception as exc:
+        logger.warning("Failed to load persistent Sina industry list for leading stock lookup: %s", exc)
+        persistent_industries = None
+
+    persistent_lookup = _extract_leading_stock_symbol_lookup(persistent_industries)
+    if persistent_lookup:
+        with _leading_stock_symbol_lookup_lock:
+            _leading_stock_symbol_lookup_cache.clear()
+            _leading_stock_symbol_lookup_cache.update(persistent_lookup)
+            _leading_stock_symbol_lookup_cache_time = now
+        return dict(persistent_lookup)
+
+    provider = _get_or_create_provider()
+    sina_provider = getattr(provider, "sina", None)
+    if sina_provider is None or not hasattr(sina_provider, "get_industry_list"):
+        return {}
+
+    try:
+        industries = sina_provider.get_industry_list()
+    except Exception as exc:
+        logger.warning("Failed to load Sina industry list for leading stock lookup: %s", exc)
+        return {}
+
+    symbol_lookup = _extract_leading_stock_symbol_lookup(industries)
+    if symbol_lookup:
+        with _leading_stock_symbol_lookup_lock:
+            _leading_stock_symbol_lookup_cache.clear()
+            _leading_stock_symbol_lookup_cache.update(symbol_lookup)
+            _leading_stock_symbol_lookup_cache_time = now
+    return symbol_lookup
 
 
 def _map_industry_etfs(industry_name: str) -> List[Dict[str, str]]:
@@ -1018,26 +1306,7 @@ def get_hot_industries(
             ascending=ascending,
             lookback_days=lookback_days
         )
-        
-        result = [
-            IndustryRankResponse(
-                rank=ind.get("rank", 0),
-                industry_name=ind.get("industry_name", ""),
-                score=ind.get("score", 0),
-                momentum=ind.get("momentum", 0),
-                change_pct=ind.get("change_pct", 0),
-                money_flow=ind.get("money_flow", 0),
-                flow_strength=ind.get("flow_strength", 0),
-                industryVolatility=ind.get("industry_volatility", 0),
-                industryVolatilitySource=ind.get("industry_volatility_source", "unavailable"),
-                stock_count=ind.get("stock_count", 0),
-                total_market_cap=ind.get("total_market_cap", 0),
-                marketCapSource=ind.get("market_cap_source", "unknown"),
-                mini_trend=ind.get("mini_trend", []),
-                score_breakdown=analyzer.build_rank_score_breakdown(ind),
-            )
-            for ind in hot_industries
-        ]
+        result = _build_hot_industry_rank_responses(analyzer, hot_industries)
         _set_endpoint_cache(cache_key, result)
         return result
     except HTTPException:
@@ -1180,46 +1449,7 @@ def get_industry_heatmap(
 
         analyzer = get_industry_analyzer()
         heatmap_data = analyzer.get_industry_heatmap_data(days=days)
-        
-        result = HeatmapResponse(
-            industries=[
-                HeatmapDataItem(
-                    name=ind.get("name", ""),
-                    value=ind.get("value", 0),
-                    total_score=ind.get("total_score", 0),
-                    size=ind.get("size", 0),
-                    stockCount=ind.get("stockCount", 0),
-                    moneyFlow=ind.get("moneyFlow", 0),
-                    turnoverRate=ind.get("turnoverRate", 0),
-                    industryVolatility=ind.get("industryVolatility", 0),
-                    industryVolatilitySource=ind.get("industryVolatilitySource", "unavailable"),
-                    netInflowRatio=ind.get("netInflowRatio", 0),
-                    leadingStock=str(ind["leadingStock"]) if ind.get("leadingStock") and ind["leadingStock"] != 0 else None,
-                    sizeSource=ind.get("sizeSource", "estimated"),
-                    marketCapSource=ind.get("marketCapSource", "unknown"),
-                    marketCapSnapshotAgeHours=ind.get("marketCapSnapshotAgeHours"),
-                    marketCapSnapshotIsStale=ind.get("marketCapSnapshotIsStale", False),
-                    valuationSource=ind.get("valuationSource", "unavailable"),
-                    valuationQuality=ind.get("valuationQuality", "unavailable"),
-                    dataSources=ind.get("dataSources", []),
-                    # THS 增强字段
-                    industryIndex=ind.get("industryIndex", 0),
-                    totalInflow=ind.get("totalInflow", 0),
-                    totalOutflow=ind.get("totalOutflow", 0),
-                    leadingStockChange=ind.get("leadingStockChange", 0),
-                    leadingStockPrice=ind.get("leadingStockPrice", 0),
-                    # AKShare 估值增强字段
-                    pe_ttm=ind.get("pe_ttm"),
-                    pb=ind.get("pb"),
-                    dividend_yield=ind.get("dividend_yield"),
-                )
-
-                for ind in heatmap_data.get("industries", [])
-            ],
-            max_value=heatmap_data.get("max_value", 0),
-            min_value=heatmap_data.get("min_value", 0),
-            update_time=heatmap_data.get("update_time", ""),
-        )
+        result = _serialize_heatmap_response(heatmap_data)
         # 不缓存空结果，避免 API 临时故障导致持续返回空数据
         if result.industries:
             _set_endpoint_cache(cache_key, result)
@@ -1609,6 +1839,904 @@ def get_industry_network(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _build_leader_context(
+    top_industries: int,
+    analyzer=None,
+) -> tuple[Any, list[dict[str, Any]], set[str]]:
+    analyzer = analyzer or get_industry_analyzer()
+    hot_industries = analyzer.rank_industries(top_n=top_industries)
+    top_industry_names = {
+        industry.get("industry_name")
+        for industry in hot_industries
+        if industry.get("industry_name")
+    }
+    return analyzer, hot_industries, top_industry_names
+
+
+def _get_leader_overview_cache_key(top_n: int, top_industries: int, per_industry: int) -> str:
+    return f"leaders:overview:v1:{top_n}:{top_industries}:{per_industry}"
+
+
+def _get_leader_provider_stocks_cache_key(industry_name: str) -> str:
+    return f"leaders:provider_stocks:v1:{industry_name}"
+
+
+def _get_leader_snapshot_prewarm_key(industry_name: str) -> str:
+    return f"leaders:stock_snapshot:v1:{industry_name}"
+
+
+def _has_leader_board_rows(payload: Any) -> bool:
+    board_payload = _model_to_dict(payload) or {}
+    return bool(board_payload.get("core") or board_payload.get("hot"))
+
+
+def _build_leader_boards_payload(
+    top_n: int,
+    top_industries: int,
+    per_industry: int,
+    analyzer=None,
+    hot_industries: Optional[list[dict[str, Any]]] = None,
+    top_industry_names: Optional[set[str]] = None,
+) -> LeaderBoardsResponse:
+    if analyzer is None or hot_industries is None or top_industry_names is None:
+        analyzer, hot_industries, top_industry_names = _build_leader_context(top_industries, analyzer=analyzer)
+
+    results: dict[str, List[LeaderStockResponse]] = {"core": [], "hot": []}
+    errors: dict[str, str] = {}
+    provider_stock_cache: dict[str, Any] = {}
+    provider_stock_cache_lock = threading.Lock()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future_map = {
+            "core": executor.submit(
+                _load_leader_stock_list,
+                top_n=top_n,
+                top_industries=top_industries,
+                per_industry=per_industry,
+                list_type="core",
+                analyzer=analyzer,
+                hot_industries=hot_industries,
+                top_industry_names=top_industry_names,
+                provider_stock_cache=provider_stock_cache,
+                provider_stock_cache_lock=provider_stock_cache_lock,
+            ),
+            "hot": executor.submit(
+                _load_leader_stock_list,
+                top_n=top_n,
+                top_industries=top_industries,
+                per_industry=per_industry,
+                list_type="hot",
+                analyzer=analyzer,
+                hot_industries=hot_industries,
+                top_industry_names=top_industry_names,
+                provider_stock_cache=provider_stock_cache,
+                provider_stock_cache_lock=provider_stock_cache_lock,
+            ),
+        }
+        for list_type, future in future_map.items():
+            try:
+                results[list_type] = future.result()
+            except HTTPException as exc:
+                logger.warning("Leader overview failed for %s list: %s", list_type, exc.detail)
+                errors[list_type] = "核心资产榜单加载失败" if list_type == "core" else "热点先锋榜单加载失败"
+            except Exception as exc:
+                logger.error("Leader overview failed for %s list: %s", list_type, exc)
+                errors[list_type] = "核心资产榜单加载失败" if list_type == "core" else "热点先锋榜单加载失败"
+
+    return LeaderBoardsResponse(
+        core=results["core"],
+        hot=results["hot"],
+        errors=errors,
+    )
+
+
+def _prewarm_leader_stock_snapshot(industry_name: str, analyzer=None) -> None:
+    normalized_name = str(industry_name or "").strip()
+    if not normalized_name:
+        return
+
+    analyzer = analyzer or get_industry_analyzer()
+    provider = getattr(analyzer, "provider", None)
+    if provider is None:
+        return
+
+    akshare_provider = getattr(provider, "akshare", None)
+    persist_snapshot = getattr(akshare_provider, "persist_stock_list_snapshot", None)
+
+    cached_loader = getattr(provider, "get_cached_stock_list_by_industry", None)
+    if callable(cached_loader):
+        try:
+            cached_rows = cached_loader(normalized_name) or []
+            if cached_rows:
+                if callable(persist_snapshot):
+                    try:
+                        persist_snapshot(
+                            normalized_name,
+                            cached_rows,
+                            include_market_cap_lookup=False,
+                        )
+                    except Exception as exc:
+                        logger.warning("Leader snapshot persist failed for %s: %s", normalized_name, exc)
+                return
+        except Exception as exc:
+            logger.warning("Leader snapshot prewarm cached lookup failed for %s: %s", normalized_name, exc)
+
+    if akshare_provider is None:
+        return
+
+    akshare_cached_loader = getattr(akshare_provider, "get_cached_stock_list_by_industry", None)
+    if callable(akshare_cached_loader):
+        try:
+            cached_rows = akshare_cached_loader(
+                normalized_name,
+                include_market_cap_lookup=False,
+                allow_stale=True,
+            ) or []
+            if cached_rows:
+                return
+        except TypeError:
+            cached_rows = akshare_cached_loader(normalized_name) or []
+            if cached_rows:
+                return
+        except Exception as exc:
+            logger.warning("AKShare snapshot lookup failed for %s: %s", normalized_name, exc)
+
+    akshare_loader = getattr(akshare_provider, "get_stock_list_by_industry", None)
+    if callable(akshare_loader):
+        try:
+            akshare_loader(normalized_name, include_market_cap_lookup=False)
+        except TypeError:
+            akshare_loader(normalized_name)
+        except Exception as exc:
+            logger.warning("Leader snapshot prewarm live fetch failed for %s: %s", normalized_name, exc)
+
+
+def _schedule_leader_stock_snapshot_prewarm(
+    analyzer,
+    hot_industries: Optional[list[dict[str, Any]]],
+) -> None:
+    if not hot_industries:
+        return
+
+    for industry in hot_industries:
+        industry_name = str(industry.get("industry_name") or "").strip()
+        if not industry_name:
+            continue
+        inflight_key = _get_leader_snapshot_prewarm_key(industry_name)
+        with _leader_snapshot_prewarm_lock:
+            if inflight_key in _leader_snapshot_prewarm_inflight:
+                continue
+            _leader_snapshot_prewarm_inflight.add(inflight_key)
+
+        future = _leader_snapshot_prewarm_executor.submit(
+            _prewarm_leader_stock_snapshot,
+            industry_name,
+            analyzer,
+        )
+
+        def _cleanup(_: Future, key: str = inflight_key) -> None:
+            with _leader_snapshot_prewarm_lock:
+                _leader_snapshot_prewarm_inflight.discard(key)
+
+        future.add_done_callback(_cleanup)
+
+
+def _compute_and_cache_leader_overview(
+    cache_key: str,
+    top_n: int,
+    top_industries: int,
+    per_industry: int,
+    analyzer=None,
+    hot_industries: Optional[list[dict[str, Any]]] = None,
+    top_industry_names: Optional[set[str]] = None,
+) -> LeaderBoardsResponse:
+    payload = _build_leader_boards_payload(
+        top_n=top_n,
+        top_industries=top_industries,
+        per_industry=per_industry,
+        analyzer=analyzer,
+        hot_industries=hot_industries,
+        top_industry_names=top_industry_names,
+    )
+    _schedule_leader_stock_snapshot_prewarm(analyzer, hot_industries)
+    if _has_leader_board_rows(payload):
+        _set_endpoint_cache(cache_key, payload)
+    return payload
+
+
+def _schedule_leader_overview_build(
+    top_n: int,
+    top_industries: int,
+    per_industry: int,
+    analyzer=None,
+    hot_industries: Optional[list[dict[str, Any]]] = None,
+    top_industry_names: Optional[set[str]] = None,
+) -> Optional[Future]:
+    cache_key = _get_leader_overview_cache_key(top_n, top_industries, per_industry)
+    if _get_endpoint_cache(cache_key) is not None:
+        return None
+
+    with _leader_overview_build_lock:
+        inflight = _leader_overview_build_inflight.get(cache_key)
+        if inflight is not None and not inflight.done():
+            return inflight
+
+        hot_rows = [dict(row) for row in (hot_industries or [])] if hot_industries else None
+        hot_names = set(top_industry_names) if top_industry_names else None
+        future = _leader_overview_build_executor.submit(
+            _compute_and_cache_leader_overview,
+            cache_key,
+            top_n,
+            top_industries,
+            per_industry,
+            analyzer,
+            hot_rows,
+            hot_names,
+        )
+        _leader_overview_build_inflight[cache_key] = future
+
+        def _cleanup(done_future: Future) -> None:
+            with _leader_overview_build_lock:
+                if _leader_overview_build_inflight.get(cache_key) is done_future:
+                    _leader_overview_build_inflight.pop(cache_key, None)
+
+        future.add_done_callback(_cleanup)
+        return future
+
+
+def _load_leader_overview_payload(
+    top_n: int,
+    top_industries: int,
+    per_industry: int,
+    analyzer=None,
+    hot_industries: Optional[list[dict[str, Any]]] = None,
+    top_industry_names: Optional[set[str]] = None,
+) -> LeaderBoardsResponse:
+    cache_key = _get_leader_overview_cache_key(top_n, top_industries, per_industry)
+    cached = _get_endpoint_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    build_error: Exception | HTTPException | None = None
+    future = _schedule_leader_overview_build(
+        top_n=top_n,
+        top_industries=top_industries,
+        per_industry=per_industry,
+        analyzer=analyzer,
+        hot_industries=hot_industries,
+        top_industry_names=top_industry_names,
+    )
+    if future is None:
+        cached = _get_endpoint_cache(cache_key)
+        if cached is not None:
+            return cached
+
+    try:
+        if future is not None:
+            return future.result()
+    except HTTPException as exc:
+        build_error = exc
+    except Exception as exc:
+        logger.error("Leader overview build failed for %s: %s", cache_key, exc)
+        build_error = exc
+
+    stale = _get_stale_endpoint_cache(cache_key)
+    if stale is not None:
+        logger.warning("Using stale cache for leader overview: %s", cache_key)
+        return stale
+    if isinstance(build_error, HTTPException):
+        raise build_error
+    if build_error is not None:
+        raise HTTPException(status_code=500, detail=str(build_error))
+    return LeaderBoardsResponse()
+
+
+def _get_bootstrap_leader_payload(
+    top_n: int,
+    top_industries: int,
+    per_industry: int,
+    analyzer=None,
+    hot_industries: Optional[list[dict[str, Any]]] = None,
+    top_industry_names: Optional[set[str]] = None,
+) -> Optional[LeaderBoardsResponse]:
+    cache_key = _get_leader_overview_cache_key(top_n, top_industries, per_industry)
+    cached = _get_endpoint_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    stale = _get_stale_endpoint_cache(cache_key)
+    _schedule_leader_overview_build(
+        top_n=top_n,
+        top_industries=top_industries,
+        per_industry=per_industry,
+        analyzer=analyzer,
+        hot_industries=hot_industries,
+        top_industry_names=top_industry_names,
+    )
+    if stale is not None and _has_leader_board_rows(stale):
+        return stale
+    return None
+
+
+def _hydrate_bootstrap_with_cached_leaders(
+    payload: IndustryBootstrapResponse,
+    cache_key: str,
+    leader_top_n: int,
+    top_industries: int,
+    per_industry: int,
+) -> IndustryBootstrapResponse:
+    if _has_leader_board_rows(payload.leaders):
+        return payload
+
+    overview_cache_key = _get_leader_overview_cache_key(leader_top_n, top_industries, per_industry)
+    cached_overview = _get_endpoint_cache(overview_cache_key)
+    if cached_overview is None:
+        cached_overview = _get_stale_endpoint_cache(overview_cache_key)
+        if cached_overview is not None:
+            _schedule_leader_overview_build(
+                top_n=leader_top_n,
+                top_industries=top_industries,
+                per_industry=per_industry,
+            )
+
+    if cached_overview is None or not _has_leader_board_rows(cached_overview):
+        return payload
+
+    payload_dict = _model_to_dict(payload)
+    payload_dict["leaders"] = _model_to_dict(cached_overview)
+    payload_dict["errors"] = {
+        key: value
+        for key, value in (payload_dict.get("errors") or {}).items()
+        if not key.startswith("leaders")
+    }
+    hydrated = IndustryBootstrapResponse(**payload_dict)
+    _set_endpoint_cache(cache_key, hydrated)
+    return hydrated
+
+
+def _persist_leader_list_cache(
+    cache_key: str,
+    list_type: Literal["hot", "core"],
+    leaders: List[LeaderStockResponse],
+) -> None:
+    if not leaders:
+        return
+    _set_endpoint_cache(cache_key, leaders)
+    for leader in leaders:
+        _set_parity_cache(leader.symbol, list_type, leader)
+
+
+def _load_provider_stocks_for_leaders(
+    provider,
+    industry_name: str,
+    shared_cache: Optional[dict[str, Any]] = None,
+    shared_cache_lock: Optional[threading.Lock] = None,
+) -> List[Dict[str, Any]]:
+    cache_key = _get_leader_provider_stocks_cache_key(industry_name)
+    cached_rows = _get_endpoint_cache(cache_key)
+    if cached_rows is not None:
+        return cached_rows
+
+    wait_event = None
+    owns_load = True
+    if shared_cache is not None and shared_cache_lock is not None:
+        with shared_cache_lock:
+            shared_entry = shared_cache.get(industry_name)
+            if isinstance(shared_entry, list):
+                return shared_entry
+            if isinstance(shared_entry, threading.Event):
+                wait_event = shared_entry
+                owns_load = False
+            else:
+                wait_event = threading.Event()
+                shared_cache[industry_name] = wait_event
+
+    if not owns_load:
+        wait_event.wait(timeout=20)
+        cached_rows = _get_endpoint_cache(cache_key)
+        if cached_rows is not None:
+            return cached_rows
+        if shared_cache is not None and shared_cache_lock is not None:
+            with shared_cache_lock:
+                shared_entry = shared_cache.get(industry_name)
+                if isinstance(shared_entry, list):
+                    return shared_entry
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    load_error: Exception | None = None
+    cached_loader = getattr(provider, "get_cached_stock_list_by_industry", None)
+    try:
+        if callable(cached_loader):
+            try:
+                cached_rows = cached_loader(industry_name) or []
+                if cached_rows:
+                    rows = cached_rows
+            except Exception as exc:
+                logger.warning("Failed to load cached leader stocks for %s: %s", industry_name, exc)
+
+        if not rows:
+            try:
+                rows = provider.get_stock_list_by_industry(industry_name, fast_mode=True) or []
+            except TypeError:
+                rows = provider.get_stock_list_by_industry(industry_name) or []
+
+        if rows:
+            _set_endpoint_cache(cache_key, rows)
+        return rows
+    except Exception as exc:
+        load_error = exc
+        raise
+    finally:
+        if shared_cache is not None and shared_cache_lock is not None and wait_event is not None:
+            with shared_cache_lock:
+                shared_cache[industry_name] = rows if rows else []
+                wait_event.set()
+        if load_error is not None and shared_cache is not None and shared_cache_lock is not None and wait_event is None:
+            with shared_cache_lock:
+                shared_cache[industry_name] = []
+
+
+def _compute_core_leader_stocks(
+    analyzer,
+    hot_industries: list[dict[str, Any]],
+    top_n: int,
+    per_industry: int,
+    provider_stock_cache: Optional[dict[str, Any]] = None,
+    provider_stock_cache_lock: Optional[threading.Lock] = None,
+) -> List[LeaderStockResponse]:
+    scorer = get_leader_scorer()
+    provider = analyzer.provider
+
+    def _process_core_industry(industry):
+        ind_name = industry.get("industry_name")
+        if not ind_name:
+            return []
+        try:
+            stocks = _load_provider_stocks_for_leaders(
+                provider,
+                ind_name,
+                shared_cache=provider_stock_cache,
+                shared_cache_lock=provider_stock_cache_lock,
+            )
+            if not stocks:
+                return []
+
+            candidate_pool = []
+            for stock in stocks:
+                sym = normalize_symbol(stock.get("symbol") or stock.get("code") or "")
+                if not re.fullmatch(r"\d{6}", sym):
+                    continue
+                candidate_pool.append({
+                    "symbol": sym,
+                    "name": stock.get("name", ""),
+                    "market_cap": float(stock.get("market_cap") or 0),
+                    "pe_ratio": float(stock.get("pe_ratio") or 0),
+                    "change_pct": float(stock.get("change_pct") or 0),
+                    "amount": float(stock.get("amount") or 0),
+                })
+
+            if not candidate_pool:
+                return []
+
+            candidate_pool.sort(
+                key=lambda item: (
+                    item["market_cap"] > 0,
+                    item["market_cap"],
+                    item["amount"],
+                    abs(item["change_pct"]),
+                ),
+                reverse=True,
+            )
+
+            valid_stocks = []
+            for item in candidate_pool[: max(5, per_industry * 2)]:
+                mkt_cap = item["market_cap"]
+                pe = item["pe_ratio"]
+                if mkt_cap > 0 and mkt_cap < 3000000000:
+                    continue
+                if pe != 0 and (pe < 0 or pe > 150):
+                    continue
+                valid_stocks.append(item["symbol"])
+
+            if not valid_stocks:
+                valid_stocks = [item["symbol"] for item in candidate_pool[: min(5, len(candidate_pool))]]
+
+            logger.debug("For %s, selected %s valid core candidates.", ind_name, len(valid_stocks))
+            candidate_map = {item["symbol"]: item for item in candidate_pool}
+            industry_stats = scorer.calculate_industry_stats(candidate_pool)
+
+            fast_results = []
+            for sym in valid_stocks[:max(5, int(per_industry * 1.5))]:
+                snapshot = candidate_map.get(sym, {"symbol": sym, "name": sym})
+                score_detail = scorer.score_stock_from_snapshot(snapshot, industry_stats=industry_stats, enrich_financial=False)
+                roe = score_detail.get("raw_data", {}).get("roe")
+                if roe is not None and roe < 0:
+                    continue
+                fast_results.append((sym, score_detail.get("total_score", 0), score_detail))
+
+            fast_results.sort(key=lambda item: item[1], reverse=True)
+            top_symbols = [sym for sym, _, _ in fast_results[:per_industry]]
+
+            industry_core_list = []
+            for sym in top_symbols:
+                snapshot = candidate_map.get(sym, {"symbol": sym, "name": sym})
+                score_detail = None
+                try:
+                    score_detail = scorer.score_stock_from_snapshot(
+                        snapshot,
+                        industry_stats=industry_stats,
+                        enrich_financial=True,
+                        cached_only=True,
+                    )
+                except Exception:
+                    pass
+                if not score_detail or "error" in score_detail:
+                    score_detail = scorer.score_stock_from_snapshot(
+                        snapshot,
+                        industry_stats=industry_stats,
+                        enrich_financial=False,
+                    )
+                roe = score_detail.get("raw_data", {}).get("roe")
+                if roe is not None and roe < 0:
+                    continue
+                industry_core_list.append(LeaderStockResponse(
+                    symbol=sym,
+                    name=score_detail.get("name", sym),
+                    industry=ind_name,
+                    score_type="core",
+                    global_rank=0,
+                    industry_rank=0,
+                    total_score=round(score_detail.get("total_score", 0), 2),
+                    market_cap=score_detail.get("raw_data", {}).get("market_cap", snapshot.get("market_cap", 0)),
+                    pe_ratio=score_detail.get("raw_data", {}).get("pe_ttm", snapshot.get("pe_ratio", 0)),
+                    change_pct=score_detail.get("raw_data", {}).get("change_pct", snapshot.get("change_pct", 0)),
+                    dimension_scores=score_detail.get("dimension_scores", {}),
+                    mini_trend=[],
+                ))
+
+            industry_core_list.sort(key=lambda item: item.total_score, reverse=True)
+            for rank_idx, stock in enumerate(industry_core_list[:per_industry], 1):
+                stock.industry_rank = rank_idx
+            return industry_core_list[:per_industry]
+        except Exception as exc:
+            logger.error("Error fetching core stocks for %s: %s", ind_name, exc)
+            return []
+
+    core_leaders: list[LeaderStockResponse] = []
+    # After the provider path was tightened around local snapshots and endpoint caches,
+    # thread-pool startup/teardown became more expensive than the per-industry work itself.
+    industry_results = [_process_core_industry(industry) for industry in hot_industries]
+    for result in industry_results:
+        core_leaders.extend(result)
+
+    try:
+        from src.analytics.leader_stock_scorer import LeaderStockScorer
+        LeaderStockScorer._persist_financial_cache()
+    except Exception:
+        pass
+
+    return _dedupe_leader_responses(core_leaders)[:top_n]
+
+
+def _compute_hot_leader_stocks(
+    analyzer,
+    hot_industries: list[dict[str, Any]],
+    top_industry_names: set[str],
+    top_n: int,
+    per_industry: int,
+    provider_stock_cache: Optional[dict[str, Any]] = None,
+    provider_stock_cache_lock: Optional[threading.Lock] = None,
+) -> List[LeaderStockResponse]:
+    lightweight_loader = getattr(analyzer, "_load_lightweight_money_flow", None)
+    if callable(lightweight_loader):
+        try:
+            heatmap_df = lightweight_loader(days=1)
+        except Exception as exc:
+            logger.warning("Lightweight money flow loader failed for hot leaders, falling back to full flow: %s", exc)
+            heatmap_df = analyzer.analyze_money_flow(days=1)
+    else:
+        heatmap_df = analyzer.analyze_money_flow(days=1)
+    leaders_from_heatmap: list[LeaderStockResponse] = []
+    scorer = get_leader_scorer()
+    valuation_provider = getattr(analyzer, "provider", None)
+    leading_stock_symbol_lookup = _build_leading_stock_symbol_lookup()
+
+    if not heatmap_df.empty and "leading_stock" in heatmap_df.columns:
+        sort_col = "main_net_inflow" if "main_net_inflow" in heatmap_df.columns else "change_pct"
+        sorted_df = heatmap_df.sort_values(sort_col, ascending=False)
+
+        seen_stocks = set()
+        hot_candidates = []
+        for _, row in sorted_df.iterrows():
+            industry_name = row.get("industry_name", "")
+            leading_stock = row.get("leading_stock")
+            if not leading_stock or not isinstance(leading_stock, str):
+                continue
+            if top_industry_names and industry_name not in top_industry_names:
+                continue
+            if leading_stock in seen_stocks:
+                continue
+            seen_stocks.add(leading_stock)
+            hot_candidates.append(row)
+            if len(hot_candidates) >= int(top_n * 1.2):
+                break
+
+        def _score_hot_stock(row):
+            industry_name = row.get("industry_name", "")
+            leading_stock = row.get("leading_stock")
+            change_pct = float(row.get("leading_stock_change", row.get("change_pct", 0)) or 0)
+            net_inflow_ratio = float(row.get("main_net_ratio", 0) or 0)
+
+            quick_symbol = normalize_symbol(row.get("leading_stock_code") or leading_stock)
+            if re.fullmatch(r"\d{6}", quick_symbol):
+                real_symbol = quick_symbol
+            else:
+                lookup_symbol = normalize_symbol(leading_stock_symbol_lookup.get(str(leading_stock or "").strip()) or "")
+                if re.fullmatch(r"\d{6}", lookup_symbol):
+                    real_symbol = lookup_symbol
+                else:
+                    real_symbol = _resolve_symbol_with_provider(leading_stock)
+
+            valuation_snapshot = {}
+            if re.fullmatch(r"\d{6}", real_symbol) and valuation_provider and hasattr(valuation_provider, "get_stock_valuation"):
+                try:
+                    candidate = valuation_provider.get_stock_valuation(real_symbol, cached_only=True)
+                    if isinstance(candidate, dict) and "error" not in candidate:
+                        valuation_snapshot = candidate
+                except Exception as exc:
+                    logger.warning("Failed to hydrate hot leader valuation for %s: %s", real_symbol, exc)
+
+            snapshot_data = {
+                "symbol": real_symbol,
+                "name": leading_stock,
+                "market_cap": float(valuation_snapshot.get("market_cap") or 0),
+                "pe_ratio": float(valuation_snapshot.get("pe_ttm") or valuation_snapshot.get("pe_ratio") or 0),
+                "change_pct": change_pct,
+                "amount": float(valuation_snapshot.get("amount") or abs(float(row.get("main_net_inflow", 0) or 0))),
+                "turnover": float(valuation_snapshot.get("turnover") or 0),
+                "net_inflow_ratio": net_inflow_ratio,
+            }
+
+            score_detail = scorer.score_stock_from_snapshot(snapshot_data, score_type="hot")
+
+            if "error" not in score_detail:
+                scored_symbol = normalize_symbol(score_detail.get("symbol", real_symbol))
+                market_cap = score_detail.get("raw_data", {}).get("market_cap", 0)
+                pe_ratio = score_detail.get("raw_data", {}).get("pe_ttm", 0)
+                dimension_scores = score_detail.get("dimension_scores", {})
+                total_score = score_detail.get("total_score", 0)
+            else:
+                scored_symbol = real_symbol
+                total_score = round(
+                    min(100, max(0, (change_pct + 15) / 30 * 50 + max(0, min(50, net_inflow_ratio * 5 + 25)))),
+                    2,
+                )
+                market_cap = 0
+                pe_ratio = 0
+                dimension_scores = {
+                    "momentum": min(1.0, max(0.0, (change_pct + 15) / 30)),
+                    "money_flow": min(1.0, max(0.0, (net_inflow_ratio + 10) / 20)),
+                    "valuation": 0.5,
+                    "profitability": 0.5,
+                    "growth": 0.5,
+                    "activity": 0.5,
+                    "score_type": "hot",
+                }
+
+            if not re.fullmatch(r"\d{6}", scored_symbol):
+                logger.warning("Skipping leader '%s' because symbol could not be resolved: %s", leading_stock, scored_symbol)
+                return None
+
+            return LeaderStockResponse(
+                symbol=scored_symbol,
+                name=leading_stock,
+                industry=industry_name,
+                score_type="hot",
+                global_rank=0,
+                industry_rank=1,
+                total_score=total_score,
+                market_cap=market_cap,
+                pe_ratio=pe_ratio,
+                change_pct=change_pct,
+                dimension_scores=dimension_scores,
+                mini_trend=[],
+            )
+
+        if hot_candidates:
+            max_workers = min(8, max(len(hot_candidates), 1))
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                results = list(executor.map(_score_hot_stock, hot_candidates))
+
+            for result in results:
+                if result:
+                    leaders_from_heatmap.append(result)
+
+            leaders_from_heatmap = _dedupe_leader_responses(leaders_from_heatmap)[:top_n]
+
+    if len(leaders_from_heatmap) < top_n:
+        logger.info(
+            "Heatmap hot leaders underfilled (%s/%s), backfilling from LeaderStockScorer",
+            len(leaders_from_heatmap),
+            top_n,
+        )
+        provider = getattr(analyzer, "provider", None)
+        existing_symbols = {leader.symbol for leader in leaders_from_heatmap if leader.symbol}
+        supplemental_responses: list[LeaderStockResponse] = []
+        needed_count = max(0, top_n - len(leaders_from_heatmap))
+        industry_names = [industry.get("industry_name") for industry in hot_industries if industry.get("industry_name")]
+        supplemental_per_industry = max(
+            1,
+            (needed_count + max(len(industry_names), 1) - 1) // max(len(industry_names), 1),
+        )
+        if provider is not None:
+            for industry_name in industry_names:
+                if len(supplemental_responses) >= needed_count:
+                    break
+                provider_rows = _load_provider_stocks_for_leaders(
+                    provider,
+                    industry_name,
+                    shared_cache=provider_stock_cache,
+                    shared_cache_lock=provider_stock_cache_lock,
+                )
+                if not provider_rows:
+                    continue
+                ranked_snapshots = []
+                for row in provider_rows:
+                    symbol = normalize_symbol(row.get("symbol") or row.get("code") or "")
+                    if not re.fullmatch(r"\d{6}", symbol) or symbol in existing_symbols:
+                        continue
+                    snapshot = {
+                        "symbol": symbol,
+                        "name": row.get("name", ""),
+                        "market_cap": float(row.get("market_cap") or 0),
+                        "pe_ratio": float(row.get("pe_ratio") or 0),
+                        "change_pct": float(row.get("change_pct") or 0),
+                        "amount": float(row.get("amount") or 0),
+                        "turnover": float(row.get("turnover") or row.get("turnover_ratio") or 0),
+                        "net_inflow_ratio": float(row.get("net_inflow_ratio") or 0),
+                    }
+                    scored = scorer.score_stock_from_snapshot(snapshot, score_type="hot")
+                    if "error" in scored:
+                        continue
+                    ranked_snapshots.append((scored.get("total_score", 0), snapshot, scored))
+
+                ranked_snapshots.sort(key=lambda item: item[0], reverse=True)
+                for rank_index, (_, snapshot, scored) in enumerate(ranked_snapshots[:supplemental_per_industry], 1):
+                    existing_symbols.add(snapshot["symbol"])
+                    supplemental_responses.append(
+                        LeaderStockResponse(
+                            symbol=snapshot["symbol"],
+                            name=snapshot["name"],
+                            industry=industry_name,
+                            score_type="hot",
+                            global_rank=0,
+                            industry_rank=rank_index,
+                            total_score=scored.get("total_score", 0),
+                            market_cap=scored.get("raw_data", {}).get("market_cap", snapshot["market_cap"]),
+                            pe_ratio=scored.get("raw_data", {}).get("pe_ttm", snapshot["pe_ratio"]),
+                            change_pct=scored.get("raw_data", {}).get("change_pct", snapshot["change_pct"]),
+                            dimension_scores=scored.get("dimension_scores", {}),
+                            mini_trend=[],
+                        )
+                    )
+                    if len(supplemental_responses) >= needed_count:
+                        break
+
+        if supplemental_responses:
+            leaders_from_heatmap.extend(supplemental_responses)
+            leaders_from_heatmap = _dedupe_leader_responses(leaders_from_heatmap)[:top_n]
+        else:
+            supplemental = scorer.get_leader_stocks(
+                industry_names,
+                top_per_industry=supplemental_per_industry,
+                score_type="hot",
+            )
+            leaders_from_heatmap.extend([
+                LeaderStockResponse(
+                    symbol=item.get("symbol", ""),
+                    name=item.get("name", ""),
+                    industry=item.get("industry", ""),
+                    score_type="hot",
+                    global_rank=item.get("global_rank", 0),
+                    industry_rank=item.get("rank", 0),
+                    total_score=item.get("total_score", 0),
+                    market_cap=item.get("market_cap", 0),
+                    pe_ratio=item.get("pe_ratio", 0),
+                    change_pct=item.get("change_pct", 0),
+                    dimension_scores=item.get("dimension_scores", {}),
+                    mini_trend=item.get("mini_trend", []),
+                )
+                for item in supplemental
+            ])
+            leaders_from_heatmap = _dedupe_leader_responses(leaders_from_heatmap)[:top_n]
+
+    if leaders_from_heatmap:
+        return leaders_from_heatmap
+
+    logger.warning("Heatmap leading_stock unavailable, falling back to LeaderStockScorer")
+    industry_names = [industry.get("industry_name") for industry in hot_industries if industry.get("industry_name")]
+    leaders = scorer.get_leader_stocks(industry_names, top_per_industry=per_industry, score_type="hot")[:top_n]
+    result = [
+        LeaderStockResponse(
+            symbol=item.get("symbol", ""),
+            name=item.get("name", ""),
+            industry=item.get("industry", ""),
+            score_type="hot",
+            global_rank=item.get("global_rank", 0),
+            industry_rank=item.get("rank", 0),
+            total_score=item.get("total_score", 0),
+            market_cap=item.get("market_cap", 0),
+            pe_ratio=item.get("pe_ratio", 0),
+            change_pct=item.get("change_pct", 0),
+            dimension_scores=item.get("dimension_scores", {}),
+            mini_trend=item.get("mini_trend", []),
+        )
+        for item in leaders
+    ]
+    return _dedupe_leader_responses(result)[:top_n]
+
+
+def _load_leader_stock_list(
+    top_n: int,
+    top_industries: int,
+    per_industry: int,
+    list_type: Literal["hot", "core"],
+    analyzer=None,
+    hot_industries: Optional[list[dict[str, Any]]] = None,
+    top_industry_names: Optional[set[str]] = None,
+    provider_stock_cache: Optional[dict[str, Any]] = None,
+    provider_stock_cache_lock: Optional[threading.Lock] = None,
+) -> List[LeaderStockResponse]:
+    cache_key = f"leaders:v3:{list_type}:{top_n}:{top_industries}:{per_industry}"
+    cached = _get_endpoint_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        if analyzer is None or hot_industries is None or top_industry_names is None:
+            analyzer, hot_industries, top_industry_names = _build_leader_context(top_industries, analyzer=analyzer)
+
+        if list_type == "core":
+            leaders = _compute_core_leader_stocks(
+                analyzer=analyzer,
+                hot_industries=hot_industries,
+                top_n=top_n,
+                per_industry=per_industry,
+                provider_stock_cache=provider_stock_cache,
+                provider_stock_cache_lock=provider_stock_cache_lock,
+            )
+        else:
+            leaders = _compute_hot_leader_stocks(
+                analyzer=analyzer,
+                hot_industries=hot_industries,
+                top_industry_names=top_industry_names,
+                top_n=top_n,
+                per_industry=per_industry,
+                provider_stock_cache=provider_stock_cache,
+                provider_stock_cache_lock=provider_stock_cache_lock,
+            )
+
+        if leaders:
+            _persist_leader_list_cache(cache_key, list_type, leaders)
+            return leaders
+
+        stale = _get_stale_endpoint_cache(cache_key)
+        if stale is not None:
+            logger.warning("%s leaders empty, using stale cache: %s", list_type.capitalize(), cache_key)
+            return stale
+        return leaders
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error getting %s leader stocks: %s", list_type, exc)
+        stale = _get_stale_endpoint_cache(cache_key)
+        if stale is not None:
+            logger.warning("Using stale cache for %s leaders: %s", list_type, cache_key)
+            return stale
+        raise
+
+
 @router.get("/leaders", response_model=List[LeaderStockResponse])
 def get_leader_stocks(
     top_n: int = Query(20, ge=1, le=100, description="返回龙头股数量"),
@@ -1618,377 +2746,137 @@ def get_leader_stocks(
 ) -> List[LeaderStockResponse]:
     """
     获取龙头股推荐列表
-    
+
     - hot (热点先锋): 使用独立的 0-100 动量评分，聚焦短期涨势与资金关注度。
     - core (核心资产): 使用 0-100 综合评分，侧重长线基本面与流动性。
     """
+    leaders = _load_leader_stock_list(
+        top_n=top_n,
+        top_industries=top_industries,
+        per_industry=per_industry,
+        list_type=list_type,
+    )
+    return leaders
+
+
+@router.get("/leaders/overview", response_model=LeaderBoardsResponse)
+def get_leader_boards(
+    top_n: int = Query(20, ge=1, le=100, description="返回龙头股数量"),
+    top_industries: int = Query(5, ge=1, le=20, description="从前N个热门行业中选取"),
+    per_industry: int = Query(5, ge=1, le=20, description="每个行业选取的龙头数量"),
+) -> LeaderBoardsResponse:
+    """
+    一次性返回核心资产与热点先锋榜单，减少前端冷启动的双请求成本。
+    """
+    analyzer, hot_industries, top_industry_names = _build_leader_context(top_industries)
+    return _load_leader_overview_payload(
+        top_n=top_n,
+        top_industries=top_industries,
+        per_industry=per_industry,
+        analyzer=analyzer,
+        hot_industries=hot_industries,
+        top_industry_names=top_industry_names,
+    )
+
+
+@router.get("/bootstrap", response_model=IndustryBootstrapResponse)
+def get_industry_bootstrap(
+    days: int = Query(5, ge=1, le=90, description="热力图与默认热度排序使用的周期"),
+    ranking_top_n: int = Query(50, ge=1, le=100, description="预热排行榜条数"),
+    leader_top_n: int = Query(20, ge=1, le=100, description="预热龙头股总条数"),
+    top_industries: int = Query(5, ge=1, le=20, description="龙头股从前N个热门行业中选取"),
+    per_industry: int = Query(5, ge=1, le=20, description="每个行业选取的龙头数量"),
+) -> IndustryBootstrapResponse:
+    cache_key = f"industry_bootstrap:v2:{days}:{ranking_top_n}:{leader_top_n}:{top_industries}:{per_industry}"
+    cached = _get_endpoint_cache(cache_key)
+    if cached is not None:
+        return _hydrate_bootstrap_with_cached_leaders(
+            cached,
+            cache_key,
+            leader_top_n,
+            top_industries,
+            per_industry,
+        )
+
+    errors: Dict[str, str] = {}
     try:
-        # 端点级缓存
-        cache_key = f"leaders:v3:{list_type}:{top_n}:{top_industries}:{per_industry}"
-        cached = _get_endpoint_cache(cache_key)
-        if cached is not None:
-            return cached
-
         analyzer = get_industry_analyzer()
+        heatmap_data = analyzer.get_industry_heatmap_data(days=days)
+        heatmap = _serialize_heatmap_response(heatmap_data)
+        if heatmap.industries:
+            _set_endpoint_cache(f"heatmap:v2:{days}", heatmap)
+            _append_heatmap_history(days, heatmap)
 
-        # 获取热门行业排名（用于筛选行业）
-        hot_industries = analyzer.rank_industries(top_n=top_industries)
-        top_industry_names = set(ind.get("industry_name") for ind in hot_industries)
-
-        # ========== 核心资产 (Core Leaders) 逻辑 ==========
-        if list_type == "core":
-            import concurrent.futures
-            scorer = get_leader_scorer()
-            provider = analyzer.provider
-
-            def _process_core_industry(industry):
-                """处理单个行业的核心资产遴选（可并行）"""
-                ind_name = industry.get("industry_name")
-                if not ind_name:
-                    return []
-                try:
-                    stocks = provider.get_stock_list_by_industry(ind_name)
-                    if not stocks:
-                        return []
-
-                    candidate_pool = []
-                    for stock in stocks:
-                        sym = normalize_symbol(stock.get("symbol") or stock.get("code") or "")
-                        if not re.fullmatch(r"\d{6}", sym):
-                            continue
-                        candidate_pool.append({
-                            "symbol": sym,
-                            "name": stock.get("name", ""),
-                            "market_cap": float(stock.get("market_cap") or 0),
-                            "pe_ratio": float(stock.get("pe_ratio") or 0),
-                            "change_pct": float(stock.get("change_pct") or 0),
-                            "amount": float(stock.get("amount") or 0),
-                        })
-
-                    if not candidate_pool:
-                        return []
-
-                    candidate_pool.sort(
-                        key=lambda item: (
-                            item["market_cap"] > 0,
-                            item["market_cap"],
-                            item["amount"],
-                            abs(item["change_pct"]),
-                        ),
-                        reverse=True,
-                    )
-
-                    valid_stocks = []
-                    for item in candidate_pool[: max(5, per_industry * 2)]:
-                        mkt_cap = item["market_cap"]
-                        pe = item["pe_ratio"]
-                        if mkt_cap > 0 and mkt_cap < 3000000000:
-                            continue
-                        if pe != 0 and (pe < 0 or pe > 150):
-                            continue
-                        valid_stocks.append(item["symbol"])
-
-                    if not valid_stocks:
-                        valid_stocks = [item["symbol"] for item in candidate_pool[: min(5, len(candidate_pool))]]
-
-                    logger.info(f"For {ind_name}, selected {len(valid_stocks)} valid core candidates.")
-                    candidate_map = {item["symbol"]: item for item in candidate_pool}
-                    industry_stats = scorer.calculate_industry_stats(candidate_pool)
-
-                    # 阶段一：无网络 I/O 的快速本地评分（筛选候选）
-                    fast_results = []
-                    for sym in valid_stocks[:max(5, int(per_industry * 1.5))]:
-                        snapshot = candidate_map.get(sym, {"symbol": sym, "name": sym})
-                        sd = scorer.score_stock_from_snapshot(snapshot, industry_stats=industry_stats, enrich_financial=False)
-                        ds = sd.get("dimension_scores", {})
-                        roe = sd.get("raw_data", {}).get("roe")
-                        if roe is not None and roe < 0:
-                            continue
-                        fast_score = sd.get("total_score", 0)
-                        fast_results.append((sym, fast_score, sd))
-
-                    fast_results.sort(key=lambda x: x[1], reverse=True)
-                    top_syms = [sym for sym, _, _ in fast_results[:per_industry]]
-
-                    # 阶段二：仅复用已有财务缓存，榜单请求不主动触发新的财务网络 I/O
-                    ind_core_list = []
-                    for sym in top_syms:
-                        snapshot = candidate_map.get(sym, {"symbol": sym, "name": sym})
-                        sd = None
-                        try:
-                            sd = scorer.score_stock_from_snapshot(
-                                snapshot,
-                                industry_stats=industry_stats,
-                                enrich_financial=True,
-                                cached_only=True,
-                            )
-                        except Exception:
-                            pass
-                        if not sd or "error" in sd:
-                            sd = scorer.score_stock_from_snapshot(snapshot, industry_stats=industry_stats, enrich_financial=False)
-                        ds = sd.get("dimension_scores", {})
-                        roe = sd.get("raw_data", {}).get("roe")
-                        if roe is not None and roe < 0:
-                            continue
-                        total_score = round(sd.get("total_score", 0), 2)
-                        ind_core_list.append(LeaderStockResponse(
-                            symbol=sym,
-                            name=sd.get("name", sym),
-                            industry=ind_name,
-                            score_type="core",
-                            global_rank=0,
-                            industry_rank=0,
-                            total_score=total_score,
-                            market_cap=sd.get("raw_data", {}).get("market_cap", snapshot.get("market_cap", 0)),
-                            pe_ratio=sd.get("raw_data", {}).get("pe_ttm", snapshot.get("pe_ratio", 0)),
-                            change_pct=sd.get("raw_data", {}).get("change_pct", snapshot.get("change_pct", 0)),
-                            dimension_scores=ds,
-                            mini_trend=[],
-                        ))
-
-                    ind_core_list.sort(key=lambda x: x.total_score, reverse=True)
-                    for rank_idx, stock in enumerate(ind_core_list[:per_industry], 1):
-                        stock.industry_rank = rank_idx
-                    return ind_core_list[:per_industry]
-                except Exception as e:
-                    logger.error(f"Error fetching core stocks for {ind_name}: {e}")
-                    return []
-
-            # [性能优化] 5 个行业并行处理，大幅缩短总耗时
-            core_leaders = []
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                industry_results = list(executor.map(
-                    _process_core_industry, hot_industries[:top_industries]
-                ))
-            for result in industry_results:
-                core_leaders.extend(result)
-
-            # 批量持久化财务缓存（一次性写入，避免逐股写磁盘）
-            try:
-                from src.analytics.leader_stock_scorer import LeaderStockScorer
-                LeaderStockScorer._persist_financial_cache()
-            except Exception:
-                pass
-
-            # 全局排名截断
-            core_leaders = _dedupe_leader_responses(core_leaders)[:top_n]
-            
-            if core_leaders:
-                _set_endpoint_cache(cache_key, core_leaders)
-                # 保存快照状态到独立 parity 缓存（30分钟 TTL）
-                for l in core_leaders:
-                    _set_parity_cache(l.symbol, "core", l)
-            else:
-                stale = _get_stale_endpoint_cache(cache_key)
-                if stale is not None:
-                    logger.warning("Core leaders empty, using stale cache: %s", cache_key)
-                    return stale
-            return core_leaders
-
-        # ========== 热点先锋 (Hot Movers) 逻辑 ==========
-        # 优先路径：从热力图数据中提取 leading_stock（THS 已有领涨股信息）
-        heatmap_df = analyzer.analyze_money_flow(days=1)
-        leaders_from_heatmap = []
-        scorer = get_leader_scorer()
-        valuation_provider = getattr(analyzer, "provider", None)
-
-        if not heatmap_df.empty and "leading_stock" in heatmap_df.columns:
-            sort_col = "main_net_inflow" if "main_net_inflow" in heatmap_df.columns else "change_pct"
-            sorted_df = heatmap_df.sort_values(sort_col, ascending=False)
-
-            seen_stocks = set()
-            hot_candidates = []
-            for _, row in sorted_df.iterrows():
-                industry_name = row.get("industry_name", "")
-                leading_stock = row.get("leading_stock")
-                if not leading_stock or not isinstance(leading_stock, str):
-                    continue
-                if top_industry_names and industry_name not in top_industry_names:
-                    continue
-                if leading_stock in seen_stocks:
-                    continue
-                seen_stocks.add(leading_stock)
-                hot_candidates.append(row)
-                if len(hot_candidates) >= int(top_n * 1.2):
-                    break
-
-            def _score_hot_stock(row):
-                industry_name = row.get("industry_name", "")
-                leading_stock = row.get("leading_stock")
-                change_pct = float(row.get("leading_stock_change", row.get("change_pct", 0)) or 0)
-                net_inflow_ratio = float(row.get("main_net_ratio", 0) or 0)
-                
-                # [性能优化] 先尝试直接提取6位代码，避免不必要的网络反查
-                quick_symbol = normalize_symbol(leading_stock)
-                if re.fullmatch(r"\d{6}", quick_symbol):
-                    real_symbol = quick_symbol
-                else:
-                    real_symbol = _resolve_symbol_with_provider(leading_stock)
-
-                valuation_snapshot = {}
-                if re.fullmatch(r"\d{6}", real_symbol) and valuation_provider and hasattr(valuation_provider, "get_stock_valuation"):
-                    try:
-                        candidate = valuation_provider.get_stock_valuation(real_symbol)
-                        if isinstance(candidate, dict) and "error" not in candidate:
-                            valuation_snapshot = candidate
-                    except Exception as exc:
-                        logger.warning("Failed to hydrate hot leader valuation for %s: %s", real_symbol, exc)
-
-                snapshot_data = {
-                    "symbol": real_symbol,
-                    "name": leading_stock,
-                    "market_cap": float(valuation_snapshot.get("market_cap") or 0),
-                    "pe_ratio": float(valuation_snapshot.get("pe_ttm") or valuation_snapshot.get("pe_ratio") or 0),
-                    "change_pct": change_pct,
-                    "amount": float(valuation_snapshot.get("amount") or abs(float(row.get("main_net_inflow", 0) or 0))),
-                    "turnover": float(valuation_snapshot.get("turnover") or 0),
-                    "net_inflow_ratio": net_inflow_ratio,
-                }
-
-                # [性能优化] 使用 snapshot 快速评分，避免逐股请求 AKShare 财务接口
-                score_detail = scorer.score_stock_from_snapshot(snapshot_data, score_type="hot")
-
-                if "error" not in score_detail:
-                    scored_symbol = normalize_symbol(score_detail.get("symbol", real_symbol))
-                    market_cap = score_detail.get("raw_data", {}).get("market_cap", 0)
-                    pe_ratio = score_detail.get("raw_data", {}).get("pe_ttm", 0)
-                    dimension_scores = score_detail.get("dimension_scores", {})
-                    total_score = score_detail.get("total_score", 0)
-                else:
-                    scored_symbol = real_symbol
-                    total_score = round(min(100, max(0, (change_pct + 15) / 30 * 50 + max(0, min(50, net_inflow_ratio * 5 + 25)))), 2)
-                    market_cap = 0
-                    pe_ratio = 0
-                    dimension_scores = {
-                        "momentum": min(1.0, max(0.0, (change_pct + 15) / 30)),
-                        "money_flow": min(1.0, max(0.0, (net_inflow_ratio + 10) / 20)),
-                        "valuation": 0.5,
-                        "profitability": 0.5,
-                        "growth": 0.5,
-                        "activity": 0.5,
-                        "score_type": "hot"
-                    }
-
-                # 龙头股详情接口要求 symbol 最终是可识别代码；无法解析的候选直接跳过。
-                if not re.fullmatch(r"\d{6}", scored_symbol):
-                    logger.warning(f"Skipping leader '{leading_stock}' because symbol could not be resolved: {scored_symbol}")
-                    return None
-
-                return LeaderStockResponse(
-                    symbol=scored_symbol,
-                    name=leading_stock,
-                    industry=industry_name,
-                    score_type="hot",
-                    global_rank=0,
-                    industry_rank=1,
-                    total_score=total_score,
-                    market_cap=market_cap,
-                    pe_ratio=pe_ratio,
-                    change_pct=change_pct,
-                    dimension_scores=dimension_scores,
-                    mini_trend=[],
-                )
-
-            import concurrent.futures
-            # 优化：降低线程池防止代理报错
-            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-                results = list(executor.map(_score_hot_stock, hot_candidates))
-                
-            for res in results:
-                if res: leaders_from_heatmap.append(res)
-
-            leaders_from_heatmap = _dedupe_leader_responses(leaders_from_heatmap)[:top_n]
-
-        if leaders_from_heatmap and len(leaders_from_heatmap) < top_n:
-            logger.info(
-                "Heatmap hot leaders underfilled (%s/%s), backfilling from LeaderStockScorer",
-                len(leaders_from_heatmap),
-                top_n,
+        ranking_rows: List[Dict[str, Any]] = []
+        hot_industries: List[IndustryRankResponse] = []
+        try:
+            ranking_rows = analyzer.rank_industries(
+                top_n=max(ranking_top_n, top_industries),
+                sort_by="total_score",
+                ascending=False,
+                lookback_days=days,
             )
-            scorer = get_leader_scorer()
-            industry_names = [ind.get("industry_name") for ind in hot_industries]
-            needed_count = max(0, top_n - len(leaders_from_heatmap))
-            supplemental_per_industry = max(
-                1,
-                (needed_count + max(len(industry_names), 1) - 1) // max(len(industry_names), 1),
-            )
-            supplemental = scorer.get_leader_stocks(
-                industry_names,
-                top_per_industry=supplemental_per_industry,
-                score_type="hot",
-            )
-            leaders_from_heatmap.extend(
-                [
-                    LeaderStockResponse(
-                        symbol=l.get("symbol", ""),
-                        name=l.get("name", ""),
-                        industry=l.get("industry", ""),
-                        score_type="hot",
-                        global_rank=l.get("global_rank", 0),
-                        industry_rank=l.get("rank", 0),
-                        total_score=l.get("total_score", 0),
-                        market_cap=l.get("market_cap", 0),
-                        pe_ratio=l.get("pe_ratio", 0),
-                        change_pct=l.get("change_pct", 0),
-                        dimension_scores=l.get("dimension_scores", {}),
-                        mini_trend=l.get("mini_trend", []),
-                    )
-                    for l in supplemental
-                ]
-            )
-            leaders_from_heatmap = _dedupe_leader_responses(leaders_from_heatmap)[:top_n]
+            hot_industries = _build_hot_industry_rank_responses(analyzer, ranking_rows[:ranking_top_n])
+        except Exception as exc:
+            logger.warning("Industry bootstrap ranking warmup failed: %s", exc)
+            errors["ranking"] = "行业排行榜预热失败"
 
-        if leaders_from_heatmap:
-            _set_endpoint_cache(cache_key, leaders_from_heatmap)
-            for l in leaders_from_heatmap:
-                _set_parity_cache(l.symbol, "hot", l)
-            return leaders_from_heatmap
-
-        # ⬇️ 降级路径：尝试原始成分股评分器（成功概率低，但保留备用）
-        logger.warning("Heatmap leading_stock unavailable, falling back to LeaderStockScorer")
-        scorer = get_leader_scorer()
-        industry_names = [ind.get("industry_name") for ind in hot_industries]
-        leaders = scorer.get_leader_stocks(industry_names, top_per_industry=per_industry, score_type="hot")
-        leaders = leaders[:top_n]
-
-        result = [
-            LeaderStockResponse(
-                symbol=l.get("symbol", ""),
-                name=l.get("name", ""),
-                industry=l.get("industry", ""),
-                score_type="hot",
-                global_rank=l.get("global_rank", 0),
-                industry_rank=l.get("rank", 0),
-                total_score=l.get("total_score", 0),
-                market_cap=l.get("market_cap", 0),
-                pe_ratio=l.get("pe_ratio", 0),
-                change_pct=l.get("change_pct", 0),
-                dimension_scores=l.get("dimension_scores", {}),
-                mini_trend=l.get("mini_trend", []),
+        leader_payload = LeaderBoardsResponse()
+        try:
+            leader_source_rows = ranking_rows[:max(top_industries, 0)] if ranking_rows else None
+            leader_source_names = {
+                row.get("industry_name")
+                for row in (leader_source_rows or [])
+                if row.get("industry_name")
+            } or None
+            bootstrapped_leaders = _get_bootstrap_leader_payload(
+                top_n=leader_top_n,
+                top_industries=top_industries,
+                per_industry=per_industry,
+                analyzer=analyzer,
+                hot_industries=leader_source_rows,
+                top_industry_names=leader_source_names,
             )
-            for l in leaders
-        ]
-        result = _dedupe_leader_responses(result)[:top_n]
-        if result:
-            _set_endpoint_cache(cache_key, result)
-            for l in result:
-                _set_parity_cache(l.symbol, "hot", l)
-        else:
-            stale = _get_stale_endpoint_cache(cache_key)
-            if stale is not None:
-                logger.warning("Hot leaders empty, using stale cache: %s", cache_key)
-                return stale
-        return result
+            if bootstrapped_leaders is not None:
+                leader_payload = bootstrapped_leaders
+            if leader_payload.errors:
+                errors.update({
+                    f"leaders_{key}": value
+                    for key, value in leader_payload.errors.items()
+                })
+        except Exception as exc:
+            logger.warning("Industry bootstrap leader warmup failed: %s", exc)
+            errors["leaders"] = "龙头股榜单预热失败"
 
+        payload = IndustryBootstrapResponse(
+            days=days,
+            ranking_top_n=ranking_top_n,
+            ranking_type="gainers",
+            ranking_sort_by="total_score",
+            ranking_order="desc",
+            heatmap=heatmap,
+            hot_industries=hot_industries,
+            leaders=leader_payload,
+            errors=errors,
+        )
+        if payload.heatmap.industries:
+            _set_endpoint_cache(cache_key, payload)
+        return _hydrate_bootstrap_with_cached_leaders(
+            payload,
+            cache_key,
+            leader_top_n,
+            top_industries,
+            per_industry,
+        )
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error getting leader stocks: {e}")
+    except Exception as exc:
+        logger.error("Error building industry bootstrap payload: %s", exc)
         stale = _get_stale_endpoint_cache(cache_key)
         if stale is not None:
-            logger.warning(f"Using stale cache for leaders: {cache_key}")
+            logger.warning("Using stale cache for industry bootstrap: %s", cache_key)
             return stale
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 
@@ -2005,7 +2893,20 @@ def get_leader_detail(
     - **symbol**: 股票代码（如 "000001"、"600519"）
     """
     try:
-        resolved_symbol = _resolve_symbol_with_provider(symbol)
+        requested_symbol = str(symbol or "").strip()
+        resolved_symbol = _resolve_symbol_with_provider(requested_symbol)
+        parity = None
+        parity_is_stale = False
+
+        for candidate in (resolved_symbol, requested_symbol):
+            matched_parity, matched_symbol, matched_is_stale = _get_matching_parity_cache(candidate, score_type)
+            if matched_parity is None:
+                continue
+            parity = matched_parity
+            parity_is_stale = matched_is_stale
+            if re.fullmatch(r"\d{6}", matched_symbol or ""):
+                resolved_symbol = matched_symbol
+            break
 
         # 端点级缓存
         cache_key = f"leader_detail:v2:{resolved_symbol}:{score_type}"
@@ -2017,14 +2918,51 @@ def get_leader_detail(
         detail = scorer.get_leader_detail(resolved_symbol, score_type=score_type)
         
         if "error" in detail:
-            raise HTTPException(status_code=404, detail=detail["error"])
+            stale_detail = _get_stale_endpoint_cache(cache_key)
+            if stale_detail is not None:
+                logger.warning(
+                    "Using stale leader detail cache for %s:%s after scorer error: %s",
+                    resolved_symbol,
+                    score_type,
+                    detail["error"],
+                )
+                return stale_detail
+
+            if parity is not None:
+                fallback_note = (
+                    "实时明细暂不可用，当前展示的是较早的榜单快照。"
+                    if parity_is_stale
+                    else "实时明细暂不可用，当前先展示榜单快照与缓存评分。"
+                )
+                fallback = _build_leader_detail_fallback(
+                    parity,
+                    score_type=score_type,
+                    note=fallback_note,
+                    source="leader_parity_cache_stale" if parity_is_stale else "leader_parity_cache",
+                )
+                logger.warning(
+                    "Using parity fallback for leader detail %s -> %s:%s because scorer returned error: %s",
+                    requested_symbol,
+                    resolved_symbol,
+                    score_type,
+                    detail["error"],
+                )
+                _set_endpoint_cache(cache_key, fallback)
+                return fallback
+
+            raise HTTPException(
+                status_code=_leader_detail_error_status(detail["error"]),
+                detail=detail["error"],
+            )
             
         # 尝试使用列表端点计算的快照得分来保证前端展示完全一致 (Score Parity)
         # 优先使用独立 parity 缓存（30分钟 TTL），过期后仍作为兜底
-        parity = _get_parity_cache(resolved_symbol, score_type)
+        if parity is None:
+            parity = _get_parity_cache(resolved_symbol, score_type)
         if parity is None:
             parity = _get_stale_parity_cache(resolved_symbol, score_type)
-            if parity:
+            if parity is not None:
+                parity_is_stale = True
                 logger.info(f"Using stale parity cache for {resolved_symbol}:{score_type}")
 
         if parity:
@@ -2048,6 +2986,8 @@ def get_leader_detail(
             raw_data=detail.get("raw_data", {}),
             technical_analysis=detail.get("technical_analysis", {}),
             price_data=detail.get("price_data", []),
+            degraded=bool(detail.get("degraded", False)),
+            note=detail.get("note"),
         )
         _set_endpoint_cache(cache_key, result)
         return result

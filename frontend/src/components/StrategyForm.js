@@ -11,6 +11,7 @@ import {
   Modal,
   Tag,
   Popconfirm,
+  Alert,
 } from 'antd';
 import { PlayCircleOutlined, SaveOutlined, FolderOpenOutlined, DeleteOutlined, DownOutlined } from '@ant-design/icons';
 import dayjs from '../utils/dayjs';
@@ -21,10 +22,60 @@ import {
   loadBacktestWorkspaceDraft,
   saveBacktestWorkspaceDraft,
 } from '../utils/backtestWorkspace';
+import {
+  getBacktestDraftDateRangeMode,
+  getDefaultBacktestDateRange,
+  resolveBacktestDraftDateRange,
+} from '../utils/backtestDefaults';
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
 const DATE_FORMAT = 'YYYY-MM-DD';
+
+const estimateStrategyMinBars = (strategyName, parameters = {}) => {
+  switch (strategyName) {
+    case 'moving_average':
+      return Number(parameters.slow_period || 50);
+    case 'rsi':
+      return Number(parameters.period || 14);
+    case 'bollinger_bands':
+      return Number(parameters.period || 20);
+    case 'macd':
+      return Number(Math.max(parameters.slow_period || 26, parameters.signal_period || 9));
+    case 'mean_reversion':
+      return Number(parameters.lookback_period || 20);
+    case 'vwap':
+      return Number(parameters.period || 20);
+    case 'momentum':
+      return Number(parameters.slow_window || 30);
+    case 'stochastic':
+      return Number(parameters.k_period || 14);
+    case 'atr_trailing_stop':
+      return Number(parameters.atr_period || 14);
+    case 'turtle_trading':
+      return Number(Math.max(parameters.entry_period || 20, parameters.exit_period || 10));
+    case 'multi_factor':
+      return Number(
+        Math.max(
+          parameters.momentum_window || 20,
+          parameters.mean_reversion_window || 20,
+          parameters.volume_window || 10,
+          parameters.volatility_window || 20,
+        )
+      );
+    default:
+      return 0;
+  }
+};
+
+const estimateTradingDays = (dateRange) => {
+  if (!Array.isArray(dateRange) || !dateRange[0] || !dateRange[1]) {
+    return null;
+  }
+
+  const calendarDays = Math.max(1, dateRange[1].startOf('day').diff(dateRange[0].startOf('day'), 'day') + 1);
+  return Math.max(1, Math.round((calendarDays / 7) * 5));
+};
 
 const StrategyForm = ({ strategies, onSubmit, loading }) => {
   const message = useSafeMessageApi();
@@ -88,9 +139,11 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
   useEffect(() => {
     const applyWorkspaceDraft = () => {
       const draft = loadBacktestWorkspaceDraft();
-      if (!draft?.symbol || !draft?.strategy || !draft?.dateRange?.[0] || !draft?.dateRange?.[1]) {
+      if (!draft?.symbol || !draft?.strategy) {
         return;
       }
+
+      const resolvedDateRange = resolveBacktestDraftDateRange(draft);
 
       const strategy = strategies.find((item) => item.name === draft.strategy);
       const resolvedStrategy = strategy || strategies[0] || null;
@@ -108,7 +161,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       form.setFieldsValue({
         symbol: draft.symbol,
         strategy: draft.strategy,
-        dateRange: [dayjs(draft.dateRange[0], DATE_FORMAT), dayjs(draft.dateRange[1], DATE_FORMAT)],
+        dateRange: resolvedDateRange,
         initial_capital: draft.initial_capital ?? 10000,
         commission: draft.commission ?? 0.1,
         slippage: draft.slippage ?? 0.1,
@@ -139,6 +192,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
             watchedValues.dateRange[1]?.format(DATE_FORMAT),
           ]
         : null,
+      dateRangeMode: getBacktestDraftDateRangeMode(watchedValues?.dateRange),
       initial_capital: watchedValues?.initial_capital ?? 10000,
       commission: watchedValues?.commission ?? 0.1,
       slippage: watchedValues?.slippage ?? 0.1,
@@ -294,6 +348,20 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
   const runBriefCommission = watchedValues?.commission ?? 0.1;
   const runBriefSlippage = watchedValues?.slippage ?? 0.1;
   const recentConfigs = savedConfigs.slice(-6).reverse();
+  const estimatedTradingDays = estimateTradingDays(watchedValues?.dateRange);
+  const estimatedMinBars = estimateStrategyMinBars(selectedStrategy?.name, strategyParams);
+  const shortWindowWarning = (
+    selectedStrategy?.name
+    && estimatedTradingDays
+    && estimatedMinBars > 1
+    && estimatedTradingDays < estimatedMinBars
+  )
+    ? {
+        estimatedTradingDays,
+        estimatedMinBars,
+        strategyLabel: getStrategyName(selectedStrategy.name),
+      }
+    : null;
 
   return (
     <Card
@@ -318,8 +386,8 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
         margin: '0 0 20px 0',
       }}
       styles={{ body: { padding: '24px' } }}
-    >
-      <div className="summary-strip summary-strip--compact strategy-form-summary">
+      >
+        <div className="summary-strip summary-strip--compact strategy-form-summary">
         {summaryItems.map((item) => (
           <div key={item.label} className="summary-strip__item">
             <span className="summary-strip__label">{item.label}</span>
@@ -327,6 +395,17 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
           </div>
         ))}
       </div>
+
+      {shortWindowWarning ? (
+        <Alert
+          className="strategy-form-preflight-alert"
+          type="warning"
+          showIcon
+          message="当前回测区间可能太短，策略很可能不会产生交易"
+          description={`按当前参数估算，这段区间大约只有 ${shortWindowWarning.estimatedTradingDays} 个交易日，而 ${shortWindowWarning.strategyLabel} 至少需要约 ${shortWindowWarning.estimatedMinBars} 个交易日才更有机会形成有效信号。`}
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
 
       <Form
         form={form}
@@ -337,7 +416,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
         initialValues={{
           symbol: 'AAPL',
           strategy: strategies[0]?.name,
-          dateRange: [dayjs().subtract(1, 'year'), dayjs()],
+          dateRange: getDefaultBacktestDateRange(),
           initial_capital: 10000,
           commission: 0.1,
           slippage: 0.1

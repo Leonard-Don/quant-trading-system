@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 PROVIDER_FAILURE_THRESHOLD = 3
 PROVIDER_COOLDOWN_SECONDS = 60
 PROVIDER_FETCH_TIMEOUT_SECONDS = 3
+CRYPTO_PROVIDER_FETCH_TIMEOUT_SECONDS = 1.5
 ETF_LIKE_SYMBOLS = {"SPY", "QQQ", "IWM", "DIA", "UVXY", "VXX", "TLT", "FXI", "EEM", "HYG"}
 QUOTE_QUALITY_FIELDS = [
     "price",
@@ -35,6 +36,13 @@ QUOTE_QUALITY_FIELDS = [
     "bid",
     "ask",
 ]
+EXPECTED_PROVIDER_GAP_PATTERNS = (
+    "possibly delisted",
+    "no price data found",
+    "no timezone found",
+    "symbol may be delisted",
+    "crypto fast quote unavailable",
+)
 
 
 @dataclass
@@ -101,12 +109,15 @@ class RealTimeDataManager(BaseComponent):
         self._lock = threading.RLock()
         self.bundle_cache_ttl = min(self.cache_ttl, 2)
         self._quotes_bundle_cache: Dict[Tuple[str, ...], Tuple[float, Dict[str, Dict[str, Any]]]] = {}
+        self._bundle_fetch_inflight: Dict[Tuple[str, ...], threading.Event] = {}
         self.provider_health: Dict[str, Dict[str, Any]] = {}
         self.runtime_stats: Dict[str, Any] = {
             "bundle_cache_hits": 0,
             "bundle_cache_misses": 0,
             "bundle_cache_writes": 0,
             "bundle_prewarm_calls": 0,
+            "bundle_fetch_waits": 0,
+            "bundle_fetch_coalesced": 0,
             "last_fetch_stats": None,
             "last_bundle_cache_key": [],
         }
@@ -126,6 +137,20 @@ class RealTimeDataManager(BaseComponent):
                 normalized.append(canonical)
                 seen.add(canonical)
         return normalized
+
+    @staticmethod
+    def _is_crypto_symbol(symbol: str) -> bool:
+        return str(symbol or "").strip().upper().endswith("-USD")
+
+    def _get_provider_fetch_timeout_seconds(self, symbols: List[str]) -> float:
+        normalized_symbols = self._normalize_symbols(symbols)
+        if normalized_symbols and all(self._is_crypto_symbol(symbol) for symbol in normalized_symbols):
+            return min(PROVIDER_FETCH_TIMEOUT_SECONDS, CRYPTO_PROVIDER_FETCH_TIMEOUT_SECONDS)
+        return PROVIDER_FETCH_TIMEOUT_SECONDS
+
+    def _get_inflight_wait_timeout_seconds(self, symbols: List[str]) -> float:
+        fetch_timeout = self._get_provider_fetch_timeout_seconds(symbols)
+        return max(fetch_timeout + max(PROVIDER_FETCH_TIMEOUT_SECONDS, 3), 4.0)
 
     @staticmethod
     def _to_float(value: Any, default: Optional[float] = None) -> Optional[float]:
@@ -389,6 +414,17 @@ class RealTimeDataManager(BaseComponent):
             return "INDEX"
         return "US_STOCK"
 
+    def _is_expected_provider_gap_payload(
+        self,
+        provider_name: str,
+        symbol: str,
+        payload: Optional[Dict[str, Any]],
+    ) -> bool:
+        if provider_name != "yahoo" or not self._is_crypto_symbol(symbol) or not payload:
+            return False
+        normalized_error = str(payload.get("error") or "").lower()
+        return any(pattern in normalized_error for pattern in EXPECTED_PROVIDER_GAP_PATTERNS)
+
     def _build_quote_from_history_payload(
         self,
         symbol: str,
@@ -469,7 +505,10 @@ class RealTimeDataManager(BaseComponent):
             self.fetch_executor.submit(fetch_single_symbol, symbol): symbol
             for symbol in normalized_symbols
         }
-        done, not_done = wait(futures, timeout=max(PROVIDER_FETCH_TIMEOUT_SECONDS, 3))
+        done, not_done = wait(
+            futures,
+            timeout=max(self._get_provider_fetch_timeout_seconds(normalized_symbols), 3),
+        )
 
         for future in done:
             symbol, quote = future.result()
@@ -565,16 +604,67 @@ class RealTimeDataManager(BaseComponent):
 
     def get_quotes_dict(self, symbols: List[str], use_cache: bool = True) -> Dict[str, Dict[str, Any]]:
         """批量获取统一报价字典。"""
+        normalized_symbols = self._normalize_symbols(symbols)
+        if not normalized_symbols:
+            return {}
+
         if use_cache:
-            cached_bundle = self._get_cached_quote_bundle(symbols)
+            cached_bundle = self._get_cached_quote_bundle(normalized_symbols)
             if cached_bundle is not None:
                 return cached_bundle
 
-        quotes, _ = self._fetch_real_time_data(symbols, use_cache=use_cache)
-        payload = {symbol: quote.to_dict() for symbol, quote in quotes.items()}
-        if use_cache:
-            self._store_cached_quote_bundle(symbols, payload)
-        return payload
+            bundle_key = self._bundle_cache_key(normalized_symbols)
+            inflight_event = None
+            is_owner = False
+            if bundle_key:
+                with self._lock:
+                    inflight_event = self._bundle_fetch_inflight.get(bundle_key)
+                    if inflight_event is None:
+                        inflight_event = threading.Event()
+                        self._bundle_fetch_inflight[bundle_key] = inflight_event
+                        is_owner = True
+                    else:
+                        self.runtime_stats["bundle_fetch_waits"] += 1
+
+                if inflight_event is not None and not is_owner:
+                    if inflight_event.wait(timeout=self._get_inflight_wait_timeout_seconds(normalized_symbols)):
+                        cached_bundle = self._get_cached_quote_bundle(normalized_symbols)
+                        if cached_bundle is not None:
+                            with self._lock:
+                                self.runtime_stats["bundle_fetch_coalesced"] += 1
+                            return cached_bundle
+            else:
+                is_owner = True
+        else:
+            bundle_key = None
+            inflight_event = None
+            is_owner = False
+
+        try:
+            quotes, _ = self._fetch_real_time_data(normalized_symbols, use_cache=use_cache)
+            payload = {symbol: quote.to_dict() for symbol, quote in quotes.items()}
+            if use_cache:
+                self._store_cached_quote_bundle(normalized_symbols, payload)
+            return payload
+        finally:
+            if use_cache and bundle_key and inflight_event is not None and is_owner:
+                with self._lock:
+                    current_event = self._bundle_fetch_inflight.get(bundle_key)
+                    if current_event is inflight_event:
+                        self._bundle_fetch_inflight.pop(bundle_key, None)
+                        inflight_event.set()
+
+    def _build_quotes_from_payloads(self, payloads: Dict[str, Dict[str, Any]]) -> Dict[str, RealTimeQuote]:
+        quotes: Dict[str, RealTimeQuote] = {}
+        for symbol, payload in payloads.items():
+            quote = self._build_quote(
+                symbol,
+                payload,
+                default_source=payload.get("source") if payload else None,
+            )
+            if quote:
+                quotes[symbol] = quote
+        return quotes
 
     def get_quote_history(self, symbol: str, limit: int = 100) -> List[RealTimeQuote]:
         """获取历史报价。"""
@@ -586,22 +676,23 @@ class RealTimeDataManager(BaseComponent):
     def _fetch_with_provider(
         self, provider: BaseDataProvider, symbols: List[str]
     ) -> Dict[str, Dict[str, Any]]:
+        timeout_seconds = self._get_provider_fetch_timeout_seconds(symbols)
         uses_batch_api = type(provider).get_multiple_quotes is not BaseDataProvider.get_multiple_quotes
         if uses_batch_api:
             future = self.fetch_executor.submit(provider.get_multiple_quotes, symbols)
             try:
-                return future.result(timeout=PROVIDER_FETCH_TIMEOUT_SECONDS)
+                return future.result(timeout=timeout_seconds)
             except FutureTimeoutError as exc:
                 future.cancel()
                 raise TimeoutError(
-                    f"Provider {provider.name} batch quote fetch timed out after {PROVIDER_FETCH_TIMEOUT_SECONDS}s"
+                    f"Provider {provider.name} batch quote fetch timed out after {timeout_seconds}s"
                 ) from exc
 
         results: Dict[str, Dict[str, Any]] = {}
         futures = {
             self.fetch_executor.submit(provider.get_latest_quote, symbol): symbol for symbol in symbols
         }
-        done, not_done = wait(futures, timeout=PROVIDER_FETCH_TIMEOUT_SECONDS)
+        done, not_done = wait(futures, timeout=timeout_seconds)
 
         for future in done:
             symbol = futures[future]
@@ -618,11 +709,11 @@ class RealTimeDataManager(BaseComponent):
                 "Provider %s timed out for %s after %ss",
                 provider.name,
                 symbol,
-                PROVIDER_FETCH_TIMEOUT_SECONDS,
+                timeout_seconds,
             )
             results[symbol] = {
                 "symbol": symbol,
-                "error": f"timeout after {PROVIDER_FETCH_TIMEOUT_SECONDS}s",
+                "error": f"timeout after {timeout_seconds}s",
                 "source": provider.name,
             }
         return results
@@ -669,6 +760,8 @@ class RealTimeDataManager(BaseComponent):
                 for result_symbol, payload in provider_results.items()
             }
             next_pending: List[str] = []
+            expected_gap_symbols: List[str] = []
+            unexpected_error_symbols: List[str] = []
             for symbol in pending:
                 if symbol not in eligible_symbols:
                     next_pending.append(symbol)
@@ -678,12 +771,27 @@ class RealTimeDataManager(BaseComponent):
                     resolved[symbol] = payload
                 else:
                     next_pending.append(symbol)
+                    if self._is_expected_provider_gap_payload(provider.name, symbol, payload):
+                        expected_gap_symbols.append(symbol)
+                    else:
+                        unexpected_error_symbols.append(symbol)
 
             resolved_count = len(pending) - len(next_pending)
             if resolved_count > 0:
                 self._mark_provider_success(provider.name)
+            elif expected_gap_symbols and len(expected_gap_symbols) == len(eligible_symbols):
+                self._mark_provider_skipped(provider.name)
+                logger.info(
+                    "Realtime provider returned expected crypto symbol gaps: provider=%s symbols=%s",
+                    provider.name,
+                    expected_gap_symbols,
+                )
             else:
-                self._mark_provider_failure(provider.name, "provider returned no usable quotes")
+                if unexpected_error_symbols:
+                    reason = f"provider returned unusable quotes for symbols={unexpected_error_symbols}"
+                else:
+                    reason = "provider returned no usable quotes"
+                self._mark_provider_failure(provider.name, reason)
 
             logger.info(
                 "Realtime provider fetch: provider=%s requested=%s resolved=%s remaining=%s consecutive_failures=%s",
@@ -694,9 +802,6 @@ class RealTimeDataManager(BaseComponent):
                 self._ensure_provider_health(provider.name)["consecutive_failures"],
             )
             pending = next_pending
-
-        if pending:
-            logger.warning("Realtime quote fetch exhausted providers: symbols=%s", pending)
 
         return resolved
 
@@ -739,6 +844,14 @@ class RealTimeDataManager(BaseComponent):
                     quotes[symbol] = quote
                     self._store_quote(quote)
                     fetched += 1
+                still_unresolved = [symbol for symbol in unresolved_symbols if symbol not in fallback_quotes]
+                if still_unresolved:
+                    logger.warning("Realtime quote fetch exhausted providers and fallback: symbols=%s", still_unresolved)
+                elif fallback_quotes:
+                    logger.info(
+                        "Realtime live quote fetch exhausted providers; historical fallback recovered symbols=%s",
+                        unresolved_symbols,
+                    )
 
         misses = len(requested_symbols) - len(quotes)
         stats = {
@@ -766,7 +879,45 @@ class RealTimeDataManager(BaseComponent):
             return
 
         symbols = list(self.subscribed_symbols)
-        quotes, stats = self._fetch_real_time_data(symbols, use_cache=True)
+        with self._lock:
+            cache_hits_before = self.runtime_stats["bundle_cache_hits"]
+            coalesced_before = self.runtime_stats["bundle_fetch_coalesced"]
+            last_fetch_stats_before = dict(self.runtime_stats.get("last_fetch_stats") or {})
+
+        payload = self.get_quotes_dict(symbols, use_cache=True)
+        quotes = self._build_quotes_from_payloads(payload)
+
+        with self._lock:
+            last_fetch_stats_after = dict(self.runtime_stats.get("last_fetch_stats") or {})
+            cache_hits_after = self.runtime_stats["bundle_cache_hits"]
+            coalesced_after = self.runtime_stats["bundle_fetch_coalesced"]
+
+        requested = len(self._normalize_symbols(symbols))
+        if (
+            last_fetch_stats_after
+            and last_fetch_stats_after != last_fetch_stats_before
+            and last_fetch_stats_after.get("requested") == requested
+        ):
+            stats = {
+                "requested": last_fetch_stats_after.get("requested", requested),
+                "cache_hits": last_fetch_stats_after.get("cache_hits", 0),
+                "fetched": last_fetch_stats_after.get("fetched", len(quotes)),
+                "misses": last_fetch_stats_after.get("misses", max(requested - len(quotes), 0)),
+            }
+        elif cache_hits_after > cache_hits_before or coalesced_after > coalesced_before:
+            stats = {
+                "requested": requested,
+                "cache_hits": len(quotes),
+                "fetched": 0,
+                "misses": max(requested - len(quotes), 0),
+            }
+        else:
+            stats = {
+                "requested": requested,
+                "cache_hits": 0,
+                "fetched": len(quotes),
+                "misses": max(requested - len(quotes), 0),
+            }
         callbacks_to_notify: List[Tuple[Callable[[RealTimeQuote], None], RealTimeQuote]] = []
 
         with self._lock:
