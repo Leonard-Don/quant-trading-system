@@ -900,7 +900,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   const rankingBodyRows = await rankingTableBody.locator('tr').evaluateAll(
     (rows) => rows.map(row => (row.textContent || '').trim()).filter(Boolean)
   );
-  const rankingHasEmptyState = rankingBodyRows.length > 0 && rankingBodyRows[0].includes('暂无排名数据');
+  const rankingHasEmptyState = rankingBodyRows.some((text) => text.includes('暂无排名数据'));
   const rankingBodyText = rankingBodyRows.join('\n');
   const onlyLowVolatility = rankingHasEmptyState || (!rankingBodyText.includes('高波动') && !rankingBodyText.includes('中波动'));
   console.log(`排行榜低波动筛选是否生效: ${onlyLowVolatility ? '是' : '否'}`);
