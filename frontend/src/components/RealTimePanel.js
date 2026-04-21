@@ -90,6 +90,8 @@ const REVIEW_SCOPE_OPTIONS = [
   { key: 'recent20', label: '最近20条' },
   { key: 'activeTab', label: '当前分组' },
 ];
+const DETAIL_COMPARE_CANDIDATE_LIMIT = 6;
+const DETAIL_PREFETCH_SYMBOL_LIMIT = 3;
 const SNAPSHOT_OUTCOME_OPTIONS = {
   watching: { label: '继续观察', color: 'default' },
   validated: { label: '验证有效', color: 'success' },
@@ -408,6 +410,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
   const {
     clearMissingQuoteRequests,
+    ensureQuotesForSymbols,
     fetchQuotes,
     freshnessNow,
     hasEverConnected,
@@ -558,10 +561,77 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     return symbol;
   }, [metadataMap]);
 
-  const handleShowDetail = useCallback((symbol) => {
+  const getDetailCompareSymbols = useCallback((focusSymbol, category = '', maxItems = DETAIL_COMPARE_CANDIDATE_LIMIT) => {
+    const targetCategory = category || resolveSymbolCategory(focusSymbol);
+    const normalizedFocusSymbol = String(focusSymbol || '').trim().toUpperCase();
+    const orderedSymbols = getSymbolsByCategory(targetCategory)
+      .filter(Boolean)
+      .map((symbol) => String(symbol).trim().toUpperCase())
+      .filter((symbol, index, list) => list.indexOf(symbol) === index)
+      .sort((left, right) => {
+        if (left === normalizedFocusSymbol) {
+          return -1;
+        }
+        if (right === normalizedFocusSymbol) {
+          return 1;
+        }
+
+        const leftHasQuote = Boolean(quotes[left]);
+        const rightHasQuote = Boolean(quotes[right]);
+        if (leftHasQuote !== rightHasQuote) {
+          return leftHasQuote ? -1 : 1;
+        }
+
+        return Math.abs(Number(quotes[right]?.change_percent || 0)) - Math.abs(Number(quotes[left]?.change_percent || 0));
+      });
+
+    if (normalizedFocusSymbol && !orderedSymbols.includes(normalizedFocusSymbol)) {
+      orderedSymbols.unshift(normalizedFocusSymbol);
+    }
+
+    return orderedSymbols.slice(0, maxItems);
+  }, [getSymbolsByCategory, quotes, resolveSymbolCategory]);
+
+  const openDetailForSymbol = useCallback((symbol, options = {}) => {
+    if (!symbol) {
+      return;
+    }
+
+    const detailPrefetchSymbols = getDetailCompareSymbols(
+      symbol,
+      options.category || resolveSymbolCategory(symbol),
+      options.prefetchLimit || DETAIL_PREFETCH_SYMBOL_LIMIT,
+    );
+    ensureQuotesForSymbols(detailPrefetchSymbols, {
+      note: options.note || 'detail open',
+      snapshotReason: options.snapshotReason || 'detail_snapshot',
+      fallbackReason: options.fallbackReason || 'detail_rest',
+      fallbackNote: options.fallbackNote || 'detail open fallback',
+    });
     setDetailSymbol(symbol);
     setIsDetailModalVisible(true);
-  }, []);
+    if (options.closeSnapshotDrawer) {
+      setIsSnapshotDrawerVisible(false);
+    }
+  }, [ensureQuotesForSymbols, getDetailCompareSymbols, resolveSymbolCategory]);
+
+  const handleShowDetail = useCallback((symbol) => {
+    openDetailForSymbol(symbol, {
+      note: 'detail open',
+      snapshotReason: 'detail_snapshot',
+      fallbackReason: 'detail_rest',
+      fallbackNote: 'detail open fallback',
+    });
+  }, [openDetailForSymbol]);
+
+  const handleNavigateDetailSymbol = useCallback((symbol) => {
+    openDetailForSymbol(symbol, {
+      note: 'detail compare switch',
+      snapshotReason: 'detail_snapshot',
+      fallbackReason: 'detail_rest',
+      fallbackNote: 'detail compare switch fallback',
+    });
+  }, [openDetailForSymbol]);
 
   const handleCloseDetail = useCallback(() => {
     setIsDetailModalVisible(false);
@@ -981,6 +1051,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       warmup_snapshot: 'Warmup Snapshot',
       manual_snapshot: '手动 Snapshot',
       manual_rest: '手动 REST',
+      detail_snapshot: '详情 Snapshot',
+      detail_rest: '详情 REST',
     };
 
     const modeLabel = modeLabelMap[decision.mode] || decision.mode;
@@ -1132,11 +1204,11 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     actionEvents: timelineEvents,
     alertHistory: alertHitHistory,
   });
-  const detailCompareCandidates = currentTabSymbols
-    .filter((symbol) => symbol && quotes[symbol])
-    .filter((symbol, index, list) => list.indexOf(symbol) === index)
-    .sort((left, right) => Math.abs(Number(quotes[right]?.change_percent || 0)) - Math.abs(Number(quotes[left]?.change_percent || 0)))
-    .slice(0, 6)
+  const detailCompareCandidates = getDetailCompareSymbols(
+    detailSymbol,
+    detailSymbol ? resolveSymbolCategory(detailSymbol) : activeTab,
+    DETAIL_COMPARE_CANDIDATE_LIMIT,
+  )
     .map((candidateSymbol) => ({
       symbol: candidateSymbol,
       name: getDisplayName(candidateSymbol),
@@ -1232,9 +1304,14 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     }
 
     setActiveTab(snapshot.activeTab || inferSymbolCategory(snapshot.spotlightSymbol));
-    setDetailSymbol(snapshot.spotlightSymbol);
-    setIsDetailModalVisible(true);
-  }, [setActiveTab]);
+    openDetailForSymbol(snapshot.spotlightSymbol, {
+      note: 'snapshot focus',
+      snapshotReason: 'detail_snapshot',
+      fallbackReason: 'detail_rest',
+      fallbackNote: 'snapshot focus fallback',
+      closeSnapshotDrawer: true,
+    });
+  }, [openDetailForSymbol, setActiveTab]);
 
   const copyTextToClipboard = useCallback(async (content, successText) => {
     if (!navigator?.clipboard?.writeText) {
@@ -2041,6 +2118,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           open={isDetailModalVisible}
           onCancel={handleCloseDetail}
           onQuickTrade={handleOpenTradeFromDetail}
+          onNavigateSymbol={handleNavigateDetailSymbol}
           symbol={detailSymbol}
           quote={detailSymbol ? quotes[detailSymbol] || null : null}
           quoteMap={quotes}

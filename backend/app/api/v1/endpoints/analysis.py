@@ -1,12 +1,15 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
-from datetime import datetime
+from datetime import datetime, timedelta
+from functools import partial
 import json
 import logging
+from typing import List, Optional
 from backend.app.services.runtime_state import get_data_manager
 from backend.app.schemas.analysis import TrendAnalysisRequest, TrendAnalysisResponse
 import numpy as np
 import pandas as pd
+from pydantic import BaseModel
 from src.analytics.trend_analyzer import TrendAnalyzer
 from src.analytics.volume_price_analyzer import VolumePriceAnalyzer
 from src.analytics.sentiment_analyzer import SentimentAnalyzer
@@ -30,6 +33,34 @@ ANALYSIS_CACHE_TTLS = {
     "klines": 180,
     "prediction_compare": 300,
 }
+
+
+async def _run_blocking(func, /, *args, **kwargs):
+    return await run_in_threadpool(partial(func, *args, **kwargs))
+
+
+def _parse_request_datetime(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _load_requested_history(
+    request: TrendAnalysisRequest,
+    *,
+    interval: Optional[str] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+) -> pd.DataFrame:
+    resolved_start = start_date if start_date is not None else _parse_request_datetime(request.start_date)
+    resolved_end = end_date if end_date is not None else _parse_request_datetime(request.end_date)
+    resolved_interval = interval or request.interval
+    return data_manager.get_historical_data(
+        symbol=request.symbol,
+        start_date=resolved_start,
+        end_date=resolved_end,
+        interval=resolved_interval,
+    )
 
 
 def _analysis_cache_key(name: str, request: TrendAnalysisRequest, **extra) -> str:
@@ -124,35 +155,14 @@ async def analyze_trend(request: TrendAnalysisRequest):
     分析股票趋势，返回趋势方向、支撑阻力位和技术评分
     """
     try:
-        # 解析日期
-        start_date = None
-        end_date = None
-
-        if request.start_date:
-            start_date = datetime.fromisoformat(
-                request.start_date.replace("Z", "+00:00")
-            )
-        if request.end_date:
-            end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
-
-        # 获取数据
-
-
-        data = await run_in_threadpool(
-            data_manager.get_historical_data,
-            request.symbol,
-            start_date,
-            end_date,
-            request.interval,
-        )
+        data = await _run_blocking(_load_requested_history, request)
 
         if data.empty:
             raise HTTPException(
                 status_code=404, detail=f"No data found for symbol {request.symbol}"
             )
 
-        # 执行分析
-        analysis_result = trend_analyzer.analyze_trend(data)
+        analysis_result = await _run_blocking(trend_analyzer.analyze_trend, data)
 
         return {
             "symbol": request.symbol,
@@ -174,36 +184,18 @@ async def comprehensive_analysis(request: TrendAnalysisRequest):
     返回综合评分和投资建议
     """
     try:
-        # 解析日期
-        start_date = None
-        end_date = None
-
-        if request.start_date:
-            start_date = datetime.fromisoformat(
-                request.start_date.replace("Z", "+00:00")
-            )
-        if request.end_date:
-            end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
-
-        # 获取数据
-        data = await run_in_threadpool(
-            data_manager.get_historical_data,
-            request.symbol,
-            start_date,
-            end_date,
-            request.interval,
-        )
+        data = await _run_blocking(_load_requested_history, request)
 
         if data.empty:
             raise HTTPException(
                 status_code=404, detail=f"No data found for symbol {request.symbol}"
             )
 
-        # 执行综合分析
-        result = comprehensive_scorer.comprehensive_analysis(
+        result = await _run_blocking(
+            comprehensive_scorer.comprehensive_analysis,
             data,
             request.symbol,
-            include_pattern=True
+            include_pattern=True,
         )
         
         # 准备近期K线数据 (用于前端图表显示)
@@ -232,22 +224,7 @@ async def analysis_overview(request: TrendAnalysisRequest):
         if cached is not None:
             return cached
 
-        start_date = None
-        end_date = None
-
-        if request.start_date:
-            start_date = datetime.fromisoformat(
-                request.start_date.replace("Z", "+00:00")
-            )
-        if request.end_date:
-            end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
-
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=request.interval,
-        )
+        data = await _run_blocking(_load_requested_history, request)
 
         if data.empty:
             raise HTTPException(
@@ -327,7 +304,7 @@ async def analyze_fundamental(request: TrendAnalysisRequest):
     基本面分析
     """
     try:
-        result = fundamental_analyzer.analyze(request.symbol)
+        result = await _run_blocking(fundamental_analyzer.analyze, request.symbol)
         return {
             "symbol": request.symbol,
             "timestamp": datetime.now().isoformat(),
@@ -348,23 +325,7 @@ async def get_klines(request: TrendAnalysisRequest, limit: int = 150):
         if cached is not None:
             return cached
 
-        start_date = None
-        end_date = None
-
-        if request.start_date:
-            start_date = datetime.fromisoformat(
-                request.start_date.replace("Z", "+00:00")
-            )
-        if request.end_date:
-            end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
-
-        data = await run_in_threadpool(
-            data_manager.get_historical_data,
-            request.symbol,
-            start_date,
-            end_date,
-            request.interval,
-        )
+        data = await _run_blocking(_load_requested_history, request)
 
         if data.empty:
             raise HTTPException(
@@ -392,29 +353,14 @@ async def analyze_volume_price(request: TrendAnalysisRequest):
     分析成交量与价格的关系
     """
     try:
-        start_date = None
-        end_date = None
-
-        if request.start_date:
-            start_date = datetime.fromisoformat(
-                request.start_date.replace("Z", "+00:00")
-            )
-        if request.end_date:
-            end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
-
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=request.interval,
-        )
+        data = await _run_blocking(_load_requested_history, request)
 
         if data.empty:
             raise HTTPException(
                 status_code=404, detail=f"No data found for symbol {request.symbol}"
             )
 
-        result = volume_analyzer.analyze(data)
+        result = await _run_blocking(volume_analyzer.analyze, data)
 
         return {
             "symbol": request.symbol,
@@ -435,29 +381,14 @@ async def analyze_sentiment(request: TrendAnalysisRequest):
     分析市场情绪和恐慌程度
     """
     try:
-        start_date = None
-        end_date = None
-
-        if request.start_date:
-            start_date = datetime.fromisoformat(
-                request.start_date.replace("Z", "+00:00")
-            )
-        if request.end_date:
-            end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
-
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=request.interval,
-        )
+        data = await _run_blocking(_load_requested_history, request)
 
         if data.empty:
             raise HTTPException(
                 status_code=404, detail=f"No data found for symbol {request.symbol}"
             )
 
-        result = sentiment_analyzer.analyze(data, request.symbol)
+        result = await _run_blocking(sentiment_analyzer.analyze, data, request.symbol)
 
         return {
             "symbol": request.symbol,
@@ -478,29 +409,14 @@ async def recognize_patterns(request: TrendAnalysisRequest):
     识别K线形态和图表形态
     """
     try:
-        start_date = None
-        end_date = None
-
-        if request.start_date:
-            start_date = datetime.fromisoformat(
-                request.start_date.replace("Z", "+00:00")
-            )
-        if request.end_date:
-            end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
-
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=request.interval,
-        )
+        data = await _run_blocking(_load_requested_history, request)
 
         if data.empty:
             raise HTTPException(
                 status_code=404, detail=f"No data found for symbol {request.symbol}"
             )
 
-        result = pattern_recognizer.recognize_patterns(data)
+        result = await _run_blocking(pattern_recognizer.recognize_patterns, data)
 
         return {
             "symbol": request.symbol,
@@ -521,22 +437,7 @@ async def predict_prices(request: TrendAnalysisRequest):
     使用AI模型预测未来价格
     """
     try:
-        start_date = None
-        end_date = None
-
-        if request.start_date:
-            start_date = datetime.fromisoformat(
-                request.start_date.replace("Z", "+00:00")
-            )
-        if request.end_date:
-            end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
-
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=request.interval,
-        )
+        data = await _run_blocking(_load_requested_history, request)
 
         if data.empty:
             raise HTTPException(
@@ -544,7 +445,12 @@ async def predict_prices(request: TrendAnalysisRequest):
             )
 
         # 默认预测未来5天，传递symbol确保每只股票使用独立模型
-        result = price_predictor.predict_next_days(data, days=5, symbol=request.symbol)
+        result = await _run_blocking(
+            price_predictor.predict_next_days,
+            data,
+            days=5,
+            symbol=request.symbol,
+        )
 
         return {
             "symbol": request.symbol,
@@ -559,10 +465,6 @@ async def predict_prices(request: TrendAnalysisRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-from pydantic import BaseModel
-from typing import List
-import numpy as np
-
 class CorrelationRequest(BaseModel):
     symbols: List[str]  # List of stock symbols to analyze
     period_days: int = 90  # Number of days to analyze
@@ -576,54 +478,45 @@ async def analyze_correlation(request: CorrelationRequest):
     try:
         if len(request.symbols) < 2:
             raise HTTPException(status_code=400, detail="至少需要2只股票进行相关性分析")
-        
+
         if len(request.symbols) > 10:
             raise HTTPException(status_code=400, detail="最多支持10只股票同时分析")
-        
-        # Fetch data for all symbols
-        from datetime import timedelta
+
         end_date = datetime.now()
         start_date = end_date - timedelta(days=request.period_days)
-        
+
         stock_data = {}
         valid_symbols = []
-        
+
         for symbol in request.symbols:
             try:
-                data = data_manager.get_historical_data(
+                data = await _run_blocking(
+                    data_manager.get_historical_data,
                     symbol=symbol,
                     start_date=start_date,
                     end_date=end_date,
-                    interval="1d"
+                    interval="1d",
                 )
                 if not data.empty and len(data) > 10:
-                    # Normalize timezone to UTC-naive to ensure alignment between stocks (market hours) and crypto (24/7)
                     if data.index.tz is not None:
                         data.index = data.index.tz_localize(None)
-                    data.index = data.index.normalize() # Ensure we match on date (midnight)
-                    stock_data[symbol] = data['close']
+                    data.index = data.index.normalize()
+                    stock_data[symbol] = data["close"]
                     valid_symbols.append(symbol)
             except Exception as e:
                 logger.warning(f"Could not fetch data for {symbol}: {e}")
-        
+
         if len(valid_symbols) < 2:
             raise HTTPException(status_code=400, detail="有效数据不足，无法计算相关性")
-        
-        # Align dates and calculate returns
-        import pandas as pd
-        # Use concat with inner join to align dates
+
         combined = pd.DataFrame(stock_data).dropna()
-        
+
         if len(combined) < 10:
             raise HTTPException(status_code=400, detail="重叠交易日太少，无法计算相关性")
-        
-        # Calculate daily returns
+
         returns = combined.pct_change().dropna()
-        
-        # Calculate correlation matrix
         correlation_matrix = returns.corr()
-        
-        # Convert to list format for JSON response
+
         corr_data = []
         for i, sym1 in enumerate(valid_symbols):
             for j, sym2 in enumerate(valid_symbols):
@@ -632,23 +525,19 @@ async def analyze_correlation(request: CorrelationRequest):
                     "symbol2": sym2,
                     "correlation": round(correlation_matrix.loc[sym1, sym2], 4)
                 })
-        
-        # Find top correlations (excluding self-correlation)
+
         pair_correlations = []
         for i, sym1 in enumerate(valid_symbols):
             for j, sym2 in enumerate(valid_symbols):
-                if i < j:  # Only upper triangle
+                if i < j:
                     pair_correlations.append({
                         "pair": f"{sym1}-{sym2}",
                         "correlation": round(correlation_matrix.loc[sym1, sym2], 4)
                     })
-        
-        # Sort by absolute correlation
+
         pair_correlations.sort(key=lambda x: abs(x["correlation"]), reverse=True)
-        
-        # Calculate average correlation
         avg_correlation = np.mean([abs(p["correlation"]) for p in pair_correlations])
-        
+
         return {
             "timestamp": datetime.now().isoformat(),
             "symbols": valid_symbols,
@@ -705,13 +594,7 @@ async def compare_model_predictions(request: TrendAnalysisRequest):
             return cached
 
         # 获取历史数据
-        data = await run_in_threadpool(
-            data_manager.get_historical_data,
-            request.symbol,
-            None,
-            None,
-            request.interval,
-        )
+        data = await _run_blocking(_load_requested_history, request)
         
         if data.empty:
             raise HTTPException(
@@ -720,7 +603,7 @@ async def compare_model_predictions(request: TrendAnalysisRequest):
             )
         
         # 比较预测
-        result = await run_in_threadpool(
+        result = await _run_blocking(
             model_comparator.compare_predictions,
             data,
             request.symbol,
@@ -748,11 +631,7 @@ async def predict_with_lstm(request: TrendAnalysisRequest):
     使用 LSTM 神经网络模型进行价格预测
     """
     try:
-        # 获取历史数据
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            interval=request.interval
-        )
+        data = await _run_blocking(_load_requested_history, request)
         
         if data.empty:
             raise HTTPException(
@@ -762,7 +641,7 @@ async def predict_with_lstm(request: TrendAnalysisRequest):
         
         # LSTM 预测
         from src.analytics.lstm_predictor import lstm_predictor
-        result = lstm_predictor.predict(data, request.symbol, days=5)
+        result = await _run_blocking(lstm_predictor.predict, data, request.symbol, days=5)
         
         return {
             "symbol": request.symbol,
@@ -784,11 +663,7 @@ async def train_all_models(request: TrendAnalysisRequest):
     包括 Random Forest 和 LSTM
     """
     try:
-        # 获取历史数据
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            interval=request.interval
-        )
+        data = await _run_blocking(_load_requested_history, request)
         
         if data.empty:
             raise HTTPException(
@@ -803,7 +678,7 @@ async def train_all_models(request: TrendAnalysisRequest):
             )
         
         # 训练所有模型
-        result = model_comparator.train_all_models(data, request.symbol)
+        result = await _run_blocking(model_comparator.train_all_models, data, request.symbol)
         
         return {
             "timestamp": datetime.now().isoformat(),
@@ -931,10 +806,7 @@ async def get_technical_indicators(request: TrendAnalysisRequest):
     获取常用技术指标快照（RSI、MACD、布林带）
     """
     try:
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            interval=request.interval
-        )
+        data = await _run_blocking(_load_requested_history, request)
         
         if data.empty:
             raise HTTPException(
@@ -995,15 +867,15 @@ async def get_sentiment_history(request: TrendAnalysisRequest, days: int = 30):
     获取过去N天的恐慌贪婪指数历史趋势
     """
     try:
-        from datetime import timedelta
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days + 50)  # 额外获取数据用于计算
-        
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
+
+        data = await _run_blocking(
+            _load_requested_history,
+            request,
             start_date=start_date,
             end_date=end_date,
-            interval="1d"
+            interval="1d",
         )
         
         if data.empty or len(data) < 30:
@@ -1148,7 +1020,7 @@ async def get_industry_comparison(request: TrendAnalysisRequest):
     """
     try:
         # 获取目标股票的基本面数据
-        target_fundamental = fundamental_analyzer.analyze(request.symbol)
+        target_fundamental = await _run_blocking(fundamental_analyzer.analyze, request.symbol)
         
         # fundamental_analyzer.analyze() 直接返回 {metrics, valuation, ...}
         if not target_fundamental or not target_fundamental.get("metrics"):
@@ -1180,7 +1052,7 @@ async def get_industry_comparison(request: TrendAnalysisRequest):
         peers = []
         for peer_symbol in peer_symbols:
             try:
-                peer_fundamental = fundamental_analyzer.analyze(peer_symbol)
+                peer_fundamental = await _run_blocking(fundamental_analyzer.analyze, peer_symbol)
                 if peer_fundamental and peer_fundamental.get("metrics"):
                     metrics = peer_fundamental.get("metrics", {})
                     peers.append({
@@ -1245,10 +1117,7 @@ async def get_risk_metrics(request: TrendAnalysisRequest):
     获取 VaR、最大回撤、夏普比率等风险指标
     """
     try:
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            interval=request.interval
-        )
+        data = await _run_blocking(_load_requested_history, request)
         
         if data.empty or len(data) < 50:
             raise HTTPException(
@@ -1293,7 +1162,11 @@ async def get_risk_metrics(request: TrendAnalysisRequest):
         
         # 7. Beta (相对于SPY)
         try:
-            spy_data = data_manager.get_historical_data(symbol="SPY", interval=request.interval)
+            spy_data = await _run_blocking(
+                data_manager.get_historical_data,
+                symbol="SPY",
+                interval=request.interval,
+            )
             if not spy_data.empty and len(spy_data) > 50:
                 spy_returns = spy_data['close'].pct_change().dropna()
                 # 对齐日期
@@ -1308,7 +1181,7 @@ async def get_risk_metrics(request: TrendAnalysisRequest):
                     beta = 1.0
             else:
                 beta = 1.0
-        except:
+        except Exception:
             beta = 1.0
         
         # 风险等级判断

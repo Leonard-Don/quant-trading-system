@@ -791,17 +791,6 @@ export const resetAccount = async () => {
   return response.data;
 };
 
-// 告警相关 API
-export const getAlertSummary = async () => {
-  const response = await api.get('/system/alerts/summary');
-  return response.data;
-};
-
-export const resolveAlert = async (alertIndex) => {
-  const response = await api.post(`/system/alerts/${alertIndex}/resolve`);
-  return response.data;
-};
-
 export const compareModelPredictions = async (symbol) => {
   const response = await api.post('/analysis/prediction/compare', { symbol });
   return response.data;

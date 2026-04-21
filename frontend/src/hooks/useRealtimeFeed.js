@@ -52,6 +52,8 @@ export const useRealtimeFeed = ({
   const missingQuoteRequestsRef = useRef(new Set());
   const currentTabFallbackTimerRef = useRef(null);
   const currentTabWarmupTimerRef = useRef(null);
+  const symbolFallbackTimersRef = useRef(new Map());
+  const transportDecisionSeqRef = useRef(0);
   const quotesRef = useRef({});
 
   useEffect(() => {
@@ -68,9 +70,10 @@ export const useRealtimeFeed = ({
       .map(symbol => String(symbol).trim().toUpperCase());
 
     setTransportDecisions((prev) => {
+      transportDecisionSeqRef.current += 1;
       const next = [
         {
-          id: `${Date.now()}-${mode}-${normalizedSymbols.join('-')}`,
+          id: `${Date.now()}-${transportDecisionSeqRef.current}-${mode}-${normalizedSymbols.join('-')}`,
           mode,
           symbols: normalizedSymbols,
           note,
@@ -83,6 +86,7 @@ export const useRealtimeFeed = ({
   }, []);
 
   useEffect(() => {
+    const symbolFallbackTimers = symbolFallbackTimersRef.current;
     const removeConnectionListener = webSocketService.addListener('connection', (data) => {
       setIsConnected(data.status === 'connected');
       if (data.status === 'connected') {
@@ -108,6 +112,12 @@ export const useRealtimeFeed = ({
       const { symbol, data: quoteData } = data;
       const receivedAt = Date.now();
       const normalizedQuote = normalizeQuotePayload(quoteData, receivedAt);
+      const normalizedSymbol = String(symbol || '').trim().toUpperCase();
+      const symbolFallbackTimer = symbolFallbackTimers.get(normalizedSymbol);
+      if (symbolFallbackTimer) {
+        clearTimeout(symbolFallbackTimer);
+        symbolFallbackTimers.delete(normalizedSymbol);
+      }
       setLoading(false);
       setLastClientRefreshAt(receivedAt);
       setLastMarketUpdateAt(normalizedQuote._marketTimestampMs || receivedAt);
@@ -135,6 +145,8 @@ export const useRealtimeFeed = ({
         clearTimeout(currentTabWarmupTimerRef.current);
         currentTabWarmupTimerRef.current = null;
       }
+      symbolFallbackTimers.forEach((timerId) => clearTimeout(timerId));
+      symbolFallbackTimers.clear();
       webSocketService.disconnect({ resetSubscriptions: true });
     };
   }, [messageApi]);
@@ -269,6 +281,33 @@ export const useRealtimeFeed = ({
     }
   }, [clearMissingQuoteRequests, pushTransportDecision, subscribedSymbols]);
 
+  const scheduleSymbolFallbackFetch = useCallback((symbols = [], options = {}) => {
+    const targetSymbols = (Array.isArray(symbols) ? symbols : [symbols])
+      .filter(Boolean)
+      .map(symbol => String(symbol).trim().toUpperCase());
+    const delayMs = Number.isFinite(Number(options.delayMs)) ? Number(options.delayMs) : WS_SNAPSHOT_GRACE_MS;
+    const fallbackReason = options.fallbackReason || 'detail_rest';
+    const fallbackNote = options.fallbackNote || options.note || 'detail snapshot grace miss';
+
+    targetSymbols.forEach((symbol) => {
+      const existingTimer = symbolFallbackTimersRef.current.get(symbol);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+
+      const timerId = setTimeout(() => {
+        symbolFallbackTimersRef.current.delete(symbol);
+        if (quotesRef.current[symbol] || missingQuoteRequestsRef.current.has(symbol)) {
+          return;
+        }
+        missingQuoteRequestsRef.current.add(symbol);
+        fetchQuotes([symbol], { reason: fallbackReason, note: fallbackNote });
+      }, delayMs);
+
+      symbolFallbackTimersRef.current.set(symbol, timerId);
+    });
+  }, [fetchQuotes]);
+
   const scheduleCurrentTabFallbackFetch = useCallback((delayMs = WS_SNAPSHOT_GRACE_MS) => {
     if (currentTabFallbackTimerRef.current) {
       clearTimeout(currentTabFallbackTimerRef.current);
@@ -359,6 +398,41 @@ export const useRealtimeFeed = ({
     scheduleCurrentTabFallbackFetch,
   ]);
 
+  const ensureQuotesForSymbols = useCallback((symbols = [], options = {}) => {
+    const targetSymbols = (Array.isArray(symbols) ? symbols : [symbols])
+      .filter(Boolean)
+      .map(symbol => String(symbol).trim().toUpperCase())
+      .filter(symbol => !quotesRef.current[symbol]);
+
+    if (!targetSymbols.length) {
+      return false;
+    }
+
+    clearMissingQuoteRequests(targetSymbols);
+
+    if (isConnected && webSocketService.requestSnapshot(targetSymbols)) {
+      pushTransportDecision(options.snapshotReason || 'detail_snapshot', targetSymbols, options.note || 'detail open');
+      scheduleSymbolFallbackFetch(targetSymbols, {
+        delayMs: options.fallbackDelayMs,
+        fallbackReason: options.fallbackReason || 'detail_rest',
+        fallbackNote: options.fallbackNote || options.note || 'detail snapshot grace miss',
+      });
+      return true;
+    }
+
+    fetchQuotes(targetSymbols, {
+      reason: options.fallbackReason || 'detail_rest',
+      note: options.fallbackNote || options.note || 'detail open fallback',
+    });
+    return false;
+  }, [
+    clearMissingQuoteRequests,
+    fetchQuotes,
+    isConnected,
+    pushTransportDecision,
+    scheduleSymbolFallbackFetch,
+  ]);
+
   const removeQuote = useCallback((symbol) => {
     clearMissingQuoteRequests([symbol]);
     setQuotes(prev => {
@@ -384,6 +458,7 @@ export const useRealtimeFeed = ({
     freshnessNow,
     hasEverConnected,
     hasExperiencedFallback,
+    ensureQuotesForSymbols,
     isAutoUpdate,
     isBrowserOnline,
     isConnected,

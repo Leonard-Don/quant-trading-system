@@ -20,7 +20,6 @@ import { buildViewUrlForCurrentState, navigateToAppUrl } from './utils/researchC
 
 // 懒加载非核心组件，减少初始包大小
 
-const AlertCenter = lazy(() => import('./components/AlertCenter'));
 const RealTimePanel = lazy(() => import('./components/RealTimePanel'));
 const IndustryDashboard = lazy(() => import('./components/IndustryDashboard'));
 const BacktestDashboard = lazy(() => import('./components/BacktestDashboard'));
@@ -281,9 +280,6 @@ function App() {
                 }}
               />
             </Tooltip>
-            <Suspense fallback={null}>
-              <AlertCenter />
-            </Suspense>
           </Space>
         </Header>
         <Layout className="app-main-shell">

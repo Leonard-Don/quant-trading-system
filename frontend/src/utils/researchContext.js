@@ -215,23 +215,6 @@ export const buildViewUrlForCurrentState = (
   });
 };
 
-const readWorkbenchParamsFromSearch = (currentSearch = window.location.search) => {
-  const params = new URLSearchParams(currentSearch);
-  return {
-    workbenchSnapshotView: params.get('workbench_snapshot_view'),
-    workbenchSnapshotFingerprint: params.get('workbench_snapshot_fingerprint'),
-    workbenchSnapshotSummary: params.get('workbench_snapshot_summary'),
-    workbenchKeyword: params.get('workbench_keyword'),
-    workbenchQueueMode: params.get('workbench_queue_mode'),
-    workbenchQueueAction: params.get('workbench_queue_action'),
-    workbenchRefresh: params.get('workbench_refresh'),
-    workbenchType: params.get('workbench_type'),
-    workbenchSource: params.get('workbench_source'),
-    workbenchReason: params.get('workbench_reason'),
-    task: params.get('task'),
-  };
-};
-
 export const buildPricingLink = (
   symbol,
   source = 'godeye',
@@ -239,7 +222,6 @@ export const buildPricingLink = (
   currentSearch = window.location.search,
   period = undefined,
 ) => {
-  const params = new URLSearchParams(currentSearch);
   return buildAppUrl({
     currentSearch,
     view: 'backtest',

@@ -23,12 +23,42 @@ const waitForQuoteCard = async (page, symbol) => {
   return card;
 };
 
+const getDetailModal = (page) => page.locator('[data-testid="realtime-stock-detail-modal"]');
+const waitForNoVisibleModal = async (page) => {
+  await page.waitForFunction(() => (
+    Array.from(document.querySelectorAll('.ant-modal-wrap')).every((node) => {
+      const style = window.getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return style.display === 'none'
+        || style.visibility === 'hidden'
+        || node.getAttribute('aria-hidden') === 'true'
+        || rect.width === 0
+        || rect.height === 0;
+    })
+  ), { timeout: 10000 });
+};
+
 const closeVisibleModal = async (page) => {
-  const closeButton = page.locator('.ant-modal-close').last();
-  if (await closeButton.count()) {
-    await closeButton.click();
-    await page.waitForTimeout(300);
+  const visibleModalWrap = page.locator('.ant-modal-wrap:visible').last();
+  if (!(await visibleModalWrap.count())) {
+    return;
   }
+
+  const closeButton = page.locator('.ant-modal-close:visible').last();
+  if (await closeButton.count()) {
+    await closeButton.click({ force: true }).catch(() => {});
+  } else {
+    await page.keyboard.press('Escape').catch(() => {});
+  }
+
+  await waitForNoVisibleModal(page).catch(async () => {
+    const mask = page.locator('.ant-modal-mask:visible').last();
+    if (await mask.count()) {
+      await mask.click({ position: { x: 8, y: 8 }, force: true }).catch(() => {});
+    }
+    await waitForNoVisibleModal(page);
+  });
+  await page.waitForTimeout(300);
 };
 
 const closeVisibleDrawer = async (page) => {
@@ -52,6 +82,32 @@ const closeVisibleDrawer = async (page) => {
       }
     }
   }
+};
+
+const waitForMarketAnalysisWorkspace = async (page, symbol, activeTabLabel = '总览') => {
+  const detailModal = getDetailModal(page);
+  await detailModal.waitFor({ state: 'visible', timeout: 60000 });
+  await detailModal.getByText(`${symbol} 全维分析`, { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  await detailModal.getByText(`当前标签 ${activeTabLabel}`, { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
+  await detailModal.getByText(`当前分析：${activeTabLabel}`, { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
+};
+
+const clickMarketAnalysisTab = async (page, tabLabel) => {
+  const detailModal = getDetailModal(page);
+  await detailModal.locator('.ant-tabs-tab-btn').filter({ hasText: tabLabel }).first().click();
+  await detailModal.getByText(`当前标签 ${tabLabel}`, { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
+  await detailModal.getByText(`当前分析：${tabLabel}`, { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
+};
+
+const jumpToTrackedSymbol = async (page, symbol, expectedGroupLabel) => {
+  const input = page.getByPlaceholder('全局搜索并跳转... (例如 AAPL / BTC-USD / 纳指)');
+  await input.scrollIntoViewIfNeeded();
+  await input.click();
+  await input.fill(symbol);
+  await page.waitForTimeout(150);
+  await input.press('Enter');
+  await page.getByText(`当前分组：${expectedGroupLabel}`, { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
+  await waitForMarketAnalysisWorkspace(page, symbol);
 };
 
 (async () => {
@@ -214,40 +270,49 @@ const closeVisibleDrawer = async (page) => {
   const detailModal = page.locator('[data-testid="realtime-stock-detail-modal"]');
   await detailModal.waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('ETH-USD 全维分析', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  const snapshotDrawer = page.locator('.ant-drawer-content-wrapper:visible').last();
+  if (await snapshotDrawer.count()) {
+    throw new Error('打开焦点详情后复盘快照抽屉仍然可见');
+  }
   console.log('导入快照焦点详情已联动到正确分组: 是');
   await closeVisibleModal(page);
 
   console.log('验证全局跳转搜索...');
-  const globalJumpInput = page.getByPlaceholder('全局搜索并跳转... (例如 AAPL / BTC-USD / 纳指)');
-  await globalJumpInput.fill('BTC-USD');
-  await globalJumpInput.press('Enter');
-  await page.getByText('当前分组：加密货币', { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
-  await page.locator('[data-testid="realtime-stock-detail-modal"]').waitFor({ state: 'visible', timeout: 60000 });
-  await page.getByText('BTC-USD 全维分析', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  await jumpToTrackedSymbol(page, 'BTC-USD', '加密货币');
   console.log('全局跳转已切组并打开详情: 是');
   await closeVisibleModal(page);
 
   console.log('打开指数详情，验证详情页新增模块...');
   await page.locator('.ant-tabs-tab-btn').filter({ hasText: '指数' }).first().click();
   await indexCard.click();
-  await page.locator('[data-testid="realtime-stock-detail-modal"]').waitFor({ state: 'visible', timeout: 60000 });
+  await getDetailModal(page).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('信号总表', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('对比模式', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('盘中时间线', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   await page.locator('[data-testid="detail-compare-grid"]').waitFor({ state: 'visible', timeout: 60000 });
   const compareGridText = await page.locator('[data-testid="detail-compare-grid"]').innerText();
   console.log(`详情页对比模式已就绪: ${compareGridText.includes('^GSPC') ? '是' : '否'}`);
+  const compareSwitchButton = page.locator('[data-testid^="detail-compare-switch-"]').first();
+  await compareSwitchButton.waitFor({ state: 'visible', timeout: 60000 });
+  const compareSwitchTestId = await compareSwitchButton.getAttribute('data-testid');
+  const compareTargetSymbol = (compareSwitchTestId || '').replace('detail-compare-switch-', '').trim();
+  if (!compareTargetSymbol) {
+    throw new Error(`无法从对比卡按钮解析切换目标: ${compareSwitchTestId}`);
+  }
+  await compareSwitchButton.click();
+  await waitForMarketAnalysisWorkspace(page, compareTargetSymbol);
+  console.log(`详情页对比卡切换焦点已生效: ${compareTargetSymbol}`);
+  await clickMarketAnalysisTab(page, '风险评估');
+  console.log('指数详情里的市场分析切换已生效: 是');
   await page.screenshot({ path: path.join(ARTIFACT_DIR, 'realtime-detail.png'), fullPage: true });
   await closeVisibleModal(page);
 
-  console.log('切换到美股分组，验证交易入口...');
-  await globalJumpInput.fill('AAPL');
-  await globalJumpInput.press('Enter');
-  await page.getByText('当前分组：美股', { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
-  await page.locator('[data-testid="realtime-stock-detail-modal"]').waitFor({ state: 'visible', timeout: 60000 });
-  await page.getByText('AAPL 全维分析', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  console.log('切换 symbol 后验证市场分析会重置并可继续切换...');
+  await jumpToTrackedSymbol(page, 'AAPL', '美股');
+  await clickMarketAnalysisTab(page, '趋势分析');
+  console.log('连续切 symbol 后市场分析已切到正确标的并可继续切换: 是');
   console.log('验证详情页带入交易...');
-  await page.getByRole('button', { name: '带入交易' }).click();
+  await getDetailModal(page).getByRole('button', { name: '带入交易' }).click();
   await page.getByText('模拟交易终端', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('仓位建议', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   console.log('详情页一键带入交易已生效: 是');

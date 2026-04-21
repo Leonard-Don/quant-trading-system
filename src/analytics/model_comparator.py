@@ -4,7 +4,7 @@
 """
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Any, Dict, List
 import logging
 from datetime import datetime
 
@@ -20,9 +20,13 @@ class ModelComparator:
     支持 Random Forest 和 LSTM 模型的对比
     """
     
-    def __init__(self):
-        self.rf_predictor = PricePredictor()
-        self.lstm_predictor = lstm_predictor
+    def __init__(
+        self,
+        rf_predictor: PricePredictor | None = None,
+        lstm_predictor_instance: Any | None = None,
+    ):
+        self.rf_predictor = rf_predictor or PricePredictor()
+        self.lstm_predictor = lstm_predictor_instance or lstm_predictor
         
     def get_available_models(self) -> List[Dict]:
         """获取可用的模型列表"""

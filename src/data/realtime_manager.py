@@ -104,8 +104,8 @@ class RealTimeDataManager(BaseComponent):
         self.subscribers: Dict[str, Set[Callable[[RealTimeQuote], None]]] = {}
         self.quote_history: Dict[str, List[RealTimeQuote]] = {}
         self.is_running = False
-        self.update_executor = ThreadPoolExecutor(max_workers=4)
-        self.fetch_executor = ThreadPoolExecutor(max_workers=20)
+        self.update_executor: Optional[ThreadPoolExecutor] = None
+        self.fetch_executor: Optional[ThreadPoolExecutor] = None
         self._lock = threading.RLock()
         self.bundle_cache_ttl = min(self.cache_ttl, 2)
         self._quotes_bundle_cache: Dict[Tuple[str, ...], Tuple[float, Dict[str, Dict[str, Any]]]] = {}
@@ -121,6 +121,14 @@ class RealTimeDataManager(BaseComponent):
             "last_fetch_stats": None,
             "last_bundle_cache_key": [],
         }
+        self._ensure_executors()
+
+    def _ensure_executors(self) -> None:
+        """在 cleanup 后允许同一实例于后续 lifespan 中重新启动。"""
+        if self.update_executor is None or getattr(self.update_executor, "_shutdown", False):
+            self.update_executor = ThreadPoolExecutor(max_workers=4)
+        if self.fetch_executor is None or getattr(self.fetch_executor, "_shutdown", False):
+            self.fetch_executor = ThreadPoolExecutor(max_workers=20)
 
     @staticmethod
     def _normalize_symbol(symbol: str) -> str:
@@ -475,6 +483,8 @@ class RealTimeDataManager(BaseComponent):
         if not normalized_symbols:
             return fallback_quotes
 
+        self._ensure_executors()
+
         def fetch_single_symbol(symbol: str) -> Tuple[str, Optional[RealTimeQuote]]:
             asset_class = self._infer_asset_class_for_symbol(symbol)
             try:
@@ -676,6 +686,7 @@ class RealTimeDataManager(BaseComponent):
     def _fetch_with_provider(
         self, provider: BaseDataProvider, symbols: List[str]
     ) -> Dict[str, Dict[str, Any]]:
+        self._ensure_executors()
         timeout_seconds = self._get_provider_fetch_timeout_seconds(symbols)
         uses_batch_api = type(provider).get_multiple_quotes is not BaseDataProvider.get_multiple_quotes
         if uses_batch_api:
@@ -974,12 +985,17 @@ class RealTimeDataManager(BaseComponent):
     def cleanup(self) -> None:
         """清理资源。"""
         self.stop_real_time_updates()
-        self.update_executor.shutdown(wait=True)
-        self.fetch_executor.shutdown(wait=True)
+        if self.update_executor is not None:
+            self.update_executor.shutdown(wait=True)
+            self.update_executor = None
+        if self.fetch_executor is not None:
+            self.fetch_executor.shutdown(wait=True)
+            self.fetch_executor = None
         self.logger.info("实时数据管理器清理完成")
 
     async def start_real_time_updates(self) -> None:
         """开始实时数据更新。"""
+        self._ensure_executors()
         self.is_running = True
         self.logger.info("开始实时数据更新")
 

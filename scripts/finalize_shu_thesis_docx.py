@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 import xml.etree.ElementTree as ET
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -18,14 +20,41 @@ from docxcompose.composer import Composer
 from pypdf import PdfReader, PdfWriter
 
 
+def resolve_existing_path(description: str, *candidates: Path) -> Path:
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    searched = "\n".join(f"- {candidate}" for candidate in candidates)
+    raise FileNotFoundError(f"Failed to locate {description}. Checked:\n{searched}")
+
+
+def find_first_existing_path(*candidates: Path) -> Path | None:
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DOC_OUTPUT_DIR = PROJECT_ROOT / "output" / "doc"
 TMP_DOC_DIR = PROJECT_ROOT / "tmp" / "docs"
 SCREENSHOT_DIR = PROJECT_ROOT / "docs" / "screenshots"
+DOWNLOAD_DIR = Path.home() / "Downloads"
+HEATMAP_HISTORY_PATH = PROJECT_ROOT / "data" / "industry" / "heatmap_history.json"
+THESIS_HEATMAP_SNAPSHOT_PATH = PROJECT_ROOT / "docs" / "thesis_assets" / "frozen_heatmap_snapshot.json"
+THESIS_LEADER_CASE_PATH = PROJECT_ROOT / "docs" / "thesis_assets" / "frozen_leader_case.json"
 
 DOC_PATH = DOC_OUTPUT_DIR / "上海大学本科毕业论文_基于大数据的热门行业识别与龙头股遴选研究.docx"
-TEMPLATE_PATH = Path("/Users/leonardodon/Downloads/上海大学本科毕业论文（设计）撰写格式模板.docx")
-TEMPLATE_PDF_PATH = Path("/Users/leonardodon/Downloads/上海大学本科毕业论文（设计）撰写格式模板.pdf")
+TEMPLATE_PATH = resolve_existing_path(
+    "official template DOCX",
+    DOWNLOAD_DIR / "论文模版" / "上海大学本科毕业论文（设计）撰写格式模板.docx",
+    DOWNLOAD_DIR / "上海大学本科毕业论文（设计）撰写格式模板.docx",
+)
+TEMPLATE_PDF_PATH = resolve_existing_path(
+    "official template PDF",
+    DOWNLOAD_DIR / "论文模版" / "上海大学本科毕业论文（设计）撰写格式模板.pdf",
+    DOWNLOAD_DIR / "上海大学本科毕业论文（设计）撰写格式模板.pdf",
+)
 OUTPUT_PDF_PATH = DOC_OUTPUT_DIR / "上海大学本科毕业论文_基于大数据的热门行业识别与龙头股遴选研究.pdf"
 LEGACY_DUPLICATE_PDF_PATH = DOC_OUTPUT_DIR / "上海大学本科毕业论文_基于大数据的热门行业识别与龙头股遴选研究_送审版.pdf"
 COMPOSED_TMP_PATH = TMP_DOC_DIR / "shu_thesis_composed.docx"
@@ -63,6 +92,14 @@ FIGURE_IMAGES = {
         "slug": "figure_5_3",
     },
 }
+FIGURE_INTRO_PARAGRAPHS = {
+    "图 5.1 行业热度总览界面":
+        "如图 5.1 所示，行业热度总览页面将热力图、行业排行榜、趋势面板与龙头股入口整合在同一研究界面中，便于研究者快速完成行业筛选、排序比较与详情联动。",
+    "图 5.2 行业热力图界面":
+        "如图 5.2 所示，热力图视图支持按颜色维度、尺寸维度和统计周期切换行业强弱，使热门行业的横截面分布特征能够被直观比较。",
+    "图 5.3 龙头股详情界面":
+        "如图 5.3 所示，龙头股详情页面展示综合得分、维度拆解、价格走势与关键财务字段，能够帮助用户理解候选股票被遴选出的具体依据。",
+}
 TMP_ASSET_DIR = TMP_DOC_DIR / "figure_assets"
 ARCHITECTURE_FIGURE_PATH = TMP_ASSET_DIR / "figure_3_1_system_architecture.png"
 CJK_FONT_SOURCES = (
@@ -79,6 +116,23 @@ ABSTRACT_LINE_SPACING = Pt(20)
 SOURCE_NOTE = "图片来源：系统运行截图（作者自制）"
 ARCHITECTURE_SOURCE_NOTE = "图片来源：作者根据系统实现绘制"
 HEADER_TEXT = "上海大学本科毕业论文（设计）"
+SIGNED_DECLARATION_PAGE_CANDIDATES = (
+    DOC_OUTPUT_DIR / "上海大学本科毕业论文_签字页扫描.pdf",
+    DOC_OUTPUT_DIR / "上海大学本科毕业论文_签字页扫描.png",
+    DOC_OUTPUT_DIR / "上海大学本科毕业论文_签字页扫描.jpg",
+    DOC_OUTPUT_DIR / "上海大学本科毕业论文_签字页扫描.jpeg",
+    DOC_OUTPUT_DIR / "签字页扫描.pdf",
+    DOC_OUTPUT_DIR / "签字页扫描.png",
+    DOC_OUTPUT_DIR / "签字页扫描.jpg",
+    DOC_OUTPUT_DIR / "签字页扫描.jpeg",
+)
+LEADER_CASE_ANALYSIS_FALLBACK_TEXT = (
+    "为补充说明龙头股遴选结果，本文固定引用项目中保存的一条龙头股双榜单样本。"
+    "从该样本可以看到，系统不会把行业热度排序简单重复为单一股票列表，而是同时输出"
+    "core（核心资产）与 hot（热点先锋）两类结果：前者更强调规模、估值与盈利质量，"
+    "后者更强调短期涨幅和资金承接。该设计使行业识别结果能够进一步延伸为行业内个股的"
+    "结构化筛选结果。"
+)
 
 COVER_FIELD_ORDER = [
     "title",
@@ -436,6 +490,294 @@ def insert_paragraph_before_element(element, parent):
     new_p = OxmlElement("w:p")
     element.addprevious(new_p)
     return Paragraph(new_p, parent)
+
+
+def parse_iso_datetime(value: str | None) -> datetime | None:
+    raw_value = str(value or "").strip()
+    if not raw_value:
+        return None
+    try:
+        return datetime.fromisoformat(raw_value)
+    except ValueError:
+        return None
+
+
+def format_chinese_timestamp(value: str | None) -> str:
+    parsed = parse_iso_datetime(value)
+    if parsed is None:
+        return str(value or "").strip()
+    return f"{parsed.year} 年 {parsed.month} 月 {parsed.day} 日 {parsed.hour:02d}:{parsed.minute:02d}:{parsed.second:02d}"
+
+
+def coerce_float(value, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _load_heatmap_snapshot_from_path(path: Path, days: int = 5) -> dict | None:
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if int(payload.get("days", 0) or 0) != days:
+        return None
+    industries = payload.get("industries")
+    if not isinstance(industries, list) or not industries:
+        return None
+    return payload
+
+
+def load_latest_heatmap_snapshot(days: int = 5) -> dict | None:
+    if not HEATMAP_HISTORY_PATH.exists():
+        return None
+    try:
+        payload = json.loads(HEATMAP_HISTORY_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, list):
+        return None
+
+    candidates = []
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        if int(item.get("days", 0) or 0) != days:
+            continue
+        industries = item.get("industries")
+        if not isinstance(industries, list) or not industries:
+            continue
+        candidates.append(item)
+    if not candidates:
+        return None
+
+    return max(
+        candidates,
+        key=lambda item: (
+            parse_iso_datetime(item.get("captured_at"))
+            or parse_iso_datetime(item.get("update_time"))
+            or datetime.min
+        ),
+    )
+
+
+def load_thesis_heatmap_snapshot(days: int = 5) -> dict | None:
+    frozen_snapshot = _load_heatmap_snapshot_from_path(THESIS_HEATMAP_SNAPSHOT_PATH, days=days)
+    if frozen_snapshot is not None:
+        frozen_payload = dict(frozen_snapshot)
+        frozen_payload["_thesis_frozen"] = True
+        return frozen_payload
+    return load_latest_heatmap_snapshot(days=days)
+
+
+def load_thesis_leader_case() -> dict | None:
+    if not THESIS_LEADER_CASE_PATH.exists():
+        return None
+    try:
+        payload = json.loads(THESIS_LEADER_CASE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    focus_industry = str(payload.get("focus_industry") or "").strip()
+    core = payload.get("core")
+    hot = payload.get("hot")
+    if not focus_industry or not isinstance(core, list) or not isinstance(hot, list):
+        return None
+    if not core or not hot:
+        return None
+    return payload
+
+
+def build_leader_case_analysis_text(payload: dict | None) -> str:
+    if payload is None:
+        return LEADER_CASE_ANALYSIS_FALLBACK_TEXT
+
+    focus_industry = str(payload.get("focus_industry") or "").strip()
+    captured_display = format_chinese_timestamp(payload.get("captured_at"))
+    related_heatmap_display = format_chinese_timestamp(payload.get("related_heatmap_captured_at"))
+    core_names = "、".join(
+        str(item.get("name") or "").strip()
+        for item in payload.get("core", [])[:3]
+        if str(item.get("name") or "").strip()
+    )
+    hot_names = "、".join(
+        str(item.get("name") or "").strip()
+        for item in payload.get("hot", [])[:3]
+        if str(item.get("name") or "").strip()
+    )
+    if not focus_industry or not core_names or not hot_names:
+        return LEADER_CASE_ANALYSIS_FALLBACK_TEXT
+
+    if related_heatmap_display:
+        prefix = (
+            "为保证龙头股案例与热力图样例一样可复核，本文固定引用项目中保存的一条龙头股双榜单样本。"
+            f"结合 {related_heatmap_display} 保留的热力图样例可以看到，{focus_industry}行业处于当期热点前列；"
+        )
+    else:
+        prefix = (
+            "为保证龙头股案例可复核，本文固定引用项目中保存的一条龙头股双榜单样本。"
+        )
+
+    if captured_display:
+        prefix += f"根据 {captured_display} 记录的榜单结果，"
+
+    return (
+        prefix
+        + f"{focus_industry}行业的 core 榜单前列主要为{core_names}，"
+        f"hot 榜单前列则出现{hot_names}；前者更偏向规模、估值和盈利质量的综合筛选，"
+        "后者更强调短期涨幅与资金承接。该结果说明龙头股遴选并非对行业热度排序的简单复制，"
+        "而是在已识别热门行业基础上进一步提供“核心资产”和“热点先锋”两类互补视角。"
+    )
+
+
+def build_heatmap_result_section_text(snapshot: dict | None) -> tuple[str, str, str]:
+    fallback_intro = (
+        "为了增强论文结果分析的真实性，本文直接选取项目中已经保存的热力图历史快照作为样本。"
+        "表 6.2 展示了项目当前保留的一条五日窗口快照中的前十个行业横截面字段，包括综合得分、5 日涨跌"
+        "幅、资金流和换手率等信息，用于说明系统在固定统计窗口下的输出结果。需要说明的是，这里给出的结果"
+        "主要用于样例分析，并不构成完整回测结论。"
+    )
+    fallback_analysis = (
+        "从表 6.2 可以看出，样本时点前列行业并不完全由单一风格板块构成，而是呈现出多方向扩散特征。"
+        "这说明系统并非只根据某一项价格指标排序，而是在统一横截面上综合考虑动量、资金流、活跃度和波动率"
+        "代理后给出相对得分。"
+    )
+    fallback_conclusion = (
+        "从快照字段本身也能看出，系统输出的不是单一涨跌幅排行。表 6.2 同时保留了 value、total_score、"
+        "moneyFlow、turnoverRate、行业波动率和市值来源等信息，所以后文讨论某个行业为什么排在前面时，"
+        "能够直接回到对应字段去解释。对毕业设计答辩来说，这样的结果更便于把评分逻辑讲清楚。"
+    )
+    if snapshot is None:
+        return fallback_intro, fallback_analysis, fallback_conclusion
+
+    industries = [
+        item for item in snapshot.get("industries", [])
+        if isinstance(item, dict) and str(item.get("name", "")).strip()
+    ][:10]
+    if not industries:
+        return fallback_intro, fallback_analysis, fallback_conclusion
+
+    captured_display = format_chinese_timestamp(snapshot.get("captured_at") or snapshot.get("update_time"))
+    update_display = format_chinese_timestamp(snapshot.get("update_time") or snapshot.get("captured_at"))
+    lead_names = "、".join(item["name"] for item in industries[:6])
+    top_item = industries[0]
+    contrast_item = next(
+        (
+            item for item in industries[1:]
+            if coerce_float(item.get("moneyFlow")) < 0 and coerce_float(item.get("value")) > 0
+        ),
+        None,
+    )
+
+    is_frozen_snapshot = bool(snapshot.get("_thesis_frozen"))
+    intro_prefix = (
+        "为保证论文样例在多次生成过程中的一致性，本文固定引用项目中已经保存的一条五日窗口热力图快照作为样本。"
+        if is_frozen_snapshot
+        else "为了增强论文结果分析的真实性，本文直接选取项目当前仍保留的历史快照作为样本。"
+    )
+
+    if captured_display and captured_display == update_display:
+        intro_text = (
+            intro_prefix
+            + f"根据 {captured_display} 记录的一条五日窗口热力图快照，表 6.2 展示了该样本时点前十个行业的综"
+            "合得分、5 日涨跌幅、资金流和换手率等字段，用于说明系统在固定横截面上的输出结果。需要说明的是，"
+            "这里给出的结果主要用于样例分析，并不构成完整回测结论。"
+        )
+    else:
+        intro_text = (
+            intro_prefix
+            + f"根据 {captured_display} 记录的一条五日窗口热力图快照（对应快照更新时间为 {update_display}），"
+            "表 6.2 展示了该样本时点前十个行业的综合得分、5 日涨跌幅、资金流和换手率等字段，用于说明系统"
+            "在固定横截面上的输出结果。需要说明的是，这里给出的结果主要用于样例分析，并不构成完整回测结论。"
+        )
+    if contrast_item is None:
+        analysis_text = (
+            f"从表 6.2 可以看出，{lead_names}等行业位于前列，说明样本时点的市场热点呈现出多方向扩散特征，"
+            "而非只集中在单一子行业。由此可见，系统给出的综合得分并不是对单一涨跌幅的简单重排，而是对多项横"
+            "截面指标进行统一标准化之后的综合结果。"
+        )
+    else:
+        contrast_flow_yi = coerce_float(contrast_item.get("moneyFlow")) / 1e8
+        contrast_change = coerce_float(contrast_item.get("value"))
+        analysis_text = (
+            f"从表 6.2 可以看出，{lead_names}等行业位于前列，说明样本时点的市场热点呈现出多方向扩散特征，"
+            f"而非只集中在单一子行业。值得注意的是，{contrast_item['name']}在 5 日涨跌幅达到 "
+            f"{contrast_change:.2f}% 的同时资金流仍为 {contrast_flow_yi:.2f} 亿元，而{top_item['name']}"
+            "的综合得分更高。这说明系统生成的 total_score 并不简单等同于单一涨跌幅排序，而是横截面标准"
+            "化后多个因子共同作用的结果。"
+        )
+    conclusion_text = (
+        "从这条快照保留的字段就能看出，系统输出的不是单一涨跌幅排行。表 6.2 同时记录了 value、"
+        "total_score、moneyFlow、turnoverRate、行业波动率和市值来源等信息，所以后文讨论某个行业"
+        "为什么排在前面时，能够直接回到对应字段去解释。对毕业设计答辩来说，这样的结果有一个现实好处："
+        "老师看到的不只是“哪个行业涨得多”，而是还能继续追问资金、活跃度和波动代理分别起了什么作用。"
+    )
+    return intro_text, analysis_text, conclusion_text
+
+
+def update_heatmap_sample_table(sample_table, snapshot: dict | None) -> None:
+    if sample_table is None or len(sample_table.rows) < 2 or len(sample_table.columns) < 6:
+        return
+
+    sample_table.cell(0, 0).text = "序号"
+    sample_table.cell(0, 4).text = "资金流(亿元)"
+
+    industries = []
+    if isinstance(snapshot, dict):
+        industries = [
+            item for item in snapshot.get("industries", [])
+            if isinstance(item, dict)
+        ][:10]
+
+    for row_index in range(1, min(len(sample_table.rows), 11)):
+        if row_index - 1 < len(industries):
+            item = industries[row_index - 1]
+            sample_table.cell(row_index, 0).text = str(row_index)
+            sample_table.cell(row_index, 1).text = str(item.get("name", ""))
+            sample_table.cell(row_index, 2).text = f"{coerce_float(item.get('total_score')):.2f}"
+            sample_table.cell(row_index, 3).text = f"{coerce_float(item.get('value')):.2f}"
+            sample_table.cell(row_index, 4).text = f"{coerce_float(item.get('moneyFlow')) / 1e8:.2f}"
+            sample_table.cell(row_index, 5).text = f"{coerce_float(item.get('turnoverRate')):.2f}"
+        else:
+            for col_index in range(6):
+                sample_table.cell(row_index, col_index).text = ""
+
+
+def ensure_section_trailing_paragraph(doc: Document, next_heading_text: str, prefix: str, text: str):
+    from docx.text.paragraph import Paragraph
+
+    heading = find_paragraph_by_text(doc, next_heading_text)
+    previous = heading._element.getprevious()
+    while previous is not None:
+        if previous.tag != qn("w:p"):
+            previous = previous.getprevious()
+            continue
+        paragraph = Paragraph(previous, heading._parent)
+        stripped = paragraph.text.strip()
+        if not stripped:
+            previous = previous.getprevious()
+            continue
+        if stripped.startswith(prefix) or stripped == text:
+            replace_paragraph_text(paragraph, text)
+            return paragraph
+        break
+
+    inserted = insert_paragraph_before_element(heading._element, heading._parent)
+    inserted.add_run(text)
+    return inserted
+
+
+def insert_table_before_element(doc: Document, element, rows: int, cols: int):
+    table = doc.add_table(rows=rows, cols=cols)
+    tbl = table._tbl
+    element.addprevious(tbl)
+    return table
 
 
 def fill_cover(doc: Document) -> None:
@@ -834,7 +1176,7 @@ def set_core_properties(doc: Document) -> None:
     doc.core_properties.author = STUDENT_INFO["student_name"]
     doc.core_properties.title = THESIS_TITLE
     doc.core_properties.subject = THESIS_TITLE
-    doc.core_properties.keywords = "金融大数据, 热门行业识别, 龙头股遴选, 量化研究平台"
+    doc.core_properties.keywords = "金融大数据, 热门行业识别, 龙头股遴选, 多源数据, 量化研究平台"
 
 
 def run_checked(command: list[str]) -> None:
@@ -1219,6 +1561,30 @@ def render_declaration_page(template_page: Path, output_path: Path) -> dict[str,
     }
 
 
+def prepare_declaration_page_asset(template_page: Path, output_path: Path) -> tuple[Path, dict[str, object] | None]:
+    signed_page = find_first_existing_path(*SIGNED_DECLARATION_PAGE_CANDIDATES)
+    if signed_page is None:
+        return output_path, render_declaration_page(template_page, output_path)
+
+    if signed_page.suffix.lower() == ".pdf":
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        override_prefix = output_path.with_name(f"{output_path.stem}_signed_override")
+        run_checked([
+            "pdftoppm",
+            "-f",
+            "1",
+            "-l",
+            "1",
+            "-singlefile",
+            "-png",
+            str(signed_page),
+            str(override_prefix),
+        ])
+        return override_prefix.with_suffix(".png"), None
+
+    return signed_page, None
+
+
 def build_front_pdf(front_cover_png: Path, declaration_png: Path, output_pdf: Path) -> None:
     first = Image.open(front_cover_png).convert("RGB")
     second = Image.open(declaration_png).convert("RGB")
@@ -1411,54 +1777,68 @@ def find_table_containing_text(doc: Document, needle: str):
 
 def update_body_content(doc: Document) -> None:
     replacements = {
+        "本文依托的项目并不是单一的课程设计程序":
+            "本文依托的项目并不是单一的课程设计程序，而是一个较为完整的量化研究平台。当前公开仓库对外聚焦策略回测、实时行情与行业热度三个主工作区，同时仍保留部分相关研究能力代码与接口。在这些能力中，行业热度页面与毕业设计任务书的目标最为一致，因此本文不再泛化讨论平台全部模块，而是从现有工程实现中抽取行业热度子系统作为核心研究对象，在真实代码、真实接口与真实历史快照的基础上完成毕业论文撰写。",
         "随着金融市场数据规模持续增长":
-            "随着金融市场数据规模持续增长，依赖人工经验识别市场热点行业和龙头企业的方法已难以同时满足研究效率、信息时效性和结果可解释性的要求。针对毕业设计任务书提出的热门行业识别与龙头股遴选需求，本文以现有量化研究平台中的行业热度子系统为研究对象，围绕数据获取、行业评分、个股筛选和可视化展示四个环节，设计并实现了一套面向 A 股场景的行业热度分析与龙头股遴选原型系统。",
+            "A 股市场的行业轮动很快，真正做研究时，光靠人工盯盘、翻资讯和手工比对往往跟不上节奏。毕业设计任务书希望解决的正是这一类问题，所以本文没有另外搭一套脱离项目背景的新系统，而是把现有量化研究平台里已经在运行的行业热度子系统拿出来，按真实代码、真实接口和真实历史快照重新梳理一遍，把数据接入、行业评分、个股筛选和可视化展示这几条主链路讲清楚。",
+        "A 股行情更新很快":
+            "A 股市场的行业轮动很快，真正做研究时，光靠人工盯盘、翻资讯和手工比对往往跟不上节奏。毕业设计任务书希望解决的正是这一类问题，所以本文没有另外搭一套脱离项目背景的新系统，而是把现有量化研究平台里已经在运行的行业热度子系统拿出来，按真实代码、真实接口和真实历史快照重新梳理一遍，把数据接入、行业评分、个股筛选和可视化展示这几条主链路讲清楚。",
         "系统采用前后端分离架构。前端基于 React 与 Ant Design 构建行业热力图":
-            "系统采用前后端分离架构。前端围绕行业热力图、行业排行榜、行业趋势与龙头股详情构建研究界面；后端基于 FastAPI 提供热门行业、行业成分股、热力图、行业趋势和龙头股等核心接口；分析层使用 Python 完成数据清洗、标准化和综合评分。数据侧采用同花顺优先（Tonghuashun-first，以下简称 THS-first）适配策略，以同花顺行业目录和行业摘要作为主入口，并结合 AKShare、新浪财经和腾讯接口进行字段补齐与回退。",
+            "从工程实现看，这个子系统没有追求大而全，而是围绕日常行业研究最常用的界面来组织。前端主要保留热力图、排行榜、趋势面板和龙头股详情这些入口；后端用 FastAPI 把热门行业、成分股、热力图、趋势和龙头股相关接口串起来；评分和整理逻辑则放在 Python 分析层中完成。数据侧也不是单一来源，而是先由同花顺优先（Tonghuashun-first，以下简称 THS-first）适配器拿行业目录和摘要，再按字段缺口补接 AKShare、新浪财经和腾讯接口。",
+        "具体实现上，前端保留了行业研究最常用的几个界面":
+            "从工程实现看，这个子系统没有追求大而全，而是围绕日常行业研究最常用的界面来组织。前端主要保留热力图、排行榜、趋势面板和龙头股详情这些入口；后端用 FastAPI 把热门行业、成分股、热力图、趋势和龙头股相关接口串起来；评分和整理逻辑则放在 Python 分析层中完成。数据侧也不是单一来源，而是先由同花顺优先（Tonghuashun-first，以下简称 THS-first）适配器拿行业目录和摘要，再按字段缺口补接 AKShare、新浪财经和腾讯接口。",
+        "系统采用前后端分离架构。前端围绕行业热力图、行业排行榜、行业趋势与龙头股详情构建研究界面":
+            "从工程实现看，这个子系统没有追求大而全，而是围绕日常行业研究最常用的界面来组织。前端主要保留热力图、排行榜、趋势面板和龙头股详情这些入口；后端用 FastAPI 把热门行业、成分股、热力图、趋势和龙头股相关接口串起来；评分和整理逻辑则放在 Python 分析层中完成。数据侧也不是单一来源，而是先由同花顺优先（Tonghuashun-first，以下简称 THS-first）适配器拿行业目录和摘要，再按字段缺口补接 AKShare、新浪财经和腾讯接口。",
         "在模型设计方面，本文依据项目中已经实现的 IndustryAnalyzer 与 LeaderStockScorer 两个核心模块":
-            "在模型设计方面，本文依据项目中已经实现的 IndustryAnalyzer 行业分析器与 LeaderStockScorer 龙头股评分器，分别构建行业热度评分模型和龙头股综合评分模型。其中，行业热度模型综合考虑价格动量、资金承接、交易活跃度和行业波动率代理四个维度；龙头股评分模型则从市值规模、估值水平、盈利能力、成长性、价格动量和交易活跃度六个维度进行综合评价，并针对列表快速筛选场景设计了轻量评分路径。",
+            "模型部分没有额外引入难以解释的黑箱方法，而是直接沿用项目里已经落地的两个分析类。IndustryAnalyzer 负责判断行业热度，看的主要是价格变化、资金承接、交易活跃度和波动率代理；LeaderStockScorer 负责在行业内部比较个股，把规模、估值、盈利、成长、动量和活跃度六个维度合成综合分，并保留快照场景下的快速评分链路。这样的写法虽然不炫技，但更容易和现有工程实现一一对应。",
+        "模型部分没有采用难以解释的黑箱方法":
+            "模型部分没有额外引入难以解释的黑箱方法，而是直接沿用项目里已经落地的两个分析类。IndustryAnalyzer 负责判断行业热度，看的主要是价格变化、资金承接、交易活跃度和波动率代理；LeaderStockScorer 负责在行业内部比较个股，把规模、估值、盈利、成长、动量和活跃度六个维度合成综合分，并保留快照场景下的快速评分链路。这样的写法虽然不炫技，但更容易和现有工程实现一一对应。",
         "结合项目保存的行业热力图历史快照数据":
-            "结合项目保存的行业热力图历史快照和系统运行结果进行验证，系统能够在给定统计窗口下识别出电子化学品、通信设备、半导体、消费电子和能源金属等阶段性强势行业，并在行业内部进一步筛选出具有代表性的龙头候选股票。结果表明，该系统具备较好的工程可运行性、结果可解释性和可视化展示能力，能够为热门行业持续跟踪与龙头股遴选提供一定参考。",
+            "论文写作时，本文直接使用项目保留下来的热力图历史快照和本地运行结果做样例验证。按五日窗口观察，电子化学品、通信设备、半导体、消费电子和能源金属等阶段性强势行业能够被系统稳定排到前列，行业内部也能继续给出代表性龙头候选。换句话说，这套原型系统至少已经能够支撑“先识别热点，再往行业内部找代表股票”这一最核心的研究流程。",
+        "结合项目保存的行业热力图历史快照和系统运行结果进行验证":
+            "论文写作时，本文直接使用项目保留下来的热力图历史快照和本地运行结果做样例验证。按五日窗口观察，电子化学品、通信设备、半导体、消费电子和能源金属等阶段性强势行业能够被系统稳定排到前列，行业内部也能继续给出代表性龙头候选。换句话说，这套原型系统至少已经能够支撑“先识别热点，再往行业内部找代表股票”这一最核心的研究流程。",
         "关键词：金融大数据；行业热度识别；龙头股遴选；多源数据；量化研究平台":
             "关键词：金融大数据；热门行业识别；龙头股遴选；多源数据；量化研究平台",
         "With the rapid growth of financial market data":
-            "With the rapid growth of financial market data, approaches that rely primarily on manual experience are no longer sufficient for identifying hot industries and representative leader stocks in a timely and interpretable manner. Targeting the graduation project topic of hot industry recognition and leader stock selection, this thesis takes the industry heat subsystem of an existing quantitative research platform as the research object and develops an A-share oriented prototype covering data acquisition, industry scoring, stock screening, and visual presentation.",
+            "Against the backdrop of rapidly expanding financial market datasets, approaches that rely primarily on manual experience are no longer sufficient for identifying hot industries and representative leader stocks in a timely and interpretable manner. Focusing on the graduation-project topic of hot-industry identification and leader-stock selection, this thesis takes the industry-heat subsystem of an existing quantitative research platform as its research object and develops an A-share-oriented prototype for financial big-data analysis that integrates data acquisition, industry scoring, stock screening, and visual presentation.",
         "The system adopts a front end and back end separated architecture. The front end is implemented with React and Ant Design":
-            "The system adopts a front end and back end separated architecture. The front end is implemented with React and Ant Design to provide core research views such as industry heatmaps, ranking boards, trend panels, and leader-stock details. The back end is built on FastAPI, while the analytical layer is implemented in Python. At the data layer, a Tonghuashun-first (THS-first) adapter is used to organize industry catalog data, summary snapshots, and money flow information, with AKShare, Sina Finance, and Tencent valuation endpoints serving as complementary and fallback sources.",
+            "The system follows a front-end/back-end separated architecture. The front end, implemented with React and Ant Design, provides core research views including industry heatmaps, ranking boards, trend panels, and leader-stock detail pages. The back end is built on FastAPI, while the analytical layer is implemented in Python. At the data layer, a Tonghuashun-first (THS-first) adapter organizes industry catalog data, summary snapshots, and money-flow information, with AKShare, Sina Finance, and Tencent valuation endpoints serving as multi-source complements and fallback sources.",
         "According to the actual implementation of the project, the thesis summarizes two core models.":
-            "According to the actual implementation of the project, the thesis summarizes two core models. The industry heat model evaluates momentum, money flow strength, trading activity, and a volatility proxy, while the leader stock model evaluates market capitalization, valuation, profitability, growth, price momentum, and trading activity. A lightweight fast scoring path is also retained for scenarios where complete financial data are temporarily unavailable.",
+            "Based on the actual implementation of the project, the thesis summarizes two core models. The industry-heat model evaluates momentum, money-flow strength, trading activity, and a volatility proxy, while the leader-stock model evaluates market capitalization, valuation, profitability, growth, price momentum, and trading activity. A lightweight fast-scoring path is additionally retained for scenarios in which complete financial data are temporarily unavailable.",
         "Historical heatmap snapshots stored in the project show that the system can iden":
             "Historical heatmap snapshots stored in the project show that the system can identify stage-specific strong industries and further screen representative leader-stock candidates within those industries. The results indicate that the proposed prototype maintains reasonable engineering usability, interpretability, and visual readability, and can provide a practical reference for continuous industry tracking.",
         "Keywords: financial big data; industry heat; leader stock selection; quantitative platform":
-            "Keywords: financial big data; hot-industry identification; leading stock selection; quantitative research platform",
+            "Keywords: financial big data; hot-industry identification; leading stock selection; multi-source data; quantitative research platform",
         "在热门行业识别与龙头股遴选过程中，不同数据字段的量纲差异很大。例如，行业资金流通常以亿元计量，涨跌幅以百分比计量，市值则以十亿或万亿规模计量。如果直接对原始数据进行加权，容易导致尺度较大的变量主导结果。因此，系统在分析阶段首先对指标做数值清洗和标准化处理。":
             "在热门行业识别与龙头股遴选过程中，不同数据字段的量纲差异很大。例如，行业资金流通常以亿元计量，涨跌幅以百分比计量，市值则以十亿或万亿规模计量。如果直接对原始数据进行加权，容易导致尺度较大的变量主导结果。因此，系统在分析阶段首先对指标做数值清洗和标准化处理。[9-10]",
         "行业评分部分主要使用标准化方法将动量、资金流、活跃度和波动率等因子转换到统一尺度后再进行加权；个股评分部分则结合线性归一化、对数标准化和区间裁剪等方式处理市值、成交额、ROE、营收同比和利润同比等指标。对于缺失数据，系统采用中性值或回退值，保证评分流程不因少量字段缺失而中断。":
             "行业评分部分主要使用标准化方法将动量、资金流、活跃度和波动率等因子转换到统一尺度后再进行加权；个股评分部分则结合线性归一化、对数标准化和区间裁剪等方式处理市值、成交额、净资产收益率（Return on Equity, ROE）、营业收入同比和利润同比等指标。对于缺失数据，系统采用中性值或回退值，保证评分流程不因少量字段缺失而中断。[9-10]",
         "根据项目中的实际实现，行业热度模型以价格动量、资金流强度、交易活跃度和行业波动率四个因子为核心，但在工程实现上并非简单依赖抽象的四因子加总。动量因子主要来自 change_pct 或 weighted_change，用于刻画行业近期相对强弱；资金因子主要来自 flow_strength，用于衡量行业吸引资金的能力；活跃度因子优先采用 avg_volume，缺失时退化为 turnover_rate；波动率因子则优先使用行业指数历史收益率计算的真实波动率，不足时再回退到振幅、换手率或涨跌幅代理值。":
-            "根据项目中的实际实现，行业热度模型以价格动量、资金流强度、交易活跃度和行业波动率四个因子为核心，但在工程实现上并非简单依赖抽象的四因子加总。动量因子主要来自 change_pct 或 weighted_change，用于刻画行业近期相对强弱；资金因子主要来自 flow_strength，用于衡量行业吸引资金的能力；活跃度因子优先采用 avg_volume，缺失时退化为 turnover_rate；波动率因子则优先使用行业指数历史收益率计算的真实波动率，不足时再回退到振幅、换手率或涨跌幅代理值。这一处理思路与行业轮动研究中强调多维信号综合判断的观点是一致的。[4][7-8]",
+            "根据项目中的实际实现，行业热度判断主要围绕四类信号展开：价格动量、资金流强度、交易活跃度和行业波动率。不过代码里并不是把“四因子模型”当成一句口号来写，而是把每个字段都落到了可追踪的数据口径上。动量主要来自 change_pct 或 weighted_change，资金因子对应 flow_strength，活跃度优先看 avg_volume，拿不到时再退化到 turnover_rate。波动率这一项最能体现工程取舍：热力图和排行榜的冷启动阶段先复用振幅、换手率或涨跌幅代理值，等用户缩小到指定行业集合或进入详情分析后，再尽量补充行业指数历史收益率波动率。即使历史序列暂时拿不到，系统也会沿用代理值保持输出连续性。这种做法与行业轮动研究里强调多维信号综合判断的思路是一致的。[4][7-8]",
         "在实际运行中，并不是所有行业都能稳定获得完整的历史波动率数据。为提高系统鲁棒性，项目在行业分析引擎中设计了多级回退机制：优先使用真实行业指数历史收益率计算波动率；若历史数据不可用，则依次回退到振幅代理、换手率代理和涨跌幅代理。该设计保证了波动率因子在多数场景下都能被估算出来。":
-            "在实际运行中，并不是所有行业都能稳定获得完整的历史波动率数据。为提高系统鲁棒性，项目在行业分析引擎中设计了多级回退机制：优先使用真实行业指数历史收益率计算波动率；若历史数据不可用，则依次回退到振幅代理、换手率代理和涨跌幅代理。该设计保证了波动率因子在多数场景下都能被估算出来，也与金融数据分析中强调缺失容错和稳健处理的实现原则相一致。[9-10]",
+            "在实际运行中，并不是所有行业都能稳定获得完整的历史波动率数据。为兼顾首屏响应速度与结果稳定性，项目在行业分析引擎中设计了分层波动率策略：页面冷启动时先用振幅代理、换手率代理或涨跌幅代理把热力图和排行榜跑起来；当用户缩小到指定行业集合，或者继续打开详情分析时，系统再补拉真实行业指数历史收益率去修正波动率。如果历史数据仍然拿不到，就继续沿用代理值。这样做的重点不是追求某一个字段绝对完美，而是让结果在大多数场景下都能持续输出，同时保持口径大体稳定。[9-10]",
         "此外，系统还使用 K-Means 聚类对行业进行辅助划分，并通过轮廓系数自动选择较优聚类数。需要说明的是，聚类分析在本系统中主要承担辅助解释角色，用于观察若干行业是否共同形成热点簇，而不是替代行业热度综合评分本身。":
             "此外，系统还使用 K-Means 聚类方法对行业进行辅助划分，并通过轮廓系数自动选择较优聚类数。需要说明的是，聚类分析在本系统中主要承担辅助解释角色，用于观察若干行业是否共同形成热点簇，而不是替代行业热度综合评分本身。[10]",
         "龙头股评分模型的目标是在已识别出的热门行业或指定行业内部，从多只成分股中筛选更具代表性的股票。结合项目中的实际实现，系统从六个维度构建综合评分模型：市值规模、估值水平、盈利能力、成长性、价格动量和交易活跃度。":
-            "龙头股评分模型的目标是在已识别出的热门行业或指定行业内部，从多只成分股中筛选更具代表性的股票。结合项目中的实际实现，系统从六个维度构建综合评分模型：市值规模、估值水平、盈利能力、成长性、价格动量和交易活跃度。相关评价维度与既有龙头企业识别和财务可视化研究中常见的分析口径基本一致。[3][5-6]",
+            "龙头股评分模型的目标，是在已经识别出的热门行业或指定行业内部，从多只成分股里找出更能代表行业状态的股票。结合项目中的实际实现，系统没有只盯短期涨幅，而是同时看市值规模、估值水平、盈利能力、成长性、价格动量和交易活跃度六个维度。这样的口径与既有龙头企业识别和财务可视化研究中常见的分析框架基本一致。[3][5-6]",
         "其中，市值规模通过对数标准化反映企业体量；估值水平以 PE 处于合理区间得分更高为原则；盈利能力通过 ROE 体现；成长性通过营收同比和利润同比共同体现；价格动量反映短期市场强弱；交易活跃度通过成交额或换手率衡量。设六个维度得分分别为 s1 至 s6，则龙头股综合得分可以表示为：":
             "其中，市值规模通过对数标准化反映企业体量；估值水平以市盈率（Price-to-Earnings Ratio, PE）处于合理区间得分更高为原则；盈利能力通过净资产收益率（Return on Equity, ROE）体现；成长性通过营业收入同比和利润同比共同体现；价格动量反映短期市场强弱；交易活跃度通过成交额或换手率衡量。设六个维度得分分别为 s1 至 s6，则龙头股综合得分可以表示为：[3][5-6]",
         "后端行业接口基于 FastAPI 构建，已经形成较完整的功能集合，包括热门行业列表、行业成分股、热力图、热力图历史、行业趋势、龙头股列表、龙头股详情以及偏好配置等核心接口。聚类与轮动接口在系统中主要承担辅助分析职责，偏好接口还支持按 profile 读写与导入导出，便于前端在不同研究配置之间切换。":
             "后端行业接口基于 FastAPI 构建，已经形成较完整的功能集合，包括热门行业列表、行业成分股、热力图、热力图历史、行业趋势、龙头股列表、龙头股详情以及偏好配置等核心接口。聚类与轮动接口在系统中主要承担辅助分析职责，偏好接口还支持按 profile 读写与导入导出，便于前端在不同研究配置之间切换。该接口组织方式与前文围绕多源金融数据处理和 Python 分析工具链构建研究系统的技术基础相衔接。[1-2][9-10]",
         "技术路线方面，系统采用前后端分离架构。前端使用 React 实现可视化交互":
-            "技术路线方面，系统采用前后端分离架构。前端使用 React 实现热力图、排行榜和详情弹窗等核心可视化交互，后端使用 FastAPI 暴露行业分析接口，分析层使用 pandas、NumPy 与 scikit-learn 等库完成数据清洗、标准化、综合评分与辅助聚类分析，数据层以 THS-first 适配器作为行业主入口，并结合 AKShare、新浪和腾讯接口完成补数与回退。研究路线遵循“数据获取、预处理、指标计算、综合评分、结果展示、结果验证”的闭环思路。",
+            "技术路线并不是先写一套抽象模型再去找实现载体，而是从现有行业子系统的真实链路反推出来。前端用 React 承载热力图、榜单和详情弹窗，后端以 FastAPI 暴露行业分析接口，分析侧通过 pandas、NumPy 与 scikit-learn 完成字段清洗、标准化、评分和辅助聚类，数据侧则由 THS-first 适配器先接同花顺，再用 AKShare、新浪和腾讯补齐缺失字段。围绕这条实际链路，本文再展开数据获取、预处理、指标计算、结果展示和样例验证。",
+        "在投资研究实践中，市值较大的企业更容易体现行业代表性":
+            "落到行业内个股比较时，系统并没有把“龙头股”简单理解成短期涨幅最大的股票，而是把规模、盈利、成长、估值和市场交易信号放在一起看。原因也比较直接：市值更大的公司通常更能代表行业，净资产收益率和营收、利润增速能够反映经营质量，而成交额、换手率和近期涨跌幅则补足市场确认信息。把这些维度合在一起，得到的筛选结果通常比只看某一个指标更稳定。",
         "多源数据采集是本系统实现的基础。结合项目代码，系统通过数据提供器工厂统一管理不同来源的数据接口。":
-            "多源数据采集是本系统实现的基础。结合项目代码，行业子系统以 THS-first 适配策略组织不同来源的数据接口。对于 A 股行业分析任务，同花顺相关接口优先提供行业目录、行业摘要、资金流与领涨股等主数据，AKShare 负责补齐行业元数据、成分股、估值与财务信息，新浪财经和腾讯接口则承担部分回退与字段补充职责。",
+            "多源数据采集是整个行业子系统能跑起来的前提。结合项目代码来看，这部分并不是把几个接口简单拼在一起，而是按 THS-first 的思路来组织。对于 A 股行业分析任务，同花顺相关接口优先提供行业目录、行业摘要、资金流与领涨股等主数据；AKShare 负责补齐行业元数据、成分股、估值与财务信息；新浪财经和腾讯接口则更多承担回退和字段补缺职责。这样处理的目的很直接，就是尽量减少单一数据源波动对整条分析链路的影响。",
         "根据项目中的实际实现，行业热度模型以价格动量、资金流强度、交易活跃度和行业波动率四个因子为核心。":
-            "根据项目中的实际实现，行业热度模型以价格动量、资金流强度、交易活跃度和行业波动率四个因子为核心，但在工程实现上并非简单依赖抽象的四因子加总。动量因子主要来自 change_pct 或 weighted_change，用于刻画行业近期相对强弱；资金因子主要来自 flow_strength，用于衡量行业吸引资金的能力；活跃度因子优先采用 avg_volume，缺失时退化为 turnover_rate；波动率因子则优先使用行业指数历史收益率计算的真实波动率，不足时再回退到振幅、换手率或涨跌幅代理值。这一处理思路与行业轮动研究中强调多维信号综合判断的观点是一致的。[4][7-8]",
+            "根据项目中的实际实现，行业热度判断主要围绕四类信号展开：价格动量、资金流强度、交易活跃度和行业波动率。实际代码并没有停留在抽象的“四因子加总”上，而是把每个信号都落到了具体字段和回退口径上。动量主要来自 change_pct 或 weighted_change，资金因子对应 flow_strength，活跃度优先看 avg_volume，拿不到时再退化到 turnover_rate。波动率则优先尝试行业指数历史收益率，拿不到时退回振幅、换手率或涨跌幅代理值。这种写法更符合行业轮动研究里强调多维信号综合判断的思路。[4][7-8]",
         "设行业动量、资金流、活跃度和波动率标准化后的结果分别为 Zm、Zf、Zv 和 Zr":
             "设行业动量、资金流、活跃度和波动率标准化后的结果分别为 Zm、Zf、Zv 和 Zr，则行业横截面原始评分可表示为：",
         "系统采用前后端分离架构，前端使用 React 与 Ant Design 构建行业热力图、行业排行榜、龙头股面板、行业趋势图和轮动对比图等交互页面，后端基于 FastAPI 提供数据接口与分析服务，核心分析逻辑由 Python 完成。数据层以 AKShare 获取 A 股行业分类、行业资金流、行业指数、个股估值和财务数据，同时引入新浪行业适配层作为回退机制，以提升系统运行中的稳定性和可用性。":
             "系统采用前后端分离架构，前端使用 React 与 Ant Design 构建行业热力图、行业排行榜、行业趋势图和龙头股详情等核心页面，后端基于 FastAPI 提供行业分析接口与偏好配置服务，核心分析逻辑由 Python 完成。行业数据层并非简单依赖 AKShare 单一数据源，而是由 THS-first 适配器主导：同花顺行业目录与行业摘要提供主要的行业热度底座，AKShare 负责行业元数据、成分股、财务与历史行情补齐，新浪财经和腾讯估值接口承担回退与字段补充，从而提升行业模块的连通性与抗故障能力。",
         "结合项目真实实现，本文的研究内容主要包括四个方面：第一，对现有量化研究平台中的行业热度子系统进行模块化梳理，明确其在整个平台中的功能定位；第二，围绕行业热度识别建立以动量、资金流、活跃度和波动率为核心的行业评分机制；第三，围绕行业内核心公司筛选建立以规模、估值、盈利、成长、动量和活跃度为核心的龙头股评分机制；第四，对系统的前后端实现、缓存机制、历史快照保存和运行结果进行分析。":
-            "结合项目真实实现，本文的研究内容主要包括四个方面：第一，对量化研究平台中的行业热度子系统进行模块化梳理，明确 THS-first 数据适配器、FastAPI 路由层和前端行业页面之间的关系；第二，围绕 IndustryAnalyzer 行业分析器梳理行业热度横截面评分、热力图生成和趋势统计的实现机制；第三，围绕 LeaderStockScorer 龙头股评分器分析完整评分与快照快速评分两条龙头股筛选链路；第四，对系统中的缓存、历史快照和偏好持久化进行工程化总结。",
+            "结合项目真实实现，本文的研究内容是沿着行业子系统已经跑通的链路来展开的。首先需要把 THS-first 数据适配器、FastAPI 路由层和前端行业页面之间的关系交代清楚；随后再说明 IndustryAnalyzer 如何完成行业热度横截面评分、热力图生成和趋势统计，以及 LeaderStockScorer 如何组织完整评分与快照快速评分两条龙头股筛选链路；最后再回到缓存、历史快照和偏好持久化这些工程细节，对系统的整体闭环做总结。",
         "本系统的关键技术包括以下几个方面。第一，后端采用 FastAPI 构建 REST 接口，具备较好的开发效率和接口组织能力。第二，前端采用 React 与 Ant Design 构建仪表盘式交互页面，便于完成热力图、表格、趋势图和弹窗详情的联动。第三，数据分析部分主要使用 pandas、NumPy 和 scikit-learn，实现数据处理、标准化与聚类。第四，数据持久化部分采用 JSON 与 SQLite 相结合的方式，以较低成本实现历史快照和用户偏好的保存。[9-10]":
             "本系统的关键技术包括以下几个方面。第一，后端采用 FastAPI 构建 REST 接口，行业模块通过参数化路由输出热门行业、热力图、成分股、龙头股、趋势和偏好配置等核心数据。第二，前端采用 React 与 Ant Design 实现仪表盘式页面，并结合 Recharts 等组件完成热力图、榜单、趋势和详情弹窗联动。第三，分析部分使用 pandas、NumPy 和 scikit-learn 完成字段清洗、横截面标准化、综合评分和辅助聚类分析。第四，行业子系统的持久化主要依赖 JSON 文件与浏览器 localStorage；其他研究模块即便采用结构化存储方式，也不属于本文行业分析主链路的核心内容。[9-10]",
         "系统总体上采用四层结构：表现层、服务层、分析层和数据层。表现层由 IndustryDashboard 及相关前端组件构成，负责用户交互和图表展示；服务层由 FastAPI 行业接口组成，负责请求接收、参数校验、缓存与响应封装；分析层由 IndustryAnalyzer 和 LeaderStockScorer 组成，负责评分计算和结果整理；数据层则通过数据提供器工厂统一管理 AKShare、新浪等数据源。":
@@ -1476,11 +1856,11 @@ def update_body_content(doc: Document) -> None:
         "在接口调用链路中，热门行业接口首先获取行业分类列表，再根据行业资金流和动量数据生成横截面数据表，随后计算综合得分并输出行业排行榜。热力图接口则在此基础上增加尺寸映射和颜色映射所需字段。趋势接口会进一步拉取行业指数序列并汇总行业内涨跌分布。":
             "在接口调用链路中，热门行业接口首先获取行业分类列表，再根据行业资金流、涨跌幅、换手率和波动代理生成横截面数据表，随后计算综合得分并输出行业排行榜。热力图接口则在此基础上增加尺寸映射、颜色映射和市值来源标签所需字段；当真实市值缺失时，系统还会退化到成交额、资金流或成分股数量代理。趋势接口会进一步拉取行业指数序列、汇总成分股涨跌分布，并返回覆盖率与降级说明字段。",
         "龙头股评分模块的核心类为 LeaderStockScorer。该模块负责对单只股票评分、在行业内部进行排名、生成龙头股列表以及输出评分拆解与原始数据。模块同时支持基于完整财务数据的完整评分和基于快照数据的轻量快速评分。":
-            "龙头股评分模块的核心类为 LeaderStockScorer，即系统中的龙头股评分器。该模块负责对单只股票评分、在行业内部进行排名、生成龙头股列表以及输出评分拆解与原始数据。模块同时支持两条链路：其一是基于估值与财务数据的完整评分，其二是直接复用行业成分股快照的轻量快速评分。前者用于龙头股详情和深度研究，后者用于行业列表页中的快速筛选。",
+            "龙头股评分模块的核心类为 LeaderStockScorer，即系统中的龙头股评分器。该模块负责对单只股票评分、在行业内部进行排名、生成龙头股列表以及输出评分拆解与原始数据。模块同时支持两条链路：其一是基于估值与财务数据的完整评分，其二是直接复用行业成分股快照的轻量快速评分。前者用于龙头股详情和深度研究，后者用于行业列表页中的快速筛选；在结果组织上，系统进一步把输出划分为 core（核心资产）与 hot（热点先锋）两个榜单，用于区分综合质量筛选和短期热点确认。",
         "在实现层面，模块通过缓存机制对财务数据进行暂存，避免在批量评分过程中重复请求；同时使用统一的原始数据结构将估值、财务和行情字段映射为评分输入，使不同评分路径共享同一套维度计算逻辑。":
-            "在实现层面，模块会将财务数据以 24 小时缓存方式保存到 financial_cache.json，避免在批量评分过程中重复请求；同时使用统一的 raw_data 原始字段结构映射市值、市盈率（Price-to-Earnings Ratio, PE）、净资产收益率（Return on Equity, ROE）、营收同比、利润同比、涨跌幅和成交额等数据，使完整评分与快速评分共享同一套六维评分逻辑。对于快速评分暂时无法获得的净资产收益率与成长指标，系统采用中性分处理，以兼顾结果稳定性与页面响应效率。",
+            "在实现层面，模块会将财务数据以 24 小时缓存方式保存到 financial_cache.json，避免在批量评分过程中重复请求；同时使用统一的 raw_data 原始字段结构映射市值、市盈率（Price-to-Earnings Ratio, PE）、净资产收益率（Return on Equity, ROE）、营收同比、利润同比、涨跌幅和成交额等数据。完整评分链路按六维权重体系生成综合得分；快速评分链路则复用相同字段结构，在无法获取 ROE 与增长指标时采用中性分处理，以兼顾结果稳定性与页面响应效率。",
         "在实现层面，模块会将财务数据以 24 小时 TTL 缓存到 financial_cache.json，避免在批量评分过程中重复请求；同时使用统一的 raw_data 原始字段结构映射市值、PE、ROE、营收同比、利润同比、涨跌幅和成交额等数据，使完整评分与快速评分共享同一套六维评分逻辑。对于快速评分暂时无法获得的 ROE 与增长指标，系统采用中性分处理，以换取页面响应效率。":
-            "在实现层面，模块会将财务数据以 24 小时缓存方式保存到 financial_cache.json，避免在批量评分过程中重复请求；同时使用统一的 raw_data 原始字段结构映射市值、市盈率（Price-to-Earnings Ratio, PE）、净资产收益率（Return on Equity, ROE）、营收同比、利润同比、涨跌幅和成交额等数据，使完整评分与快速评分共享同一套六维评分逻辑。对于快速评分暂时无法获得的净资产收益率与成长指标，系统采用中性分处理，以兼顾结果稳定性与页面响应效率。",
+            "在实现层面，模块会将财务数据以 24 小时缓存方式保存到 financial_cache.json，避免在批量评分过程中重复请求；同时使用统一的 raw_data 原始字段结构映射市值、市盈率（Price-to-Earnings Ratio, PE）、净资产收益率（Return on Equity, ROE）、营收同比、利润同比、涨跌幅和成交额等数据。完整评分链路按六维权重体系生成综合得分；快速评分链路则复用相同字段结构，在无法获取 ROE 与增长指标时采用中性分处理，以兼顾结果稳定性与页面响应效率。",
         "后端行业接口基于 FastAPI 构建，已经形成较完整的功能集合，包括热门行业列表接口、行业成分股接口、热力图接口、热力图历史接口、行业趋势接口、行业聚类接口、行业轮动接口、龙头股列表接口、龙头股详情接口以及偏好配置接口。":
             "后端行业接口基于 FastAPI 构建，已经形成较完整的功能集合，包括热门行业列表、行业成分股、热力图、热力图历史、行业趋势、龙头股列表、龙头股详情以及偏好配置等核心接口。聚类与轮动接口在系统中主要承担辅助分析职责，偏好接口还支持按 profile 读写与导入导出，便于前端在不同研究配置之间切换。该接口组织方式与前文围绕多源金融数据处理和 Python 分析工具链构建研究系统的技术基础相衔接。[1-2][9-10]",
         "为了提升接口稳定性，接口层额外设置了结果缓存，并在必要时使用过期缓存作为兜底返回。这一设计能够在外部数据源短暂波动时尽量保持页面可用。":
@@ -1514,19 +1894,44 @@ def update_body_content(doc: Document) -> None:
         "此外，系统还使用 K-Means 聚类对行业进行辅助划分":
             "此外，系统还使用 K-Means 聚类对行业进行辅助划分，并通过轮廓系数自动选择较优聚类数。需要说明的是，聚类分析在本系统中主要承担辅助解释角色，用于观察若干行业是否共同形成热点簇，而不是替代行业热度综合评分本身。",
         "该模型突出盈利和成长的权重":
-            "从工程实现看，完整评分链路会在统一的 raw_data 结构上聚合估值、财务和行情字段，并按六维权重体系生成总分。由于盈利能力和成长性权重相对较高，该模型更适合作为行业内核心标的筛选依据；与单纯按涨幅排序相比，它能够减少短期情绪对结果的扰动。",
+            "从工程实现看，公式（4.4.1）对应的是完整评分链路下的六维加权总分，其中 s1 至 s6 分别表示市值规模、估值水平、盈利能力、成长性、价格动量和交易活跃度的归一化得分。系统会在统一的 raw_data 结构上聚合估值、财务和行情字段，并按该权重体系生成总分。由于盈利能力和成长性权重相对较高，该模型更适合作为行业内核心标的筛选依据；与单纯按涨幅排序相比，它能够减少短期情绪对结果的扰动。同时需要说明的是，公式（4.4.1）主要对应 core 榜单的综合评分语义，而 hot 榜单则更强调短期涨幅与资金承接，并对暂时缺失的估值、盈利和成长字段采用中性处理。",
+        "从工程实现看，完整评分链路会在统一的 raw_data 结构上聚合估值、财务和行情字段，并按六维权重体系生成总分。由于盈利能力和成长性权重相对较高，该模型更适合作为行业内核心标的筛选依据；与单纯按涨幅排序相比，它能够减少短期情绪对结果的扰动。":
+            "从工程实现看，公式（4.4.1）对应的是完整评分链路下的六维加权总分，其中 s1 至 s6 分别表示市值规模、估值水平、盈利能力、成长性、价格动量和交易活跃度的归一化得分。完整评分链路会在统一的 raw_data 结构上聚合估值、财务和行情字段，并按该权重体系生成总分。因此，前端 core 榜单主要反映这一综合评分语义；与单纯按涨幅排序相比，它能够减少短期情绪对结果的扰动，更适合作为行业内核心标的筛选依据。",
+        "在行业热度页面中，页面响应速度非常重要":
+            "快速评分是从页面响应路径倒推出来的。行业热度页一次可能要同时给出多个候选股，如果每只股票都临时补抓完整财务数据，列表刷新会明显变慢。为此，系统在行业列表场景里优先复用成分股快照中已经带回的价格、成交额和资金承接等字段先生成一轮结果，只有用户进入详情页或继续深挖时再走完整评分链路。",
         "快速评分模式适合用于行业热度页中的候选股预筛选":
-            "快速评分模式适合用于行业热度页中的候选股预筛选，而完整评分模式适合用于龙头股详情与深度研究。两条链路共享同一套权重体系和输出结构，只是在输入字段完备性上存在差异，因此系统能够在保证评分口径一致的前提下兼顾响应效率与分析完整性。",
+            "因此，快速评分和完整评分不是谁替代谁，而是分别服务于不同界面。前者解决的是“先把候选集合稳定列出来”，后者解决的是“把一只股票为什么排在前面解释清楚”。在结果组织上，前端继续把输出拆成 core（核心资产）和 hot（热点先锋）两类榜单：core 更接近行业内长期代表性筛选，hot 则专门保留短期涨幅和资金承接的冲击信息。这样用户先在行业页缩小范围，再到详情页看拆解，整个交互会更顺。",
         "从工程角度看，本系统具有以下几个明显特征":
             "从工程角度看，本系统具有以下几个明显特征。第一，系统以 THS-first 适配器为主入口，并通过 AKShare、新浪和腾讯形成多源补齐链路，保证了行业数据的连通性。第二，行业评分与龙头股评分同时引入快速评分链路与多级缓存机制，在保证响应速度的同时尽量维持评分口径一致。第三，系统输出不仅提供综合得分，还提供资金、波动率、市值来源和评分拆解等辅助信息，因此具有较好的结果解释性。",
         "在本次毕业设计与论文写作过程中":
             "在本次毕业设计与论文写作过程中，感谢指导教师沈文辉老师在选题论证、系统设计、论文结构与写作规范等方面给予的耐心指导与帮助。感谢项目开发和调试过程中提供建议与支持的同学和朋友，他们的交流与反馈为系统完善和论文修改提供了重要参考。",
         "同时，也感谢开源社区提供的 Python、FastAPI、React、AKShare 等工具和框架":
-            "同时，也感谢开源社区提供的 Python、FastAPI、React、AKShare、scikit-learn 等工具与框架，使本课题能够在真实工程环境中完成设计、实现与验证。最后，感谢学校和学院为毕业设计工作提供的学习环境与资源支持。"
+            "另外，论文能够完成，也离不开 Python、FastAPI、React、AKShare、scikit-learn 等开源工具在开发阶段提供的直接帮助。正是因为这些工具足够成熟，我才能把更多精力放在行业分析流程、页面交互和论文整理本身；也感谢学校和学院为毕业设计提供的学习环境与资源支持。"
     }
 
     for old_text, new_text in replacements.items():
         replace_first_paragraph_starting_with(doc, old_text, new_text)
+
+    heatmap_snapshot = load_thesis_heatmap_snapshot(days=5)
+    leader_case_payload = load_thesis_leader_case()
+    heatmap_intro_text, heatmap_analysis_text, heatmap_conclusion_text = build_heatmap_result_section_text(heatmap_snapshot)
+    leader_case_text = build_leader_case_analysis_text(leader_case_payload)
+    replace_first_paragraph_starting_with(doc, "为了增强论文结果分析的真实性", heatmap_intro_text)
+    replace_first_paragraph_starting_with(doc, "表 6.2 项目历史快照中的前十行业结果样例", "表 6.2 项目当前保留五日快照中的前十行业结果样例")
+    replace_first_paragraph_starting_with(doc, "从表 6.2 可以看出", heatmap_analysis_text)
+    replace_first_paragraph_starting_with(doc, "这一结果与系统代码中的模型设计是一致的。", heatmap_conclusion_text)
+
+    replace_section_body(
+        doc,
+        "1.1 研究背景与意义",
+        "1.2 国内外研究现状",
+        [
+            "在证券市场里，真正难做的往往不是盯住一两只股票，而是同时判断热点行业怎么切换、行业内部哪些公司更值得继续跟踪。一个行业持续走强，通常意味着资金、预期和景气度正在往同一方向聚集；而行业里的代表性公司又会因为规模、盈利和市场关注度，被更频繁地拿来比较。于是，如何从海量数据中尽快识别当期热点，并在行业内部继续缩小到更有代表性的股票，就成了一个既有研究价值也有实际用途的问题。",
+            "过去这类工作很大程度依赖研究员人工切行情终端、翻行业报告和积累经验。行情节奏慢的时候，这种方式还勉强可行；但市场数据量和更新频率上来之后，单靠人工已经很难同时完成横截面比较、历史跟踪和多维交叉验证。也正因为如此，把大数据处理、量化评分和可视化页面真正接成一条可持续运行的研究链路，比单独写一套纸面分析方法更有工程意义。[1]",
+            "本文依托的项目并不是单一的课程设计程序，而是一个较为完整的量化研究平台。当前公开仓库对外聚焦策略回测、实时行情与行业热度三个主工作区，同时仍保留部分相关研究能力代码与接口。在这些能力中，行业热度页面与毕业设计任务书的目标最为一致，因此本文不再泛化讨论平台全部模块，而是从现有工程实现中抽取行业热度子系统作为核心研究对象，在真实代码、真实接口与真实历史快照的基础上完成毕业论文撰写。",
+            "对本文而言，这项工作的价值不只在于“做出一个页面”。一方面，系统把多源金融数据整理成可比较的行业研究结果，能够明显减少人工筛选成本；另一方面，评分过程保持了较强可解释性，便于把工程实现和理论依据放在一起说明。更现实的一点是，这个原型系统已经可以直接支撑毕业设计展示、运行截图获取和后续迭代，而不是停留在方案层面。",
+        ],
+    )
 
     replace_section_body(
         doc,
@@ -1534,12 +1939,14 @@ def update_body_content(doc: Document) -> None:
         "1.3 研究内容与技术路线",
         [
             "1.2.1 金融大数据分析研究现状",
-            "在金融大数据分析方面，已有研究已经形成较为成熟的方法基础。孟小峰等对大数据管理技术进行了系统梳理，指出容量、速度、多样性和真实性构成了金融数据处理的核心挑战。[1] 张晓琳等从风险监测与预警角度讨论了多源金融数据融合的必要性。[2] 在工具层面，McKinney 对 Pandas、NumPy 等 Python 数据分析工具的总结，以及 scikit-learn 在标准化、聚类和模式识别方面提供的统一接口，为金融数据清洗、转换和建模提供了成熟的技术支撑。[9-10]",
+            "把现有文献和实际系统实现放在一起看，最先暴露出来的问题往往不是算法本身，而是数据怎么接、怎么对齐。行业快照、资金流、估值和财务表来自不同接口时，更新时间、单位和字段名经常对不上；同一个行业在不同平台里也可能对应不同叫法。孟小峰等对大数据管理技术的梳理说明，容量、速度、多样性和真实性这些约束在金融场景里一直存在。[1] 张晓琳等关于风险监测的研究也说明，多源金融数据融合已经成了很多金融分析工作的前提。[2]",
+            "因此，本文借鉴这些研究时，更看重它们对数据组织方式的启发，而不是再额外设计一套抽象工具链。具体到本课题，后文采用 pandas、NumPy 和 scikit-learn，并不是因为这些工具本身更“先进”，而是因为它们已经足够支撑项目里真实存在的字段清洗、横截面比较和评分计算流程。[9-10]",
             "1.2.2 行业轮动与热点识别研究现状",
-            "在行业轮动与热点识别方面，国内外研究普遍强调多因子综合判断的重要性。相关工作通常将宏观周期、风格切换、价格动量、资金流向和交易活跃度等变量结合起来，用于识别阶段性强势行业。[4][7-8] 这说明热门行业识别并不能依赖单一指标，而应在横截面上综合考察价格、资金与活跃度等多维信号。",
+            "在行业轮动与热点识别方面，国内外研究普遍不主张只看单一指标。无论是从宏观周期、风格切换出发，还是从价格动量、资金流向和交易活跃度出发，最终都要回到多因子综合判断上来。[4][7-8] 这也解释了为什么本文没有把“热门行业”简单理解成短期涨幅排名，而是希望在横截面上同时观察价格、资金和活跃度这些信号。",
             "1.2.3 龙头股筛选与系统实现研究现状",
-            "在龙头股识别方面，已有研究更强调基本面与市场表现的结合。企业规模、盈利能力、成长性和估值水平是较常见的评价维度，而近期动量、成交额和资金关注度则用于反映短期市场确认。[3][5-6] 这类研究为本文构建龙头股综合评分模型提供了理论依据，但不少工作更偏向静态评价或策略回测，缺少与真实软件系统的数据链路、缓存机制和可视化展示的紧密结合。",
-            "总体来看，现有研究为热门行业识别与龙头股筛选提供了较为丰富的理论与方法基础，但仍存在两点不足：一是较少围绕真实研究系统讨论多源适配、回退链路和结果展示；二是行业识别与龙头股遴选往往被分开讨论，缺少统一的工程闭环。本文的工作重点并不在于构建复杂黑箱模型，而是在真实项目基础上，把多源数据获取、行业评分、龙头股筛选和前端展示整合为一个可运行、可解释的行业研究原型系统。",
+            "把文献里的龙头股识别方法和当前项目放在一起看，有一个很直接的共识：真正能长期代表行业状态的股票，通常不会只靠某一天的涨幅来判断。规模、盈利、成长和估值提供的是相对稳定的基本面线索，成交额、换手率和近期动量则更像市场有没有继续确认这一判断。[3][5-6]",
+            "但不少既有研究停留在静态评价、因子验证或回测层面，对一套系统真正落地后要面对的缓存、回退、详情解释和页面展示写得比较少。本文之所以单列这一节，就是因为毕业设计依托的是已经在运行的行业子系统，后文需要把这些工程细节和评分逻辑一起说清楚，而不是只给出一套纸面指标体系。",
+            "总体来看，现有研究已经为热门行业识别和龙头股筛选提供了较充分的理论基础，但一落到工程实现，就还会遇到两个明显空档：一是很少有人细讲多源适配、字段回退和页面展示这些真正影响可用性的细节；二是行业识别和龙头股遴选经常被拆开讨论，缺少统一的研究闭环。本文的重点并不是再堆一个复杂模型，而是在真实项目基础上，把多源数据获取、行业评分、龙头股筛选和前端展示这几部分真正接起来。",
         ],
     )
 
@@ -1548,8 +1955,57 @@ def update_body_content(doc: Document) -> None:
         "1.3 研究内容与技术路线",
         "1.4 论文结构安排",
         [
-            "结合项目真实实现，本文的研究内容主要包括四个方面：第一，对量化研究平台中的行业热度子系统进行模块化梳理，明确同花顺优先（Tonghuashun-first，THS-first）数据适配器、FastAPI 路由层和前端行业页面之间的关系；第二，围绕行业分析器总结行业热度横截面评分、热力图生成和趋势统计的实现机制；第三，围绕龙头股评分器分析完整评分与快照快速评分两条龙头股筛选链路；第四，对系统中的缓存、历史快照和偏好持久化进行工程化总结，并结合样例快照与测试结果验证其合理性。",
-            "技术路线方面，系统采用前后端分离架构。前端使用 React 实现热力图、排行榜、趋势面板与详情弹窗等核心交互，后端使用 FastAPI 暴露热门行业、成分股、热力图、趋势分析、龙头股与偏好配置等接口，分析层使用 pandas、NumPy 与 scikit-learn 完成字段清洗、标准化、综合评分与辅助聚类分析，数据层则以同花顺优先（THS-first）适配器作为行业主入口，并结合 AKShare、新浪和腾讯接口完成补数与回退。整体研究路线遵循“数据获取、字段统一、指标计算、综合评分、结果展示、结果验证”的研究流程。",
+            "写作时，本文没有把研究内容拆成几块互不相干的模块，而是尽量按系统真实使用的顺序来梳理。更接近日常研究场景的路径，是先打开行业页，看热力图和排行榜怎样把横截面结果摆出来；接着沿着某个行业继续查看趋势、成分股和龙头股详情；最后再回头解释这些结果是怎样由适配器、缓存和评分器一步步算出来的。",
+            "对应到实现链路，前端页面先请求热门行业、热力图和详情相关数据，路由层再把请求分发给 IndustryAnalyzer 和 LeaderStockScorer，分析层继续向 THS-first 主路径和补充数据源取回字段并整理结果。本文之所以按这条顺序展开，是因为这样最容易让论文里的截图、表格和项目代码彼此对上，也更方便答辩时解释页面里每一步是怎么来的。",
+        ],
+    )
+
+    replace_section_body(
+        doc,
+        "1.4 论文结构安排",
+        "相关技术与理论基础",
+        [
+            "全文按“提出问题、解释方法、落到系统、再看结果”的顺序展开。第一章说明选题背景、研究现状以及本文聚焦的行业子系统；第二章交代金融数据特征、多源采集和理论基础；第三章从需求、架构、数据流程和存储设计角度说明系统整体方案；第四章展开热门行业识别与龙头股遴选模型；第五章回到具体实现；第六章结合测试结果和固定快照样例分析系统输出，最后给出结论与后续改进方向。",
+        ],
+    )
+
+    replace_section_body(
+        doc,
+        "2.1 金融大数据的特征",
+        "2.2 多源数据采集与清洗",
+        [
+            "落到这个课题里，金融大数据最突出的麻烦并不只是“量大”这一个词，而是不同数据一起进来时口径很不整齐。股票日线、行业资金流、财务报表、估值指标和新闻文本的更新频率不同，结构也不同，可信程度还会跟着来源变化。比如行业快照可以按日更新，财务指标却按季度披露；同一个字段在不同接口里又可能出现名称不一致、单位不同或缺失值写法不同的情况。真要把这些数据送进同一条分析链路，先解决标准化和可用性问题，比直接套模型更重要。",
+            "对于热门行业识别尤其如此。只盯涨跌幅，很容易把短期情绪波动当成热点；只看资金流，又可能忽略趋势已经转弱的行业。行业研究真正需要的是把价格、资金、活跃度乃至风险约束放在同一横截面里比较，这也是本文后续采用多维评分而不是单指标排序的原因。",
+        ],
+    )
+
+    replace_section_body(
+        doc,
+        "2.2 多源数据采集与清洗",
+        "2.3 热门行业识别的理论基础",
+        [
+            "多源采集在本项目里不是可有可无的补充，而是整条行业分析主链路的一部分。行业子系统按 THS-first 组织数据接口：同花顺负责提供行业目录、行业摘要、资金流和领涨股这类主数据，AKShare 补行业元数据、成分股、估值与财务字段，新浪和腾讯主要承担回退与补缺。这样做并不是为了“多接几个接口”，而是因为单一来源很难同时覆盖行业研究真正需要的全部字段。",
+            "数据拿到之后，马上要处理的不是模型，而是口径统一。项目里会先统一行业名称、字段命名和数值类型，再根据字段特征做缺失值处理、异常值裁剪和重复剔除。例如行业名称需要映射到统一的 industry_name，涨跌幅和资金流要变成可运算的浮点数，个股快照里暂时缺失的财务字段则用中性值参与快速评分。只有经过这一步，不同来源的数据才能进入后面的行业评分和龙头股筛选链路。[9]",
+        ],
+    )
+
+    replace_section_body(
+        doc,
+        "2.4 龙头股评价的理论基础",
+        "2.5 系统关键技术",
+        [
+            "在这个课题里，“龙头股”并不等于某一天涨得最快的股票。更常见的情况是，短期涨幅靠前的个股未必真的能代表行业，有时只是情绪推动；真正更能代表行业状态的，往往是那些规模、盈利、成长和市场关注度都更稳的公司。传统龙头企业识别也大多沿着这个思路，从市值规模、产业地位、盈利质量、成长能力、估值合理性和市场表现等多个维度综合判断。[3][5-6]",
+            "项目里的做法也是如此：先把规模、盈利、成长、估值和交易信号放到一起，再看它们在同一行业内的相对位置。这样筛出来的结果不一定是短期最活跃的股票，但通常更容易解释，也更接近研究场景下“代表性公司”的含义。换句话说，本文希望筛出来的是能够代表行业结构和市场确认状态的标的，而不是一次性情绪冲高的样本。",
+        ],
+    )
+
+    replace_section_body(
+        doc,
+        "3.3 非功能需求分析",
+        "3.4 系统总体架构设计",
+        [
+            "从实际使用感受看，行业模块的非功能问题首先体现在等待时间上。用户切到行业页时，如果每次都重新抓数据、重算排行、再补详情，页面几秒内就会变得很拖沓，所以系统才把缓存拆到分析层和接口层，用来挡掉重复计算和重复请求。",
+            "另一个很现实的问题是外部接口并不稳定。行业目录、资金流和个股字段只要有一个来源短时抖动，页面就可能出现空值或局部缺口，因此系统必须允许主路径失败后继续回退，并让热力图、排行榜和详情页尽量保持可用。再往后，如果还要继续接新的指标或研究视图，这套结构也不能每扩一块就大动一次，所以可扩展性同样是非功能需求的一部分。",
         ],
     )
 
@@ -1558,9 +2014,19 @@ def update_body_content(doc: Document) -> None:
         "3.4 系统总体架构设计",
         "3.5 数据流程设计",
         [
-            "如图 3.1 所示，系统总体上采用四层结构：表现层、服务层、分析层和数据层。表现层以前端行业主页面、热力图、排行榜组件以及行业详情和龙头股详情弹窗为核心，回放、观察列表和偏好配置等功能作为辅助研究交互存在；服务层由 FastAPI 行业接口组成，负责请求接收、参数校验、缓存与响应封装；分析层由行业分析器和龙头股评分器组成，负责行业综合评分、龙头股筛选和评分拆解；数据层则以 THS-first 适配器为核心，统一协调同花顺、AKShare、新浪和腾讯等数据源。",
-            "这种分层方式使系统既能保持接口职责清晰，又能兼顾研究系统的灵活性。表现层只关注图表交互与结果展示，服务层负责对分析结果进行统一组织，分析层专注评分计算与结果解释，数据层则通过名称映射、节点回退、符号缓存和过期缓存保障等机制提升数据可用性。即使未来更换局部数据源或调整评分权重，也主要集中在分析层和数据层完成，不需要整体重写前端页面。",
-            "与仅依赖单一接口的数据抓取脚本相比，该架构更适合支撑准实时行业研究场景。一方面，多源适配提高了行业目录、资金流、成分股、估值和历史走势等字段的覆盖率；另一方面，缓存与分层封装保证了页面响应速度和结果口径的一致性，使系统能够在真实研究环境中持续运行并为论文分析提供稳定样本。",
+            "如图 3.1 所示，系统总体上采用四层结构：表现层、服务层、分析层和数据层。这样拆分不是为了把架构图画得更复杂，而是因为行业研究页面从请求发出到结果落地，确实会依次经过这四层。表现层主要是前端行业主页面、热力图、排行榜以及行业详情和龙头股详情弹窗，回放、观察列表和偏好配置等功能则作为辅助研究交互存在；服务层由 FastAPI 行业接口构成，负责请求接收、参数校验、缓存与响应封装；分析层由行业分析器和龙头股评分器组成，真正完成行业综合评分、龙头股筛选和评分拆解；数据层则以 THS-first 适配器为核心，统一协调同花顺、AKShare、新浪和腾讯等数据源。",
+            "这样分层之后，每一层要解决的问题会清楚很多。表现层只需要关心图表交互和结果展示，服务层负责把分析结果组织成统一响应，分析层专注评分计算与结果解释，数据层则通过名称映射、节点回退、符号缓存和过期缓存保障等机制提高数据可用性。后面如果要替换局部数据源，或者微调评分权重，改动也大多集中在分析层和数据层，不必把前端页面整体重写一遍。",
+            "和那种只依赖单一接口的数据抓取脚本相比，这套架构更适合支撑准实时行业研究。一方面，多源适配提高了行业目录、资金流、成分股、估值和历史走势等字段的覆盖率；另一方面，缓存和分层封装让页面响应速度与结果口径更容易保持一致。对论文写作来说，这一点也很重要，因为只有系统本身运行得足够稳定，后面拿到的快照样本和案例分析才有说服力。",
+        ],
+    )
+
+    replace_section_body(
+        doc,
+        "3.6 存储设计",
+        "热门行业识别与龙头股遴选模型设计",
+        [
+            "行业子系统现在采用的是“文件快照加浏览器本地状态”的持久化组合。热力图历史直接写入 data/industry/heatmap_history.json，观察行业与阈值配置按 profile 写入 data/industry_preferences/<profile>.json，龙头股财务缓存保存在 cache/financial_cache.json；前端页面再把回放所需的快照片段和当前选中状态留在 localStorage。",
+            "这样处理首先是因为当前数据规模和使用方式都比较明确。答辩展示、论文复核和本地调试经常需要回看某个固定样本时点，直接读取这些文件会比额外再搭一层存储服务更省步骤；同时文件路径也更方便和脚本、截图、附录材料保持对应关系。对这套毕业设计原型来说，先把样例可复核和页面可回放做好，比把存储层做成复杂部署更重要。",
         ],
     )
 
@@ -1569,8 +2035,8 @@ def update_body_content(doc: Document) -> None:
         "6.5 对毕业设计目标的达成情况",
         "结 论",
         [
-            "对照任务书要求，如表 6.3 所示，本文在理论分析、模型设计和系统实现三个层面均完成了核心目标。任务书提出的“理解金融大数据挖掘相关技术与研究现状”“掌握行业分析与企业筛选方法”“编程设计软件系统实现重点行业和关键企业跟踪”三项要求，均已在论文和系统中得到对应落实。",
-            "虽然系统并未采用最初设想中的大规模分布式基础设施，而是采用更贴合项目实际的轻量化架构，但从工程完整性、研究闭环和论文展示效果来看，这种实现路径更符合本科毕业设计对可运行性、可解释性和可展示性的综合要求。",
+            "回到任务书要求来看，论文和系统已经把核心目标一一落到了实处：前两章完成了金融大数据、行业分析和企业筛选相关理论梳理，第四章把行业热度与龙头股模型说明清楚，第五章和第六章则把系统实现、样例快照和测试结果对应起来。换句话说，任务书要求的“理解方法、实现系统、展示结果”这条主线是闭合的。",
+            "这套实现没有把重点放在额外扩充部署形态上，而是先把毕业设计真正需要的几件事做扎实：页面能稳定运行，固定样本能回看，评分结果能解释，论文里的表格和截图也能和项目对上。以当前课题的体量来说，这样的取舍更利于展示和复核，也更符合本科毕业设计的完成目标。",
         ],
     )
 
@@ -1579,9 +2045,68 @@ def update_body_content(doc: Document) -> None:
         "5.1 数据提供器与回退机制实现",
         "5.2 行业分析模块实现",
         [
-            "行业子系统的数据入口封装在 SinaIndustryAdapter 中，其核心思想是同花顺优先（Tonghuashun-first，THS-first）。具体而言，同花顺接口优先提供行业目录、行业摘要、行业资金流、领涨股和行业指数等主数据；AKShare 负责补齐行业元数据、成分股、估值、财务与历史行情；新浪财经接口承担行业列表、成分股和部分实时行情的补充获取；腾讯财经接口则在单股估值字段缺失时提供补充。通过这种职责分工，系统形成了“同花顺主导、AKShare 增强、新浪与腾讯补充”的运行模式，该思路与金融大数据场景下强调多源异构数据整合与交叉验证的研究认识是一致的。[1-2]",
-            "为了处理不同数据源之间的口径差异，适配层实现了较完整的名称映射与回退机制。例如，系统维护了新浪行业名称到同花顺行业名称的映射表，并针对部分行业准备了专门的节点映射与代理节点映射；当主路径失败时，系统会尝试使用反向名称映射、符号缓存和过期缓存继续补全结果，从而提高行业目录与成分股匹配的稳定性。",
-            "这种数据适配设计并非对多个接口的简单叠加，而是围绕行业研究任务进行有组织的字段整合。对论文研究而言，它保证了行业热度计算所需的行业摘要、资金流、成分股、估值和财务字段可以在统一的数据入口下被消费；对工程实现而言，它显著降低了外部数据源短时波动对系统可用性的影响，为后续行业评分、龙头股筛选和热力图历史快照记录提供了稳定的数据底座。",
+            "行业子系统的数据入口虽然封装在 SinaIndustryAdapter 中，但它在项目里的职责已经不止是调用单一新浪接口，更像是一个行业数据适配中枢。实际运行时，系统优先从同花顺接口拿行业目录、行业摘要、资金流、领涨股和行业指数，再由 AKShare 补齐行业元数据、成分股、估值、财务与历史行情；新浪和腾讯则更多承担回退和字段补缺任务。通过这种分工，系统逐渐形成了“同花顺主导、AKShare 增强、新浪与腾讯补充”的运行方式。[1-2]",
+            "适配层真正麻烦的地方，在于同一行业在不同来源里的命名和节点并不一致。项目里为此维护了名称映射、节点映射、代理节点、符号缓存和反向映射等机制；当主路径失败时，再配合过期缓存把结果尽量补齐。这样做的目的不是多加一道兜底本身，而是让行业目录和成分股匹配尽量不断链。",
+            "从论文角度看，这套适配设计最大的价值，是把行业摘要、资金流、成分股、估值和财务字段收拢到统一入口下，后面的行业评分和龙头股筛选就不需要分别适配多套来源。对工程实现来说，它也明显降低了外部数据源短时波动对系统可用性的影响。",
+        ],
+    )
+
+    replace_section_body(
+        doc,
+        "5.2 行业分析模块实现",
+        "5.3 龙头股评分模块实现",
+        [
+            "IndustryAnalyzer 更像是一个把原始行业字段整理成研究结果的中间层。它先利用行业摘要、资金流和少量横截面指标把热力图与排行榜所需的数据跑出来，尽量不在首屏就逐行业拉全量成分股；等用户继续下钻时，再补趋势统计、覆盖率和解释字段。",
+            "在这条链路里，change_pct 或 weighted_change 负责描述近期强弱，flow_strength 表示资金承接，avg_volume 拿不到时再退到 turnover_rate，industry_volatility 则交给历史波动率或代理值处理。最后输出给前端的，已经不是零散原始列，而是一组带 total_score、资金流、换手率和说明字段的结构化结果，所以热力图、排行榜和趋势面板才能共享同一套分析口径。",
+        ],
+    )
+
+    replace_section_body(
+        doc,
+        "5.3 龙头股评分模块实现",
+        "5.4 后端接口实现",
+        [
+            "LeaderStockScorer 负责的也不只是“给股票打个分”。在同一行业里，它既要输出列表排序，又要给详情页提供评分拆解和原始字段，所以模块同时保留了完整评分与快照快速评分两条链路。前者更适合龙头股详情和深度研究，后者则是为了让行业列表页先把候选股票尽快筛出来。",
+            "模块还会把结果拆成 core 和 hot 两类榜单。core 更偏向六维综合质量筛选，hot 更强调短期涨幅和资金承接；两者共用同一套 raw_data 结构，但在无法拿到 ROE 或增长字段时，快速链路会用中性分处理缺口。这样做的好处是，页面响应速度和评分口径之间可以取得相对平衡，而不是二选一。",
+        ],
+    )
+
+    replace_section_body(
+        doc,
+        "5.4 后端接口实现",
+        "5.5 前端可视化实现",
+        [
+            "后端接口层在项目里承担的是“把分析能力组织成可稳定调用的服务”。热门行业列表、成分股、热力图、热力图历史、行业趋势、龙头股列表、龙头股详情和偏好配置这些接口，基本把前端行业工作区需要的数据都覆盖了；聚类和轮动接口则更多承担辅助分析作用。[1-2][9-10]",
+            "真正影响使用体验的还有缓存和兜底逻辑。路由层维护了 3 分钟端点缓存、30 分钟 parity 缓存，以及完整版成分股的异步构建机制；必要时还会返回过期缓存，避免外部数据源短时波动时页面直接空掉。热力图历史数据也设置了记录数和文件大小上限，保证快照文件长期可控。",
+        ],
+    )
+
+    replace_section_body(
+        doc,
+        "5.5 前端可视化实现",
+        "5.6 偏好配置与持续跟踪实现",
+        [
+            "前端行业工作区是按研究动作顺序排的，而不是先做若干孤立图表再拼到一起。页面顶部先给出当前市场概况和筛选条件，中间区域同时摆放热力图与排行榜，右侧保留龙头股榜单，用户一般会先看板块分布，再点进某个行业，最后查看个股详情。IndustryDashboard 这一页承担的，就是把这条浏览路径压缩到一次切换里完成。",
+            "具体交互也尽量贴近项目实际使用方式。热力图切换颜色维度时，用户能直接看到板块冷热变化；尺寸维度和市值来源切换更多是为了判断排序背后的口径差异；排行榜里的回看窗口、波动过滤和排序项则帮助用户快速缩小范围。等用户打开详情弹窗后，评分拆解、价格走势和财务字段会接着出现，所以这里更像一条连续的研究路径，而不是几张静态图并排展示。",
+            "如图 5.1 所示，行业热度总览页面将热力图、行业排行榜、趋势面板与龙头股入口整合在同一研究界面中，便于研究者快速完成行业筛选、排序比较与详情联动。",
+            "图 5.1 行业热度总览界面",
+            "图片来源：系统运行截图（作者自制）",
+            "如图 5.2 所示，行业热力图页面支持按不同维度观察行业强弱与结构分布，既可以用颜色突出短期热度，也可以通过尺寸和市值来源信息帮助用户理解当前排序结果的背景。",
+            "图 5.2 行业热力图界面",
+            "图片来源：系统运行截图（作者自制）",
+            "如图 5.3 所示，龙头股详情页面展示综合得分、维度拆解、价格走势与关键财务字段，能够帮助用户理解候选股票被遴选出的具体依据。",
+            "图 5.3 龙头股详情界面",
+            "图片来源：系统运行截图（作者自制）",
+        ],
+    )
+
+    replace_section_body(
+        doc,
+        "6.4 系统特征与不足分析",
+        "6.5 对毕业设计目标的达成情况",
+        [
+            "如果只看当前仓库真正保留下来的行业模块，它最有用的地方在于同一套数据入口已经能支撑从热力图到个股详情的连续分析。用户先在页面里看到行业排序，再点进趋势、龙头股和评分拆解时，背后用的仍是同一条适配、评分和缓存链路，因此结果解释不会前后脱节。",
+            "但它的边界也很明确。权重目前还是工程经验优先，部分行业在成分股映射不完整时仍会走降级路径；模块刷新主要依赖 REST、缓存和历史快照，不是持续流式的实时系统；行业识别结果和后续收益之间的量化验证也还可以继续补强。这些问题不会影响毕业设计展示，但确实是后续迭代最该继续打磨的地方。",
         ],
     )
 
@@ -1592,7 +2117,7 @@ def update_body_content(doc: Document) -> None:
         [
             "本文以现有量化研究平台中的行业热度子系统为依托，围绕热门行业识别与龙头股遴选这一毕业设计主题，完成了系统分析、模型设计、工程实现和结果总结。通过梳理项目中的 THS-first 数据适配器、行业分析器、龙头股评分器、后端接口层以及前端行业仪表盘页面，本文构建了一条从多源数据获取到可视化展示的完整研究主线。",
             "在模型方面，本文总结并实现了以动量、资金流、活跃度和波动率代理为核心的行业热度评分模型，以及以规模、估值、盈利、成长、动量和活跃度为核心的龙头股综合评分模型。行业热度部分采用横截面标准化与加权合成的方法，并进一步压缩到便于展示的相对得分区间；龙头股部分则同时支持完整评分与快照快速评分两条链路，在保证口径一致的前提下兼顾分析完整性与页面响应效率。",
-            "在工程实现方面，本文说明了 THS-first 多源数据回退、分析层与路由层缓存、热力图历史快照、财务缓存以及按 profile 偏好持久化的协同工作方式。第六章结合项目保存的历史热力图快照和测试结果说明，该系统能够识别样本时点的阶段性强势行业，并进一步给出行业内部具有代表性的龙头股候选结果，具有较好的结果解释性与展示性。",
+            "在工程实现方面，本文说明了 THS-first 多源数据回退、分析层与路由层缓存、热力图历史快照、财务缓存以及按 profile 偏好持久化的协同工作方式。第六章结合项目当前保留的五日热力图快照、龙头股双榜单样例和测试结果说明，该系统能够识别样本时点的阶段性强势行业，并进一步给出行业内部具有代表性的龙头股候选结果，具有较好的结果解释性与展示性。",
             "未来工作可以从以下方向展开：第一，引入舆情、政策文本和产业链数据，增强行业识别的前瞻性；第二，采用熵权法、层次分析法或机器学习方法优化权重；第三，完善行业识别结果与后续收益表现之间的回测验证；第四，继续提高成分股映射完整度并优化核心行业分析链路。总体而言，本文所完成的工作已经能够满足本科毕业设计对理论分析、系统实现与应用展示的综合要求。",
         ],
     )
@@ -1601,11 +2126,10 @@ def update_body_content(doc: Document) -> None:
     if test_heading is not None:
         next_element = test_heading._element.getnext()
         intro_text = (
-            "功能测试围绕分析逻辑正确性、接口返回稳定性和前端交互闭环三个目标展开。分析层单元测试用于"
-            "验证行业热度计算中的快速评分链路、回退逻辑、历史波动率优先级以及龙头股评分逻辑；接口与适配器测"
-            "试用于验证 THS-first 适配器、行业偏好服务和龙头股详情接口的数据返回结构；前端端到端测试"
-            "用于验证热力图切换、行业搜索、详情弹窗和排行榜交互是否形成完整闭环。表 6.1 对主要测试内"
-            "容与结果进行了归纳，结果表明系统核心功能均达到预期。"
+            "当前仓库保留的验证方式并不只有人工点页面这一种。分析层有行业评分与快路径回退相关单测，接口层有"
+            "名称映射、偏好服务和龙头股列表/详情的返回结构检查，前端还保留了热力图切换、行业搜索和详情弹窗"
+            "闭环的端到端脚本。表 6.1 汇总的是这些验证里与毕业设计主链路最相关的部分，因此更关注评分是否可"
+            "解释、接口是否连通、页面操作是否能闭环，而不是生产环境压测。"
         )
         if next_element is not None and next_element.tag == qn("w:p"):
             from docx.text.paragraph import Paragraph
@@ -1628,15 +2152,9 @@ def update_body_content(doc: Document) -> None:
         function_table.cell(5, 2).text = "按 profile 的 JSON 持久化与浏览器缓存"
 
     sample_table = find_table_containing_text(doc, "资金流(元)")
-    if sample_table is not None and len(sample_table.rows) >= 1 and len(sample_table.columns) >= 5:
-        sample_table.cell(0, 0).text = "序号"
-        sample_table.cell(0, 4).text = "资金流(亿元)"
-        for row_index in range(1, min(len(sample_table.rows), 11)):
-            try:
-                value = float(sample_table.cell(row_index, 4).text)
-                sample_table.cell(row_index, 4).text = f"{value / 1e8:.2f}"
-            except ValueError:
-                continue
+    if sample_table is None:
+        sample_table = find_table_containing_text(doc, "资金流(亿元)")
+    update_heatmap_sample_table(sample_table, heatmap_snapshot)
 
     test_table = find_table_containing_text(doc, "测试项目")
     if test_table is None:
@@ -1644,15 +2162,22 @@ def update_body_content(doc: Document) -> None:
     if test_table is not None and len(test_table.rows) >= 6 and len(test_table.columns) >= 4:
         test_table.cell(0, 0).text = "测试项目"
         row_values = [
-            ("行业评分计算与回退", "运行行业评分逻辑并验证缺失字段回退", "快速评分链路可输出得分，波动率与字段回退生效", "满足预期"),
-            ("THS-first 适配器映射", "验证行业名称映射和多源回退", "THS 主源可用，AKShare/Sina/腾讯补齐链路正常", "满足预期"),
-            ("龙头股列表与详情接口", "调用龙头股列表与详情接口", "返回综合得分、维度拆解和原始字段", "满足预期"),
+            ("行业评分计算与回退", "运行行业评分逻辑并验证快路径与字段回退", "快速评分链路可输出 20-95 展示得分，代理波动率与字段回退生效", "满足预期"),
+            ("THS-first 适配器映射", "验证行业名称映射和多源回退", "THS 主源可用，AKShare/Sina/腾讯补齐链路与缓存兜底正常", "满足预期"),
+            ("龙头股列表与详情接口", "调用龙头股列表与详情接口", "core/hot 榜单与详情接口均返回综合得分、维度拆解和原始字段", "满足预期"),
             ("偏好配置持久化", "保存并重置观察行业与阈值配置", "JSON 与浏览器状态保持一致", "满足预期"),
             ("前端行业页面闭环", "切换热力图周期、搜索行业并打开详情", "热力图、排行榜与详情弹窗联动正常", "满足预期"),
         ]
         for row_index, values in enumerate(row_values, start=1):
             for col_index, value in enumerate(values):
                 test_table.cell(row_index, col_index).text = value
+
+    ensure_section_trailing_paragraph(
+        doc,
+        "6.4 系统特征与不足分析",
+        "进一步结合 ",
+        leader_case_text,
+    )
 
     insert_architecture_figure(doc)
     insert_task_completion_table(doc)
@@ -1700,13 +2225,48 @@ def ensure_figure_source_paragraph(caption):
     return insert_paragraph_after(caption, SOURCE_NOTE)
 
 
+def ensure_figure_intro_paragraph(image_para, intro_text: str):
+    from docx.text.paragraph import Paragraph
+
+    figure_match = re.match(r"^(如图\s*\d+\.\d+)\s*所示", intro_text)
+    figure_prefix = figure_match.group(1) if figure_match else None
+    previous = image_para._element.getprevious()
+    while previous is not None:
+        if previous.tag != qn("w:p"):
+            previous = previous.getprevious()
+            continue
+        previous_para = Paragraph(previous, image_para._parent)
+        previous_text = previous_para.text.strip()
+        if not previous_text:
+            previous = previous.getprevious()
+            continue
+        if previous_text == intro_text or (figure_prefix and previous_text.startswith(figure_prefix)):
+            replace_paragraph_text(previous_para, intro_text)
+            return previous_para
+        break
+
+    intro_para = insert_paragraph_before_element(image_para._element, image_para._parent)
+    intro_para.add_run(intro_text)
+    return intro_para
+
+
 def relayout_figures(doc: Document) -> None:
     body_section = doc.sections[-1]
     max_body_width = body_section.page_width - body_section.left_margin - body_section.right_margin
     TMP_ASSET_DIR.mkdir(parents=True, exist_ok=True)
     for title, config in FIGURE_IMAGES.items():
         caption = find_paragraph_by_text(doc, title)
-        image_para = find_previous_drawing_paragraph(doc, caption)
+        previous_element = caption._element.getprevious()
+        image_para = None
+        if previous_element is not None and previous_element.tag == qn("w:p"):
+            from docx.text.paragraph import Paragraph
+
+            previous_para = Paragraph(previous_element, caption._parent)
+            if "w:drawing" in previous_para._element.xml and not previous_para.text.strip():
+                image_para = previous_para
+        if image_para is None:
+            image_para = insert_paragraph_before_element(caption._element, caption._parent)
+
         previous = image_para._element.getprevious()
         if previous is not None and previous.tag == qn("w:p") and 'w:type="page"' in previous.xml:
             previous.getparent().remove(previous)
@@ -1728,6 +2288,10 @@ def relayout_figures(doc: Document) -> None:
         width_scale = config.get("width_scale", 0.97)
         target_width = Emu(int(max_body_width * width_scale))
         image_para.add_run().add_picture(str(output_path), width=target_width)
+        intro_text = FIGURE_INTRO_PARAGRAPHS.get(title)
+        if intro_text:
+            intro_para = ensure_figure_intro_paragraph(image_para, intro_text)
+            intro_para.paragraph_format.keep_with_next = True
         caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
         caption.paragraph_format.first_line_indent = Pt(0)
         caption.paragraph_format.space_before = Pt(3)
@@ -1779,6 +2343,14 @@ def set_table_borders(table, top: bool, header_bottom: bool, bottom: bool) -> No
                     node.set(qn("w:val"), "nil")
 
 
+def set_table_column_widths(table, widths: tuple[Emu | Cm, ...]) -> None:
+    table.autofit = False
+    for col_idx, width in enumerate(widths):
+        for row in table.rows:
+            if col_idx < len(row.cells):
+                row.cells[col_idx].width = width
+
+
 def format_data_tables(doc: Document) -> None:
     for table in doc.tables:
         text = "\n".join(cell.text for row in table.rows for cell in row.cells)
@@ -1786,56 +2358,115 @@ def format_data_tables(doc: Document) -> None:
             continue
         if "行业热力图 / 行业排行榜" in text and "THS 主数据 / AKShare 增强" in text:
             continue
-        if "Sindustry" in text or "Sleader" in text:
+        if "Sindustry" in text or "Sleader" in text or "m:oMath" in table._tbl.xml:
             continue
         if not table.rows:
             continue
+        is_main_test_table = "行业评分计算与回退" in text and "前端行业页面闭环" in text
+        if is_main_test_table:
+            set_table_column_widths(table, (Cm(2.9), Cm(3.4), Cm(6.1), Cm(2.2)))
         set_table_borders(table, top=True, header_bottom=True, bottom=True)
         for row_index, row in enumerate(table.rows):
-            for cell in row.cells:
+            for cell_index, cell in enumerate(row.cells):
+                cell.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
                 for paragraph in cell.paragraphs:
-                    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER if row_index == 0 else WD_ALIGN_PARAGRAPH.LEFT
+                    if row_index == 0 or (is_main_test_table and cell_index == 3):
+                        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                    else:
+                        paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
                     paragraph.paragraph_format.first_line_indent = Pt(0)
-                    paragraph.paragraph_format.line_spacing = Pt(20)
+                    paragraph.paragraph_format.line_spacing = Pt(15) if is_main_test_table else Pt(20)
                     paragraph.paragraph_format.space_before = Pt(0)
                     paragraph.paragraph_format.space_after = Pt(0)
                     for run in paragraph.runs:
                         run.font.bold = row_index == 0
-                        set_run_text_font(run, "宋体", Pt(10.5))
+                        font_size = Pt(9) if is_main_test_table and row_index != 0 else Pt(10.5)
+                        set_run_text_font(run, "宋体", font_size)
 
 
-def replace_formula_table(doc: Document, table_keyword: str, equation_text: str, equation_number: str) -> None:
-    target_table = find_table_containing_text(doc, table_keyword)
+def append_omml_equation(paragraph, equation_text: str, font_half_points: int = 20) -> None:
+    omath_para = OxmlElement("m:oMathPara")
+    omath = OxmlElement("m:oMath")
+    math_run = OxmlElement("m:r")
+    math_run_props = OxmlElement("m:rPr")
+    for tag in ("w:sz", "w:szCs"):
+        size_node = OxmlElement(tag)
+        size_node.set(qn("w:val"), str(font_half_points))
+        math_run_props.append(size_node)
+    math_run.append(math_run_props)
+    math_text = OxmlElement("m:t")
+    math_text.text = equation_text
+    math_run.append(math_text)
+    omath.append(math_run)
+    omath_para.append(omath)
+    paragraph._p.append(omath_para)
+
+
+def replace_formula_block(doc: Document, keyword: str, equation_text: str, equation_number: str) -> None:
+    stale_formula_paragraphs = [
+        paragraph
+        for paragraph in doc.paragraphs
+        if paragraph.text.strip().startswith(keyword) or paragraph.text.strip() == equation_number
+    ]
+    anchor_element = None
+    anchor_parent = None
+    target_table = find_table_containing_text(doc, keyword)
     if target_table is None:
+        target_table = next((table for table in doc.tables if keyword in table._tbl.xml), None)
+    if target_table is not None:
+        anchor_element = target_table._element
+        anchor_parent = target_table._parent
+    else:
+        first_stale_paragraph = stale_formula_paragraphs[0] if stale_formula_paragraphs else None
+        if first_stale_paragraph is not None:
+            anchor_element = first_stale_paragraph._element
+            anchor_parent = first_stale_paragraph._parent
+
+    if anchor_element is None or anchor_parent is None:
         return
 
-    table_element = target_table._element
-    parent = target_table._parent
-    equation_para = insert_paragraph_before_element(table_element, parent)
+    equation_para = insert_paragraph_before_element(anchor_element, anchor_parent)
     equation_para.style = "Normal"
-    equation_para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    equation_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     equation_para.paragraph_format.first_line_indent = Pt(0)
     equation_para.paragraph_format.space_before = Pt(6)
-    equation_para.paragraph_format.space_after = Pt(6)
+    equation_para.paragraph_format.space_after = Pt(0)
     equation_para.paragraph_format.line_spacing = BODY_LINE_SPACING
-    usable_width = doc.sections[-1].page_width - doc.sections[-1].left_margin - doc.sections[-1].right_margin
-    equation_para.paragraph_format.tab_stops.add_tab_stop(Emu(int(usable_width / 2)), alignment=WD_TAB_ALIGNMENT.CENTER)
-    equation_para.paragraph_format.tab_stops.add_tab_stop(Emu(int(usable_width)), alignment=WD_TAB_ALIGNMENT.RIGHT)
-    run = equation_para.add_run(f"\t{equation_text}\t{equation_number}")
-    run.font.name = "Times New Roman"
-    run.font.size = Pt(11)
-    set_east_asia_font(run, "Times New Roman")
-    table_element.getparent().remove(table_element)
+    equation_run = equation_para.add_run(equation_text)
+    equation_run.font.name = "Times New Roman"
+    equation_run.font.size = Pt(10.5)
+    set_east_asia_font(equation_run, "Times New Roman")
+
+    number_para = insert_paragraph_after(equation_para)
+    number_para.style = "Normal"
+    number_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    number_para.paragraph_format.first_line_indent = Pt(0)
+    number_para.paragraph_format.space_before = Pt(0)
+    number_para.paragraph_format.space_after = Pt(6)
+    number_para.paragraph_format.line_spacing = BODY_LINE_SPACING
+    number_run = number_para.add_run(equation_number)
+    number_run.font.name = "Times New Roman"
+    number_run.font.size = Pt(10.5)
+    set_east_asia_font(number_run, "Times New Roman")
+
+    anchor_element.getparent().remove(anchor_element)
+    keep_elements = {equation_para._element, number_para._element}
+    for paragraph in list(doc.paragraphs):
+        stripped = paragraph.text.strip()
+        if paragraph._element in keep_elements:
+            continue
+        if stripped.startswith(keyword) or stripped == equation_number:
+            paragraph._element.getparent().remove(paragraph._element)
 
 
 def replace_formula_tables(doc: Document) -> None:
-    replace_formula_table(
+    replace_formula_block(
         doc,
         "Sindustry",
         "Sindustry=0.35×Zm+0.35×Zf+0.15×Zv-0.15×Zr",
         "（4.2.1）",
     )
-    replace_formula_table(
+    replace_formula_block(
         doc,
         "Sleader",
         "Sleader=100×(0.20×s1+0.15×s2+0.25×s3+0.20×s4+0.10×s5+0.10×s6)",
@@ -1856,8 +2487,8 @@ def normalize_reference_entries(doc: Document) -> None:
             "Expert Systems with Applications, 2016, 55: 194-211.",
         ],
         [
-            "[8] Fisher I, et al. Analytics for Financial Data: Methods and Applications[J].",
-            "Journal of Big Data Analytics in Finance, 2022, 3(1): 22-35.",
+            "[8] Hasan M M, Popp J, Olah J. Current landscape and influence of big data on finance[J].",
+            "Journal of Big Data, 2020, 7: 21.",
         ],
         [
             "[9] McKinney W. Python for Data Analysis: Data Wrangling with Pandas, NumPy, and IPython[M].",
@@ -2090,20 +2721,25 @@ def format_paragraphs(doc: Document) -> None:
             continue
         if text.startswith("Sindustry") or text.startswith("Sleader"):
             equation_text = "Sindustry=0.35×Zm+0.35×Zf+0.15×Zv-0.15×Zr"
-            equation_number = "（4.2.1）"
             if text.startswith("Sleader"):
                 equation_text = "Sleader=100×(0.20×s1+0.15×s2+0.25×s3+0.20×s4+0.10×s5+0.10×s6)"
-                equation_number = "（4.4.1）"
             clear_paragraph(paragraph)
-            paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             paragraph.paragraph_format.first_line_indent = Pt(0)
             paragraph.paragraph_format.space_before = Pt(6)
+            paragraph.paragraph_format.space_after = Pt(0)
+            paragraph.paragraph_format.line_spacing = BODY_LINE_SPACING
+            run = paragraph.add_run(equation_text)
+            set_run_text_font(run, "Times New Roman", Pt(10.5), bold=False)
+            continue
+        if text in {"（4.2.1）", "（4.4.1）"}:
+            clear_paragraph(paragraph)
+            run = paragraph.add_run(text)
+            paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+            paragraph.paragraph_format.first_line_indent = Pt(0)
+            paragraph.paragraph_format.space_before = Pt(0)
             paragraph.paragraph_format.space_after = Pt(6)
             paragraph.paragraph_format.line_spacing = BODY_LINE_SPACING
-            usable_width = doc.sections[-1].page_width - doc.sections[-1].left_margin - doc.sections[-1].right_margin
-            paragraph.paragraph_format.tab_stops.add_tab_stop(Emu(int(usable_width / 2)), alignment=WD_TAB_ALIGNMENT.CENTER)
-            paragraph.paragraph_format.tab_stops.add_tab_stop(Emu(int(usable_width)), alignment=WD_TAB_ALIGNMENT.RIGHT)
-            run = paragraph.add_run(f"\t{equation_text}\t{equation_number}")
             set_run_text_font(run, "Times New Roman", Pt(10.5), bold=False)
             continue
         if re.match(r"^\[\d+\]", text):
@@ -2292,8 +2928,8 @@ def export_submission_artifacts(doc_path: Path) -> Path:
     front_pdf = TMP_FRONT_ASSET_DIR / "front_pages.pdf"
 
     cover_render = render_cover_page(template_page_1, front_cover_png)
-    declaration_render = render_declaration_page(template_page_2, declaration_png)
-    build_front_pdf(front_cover_png, declaration_png, front_pdf)
+    declaration_asset, declaration_render = prepare_declaration_page_asset(template_page_2, declaration_png)
+    build_front_pdf(front_cover_png, declaration_asset, front_pdf)
 
     body_pdf = export_docx_pdf(doc_path, TMP_DOCX_RENDER_DIR)
     merge_submission_pdf(front_pdf, body_pdf, OUTPUT_PDF_PATH)
@@ -2305,12 +2941,13 @@ def export_submission_artifacts(doc_path: Path) -> Path:
         cover_render["placements"],
         cover_render["image_size"],
     )
-    validate_declaration_page_alignment(
-        get_rendered_preview_page(TMP_SUBMISSION_RENDER_DIR, 2),
-        declaration_render["placements"],
-        declaration_render["label_boxes"],
-        declaration_render["image_size"],
-    )
+    if declaration_render is not None:
+        validate_declaration_page_alignment(
+            get_rendered_preview_page(TMP_SUBMISSION_RENDER_DIR, 2),
+            declaration_render["placements"],
+            declaration_render["label_boxes"],
+            declaration_render["image_size"],
+        )
     return OUTPUT_PDF_PATH
 
 

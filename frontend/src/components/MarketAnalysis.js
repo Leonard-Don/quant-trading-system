@@ -92,7 +92,8 @@ const normalizeVolumeTrend = (value) => {
 };
 
 const DISPLAY_EMPTY = '--';
-const ANALYSIS_CACHE_TTL_MS = 2 * 60 * 1000;
+export const ANALYSIS_CACHE_TTL_MS = 2 * 60 * 1000;
+export const ANALYSIS_CACHE_MAX_ENTRIES = 96;
 const analysisResponseCache = new Map();
 const AIPredictionPanel = lazy(() => import('./AIPredictionPanel'));
 const CandlestickChart = lazy(() => import('./CandlestickChart'));
@@ -127,26 +128,55 @@ const clearAnalysisCache = (symbol, interval) => {
     ];
     keyFragments.forEach((cacheKey) => analysisResponseCache.delete(cacheKey));
 };
-const readAnalysisCacheEntry = (cacheKey) => {
+const trimAnalysisCacheToLimit = () => {
+    while (analysisResponseCache.size > ANALYSIS_CACHE_MAX_ENTRIES) {
+        const oldestCacheKey = analysisResponseCache.keys().next().value;
+        if (oldestCacheKey === undefined) {
+            return;
+        }
+        analysisResponseCache.delete(oldestCacheKey);
+    }
+};
+const sweepExpiredAnalysisCacheEntries = (now = Date.now()) => {
+    analysisResponseCache.forEach((entry, cacheKey) => {
+        if (now - entry.cachedAt > ANALYSIS_CACHE_TTL_MS) {
+            analysisResponseCache.delete(cacheKey);
+        }
+    });
+};
+const touchAnalysisCacheEntry = (cacheKey, cachedEntry) => {
+    analysisResponseCache.delete(cacheKey);
+    analysisResponseCache.set(cacheKey, cachedEntry);
+};
+const readAnalysisCacheEntry = (cacheKey, now = Date.now()) => {
     const cached = analysisResponseCache.get(cacheKey);
     if (!cached) {
         return null;
     }
 
-    if (Date.now() - cached.cachedAt > ANALYSIS_CACHE_TTL_MS) {
+    if (now - cached.cachedAt > ANALYSIS_CACHE_TTL_MS) {
         analysisResponseCache.delete(cacheKey);
         return null;
     }
 
+    touchAnalysisCacheEntry(cacheKey, cached);
     return cached;
 };
-const writeAnalysisCache = (cacheKey, data) => {
-    const cachedAt = Date.now();
+const writeAnalysisCache = (cacheKey, data, cachedAt = Date.now()) => {
+    sweepExpiredAnalysisCacheEntries(cachedAt);
+    analysisResponseCache.delete(cacheKey);
     analysisResponseCache.set(cacheKey, {
         data,
         cachedAt,
     });
+    trimAnalysisCacheToLimit();
     return cachedAt;
+};
+export const __TEST_ONLY__ = {
+    clearAnalysisResponseCache: () => analysisResponseCache.clear(),
+    getAnalysisCacheSize: () => analysisResponseCache.size,
+    readAnalysisCacheEntry,
+    writeAnalysisCache,
 };
 
 const formatDisplayNumber = (value, digits = 2, suffix = '') => {

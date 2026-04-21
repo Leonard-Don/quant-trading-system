@@ -5,16 +5,13 @@ LSTM 时序预测模型
 """
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, Tuple
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 import os
 import pickle
 
 logger = logging.getLogger(__name__)
-
-# 导入共用特征工程模块
-from .feature_engineering import FeatureEngineer
 
 # 尝试导入 TensorFlow，如果不可用则使用模拟模式
 try:
@@ -37,7 +34,12 @@ class LSTMPredictor:
     使用双向 LSTM 网络预测股票价格收益率
     """
     
-    def __init__(self, sequence_length: int = 60, forecast_days: int = 5):
+    def __init__(
+        self,
+        sequence_length: int = 60,
+        forecast_days: int = 5,
+        model_dir: str | None = None,
+    ):
         """
         初始化 LSTM 预测器
         
@@ -47,7 +49,7 @@ class LSTMPredictor:
         """
         self.sequence_length = sequence_length
         self.forecast_days = forecast_days
-        self.models: Dict[str, any] = {}
+        self.models: Dict[str, Any] = {}
         self.scalers: Dict[str, MinMaxScaler] = {} if TF_AVAILABLE else {}
         # 使用相对/归一化特征，避免对绝对价格水平的依赖
         self.feature_columns = [
@@ -55,7 +57,9 @@ class LSTMPredictor:
             'close_sma5_ratio', 'close_sma20_ratio',
             'rsi', 'volatility', 'volume_ratio', 'macd_norm'
         ]
-        self.model_dir = os.path.join(os.path.dirname(__file__), 'saved_models', 'lstm')
+        self.model_dir = os.fspath(model_dir) if model_dir is not None else os.path.join(
+            os.path.dirname(__file__), 'saved_models', 'lstm'
+        )
         os.makedirs(self.model_dir, exist_ok=True)
         
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -101,7 +105,7 @@ class LSTMPredictor:
         data['next_return'] = data['returns'].shift(-1)
         
         # 清理 NaN
-        data = data.fillna(method='bfill').fillna(method='ffill')
+        data = data.bfill().ffill()
         data = data.dropna(subset=self.feature_columns)
         
         return data
@@ -124,7 +128,7 @@ class LSTMPredictor:
             y.append(target[i + self.sequence_length])
         return np.array(X), np.array(y)
     
-    def _build_model(self, input_shape: Tuple[int, int]) -> any:
+    def _build_model(self, input_shape: Tuple[int, int]) -> Any:
         """
         构建 LSTM 模型
         """

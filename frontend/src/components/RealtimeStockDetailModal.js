@@ -331,6 +331,22 @@ const buildCompareCards = (displaySymbol, quote, compareCandidates = [], selecte
     return [currentCard, ...selectedCards];
 };
 
+const getCompareQuoteStatus = (quote, isPrimaryCard = false) => {
+    if (quote) {
+        return {
+            label: isPrimaryCard ? '当前快照已就绪' : '实时就绪',
+            tone: 'ready',
+            description: '行情字段已经到位，可直接横向比较强弱。',
+        };
+    }
+
+    return {
+        label: isPrimaryCard ? '等待当前快照' : '待补数',
+        tone: 'pending',
+        description: '正在补请求这张对比卡的实时 quote，回来后会自动刷新。',
+    };
+};
+
 const isSameSymbolList = (left = [], right = []) => (
     left.length === right.length && left.every((item, index) => item === right[index])
 );
@@ -510,7 +526,18 @@ const renderMetricCard = (label, value, subtle, accentColor) => (
     </div>
 );
 
-const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCancel, onQuickTrade = null, eventTimeline = EMPTY_LIST, compareCandidates, compareTimelineMap }) => {
+const RealtimeStockDetailModal = ({
+    open,
+    symbol,
+    quote,
+    quoteMap = null,
+    onCancel,
+    onQuickTrade = null,
+    onNavigateSymbol = null,
+    eventTimeline = EMPTY_LIST,
+    compareCandidates,
+    compareTimelineMap,
+}) => {
     const safeCompareCandidates = useMemo(
         () => dedupeCompareCandidates(Array.isArray(compareCandidates) ? compareCandidates : EMPTY_LIST),
         [compareCandidates]
@@ -907,6 +934,18 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
                             const isPrimaryCard = item.symbol === displaySymbol;
                             const primaryTextColor = '#f8fafc';
                             const secondaryTextColor = isPrimaryCard ? 'rgba(219, 234, 254, 0.88)' : 'rgba(226, 232, 240, 0.76)';
+                            const compareQuoteStatus = getCompareQuoteStatus(item.quote, isPrimaryCard);
+                            const statusColors = compareQuoteStatus.tone === 'ready'
+                                ? {
+                                    borderColor: 'rgba(134, 239, 172, 0.24)',
+                                    background: 'rgba(22, 163, 74, 0.18)',
+                                    color: '#dcfce7',
+                                }
+                                : {
+                                    borderColor: 'rgba(253, 224, 71, 0.22)',
+                                    background: 'rgba(202, 138, 4, 0.18)',
+                                    color: '#fef3c7',
+                                };
 
                             return (
                             <div
@@ -935,7 +974,45 @@ const RealtimeStockDetailModal = ({ open, symbol, quote, quoteMap = null, onCanc
                                     </div>
                                     {isPrimaryCard ? (
                                         <Tag color="blue" style={{ margin: 0, borderRadius: 999, paddingInline: 10 }}>当前标的</Tag>
-                                    ) : null}
+                                    ) : (
+                                        onNavigateSymbol ? (
+                                            <Button
+                                                size="small"
+                                                type="primary"
+                                                onClick={() => onNavigateSymbol(item.symbol)}
+                                                aria-label={`切换到 ${item.symbol}`}
+                                                data-testid={`detail-compare-switch-${item.symbol}`}
+                                                style={{
+                                                    borderRadius: 999,
+                                                    borderColor: 'rgba(191, 219, 254, 0.32)',
+                                                    background: 'rgba(59, 130, 246, 0.18)',
+                                                    color: '#eff6ff',
+                                                    fontWeight: 700,
+                                                }}
+                                            >
+                                                {`切换到 ${item.symbol}`}
+                                            </Button>
+                                        ) : null
+                                    )}
+                                </div>
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
+                                    <Tag
+                                        style={{
+                                            margin: 0,
+                                            borderRadius: 999,
+                                            paddingInline: 10,
+                                            border: `1px solid ${statusColors.borderColor}`,
+                                            background: statusColors.background,
+                                            color: statusColors.color,
+                                            fontWeight: 700,
+                                        }}
+                                    >
+                                        {compareQuoteStatus.label}
+                                    </Tag>
+                                    <span style={{ fontSize: 11, color: secondaryTextColor }}>
+                                        {compareQuoteStatus.description}
+                                    </span>
                                 </div>
 
                                 <div style={{ display: 'grid', gap: 8 }}>

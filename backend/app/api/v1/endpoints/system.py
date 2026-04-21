@@ -145,33 +145,6 @@ async def get_performance_metrics():
         logger.error(f"获取性能指标失败: {e}")
         return {"success": False, "error": str(e)}
 
-@router.get("/alerts/summary", summary="获取告警摘要", deprecated=True)
-async def get_alert_summary():
-    """获取告警摘要"""
-    try:
-        # 告警系统已移除
-        summary = {"alerts": [], "count": 0}
-
-        return {
-            "success": True,
-            "data": summary,
-            "timestamp": datetime.now().isoformat(),
-        }
-    except Exception as e:
-        logger.error(f"获取告警摘要失败: {e}")
-        return {"success": False, "error": str(e)}
-
-@router.post("/alerts/{alert_index}/resolve", summary="解决告警", deprecated=True)
-async def resolve_alert(alert_index: int):
-    """解决告警"""
-    try:
-        pass # 告警系统已移除
-        return {"success": True, "message": f"Alert {alert_index} resolved"}
-    except Exception as e:
-        logger.error(f"解决告警失败: {e}")
-        return {"success": False, "error": str(e)}
-
-
 @router.get("/dependencies", summary="依赖项连通性检查", deprecated=True)
 async def check_dependencies():
     """

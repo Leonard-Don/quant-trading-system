@@ -13,6 +13,7 @@ from pathlib import Path
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+system_test_script = project_root / "tests" / "manual" / "test_system.py"
 
 
 def run_unit_tests():
@@ -32,7 +33,11 @@ def run_integration_tests():
 def run_system_tests():
     """运行系统测试"""
     print("🚀 运行系统测试...")
-    cmd = [sys.executable, "scripts/test_system.py"]
+    if not system_test_script.exists():
+        print(f"❌ 未找到系统测试脚本: {system_test_script}")
+        return 1
+
+    cmd = [sys.executable, str(system_test_script)]
     return subprocess.run(cmd, cwd=project_root).returncode
 
 
@@ -184,6 +189,7 @@ def main():
             "-m",
             "pytest",
             "tests/",
+            "--ignore=tests/manual",
             "--cov=src",
             "--cov-report=html",
         ]

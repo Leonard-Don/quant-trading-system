@@ -54,6 +54,7 @@ _leader_scorer = None
 _akshare_provider = None
 
 logger = logging.getLogger(__name__)
+SIX_DIGIT_SYMBOL_PATTERN = re.compile(r"\d{6}")
 
 router = APIRouter()
 
@@ -441,13 +442,45 @@ def _extract_leading_stock_symbol_lookup(industries) -> Dict[str, str]:
     if industries is None or industries.empty or not {"leading_stock_name", "leading_stock_code"}.issubset(industries.columns):
         return {}
 
-    symbol_lookup: Dict[str, str] = {}
-    for _, row in industries.iterrows():
-        leader_name = str(row.get("leading_stock_name") or "").strip()
-        leader_code = normalize_symbol(row.get("leading_stock_code") or "")
-        if leader_name and re.fullmatch(r"\d{6}", leader_code):
-            symbol_lookup.setdefault(leader_name, leader_code)
-    return symbol_lookup
+    filtered = industries.loc[:, ["leading_stock_name", "leading_stock_code"]].copy()
+    filtered["leading_stock_name"] = filtered["leading_stock_name"].fillna("").astype(str).str.strip()
+    filtered["leading_stock_code"] = filtered["leading_stock_code"].map(
+        lambda value: normalize_symbol(value or "")
+    )
+    filtered = filtered[
+        filtered["leading_stock_name"].ne("")
+        & filtered["leading_stock_code"].map(lambda value: bool(SIX_DIGIT_SYMBOL_PATTERN.fullmatch(value or "")))
+    ]
+    if filtered.empty:
+        return {}
+    filtered = filtered.drop_duplicates(subset=["leading_stock_name"], keep="first")
+    return dict(zip(filtered["leading_stock_name"], filtered["leading_stock_code"]))
+
+
+def _collect_hot_leader_candidates(
+    heatmap_df,
+    top_industry_names: set[str],
+    top_n: int,
+) -> list[dict[str, Any]]:
+    if heatmap_df is None or heatmap_df.empty or "leading_stock" not in heatmap_df.columns:
+        return []
+
+    sort_col = "main_net_inflow" if "main_net_inflow" in heatmap_df.columns else "change_pct"
+    hot_candidate_limit = max(1, int(top_n * 1.2))
+    sorted_df = heatmap_df.sort_values(sort_col, ascending=False)
+    filtered_df = sorted_df[
+        sorted_df["leading_stock"].map(lambda value: isinstance(value, str) and bool(value))
+    ]
+    if top_industry_names:
+        filtered_df = filtered_df[filtered_df["industry_name"].isin(top_industry_names)]
+    if filtered_df.empty:
+        return []
+    return (
+        filtered_df
+        .drop_duplicates(subset=["leading_stock"], keep="first")
+        .head(hot_candidate_limit)
+        .to_dict("records")
+    )
 
 
 def _build_leading_stock_symbol_lookup(force_refresh: bool = False) -> Dict[str, str]:
@@ -2442,44 +2475,27 @@ def _compute_hot_leader_stocks(
     valuation_provider = getattr(analyzer, "provider", None)
     leading_stock_symbol_lookup = _build_leading_stock_symbol_lookup()
 
-    if not heatmap_df.empty and "leading_stock" in heatmap_df.columns:
-        sort_col = "main_net_inflow" if "main_net_inflow" in heatmap_df.columns else "change_pct"
-        sorted_df = heatmap_df.sort_values(sort_col, ascending=False)
+    hot_candidates = _collect_hot_leader_candidates(heatmap_df, top_industry_names, top_n)
+    if hot_candidates:
 
-        seen_stocks = set()
-        hot_candidates = []
-        for _, row in sorted_df.iterrows():
-            industry_name = row.get("industry_name", "")
-            leading_stock = row.get("leading_stock")
-            if not leading_stock or not isinstance(leading_stock, str):
-                continue
-            if top_industry_names and industry_name not in top_industry_names:
-                continue
-            if leading_stock in seen_stocks:
-                continue
-            seen_stocks.add(leading_stock)
-            hot_candidates.append(row)
-            if len(hot_candidates) >= int(top_n * 1.2):
-                break
-
-        def _score_hot_stock(row):
+        def _score_hot_stock(row: dict[str, Any]):
             industry_name = row.get("industry_name", "")
             leading_stock = row.get("leading_stock")
             change_pct = float(row.get("leading_stock_change", row.get("change_pct", 0)) or 0)
             net_inflow_ratio = float(row.get("main_net_ratio", 0) or 0)
 
             quick_symbol = normalize_symbol(row.get("leading_stock_code") or leading_stock)
-            if re.fullmatch(r"\d{6}", quick_symbol):
+            if SIX_DIGIT_SYMBOL_PATTERN.fullmatch(quick_symbol):
                 real_symbol = quick_symbol
             else:
                 lookup_symbol = normalize_symbol(leading_stock_symbol_lookup.get(str(leading_stock or "").strip()) or "")
-                if re.fullmatch(r"\d{6}", lookup_symbol):
+                if SIX_DIGIT_SYMBOL_PATTERN.fullmatch(lookup_symbol):
                     real_symbol = lookup_symbol
                 else:
                     real_symbol = _resolve_symbol_with_provider(leading_stock)
 
             valuation_snapshot = {}
-            if re.fullmatch(r"\d{6}", real_symbol) and valuation_provider and hasattr(valuation_provider, "get_stock_valuation"):
+            if SIX_DIGIT_SYMBOL_PATTERN.fullmatch(real_symbol) and valuation_provider and hasattr(valuation_provider, "get_stock_valuation"):
                 try:
                     candidate = valuation_provider.get_stock_valuation(real_symbol, cached_only=True)
                     if isinstance(candidate, dict) and "error" not in candidate:
@@ -2524,7 +2540,7 @@ def _compute_hot_leader_stocks(
                     "score_type": "hot",
                 }
 
-            if not re.fullmatch(r"\d{6}", scored_symbol):
+            if not SIX_DIGIT_SYMBOL_PATTERN.fullmatch(scored_symbol):
                 logger.warning("Skipping leader '%s' because symbol could not be resolved: %s", leading_stock, scored_symbol)
                 return None
 
@@ -2543,16 +2559,14 @@ def _compute_hot_leader_stocks(
                 mini_trend=[],
             )
 
-        if hot_candidates:
-            max_workers = min(8, max(len(hot_candidates), 1))
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                results = list(executor.map(_score_hot_stock, hot_candidates))
+        # This path now relies mostly on lightweight money-flow snapshots and cached valuation reads.
+        # Keeping it serial avoids per-request thread-pool churn that is often slower than the work itself.
+        results = [_score_hot_stock(row) for row in hot_candidates]
+        for result in results:
+            if result:
+                leaders_from_heatmap.append(result)
 
-            for result in results:
-                if result:
-                    leaders_from_heatmap.append(result)
-
-            leaders_from_heatmap = _dedupe_leader_responses(leaders_from_heatmap)[:top_n]
+        leaders_from_heatmap = _dedupe_leader_responses(leaders_from_heatmap)[:top_n]
 
     if len(leaders_from_heatmap) < top_n:
         logger.info(
@@ -2894,19 +2908,18 @@ def get_leader_detail(
     """
     try:
         requested_symbol = str(symbol or "").strip()
-        resolved_symbol = _resolve_symbol_with_provider(requested_symbol)
-        parity = None
-        parity_is_stale = False
-
-        for candidate in (resolved_symbol, requested_symbol):
-            matched_parity, matched_symbol, matched_is_stale = _get_matching_parity_cache(candidate, score_type)
-            if matched_parity is None:
-                continue
-            parity = matched_parity
-            parity_is_stale = matched_is_stale
-            if re.fullmatch(r"\d{6}", matched_symbol or ""):
-                resolved_symbol = matched_symbol
-            break
+        parity, matched_symbol, parity_is_stale = _get_matching_parity_cache(requested_symbol, score_type)
+        if SIX_DIGIT_SYMBOL_PATTERN.fullmatch(matched_symbol or ""):
+            resolved_symbol = matched_symbol
+        else:
+            resolved_symbol = _resolve_symbol_with_provider(requested_symbol)
+            if parity is None:
+                matched_parity, matched_symbol, matched_is_stale = _get_matching_parity_cache(resolved_symbol, score_type)
+                if matched_parity is not None:
+                    parity = matched_parity
+                    parity_is_stale = matched_is_stale
+                    if SIX_DIGIT_SYMBOL_PATTERN.fullmatch(matched_symbol or ""):
+                        resolved_symbol = matched_symbol
 
         # 端点级缓存
         cache_key = f"leader_detail:v2:{resolved_symbol}:{score_type}"

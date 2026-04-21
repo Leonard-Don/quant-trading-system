@@ -7,13 +7,12 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from datetime import datetime, timedelta
 import joblib
 import os
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
 
 from ..utils.config import ML_CONFIG
-from .feature_engineering import FeatureEngineer
 
 class PricePredictor:
     """
@@ -22,7 +21,7 @@ class PricePredictor:
     Each stock gets its own trained model.
     """
 
-    def __init__(self):
+    def __init__(self, model_path: str | None = None):
         pred_config = ML_CONFIG.get("prediction", {})
         self.n_estimators = pred_config.get("n_estimators", 100)
         self.random_state = pred_config.get("random_state", 42)
@@ -36,7 +35,9 @@ class PricePredictor:
             'returns', 'log_returns', 'high_low_pct', 'close_sma5_ratio',
             'close_sma20_ratio', 'rsi', 'volatility', 'volume_ratio'
         ]
-        self.model_path = os.path.join(os.path.dirname(__file__), "model_data")
+        self.model_path = os.fspath(model_path) if model_path is not None else os.path.join(
+            os.path.dirname(__file__), "model_data"
+        )
         os.makedirs(self.model_path, exist_ok=True)
 
     def _prepare_features(self, df: pd.DataFrame) -> pd.DataFrame:

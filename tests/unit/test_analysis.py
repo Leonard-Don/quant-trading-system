@@ -157,6 +157,51 @@ class TestTrendAnalyzer:
         assert mock_get_data.call_count == 1
         assert mock_compare.call_count == 1
 
+    @patch("backend.app.api.v1.endpoints.analysis.data_manager.get_historical_data")
+    def test_risk_metrics_endpoint_returns_payload(self, mock_get_data):
+        """测试风险指标端点在标准历史数据上返回完整结构。"""
+        dates = pd.date_range(start="2024-01-01", periods=90)
+        base_close = np.linspace(100, 130, 90) + np.sin(np.linspace(0, 8, 90))
+        mock_get_data.return_value = pd.DataFrame({
+            "open": base_close - 0.5,
+            "high": base_close + 1.0,
+            "low": base_close - 1.0,
+            "close": base_close,
+            "volume": np.random.randint(1000, 5000, 90),
+        }, index=dates)
+
+        response = client.post("/analysis/risk-metrics", json={"symbol": "TEST", "interval": "1d"})
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["symbol"] == "TEST"
+        assert "var_95" in payload
+        assert "max_drawdown" in payload
+        assert "risk_level" in payload
+        assert payload["data_points"] > 0
+
+    @patch("backend.app.api.v1.endpoints.analysis.data_manager.get_historical_data")
+    def test_sentiment_history_endpoint_returns_history(self, mock_get_data):
+        """测试情绪历史端点返回最近窗口和当前情绪摘要。"""
+        dates = pd.date_range(start="2024-01-01", periods=120)
+        close = np.linspace(100, 140, 120) + np.sin(np.linspace(0, 15, 120)) * 2
+        mock_get_data.return_value = pd.DataFrame({
+            "open": close - 0.5,
+            "high": close + 1.0,
+            "low": close - 1.0,
+            "close": close,
+            "volume": np.random.randint(1000, 5000, 120),
+        }, index=dates)
+
+        response = client.post("/analysis/sentiment-history?days=20", json={"symbol": "TEST", "interval": "1d"})
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["symbol"] == "TEST"
+        assert len(payload["history"]) <= 20
+        assert payload["current"] is not None
+        assert payload["trend"] in {"increasing", "decreasing", "stable", "unknown"}
+
 if __name__ == "__main__":
     # 手动运行
     t = TestTrendAnalyzer()
