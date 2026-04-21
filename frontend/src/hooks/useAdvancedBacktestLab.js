@@ -396,8 +396,8 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
   }, []);
 
   const handleSaveTemplate = useCallback(() => {
-    const batchValues = batchForm.getFieldsValue();
-    const walkValues = walkForm.getFieldsValue();
+    const batchValues = batchForm.getFieldsValue(true);
+    const walkValues = walkForm.getFieldsValue(true);
     const resolvedName =
       String(templateName || '').trim() ||
       suggestAdvancedExperimentTemplateName({
@@ -462,8 +462,8 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
       return;
     }
 
-    const batchValues = batchForm.getFieldsValue();
-    const walkValues = walkForm.getFieldsValue();
+    const batchValues = batchForm.getFieldsValue(true);
+    const walkValues = walkForm.getFieldsValue(true);
     const updatedTemplate = saveAdvancedExperimentTemplate({
       ...buildAdvancedExperimentTemplatePayload({
         name: String(templateName || '').trim() || currentTemplate.name,
@@ -517,8 +517,8 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
 
   const handleSuggestTemplateName = useCallback(() => {
     const suggested = suggestAdvancedExperimentTemplateName({
-      batchValues: batchForm.getFieldsValue(),
-      walkValues: walkForm.getFieldsValue(),
+      batchValues: batchForm.getFieldsValue(true),
+      walkValues: walkForm.getFieldsValue(true),
       batchExperimentMeta,
       optimizationDensity,
       portfolioObjective,
@@ -697,7 +697,7 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
   };
 
   const getWalkBaseline = useCallback(() => {
-    const values = walkForm.getFieldsValue();
+    const values = walkForm.getFieldsValue(true);
     const symbol = String(values.symbol || '').trim().toUpperCase();
     const strategy = values.strategy;
     if (!symbol || !strategy) return null;
@@ -896,7 +896,7 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
       return;
     }
     try {
-      const values = batchForm.getFieldsValue();
+      const values = batchForm.getFieldsValue(true);
       const response = await saveAdvancedHistoryRecord({
         record_type: 'batch_backtest',
         title: `批量回测 · ${String(values.symbol || '').toUpperCase()}`,
@@ -937,7 +937,7 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
       return;
     }
     try {
-      const values = walkForm.getFieldsValue();
+      const values = walkForm.getFieldsValue(true);
       const worstDrawdown = Math.min(
         0,
         ...(walkResult.window_results || []).map(
@@ -986,7 +986,7 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
       message.warning('请先运行批量回测');
       return;
     }
-    const symbol = batchForm.getFieldValue('symbol') || 'batch';
+    const symbol = batchForm.getFieldsValue(true).symbol || 'batch';
     const dateStamp = new Date().toISOString().split('T')[0];
     const filename = `advanced_batch_${String(symbol).toUpperCase()}_${dateStamp}`;
     const formatted = formatBatchExperimentForExport(batchResult);
@@ -1007,7 +1007,7 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
       message.warning('请先运行滚动前瞻分析');
       return;
     }
-    const symbol = walkForm.getFieldValue('symbol') || 'walk_forward';
+    const symbol = walkForm.getFieldsValue(true).symbol || 'walk_forward';
     const dateStamp = new Date().toISOString().split('T')[0];
     const filename = `advanced_walk_forward_${String(symbol).toUpperCase()}_${dateStamp}`;
     const formatted = formatWalkForwardForExport(walkResult);
@@ -1032,8 +1032,8 @@ export default function useAdvancedBacktestLab({ strategies, onImportTemplateToM
     }
 
     const strategyExists = Boolean(strategyDefinitions[draft.strategy]);
-    const previousBatchValues = batchForm.getFieldsValue();
-    const previousWalkValues = walkForm.getFieldsValue();
+    const previousBatchValues = batchForm.getFieldsValue(true);
+    const previousWalkValues = walkForm.getFieldsValue(true);
     const previousDateRange = [
       previousWalkValues.dateRange?.[0]?.format(DATE_FORMAT) || previousBatchValues.dateRange?.[0]?.format(DATE_FORMAT),
       previousWalkValues.dateRange?.[1]?.format(DATE_FORMAT) || previousBatchValues.dateRange?.[1]?.format(DATE_FORMAT),

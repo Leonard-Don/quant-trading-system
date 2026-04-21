@@ -145,6 +145,7 @@ export default function useIndustryUrlState() {
     const [focusedHeatmapControlKey, setFocusedHeatmapControlKey] = useState(null);
     const [focusedRankingControlKey, setFocusedRankingControlKey] = useState(null);
     const syncingUrlStateRef = useRef(false);
+    const persistedIndustryUrlStateRef = useRef(null);
 
     const persistedIndustryUrlState = useMemo(() => ({
         tab: activeTab,
@@ -173,6 +174,10 @@ export default function useIndustryUrlState() {
         sortBy,
         volatilityFilter,
     ]);
+
+    useEffect(() => {
+        persistedIndustryUrlStateRef.current = persistedIndustryUrlState;
+    }, [persistedIndustryUrlState]);
 
     const toggleMarketCapFilter = useCallback((nextFilter) => {
         setMarketCapFilter((current) => (current === nextFilter ? 'all' : nextFilter));
@@ -316,12 +321,22 @@ export default function useIndustryUrlState() {
     }, [focusedHeatmapControlKey]);
 
     useEffect(() => {
-        if (areIndustryUrlStatesEqual(persistedIndustryUrlState, initialUrlState)) {
-            syncingUrlStateRef.current = false;
+        const persistedState = persistedIndustryUrlStateRef.current;
+        if (!persistedState) {
             return;
         }
 
-        syncingUrlStateRef.current = true;
+        if (syncingUrlStateRef.current) {
+            if (areIndustryUrlStatesEqual(persistedState, initialUrlState)) {
+                syncingUrlStateRef.current = false;
+            }
+            return;
+        }
+
+        if (areIndustryUrlStatesEqual(persistedState, initialUrlState)) {
+            return;
+        }
+
         setActiveTab((current) => (current === initialUrlState.tab ? current : initialUrlState.tab));
         setMarketCapFilter((current) => (
             current === initialUrlState.marketCapFilter ? current : initialUrlState.marketCapFilter
@@ -347,7 +362,7 @@ export default function useIndustryUrlState() {
         setRankingMarketCapFilter((current) => (
             current === initialUrlState.rankingMarketCapFilter ? current : initialUrlState.rankingMarketCapFilter
         ));
-    }, [initialUrlState]);
+    }, [initialUrlState, locationState.revision]);
 
     useEffect(() => {
         if (syncingUrlStateRef.current) {
@@ -365,9 +380,12 @@ export default function useIndustryUrlState() {
             locationState.hash,
         );
 
+        syncingUrlStateRef.current = true;
         if (nextUrl !== locationState.href) {
             replaceAppUrl(nextUrl);
+            return;
         }
+        syncingUrlStateRef.current = false;
     }, [initialUrlState, locationState.hash, locationState.href, locationState.pathname, locationState.search, persistedIndustryUrlState]);
 
     return {
