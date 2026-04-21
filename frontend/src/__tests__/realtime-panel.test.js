@@ -56,6 +56,19 @@ jest.mock('../components/RealtimeStockDetailModal', () => (props) => {
   return (
     <div data-testid="realtime-stock-detail-modal">
       {props.symbol}
+      {(props.compareCandidates || [])
+        .filter((item) => item?.symbol && item.symbol !== props.symbol)
+        .slice(0, 3)
+        .map((item) => (
+          <button
+            key={`detail-switch-${item.symbol}`}
+            type="button"
+            aria-label={`切换到 ${item.symbol}`}
+            onClick={() => props.onNavigateSymbol?.(item.symbol)}
+          >
+            {`切换到 ${item.symbol}`}
+          </button>
+        ))}
     </div>
   );
 });
@@ -397,6 +410,10 @@ describe('RealTimePanel', () => {
           symbol: '^GSPC',
           quote: expect.objectContaining(quote),
         }),
+        expect.objectContaining({
+          symbol: '^DJI',
+          quote: null,
+        }),
       ])
     );
   });
@@ -413,6 +430,92 @@ describe('RealTimePanel', () => {
     });
     await waitFor(() => {
       expect(screen.getByTestId('realtime-stock-detail-modal')).toHaveTextContent('BTC-USD');
+    });
+  });
+
+  test('requests a websocket snapshot when opening detail for a tracked symbol that is still missing a quote', async () => {
+    jest.useFakeTimers();
+    webSocketService.requestSnapshot.mockReturnValue(true);
+
+    await renderRealtimePanel();
+
+    api.get.mockClear();
+    webSocketService.requestSnapshot.mockClear();
+
+    await act(async () => {
+      listeners.connection?.({ status: 'connected', reconnectAttempts: 0, recovered: false, lastError: null });
+      await Promise.resolve();
+    });
+
+    const jumpInput = screen.getByRole('textbox', { name: '全局跳转搜索' });
+    fireEvent.change(jumpInput, { target: { value: '^DJI' } });
+    fireEvent.keyDown(jumpInput, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('realtime-stock-detail-modal')).toHaveTextContent('^DJI');
+    });
+
+    expect(webSocketService.requestSnapshot).toHaveBeenCalledWith(
+      expect.arrayContaining(['^DJI', '^IXIC'])
+    );
+    expect(api.get).not.toHaveBeenCalledWith('/realtime/quotes', {
+      params: expect.objectContaining({ symbols: '^DJI' }),
+    });
+
+    jest.clearAllTimers();
+    jest.useRealTimers();
+  });
+
+  test('falls back to a targeted REST quote fetch when websocket snapshot is unavailable for detail open', async () => {
+    await renderRealtimePanel();
+
+    api.get.mockClear();
+
+    const jumpInput = screen.getByRole('textbox', { name: '全局跳转搜索' });
+    fireEvent.change(jumpInput, { target: { value: '^DJI' } });
+    fireEvent.keyDown(jumpInput, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('realtime-stock-detail-modal')).toHaveTextContent('^DJI');
+    });
+
+    await waitFor(() => {
+      expect(
+        api.get.mock.calls.some(([url, config]) => (
+          url === '/realtime/quotes'
+          && config?.params?.symbols?.includes('^DJI')
+          && config?.params?.symbols?.includes('^IXIC')
+        ))
+      ).toBe(true);
+    });
+  });
+
+  test('can switch detail focus directly from compare cards inside the detail modal', async () => {
+    await renderRealtimePanel();
+
+    const symbolCard = await screen.findByText((content, element) => {
+      return element?.tagName === 'SPAN' && content.includes('^GSPC · 行情');
+    });
+    fireEvent.click(symbolCard);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('realtime-stock-detail-modal')).toHaveTextContent('^GSPC');
+    });
+
+    api.get.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: '切换到 ^DJI' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('realtime-stock-detail-modal')).toHaveTextContent('^DJI');
+    });
+    await waitFor(() => {
+      expect(
+        api.get.mock.calls.some(([url, config]) => (
+          url === '/realtime/quotes'
+          && config?.params?.symbols?.includes('^DJI')
+        ))
+      ).toBe(true);
     });
   });
 
@@ -964,42 +1067,62 @@ describe('RealTimePanel', () => {
     });
   });
 
-  test('switches to the snapshot market context before opening snapshot focus detail', async () => {
-    window.localStorage.setItem(REVIEW_SNAPSHOT_STORAGE_KEY, JSON.stringify([
-      {
-        id: 'snapshot-focus',
-        createdAt: '2026-03-27T09:30:00.000Z',
-        activeTab: 'crypto',
-        activeTabLabel: '加密',
-        spotlightSymbol: 'BTC-USD',
-        spotlightName: 'BTC-USD',
-        transportModeLabel: 'WebSocket 实时',
-        watchedSymbols: ['BTC-USD', 'ETH-USD'],
-        loadedCount: 2,
-        totalCount: 5,
-        anomalyCount: 1,
-        anomalies: [
-          {
-            symbol: 'BTC-USD',
-            title: '放量异动',
-            description: 'BTC-USD 当前成交量显著放大。',
-          },
-        ],
-        freshnessSummary: { fresh: 2, aging: 0, delayed: 0, pending: 0 },
-      },
-    ]));
+  test('switches to the snapshot market context before opening snapshot focus detail and primes the missing quote', async () => {
+    jest.useFakeTimers();
+    webSocketService.requestSnapshot.mockReturnValue(true);
+    try {
+      window.localStorage.setItem(REVIEW_SNAPSHOT_STORAGE_KEY, JSON.stringify([
+        {
+          id: 'snapshot-focus',
+          createdAt: '2026-03-27T09:30:00.000Z',
+          activeTab: 'crypto',
+          activeTabLabel: '加密',
+          spotlightSymbol: 'BTC-USD',
+          spotlightName: 'BTC-USD',
+          transportModeLabel: 'WebSocket 实时',
+          watchedSymbols: ['BTC-USD', 'ETH-USD'],
+          loadedCount: 2,
+          totalCount: 5,
+          anomalyCount: 1,
+          anomalies: [
+            {
+              symbol: 'BTC-USD',
+              title: '放量异动',
+              description: 'BTC-USD 当前成交量显著放大。',
+            },
+          ],
+          freshnessSummary: { fresh: 2, aging: 0, delayed: 0, pending: 0 },
+        },
+      ]));
 
-    await renderRealtimePanel();
+      await renderRealtimePanel();
 
-    fireEvent.click(screen.getByRole('button', { name: '展开复盘快照' }));
-    fireEvent.click(screen.getByRole('button', { name: '焦点详情' }));
+      await act(async () => {
+        listeners.connection?.({ status: 'connected', reconnectAttempts: 0, recovered: false, lastError: null });
+        await Promise.resolve();
+      });
 
-    await waitFor(() => {
-      expect(screen.getByText('当前分组：加密货币')).toBeInTheDocument();
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId('realtime-stock-detail-modal')).toHaveTextContent('BTC-USD');
-    });
+      api.get.mockClear();
+      webSocketService.requestSnapshot.mockClear();
+
+      fireEvent.click(screen.getByRole('button', { name: '查看复盘快照' }));
+      fireEvent.click(screen.getByRole('button', { name: '打开焦点详情' }));
+
+      await waitFor(() => {
+        expect(screen.getByText('当前分组：加密货币')).toBeInTheDocument();
+      });
+      await waitFor(() => {
+        expect(screen.getByTestId('realtime-stock-detail-modal')).toHaveTextContent('BTC-USD');
+      });
+
+      expect(webSocketService.requestSnapshot).toHaveBeenCalledWith(
+        expect.arrayContaining(['BTC-USD', 'ETH-USD', 'SOL-USD'])
+      );
+      expect(screen.queryByRole('button', { name: '打开焦点详情' })).not.toBeInTheDocument();
+    } finally {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    }
   });
 
   test('persists review notes and outcomes for saved snapshots', async () => {

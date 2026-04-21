@@ -260,7 +260,7 @@ export const useRealtimePreferences = ({
 
     syncingActiveTabFromUrlRef.current = true;
     setActiveTab(urlActiveTab);
-  }, [locationState.search, validActiveTabs]);
+  }, [activeTab, locationState.search, validActiveTabs]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {

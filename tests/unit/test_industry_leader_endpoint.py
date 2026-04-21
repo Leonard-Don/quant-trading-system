@@ -627,6 +627,22 @@ def test_compute_hot_leader_stocks_prefers_lightweight_money_flow_loader(monkeyp
     analyzer._load_lightweight_money_flow.assert_called_once_with(days=1)
 
 
+def test_extract_leading_stock_symbol_lookup_keeps_first_valid_symbol_and_skips_invalid_rows():
+    industries = pd.DataFrame(
+        [
+            {"leading_stock_name": "重庆银行", "leading_stock_code": "601963"},
+            {"leading_stock_name": "重庆银行", "leading_stock_code": "000001"},
+            {"leading_stock_name": "无效代码", "leading_stock_code": "abc"},
+            {"leading_stock_name": "", "leading_stock_code": "000002"},
+            {"leading_stock_name": None, "leading_stock_code": "000003"},
+        ]
+    )
+
+    lookup = industry_endpoint._extract_leading_stock_symbol_lookup(industries)
+
+    assert lookup == {"重庆银行": "601963"}
+
+
 def test_industry_bootstrap_reuses_shared_industry_ranking(monkeypatch):
     industry_endpoint._endpoint_cache.clear()
     industry_endpoint._parity_cache.clear()
@@ -930,6 +946,59 @@ def test_leader_detail_uses_parity_name_match_as_degraded_fallback(monkeypatch):
     assert "榜单快照" in (detail.note or "")
     assert detail.raw_data["source"] == "leader_parity_cache"
     assert len(detail.price_data) >= 2
+
+
+def test_leader_detail_uses_parity_symbol_before_provider_resolution(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    class _RecordingScorer:
+        def __init__(self):
+            self.seen_symbols = []
+
+        def get_leader_detail(self, symbol, score_type="core"):
+            self.seen_symbols.append((symbol, score_type))
+            return {
+                "symbol": symbol,
+                "name": "重庆银行",
+                "total_score": 81.6,
+                "dimension_scores": {"score_type": score_type, "momentum": 0.81},
+                "raw_data": {"market_cap": 1, "pe_ttm": 2, "change_pct": 3},
+                "technical_analysis": {},
+                "price_data": [],
+            }
+
+    scorer = _RecordingScorer()
+    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: scorer)
+    monkeypatch.setattr(
+        industry_endpoint,
+        "_resolve_symbol_with_provider",
+        lambda symbol: (_ for _ in ()).throw(AssertionError("provider resolution should not run when parity cache already maps the name")),
+    )
+
+    industry_endpoint._set_parity_cache(
+        "601963",
+        "hot",
+        LeaderStockResponse(
+            symbol="601963",
+            name="重庆银行",
+            industry="银行",
+            score_type="hot",
+            global_rank=1,
+            industry_rank=1,
+            total_score=81.6,
+            market_cap=125_000_000_000,
+            pe_ratio=6.4,
+            change_pct=2.18,
+            dimension_scores={"score_type": "hot", "momentum": 0.81, "money_flow": 0.72},
+            mini_trend=[10.1, 10.3, 10.4, 10.25],
+        ),
+    )
+
+    detail = industry_endpoint.get_leader_detail("重庆银行", score_type="hot")
+
+    assert detail.symbol == "601963"
+    assert scorer.seen_symbols == [("601963", "hot")]
 
 
 def test_leader_detail_returns_502_for_transient_upstream_error_without_parity(monkeypatch):

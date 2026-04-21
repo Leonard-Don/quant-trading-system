@@ -13,11 +13,6 @@ jest.mock('../components/ErrorBoundary', () => ({
   default: ({ children }) => <>{children}</>,
 }));
 
-jest.mock('../components/AlertCenter', () => ({
-  __esModule: true,
-  default: () => <div>AlertCenter</div>,
-}));
-
 jest.mock('../components/RealTimePanel', () => ({
   __esModule: true,
   default: () => <div>RealTimePanel</div>,
