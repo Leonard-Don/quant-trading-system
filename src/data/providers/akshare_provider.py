@@ -584,6 +584,13 @@ class AKShareProvider(BaseDataProvider):
         """
         if not AKSHARE_AVAILABLE:
             return pd.DataFrame()
+
+        normalized_code = str(industry_code or "").strip()
+        if not normalized_code:
+            return pd.DataFrame()
+        if not normalized_code.startswith("801"):
+            logger.warning("Skipping SW industry index fetch for non-SW code %s", normalized_code)
+            return pd.DataFrame()
         
         try:
             if end_date is None:
@@ -592,7 +599,7 @@ class AKShareProvider(BaseDataProvider):
                 start_date = end_date - timedelta(days=365)
             
             # 获取申万行业指数
-            df = ak.index_hist_sw(symbol=industry_code)
+            df = ak.index_hist_sw(symbol=normalized_code)
             
             if df.empty:
                 return pd.DataFrame()
@@ -617,7 +624,7 @@ class AKShareProvider(BaseDataProvider):
             return self._standardize_dataframe(df)
             
         except Exception as e:
-            logger.error(f"Error fetching industry index {industry_code}: {e}")
+            logger.warning(f"Industry index fetch failed for {normalized_code}: {e}")
             return pd.DataFrame()
     
     def get_industry_money_flow(self, days: int = 5) -> pd.DataFrame:
@@ -975,6 +982,7 @@ class AKShareProvider(BaseDataProvider):
         self,
         industry_name: str,
         include_market_cap_lookup: bool = True,
+        soft_fail: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         获取行业成分股列表
@@ -1057,12 +1065,23 @@ class AKShareProvider(BaseDataProvider):
                 return stocks
 
             except Exception as e:
-                logger.error(f"Error fetching stocks for industry {industry_name}: {e}")
                 fallback = self._get_persistent_industry_stock_snapshot(cache_key, allow_stale=True)
                 if fallback is not None:
-                    logger.warning("Using persistent industry stock snapshot fallback for %s", industry_name)
+                    logger.warning(
+                        "Live industry stock fetch failed for %s, using persistent snapshot fallback: %s",
+                        industry_name,
+                        e,
+                    )
                     self._update_industry_stock_cache(cache_key, fallback)
                     return fallback
+                if soft_fail:
+                    logger.warning(
+                        "Soft-failing live industry stock fetch for %s because the caller has downstream fallbacks: %s",
+                        industry_name,
+                        e,
+                    )
+                else:
+                    logger.error(f"Error fetching stocks for industry {industry_name} with no fallback: {e}")
                 return []
 
         return self._run_industry_stock_singleflight(cache_key, _load_stocks)

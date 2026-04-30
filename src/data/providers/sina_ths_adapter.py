@@ -189,6 +189,38 @@ SINA_PROXY_NODE_NAME_MAP = {
     "银行": "new_jrhy",
 }
 
+SW_INDEX_ALIAS_MAP = {
+    "半导体": "电子",
+    "半导体及元件": "电子",
+    "消费电子": "电子",
+    "光学光电子": "电子",
+    "元件": "电子",
+    "软件开发": "计算机",
+    "计算机应用": "计算机",
+    "计算机设备": "计算机",
+    "通信设备": "通信",
+    "白色家电": "家用电器",
+    "小家电": "家用电器",
+    "饮料制造": "食品饮料",
+    "食品加工制造": "食品饮料",
+    "证券": "非银金融",
+    "保险": "非银金融",
+    "电力": "公用事业",
+    "燃气": "公用事业",
+    "医疗器械": "医药生物",
+    "化学制药": "医药生物",
+    "中药": "医药生物",
+    "生物制品": "医药生物",
+    "港口航运": "交通运输",
+    "物流": "交通运输",
+    "房地产开发": "房地产",
+    "房地产服务": "房地产",
+    "风电设备": "电力设备",
+    "光伏设备": "电力设备",
+    "电池": "电力设备",
+    "电机": "电力设备",
+}
+
 def map_sina_to_ths(sina_name: str) -> str:
     """尝试将新浪行业名称映射到同花顺"""
     # 彻底清理后缀
@@ -1567,6 +1599,89 @@ class SinaIndustryAdapter:
             "industry_code": df["industry_code"],
         }).drop_duplicates(subset=["industry_name"], keep="first")
 
+    def _resolve_sw_industry_index_code(
+        self,
+        industry_code: str | None,
+        industry_name: str | None = None,
+    ) -> str:
+        """
+        把 THS/Sina 行业代码解析为 AKShare 申万行业指数代码。
+
+        行业热度主链路里经常拿到 THS 的 `881xxx` 代码，但 AKShare 的
+        `index_hist_sw` 只接受申万一级行业的 `801xxx`。这里优先用目录名
+        做一次宽口径映射，减少可降级场景里的硬错误日志。
+        """
+        requested_code = str(industry_code or "").strip()
+        if requested_code.startswith("801"):
+            return requested_code
+
+        resolved_name = str(industry_name or "").strip()
+        if not resolved_name and requested_code:
+            ths_catalog = self._get_ths_industry_catalog()
+            if not ths_catalog.empty and {"industry_name", "industry_code"}.issubset(ths_catalog.columns):
+                matched = ths_catalog[
+                    ths_catalog["industry_code"].astype(str).str.strip() == requested_code
+                ]
+                if not matched.empty:
+                    resolved_name = str(matched.iloc[0].get("industry_name") or "").strip()
+
+        if not resolved_name:
+            return ""
+
+        sw_name_map = getattr(self.akshare, "SW_INDUSTRY_MAP", None)
+        if not isinstance(sw_name_map, dict) or not sw_name_map:
+            sw_name_map = AKShareProvider.SW_INDUSTRY_MAP
+        sw_name_map = {
+            str(name).strip(): str(code).strip()
+            for name, code in sw_name_map.items()
+            if str(name or "").strip() and str(code or "").strip()
+        }
+        sw_key_map = {
+            self._normalize_industry_join_key(name): code
+            for name, code in sw_name_map.items()
+        }
+
+        candidate_names: List[str] = []
+        seen: set[str] = set()
+
+        def add_candidate(name: str | None) -> None:
+            normalized = str(name or "").strip()
+            if not normalized:
+                return
+            alias = SW_INDEX_ALIAS_MAP.get(normalized) or SW_INDEX_ALIAS_MAP.get(
+                self._normalize_industry_join_key(normalized)
+            )
+            for candidate in (normalized, alias):
+                clean_candidate = str(candidate or "").strip()
+                if clean_candidate and clean_candidate not in seen:
+                    candidate_names.append(clean_candidate)
+                    seen.add(clean_candidate)
+
+        add_candidate(resolved_name)
+        add_candidate(map_sina_to_ths(resolved_name))
+        add_candidate(INDUSTRY_ENRICHMENT_ALIASES.get(resolved_name))
+        add_candidate(self._normalize_industry_join_key(resolved_name))
+
+        for candidate_name in candidate_names:
+            if candidate_name in sw_name_map:
+                return sw_name_map[candidate_name]
+
+            candidate_key = self._normalize_industry_join_key(candidate_name)
+            if candidate_key in sw_key_map:
+                return sw_key_map[candidate_key]
+
+            fuzzy_matches = {
+                code
+                for sw_name, code in sw_name_map.items()
+                if candidate_key
+                and len(candidate_key) >= 2
+                and candidate_key in self._normalize_industry_join_key(sw_name)
+            }
+            if len(fuzzy_matches) == 1:
+                return next(iter(fuzzy_matches))
+
+        return ""
+
     @staticmethod
     def _dedupe_table_headers(headers: List[str]) -> List[str]:
         seen: Dict[str, int] = {}
@@ -1825,8 +1940,12 @@ class SinaIndustryAdapter:
         if "market_cap_source" not in result.columns:
             result["market_cap_source"] = "unknown"
         missing_cap_source = result["market_cap_source"].astype(str).str.strip().eq("") | result["market_cap_source"].isna()
-        result.loc[missing_cap_source & result.get("is_estimated_cap", False), "market_cap_source"] = "estimated"
-        result.loc[missing_cap_source & ~result.get("is_estimated_cap", False), "market_cap_source"] = "unknown"
+        estimated_cap = result.get("is_estimated_cap", pd.Series(False, index=result.index))
+        if not isinstance(estimated_cap, pd.Series):
+            estimated_cap = pd.Series(bool(estimated_cap), index=result.index)
+        estimated_cap = estimated_cap.fillna(False).astype(bool)
+        result.loc[missing_cap_source & estimated_cap, "market_cap_source"] = "estimated"
+        result.loc[missing_cap_source & ~estimated_cap, "market_cap_source"] = "unknown"
 
         if "valuation_source" not in result.columns:
             result["valuation_source"] = "unavailable"
@@ -2211,6 +2330,7 @@ class SinaIndustryAdapter:
                     ak_stocks = self.akshare.get_stock_list_by_industry(
                         ths_industry_name,
                         include_market_cap_lookup=not fast_mode,
+                        soft_fail=True,
                     )
                 except TypeError:
                     ak_stocks = self.akshare.get_stock_list_by_industry(ths_industry_name)
@@ -2436,14 +2556,35 @@ class SinaIndustryAdapter:
         Returns:
             行业指数 OHLCV 数据；失败时返回空 DataFrame
         """
+        requested_code = str(industry_code or "").strip()
+        resolved_code = self._resolve_sw_industry_index_code(requested_code)
+        if not resolved_code:
+            logger.info(
+                "Skipping industry index history because no SW code mapping was found for %s",
+                requested_code,
+            )
+            return pd.DataFrame()
+
+        if resolved_code != requested_code:
+            logger.info(
+                "Resolved industry index code %s -> %s before AKShare history lookup",
+                requested_code,
+                resolved_code,
+            )
+
         try:
             return self.akshare.get_industry_index(
-                industry_code,
+                resolved_code,
                 start_date=start_date,
                 end_date=end_date,
             )
         except Exception as e:
-            logger.warning(f"Industry index history not available for {industry_code}: {e}")
+            logger.warning(
+                "Industry index history not available for requested=%s resolved=%s: %s",
+                requested_code,
+                resolved_code,
+                e,
+            )
             return pd.DataFrame()
 
     def get_stock_valuation(self, symbol: str, cached_only: bool = False) -> Dict[str, Any]:
