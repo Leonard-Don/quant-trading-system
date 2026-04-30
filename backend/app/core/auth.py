@@ -26,6 +26,10 @@ AUTH_OAUTH_PROVIDER_RECORD_TYPE = "auth_oauth_provider"
 AUTH_OAUTH_STATE_RECORD_TYPE = "auth_oauth_state"
 ACCESS_TOKEN_TYPE = "access"
 REFRESH_TOKEN_TYPE = "refresh"
+DEFAULT_AUTH_SECRET = "dev-only-change-me"
+PRODUCTION_ENVIRONMENTS = {"production", "prod"}
+TRUE_ENV_VALUES = {"1", "true", "yes", "on", "enabled"}
+FALSE_ENV_VALUES = {"0", "false", "no", "off", "disabled"}
 
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/infrastructure/oauth/token", auto_error=False)
 
@@ -94,11 +98,38 @@ def _b64url_decode(payload: str) -> bytes:
 
 
 def _auth_secret() -> bytes:
-    return os.getenv("AUTH_SECRET", "dev-only-change-me").encode("utf-8")
+    secret = os.getenv("AUTH_SECRET", DEFAULT_AUTH_SECRET)
+    if is_production_environment() and not is_auth_secret_production_ready(secret):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="AUTH_SECRET must be configured with a non-default value in production",
+        )
+    return secret.encode("utf-8")
 
 
 def _env_auth_required() -> bool:
-    return os.getenv("AUTH_REQUIRED", "false").lower() == "true"
+    explicit_value = os.getenv("AUTH_REQUIRED")
+    if explicit_value is not None:
+        return _env_bool_value(explicit_value, default=False)
+    return is_production_environment()
+
+
+def _env_bool_value(raw: Any, default: bool = False) -> bool:
+    normalized = str(raw).strip().lower()
+    if normalized in TRUE_ENV_VALUES:
+        return True
+    if normalized in FALSE_ENV_VALUES or normalized == "":
+        return False
+    return default
+
+
+def is_production_environment() -> bool:
+    return str(os.getenv("ENVIRONMENT", "")).strip().lower() in PRODUCTION_ENVIRONMENTS
+
+
+def is_auth_secret_production_ready(secret: Optional[str] = None) -> bool:
+    value = os.getenv("AUTH_SECRET", "") if secret is None else str(secret or "")
+    return bool(value.strip()) and value != DEFAULT_AUTH_SECRET
 
 
 def _hash_password(password: str, iterations: int = 200_000) -> str:
@@ -129,9 +160,13 @@ def _load_policy() -> Dict[str, Any]:
     records = persistence_manager.list_records(record_type=AUTH_POLICY_RECORD_TYPE, limit=1)
     payload = (records[0].get("payload") or {}) if records else {}
     required = bool(payload.get("required", _env_auth_required()))
+    production_mode = is_production_environment()
+    if production_mode and not _env_bool_value(os.getenv("AUTH_ALLOW_ANONYMOUS_IN_PRODUCTION"), default=False):
+        required = True
     return {
         "required": required,
         "mode": "local_jwt",
+        "production_enforced": production_mode and required,
         "updated_at": payload.get("updated_at") or (records[0].get("updated_at") if records else None),
         "updated_by": payload.get("updated_by"),
         "note": (
@@ -642,21 +677,55 @@ def auth_status() -> Dict[str, Any]:
     sessions = list_refresh_sessions(limit=500)
     oauth_providers = list_oauth_providers()
     env_oauth_candidates = _env_oauth_provider_specs()
+    production_mode = is_production_environment()
+    auth_secret_ready = is_auth_secret_production_ready()
+    api_key_configured = bool(os.getenv("API_KEY"))
+    bootstrap_api_key_configured = bool(os.getenv("BOOTSTRAP_API_KEY") or os.getenv("API_KEY"))
+    bootstrap_deadline = str(os.getenv("BOOTSTRAP_DEADLINE_EPOCH", "")).strip()
+    bootstrap_required = not any(item.get("enabled") for item in users)
     active_sessions = [
         item for item in sessions
         if not item.get("revoked_at") and int(item.get("expires_at") or 0) >= int(time.time())
     ]
+    readiness_findings: List[Dict[str, str]] = []
+    if production_mode and not policy["required"]:
+        readiness_findings.append({
+            "severity": "high",
+            "message": "Production environment must require authentication.",
+        })
+    if production_mode and not auth_secret_ready:
+        readiness_findings.append({
+            "severity": "critical",
+            "message": "Set AUTH_SECRET to a strong non-default value before issuing tokens.",
+        })
+    if production_mode and not bootstrap_api_key_configured and bootstrap_required:
+        readiness_findings.append({
+            "severity": "critical",
+            "message": "Configure BOOTSTRAP_API_KEY or API_KEY before production bootstrap.",
+        })
+    if production_mode and bootstrap_required and not bootstrap_deadline:
+        readiness_findings.append({
+            "severity": "high",
+            "message": "Set BOOTSTRAP_DEADLINE_EPOCH to keep the production bootstrap window time-boxed.",
+        })
     return {
         "required": policy["required"],
-        "api_key_configured": bool(os.getenv("API_KEY")),
+        "api_key_configured": api_key_configured,
+        "bootstrap_api_key_configured": bootstrap_api_key_configured,
+        "bootstrap_deadline_epoch": bootstrap_deadline or None,
         "jwt_secret_configured": bool(os.getenv("AUTH_SECRET")),
+        "jwt_secret_production_ready": auth_secret_ready,
+        "environment": os.getenv("ENVIRONMENT", "development"),
+        "production_mode": production_mode,
+        "production_ready": not readiness_findings,
+        "readiness_findings": readiness_findings,
         "supported": ["Local user + password", "OAuth2 password grant", "OAuth2 authorization code + PKCE", "Bearer HS256 token", "Refresh token rotation", "X-API-Key"],
         "local_user_count": len(users),
         "enabled_users": sum(1 for item in users if item.get("enabled")),
         "oauth_provider_count": len(oauth_providers),
         "oauth_enabled_providers": sum(1 for item in oauth_providers if item.get("enabled")),
         "oauth_env_candidates": len(env_oauth_candidates),
-        "bootstrap_required": not any(item.get("enabled") for item in users),
+        "bootstrap_required": bootstrap_required,
         "active_refresh_sessions": len(active_sessions),
         "policy": policy,
     }
@@ -834,15 +903,22 @@ def _issue_token_bundle(
     access_ttl = max(60, min(int(access_expires_in_seconds or _default_access_ttl()), 60 * 60 * 24 * 30))
     refresh_ttl = max(3600, min(int(refresh_expires_in_seconds or _default_refresh_ttl()), 60 * 60 * 24 * 180))
     scope_items = [str(item).strip() for item in (user.get("scopes") or []) if str(item).strip()]
+    user_metadata = user.get("metadata") if isinstance(user.get("metadata"), dict) else {}
+    org_id = user_metadata.get("org_id") or user_metadata.get("organization_id")
     session_id = uuid.uuid4().hex
+    shared_claims = {
+        "scope": " ".join(scope_items),
+        "display_name": user.get("display_name"),
+    }
+    if org_id:
+        shared_claims["org_id"] = str(org_id)
     refresh_token = create_refresh_token(
         subject=user["subject"],
         role=user["role"],
         session_id=session_id,
         expires_in_seconds=refresh_ttl,
         extra_claims={
-            "scope": " ".join(scope_items),
-            "display_name": user.get("display_name"),
+            **shared_claims,
         },
     )
     access_token = create_access_token(
@@ -850,9 +926,8 @@ def _issue_token_bundle(
         role=user["role"],
         expires_in_seconds=access_ttl,
         extra_claims={
-            "scope": " ".join(scope_items),
+            **shared_claims,
             "scopes": scope_items,
-            "display_name": user.get("display_name"),
             "session_id": session_id,
         },
     )
