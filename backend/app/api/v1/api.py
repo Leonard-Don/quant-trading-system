@@ -12,6 +12,7 @@ from backend.app.api.v1.endpoints import (
     events,
     cross_market,
     infrastructure,
+    macro_decay,
 )
 
 api_router = APIRouter()
@@ -31,6 +32,11 @@ api_router.include_router(trading.router, prefix="/trade", tags=["Trading"])
 api_router.include_router(industry.router, prefix="/industry", tags=["Industry Analysis"])
 api_router.include_router(events.router, prefix="/events", tags=["Events"])
 api_router.include_router(cross_market.router, prefix="/cross-market", tags=["Cross Market"])
+api_router.include_router(
+    macro_decay.router,
+    prefix="/macro-decay",
+    tags=["Macro Decay"],
+)
 api_router.include_router(
     infrastructure.router,
     prefix="/infrastructure",

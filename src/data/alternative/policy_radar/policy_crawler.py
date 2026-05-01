@@ -200,12 +200,16 @@ class PolicyCrawler(AntiCrawlMixin):
                 soup = BeautifulSoup(response.text, "html.parser")
                 policies = self._parse_list_page(soup, source)
 
-            # 按日期过滤
+            # 按日期过滤；若官方 feed 暂时没有窗口内项目，保留最新结构化结果作为陈旧快照，
+            # 避免 source-health 和详情补全文链路被固定日期或短期停更直接打空。
             cutoff = datetime.now() - timedelta(days=days_back)
+            all_policies = policies
             policies = [
                 p for p in policies
                 if p.get("date") and self._parse_date(p["date"]) >= cutoff
             ]
+            if not policies and all_policies:
+                policies = [dict(policy, stale_by_days_filter=True) for policy in all_policies]
 
             # 限制数量
             policies = policies[:limit]

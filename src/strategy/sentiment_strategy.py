@@ -303,7 +303,7 @@ class SentimentAnalysisIntegrator:
                 sentiment_series[date] = score
         
         # 前向填充缺失值
-        sentiment_series = sentiment_series.fillna(method='ffill').fillna(0)
+        sentiment_series = sentiment_series.ffill().fillna(0)
         
         return sentiment_series
     

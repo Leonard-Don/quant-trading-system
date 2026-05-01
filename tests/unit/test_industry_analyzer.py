@@ -542,6 +542,23 @@ class TestLeaderStockScorer:
         assert scorer._normalize(150, 0, 100) == 1.0
 
 
+class _OfflineIndustryBacktestDataManager:
+    def get_historical_data(self, symbol, start_date=None, end_date=None):
+        start = pd.Timestamp(start_date or "2022-01-01").normalize()
+        end = pd.Timestamp(end_date or start + pd.Timedelta(days=400)).normalize()
+        dates = pd.date_range(start=start, end=end, freq="B")
+        if dates.empty:
+            return pd.DataFrame(columns=["close", "volume"])
+
+        symbol_score = sum(ord(char) for char in str(symbol))
+        base_price = 20 + (symbol_score % 80)
+        trend = np.linspace(0, 0.08 + (symbol_score % 7) / 100, len(dates))
+        cycle = np.sin(np.linspace(0, 4 * np.pi, len(dates))) * 0.015
+        close = base_price * (1 + trend + cycle)
+        volume = 1_000_000 + (symbol_score % 10) * 50_000
+        return pd.DataFrame({"close": close, "volume": volume}, index=dates)
+
+
 class TestIndustryBacktester:
     """测试行业回测器"""
     
@@ -549,7 +566,10 @@ class TestIndustryBacktester:
     def backtester(self):
         """创建回测器实例"""
         from src.backtest.industry_backtest import IndustryBacktester
-        return IndustryBacktester(initial_capital=1000000)
+        return IndustryBacktester(
+            data_manager=_OfflineIndustryBacktestDataManager(),
+            initial_capital=1000000,
+        )
     
     def test_initialization(self, backtester):
         """测试初始化"""

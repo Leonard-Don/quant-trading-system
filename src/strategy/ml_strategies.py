@@ -77,7 +77,7 @@ class MLStrategy(BaseStrategy):
             features[f"returns_lag_{lag}"] = features["returns"].shift(lag)
             features[f"rsi_lag_{lag}"] = features["rsi"].shift(lag)
 
-        return features.fillna(method="ffill").fillna(0)
+        return features.ffill().fillna(0)
 
     def _prepare_labels(self, data: pd.DataFrame) -> pd.Series:
         """准备标签数据"""

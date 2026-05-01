@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import warnings
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
@@ -26,6 +27,28 @@ FACTOR_PREMIUM_BOUNDS = {
     "size": (-0.08, 0.08),
     "value": (-0.08, 0.08),
 }
+
+
+def _read_fama_french_dataset(dataset_name: str, period: str):
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=".*date_parser.*",
+            category=FutureWarning,
+        )
+        warnings.filterwarnings(
+            "ignore",
+            message="distutils Version classes are deprecated.*",
+            category=DeprecationWarning,
+            module="pandas_datareader.compat",
+        )
+        import pandas_datareader.data as web
+
+        return web.DataReader(
+            dataset_name,
+            "famafrench",
+            start=datetime.now() - timedelta(days=period_to_days(period)),
+        )
 
 
 def normalize_daily_index(data: pd.Series | pd.DataFrame) -> pd.Series | pd.DataFrame:
@@ -121,13 +144,7 @@ def fetch_ff_factors(ff_cache: Dict[str, Any], period: str, logger: Any) -> pd.D
             return cached["data"]
 
     try:
-        import pandas_datareader.data as web
-
-        ff = web.DataReader(
-            "F-F_Research_Data_Factors_daily",
-            "famafrench",
-            start=datetime.now() - timedelta(days=period_to_days(period)),
-        )
+        ff = _read_fama_french_dataset("F-F_Research_Data_Factors_daily", period)
         df = ff[0] / 100.0
         df.index = pd.to_datetime(df.index)
         df = normalize_daily_index(df)
@@ -154,13 +171,7 @@ def fetch_ff5_factors(ff_cache: Dict[str, Any], period: str, logger: Any) -> pd.
             return cached["data"]
 
     try:
-        import pandas_datareader.data as web
-
-        ff = web.DataReader(
-            "F-F_Research_Data_5_Factors_2x3_daily",
-            "famafrench",
-            start=datetime.now() - timedelta(days=period_to_days(period)),
-        )
+        ff = _read_fama_french_dataset("F-F_Research_Data_5_Factors_2x3_daily", period)
         df = ff[0] / 100.0
         df.index = pd.to_datetime(df.index)
         df = normalize_daily_index(df)

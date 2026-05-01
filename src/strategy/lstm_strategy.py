@@ -149,7 +149,7 @@ class LSTMStrategy(BaseStrategy):
         
         self.feature_names = features.columns.tolist()
         
-        return features.fillna(method='ffill').fillna(0)
+        return features.ffill().fillna(0)
     
     def _calculate_rsi(self, prices: pd.Series, period: int = 14) -> pd.Series:
         """计算 RSI"""
