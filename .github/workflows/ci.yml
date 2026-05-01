@@ -34,7 +34,7 @@ jobs:
 
       - name: Run backend regression suite
         run: |
-          pytest tests/unit/test_backtest_history.py tests/unit/test_yahoo_provider.py tests/integration/test_api.py -q
+          pytest tests/unit tests/integration -q --cov=src --cov=backend --cov-report=xml
 
   frontend:
     runs-on: ubuntu-latest
@@ -59,24 +59,7 @@ jobs:
 
       - name: Run frontend regression suite
         run: |
-          CI=1 npm test -- --runInBand --watch=false \
-            src/__tests__/backtest-ui.test.js \
-            src/__tests__/realtime-panel.test.js \
-            src/__tests__/realtime-stock-detail-modal.test.js \
-            src/__tests__/trade-panel.test.js \
-            src/__tests__/pricing-governance-card.test.js \
-            src/__tests__/godeye-panels.test.js \
-            src/__tests__/godeye-hunter-model.test.js \
-            src/__tests__/godeye-cross-market-cards.test.js \
-            src/__tests__/cross-market-recommendations.test.js \
-            src/__tests__/cross-market-workbench-payload.test.js \
-            src/__tests__/snapshot-compare-cross-market.test.js \
-            src/__tests__/research-task-signals.test.js \
-            src/__tests__/use-pricing-workbench-actions.test.js \
-            src/__tests__/use-research-workbench-data.test.js \
-            src/__tests__/research-workbench-copy-link.test.js \
-            src/__tests__/pricing-research.test.js \
-            src/__tests__/cross-market-backtest-panel.test.js
+          CI=1 npm test -- --runInBand --watch=false src/__tests__
 
       - name: Build frontend
         run: npm run build
@@ -124,9 +107,27 @@ jobs:
         working-directory: tests/e2e
         run: npx playwright install --with-deps chromium
 
+      - name: Start local application
+        run: |
+          mkdir -p logs
+          ./scripts/start_system.sh --force-port-cleanup &
+          echo $! > logs/start-system.pid
+          for i in {1..120}; do
+            curl -fsS http://localhost:3000 >/dev/null && curl -fsS http://localhost:8000/health >/dev/null && exit 0
+            sleep 1
+          done
+          echo "Local application did not become ready in time"
+          exit 1
+
       - name: Run research E2E suite
         working-directory: tests/e2e
-        run: npm run verify:research
+        run: |
+          npm run verify:industry
+          npm run verify:realtime
+
+      - name: Stop local application
+        if: always()
+        run: ./scripts/stop_system.sh
 
       - name: Upload research E2E artifacts on failure
         if: failure()

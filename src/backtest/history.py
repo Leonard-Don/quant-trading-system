@@ -304,7 +304,7 @@ class BacktestHistory:
     def _generate_id(self, result: Dict) -> str:
         """生成唯一ID"""
         content = f"{result.get('symbol', '')}_{result.get('strategy', '')}_{datetime.now().isoformat()}"
-        return f"bt_{hashlib.md5(content.encode()).hexdigest()[:12]}"
+        return f"bt_{hashlib.sha256(content.encode()).hexdigest()[:12]}"
 
     def save(self, result: Dict[str, Any]) -> str:
         """

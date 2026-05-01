@@ -250,7 +250,7 @@ class PortfolioExecutionEngine:
         returns = prices.pct_change().replace([np.inf, -np.inf], np.nan)
         fallback_volatility = returns.std().replace([np.inf, -np.inf], np.nan).fillna(0.02).clip(lower=0.005)
         rolling_volatility = returns.rolling(20, min_periods=2).std()
-        rolling_volatility = rolling_volatility.fillna(method="ffill").fillna(fallback_volatility)
+        rolling_volatility = rolling_volatility.ffill().fillna(fallback_volatility)
         reference_notional = max(float(self.config.impact_reference_notional or 100000.0), 1.0)
         avg_daily_notional = pd.DataFrame(
             reference_notional,

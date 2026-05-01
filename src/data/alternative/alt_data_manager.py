@@ -316,6 +316,12 @@ class AltDataManager:
 
     def build_dashboard_snapshot(self) -> Dict[str, Any]:
         records = self.get_records(timeframe="30d", limit=120)
+        if not records:
+            records = []
+            for provider in self.providers.values():
+                records.extend(provider.get_history(limit=120))
+            records.sort(key=lambda record: record.timestamp, reverse=True)
+            records = records[:120]
         provider_status = self.get_provider_status()
 
         category_buckets: Dict[str, List[float]] = {}

@@ -18,8 +18,8 @@ from pathlib import Path
 
 from src.data.providers.sina_ths_adapter import map_ths_to_sina
 from src.analytics.industry_stock_details import (
-    backfill_stock_details_with_valuation,
     build_enriched_industry_stocks,
+    coerce_optional_float,
     extract_stock_detail_fields,
     has_meaningful_numeric,
     normalize_symbol,
@@ -81,6 +81,9 @@ _heatmap_history_loaded = False
 _HEATMAP_HISTORY_MAX_ITEMS = 48
 _HEATMAP_HISTORY_MAX_FILE_BYTES = 2 * 1024 * 1024
 _HEATMAP_HISTORY_FILE = PROJECT_ROOT / "data" / "industry" / "heatmap_history.json"
+_heatmap_refresh_executor = ThreadPoolExecutor(max_workers=1)
+_heatmap_refresh_lock = threading.Lock()
+_heatmap_refresh_inflight: set[int] = set()
 
 # 独立的 Parity 缓存（评分一致性保障，TTL 更长）
 _parity_cache: dict = {}  # {key: {"data": ..., "ts": float}}
@@ -757,6 +760,81 @@ def _append_heatmap_history(days: int, result: HeatmapResponse):
             del _heatmap_history[_HEATMAP_HISTORY_MAX_ITEMS:]
         _persist_heatmap_history_to_disk()
 
+
+def _build_heatmap_response_from_history(days: int) -> Optional[HeatmapResponse]:
+    """从最近历史快照构造热力图响应，避免远端数据源慢启动拖垮首屏。"""
+    _load_heatmap_history_from_disk()
+    with _heatmap_history_lock:
+        matching_items = [
+            dict(item)
+            for item in _heatmap_history
+            if int(item.get("days", 0) or 0) == int(days)
+        ]
+
+    if not matching_items:
+        return None
+
+    latest = matching_items[0]
+    try:
+        industries = [
+            HeatmapDataItem(**industry_item)
+            for industry_item in latest.get("industries", [])
+        ]
+    except Exception as exc:
+        logger.warning("Failed to hydrate heatmap history for days=%s: %s", days, exc)
+        return None
+
+    if not industries:
+        return None
+
+    return HeatmapResponse(
+        industries=industries,
+        max_value=latest.get("max_value", 0),
+        min_value=latest.get("min_value", 0),
+        update_time=latest.get("update_time") or latest.get("captured_at") or datetime.now().isoformat(),
+    )
+
+
+def _load_live_heatmap_response(days: int) -> HeatmapResponse:
+    analyzer = get_industry_analyzer()
+    heatmap_data = analyzer.get_industry_heatmap_data(days=days)
+    result = _serialize_heatmap_response(heatmap_data)
+    if result.industries:
+        _set_endpoint_cache(f"heatmap:v2:{days}", result)
+        _append_heatmap_history(days, result)
+    return result
+
+
+def _schedule_heatmap_refresh(days: int) -> None:
+    """后台刷新热力图缓存；请求线程可先返回历史快照。"""
+    normalized_days = int(days)
+    cache_key = f"heatmap:v2:{normalized_days}"
+    if _get_endpoint_cache(cache_key) is not None:
+        return
+
+    with _heatmap_refresh_lock:
+        if normalized_days in _heatmap_refresh_inflight:
+            return
+        _heatmap_refresh_inflight.add(normalized_days)
+
+    def _task() -> None:
+        started_at = time.time()
+        try:
+            _load_live_heatmap_response(normalized_days)
+            logger.info(
+                "Refreshed heatmap cache for days=%s in %.2fs",
+                normalized_days,
+                time.time() - started_at,
+            )
+        except Exception as exc:
+            logger.warning("Failed to refresh heatmap cache for days=%s: %s", normalized_days, exc)
+        finally:
+            with _heatmap_refresh_lock:
+                _heatmap_refresh_inflight.discard(normalized_days)
+
+    _heatmap_refresh_executor.submit(_task)
+
+
 def _resolve_symbol_with_provider(symbol_or_name: str) -> str:
     """允许详情接口和龙头列表同时接受代码或股票名。"""
     normalized = normalize_symbol(symbol_or_name)
@@ -871,6 +949,87 @@ def _promote_detail_ready_quick_rows(
     return kept_front_rows + promoted_rows + displaced_front_rows + remaining_back_rows
 
 
+def _load_cached_quick_valuation(provider, symbol: str) -> Dict[str, Any]:
+    """仅读取缓存估值；旧测试桩不支持 cached_only 时退回老签名。"""
+    if provider is None or not hasattr(provider, "get_stock_valuation"):
+        return {}
+
+    try:
+        valuation = provider.get_stock_valuation(symbol, cached_only=True)
+    except TypeError:
+        try:
+            valuation = provider.get_stock_valuation(symbol)
+        except Exception as exc:
+            logger.warning("Failed to load quick valuation for %s: %s", symbol, exc)
+            return {}
+    except Exception as exc:
+        logger.warning("Failed to load cached quick valuation for %s: %s", symbol, exc)
+        return {}
+
+    if not isinstance(valuation, dict) or valuation.get("error"):
+        return {}
+    return valuation
+
+
+def _backfill_quick_rows_with_cached_valuation(
+    stocks: List[Dict[str, Any]],
+    provider,
+) -> List[Dict[str, Any]]:
+    """用 cached-only 估值补齐 quick 首屏所需字段，避免远端冷启动阻塞接口。"""
+    if not stocks or provider is None or not hasattr(provider, "get_stock_valuation"):
+        return stocks
+
+    valuation_cache: Dict[str, Dict[str, Any]] = {}
+    enriched: List[Dict[str, Any]] = []
+
+    for stock in stocks:
+        symbol = normalize_symbol(stock.get("symbol") or stock.get("code") or "")
+        if not symbol:
+            enriched.append(stock)
+            continue
+
+        detail_fields = extract_stock_detail_fields(stock)
+        missing_market_cap = not has_meaningful_numeric(detail_fields.get("market_cap"))
+        missing_pe_ratio = not has_meaningful_numeric(detail_fields.get("pe_ratio"))
+        missing_change_pct = detail_fields.get("change_pct") is None
+        missing_turnover_rate = not has_meaningful_numeric(detail_fields.get("turnover_rate"))
+
+        if not (missing_market_cap or missing_pe_ratio or missing_change_pct or missing_turnover_rate):
+            enriched.append(stock)
+            continue
+
+        if symbol not in valuation_cache:
+            valuation_cache[symbol] = _load_cached_quick_valuation(provider, symbol)
+        valuation = valuation_cache[symbol]
+        if not valuation:
+            enriched.append(stock)
+            continue
+
+        valuation_market_cap = coerce_optional_float(valuation.get("market_cap"))
+        valuation_pe_ratio = coerce_optional_float(valuation.get("pe_ratio", valuation.get("pe_ttm")))
+        valuation_change_pct = coerce_optional_float(valuation.get("change_pct"))
+        valuation_turnover_rate = coerce_optional_float(
+            valuation.get("turnover_rate", valuation.get("turnover"))
+        )
+
+        enriched_stock = dict(stock)
+        if missing_market_cap and has_meaningful_numeric(valuation_market_cap):
+            enriched_stock["market_cap"] = valuation_market_cap
+        if missing_pe_ratio and has_meaningful_numeric(valuation_pe_ratio):
+            enriched_stock["pe_ratio"] = valuation_pe_ratio
+        if missing_change_pct and valuation_change_pct is not None:
+            enriched_stock["change_pct"] = valuation_change_pct
+        if missing_turnover_rate and has_meaningful_numeric(valuation_turnover_rate):
+            enriched_stock["turnover_rate"] = valuation_turnover_rate
+            enriched_stock["turnover"] = valuation_turnover_rate
+        if not enriched_stock.get("name") and valuation.get("name"):
+            enriched_stock["name"] = valuation["name"]
+
+        enriched.append(enriched_stock)
+
+    return enriched
+
+
 def _build_full_industry_stock_response(
     industry_name: str,
     top_n: int,
@@ -910,7 +1069,7 @@ def _build_quick_industry_stock_response(
     provider=None,
     enable_valuation_backfill: bool = True,
 ) -> List[StockResponse]:
-    """构造快速版行业成分股结果（仅用现有行情做轻量评分，不做估值回填）。"""
+    """构造快速版行业成分股结果（仅用现有行情和缓存估值做轻量评分）。"""
     if not provider_stocks:
         return []
 
@@ -940,7 +1099,7 @@ def _build_quick_industry_stock_response(
         if provider is not None:
             # 本地快照首屏优先保证尽快可渲染，避免首次请求重新被估值回填拖回远端冷启动。
             if enable_valuation_backfill:
-                quick_display_stocks = backfill_stock_details_with_valuation(quick_display_stocks, provider)
+                quick_display_stocks = _backfill_quick_rows_with_cached_valuation(quick_display_stocks, provider)
             quick_display_stocks = _promote_detail_ready_quick_rows(quick_display_stocks)
 
         for idx, stock in enumerate(quick_display_stocks, 1):
@@ -1382,7 +1541,14 @@ def get_industry_stocks(
         cached_stock_loader = getattr(provider, "get_cached_stock_list_by_industry", None)
         if callable(cached_stock_loader):
             try:
-                cached_provider_rows = cached_stock_loader(industry_name)
+                try:
+                    cached_provider_rows = cached_stock_loader(
+                        industry_name,
+                        include_market_cap_lookup=False,
+                        allow_stale=True,
+                    )
+                except TypeError:
+                    cached_provider_rows = cached_stock_loader(industry_name)
             except Exception as e:
                 logger.warning(f"Failed to load cached industry stocks for {industry_name}: {e}")
 
@@ -1407,6 +1573,7 @@ def get_industry_stocks(
                 top_n,
                 provider_stocks,
                 provider=provider,
+                enable_valuation_backfill=True,
             )
             _set_endpoint_cache(quick_cache_key, quick_result)
             _schedule_full_stock_cache_build(industry_name, top_n)
@@ -1480,14 +1647,12 @@ def get_industry_heatmap(
         if cached is not None:
             return cached
 
-        analyzer = get_industry_analyzer()
-        heatmap_data = analyzer.get_industry_heatmap_data(days=days)
-        result = _serialize_heatmap_response(heatmap_data)
-        # 不缓存空结果，避免 API 临时故障导致持续返回空数据
-        if result.industries:
-            _set_endpoint_cache(cache_key, result)
-            _append_heatmap_history(days, result)
-        return result
+        history_result = _build_heatmap_response_from_history(days)
+        if history_result is not None:
+            _schedule_heatmap_refresh(days)
+            return history_result
+
+        return _load_live_heatmap_response(days)
     except HTTPException:
         raise
     except Exception as e:
@@ -1496,6 +1661,11 @@ def get_industry_heatmap(
         if stale is not None:
             logger.warning(f"Using stale cache for heatmap: {cache_key}")
             return stale
+        history_result = _build_heatmap_response_from_history(days)
+        if history_result is not None:
+            logger.warning(f"Using heatmap history snapshot for {cache_key}")
+            _schedule_heatmap_refresh(days)
+            return history_result
         raise HTTPException(status_code=500, detail=str(e))
 
 

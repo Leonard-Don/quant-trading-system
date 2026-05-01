@@ -203,7 +203,7 @@ class PairsTradingStrategy(BaseStrategy):
             # 如果没有配对数据，使用自身价格模拟
             logger.warning("配对交易需要pair_close列，使用模拟数据")
             price1 = data['close']
-            price2 = data['close'].shift(1).fillna(method='bfill')
+            price2 = data['close'].shift(1).bfill()
         else:
             price1 = data['close']
             price2 = data['pair_close']

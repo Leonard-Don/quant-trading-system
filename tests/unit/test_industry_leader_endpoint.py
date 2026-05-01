@@ -705,6 +705,42 @@ def test_industry_bootstrap_reuses_shared_industry_ranking(monkeypatch):
     assert payload["leaders"]["core"][0]["symbol"] == "000001"
 
 
+def test_heatmap_endpoint_returns_history_snapshot_before_live_fetch(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+
+    heatmap_payload = _FakeAnalyzer().get_industry_heatmap_data(days=1)
+    history_entry = {
+        "snapshot_id": "1:2026-04-20T00:00:00",
+        "days": 1,
+        "captured_at": "2026-04-20T00:00:00",
+        "update_time": "2026-04-20T00:00:00",
+        "max_value": heatmap_payload["max_value"],
+        "min_value": heatmap_payload["min_value"],
+        "industries": heatmap_payload["industries"],
+    }
+    scheduled = []
+
+    class _LiveAnalyzerShouldNotBlock:
+        def get_industry_heatmap_data(self, days=5):
+            raise AssertionError("live heatmap fetch should be deferred when history is available")
+
+    monkeypatch.setattr(industry_endpoint, "_heatmap_history", [history_entry])
+    monkeypatch.setattr(industry_endpoint, "_heatmap_history_loaded", True)
+    monkeypatch.setattr(industry_endpoint, "get_industry_analyzer", lambda: _LiveAnalyzerShouldNotBlock())
+    monkeypatch.setattr(industry_endpoint, "_schedule_heatmap_refresh", lambda days: scheduled.append(days))
+
+    app = FastAPI()
+    app.include_router(industry_endpoint.router, prefix="/industry")
+    client = TestClient(app)
+
+    response = client.get("/industry/industries/heatmap", params={"days": 1})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["industries"][0]["name"] == "测试行业"
+    assert scheduled == [1]
+
+
 def test_industry_bootstrap_schedules_leader_warmup_when_overview_missing(monkeypatch):
     industry_endpoint._endpoint_cache.clear()
     industry_endpoint._parity_cache.clear()
