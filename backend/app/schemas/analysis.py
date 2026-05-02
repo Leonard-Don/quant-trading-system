@@ -1,6 +1,8 @@
 
+from typing import Any, Optional
+
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+
 
 class TrendAnalysisRequest(BaseModel):
     symbol: str
@@ -12,15 +14,15 @@ class TrendAnalysisResponse(BaseModel):
     symbol: str
     trend: str
     score: float
-    support_levels: List[float]
-    resistance_levels: List[float]
-    indicators: Dict[str, float]
-    trend_details: Dict[str, Any]
+    support_levels: list[float]
+    resistance_levels: list[float]
+    indicators: dict[str, float]
+    trend_details: dict[str, Any]
     timestamp: str
     # 新增字段
-    multi_timeframe: Optional[Dict[str, Any]] = None
+    multi_timeframe: Optional[dict[str, Any]] = None
     trend_strength: Optional[float] = None
-    signal_strength: Optional[Dict[str, Any]] = None
-    momentum: Optional[Dict[str, Any]] = None
-    volatility: Optional[Dict[str, Any]] = None
-    fibonacci_levels: Optional[Dict[str, Any]] = None
+    signal_strength: Optional[dict[str, Any]] = None
+    momentum: Optional[dict[str, Any]] = None
+    volatility: Optional[dict[str, Any]] = None
+    fibonacci_levels: Optional[dict[str, Any]] = None

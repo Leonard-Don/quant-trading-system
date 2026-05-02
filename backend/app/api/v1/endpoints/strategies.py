@@ -1,7 +1,7 @@
 
-from fastapi import APIRouter
-from typing import List
 from functools import lru_cache
+
+from fastapi import APIRouter
 
 from backend.app.schemas.base import StrategyInfo
 
@@ -118,7 +118,7 @@ def _get_strategies_list():
 
 @router.get(
     "/",
-    response_model=List[StrategyInfo],
+    response_model=list[StrategyInfo],
     summary="获取所有可用策略",
 )
 async def get_strategies():

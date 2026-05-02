@@ -6,7 +6,7 @@ import json
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from src.utils.config import PROJECT_ROOT
 
@@ -43,17 +43,17 @@ class RealtimeJournalStore:
         normalized_profile = self._normalize_profile_id(profile_id)
         return self.storage_path / f"{normalized_profile}.json"
 
-    def _normalize_entries(self, entries: Any, *, max_items: int) -> List[Dict[str, Any]]:
-        normalized: List[Dict[str, Any]] = []
+    def _normalize_entries(self, entries: Any, *, max_items: int) -> list[dict[str, Any]]:
+        normalized: list[dict[str, Any]] = []
         for raw_entry in entries or []:
             if not isinstance(raw_entry, dict):
                 continue
             normalized.append(dict(raw_entry))
         return normalized[:max_items]
 
-    def _normalize_payload(self, payload: Dict[str, Any] | None) -> Dict[str, Any]:
+    def _normalize_payload(self, payload: dict[str, Any] | None) -> dict[str, Any]:
         payload = dict(payload or {})
-        warnings: List[str] = []
+        warnings: list[str] = []
         raw_snapshots = payload.get("review_snapshots") or []
         raw_events = payload.get("timeline_events") or []
         snapshots = self._normalize_entries(raw_snapshots, max_items=MAX_REVIEW_SNAPSHOTS)
@@ -72,18 +72,18 @@ class RealtimeJournalStore:
             "_warnings": warnings,
         }
 
-    def _load_journal(self, profile_id: str | None) -> Dict[str, Any]:
+    def _load_journal(self, profile_id: str | None) -> dict[str, Any]:
         journal_file = self._get_journal_file(profile_id)
         try:
             if journal_file.exists():
-                with open(journal_file, "r", encoding="utf-8") as file:
+                with open(journal_file, encoding="utf-8") as file:
                     return self._normalize_payload(json.load(file))
         except Exception as exc:
             logger.warning("Failed to load realtime journal for %s: %s", profile_id, exc)
 
         return dict(DEFAULT_JOURNAL_PAYLOAD)
 
-    def _persist(self, profile_id: str | None, payload: Dict[str, Any]) -> None:
+    def _persist(self, profile_id: str | None, payload: dict[str, Any]) -> None:
         journal_file = self._get_journal_file(profile_id)
         try:
             with open(journal_file, "w", encoding="utf-8") as file:
@@ -91,7 +91,7 @@ class RealtimeJournalStore:
         except Exception as exc:
             logger.error("Failed to persist realtime journal for %s: %s", profile_id, exc)
 
-    def get_journal(self, profile_id: str | None = None) -> Dict[str, Any]:
+    def get_journal(self, profile_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             payload = self._load_journal(profile_id)
             return {
@@ -99,7 +99,7 @@ class RealtimeJournalStore:
                 "timeline_events": list(payload["timeline_events"]),
             }
 
-    def update_journal(self, payload: Dict[str, Any], profile_id: str | None = None) -> Dict[str, Any]:
+    def update_journal(self, payload: dict[str, Any], profile_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             normalized = self._normalize_payload(payload)
             warnings = normalized.pop("_warnings", [])

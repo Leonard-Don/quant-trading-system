@@ -8,7 +8,7 @@ import smtplib
 from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import requests
 
@@ -22,7 +22,7 @@ class NotificationService:
         self.config_path = Path(config_path or PROJECT_ROOT / "data" / "infrastructure" / "notification_channels.json")
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         return {
             "channels": self.list_channels(),
             "env": {
@@ -32,7 +32,7 @@ class NotificationService:
             },
         }
 
-    def _read_stored_config(self) -> Dict[str, Any]:
+    def _read_stored_config(self) -> dict[str, Any]:
         try:
             if self.config_path.exists():
                 return json.loads(self.config_path.read_text(encoding="utf-8"))
@@ -40,11 +40,11 @@ class NotificationService:
             pass
         return {"channels": []}
 
-    def _write_stored_config(self, payload: Dict[str, Any]) -> None:
+    def _write_stored_config(self, payload: dict[str, Any]) -> None:
         self.config_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     @staticmethod
-    def _public_channel(channel: Dict[str, Any]) -> Dict[str, Any]:
+    def _public_channel(channel: dict[str, Any]) -> dict[str, Any]:
         settings = channel.get("settings") if isinstance(channel.get("settings"), dict) else {}
         masked_settings = {}
         for key, value in settings.items():
@@ -61,7 +61,7 @@ class NotificationService:
             "source": channel.get("source", "stored"),
         }
 
-    def list_channels(self) -> List[Dict[str, Any]]:
+    def list_channels(self) -> list[dict[str, Any]]:
         channels = [
             {"id": "dry_run", "type": "dry_run", "enabled": True, "label": "Dry Run", "source": "builtin"},
         ]
@@ -75,7 +75,7 @@ class NotificationService:
         channels.extend(self._public_channel(item) for item in stored.get("channels") or [])
         return channels
 
-    def save_channel(self, channel: Dict[str, Any]) -> Dict[str, Any]:
+    def save_channel(self, channel: dict[str, Any]) -> dict[str, Any]:
         channel_id = str(channel.get("id") or "").strip().lower()
         channel_type = str(channel.get("type") or "dry_run").strip().lower()
         if not channel_id:
@@ -103,7 +103,7 @@ class NotificationService:
         self._write_stored_config({"channels": channels})
         return self._public_channel(normalized)
 
-    def delete_channel(self, channel_id: str) -> Dict[str, Any]:
+    def delete_channel(self, channel_id: str) -> dict[str, Any]:
         normalized_id = str(channel_id or "").strip().lower()
         stored = self._read_stored_config()
         channels = stored.get("channels") or []
@@ -114,14 +114,14 @@ class NotificationService:
         self._write_stored_config({"channels": remaining})
         return {"deleted": len(channels) != len(remaining), "channel_id": normalized_id}
 
-    def _get_stored_channel(self, channel_id: str) -> Optional[Dict[str, Any]]:
+    def _get_stored_channel(self, channel_id: str) -> Optional[dict[str, Any]]:
         normalized_id = str(channel_id or "").strip().lower()
         for channel in self._read_stored_config().get("channels") or []:
             if str(channel.get("id") or "").lower() == normalized_id:
                 return channel
         return None
 
-    def send(self, channel: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def send(self, channel: str, payload: dict[str, Any]) -> dict[str, Any]:
         normalized_channel = str(channel or "dry_run").lower()
         enriched = {
             "timestamp": datetime.utcnow().isoformat(),
@@ -152,7 +152,7 @@ class NotificationService:
                 return self._send_email(enriched, settings=settings)
         return {"status": "dry_run", "channel": normalized_channel, "delivered": False, "payload": enriched}
 
-    def _send_webhook(self, url: Optional[str], payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _send_webhook(self, url: Optional[str], payload: dict[str, Any]) -> dict[str, Any]:
         if not url:
             return {"status": "skipped", "reason": "webhook URL is not configured", "delivered": False}
         response = requests.post(url, json=payload, timeout=10)
@@ -163,7 +163,7 @@ class NotificationService:
             "status_code": response.status_code,
         }
 
-    def _send_email(self, payload: Dict[str, Any], settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _send_email(self, payload: dict[str, Any], settings: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         settings = settings or {}
         host = settings.get("host") or os.getenv("SMTP_HOST")
         sender = settings.get("from") or os.getenv("SMTP_FROM")
@@ -188,7 +188,7 @@ class NotificationService:
             smtp.send_message(message)
         return {"status": "sent", "channel": "email", "delivered": True, "to": recipient}
 
-    def _wecom_content(self, payload: Dict[str, Any]) -> str:
+    def _wecom_content(self, payload: dict[str, Any]) -> str:
         return f"**{payload['title']}**\n\n> 级别: {payload['severity']}\n\n{payload['message']}"
 
 

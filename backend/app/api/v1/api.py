@@ -1,18 +1,19 @@
 from fastapi import APIRouter
+
 from backend.app.api.v1.endpoints import (
-    market_data,
-    strategies,
-    backtest,
-    system,
-    realtime,
     analysis,
-    optimization,
-    trading,
-    industry,
-    events,
+    backtest,
     cross_market,
+    events,
+    industry,
     infrastructure,
+    market_data,
+    optimization,
+    realtime,
     research_journal,
+    strategies,
+    system,
+    trading,
 )
 
 api_router = APIRouter()

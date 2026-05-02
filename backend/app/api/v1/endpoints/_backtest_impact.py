@@ -11,7 +11,7 @@ re-exported by ``endpoints/backtest.py`` for callsite stability.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -21,10 +21,10 @@ from src.backtest.impact_model import estimate_market_impact_rate
 
 def _market_impact_curve(
     *,
-    scenario: Dict[str, Any],
+    scenario: dict[str, Any],
     data: pd.DataFrame,
-    sample_trade_values: List[float],
-) -> List[Dict[str, Any]]:
+    sample_trade_values: list[float],
+) -> list[dict[str, Any]]:
     close_prices = pd.to_numeric(data.get("close"), errors="coerce").dropna()
     reference_price = float(close_prices.iloc[-1]) if not close_prices.empty else 100.0
     returns = close_prices.pct_change().replace([np.inf, -np.inf], np.nan)
@@ -45,7 +45,7 @@ def _market_impact_curve(
         liquidity_reference, float(scenario["impact_reference_notional"]), 1.0
     )
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for trade_value in sample_trade_values:
         trade_notional = max(float(trade_value or 0.0), 0.0)
         impact = estimate_market_impact_rate(
@@ -78,7 +78,7 @@ def _market_impact_curve(
     return rows
 
 
-def _default_market_impact_scenarios(request: Any) -> List[Dict[str, Any]]:
+def _default_market_impact_scenarios(request: Any) -> list[dict[str, Any]]:
     """Build the four canonical impact scenarios.
 
     ``request`` is duck-typed: any object exposing ``impact_reference_notional``,

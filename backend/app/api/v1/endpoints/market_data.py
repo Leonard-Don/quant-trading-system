@@ -1,11 +1,13 @@
 
-from fastapi import APIRouter, HTTPException
+import logging
 from datetime import datetime
-from backend.app.services.runtime_state import get_data_manager
+
+from fastapi import APIRouter, HTTPException
+
 from backend.app.schemas.base import MarketDataRequest
+from backend.app.services.runtime_state import get_data_manager
 from src.utils.json_utils import clean_data_for_json
 from src.utils.performance import timing_decorator
-import logging
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

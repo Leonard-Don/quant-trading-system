@@ -5,7 +5,7 @@
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional, Set, Tuple
+from typing import Any, Optional
 
 from fastapi import WebSocket
 
@@ -18,9 +18,9 @@ class TradeConnectionManager:
     OUTBOUND_QUEUE_MAXSIZE = 64
 
     def __init__(self):
-        self.active_connections: Set[WebSocket] = set()
-        self._send_queues: Dict[WebSocket, asyncio.Queue[Tuple[Dict[str, Any], Optional[asyncio.Future]]]] = {}
-        self._send_tasks: Dict[WebSocket, asyncio.Task] = {}
+        self.active_connections: set[WebSocket] = set()
+        self._send_queues: dict[WebSocket, asyncio.Queue[tuple[dict[str, Any], Optional[asyncio.Future]]]] = {}
+        self._send_tasks: dict[WebSocket, asyncio.Task] = {}
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -94,7 +94,7 @@ class TradeConnectionManager:
         finally:
             self._fail_pending_messages(queue)
 
-    async def _send_direct_message(self, websocket: WebSocket, message: Dict[str, Any]) -> bool:
+    async def _send_direct_message(self, websocket: WebSocket, message: dict[str, Any]) -> bool:
         try:
             await websocket.send_json(message)
             return True
@@ -106,7 +106,7 @@ class TradeConnectionManager:
     def _enqueue_message(
         self,
         websocket: WebSocket,
-        message: Dict[str, Any],
+        message: dict[str, Any],
         delivery_future: Optional[asyncio.Future] = None,
     ) -> bool:
         queue = self._send_queues.get(websocket)
@@ -126,7 +126,7 @@ class TradeConnectionManager:
             self.disconnect(websocket)
             return False
 
-    async def send_personal_message(self, websocket: WebSocket, message: Dict[str, Any]) -> bool:
+    async def send_personal_message(self, websocket: WebSocket, message: dict[str, Any]) -> bool:
         if websocket not in self.active_connections:
             return False
         queue = self._send_queues.get(websocket)
@@ -138,7 +138,7 @@ class TradeConnectionManager:
             return False
         return await delivery_future
 
-    async def broadcast(self, message: Dict[str, Any]):
+    async def broadcast(self, message: dict[str, Any]):
         if not self.active_connections:
             return
 

@@ -7,7 +7,7 @@ import logging
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from src.utils.config import PROJECT_ROOT
 
@@ -54,12 +54,12 @@ class RealtimeAlertsStore:
         normalized_profile = self._normalize_profile_id(profile_id)
         return self.storage_path / f"{normalized_profile}.json"
 
-    def _normalize_alerts(self, payload: Dict[str, Any] | None) -> Dict[str, Any]:
+    def _normalize_alerts(self, payload: dict[str, Any] | None) -> dict[str, Any]:
         alerts = payload.get("alerts") if isinstance(payload, dict) else []
         alert_hit_history = payload.get("alert_hit_history") if isinstance(payload, dict) else []
-        normalized_alerts: List[Dict[str, Any]] = []
-        normalized_history: List[Dict[str, Any]] = []
-        warnings: List[str] = []
+        normalized_alerts: list[dict[str, Any]] = []
+        normalized_history: list[dict[str, Any]] = []
+        warnings: list[str] = []
 
         for index, raw_alert in enumerate(alerts or []):
             if not isinstance(raw_alert, dict):
@@ -119,7 +119,7 @@ class RealtimeAlertsStore:
             "_warnings": warnings,
         }
 
-    def _normalize_history_entry(self, entry: Dict[str, Any] | None) -> Dict[str, Any] | None:
+    def _normalize_history_entry(self, entry: dict[str, Any] | None) -> dict[str, Any] | None:
         if not isinstance(entry, dict):
             return None
         symbol = str(entry.get("symbol") or "").strip().upper()
@@ -134,7 +134,7 @@ class RealtimeAlertsStore:
             "message": str(entry.get("message") or "").strip() or None,
         }
 
-    def record_alert_hit(self, entry: Dict[str, Any], profile_id: str | None = None) -> Dict[str, Any]:
+    def record_alert_hit(self, entry: dict[str, Any], profile_id: str | None = None) -> dict[str, Any]:
         normalized_entry = self._normalize_history_entry(entry)
         if not normalized_entry:
             raise ValueError("invalid alert history entry")
@@ -149,18 +149,18 @@ class RealtimeAlertsStore:
                 "alert_hit_history": list(current["alert_hit_history"]),
             }
 
-    def _load_alerts(self, profile_id: str | None) -> Dict[str, Any]:
+    def _load_alerts(self, profile_id: str | None) -> dict[str, Any]:
         alerts_file = self._get_alerts_file(profile_id)
         try:
             if alerts_file.exists():
-                with open(alerts_file, "r", encoding="utf-8") as file:
+                with open(alerts_file, encoding="utf-8") as file:
                     return self._normalize_alerts(json.load(file))
         except Exception as exc:
             logger.warning("Failed to load realtime alerts for %s: %s", profile_id, exc)
 
         return dict(DEFAULT_ALERTS_PAYLOAD)
 
-    def _persist(self, profile_id: str | None, payload: Dict[str, Any]) -> None:
+    def _persist(self, profile_id: str | None, payload: dict[str, Any]) -> None:
         alerts_file = self._get_alerts_file(profile_id)
         try:
             with open(alerts_file, "w", encoding="utf-8") as file:
@@ -168,7 +168,7 @@ class RealtimeAlertsStore:
         except Exception as exc:
             logger.error("Failed to persist realtime alerts for %s: %s", profile_id, exc)
 
-    def get_alerts(self, profile_id: str | None = None) -> Dict[str, Any]:
+    def get_alerts(self, profile_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             payload = self._load_alerts(profile_id)
             return {
@@ -176,7 +176,7 @@ class RealtimeAlertsStore:
                 "alert_hit_history": list(payload["alert_hit_history"]),
             }
 
-    def update_alerts(self, payload: Dict[str, Any], profile_id: str | None = None) -> Dict[str, Any]:
+    def update_alerts(self, payload: dict[str, Any], profile_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             normalized = self._normalize_alerts(payload)
             warnings = normalized.pop("_warnings", [])
