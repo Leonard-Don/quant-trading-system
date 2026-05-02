@@ -1,0 +1,79 @@
+# syntax=docker/dockerfile:1.7
+# ---------------------------------------------------------------------------
+# Backend image — multi-stage build:
+#   1) builder: install deps into a virtualenv
+#   2) runtime: slim base + virtualenv + non-root user + uvicorn entrypoint
+# ---------------------------------------------------------------------------
+
+ARG PYTHON_VERSION=3.13
+
+# ---------------------------------------------------------------------------
+# Stage 1: builder
+# ---------------------------------------------------------------------------
+FROM python:${PYTHON_VERSION}-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /build
+
+# System deps required by some scientific wheels (psycopg, numpy, etc.).
+# Kept minimal; remove if all wheels are pure-binary on target arch.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential \
+        libpq-dev \
+        gcc \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:${PATH}"
+
+COPY requirements.txt ./
+RUN pip install --upgrade pip \
+ && pip install -r requirements.txt
+
+# ---------------------------------------------------------------------------
+# Stage 2: runtime
+# ---------------------------------------------------------------------------
+FROM python:${PYTHON_VERSION}-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:${PATH}" \
+    API_HOST=0.0.0.0 \
+    API_PORT=8000 \
+    API_RELOAD=false
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        libpq5 \
+        curl \
+        tini \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --system --gid 1001 appuser \
+ && useradd  --system --uid 1001 --gid appuser --home /app --shell /usr/sbin/nologin appuser \
+ && mkdir -p /app /app/logs /app/cache /app/data /app/output \
+ && chown -R appuser:appuser /app
+
+# Bring the prebuilt virtualenv from the builder stage
+COPY --from=builder /opt/venv /opt/venv
+
+WORKDIR /app
+
+# Copy only what the runtime needs (image stays small + reproducible)
+COPY --chown=appuser:appuser backend ./backend
+COPY --chown=appuser:appuser src ./src
+COPY --chown=appuser:appuser scripts ./scripts
+COPY --chown=appuser:appuser pyproject.toml VERSION ./
+
+USER appuser
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD curl -fsS "http://127.0.0.1:${API_PORT}/health" || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
