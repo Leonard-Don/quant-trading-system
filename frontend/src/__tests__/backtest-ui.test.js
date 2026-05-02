@@ -26,6 +26,23 @@ jest.mock('../components/DrawdownChart', () => () => <div>DrawdownChart</div>);
 jest.mock('../components/MonthlyHeatmap', () => () => <div>MonthlyHeatmap</div>);
 jest.mock('../components/RiskRadar', () => () => <div>RiskRadar</div>);
 jest.mock('../components/ReturnHistogram', () => () => <div>ReturnHistogram</div>);
+jest.mock('recharts', () => {
+  const React = require('react');
+  const MockChart = ({ children }) => <div>{children}</div>;
+  const MockElement = () => null;
+  return {
+    ResponsiveContainer: ({ children }) => <div style={{ width: 800, height: 400 }}>{children}</div>,
+    BarChart: MockChart,
+    LineChart: MockChart,
+    Bar: MockElement,
+    Line: MockElement,
+    CartesianGrid: MockElement,
+    Cell: MockElement,
+    Tooltip: MockElement,
+    XAxis: MockElement,
+    YAxis: MockElement,
+  };
+});
 
 beforeAll(() => {
   if (!window.matchMedia) {

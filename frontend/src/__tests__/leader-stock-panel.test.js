@@ -140,28 +140,35 @@ describe('LeaderStockPanel', () => {
   });
 
   test('keeps cached overview visible when refresh fails', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const cacheKey = buildLeaderBoardCacheKey(5, 5, 3);
-    window.sessionStorage.setItem(cacheKey, JSON.stringify({
-      version: 1,
-      timestamp: Date.now(),
-      core: [buildLeaderRecord({ name: '缓存核心', symbol: '600001' })],
-      hot: [buildLeaderRecord({ name: '缓存热点', symbol: '300001', score_type: 'hot' })],
-      errors: {},
-    }));
+    try {
+      window.sessionStorage.setItem(cacheKey, JSON.stringify({
+        version: 1,
+        timestamp: Date.now(),
+        core: [buildLeaderRecord({ name: '缓存核心', symbol: '600001' })],
+        hot: [buildLeaderRecord({ name: '缓存热点', symbol: '300001', score_type: 'hot' })],
+        errors: {},
+      }));
 
-    getLeaderBoards.mockRejectedValue(new Error('overview failed'));
-    getLeaderStocks.mockRejectedValue(new Error('legacy failed'));
+      getLeaderBoards.mockRejectedValue(new Error('overview failed'));
+      getLeaderStocks.mockRejectedValue(new Error('legacy failed'));
 
-    render(<LeaderStockPanel topN={5} topIndustries={5} perIndustry={3} />);
+      render(<LeaderStockPanel topN={5} topIndustries={5} perIndustry={3} />);
 
-    expect(screen.getByText('缓存核心')).toBeInTheDocument();
-    expect(screen.getByText('缓存热点')).toBeInTheDocument();
+      expect(screen.getByText('缓存核心')).toBeInTheDocument();
+      expect(screen.getByText('缓存热点')).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(screen.getByText('龙头股榜单刷新失败，当前展示的是稍早快照')).toBeInTheDocument();
-    });
+      await waitFor(() => {
+        expect(screen.getByText('龙头股榜单刷新失败，当前展示的是稍早快照')).toBeInTheDocument();
+      });
 
-    expect(screen.queryByText('龙头股榜单加载失败，请稍后重试')).not.toBeInTheDocument();
+      expect(screen.queryByText('龙头股榜单加载失败，请稍后重试')).not.toBeInTheDocument();
+    } finally {
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 
   test('reuses in-flight overview request across remounts', async () => {
