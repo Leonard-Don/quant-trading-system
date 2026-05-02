@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { App as AntdApp, Layout, Typography, Menu, Space, Button, Tooltip, Spin, Grid } from 'antd';
 import {
   DashboardOutlined,
@@ -17,14 +17,15 @@ import { useTheme } from './contexts/ThemeContext';
 import { APP_VERSION } from './generated/version';
 import { useAppUrlState } from './hooks/useAppUrlState';
 import { replaceAppUrl } from './utils/appUrlState';
+import lazyWithRetry from './utils/lazyWithRetry';
 import { buildViewUrlForCurrentState, navigateToAppUrl } from './utils/researchContext';
 
 // 懒加载非核心组件，减少初始包大小
 
-const RealTimePanel = lazy(() => import('./components/RealTimePanel'));
-const IndustryDashboard = lazy(() => import('./components/IndustryDashboard'));
-const BacktestDashboard = lazy(() => import('./components/BacktestDashboard'));
-const TodayResearchDashboard = lazy(() => import('./components/TodayResearchDashboard'));
+const RealTimePanel = lazyWithRetry(() => import('./components/RealTimePanel'));
+const IndustryDashboard = lazyWithRetry(() => import('./components/IndustryDashboard'));
+const BacktestDashboard = lazyWithRetry(() => import('./components/BacktestDashboard'));
+const TodayResearchDashboard = lazyWithRetry(() => import('./components/TodayResearchDashboard'));
 
 // 懒加载占位组件
 const LazyLoadFallback = () => (

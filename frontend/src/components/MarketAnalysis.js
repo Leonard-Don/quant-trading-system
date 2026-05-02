@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
 import {
     Card,
     Input,
@@ -68,6 +68,7 @@ import {
     getCorrelationAnalysis,
     getEventSummary
 } from '../services/api';
+import lazyWithRetry from '../utils/lazyWithRetry';
 import { MarketAnalysisSkeleton } from './SkeletonLoaders';
 
 import { Tooltip } from 'antd'; // Careful, we have RechartsTooltip imported as well. 
@@ -95,8 +96,8 @@ const DISPLAY_EMPTY = '--';
 export const ANALYSIS_CACHE_TTL_MS = 2 * 60 * 1000;
 export const ANALYSIS_CACHE_MAX_ENTRIES = 96;
 const analysisResponseCache = new Map();
-const AIPredictionPanel = lazy(() => import('./AIPredictionPanel'));
-const CandlestickChart = lazy(() => import('./CandlestickChart'));
+const AIPredictionPanel = lazyWithRetry(() => import('./AIPredictionPanel'));
+const CandlestickChart = lazyWithRetry(() => import('./CandlestickChart'));
 const TAB_LABELS = {
     overview: '总览',
     trend: '趋势分析',
