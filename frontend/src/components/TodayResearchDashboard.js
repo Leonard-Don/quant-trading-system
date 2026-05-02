@@ -42,6 +42,7 @@ import {
   TODAY_RESEARCH_TYPE_LABELS,
   buildTodayResearchSnapshot,
   collectLocalResearchState,
+  filterResearchEntries,
   mergeResearchEntries,
   normalizeResearchEntry,
   summarizeResearchEntries,
@@ -92,6 +93,33 @@ const EMPTY_JOURNAL = {
   generated_at: null,
   updated_at: null,
 };
+const EMPTY_ENTRIES = [];
+
+const DEFAULT_ENTRY_FILTERS = {
+  status: 'all',
+  priority: 'all',
+  type: 'all',
+  keyword: '',
+};
+
+const STATUS_FILTER_OPTIONS = [
+  { label: '全部状态', value: 'all' },
+  { label: '待处理/跟踪', value: 'active' },
+  ...Object.entries(TODAY_RESEARCH_STATUS_LABELS).map(([value, label]) => ({ value, label })),
+];
+
+const PRIORITY_FILTER_OPTIONS = [
+  { label: '全部优先级', value: 'all' },
+  ...Object.entries(TODAY_RESEARCH_PRIORITY_LABELS).map(([value, label]) => ({
+    value,
+    label: `优先级 ${label}`,
+  })),
+];
+
+const TYPE_FILTER_OPTIONS = [
+  { label: '全部类型', value: 'all' },
+  ...Object.entries(TODAY_RESEARCH_TYPE_LABELS).map(([value, label]) => ({ value, label })),
+];
 
 const formatTime = (value) => {
   if (!value) return '未同步';
@@ -141,6 +169,7 @@ const TodayResearchDashboard = () => {
   const [syncing, setSyncing] = useState(false);
   const [backupVisible, setBackupVisible] = useState(false);
   const [backupText, setBackupText] = useState('');
+  const [entryFilters, setEntryFilters] = useState(DEFAULT_ENTRY_FILTERS);
   const [form] = Form.useForm();
   const profileId = useMemo(() => loadRealtimeProfileId(), []);
 
@@ -149,7 +178,17 @@ const TodayResearchDashboard = () => {
   const actionQueue = summary.action_queue || [];
   const nextActions = summary.next_actions || [];
   const symbolTimeline = summary.symbol_timeline || [];
-  const entries = journal.entries || [];
+  const entries = journal.entries || EMPTY_ENTRIES;
+  const filteredEntries = useMemo(
+    () => filterResearchEntries(entries, entryFilters),
+    [entries, entryFilters]
+  );
+  const hasActiveEntryFilters = useMemo(() => (
+    entryFilters.status !== DEFAULT_ENTRY_FILTERS.status
+      || entryFilters.priority !== DEFAULT_ENTRY_FILTERS.priority
+      || entryFilters.type !== DEFAULT_ENTRY_FILTERS.type
+      || String(entryFilters.keyword || '').trim() !== DEFAULT_ENTRY_FILTERS.keyword
+  ), [entryFilters]);
 
   const syncJournal = useCallback(async ({ quiet = false } = {}) => {
     if (!quiet) {
@@ -301,6 +340,21 @@ const TodayResearchDashboard = () => {
       messageApi.error('导入失败，请检查 JSON 格式');
     }
   }, [backupText, messageApi, profileId]);
+
+  const handleEntryFilterChange = useCallback((key, value) => {
+    setEntryFilters((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  }, []);
+
+  const handleEntryKeywordChange = useCallback((event) => {
+    handleEntryFilterChange('keyword', event.target.value);
+  }, [handleEntryFilterChange]);
+
+  const handleClearEntryFilters = useCallback(() => {
+    setEntryFilters({ ...DEFAULT_ENTRY_FILTERS });
+  }, []);
 
   const renderEntry = (entry) => (
     <div className="today-research-entry" key={entry.id} data-testid="today-research-entry">
@@ -522,11 +576,53 @@ const TodayResearchDashboard = () => {
             <div className="today-research-panel__title">完整档案流</div>
             <div className="today-research-panel__desc">所有来源统一成一条可回看的研究流。</div>
           </div>
-          <Tag>{entries.length} 条</Tag>
+          <Tag color={hasActiveEntryFilters ? 'blue' : undefined}>
+            {hasActiveEntryFilters ? `${filteredEntries.length} / ${entries.length} 条` : `${entries.length} 条`}
+          </Tag>
+        </div>
+        <div className="today-research-filter-bar">
+          <Space wrap size={[10, 10]} className="today-research-filter-bar__controls">
+            <Select
+              aria-label="按状态筛选研究档案"
+              className="today-research-filter-bar__select"
+              value={entryFilters.status}
+              options={STATUS_FILTER_OPTIONS}
+              onChange={(value) => handleEntryFilterChange('status', value)}
+            />
+            <Select
+              aria-label="按优先级筛选研究档案"
+              className="today-research-filter-bar__select"
+              value={entryFilters.priority}
+              options={PRIORITY_FILTER_OPTIONS}
+              onChange={(value) => handleEntryFilterChange('priority', value)}
+            />
+            <Select
+              aria-label="按类型筛选研究档案"
+              className="today-research-filter-bar__select"
+              value={entryFilters.type}
+              options={TYPE_FILTER_OPTIONS}
+              onChange={(value) => handleEntryFilterChange('type', value)}
+            />
+            <Input.Search
+              allowClear
+              aria-label="筛选研究档案"
+              className="today-research-filter-bar__search"
+              placeholder="搜索标的、行业或记录"
+              value={entryFilters.keyword}
+              onChange={handleEntryKeywordChange}
+              onSearch={(value) => handleEntryFilterChange('keyword', value)}
+            />
+            <Button disabled={!hasActiveEntryFilters} onClick={handleClearEntryFilters}>
+              清除筛选
+            </Button>
+          </Space>
+          <div className="today-research-filter-bar__summary">
+            显示 <strong>{filteredEntries.length}</strong> / {entries.length} 条
+          </div>
         </div>
         <div className="today-research-entry-list today-research-entry-list--archive">
-          {entries.length ? entries.map(renderEntry) : (
-            <Empty description="还没有研究档案，先跑一次回测或保存一条实时复盘快照。" />
+          {filteredEntries.length ? filteredEntries.map(renderEntry) : (
+            <Empty description={hasActiveEntryFilters ? '当前筛选没有匹配记录' : '还没有研究档案，先跑一次回测或保存一条实时复盘快照。'} />
           )}
         </div>
       </Card>

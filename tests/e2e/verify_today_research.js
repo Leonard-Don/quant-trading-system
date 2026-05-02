@@ -114,6 +114,21 @@ const assert = (condition, message) => {
   await page.getByText('半导体 · 行业观察', { exact: true }).first().waitFor({ state: 'visible', timeout: 60000 });
   console.log('本地研究状态已汇总到今日研究: 是');
 
+  console.log('验证档案流筛选...');
+  const archiveList = page.locator('.today-research-entry-list--archive');
+  const archiveEntries = archiveList.getByTestId('today-research-entry');
+  const archiveEntryCount = await archiveEntries.count();
+  await page.getByRole('searchbox', { name: '筛选研究档案' }).fill('AAPL');
+  await archiveList.getByText('AAPL · buy_and_hold 回测', { exact: false }).first().waitFor({ state: 'visible', timeout: 60000 });
+  const filteredArchiveEntryCount = await archiveEntries.count();
+  assert(
+    filteredArchiveEntryCount >= 1 && filteredArchiveEntryCount < archiveEntryCount,
+    `档案流筛选未收窄结果: ${filteredArchiveEntryCount}/${archiveEntryCount}`
+  );
+  await page.getByRole('button', { name: '清除筛选' }).click();
+  await archiveList.getByText('半导体 · 行业观察', { exact: true }).first().waitFor({ state: 'visible', timeout: 60000 });
+  console.log('档案流筛选已生效: 是');
+
   console.log('验证手动研究记录...');
   await page.getByLabel('标题').fill('E2E 手动研究记录');
   await page.getByLabel('标的').fill('TSLA');
