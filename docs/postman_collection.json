@@ -797,55 +797,6 @@
       }
     },
     {
-      "name": "获取告警摘要",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/system/alerts/summary",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "system",
-            "alerts",
-            "summary"
-          ]
-        }
-      }
-    },
-    {
-      "name": "解决告警",
-      "request": {
-        "method": "POST",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/system/alerts/{alert_index}/resolve",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "system",
-            "alerts",
-            "{alert_index}",
-            "resolve"
-          ]
-        }
-      }
-    },
-    {
       "name": "依赖项连通性检查",
       "request": {
         "method": "GET",
@@ -2377,6 +2328,53 @@
           "path": [
             "industry",
             "leaders"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Leader Boards",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/leaders/overview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "leaders",
+            "overview"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Industry Bootstrap",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/bootstrap",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "bootstrap"
           ]
         }
       }

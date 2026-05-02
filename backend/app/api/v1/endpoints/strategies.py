@@ -4,20 +4,6 @@ from typing import List
 from functools import lru_cache
 
 from backend.app.schemas.base import StrategyInfo
-from src.strategy.strategies import (
-    MovingAverageCrossover,
-    RSIStrategy,
-    BollingerBands,
-    BuyAndHold,
-    TurtleTradingStrategy,
-    MultiFactorStrategy,
-)
-from src.strategy.advanced_strategies import (
-    MACDStrategy,
-    MeanReversionStrategy,
-    VWAPStrategy,
-    MomentumStrategy,
-)
 
 router = APIRouter()
 

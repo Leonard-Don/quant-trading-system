@@ -261,7 +261,7 @@ class PricingGapAnalyzer:
                 "error": "缺少公允价值锚点，无法构建历史偏差序列",
             }
 
-        days = {"6mo": 180, "1y": 365, "2y": 730, "3y": 1095}.get(period, 365)
+        {"6mo": 180, "1y": 365, "2y": 730, "3y": 1095}.get(period, 365)
         history = self.pricing_engine.data_manager.get_historical_data(symbol, period=period or "1y")
         if history.empty or "close" not in history.columns:
             return {
@@ -681,7 +681,7 @@ class PricingGapAnalyzer:
 
         # 因子模型中的 Alpha
         capm_alpha = factor.get("capm", {}).get("alpha_pct", 0)
-        ff3_alpha = factor.get("fama_french", {}).get("alpha_pct", 0)
+        factor.get("fama_french", {}).get("alpha_pct", 0)
 
         insights = []
         risk_level = "medium"

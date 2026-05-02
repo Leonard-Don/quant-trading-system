@@ -7,7 +7,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.utils.version import APP_VERSION
+from src.utils.version import APP_VERSION as APP_VERSION
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-import math
 from typing import Any, Dict, Iterable, List
 
 from .asset_universe import AssetSpec

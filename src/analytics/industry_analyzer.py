@@ -1765,7 +1765,7 @@ class IndustryAnalyzer:
                 merged_df["total_score"] = 0.0
 
         # 判断是否有真实市值数据（来自成分股汇总）
-        has_real_market_cap = (
+        (
             "total_market_cap" in merged_df.columns
             and (merged_df["total_market_cap"] > 0).any()
             # 若市值超过某个合理门槛（>1亿），认为是真实值；若=abs(moneyFlow)*1000（估算逻辑），则是估算

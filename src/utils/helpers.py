@@ -5,7 +5,7 @@
 import pandas as pd
 import numpy as np
 import logging
-from typing import Optional, Tuple, Dict
+from typing import Optional, Tuple
 from datetime import datetime
 
 logger = logging.getLogger(__name__)

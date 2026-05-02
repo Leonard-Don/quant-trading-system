@@ -5,9 +5,8 @@
 
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Any
+from typing import Dict, Any
 import logging
-import yfinance as yf
 
 logger = logging.getLogger(__name__)
 
@@ -404,7 +403,7 @@ class SentimentAnalyzer:
 
         # 3. 价格波动风险
         close = df["close"]
-        returns = close.pct_change()
+        close.pct_change()
         max_drawdown = (close / close.cummax() - 1).min()
 
         if max_drawdown < -0.20:

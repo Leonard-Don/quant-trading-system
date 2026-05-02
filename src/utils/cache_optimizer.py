@@ -7,7 +7,7 @@
 import time
 import logging
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Any, Optional, Callable
 from collections import defaultdict
 from pathlib import Path
@@ -111,7 +111,7 @@ class AccessTracker:
             if key not in self.access_counts:
                 return 0.0
             
-            count = self.access_counts[key]
+            self.access_counts[key]
             if key not in self.last_access_times:
                 return 0.0
             

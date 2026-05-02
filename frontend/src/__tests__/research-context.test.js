@@ -1,4 +1,5 @@
 import {
+  buildAppUrl,
   buildCrossMarketLink,
   buildGodEyeLink,
   buildPricingLink,
@@ -96,5 +97,18 @@ describe('researchContext retained routing', () => {
     expect(url).not.toContain('period=2y');
     expect(url).not.toContain('workbench_queue_mode=pricing');
     expect(url).not.toContain('task=rw_123');
+  });
+
+  it('normalizes direct legacy view builders to the retained public surface', () => {
+    const url = buildAppUrl({
+      view: 'workbench',
+      currentSearch: '?view=godsEye&workbench_refresh=high&task=rw_123',
+    });
+
+    expect(url).not.toContain('view=workbench');
+    expect(url).not.toContain('view=godsEye');
+    expect(url).not.toContain('workbench_refresh=high');
+    expect(url).not.toContain('task=rw_123');
+    expect(readResearchContext('?view=pricing').view).toBe('backtest');
   });
 });

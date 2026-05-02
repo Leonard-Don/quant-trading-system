@@ -14,9 +14,7 @@ import json
 import math
 from datetime import datetime, timedelta
 from concurrent.futures import Future, ThreadPoolExecutor
-from pathlib import Path
 
-from src.data.providers.sina_ths_adapter import map_ths_to_sina
 from src.analytics.industry_stock_details import (
     build_enriched_industry_stocks,
     coerce_optional_float,
@@ -26,7 +24,6 @@ from src.analytics.industry_stock_details import (
 )
 from backend.app.services.industry_preferences import (
     industry_preferences_store,
-    DEFAULT_ALERT_THRESHOLDS,
 )
 from src.utils.config import PROJECT_ROOT
 

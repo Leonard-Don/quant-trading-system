@@ -51,6 +51,7 @@ class ExecutionConfig:
     impact_reference_notional: float = 100000.0
     impact_coefficient: float = 1.0
     permanent_impact_bps: float = 0.0
+    execution_lag: int = 1
 
 
 class SingleAssetExecutionEngine:
@@ -86,11 +87,13 @@ class SingleAssetExecutionEngine:
         take_profit_pct: Optional[float],
         max_holding_days: Optional[int],
     ) -> Dict[str, Any]:
-        signal_mode = self._resolve_signal_mode(signals)
+        signal_series = pd.Series(signals, index=data.index)
+        signal_mode = self._resolve_signal_mode(signal_series)
+        executable_signals = self._apply_execution_lag(signal_series)
         if signal_mode == "target":
             execution = self._execute_target_exposure(
                 data=data,
-                signals=signals,
+                signals=executable_signals,
                 sizer=sizer,
                 risk_mgr=risk_mgr,
                 max_holding_days=max_holding_days,
@@ -98,7 +101,7 @@ class SingleAssetExecutionEngine:
         else:
             execution = self._execute_event_signals(
                 data=data,
-                signals=signals,
+                signals=executable_signals,
                 sizer=sizer,
                 risk_mgr=risk_mgr,
                 stop_loss_pct=stop_loss_pct,
@@ -106,6 +109,7 @@ class SingleAssetExecutionEngine:
                 max_holding_days=max_holding_days,
             )
         execution["resolved_signal_mode"] = signal_mode
+        execution["execution_lag"] = self._configured_execution_lag()
         return execution
 
     def _resolve_signal_mode(self, signals: pd.Series) -> str:
@@ -120,6 +124,15 @@ class SingleAssetExecutionEngine:
         if unique_values.issubset({-1.0, 0.0, 1.0}):
             return "event"
         return "target"
+
+    def _configured_execution_lag(self) -> int:
+        return max(int(self.config.execution_lag or 0), 0)
+
+    def _apply_execution_lag(self, signals: pd.Series) -> pd.Series:
+        lag = self._configured_execution_lag()
+        if lag <= 0:
+            return signals
+        return signals.shift(lag).fillna(0)
 
     def _normalize_shares(self, shares: float) -> float:
         if shares <= 0:
@@ -598,6 +611,7 @@ class Backtester(BaseBacktester):
         impact_reference_notional: float = 100000.0,
         impact_coefficient: float = 1.0,
         permanent_impact_bps: float = 0.0,
+        execution_lag: int = 1,
         max_holding_days: Optional[int] = None,
     ):
         """
@@ -617,6 +631,9 @@ class Backtester(BaseBacktester):
                             ``None``, a :class:`FixedFractionSizer` using
                             the ``position_size`` argument of :meth:`run`
                             is created on each call.
+            execution_lag: Number of bars to delay strategy signals before
+                           execution. The default one-bar lag avoids
+                           same-close signal/fill lookahead.
         """
         super().__init__(
             initial_capital=initial_capital,
@@ -638,6 +655,7 @@ class Backtester(BaseBacktester):
             impact_reference_notional=impact_reference_notional,
             impact_coefficient=impact_coefficient,
             permanent_impact_bps=permanent_impact_bps,
+            execution_lag=execution_lag,
         )
 
     def run(
@@ -664,7 +682,7 @@ class Backtester(BaseBacktester):
             return {}
 
         # Generate and normalize signals
-        signals = SignalAdapter.normalize_single_asset(
+        normalized_signals = SignalAdapter.normalize_single_asset(
             strategy.generate_signals(data),
             index=data.index,
             signal_mode=self.execution_config.signal_mode,
@@ -680,7 +698,7 @@ class Backtester(BaseBacktester):
 
         execution = self._execute_signals(
             data=data,
-            signals=signals.values,
+            signals=normalized_signals.values,
             sizer=sizer,
             risk_mgr=risk_mgr,
         )
@@ -709,6 +727,7 @@ class Backtester(BaseBacktester):
             "impact_reference_notional": self.execution_config.impact_reference_notional,
             "impact_coefficient": self.execution_config.impact_coefficient,
             "permanent_impact_bps": self.execution_config.permanent_impact_bps,
+            "execution_lag": execution.get("execution_lag", self.execution_config.execution_lag),
         }
 
         self.results = results

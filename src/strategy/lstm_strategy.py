@@ -7,8 +7,8 @@ LSTM 神经网络策略模块
 
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional, List, Tuple
-from sklearn.preprocessing import StandardScaler, MinMaxScaler
+from typing import Dict, List, Tuple
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.neural_network import MLPClassifier
 import logging
 import warnings
@@ -299,7 +299,7 @@ class LSTMStrategy(BaseStrategy):
             # 训练
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                history = self.model.fit(
+                self.model.fit(
                     X_train, y_train,
                     epochs=self.epochs,
                     batch_size=self.batch_size,

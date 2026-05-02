@@ -48,3 +48,9 @@
 - `total_trades` 是 `num_trades` 的兼容别名。
 - `metrics` 不是第二套独立真值，必须和顶层关键指标保持一致。
 - 报告补跑、策略对比和主回测必须走同一条回测执行管线。
+
+## Execution Timing
+
+- 单资产回测默认使用 `execution_lag = 1`，即策略在第 N 根 bar 生成的信号最早在第 N+1 根 bar 执行。
+- `execution_diagnostics.execution_lag` 必须回传真实执行延迟。
+- 仅在复现实验或兼容旧结果时将 `execution_lag` 显式设为 `0`。

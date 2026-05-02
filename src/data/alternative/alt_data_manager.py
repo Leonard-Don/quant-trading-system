@@ -12,9 +12,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import logging
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
-from .base_alt_provider import AltDataCategory, AltDataRecord, BaseAltDataProvider
+from .base_alt_provider import AltDataRecord, BaseAltDataProvider
 from .governance import (
     AltDataRefreshService,
     AltDataSnapshotEnvelope,

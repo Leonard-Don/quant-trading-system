@@ -1,10 +1,9 @@
 
-import pytest
 from fastapi.testclient import TestClient
 from backend.main import app
 import pandas as pd
 import numpy as np
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from src.analytics.trend_analyzer import TrendAnalyzer
 from src.utils.cache import cache_manager
 

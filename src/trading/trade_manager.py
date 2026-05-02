@@ -2,7 +2,7 @@
 import logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 import uuid
 
 logger = logging.getLogger(__name__)

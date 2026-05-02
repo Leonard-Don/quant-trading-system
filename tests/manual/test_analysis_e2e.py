@@ -39,7 +39,7 @@ def test_comprehensive_analysis():
     print(f"数据范围: {data.index[0]} 到 {data.index[-1]}")
 
     # 执行综合分析
-    print(f"\n正在执行综合分析...")
+    print("\n正在执行综合分析...")
     result = scorer.comprehensive_analysis(data, symbol)
 
     # 打印结果
@@ -51,26 +51,26 @@ def test_comprehensive_analysis():
     print(f"【投资建议】: {result['recommendation']}")
     print(f"【置信度】: {result['confidence']}")
 
-    print(f"\n【各维度得分】:")
+    print("\n【各维度得分】:")
     scores = result['scores']
     print(f"  - 趋势得分: {scores['trend']}/100")
     print(f"  - 量价得分: {scores['volume']}/100")
     print(f"  - 情绪得分: {scores['sentiment']}/100")
     print(f"  - 技术得分: {scores['technical']}/100")
 
-    print(f"\n【趋势分析】:")
+    print("\n【趋势分析】:")
     trend = result['trend_analysis']
     print(f"  - 趋势方向: {trend['trend']}")
     print(f"  - 趋势强度: {trend.get('trend_strength', 'N/A')}")
     print(f"  - 支撑位: {trend['support_levels']}")
     print(f"  - 阻力位: {trend['resistance_levels']}")
 
-    print(f"\n【关键信号】:")
+    print("\n【关键信号】:")
     for signal in result['key_signals']:
         print(f"  - [{signal['type']}] {signal['signal']} (重要性: {signal['importance']})")
 
     if result['risk_warnings']:
-        print(f"\n【风险提示】:")
+        print("\n【风险提示】:")
         for warning in result['risk_warnings']:
             print(f"  ⚠️  {warning}")
 

@@ -6,7 +6,6 @@ be verified analytically or with a pocket calculator.  This ensures regression
 safety and validates the financial correctness of each metric.
 """
 
-import math
 import numpy as np
 import pandas as pd
 import pytest

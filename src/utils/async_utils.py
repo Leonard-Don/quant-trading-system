@@ -4,7 +4,7 @@
 
 import asyncio
 import concurrent.futures
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, Callable, List
 import functools
 import time
 from datetime import datetime

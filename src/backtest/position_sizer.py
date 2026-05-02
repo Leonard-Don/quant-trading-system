@@ -20,7 +20,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 
@@ -301,7 +301,7 @@ class EqualRiskSizer(BasePositionSizer):
             fraction = self.max_position_pct
         else:
             # Inverse-vol weighting normalized to [0, max_position_pct]
-            inv_vol = 1.0 / vol
+            1.0 / vol
             # Scale factor: target ~5% daily risk budget
             fraction = min(0.01 / vol, self.max_position_pct)
 

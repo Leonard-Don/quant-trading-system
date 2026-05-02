@@ -192,7 +192,6 @@ async def check_dependencies():
     
     # 3. 检查 ML 模型状态
     try:
-        from src.analytics.predictor import PricePredictor
         import os
         model_path = os.path.join(os.path.dirname(__file__), "../../../../src/analytics/model_data")
         model_path = os.path.abspath(model_path)

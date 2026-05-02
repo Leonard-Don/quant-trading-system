@@ -100,6 +100,7 @@
 - `impact_reference_notional` (number): 无描述
 - `impact_coefficient` (number): 无描述
 - `permanent_impact_bps` (number): 无描述
+- `execution_lag` (integer): 无描述
 - `max_holding_days` (unknown): 无描述
 
 ### BacktestResponse
@@ -143,6 +144,7 @@
 - `impact_reference_notional` (number): 无描述
 - `impact_coefficient` (number): 无描述
 - `permanent_impact_bps` (number): 无描述
+- `execution_lag` (integer): 无描述
 - `max_holding_days` (unknown): 无描述
 
 ### Body_issue_oauth_token_infrastructure_oauth_token_post
@@ -196,6 +198,7 @@
 - `impact_reference_notional` (number): 无描述
 - `impact_coefficient` (number): 无描述
 - `permanent_impact_bps` (number): 无描述
+- `execution_lag` (integer): 无描述
 - `max_holding_days` (unknown): 无描述
 
 ### CompareStrategyConfig
@@ -375,6 +378,7 @@
 - `industryVolatilitySource` (string): 行业波动率来源: historical_index/stock_dispersion/amplitude_proxy/turnover_rate_proxy/change_proxy/unavailable
 - `netInflowRatio` (number): 主力净流入占比
 - `leadingStock` (unknown): 领涨股
+- `leadingStockSymbol` (unknown): 领涨股代码
 - `sizeSource` (string): 热力图尺寸口径: live/snapshot/proxy/estimated，与 marketCapSource 类别保持一致
 - `marketCapSource` (string): 行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*
 - `marketCapSnapshotAgeHours` (unknown): 快照市值距今小时数，仅 snapshot_* 来源时存在
@@ -423,6 +427,22 @@
 - `max_value` (number): 最大值
 - `min_value` (number): 最小值
 - `update_time` (string): 更新时间
+
+### IndustryBootstrapResponse
+
+行业页首屏 bootstrap 响应
+
+**字段: **
+
+- `days` (integer): 热力图与默认热度排序使用的周期
+- `ranking_top_n` (integer): 预热的排行榜条数
+- `ranking_type` (string): 预热排行榜类型
+- `ranking_sort_by` (string): 预热排行榜排序字段
+- `ranking_order` (string): 预热排行榜排序方向
+- `heatmap` (unknown): 热力图首屏数据
+- `hot_industries` (array): 预热后的行业排行榜
+- `leaders` (unknown): 龙头股双榜单
+- `errors` (object): 非阻断预热错误
 
 ### IndustryPreferencesResponse
 
@@ -525,6 +545,16 @@
 - `note` (unknown): 降级或补充说明
 - `update_time` (string): 更新时间
 
+### LeaderBoardsResponse
+
+龙头股双榜单响应
+
+**字段: **
+
+- `core` (array): 核心资产榜单
+- `hot` (array): 热点先锋榜单
+- `errors` (object): 部分榜单失败时的错误提示
+
 ### LeaderDetailResponse
 
 龙头股详细信息响应
@@ -539,6 +569,8 @@
 - `raw_data` (object): 原始数据
 - `technical_analysis` (object): 技术分析
 - `price_data` (array): 价格数据
+- `degraded` (boolean): 是否为降级详情
+- `note` (unknown): 降级或回退说明
 
 ### LeaderStockResponse
 
@@ -597,6 +629,7 @@
 - `impact_reference_notional` (number): 无描述
 - `impact_coefficient` (number): 无描述
 - `permanent_impact_bps` (number): 无描述
+- `execution_lag` (integer): 无描述
 - `max_holding_days` (unknown): 无描述
 - `scenarios` (unknown): 无描述
 - `sample_trade_values` (array): 无描述
@@ -631,6 +664,7 @@
 - `impact_reference_notional` (number): 无描述
 - `impact_coefficient` (number): 无描述
 - `permanent_impact_bps` (number): 无描述
+- `execution_lag` (integer): 无描述
 - `max_holding_days` (unknown): 无描述
 - `lookback_days` (integer): 无描述
 - `trend_threshold` (number): 无描述
@@ -654,6 +688,7 @@
 - `impact_reference_notional` (number): 无描述
 - `impact_coefficient` (number): 无描述
 - `permanent_impact_bps` (number): 无描述
+- `execution_lag` (integer): 无描述
 - `max_holding_days` (unknown): 无描述
 - `simulations` (integer): 无描述
 - `horizon_days` (unknown): 无描述
@@ -678,6 +713,7 @@
 - `impact_reference_notional` (number): 无描述
 - `impact_coefficient` (number): 无描述
 - `permanent_impact_bps` (number): 无描述
+- `execution_lag` (integer): 无描述
 - `max_holding_days` (unknown): 无描述
 - `intervals` (array): 无描述
 
@@ -779,6 +815,7 @@
 - `impact_reference_notional` (number): 无描述
 - `impact_coefficient` (number): 无描述
 - `permanent_impact_bps` (number): 无描述
+- `execution_lag` (integer): 无描述
 - `min_trade_value` (number): 无描述
 - `min_rebalance_weight_delta` (number): 无描述
 - `max_turnover_per_rebalance` (unknown): 无描述
@@ -886,6 +923,7 @@
 - `impact_reference_notional` (number): 无描述
 - `impact_coefficient` (number): 无描述
 - `permanent_impact_bps` (number): 无描述
+- `execution_lag` (integer): 无描述
 - `max_holding_days` (unknown): 无描述
 - `baseline_strategy` (unknown): 无描述
 - `bootstrap_samples` (integer): 无描述
@@ -1019,6 +1057,7 @@
 - `impact_reference_notional` (number): 无描述
 - `impact_coefficient` (number): 无描述
 - `permanent_impact_bps` (number): 无描述
+- `execution_lag` (integer): 无描述
 - `max_holding_days` (unknown): 无描述
 - `train_period` (integer): 无描述
 - `test_period` (integer): 无描述
