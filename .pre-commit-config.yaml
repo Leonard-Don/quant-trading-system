@@ -1,0 +1,63 @@
+# Pre-commit hooks
+# Install: `pre-commit install` (already declared in requirements-dev.txt)
+# Run on all files: `pre-commit run --all-files`
+#
+# Mypy is intentionally stage=manual — run via `pre-commit run mypy --all-files`
+# rather than on every commit, since the codebase is not yet fully typed.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(docs/|frontend/|.*\.md$)
+      - id: end-of-file-fixer
+        exclude: ^(docs/|frontend/|.*\.snap$|.*\.json$)
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.10
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        language_version: python3
+        # ruff-format already handles formatting; keep black available but
+        # only run when explicitly requested (skip in pre-commit chain).
+        stages: [manual]
+
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.0
+    hooks:
+      - id: bandit
+        args: [-c, pyproject.toml, -ll]
+        additional_dependencies: ["bandit[toml]"]
+        exclude: ^tests/
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        stages: [manual]
+        additional_dependencies:
+          - pydantic>=2.9
+          - types-requests
+          - types-python-dateutil
+        exclude: ^(tests/|scripts/|frontend/|docs/)
+
+ci:
+  autofix_commit_msg: "style: pre-commit auto-fixes"
+  autoupdate_commit_msg: "chore(pre-commit): autoupdate"
