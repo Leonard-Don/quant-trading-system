@@ -106,9 +106,90 @@ server {
 }
 ```
 
-## Docker 支持
+## Docker 一键部署(全栈)
 
-当前仓库已提供本地研究环境专用的基础设施编排文件 [`docker-compose.quant-infra.yml`](../docker-compose.quant-infra.yml)，用于一键启动：
+仓库根目录的 [`docker-compose.yml`](../docker-compose.yml) 提供 **TimescaleDB + Redis + Backend + Frontend** 四个 service 的一键部署能力,适用于本地完整体验和最小化生产部署。
+
+### 镜像构成
+
+| 服务 | 镜像来源 | 端口 |
+|------|---------|------|
+| `timescaledb` | `timescale/timescaledb:latest-pg16` | `5432` |
+| `redis` | `redis:7-alpine` | `6379` |
+| `backend` | 仓内 [`Dockerfile.backend`](../Dockerfile.backend) 多阶段构建,Python 3.13-slim,non-root user | `8000` |
+| `frontend` | 仓内 [`Dockerfile.frontend`](../Dockerfile.frontend) (node:22-alpine 构建 → nginx:1.27-alpine 提供静态产物 + `/api` 反向代理) | `3000 → 80` |
+
+### 启动
+
+```bash
+# 1. 准备 .env(必须设置真实 AUTH_SECRET)
+cp .env.example .env
+sed -i.bak 's/AUTH_SECRET=.*/AUTH_SECRET="please-replace-with-32-byte-random"/' .env
+
+# 2. 一次性构建并启动
+docker compose up -d --build
+
+# 3. 跟踪日志
+docker compose logs -f backend frontend
+
+# 4. 健康检查
+curl http://localhost:8000/health
+curl http://localhost:3000/healthz
+```
+
+### 镜像版本固定
+
+`docker-compose.yml` 顶部支持以下变量(在 `.env` 中设置):
+
+| 变量 | 默认值 | 用途 |
+|------|--------|------|
+| `IMAGE_TAG` | `dev` | 给 backend / frontend 镜像打 tag |
+| `TIMESCALE_TAG` | `latest-pg16` | 升级前固定到具体版本 |
+| `REDIS_TAG` | `7-alpine` | 同上 |
+| `PYTHON_VERSION` | `3.13` | 通过 `--build-arg` 传给 `Dockerfile.backend` |
+| `NODE_VERSION` | `22` | 同上,传给 `Dockerfile.frontend` |
+
+### 数据持久化
+
+四个命名卷:`timescale_data` / `redis_data` / `backend_logs` / `backend_cache` / `backend_data`。
+
+```bash
+# 备份 TimescaleDB
+docker compose exec timescaledb pg_dump -U quant quant_research > backup-$(date +%F).sql
+
+# 完整下线 + 数据卷一并清除(危险)
+docker compose down -v
+```
+
+### 反向代理建议
+
+`Dockerfile.frontend` 已经把 `/api` 和 `/ws` 在 nginx 内部代理到 backend,所以前端容器自带"网关"。如要部署到公网域名,只需把外层反向代理(traefik / cloudflared / 自建 nginx)指向前端容器的 `80` 端口,即可同时拿到静态资源 + API + WebSocket。
+
+如果使用 Traefik,可通过 labels 自动暴露:
+
+```yaml
+frontend:
+  labels:
+    - traefik.enable=true
+    - traefik.http.routers.quant.rule=Host(`quant.example.com`)
+    - traefik.http.routers.quant.entrypoints=websecure
+    - traefik.http.routers.quant.tls.certresolver=letsencrypt
+```
+
+### 单独启动基础设施(开发模式)
+
+如果仍想在宿主机直接 `python backend/main.py + npm start` 调试,只跑 infra:
+
+```bash
+# 用 infra-only 编排
+docker compose -f docker-compose.quant-infra.yml up -d
+```
+
+---
+
+## (旧)仅基础设施部署
+
+当前仓库还保留独立的 [`docker-compose.quant-infra.yml`](../docker-compose.quant-infra.yml) 用于一键启动:
 
 - `PostgreSQL + TimescaleDB`
 - `Redis`
