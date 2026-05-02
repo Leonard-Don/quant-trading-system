@@ -57,6 +57,7 @@ beforeAll(() => {
 
 afterEach(() => {
   jest.clearAllMocks();
+  window.localStorage.clear();
   window.history.replaceState(null, '', '/');
 });
 
@@ -121,6 +122,17 @@ describe('ResultsDisplay', () => {
             risk_manager: null,
             stop_loss_pct: null,
             take_profit_pct: null,
+            execution_lag: 1,
+            fixed_commission: 2,
+            min_commission: 5,
+            market_impact_bps: 8,
+            market_impact_model: 'linear',
+          },
+          execution_costs: {
+            total_notional: 500,
+            estimated_total_slippage_cost: 1.5,
+            estimated_market_impact_cost: 0.8,
+            average_market_impact_rate: 0.0008,
           },
           trades: [
             {
@@ -148,6 +160,9 @@ describe('ResultsDisplay', () => {
     expect(screen.getByText(/首日建仓后持续持有到回测结束/)).toBeInTheDocument();
     expect(screen.getByText(/执行诊断/)).toBeInTheDocument();
     expect(screen.getByText('目标仓位')).toBeInTheDocument();
+    expect(screen.getByText('T+1 K线')).toBeInTheDocument();
+    expect(screen.getByText('linear · 8.0bp')).toBeInTheDocument();
+    expect(screen.getByText('$0.80')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /查看历史记录/ }));
     expect(onOpenHistoryRecord).toHaveBeenCalledWith('bt_123');
     fireEvent.click(screen.getByRole('button', { name: /继续做高级实验/ }));
@@ -161,6 +176,8 @@ describe('ResultsDisplay', () => {
         strategy: 'buy_and_hold',
         start_date: '2024-01-01',
         end_date: '2024-03-31',
+        execution_lag: 1,
+        market_impact_bps: 8,
       }));
       expect(screen.getByText(/最适合的市场状态/)).toBeInTheDocument();
       expect(screen.getAllByText(/上涨趋势/).length).toBeGreaterThan(0);
@@ -170,7 +187,7 @@ describe('ResultsDisplay', () => {
 
     await waitFor(() => {
       expect(screen.getByText('买入')).toBeInTheDocument();
-      expect(screen.getByText('$500.00')).toBeInTheDocument();
+      expect(screen.getAllByText('$500.00').length).toBeGreaterThan(0);
     });
   }, 10000);
 
@@ -221,6 +238,64 @@ describe('ResultsDisplay', () => {
     expect(screen.getAllByText('这次回测没有形成有效成交结果').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/20 根K线/).length).toBeGreaterThan(0);
     expect(screen.getByText(/排查建议 1/)).toBeInTheDocument();
+  });
+
+  test('saves a research snapshot with note and opens its history record', async () => {
+    const onOpenHistoryRecord = jest.fn();
+    render(
+      <ResultsDisplay
+        onOpenHistoryRecord={onOpenHistoryRecord}
+        results={{
+          symbol: 'MSFT',
+          strategy: 'moving_average',
+          total_return: 0.12,
+          annualized_return: 0.18,
+          max_drawdown: -0.04,
+          sharpe_ratio: 1.6,
+          final_value: 11200,
+          num_trades: 2,
+          history_record_id: 'bt_msft_1',
+          trades: [
+            {
+              date: '2024-01-01',
+              type: 'BUY',
+              quantity: 5,
+              price: 100,
+              value: 500,
+            },
+          ],
+          portfolio_history: [
+            { date: '2024-01-01', total: 10000 },
+            { date: '2024-02-01', total: 11200 },
+          ],
+          execution_diagnostics: {
+            resolved_signal_mode: 'event',
+            execution_lag: 1,
+            market_impact_bps: 0,
+            market_impact_model: 'constant',
+          },
+        }}
+      />
+    );
+
+    fireEvent.change(screen.getByPlaceholderText('写下这次结果的判断、下一步验证或需要复核的数据源'), {
+      target: { value: '趋势延续，下一步做参数扰动' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /保存快照/ }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/趋势延续/)).toBeInTheDocument();
+    });
+
+    const snapshots = JSON.parse(window.localStorage.getItem('backtest_research_snapshots'));
+    expect(snapshots[0]).toMatchObject({
+      symbol: 'MSFT',
+      history_record_id: 'bt_msft_1',
+      note: '趋势延续，下一步做参数扰动',
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '打开历史' }));
+    expect(onOpenHistoryRecord).toHaveBeenCalledWith('bt_msft_1');
   });
 });
 

@@ -316,6 +316,11 @@ export const buildMainBacktestDraftFromTemplate = (template) => {
   const initialCapital = Number(template.walk?.initial_capital ?? template.batch?.initial_capital ?? 10000);
   const commission = Number(template.walk?.commission ?? template.batch?.commission ?? 0.1);
   const slippage = Number(template.walk?.slippage ?? template.batch?.slippage ?? 0.1);
+  const fixedCommission = Number(template.walk?.fixed_commission ?? template.batch?.fixed_commission ?? 0);
+  const minCommission = Number(template.walk?.min_commission ?? template.batch?.min_commission ?? 0);
+  const marketImpactBps = Number(template.walk?.market_impact_bps ?? template.batch?.market_impact_bps ?? 0);
+  const marketImpactModel = String(template.walk?.market_impact_model ?? template.batch?.market_impact_model ?? 'constant');
+  const executionLag = Number(template.walk?.execution_lag ?? template.batch?.execution_lag ?? 1);
   const parameters = template.walk?.strategy
     ? (template.walk?.strategy_parameters || {})
     : (template.batch?.strategy_parameters?.[strategy] || {});
@@ -331,6 +336,11 @@ export const buildMainBacktestDraftFromTemplate = (template) => {
     initial_capital: initialCapital,
     commission,
     slippage,
+    fixed_commission: fixedCommission,
+    min_commission: minCommission,
+    market_impact_bps: marketImpactBps,
+    market_impact_model: marketImpactModel,
+    execution_lag: executionLag,
     parameters,
     source: 'advanced_template',
     template_name: template.name,

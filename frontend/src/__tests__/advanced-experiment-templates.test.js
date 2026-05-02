@@ -253,6 +253,11 @@ describe('advanced experiment templates', () => {
         initial_capital: 15000,
         commission: 0.15,
         slippage: 0.2,
+        fixed_commission: 2,
+        min_commission: 5,
+        market_impact_bps: 8,
+        market_impact_model: 'linear',
+        execution_lag: 2,
       },
       walkValues: {
         symbol: 'aapl',
@@ -277,6 +282,11 @@ describe('advanced experiment templates', () => {
       initial_capital: 15000,
       commission: 0.15,
       slippage: 0.2,
+      fixed_commission: 2,
+      min_commission: 5,
+      market_impact_bps: 8,
+      market_impact_model: 'linear',
+      execution_lag: 2,
       source: 'advanced_template',
     });
     expect(draft.parameters.fast_period).toBe(10);

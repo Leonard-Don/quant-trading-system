@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 import LeaderStockPanel, { __resetLeaderBoardClientCacheForTests } from '../components/LeaderStockPanel';
@@ -56,6 +56,7 @@ jest.mock('@ant-design/icons', () => {
   return {
     CrownOutlined: MockIcon,
     ReloadOutlined: MockIcon,
+    BarChartOutlined: MockIcon,
   };
 });
 
@@ -243,5 +244,30 @@ describe('LeaderStockPanel', () => {
       expect(screen.getByText('宁德时代')).toBeInTheDocument();
       expect(screen.getByText('工业富联')).toBeInTheDocument();
     });
+  });
+
+  test('exposes a backtest handoff action for leader rows', async () => {
+    const handleBacktestStock = jest.fn();
+
+    render(
+      <LeaderStockPanel
+        topN={5}
+        topIndustries={5}
+        perIndustry={3}
+        onBacktestStock={handleBacktestStock}
+        bootstrappedOverview={{
+          core: [buildLeaderRecord({ name: '回测核心', symbol: '600111' })],
+          hot: [],
+          errors: {},
+        }}
+      />
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: '回测' }));
+
+    expect(handleBacktestStock).toHaveBeenCalledWith(expect.objectContaining({
+      symbol: '600111',
+      name: '回测核心',
+    }));
   });
 });

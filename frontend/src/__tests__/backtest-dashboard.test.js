@@ -11,6 +11,7 @@ jest.mock('../components/CrossMarketBacktestPanel', () => () => <div>CrossMarket
 jest.mock('../components/BacktestHistory', () => () => <div>BacktestHistory</div>);
 jest.mock('../components/StrategyComparison', () => () => <div>StrategyComparison</div>);
 jest.mock('../components/PortfolioOptimizer', () => () => <div>PortfolioOptimizer</div>);
+jest.mock('../components/BacktestDataHealthPanel', () => () => <div>BacktestDataHealthPanel</div>);
 jest.mock('../components/AdvancedBacktestLab', () => ({ onImportTemplateToMainBacktest }) => (
   <div>
     <div>AdvancedBacktestLab</div>

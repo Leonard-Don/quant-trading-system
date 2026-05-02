@@ -4,6 +4,11 @@ const KNOWN_CONSOLE_NOISE_PATTERNS = [
     label: 'Ant Design message context warning',
     pattern: /Warning:\s*\[antd: message\]\s*Static function can not consume context like dynamic theme/i,
   },
+  {
+    key: 'rc-field-form-circular-reference',
+    label: 'rc-field-form circular reference warning',
+    pattern: /Warning:\s*Warning:\s*There may be circular references/i,
+  },
 ];
 
 const classifyConsoleMessage = (message = '') => {

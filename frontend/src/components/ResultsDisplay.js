@@ -11,6 +11,7 @@ import {
   Tag,
   Dropdown,
   Alert,
+  Input,
 } from 'antd';
 import {
   CopyOutlined,
@@ -27,7 +28,8 @@ import {
   FallOutlined,
   TransactionOutlined,
   ClockCircleOutlined,
-  DeploymentUnitOutlined
+  DeploymentUnitOutlined,
+  SaveOutlined,
 } from '@ant-design/icons';
 import { downloadBacktestReport, runMarketRegimeBacktest } from '../services/api';
 import { getStrategyDetails, getStrategyName } from '../constants/strategies';
@@ -35,6 +37,11 @@ import { formatCurrency, formatPercentage, getValueColor } from '../utils/format
 import { normalizeBacktestResult } from '../utils/backtest';
 import { buildBacktestActionPosture, buildSignalExplanation } from '../utils/backtestResearch';
 import { buildMarketRegimeInsight } from '../utils/advancedBacktestLab';
+import {
+  buildBacktestResearchSnapshot,
+  loadBacktestResearchSnapshots,
+  saveBacktestResearchSnapshot,
+} from '../utils/backtestWorkspace';
 import { useSafeMessageApi } from '../utils/messageApi';
 import PerformanceChart from './PerformanceChart';
 import DrawdownChart from './DrawdownChart';
@@ -44,6 +51,7 @@ import ReturnHistogram from './ReturnHistogram';
 
 const NO_TRADE_EPSILON = 1e-6;
 const EMPTY_PORTFOLIO_HISTORY = [];
+const { TextArea } = Input;
 
 const buildNoTradeGuideItems = (result = {}, diagnostics = {}) => {
   const strategyName = result.strategy ? getStrategyName(result.strategy) : '当前策略';
@@ -84,6 +92,8 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
   const [activeTab, setActiveTab] = useState('overview');
   const [marketRegimeLoading, setMarketRegimeLoading] = useState(false);
   const [marketRegimeResult, setMarketRegimeResult] = useState(null);
+  const [snapshotNote, setSnapshotNote] = useState('');
+  const [researchSnapshots, setResearchSnapshots] = useState(() => loadBacktestResearchSnapshots());
   const normalizedResults = useMemo(() => normalizeBacktestResult(results), [results]);
   const strategyDetails = useMemo(
     () => getStrategyDetails(normalizedResults.strategy),
@@ -114,9 +124,12 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
 
     return [
       { label: '执行语义', value: signalModeLabel },
+      { label: '信号延迟', value: `T+${executionDiagnostics.execution_lag ?? 0} K线` },
       { label: '小数份额', value: executionDiagnostics.allow_fractional_shares ? '已开启' : '关闭' },
       { label: '仓位管理', value: executionDiagnostics.position_sizer || '默认仓位器' },
       { label: '风控组件', value: executionDiagnostics.risk_manager || '未启用' },
+      { label: '固定 / 最低手续费', value: `${formatCurrency(executionDiagnostics.fixed_commission || 0)} / ${formatCurrency(executionDiagnostics.min_commission || 0)}` },
+      { label: '冲击模型', value: `${executionDiagnostics.market_impact_model || 'constant'} · ${Number(executionDiagnostics.market_impact_bps || 0).toFixed(1)}bp` },
       {
         label: '止损 / 止盈',
         value: executionDiagnostics.stop_loss_pct || executionDiagnostics.take_profit_pct
@@ -125,6 +138,18 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       },
     ];
   }, [executionDiagnostics]);
+  const executionCostItems = useMemo(() => {
+    const costs = normalizedResults.execution_costs || {};
+    if (!costs || !Object.keys(costs).length) {
+      return [];
+    }
+    return [
+      { label: '成交名义额', value: formatCurrency(costs.total_notional || 0) },
+      { label: '滑点成本估算', value: formatCurrency(costs.estimated_total_slippage_cost || 0) },
+      { label: '冲击成本估算', value: formatCurrency(costs.estimated_market_impact_cost || 0) },
+      { label: '平均冲击率', value: `${(Number(costs.average_market_impact_rate || 0) * 10000).toFixed(2)}bp` },
+    ];
+  }, [normalizedResults.execution_costs]);
   const marketRegimeInsight = useMemo(
     () => buildMarketRegimeInsight(marketRegimeResult),
     [marketRegimeResult]
@@ -195,12 +220,29 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
   useEffect(() => {
     setMarketRegimeResult(null);
     setMarketRegimeLoading(false);
+    setSnapshotNote('');
   }, [
     normalizedResults.symbol,
     normalizedResults.strategy,
     normalizedResults.start_date,
     normalizedResults.end_date,
   ]);
+
+  const saveResearchSnapshot = () => {
+    const snapshot = buildBacktestResearchSnapshot({
+      result: normalizedResults,
+      note: snapshotNote,
+      marketRegimeResult,
+    });
+    const savedSnapshot = saveBacktestResearchSnapshot(snapshot);
+    if (!savedSnapshot) {
+      message.error('研究快照保存失败');
+      return;
+    }
+    setResearchSnapshots(loadBacktestResearchSnapshots());
+    setSnapshotNote('');
+    message.success('研究快照已保存');
+  };
   const primaryMetrics = [
     {
       key: 'total_return',
@@ -345,6 +387,11 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
         initial_capital: normalizedResults.initial_capital,
         commission: normalizedResults.commission,
         slippage: normalizedResults.slippage,
+        fixed_commission: executionDiagnostics.fixed_commission || 0,
+        min_commission: executionDiagnostics.min_commission || 0,
+        market_impact_bps: executionDiagnostics.market_impact_bps || 0,
+        market_impact_model: executionDiagnostics.market_impact_model || 'constant',
+        execution_lag: executionDiagnostics.execution_lag ?? 1,
       });
 
       if (!response?.success) {
@@ -734,8 +781,70 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
                   </div>
                 ))}
               </div>
+              {executionCostItems.length ? (
+                <div className="results-note-grid" style={{ marginTop: 12 }}>
+                  {executionCostItems.map((item) => (
+                    <div key={item.label} className="summary-strip__item">
+                      <span className="summary-strip__label">{item.label}</span>
+                      <span className="summary-strip__value">{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : null}
+
+          <div className="workspace-section">
+            <div className="workspace-section__header">
+              <div>
+                <div className="workspace-section__title">研究快照</div>
+                <div className="workspace-section__description">把这次结果、执行假设和复盘备注存成可回看的研究节点。</div>
+              </div>
+              <Button
+                size="small"
+                icon={<SaveOutlined />}
+                onClick={saveResearchSnapshot}
+              >
+                保存快照
+              </Button>
+            </div>
+            <TextArea
+              value={snapshotNote}
+              onChange={(event) => setSnapshotNote(event.target.value)}
+              placeholder="写下这次结果的判断、下一步验证或需要复核的数据源"
+              rows={2}
+              maxLength={240}
+              showCount
+            />
+            <div className="results-note-grid" style={{ marginTop: 12 }}>
+              {researchSnapshots.slice(0, 3).map((snapshot) => (
+                <div key={snapshot.id} className="summary-strip__item">
+                  <span className="summary-strip__label">
+                    {`${snapshot.symbol || '--'} · ${getStrategyName(snapshot.strategy)}`}
+                  </span>
+                  <span className="summary-strip__value" style={{ whiteSpace: 'normal' }}>
+                    {`${formatPercentage(snapshot.metrics?.total_return || 0)} · 夏普 ${Number(snapshot.metrics?.sharpe_ratio || 0).toFixed(2)} · ${snapshot.note || '未填写备注'}`}
+                  </span>
+                  {snapshot.history_record_id ? (
+                    <Button
+                      size="small"
+                      type="link"
+                      style={{ padding: 0, height: 'auto', alignSelf: 'flex-start' }}
+                      onClick={() => onOpenHistoryRecord?.(snapshot.history_record_id)}
+                    >
+                      打开历史
+                    </Button>
+                  ) : null}
+                </div>
+              ))}
+              {researchSnapshots.length === 0 ? (
+                <div className="summary-strip__item">
+                  <span className="summary-strip__label">暂无快照</span>
+                  <span className="summary-strip__value">保存后会显示最近 3 条复盘记录。</span>
+                </div>
+              ) : null}
+            </div>
+          </div>
 
           <div className="workspace-section">
             <div className="workspace-section__header">

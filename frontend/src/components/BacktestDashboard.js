@@ -4,6 +4,7 @@ import { BarChartOutlined, HistoryOutlined, ExperimentOutlined, PieChartOutlined
 import StrategyForm from './StrategyForm';
 import ResultsDisplay from './ResultsDisplay';
 import CrossMarketBacktestPanel from './CrossMarketBacktestPanel';
+import BacktestDataHealthPanel from './BacktestDataHealthPanel';
 import { useAppUrlState } from '../hooks/useAppUrlState';
 import { buildAppUrl, navigateToAppUrl, sanitizeParamsForView } from '../utils/researchContext';
 import { saveAdvancedExperimentIntent } from '../utils/backtestWorkspace';
@@ -174,6 +175,9 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
 
     const renderMainBacktestWorkspace = () => (
         <div className="workspace-tab-view backtest-main-stage">
+            <div className="backtest-main-stage__health">
+                <BacktestDataHealthPanel />
+            </div>
             <div className="backtest-main-stage__config">
                 <StrategyForm
                     strategies={strategies}
