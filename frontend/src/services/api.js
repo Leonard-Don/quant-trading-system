@@ -3,15 +3,40 @@ import axios from 'axios';
 const DEFAULT_LOCAL_API_BASE_URL = 'http://127.0.0.1:8000';
 const API_BASE_URL = process.env.REACT_APP_API_URL || DEFAULT_LOCAL_API_BASE_URL;
 const API_TIMEOUT = parseInt(process.env.REACT_APP_API_TIMEOUT) || 300000;
-const API_AUTH_TOKEN_KEY = 'quant_lab_auth_token';
-const API_REFRESH_TOKEN_KEY = 'quant_lab_refresh_token';
+const API_AUTH_TOKEN_KEY = 'quant_research_auth_token';
+const API_REFRESH_TOKEN_KEY = 'quant_research_refresh_token';
+const LEGACY_API_AUTH_TOKEN_KEY = 'quant_lab_auth_token';
+const LEGACY_API_REFRESH_TOKEN_KEY = 'quant_lab_refresh_token';
 
 let authTokenCache = '';
 let refreshTokenCache = '';
 let refreshInFlight = null;
+
+const readStoredToken = (storageKey, legacyStorageKey) => {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  const currentToken = window.localStorage.getItem(storageKey) || '';
+  if (currentToken) {
+    return currentToken;
+  }
+  const legacyToken = window.localStorage.getItem(legacyStorageKey) || '';
+  if (legacyToken) {
+    window.localStorage.setItem(storageKey, legacyToken);
+    window.localStorage.removeItem(legacyStorageKey);
+  }
+  return legacyToken;
+};
+
+const removeStoredToken = (...storageKeys) => {
+  if (typeof window !== 'undefined') {
+    storageKeys.forEach((storageKey) => window.localStorage.removeItem(storageKey));
+  }
+};
+
 if (typeof window !== 'undefined') {
-  authTokenCache = window.localStorage.getItem(API_AUTH_TOKEN_KEY) || '';
-  refreshTokenCache = window.localStorage.getItem(API_REFRESH_TOKEN_KEY) || '';
+  authTokenCache = readStoredToken(API_AUTH_TOKEN_KEY, LEGACY_API_AUTH_TOKEN_KEY);
+  refreshTokenCache = readStoredToken(API_REFRESH_TOKEN_KEY, LEGACY_API_REFRESH_TOKEN_KEY);
 }
 
 export const getApiAuthToken = () => authTokenCache;
@@ -22,8 +47,9 @@ export const setApiAuthToken = (token) => {
   if (typeof window !== 'undefined') {
     if (authTokenCache) {
       window.localStorage.setItem(API_AUTH_TOKEN_KEY, authTokenCache);
+      window.localStorage.removeItem(LEGACY_API_AUTH_TOKEN_KEY);
     } else {
-      window.localStorage.removeItem(API_AUTH_TOKEN_KEY);
+      removeStoredToken(API_AUTH_TOKEN_KEY, LEGACY_API_AUTH_TOKEN_KEY);
     }
   }
 };
@@ -33,8 +59,9 @@ export const setApiRefreshToken = (token) => {
   if (typeof window !== 'undefined') {
     if (refreshTokenCache) {
       window.localStorage.setItem(API_REFRESH_TOKEN_KEY, refreshTokenCache);
+      window.localStorage.removeItem(LEGACY_API_REFRESH_TOKEN_KEY);
     } else {
-      window.localStorage.removeItem(API_REFRESH_TOKEN_KEY);
+      removeStoredToken(API_REFRESH_TOKEN_KEY, LEGACY_API_REFRESH_TOKEN_KEY);
     }
   }
 };

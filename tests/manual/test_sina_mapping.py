@@ -1,5 +1,4 @@
 from src.data.providers.sina_provider import SinaFinanceProvider
-import pandas as pd
 
 p = SinaFinanceProvider()
 industries = p.get_industry_list()

@@ -3,8 +3,7 @@ TradeManager交易管理器单元测试
 """
 
 import pytest
-from unittest.mock import patch
-from src.trading.trade_manager import TradeManager, Trade, Position
+from src.trading.trade_manager import TradeManager
 
 
 class TestTradeManager:

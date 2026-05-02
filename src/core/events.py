@@ -3,12 +3,11 @@
 """
 
 import asyncio
-from typing import Any, Callable, Dict, List, Optional, Type
+from typing import Any, Callable, Dict, List, Optional
 from dataclasses import dataclass, field
 from datetime import datetime
 import logging
 from collections import defaultdict
-import weakref
 import threading
 from abc import ABC, abstractmethod
 

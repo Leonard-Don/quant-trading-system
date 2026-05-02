@@ -6,8 +6,7 @@
 
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from typing import Dict, List, Any
 import logging
 
 from ..strategy.strategies import BaseStrategy
@@ -287,7 +286,7 @@ class SentimentAnalysisIntegrator:
                     if date not in sentiment_by_date:
                         sentiment_by_date[date] = []
                     sentiment_by_date[date].append(score)
-            except:
+            except Exception:
                 continue
         
         # 计算每日平均情绪

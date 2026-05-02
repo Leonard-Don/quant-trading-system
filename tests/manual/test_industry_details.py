@@ -1,9 +1,7 @@
 import sys
 import os
-import pandas as pd
 import akshare as ak
 import time
-from datetime import datetime
 
 # Add project root to sys.path
 sys.path.append(os.getcwd())
@@ -30,7 +28,7 @@ def test_leader_stocks_cold_start():
     from src.analytics.leader_stock_scorer import LeaderStockScorer
     
     provider = SinaIndustryAdapter()
-    scorer = LeaderStockScorer(provider)
+    LeaderStockScorer(provider)
     
     start_time = time.time()
     # Mocking what get_hot_leader_stocks does

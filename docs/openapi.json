@@ -1084,69 +1084,6 @@
         "deprecated": true
       }
     },
-    "/system/alerts/summary": {
-      "get": {
-        "tags": [
-          "System"
-        ],
-        "summary": "获取告警摘要",
-        "description": "获取告警摘要",
-        "operationId": "get_alert_summary_system_alerts_summary_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        },
-        "deprecated": true
-      }
-    },
-    "/system/alerts/{alert_index}/resolve": {
-      "post": {
-        "tags": [
-          "System"
-        ],
-        "summary": "解决告警",
-        "description": "解决告警",
-        "operationId": "resolve_alert_system_alerts__alert_index__resolve_post",
-        "deprecated": true,
-        "parameters": [
-          {
-            "name": "alert_index",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Alert Index"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/system/dependencies": {
       "get": {
         "tags": [
@@ -3592,6 +3529,185 @@
                     "$ref": "#/components/schemas/LeaderStockResponse"
                   },
                   "title": "Response Get Leader Stocks Industry Leaders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/leaders/overview": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Leader Boards",
+        "description": "一次性返回核心资产与热点先锋榜单，减少前端冷启动的双请求成本。",
+        "operationId": "get_leader_boards_industry_leaders_overview_get",
+        "parameters": [
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "返回龙头股数量",
+              "default": 20,
+              "title": "Top N"
+            },
+            "description": "返回龙头股数量"
+          },
+          {
+            "name": "top_industries",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "从前N个热门行业中选取",
+              "default": 5,
+              "title": "Top Industries"
+            },
+            "description": "从前N个热门行业中选取"
+          },
+          {
+            "name": "per_industry",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "每个行业选取的龙头数量",
+              "default": 5,
+              "title": "Per Industry"
+            },
+            "description": "每个行业选取的龙头数量"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaderBoardsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/bootstrap": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Industry Bootstrap",
+        "operationId": "get_industry_bootstrap_industry_bootstrap_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "description": "热力图与默认热度排序使用的周期",
+              "default": 5,
+              "title": "Days"
+            },
+            "description": "热力图与默认热度排序使用的周期"
+          },
+          {
+            "name": "ranking_top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "预热排行榜条数",
+              "default": 50,
+              "title": "Ranking Top N"
+            },
+            "description": "预热排行榜条数"
+          },
+          {
+            "name": "leader_top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "预热龙头股总条数",
+              "default": 20,
+              "title": "Leader Top N"
+            },
+            "description": "预热龙头股总条数"
+          },
+          {
+            "name": "top_industries",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "龙头股从前N个热门行业中选取",
+              "default": 5,
+              "title": "Top Industries"
+            },
+            "description": "龙头股从前N个热门行业中选取"
+          },
+          {
+            "name": "per_industry",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "每个行业选取的龙头数量",
+              "default": 5,
+              "title": "Per Industry"
+            },
+            "description": "每个行业选取的龙头数量"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndustryBootstrapResponse"
                 }
               }
             }
@@ -6082,6 +6198,13 @@
             "title": "Permanent Impact Bps",
             "default": 0.0
           },
+          "execution_lag": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Execution Lag",
+            "default": 1
+          },
           "max_holding_days": {
             "anyOf": [
               {
@@ -6302,6 +6425,13 @@
             "type": "number",
             "title": "Permanent Impact Bps",
             "default": 0.0
+          },
+          "execution_lag": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Execution Lag",
+            "default": 1
           },
           "max_holding_days": {
             "anyOf": [
@@ -6568,6 +6698,11 @@
             "type": "number",
             "title": "Permanent Impact Bps",
             "default": 0.0
+          },
+          "execution_lag": {
+            "type": "integer",
+            "title": "Execution Lag",
+            "default": 1
           },
           "max_holding_days": {
             "anyOf": [
@@ -7643,6 +7778,18 @@
             "title": "Leadingstock",
             "description": "领涨股"
           },
+          "leadingStockSymbol": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leadingstocksymbol",
+            "description": "领涨股代码"
+          },
           "sizeSource": {
             "type": "string",
             "title": "Sizesource",
@@ -7870,6 +8017,70 @@
         ],
         "title": "HeatmapResponse",
         "description": "热力图响应"
+      },
+      "IndustryBootstrapResponse": {
+        "properties": {
+          "days": {
+            "type": "integer",
+            "title": "Days",
+            "description": "热力图与默认热度排序使用的周期"
+          },
+          "ranking_top_n": {
+            "type": "integer",
+            "title": "Ranking Top N",
+            "description": "预热的排行榜条数"
+          },
+          "ranking_type": {
+            "type": "string",
+            "title": "Ranking Type",
+            "description": "预热排行榜类型",
+            "default": "gainers"
+          },
+          "ranking_sort_by": {
+            "type": "string",
+            "title": "Ranking Sort By",
+            "description": "预热排行榜排序字段",
+            "default": "total_score"
+          },
+          "ranking_order": {
+            "type": "string",
+            "title": "Ranking Order",
+            "description": "预热排行榜排序方向",
+            "default": "desc"
+          },
+          "heatmap": {
+            "$ref": "#/components/schemas/HeatmapResponse",
+            "description": "热力图首屏数据"
+          },
+          "hot_industries": {
+            "items": {
+              "$ref": "#/components/schemas/IndustryRankResponse"
+            },
+            "type": "array",
+            "title": "Hot Industries",
+            "description": "预热后的行业排行榜"
+          },
+          "leaders": {
+            "$ref": "#/components/schemas/LeaderBoardsResponse",
+            "description": "龙头股双榜单"
+          },
+          "errors": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Errors",
+            "description": "非阻断预热错误"
+          }
+        },
+        "type": "object",
+        "required": [
+          "days",
+          "ranking_top_n",
+          "heatmap"
+        ],
+        "title": "IndustryBootstrapResponse",
+        "description": "行业页首屏 bootstrap 响应"
       },
       "IndustryPreferencesResponse": {
         "properties": {
@@ -8375,6 +8586,37 @@
         "title": "IndustryTrendResponse",
         "description": "行业趋势响应"
       },
+      "LeaderBoardsResponse": {
+        "properties": {
+          "core": {
+            "items": {
+              "$ref": "#/components/schemas/LeaderStockResponse"
+            },
+            "type": "array",
+            "title": "Core",
+            "description": "核心资产榜单"
+          },
+          "hot": {
+            "items": {
+              "$ref": "#/components/schemas/LeaderStockResponse"
+            },
+            "type": "array",
+            "title": "Hot",
+            "description": "热点先锋榜单"
+          },
+          "errors": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Errors",
+            "description": "部分榜单失败时的错误提示"
+          }
+        },
+        "type": "object",
+        "title": "LeaderBoardsResponse",
+        "description": "龙头股双榜单响应"
+      },
       "LeaderDetailResponse": {
         "properties": {
           "symbol": {
@@ -8428,6 +8670,24 @@
             "type": "array",
             "title": "Price Data",
             "description": "价格数据"
+          },
+          "degraded": {
+            "type": "boolean",
+            "title": "Degraded",
+            "description": "是否为降级详情",
+            "default": false
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "降级或回退说明"
           }
         },
         "type": "object",
@@ -8695,6 +8955,13 @@
             "title": "Permanent Impact Bps",
             "default": 0.0
           },
+          "execution_lag": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Execution Lag",
+            "default": 1
+          },
           "max_holding_days": {
             "anyOf": [
               {
@@ -8876,6 +9143,13 @@
             "title": "Permanent Impact Bps",
             "default": 0.0
           },
+          "execution_lag": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Execution Lag",
+            "default": 1
+          },
           "max_holding_days": {
             "anyOf": [
               {
@@ -8991,6 +9265,13 @@
             "type": "number",
             "title": "Permanent Impact Bps",
             "default": 0.0
+          },
+          "execution_lag": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Execution Lag",
+            "default": 1
           },
           "max_holding_days": {
             "anyOf": [
@@ -9125,6 +9406,13 @@
             "type": "number",
             "title": "Permanent Impact Bps",
             "default": 0.0
+          },
+          "execution_lag": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Execution Lag",
+            "default": 1
           },
           "max_holding_days": {
             "anyOf": [
@@ -9574,6 +9862,13 @@
             "title": "Permanent Impact Bps",
             "default": 0.0
           },
+          "execution_lag": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Execution Lag",
+            "default": 1
+          },
           "min_trade_value": {
             "type": "number",
             "title": "Min Trade Value",
@@ -10021,6 +10316,11 @@
             "type": "number",
             "title": "Permanent Impact Bps",
             "default": 0.0
+          },
+          "execution_lag": {
+            "type": "integer",
+            "title": "Execution Lag",
+            "default": 1
           },
           "max_holding_days": {
             "anyOf": [
@@ -10660,6 +10960,13 @@
             "type": "number",
             "title": "Permanent Impact Bps",
             "default": 0.0
+          },
+          "execution_lag": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Execution Lag",
+            "default": 1
           },
           "max_holding_days": {
             "anyOf": [

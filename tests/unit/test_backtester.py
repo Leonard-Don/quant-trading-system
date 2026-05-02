@@ -35,6 +35,7 @@ class TestBacktester:
         assert backtester.initial_capital == 10000
         assert backtester.commission == 0.001
         assert backtester.slippage == 0.001
+        assert backtester.execution_config.execution_lag == 1
 
     def test_backtest_execution(self, sample_data):
         """测试回测执行"""
@@ -147,9 +148,12 @@ class TestBacktester:
         data = pd.DataFrame({"close": [100, 110, 120, 130]}, index=dates)
         strategy = DummyStrategy([0, 1, 0, 0])
 
-        results = Backtester(initial_capital=1000, commission=0, slippage=0).run(
-            strategy, data
-        )
+        results = Backtester(
+            initial_capital=1000,
+            commission=0,
+            slippage=0,
+            execution_lag=0,
+        ).run(strategy, data)
 
         assert results["num_trades"] == 1
         assert results["total_completed_trades"] == 0
@@ -167,9 +171,12 @@ class TestBacktester:
         )
         strategy = DummyStrategy([0, 1, -1, 1, -1, 1, -1])
 
-        results = Backtester(initial_capital=10000, commission=0, slippage=0).run(
-            strategy, data
-        )
+        results = Backtester(
+            initial_capital=10000,
+            commission=0,
+            slippage=0,
+            execution_lag=0,
+        ).run(strategy, data)
 
         assert results["num_trades"] == 6
         assert results["total_completed_trades"] == 3
@@ -184,9 +191,12 @@ class TestBacktester:
         dates = pd.date_range("2024-01-01", periods=3, freq="D")
         data = pd.DataFrame({"close": [100, 110, 120]}, index=dates)
 
-        results = Backtester(initial_capital=1000, commission=0, slippage=0).run(
-            DummyStrategy([1, 0, 0]), data
-        )
+        results = Backtester(
+            initial_capital=1000,
+            commission=0,
+            slippage=0,
+            execution_lag=0,
+        ).run(DummyStrategy([1, 0, 0]), data)
 
         portfolio = results["portfolio"]
         assert results["num_trades"] == 1
@@ -194,6 +204,23 @@ class TestBacktester:
         assert portfolio["cash"].iloc[0] == 0
         assert portfolio["holdings"].iloc[0] == 1000
         assert portfolio["total"].iloc[0] == 1000
+
+    def test_default_execution_lag_buys_on_next_bar(self):
+        """默认执行延迟应把首根K线买入信号推迟到下一根K线成交。"""
+        dates = pd.date_range("2024-01-01", periods=3, freq="D")
+        data = pd.DataFrame({"close": [100, 110, 120]}, index=dates)
+
+        results = Backtester(initial_capital=1000, commission=0, slippage=0).run(
+            DummyStrategy([1, 0, 0]), data
+        )
+
+        portfolio = results["portfolio"]
+        assert results["num_trades"] == 1
+        assert results["trades"][0]["date"] == dates[1]
+        assert portfolio["position"].iloc[0] == 0
+        assert portfolio["position"].iloc[1] == 9
+        assert portfolio["cash"].iloc[1] == 10
+        assert results["execution_diagnostics"]["execution_lag"] == 1
 
     def test_sell_signal_on_first_bar_without_position_does_not_trade(self):
         """首根K线卖出信号在空仓时不应错误成交"""
@@ -212,9 +239,12 @@ class TestBacktester:
         dates = pd.date_range("2024-01-01", periods=4, freq="D")
         data = pd.DataFrame({"close": [100, 105, 110, 120]}, index=dates)
 
-        results = Backtester(initial_capital=1000, commission=0, slippage=0).run(
-            BuyAndHold(), data
-        )
+        results = Backtester(
+            initial_capital=1000,
+            commission=0,
+            slippage=0,
+            execution_lag=0,
+        ).run(BuyAndHold(), data)
 
         assert results["num_trades"] == 1
         assert results["total_return"] == pytest.approx(0.2)
@@ -225,9 +255,12 @@ class TestBacktester:
         dates = pd.date_range("2024-01-01", periods=5, freq="D")
         data = pd.DataFrame({"close": [100, 110, 120, 130, np.nan]}, index=dates)
 
-        results = Backtester(initial_capital=1000, commission=0, slippage=0).run(
-            BuyAndHold(), data
-        )
+        results = Backtester(
+            initial_capital=1000,
+            commission=0,
+            slippage=0,
+            execution_lag=0,
+        ).run(BuyAndHold(), data)
 
         assert results["num_trades"] == 1
         assert results["final_value"] == pytest.approx(1300)
@@ -242,6 +275,7 @@ class TestBacktester:
             initial_capital=1000,
             commission=0,
             slippage=0,
+            execution_lag=0,
         ).run(DummyTargetStrategy([0.5, 1.0, 0.5, 0.0]), data)
 
         portfolio = results["portfolio"]
@@ -263,6 +297,7 @@ class TestBacktester:
             commission=0,
             slippage=0,
             allow_fractional_shares=True,
+            execution_lag=0,
         ).run(DummyTargetStrategy([0.25, 0.25, 0.0]), data)
 
         portfolio = results["portfolio"]
@@ -289,3 +324,4 @@ class TestBacktester:
         assert diagnostics["resolved_signal_mode"] == "target"
         assert diagnostics["allow_fractional_shares"] is True
         assert diagnostics["position_sizer"] == "FixedFractionSizer"
+        assert diagnostics["execution_lag"] == 1

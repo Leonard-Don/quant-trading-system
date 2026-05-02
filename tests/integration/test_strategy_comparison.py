@@ -3,7 +3,6 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 import pandas as pd
 import numpy as np
-from datetime import datetime
 
 # Adjust path to import from backend
 import sys

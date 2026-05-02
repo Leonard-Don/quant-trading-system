@@ -5,7 +5,6 @@
 import pytest
 import pandas as pd
 import numpy as np
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock, patch, MagicMock
 import sys
@@ -624,11 +623,10 @@ class TestIndustryBacktester:
     def test_calculate_max_drawdown(self, backtester):
         """测试最大回撤计算"""
         # 测试模拟资金曲线
-        equity_values = [100, 110, 105, 120, 100, 130]
         # max_dd = backtester._calculate_max_drawdown(equity_values)
         
         # 最大回撤应该是从120跌到100，回撤约16.67%
-        expected_dd = (120 - 100) / 120
+        (120 - 100) / 120
         # assert max_dd == pytest.approx(expected_dd, rel=0.01)
     
     @pytest.mark.skip(reason="Legacy test method missing in newer implementation")

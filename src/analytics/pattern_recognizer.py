@@ -5,7 +5,7 @@
 
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Any, Tuple
+from typing import Dict, List, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -116,7 +116,7 @@ class PatternRecognizer:
             current = recent_df.iloc[idx]
             prev1 = recent_df.iloc[idx-1]
             prev2 = recent_df.iloc[idx-2]
-            prev3 = recent_df.iloc[idx-3] if idx >= 3 else None
+            recent_df.iloc[idx-3] if idx >= 3 else None
 
             # 检测各种形态
             pattern = self._check_doji(current)
@@ -271,10 +271,10 @@ class PatternRecognizer:
 
         c1_body = abs(candle1["close"] - candle1["open"])
         c2_body = abs(candle2["close"] - candle2["open"])
-        c3_body = abs(candle3["close"] - candle3["open"])
+        abs(candle3["close"] - candle3["open"])
 
-        c1_range = candle1["high"] - candle1["low"]
-        c3_range = candle3["high"] - candle3["low"]
+        candle1["high"] - candle1["low"]
+        candle3["high"] - candle3["low"]
 
         # 早晨之星
         if (candle1["close"] < candle1["open"] and  # 第一根阴线
@@ -392,7 +392,7 @@ class PatternRecognizer:
         if len(close) < 60:
             return None
 
-        recent_close = close.tail(60)
+        close.tail(60)
         recent_high = high.tail(60)
         recent_low = low.tail(60)
         offset = len(close) - 60

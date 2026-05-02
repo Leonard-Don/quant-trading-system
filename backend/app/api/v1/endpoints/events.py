@@ -1,5 +1,4 @@
 from fastapi import APIRouter, HTTPException
-from typing import Dict, Any, List, Optional
 import yfinance as yf
 from datetime import datetime, timedelta
 import logging
@@ -33,8 +32,8 @@ async def get_events_summary(request: EventRequest):
                     else:
                         calendar['next_earnings'] = str(next_earnings)
                 
-                earnings_high = cal.get('Earnings High')
-                earnings_low = cal.get('Earnings Low')
+                cal.get('Earnings High')
+                cal.get('Earnings Low')
                 earnings_avg = cal.get('Earnings Average')
                 
                 if earnings_avg is not None:

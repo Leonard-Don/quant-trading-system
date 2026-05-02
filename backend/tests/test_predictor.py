@@ -4,8 +4,6 @@
 import pytest
 import numpy as np
 import pandas as pd
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timedelta
 
 
 class TestPricePredictor:

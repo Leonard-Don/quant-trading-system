@@ -140,7 +140,7 @@ class PairsTradingStrategy(BaseStrategy):
             # 近似p值（使用t分布，这是简化版）
             p_value = 2 * (1 - stats.t.cdf(abs(t_stat), len(residuals) - 2))
             return p_value
-        except:
+        except Exception:
             return 1.0
     
     def calculate_hedge_ratio(
@@ -324,7 +324,7 @@ class PairsTradingStrategy(BaseStrategy):
             
             half_life = -np.log(2) / beta
             return half_life
-        except:
+        except Exception:
             return None
 
 

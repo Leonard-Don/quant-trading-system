@@ -5,7 +5,7 @@ PDF 报告生成服务
 import io
 import base64
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 import logging
 
 from src.utils.data_validation import normalize_backtest_results
@@ -15,16 +15,13 @@ logger = logging.getLogger(__name__)
 # 尝试导入 PDF 库
 try:
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4, letter
+    from reportlab.lib.pagesizes import A4
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import inch, cm
     from reportlab.platypus import (
         SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        Image, PageBreak, HRFlowable
+        HRFlowable
     )
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
-    from reportlab.graphics.shapes import Drawing
-    from reportlab.graphics.charts.linecharts import HorizontalLineChart
+    from reportlab.lib.enums import TA_CENTER, TA_RIGHT
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False

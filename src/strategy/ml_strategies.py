@@ -13,6 +13,7 @@ import logging
 
 # from ..core.base import BaseComponent  # 暂时未使用
 from .strategies import BaseStrategy
+from ..utils.config import ML_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -194,8 +195,6 @@ class MLStrategy(BaseStrategy):
             logger.error(f"信号生成失败: {e}")
             return pd.Series(0, index=data.index)
 
-
-from ..utils.config import ML_CONFIG
 
 class RandomForestStrategy(MLStrategy):
     """随机森林策略"""

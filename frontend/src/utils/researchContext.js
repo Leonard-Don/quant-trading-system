@@ -2,6 +2,7 @@ import { pushAppUrl } from './appUrlState';
 
 const VIEW_QUERY_KEY = 'view';
 const TAB_QUERY_KEY = 'tab';
+const PUBLIC_VIEWS = new Set(['backtest', 'realtime', 'industry']);
 
 const RESEARCH_KEYS = ['symbol', 'symbols', 'template', 'draft', 'action', 'source', 'note'];
 const CROSS_MARKET_KEYS = ['template', 'draft', 'action', 'source', 'note'];
@@ -19,10 +20,15 @@ const WORKBENCH_KEYS = [
   'task',
 ];
 
+const normalizePublicView = (view = 'backtest') => {
+  const normalized = String(view || 'backtest').trim();
+  return PUBLIC_VIEWS.has(normalized) ? normalized : 'backtest';
+};
+
 export const readResearchContext = (search = window.location.search) => {
   const params = new URLSearchParams(search);
   return {
-    view: params.get(VIEW_QUERY_KEY) || 'backtest',
+    view: normalizePublicView(params.get(VIEW_QUERY_KEY)),
     tab: params.get(TAB_QUERY_KEY) || '',
     symbol: params.get('symbol') || '',
     symbols: params.get('symbols') || '',
@@ -58,7 +64,9 @@ const setParam = (params, key, value) => {
 };
 
 export const sanitizeParamsForView = (params, view) => {
-  if (view === 'backtest') {
+  const publicView = normalizePublicView(view);
+
+  if (publicView === 'backtest') {
     params.delete('period');
     const activeTab = params.get(TAB_QUERY_KEY) || 'new';
     if (activeTab !== 'history') {
@@ -77,17 +85,7 @@ export const sanitizeParamsForView = (params, view) => {
     return params;
   }
 
-  if (view === 'workbench') {
-    params.delete(TAB_QUERY_KEY);
-    params.delete('period');
-    params.delete('record');
-    params.delete('history_symbol');
-    params.delete('history_strategy');
-    RESEARCH_KEYS.forEach((key) => params.delete(key));
-    return params;
-  }
-
-  if (view === 'realtime') {
+  if (publicView === 'realtime') {
     params.delete('period');
     params.delete('record');
     params.delete('history_symbol');
@@ -135,14 +133,15 @@ export const buildAppUrl = ({
   workbenchQueueAction = undefined,
   task = undefined,
 } = {}) => {
+  const publicView = normalizePublicView(view);
   const params = new URLSearchParams(currentSearch);
-  if (view === 'backtest') {
+  if (publicView === 'backtest') {
     params.delete(VIEW_QUERY_KEY);
   } else {
-    params.set(VIEW_QUERY_KEY, view);
+    params.set(VIEW_QUERY_KEY, publicView);
   }
 
-  if (view !== 'backtest' && view !== 'realtime') {
+  if (publicView !== 'backtest' && publicView !== 'realtime') {
     params.delete(TAB_QUERY_KEY);
   } else {
     setParam(params, TAB_QUERY_KEY, tab);
@@ -171,7 +170,7 @@ export const buildAppUrl = ({
   setParam(params, 'workbench_queue_action', workbenchQueueAction);
   setParam(params, 'task', task);
 
-  sanitizeParamsForView(params, view);
+  sanitizeParamsForView(params, publicView);
 
   const query = params.toString();
   return `${pathname}${query ? `?${query}` : ''}${window.location.hash || ''}`;
@@ -182,14 +181,15 @@ export const buildViewUrlForCurrentState = (
   currentSearch = window.location.search,
   pathname = window.location.pathname,
 ) => {
+  const publicView = normalizePublicView(view);
   const params = new URLSearchParams(currentSearch);
-  sanitizeParamsForView(params, view);
+  sanitizeParamsForView(params, publicView);
 
   return buildAppUrl({
     pathname,
     currentSearch: `?${params.toString()}`,
-    view,
-    tab: view === 'backtest' || view === 'realtime' ? params.get(TAB_QUERY_KEY) : undefined,
+    view: publicView,
+    tab: publicView === 'backtest' || publicView === 'realtime' ? params.get(TAB_QUERY_KEY) : undefined,
     symbol: params.get('symbol'),
     symbols: params.get('symbols'),
     template: params.get('template'),

@@ -1,8 +1,8 @@
-import sys, os
+import sys
+import os
 sys.path.append(os.path.dirname(os.path.abspath(__name__)))
 from src.data.providers.sina_ths_adapter import create_industry_provider
 from src.analytics.industry_analyzer import IndustryAnalyzer
-import pandas as pd
 
 provider = create_industry_provider()
 analyzer = IndustryAnalyzer(provider)

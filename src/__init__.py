@@ -25,6 +25,7 @@ from .backtest.backtester import Backtester
 from .analytics.dashboard import PerformanceAnalyzer
 
 __all__ = [
+    "__version__",
     "DataManager",
     "BaseStrategy",
     "MovingAverageCrossover",

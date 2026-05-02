@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -74,8 +74,6 @@ class PortfolioOptimizer:
             opt_sharpe = (opt_return - self.risk_free_rate) / opt_volatility
 
             # Generate Efficient Frontier mainly for plotting
-            frontier_volatility = []
-            frontier_return = []
             # Calculate 20 points along the frontier (min var to max return isn't easy to simplisticly loop)
             # Simplified: generate random portfolios to show the cloud + optimal point
             # Or assume we want strictly the frontier line.

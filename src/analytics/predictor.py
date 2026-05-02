@@ -10,9 +10,9 @@ import os
 from typing import Dict, Any
 import logging
 
-logger = logging.getLogger(__name__)
-
 from ..utils.config import ML_CONFIG
+
+logger = logging.getLogger(__name__)
 
 class PricePredictor:
     """

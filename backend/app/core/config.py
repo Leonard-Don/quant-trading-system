@@ -1,6 +1,6 @@
 
 import logging
-from src.utils.config import APP_VERSION, setup_logging, get_config
+from src.utils.config import APP_VERSION as APP_VERSION, setup_logging, get_config
 
 # 配置日志
 setup_logging()

@@ -7,15 +7,14 @@ import sys
 import os
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 
 # 添加项目根目录到路径
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
-from src.data.data_manager import DataManager
-from src.strategy.strategies import MovingAverageCrossover, RSIStrategy
-from src.backtest.backtester import Backtester
+from src.data.data_manager import DataManager  # noqa: E402
+from src.strategy.strategies import MovingAverageCrossover, RSIStrategy  # noqa: E402
+from src.backtest.backtester import Backtester  # noqa: E402
 
 
 @pytest.fixture

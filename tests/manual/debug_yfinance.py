@@ -1,7 +1,5 @@
 
 import yfinance as yf
-import json
-import sys
 
 def check_symbol(symbol):
     print(f"Checking {symbol}...")

@@ -27,7 +27,7 @@ class PerformanceAnalyzer:
             # 只分析卖出交易的PnL
             sell_trades = trades_df[trades_df["type"] == "SELL"]
             if not sell_trades.empty and "pnl" in sell_trades.columns:
-                winning_trades = (sell_trades["pnl"] > 0).sum()
+                (sell_trades["pnl"] > 0).sum()
                 losing_trades = (sell_trades["pnl"] < 0).sum()
                 total_sell_trades = len(sell_trades)
                 metrics["loss_rate"] = (
@@ -52,7 +52,7 @@ class PerformanceAnalyzer:
                 metrics["total_loss"] = total_loss
 
                 # 连续盈利/亏损统计
-                pnl_signs = (sell_trades["pnl"] > 0).astype(int)
+                (sell_trades["pnl"] > 0).astype(int)
 
                 # 平均持仓时间（如果有日期信息）
                 if "date" in sell_trades.columns:

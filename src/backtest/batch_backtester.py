@@ -11,6 +11,7 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 from dataclasses import dataclass
 import logging
 import json
+import inspect
 from itertools import product
 
 from src.utils.data_validation import normalize_backtest_results
@@ -18,6 +19,25 @@ from src.utils.data_validation import validate_and_fix_backtest_results
 from src.analytics.dashboard import PerformanceAnalyzer
 
 logger = logging.getLogger(__name__)
+
+
+def _call_backtester_factory(backtester_factory: Callable, **kwargs):
+    """Call a backtester factory with only the keyword arguments it accepts."""
+    try:
+        signature = inspect.signature(backtester_factory)
+    except (TypeError, ValueError):
+        return backtester_factory(**kwargs)
+
+    parameters = signature.parameters.values()
+    if any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters):
+        return backtester_factory(**kwargs)
+
+    accepted_kwargs = {
+        key: value
+        for key, value in kwargs.items()
+        if key in signature.parameters
+    }
+    return backtester_factory(**accepted_kwargs)
 
 
 def _run_single_backtest_worker(
@@ -45,10 +65,12 @@ def _run_single_backtest_worker(
             )
 
         strategy = strategy_factory(task.strategy_name, task.parameters)
-        backtester = backtester_factory(
+        backtester = _call_backtester_factory(
+            backtester_factory,
             initial_capital=task.initial_capital,
             commission=task.commission,
             slippage=task.slippage,
+            execution_lag=task.execution_lag,
         )
         result = backtester.run(strategy, data)
         normalized_metrics = _normalize_metrics(result)
@@ -287,6 +309,7 @@ class BacktestTask:
     initial_capital: float = 100000
     commission: float = 0.001
     slippage: float = 0.001
+    execution_lag: int = 1
     research_label: Optional[str] = None
 
 

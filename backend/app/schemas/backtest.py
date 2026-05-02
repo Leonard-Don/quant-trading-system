@@ -17,6 +17,7 @@ class BacktestRequest(BaseModel):
     impact_reference_notional: float = 100000.0
     impact_coefficient: float = 1.0
     permanent_impact_bps: float = 0.0
+    execution_lag: int = Field(default=1, ge=0, le=5)
     max_holding_days: Optional[int] = None
 
 class BacktestResponse(BaseModel):
@@ -43,6 +44,7 @@ class BatchBacktestTaskRequest(BaseModel):
     impact_reference_notional: float = 100000.0
     impact_coefficient: float = 1.0
     permanent_impact_bps: float = 0.0
+    execution_lag: int = Field(default=1, ge=0, le=5)
     max_holding_days: Optional[int] = None
 
 
@@ -74,6 +76,7 @@ class WalkForwardRequest(BaseModel):
     impact_reference_notional: float = 100000.0
     impact_coefficient: float = 1.0
     permanent_impact_bps: float = 0.0
+    execution_lag: int = Field(default=1, ge=0, le=5)
     max_holding_days: Optional[int] = None
     train_period: int = 252
     test_period: int = 63
@@ -101,6 +104,7 @@ class MarketRegimeRequest(BaseModel):
     impact_reference_notional: float = 100000.0
     impact_coefficient: float = 1.0
     permanent_impact_bps: float = 0.0
+    execution_lag: int = Field(default=1, ge=0, le=5)
     max_holding_days: Optional[int] = None
     lookback_days: int = 20
     trend_threshold: float = 0.03
@@ -124,6 +128,7 @@ class PortfolioStrategyRequest(BaseModel):
     impact_reference_notional: float = 100000.0
     impact_coefficient: float = 1.0
     permanent_impact_bps: float = 0.0
+    execution_lag: int = Field(default=1, ge=0, le=5)
     min_trade_value: float = 0.0
     min_rebalance_weight_delta: float = 0.0
     max_turnover_per_rebalance: Optional[float] = None

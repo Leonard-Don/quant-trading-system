@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from typing import Any, Dict, Tuple
 import logging
+import importlib.util
 from datetime import timedelta
 import os
 import pickle
@@ -15,7 +16,8 @@ logger = logging.getLogger(__name__)
 
 # 尝试导入 TensorFlow，如果不可用则使用模拟模式
 try:
-    import tensorflow as tf
+    if importlib.util.find_spec("tensorflow") is None:
+        raise ImportError
     from tensorflow.keras.models import Sequential, load_model
     from tensorflow.keras.layers import LSTM, Dense, Dropout, Bidirectional
     from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
@@ -302,7 +304,7 @@ class LSTMPredictor:
                 
                 # 更新序列（滑动窗口）
                 # 构造新的特征行（用预测的收益率更新关键特征）
-                new_row = current_sequence[-1].copy()
+                current_sequence[-1].copy()
                 # returns 和 log_returns 大约是第0和第1个特征
                 # 我们用原始 scaler 来归一化新的特征值
                 new_features = current_sequence[-1].copy()

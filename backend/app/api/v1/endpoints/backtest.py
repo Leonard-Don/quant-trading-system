@@ -290,6 +290,7 @@ def run_backtest_pipeline(
     impact_reference_notional: float = 100000.0,
     impact_coefficient: float = 1.0,
     permanent_impact_bps: float = 0.0,
+    execution_lag: int = 1,
     max_holding_days: Optional[int] = None,
     data=None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -329,6 +330,7 @@ def run_backtest_pipeline(
         impact_reference_notional=impact_reference_notional,
         impact_coefficient=impact_coefficient,
         permanent_impact_bps=permanent_impact_bps,
+        execution_lag=execution_lag,
         max_holding_days=max_holding_days,
     )
     results = backtester.run(strategy, data)
@@ -351,6 +353,7 @@ def run_backtest_pipeline(
             "impact_reference_notional": impact_reference_notional,
             "impact_coefficient": impact_coefficient,
             "permanent_impact_bps": permanent_impact_bps,
+            "execution_lag": execution_lag,
             "max_holding_days": max_holding_days,
             "parameters": cleaned_params,
         }
@@ -682,6 +685,7 @@ class CompareRequest(BaseModel):
     impact_reference_notional: float = 100000.0
     impact_coefficient: float = 1.0
     permanent_impact_bps: float = 0.0
+    execution_lag: int = 1
     max_holding_days: Optional[int] = None
 
 
@@ -752,6 +756,7 @@ def run_backtest_monte_carlo_sync(
         impact_reference_notional=request.impact_reference_notional,
         impact_coefficient=request.impact_coefficient,
         permanent_impact_bps=request.permanent_impact_bps,
+        execution_lag=request.execution_lag,
         max_holding_days=request.max_holding_days,
     )
     returns = _returns_from_portfolio_history(results)
@@ -807,6 +812,7 @@ def compare_strategy_significance_sync(
             impact_reference_notional=request.impact_reference_notional,
             impact_coefficient=request.impact_coefficient,
             permanent_impact_bps=request.permanent_impact_bps,
+            execution_lag=request.execution_lag,
             max_holding_days=request.max_holding_days,
             data=data,
         )
@@ -896,6 +902,7 @@ def run_multi_period_backtest_sync(
             impact_reference_notional=request.impact_reference_notional,
             impact_coefficient=request.impact_coefficient,
             permanent_impact_bps=request.permanent_impact_bps,
+            execution_lag=request.execution_lag,
             max_holding_days=request.max_holding_days,
             data=data,
         )
@@ -972,6 +979,7 @@ def run_market_impact_analysis_sync(
             impact_reference_notional=scenario["impact_reference_notional"],
             impact_coefficient=scenario["impact_coefficient"],
             permanent_impact_bps=scenario["permanent_impact_bps"],
+            execution_lag=request.execution_lag,
             max_holding_days=request.max_holding_days,
             data=data,
         )
@@ -1128,6 +1136,7 @@ async def run_batch_backtest(request: BatchBacktestRequest):
                 initial_capital=item.initial_capital,
                 commission=item.commission,
                 slippage=item.slippage,
+                execution_lag=item.execution_lag,
                 research_label=item.research_label,
             )
             for index, item in enumerate(request.tasks, start=1)
@@ -1240,6 +1249,7 @@ async def run_walk_forward_backtest(request: WalkForwardRequest):
                     impact_reference_notional=request.impact_reference_notional,
                     impact_coefficient=request.impact_coefficient,
                     permanent_impact_bps=request.permanent_impact_bps,
+                    execution_lag=request.execution_lag,
                     max_holding_days=request.max_holding_days,
                 ),
                 parameter_grid=request.parameter_grid,
@@ -1306,6 +1316,7 @@ async def run_market_regime_backtest(request: MarketRegimeRequest):
             impact_reference_notional=request.impact_reference_notional,
             impact_coefficient=request.impact_coefficient,
             permanent_impact_bps=request.permanent_impact_bps,
+            execution_lag=request.execution_lag,
             max_holding_days=request.max_holding_days,
             data=data,
         )
@@ -1434,6 +1445,7 @@ async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
                 impact_reference_notional=request.impact_reference_notional,
                 impact_coefficient=request.impact_coefficient,
                 permanent_impact_bps=request.permanent_impact_bps,
+                execution_lag=request.execution_lag,
                 data=data,
             )
             strategy_instance = _create_strategy_instance(request.strategy, cleaned_params)
@@ -1615,6 +1627,7 @@ async def _compare_strategies_impl(
     impact_reference_notional: float = 100000.0,
     impact_coefficient: float = 1.0,
     permanent_impact_bps: float = 0.0,
+    execution_lag: int = 1,
     max_holding_days: Optional[int] = None,
 ):
     data = _fetch_backtest_data(symbol, start_date, end_date)
@@ -1640,6 +1653,7 @@ async def _compare_strategies_impl(
             impact_reference_notional=impact_reference_notional,
             impact_coefficient=impact_coefficient,
             permanent_impact_bps=permanent_impact_bps,
+            execution_lag=execution_lag,
             max_holding_days=max_holding_days,
             data=data,
         )
@@ -1735,6 +1749,7 @@ def run_backtest(request: BacktestRequest):
             impact_reference_notional=request.impact_reference_notional,
             impact_coefficient=request.impact_coefficient,
             permanent_impact_bps=request.permanent_impact_bps,
+            execution_lag=request.execution_lag,
             max_holding_days=request.max_holding_days,
         )
 
@@ -1789,6 +1804,7 @@ async def compare_strategies_post(request: CompareRequest):
             impact_reference_notional=request.impact_reference_notional,
             impact_coefficient=request.impact_coefficient,
             permanent_impact_bps=request.permanent_impact_bps,
+            execution_lag=request.execution_lag,
             max_holding_days=request.max_holding_days,
         )
     except HTTPException:

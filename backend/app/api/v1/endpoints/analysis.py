@@ -16,6 +16,8 @@ from src.analytics.sentiment_analyzer import SentimentAnalyzer
 from src.analytics.comprehensive_scorer import ComprehensiveScorer
 from src.analytics.pattern_recognizer import PatternRecognizer
 from src.analytics.fundamental_analyzer import FundamentalAnalyzer
+from src.analytics.model_comparator import model_comparator
+from src.analytics.predictor import PricePredictor
 from src.utils.cache import cache_manager
 
 router = APIRouter()
@@ -27,6 +29,7 @@ sentiment_analyzer = SentimentAnalyzer()
 comprehensive_scorer = ComprehensiveScorer()
 pattern_recognizer = PatternRecognizer()
 fundamental_analyzer = FundamentalAnalyzer()
+price_predictor = PricePredictor()
 
 ANALYSIS_CACHE_TTLS = {
     "overview": 180,
@@ -428,9 +431,6 @@ async def recognize_patterns(request: TrendAnalysisRequest):
         logger.error(f"Error in pattern recognition: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-from src.analytics.predictor import PricePredictor
-price_predictor = PricePredictor()
-
 @router.post("/prediction", summary="AI价格预测")
 async def predict_prices(request: TrendAnalysisRequest):
     """
@@ -578,8 +578,6 @@ def get_correlation_interpretation(avg_corr: float) -> dict:
 
 
 # ==================== 模型比较 API ====================
-
-from src.analytics.model_comparator import model_comparator
 
 
 @router.post("/prediction/compare", summary="多模型预测对比")

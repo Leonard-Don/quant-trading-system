@@ -2,10 +2,8 @@
 缓存优化器模块单元测试
 """
 
-import pytest
 import time
-from datetime import datetime, timedelta
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 import tempfile
 from pathlib import Path
 

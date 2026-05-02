@@ -3,10 +3,12 @@
 实现 CAPM 和 Fama-French 三因子模型，提供因子暴露度分析和 Alpha 归因
 """
 
+from __future__ import annotations
+
 import logging
 import numpy as np
 import pandas as pd
-from typing import Dict, Any, Optional
+from typing import TYPE_CHECKING, Dict, Any, Optional
 from datetime import datetime, timedelta
 
 from src.analytics.asset_pricing_support import (
@@ -26,6 +28,10 @@ from src.analytics.asset_pricing_support import (
     ols_statistics,
     safe_regression_metrics,
 )
+
+if TYPE_CHECKING:
+    from src.data.data_manager import DataManager
+
 logger = logging.getLogger(__name__)
 
 # Fama-French 因子数据的本地缓存

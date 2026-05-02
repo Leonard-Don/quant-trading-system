@@ -1,4 +1,4 @@
-const APP_URL_CHANGE_EVENT = 'quant-lab:urlchange';
+const APP_URL_CHANGE_EVENT = 'quant-research:urlchange';
 
 const SERVER_SNAPSHOT = Object.freeze({
   href: '',
