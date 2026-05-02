@@ -1526,7 +1526,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       <div className="app-page-section-block">
         <div className="app-page-section-kicker">实时指挥席</div>
         <Card
-          className="realtime-hero-card"
+          className="realtime-hero-card realtime-hero-card--compact"
           style={{
             borderRadius: 28,
             overflow: 'hidden',
@@ -1598,7 +1598,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               )}
             </div>
 
-            <div className="realtime-hero__sidecar">
+            <div className="realtime-hero__sidecar realtime-hero__sidecar--desktop-toolbar">
               <div className="realtime-hero__action-row">
                 <Button
                   className="realtime-hero__refresh"
@@ -1886,7 +1886,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               placeholder="标的列表，逗号分隔，如 AAPL, MSFT, NVDA"
               onPressEnter={addWatchGroup}
             />
-            <Button type="primary" onClick={addWatchGroup}>添加组合</Button>
+            <Button className="realtime-watch-group-add" type="primary" onClick={addWatchGroup}>添加组合</Button>
           </Space.Compact>
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'minmax(180px, 220px) minmax(260px, 1fr)', marginTop: 12 }}>
             <Input
@@ -2150,9 +2150,9 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
         .realtime-hero {
           display: grid;
-          grid-template-columns: minmax(0, 1.55fr) minmax(300px, 0.88fr);
-          gap: 16px;
-          padding: 18px 20px;
+          grid-template-columns: minmax(0, 1.42fr) minmax(420px, 0.9fr);
+          gap: 14px;
+          padding: 14px 18px;
           background:
             linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary) 88%) 0%, color-mix(in srgb, var(--accent-secondary) 10%, var(--bg-secondary) 90%) 100%);
         }
@@ -2164,7 +2164,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
         .realtime-hero__main {
           display: grid;
-          gap: 12px;
+          gap: 10px;
           align-content: start;
         }
 
@@ -2204,7 +2204,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         }
 
         .realtime-hero__subtitle {
-          margin-top: 8px;
+          margin-top: 6px;
           max-width: 560px;
           color: var(--text-secondary);
           line-height: 1.55;
@@ -2264,8 +2264,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         }
 
         .realtime-hero__metric {
-          padding: 11px 12px;
-          border-radius: 16px;
+          padding: 10px 12px;
+          border-radius: 14px;
           background: color-mix(in srgb, var(--bg-secondary) 88%, white 12%);
           border: 1px solid color-mix(in srgb, var(--border-color) 78%, white 22%);
         }
@@ -2278,11 +2278,11 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         }
 
         .realtime-hero__metric-value {
-          margin-top: 8px;
-          font-size: 21px;
+          margin-top: 6px;
+          font-size: 20px;
           line-height: 1.05;
           font-weight: 800;
-          letter-spacing: -0.03em;
+          letter-spacing: 0;
           color: var(--text-primary);
           font-variant-numeric: tabular-nums;
         }
@@ -2310,62 +2310,73 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
         .realtime-hero__sidecar {
           display: grid;
-          gap: 8px;
+          gap: 8px 10px;
           align-content: start;
-          padding: 12px;
+          padding: 10px;
           border-radius: 18px;
           background: color-mix(in srgb, var(--bg-secondary) 90%, white 10%);
           border: 1px solid color-mix(in srgb, var(--accent-primary) 16%, var(--border-color) 84%);
+        }
+
+        .realtime-hero__sidecar--desktop-toolbar {
+          grid-template-columns: minmax(210px, 240px) minmax(0, 1fr);
+          grid-template-areas:
+            "actions signal"
+            "utility signal";
+          align-items: start;
         }
 
         .realtime-hero__action-row {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
           gap: 10px;
+          grid-area: actions;
         }
 
         .realtime-hero__refresh {
-          min-height: 42px;
+          min-height: 38px;
           font-weight: 700;
         }
 
         .realtime-hero__secondary-button {
-          min-height: 38px;
+          min-height: 36px;
+          min-width: 116px;
         }
 
         .realtime-hero__utility-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          flex-wrap: wrap;
+          display: grid;
+          grid-template-columns: 1fr;
+          gap: 8px;
+          grid-area: utility;
         }
 
         .realtime-hero__toggle-pill {
           display: inline-flex;
           align-items: center;
           gap: 12px;
-          padding: 10px 12px;
+          padding: 8px 10px;
           border-radius: 999px;
           background: color-mix(in srgb, var(--bg-primary) 92%, white 8%);
           border: 1px solid var(--border-color);
         }
 
         .realtime-hero__utility-actions {
-          display: flex;
-          align-items: center;
-          justify-content: flex-end;
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          align-items: stretch;
+          justify-content: stretch;
           gap: 8px;
-          flex-wrap: wrap;
         }
 
         .realtime-hero__signal-stack {
           display: grid;
           gap: 8px;
+          grid-area: signal;
+          align-self: stretch;
         }
 
         .realtime-hero__signal-card {
-          padding: 9px 11px;
+          padding: 10px 12px;
           border-radius: 14px;
         }
 
@@ -2403,7 +2414,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         .realtime-hero__signal-card-detail {
           margin-top: 4px;
           font-size: 12px;
-          line-height: 1.5;
+          line-height: 1.45;
           display: -webkit-box;
           -webkit-line-clamp: 2;
           -webkit-box-orient: vertical;
@@ -2529,7 +2540,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           font-size: 26px;
           line-height: 1.05;
           font-weight: 800;
-          letter-spacing: -0.03em;
+          letter-spacing: 0;
           color: var(--text-primary);
           font-variant-numeric: tabular-nums;
         }
@@ -2552,6 +2563,16 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           color: var(--text-secondary);
           font-size: 13px;
           line-height: 1.65;
+        }
+
+        .realtime-watch-group-add.ant-btn {
+          min-width: 96px;
+        }
+
+        .realtime-search-panel .ant-select-customize-input .ant-select-selector {
+          height: 40px;
+          min-height: 40px;
+          overflow: visible;
         }
 
         .realtime-board-head {
@@ -2808,7 +2829,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           line-height: 1;
           font-weight: 800;
           color: var(--text-primary);
-          letter-spacing: -0.03em;
+          letter-spacing: 0;
         }
 
         .realtime-quote-card__delta {
@@ -2945,6 +2966,14 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           .realtime-overview-grid,
           .realtime-hero {
             grid-template-columns: 1fr;
+          }
+
+          .realtime-hero__sidecar--desktop-toolbar {
+            grid-template-columns: 1fr;
+            grid-template-areas:
+              "actions"
+              "utility"
+              "signal";
           }
 
           .realtime-search-grid,

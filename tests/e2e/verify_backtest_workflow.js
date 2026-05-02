@@ -81,12 +81,17 @@ const ensureIndustryStockTableVisible = async (page) => {
   await page.waitForFunction(() => {
     const panel = document.querySelector('[data-testid="industry-detail-panel"]');
     if (!panel) return false;
-    if (panel.querySelector('[data-testid="industry-stock-table"]')) return true;
-    const text = panel.textContent || '';
+    const table = panel.querySelector('[data-testid="industry-stock-table"]');
+    if (table && Array.from(table.querySelectorAll('button')).some((button) => (button.textContent || '').includes('回测'))) {
+      return true;
+    }
+    const activePane = panel.querySelector('.ant-tabs-tabpane-active') || panel;
+    if (activePane.querySelector('.ant-spin-spinning')) return false;
+    const text = activePane.textContent || '';
     return text.includes('成分股明细暂不可用')
       || text.includes('当前数据源未返回成分股明细')
       || text.includes('暂无成分股数据');
-  }, null, { timeout: 12000 }).catch(() => {});
+  }, null, { timeout: 45000 }).catch(() => {});
   const stockTable = page.locator('[data-testid="industry-stock-table"]').first();
   if (await stockTable.count().catch(() => 0)) {
     await stockTable.waitFor({ state: 'visible', timeout: 12000 }).catch(() => {});

@@ -134,7 +134,7 @@ function BacktestDataHealthPanel() {
 
       {healthData ? (
         <>
-          <div className="summary-strip summary-strip--compact">
+          <div className="summary-strip summary-strip--compact backtest-data-health-panel__summary">
             <div className="summary-strip__item">
               <span className="summary-strip__label">当前 Provider</span>
               <span className="summary-strip__value">{summary.activeProvider}</span>
@@ -149,7 +149,7 @@ function BacktestDataHealthPanel() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+          <div className="backtest-data-health-panel__sources">
             {sources.map(([key, source]) => {
               const statusMeta = getSourceStatusMeta(source?.status);
               return (
@@ -157,7 +157,7 @@ function BacktestDataHealthPanel() {
                   key={key}
                   color={statusMeta.color}
                   icon={source?.status === 'connected' ? <CheckCircleOutlined /> : <ExclamationCircleOutlined />}
-                  style={{ margin: 0, borderRadius: 999 }}
+                  className="backtest-data-health-panel__source-tag"
                 >
                   {source?.name || key}: {statusMeta.label}
                 </Tag>
@@ -166,7 +166,7 @@ function BacktestDataHealthPanel() {
           </div>
 
           <Alert
-            style={{ marginTop: 12 }}
+            className="backtest-data-health-panel__alert"
             type={isHealthy ? 'success' : 'warning'}
             showIcon
             message={isHealthy ? '数据源可以支撑当前研究流' : '部分数据源需要关注'}
