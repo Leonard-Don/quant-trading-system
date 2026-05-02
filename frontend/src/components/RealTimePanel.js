@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import {
   Card,
   Tag,
@@ -71,6 +71,7 @@ import {
   formatReviewSummaryMarkdown,
   formatReviewSummaryShareHtml,
 } from '../utils/realtimeShareTemplates';
+import lazyWithRetry from '../utils/lazyWithRetry';
 import { useSafeMessageApi } from '../utils/messageApi';
 
 const { Text } = Typography;
@@ -166,9 +167,9 @@ const CATEGORY_OPTIONS = [
   { key: 'option', label: '期权' },
   { key: 'other', label: '其他' },
 ];
-const TradePanel = lazy(() => import('./TradePanel'));
-const RealtimeStockDetailModal = lazy(() => import('./RealtimeStockDetailModal'));
-const PriceAlerts = lazy(() => import('./PriceAlerts'));
+const TradePanel = lazyWithRetry(() => import('./TradePanel'));
+const RealtimeStockDetailModal = lazyWithRetry(() => import('./RealtimeStockDetailModal'));
+const PriceAlerts = lazyWithRetry(() => import('./PriceAlerts'));
 
 const loadDiagnosticsEnabled = () => {
   if (typeof window === 'undefined') {
