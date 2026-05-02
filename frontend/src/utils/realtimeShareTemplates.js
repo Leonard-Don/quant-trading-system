@@ -189,7 +189,7 @@ export const buildRealtimeShareDocument = (title, bodyHtml) => `<!DOCTYPE html>
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
-      h1 { margin: 18px 0 8px; font-size: clamp(28px, 4vw, 40px); line-height: 1.08; }
+      h1 { margin: 18px 0 8px; font-size: 36px; line-height: 1.08; }
       .subtitle { margin: 0; font-size: 15px; color: var(--text-secondary); }
       .chips, .list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
       .chip, .pill {
