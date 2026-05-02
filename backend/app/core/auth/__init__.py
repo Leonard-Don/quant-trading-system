@@ -2,22 +2,28 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
-import hmac
 import json
 import os
 import secrets
 import time
-from urllib.parse import urlencode
 import uuid
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlencode
 
 import requests
 from fastapi import Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 
 from backend.app.core.persistence import persistence_manager
+
+from ._crypto import (
+    _b64url_decode,
+    _b64url_encode,
+    _hash_password,
+    _hash_token,
+    _verify_password,
+)
 
 AUTH_USER_RECORD_TYPE = "auth_user"
 AUTH_POLICY_RECORD_TYPE = "auth_policy"
@@ -88,15 +94,6 @@ ENV_OAUTH_PROVIDER_MAPPINGS: Dict[str, Dict[str, Any]] = {
 }
 
 
-def _b64url_encode(payload: bytes) -> str:
-    return base64.urlsafe_b64encode(payload).rstrip(b"=").decode("ascii")
-
-
-def _b64url_decode(payload: str) -> bytes:
-    padding = "=" * (-len(payload) % 4)
-    return base64.urlsafe_b64decode((payload + padding).encode("ascii"))
-
-
 def _auth_secret() -> bytes:
     secret = os.getenv("AUTH_SECRET", DEFAULT_AUTH_SECRET)
     if is_production_environment() and not is_auth_secret_production_ready(secret):
@@ -132,30 +129,6 @@ def is_auth_secret_production_ready(secret: Optional[str] = None) -> bool:
     return bool(value.strip()) and value != DEFAULT_AUTH_SECRET
 
 
-def _hash_password(password: str, iterations: int = 200_000) -> str:
-    if not password:
-        raise ValueError("password is required")
-    salt = os.urandom(16).hex()
-    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), iterations).hex()
-    return f"pbkdf2_sha256${iterations}${salt}${digest}"
-
-
-def _verify_password(password: str, encoded: str) -> bool:
-    try:
-        algorithm, iterations, salt, expected = str(encoded or "").split("$", 3)
-        if algorithm != "pbkdf2_sha256":
-            return False
-        digest = hashlib.pbkdf2_hmac(
-            "sha256",
-            str(password or "").encode("utf-8"),
-            bytes.fromhex(salt),
-            int(iterations),
-        ).hex()
-        return hmac.compare_digest(digest, expected)
-    except Exception:
-        return False
-
-
 def _load_policy() -> Dict[str, Any]:
     records = persistence_manager.list_records(record_type=AUTH_POLICY_RECORD_TYPE, limit=1)
     payload = (records[0].get("payload") or {}) if records else {}
@@ -175,10 +148,6 @@ def _load_policy() -> Dict[str, Any]:
             else "Authentication is optional; anonymous research access is allowed"
         ),
     }
-
-
-def _hash_token(token: str) -> str:
-    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
 
 
 def _default_access_ttl() -> int:
