@@ -8,6 +8,7 @@ import {
   SunOutlined,
   MoonOutlined,
   FireOutlined,
+  FundOutlined,
 } from '@ant-design/icons';
 
 import ErrorBoundary from './components/ErrorBoundary';
@@ -23,6 +24,7 @@ import { buildViewUrlForCurrentState, navigateToAppUrl } from './utils/researchC
 const RealTimePanel = lazy(() => import('./components/RealTimePanel'));
 const IndustryDashboard = lazy(() => import('./components/IndustryDashboard'));
 const BacktestDashboard = lazy(() => import('./components/BacktestDashboard'));
+const TodayResearchDashboard = lazy(() => import('./components/TodayResearchDashboard'));
 
 // 懒加载占位组件
 const LazyLoadFallback = () => (
@@ -42,8 +44,8 @@ const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
 const VIEW_QUERY_KEY = 'view';
-const VALID_VIEWS = new Set(['backtest', 'realtime', 'industry']);
-const WIDE_VIEW_SET = new Set(['backtest', 'industry']);
+const VALID_VIEWS = new Set(['today', 'backtest', 'realtime', 'industry']);
+const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry']);
 const FULL_VIEW_SET = new Set(['realtime']);
 const readViewStateFromLocation = (search = window.location.search, revision = 0) => {
   const params = new URLSearchParams(search);
@@ -167,6 +169,11 @@ function App() {
 
   const menuItems = [
     {
+      key: 'today',
+      icon: <FundOutlined />,
+      label: '今日研究',
+    },
+    {
       key: 'backtest',
       icon: <BarChartOutlined />,
       label: '策略回测',
@@ -198,6 +205,8 @@ function App() {
 
   const renderContent = () => {
     switch (currentView) {
+      case 'today':
+        return <Suspense fallback={<LazyLoadFallback />}><TodayResearchDashboard /></Suspense>;
 
       case 'realtime':
         return <Suspense fallback={<LazyLoadFallback />}><RealTimePanel openAlertsSignal={realtimeAuxIntent} /></Suspense>;

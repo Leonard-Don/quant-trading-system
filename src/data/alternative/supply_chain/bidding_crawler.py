@@ -143,7 +143,7 @@ class BiddingCrawler(AntiCrawlMixin):
         """搜索单个关键词的招标信息"""
         try:
             # 尝试从公共资源交易平台获取
-            url = f"http://deal.ggzy.gov.cn/ds/deal/dealList_search.jsp"
+            url = "http://deal.ggzy.gov.cn/ds/deal/dealList_search.jsp"
             params = {
                 "SEARCH_KEYWORD": keyword,
                 "TIMEBEGIN_SHOW": (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d"),

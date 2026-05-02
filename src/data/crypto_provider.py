@@ -7,10 +7,8 @@
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Any
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
-import asyncio
-import aiohttp
 
 logger = logging.getLogger(__name__)
 

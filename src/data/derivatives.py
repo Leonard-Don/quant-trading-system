@@ -5,9 +5,8 @@
 """
 
 import numpy as np
-import pandas as pd
 from scipy.stats import norm
-from typing import Dict, Optional, Tuple, List
+from typing import Dict, Optional, List
 from datetime import datetime, timedelta
 from enum import Enum
 import logging

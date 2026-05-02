@@ -2,7 +2,7 @@ import { pushAppUrl } from './appUrlState';
 
 const VIEW_QUERY_KEY = 'view';
 const TAB_QUERY_KEY = 'tab';
-const PUBLIC_VIEWS = new Set(['backtest', 'realtime', 'industry']);
+const PUBLIC_VIEWS = new Set(['today', 'backtest', 'realtime', 'industry']);
 
 const RESEARCH_KEYS = ['symbol', 'symbols', 'template', 'draft', 'action', 'source', 'note'];
 const CROSS_MARKET_KEYS = ['template', 'draft', 'action', 'source', 'note'];
@@ -102,6 +102,17 @@ export const sanitizeParamsForView = (params, view) => {
   }
 
   if (publicView === 'realtime') {
+    params.delete('period');
+    params.delete('record');
+    params.delete('history_symbol');
+    params.delete('history_strategy');
+    RESEARCH_KEYS.forEach((key) => params.delete(key));
+    WORKBENCH_KEYS.forEach((key) => params.delete(key));
+    return params;
+  }
+
+  if (publicView === 'today') {
+    params.delete(TAB_QUERY_KEY);
     params.delete('period');
     params.delete('record');
     params.delete('history_symbol');

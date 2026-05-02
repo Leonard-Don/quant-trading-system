@@ -2189,8 +2189,10 @@ class SinaIndustryAdapter:
                             if len(parts) > 46:
                                 # 39: PE(TTM), 46: PB
                                 pe_str, pb_str = parts[39], parts[46]
-                                if pe_str and pe_str != "0.00": pe_val = float(pe_str)
-                                if pb_str and pb_str != "0.00": pb_val = float(pb_str)
+                                if pe_str and pe_str != "0.00":
+                                    pe_val = float(pe_str)
+                                if pb_str and pb_str != "0.00":
+                                    pb_val = float(pb_str)
                     except Exception:
                         pass
                 pe_list.append(pe_val)
@@ -2278,7 +2280,6 @@ class SinaIndustryAdapter:
         
         # 应用市值数据
         df["total_market_cap"] = df["industry_code"].map(mktcap_map).fillna(0)
-        computed_mask = df["total_market_cap"] > 0
         
         nonzero = (df["total_market_cap"] > 0).sum()
         logger.info(f"Industry market caps computed: {nonzero}/{len(df)} have data")

@@ -6,6 +6,7 @@
     ## 公开量化交易研究 API
 
     ### 当前公开能力
+    - 🧭 **今日研究**: 汇总回测快照、实时提醒、复盘记录与行业观察，形成统一研究档案
     - 📊 **策略回测**: 主回测、历史复盘、组合优化与跨市场回测
     - 📈 **实时行情**: 多市场报价聚合、提醒命中记录、复盘快照与深度详情
     - 🔥 **行业热度**: 热力图、排行榜、龙头股分析与轮动观察
@@ -15,7 +16,7 @@
     ### API版本
     - **当前版本**: v5.0.0
     - **API版本**: v1
-    - **最后更新**: 2026-04-18
+    - **最后更新**: 2026-05-02
 
     ### 认证
     当前版本无需认证，生产环境建议添加API密钥认证。
@@ -903,6 +904,26 @@
 - `initial_capital` (number): 无描述
 - `commission` (number): 无描述
 - `slippage` (number): 无描述
+
+### ResearchJournalEntryRequest
+
+**字段: **
+
+- `entry` (object): 无描述
+
+### ResearchJournalSnapshotRequest
+
+**字段: **
+
+- `entries` (array): 无描述
+- `source_state` (object): 无描述
+- `generated_at` (unknown): 无描述
+
+### ResearchJournalStatusRequest
+
+**字段: **
+
+- `status` (string): 无描述
 
 ### SignificanceCompareRequest
 

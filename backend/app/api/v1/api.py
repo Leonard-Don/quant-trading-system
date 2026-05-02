@@ -12,6 +12,7 @@ from backend.app.api.v1.endpoints import (
     events,
     cross_market,
     infrastructure,
+    research_journal,
 )
 
 api_router = APIRouter()
@@ -35,4 +36,9 @@ api_router.include_router(
     infrastructure.router,
     prefix="/infrastructure",
     tags=["Infrastructure"],
+)
+api_router.include_router(
+    research_journal.router,
+    prefix="/research-journal",
+    tags=["Research Journal"],
 )
