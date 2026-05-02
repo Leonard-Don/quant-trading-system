@@ -2769,6 +2769,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           display: inline-flex;
           align-items: center;
           gap: 10px;
+          max-width: 100%;
           margin-top: 10px;
           padding: 8px 10px;
           border-radius: 14px;
@@ -2782,6 +2783,18 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         .realtime-quote-card__sparkline svg {
           display: block;
           flex: none;
+        }
+
+        .realtime-quote-card--grid .realtime-quote-card__sparkline svg {
+          width: 104px;
+          height: 38px;
+        }
+
+        .realtime-quote-card__sparkline span {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .realtime-quote-card__source {
