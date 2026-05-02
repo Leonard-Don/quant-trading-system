@@ -3,6 +3,7 @@ import {
   REALTIME_TIMELINE_STORAGE_KEY,
   buildTodayResearchSnapshot,
   collectLocalResearchState,
+  filterResearchEntries,
   mergeResearchEntries,
   summarizeResearchEntries,
 } from '../utils/todayResearch';
@@ -109,5 +110,55 @@ describe('today research aggregation utilities', () => {
     expect(merged).toHaveLength(1);
     expect(merged[0].status).toBe('done');
     expect(merged[0].title).toBe('新记录');
+  });
+
+  test('filters entries by status, priority, type and keyword', () => {
+    const entries = [
+      {
+        id: 'entry-open',
+        type: 'backtest',
+        title: 'AAPL 均线回测',
+        status: 'open',
+        priority: 'high',
+        symbol: 'AAPL',
+        tags: ['趋势'],
+        updated_at: '2026-05-02T09:00:00.000Z',
+      },
+      {
+        id: 'entry-watch',
+        type: 'industry_watch',
+        title: '半导体 行业观察',
+        status: 'watching',
+        priority: 'medium',
+        industry: '半导体',
+        updated_at: '2026-05-02T10:00:00.000Z',
+      },
+      {
+        id: 'entry-done',
+        type: 'manual',
+        title: '复核完成',
+        status: 'done',
+        priority: 'low',
+        note: '已经归档到周报',
+        updated_at: '2026-05-02T11:00:00.000Z',
+      },
+    ];
+
+    expect(filterResearchEntries(entries, { status: 'active' }).map((entry) => entry.id)).toEqual([
+      'entry-open',
+      'entry-watch',
+    ]);
+    expect(filterResearchEntries(entries, { status: 'done' }).map((entry) => entry.id)).toEqual([
+      'entry-done',
+    ]);
+    expect(filterResearchEntries(entries, { priority: 'high', type: 'backtest' }).map((entry) => entry.id)).toEqual([
+      'entry-open',
+    ]);
+    expect(filterResearchEntries(entries, { keyword: '半导体' }).map((entry) => entry.id)).toEqual([
+      'entry-watch',
+    ]);
+    expect(filterResearchEntries(entries, { keyword: '回测快照' }).map((entry) => entry.id)).toEqual([
+      'entry-open',
+    ]);
   });
 });
