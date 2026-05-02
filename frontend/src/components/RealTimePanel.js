@@ -1769,7 +1769,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               <div className="realtime-search-panel">
                 <div className="realtime-search-panel__title">添加跟踪</div>
                 <div className="realtime-search-panel__hint">支持代码、英文名和中文名，添加后会自动进入对应分组。</div>
-                <Space.Compact style={{ width: '100%', marginTop: 14 }}>
+                <Space.Compact className="realtime-search-compact" style={{ width: '100%', marginTop: 14 }}>
                   <AutoComplete
                     style={{ flex: 1 }}
                     options={autoCompleteOptions}
@@ -1797,7 +1797,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               <div className="realtime-search-panel">
                 <div className="realtime-search-panel__title">全局跳转</div>
                 <div className="realtime-search-panel__hint">输入已跟踪标的可直接切组并打开详情，未跟踪标的则直接加入工作台。</div>
-                <Space.Compact style={{ width: '100%', marginTop: 14 }}>
+                <Space.Compact className="realtime-search-compact" style={{ width: '100%', marginTop: 14 }}>
                   <AutoComplete
                     style={{ flex: 1 }}
                     options={globalJumpOptions}
@@ -2576,6 +2576,16 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           overflow: visible;
         }
 
+        .realtime-search-compact .ant-select-auto-complete {
+          min-width: 0;
+        }
+
+        .realtime-search-compact .ant-btn {
+          flex: 0 0 72px;
+          min-width: 72px;
+          padding-inline: 12px;
+        }
+
         .realtime-board-head {
           display: flex;
           align-items: flex-start;
@@ -3138,7 +3148,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
           .realtime-hero__utility-row {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            grid-template-columns: 1fr;
             gap: 8px;
             width: 100%;
           }
@@ -3146,7 +3156,12 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           .realtime-hero__toggle-pill {
             width: 100%;
             justify-content: space-between;
+            gap: 10px;
             padding: 8px 10px;
+          }
+
+          .realtime-hero__toggle-pill .ant-typography {
+            white-space: nowrap;
           }
 
           .realtime-hero__refresh {
@@ -3156,6 +3171,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           .realtime-hero__secondary-button,
           .realtime-hero__utility-actions .ant-btn {
             min-height: 34px;
+            min-width: 0;
           }
 
           .realtime-hero__signal-card {
@@ -3164,6 +3180,12 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
           .realtime-hero__utility-actions .ant-btn {
             justify-content: center;
+          }
+
+          .realtime-hero__utility-actions .ant-btn > span:not(.anticon) {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
           }
 
           .realtime-quote-grid,
