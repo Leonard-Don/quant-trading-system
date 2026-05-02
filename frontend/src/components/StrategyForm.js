@@ -45,6 +45,15 @@ const DEFAULT_TRADING_ASSUMPTIONS = {
 const HANDOFF_METADATA_KEYS = ['source', 'industry_name', 'stock_name', 'note'];
 
 const normalizeSymbolForDraft = (symbol = '') => String(symbol || '').trim().toUpperCase();
+const formatDateRangeKey = (dateRange) => {
+  if (!Array.isArray(dateRange) || !dateRange[0] || !dateRange[1]) {
+    return '';
+  }
+  return `${dateRange[0].format(DATE_FORMAT)}:${dateRange[1].format(DATE_FORMAT)}`;
+};
+const isSameDateRange = (currentDateRange, nextDateRange) => (
+  formatDateRangeKey(currentDateRange) === formatDateRangeKey(nextDateRange)
+);
 
 const pickHandoffMetadata = (...sources) => sources.reduce((metadata, source) => {
   if (!source || typeof source !== 'object') {
@@ -57,6 +66,69 @@ const pickHandoffMetadata = (...sources) => sources.reduce((metadata, source) =>
   });
   return metadata;
 }, {});
+
+const resolveWorkspaceDraftState = (strategies = []) => {
+  const draft = loadBacktestWorkspaceDraft();
+  const urlContext = readResearchContext();
+  const urlPrefillDraft = (
+    urlContext.symbol
+    && urlContext.action === 'prefill_backtest'
+  )
+    ? {
+        symbol: urlContext.symbol,
+        strategy: draft?.strategy || strategies[0]?.name || 'buy_and_hold',
+        dateRange: draft?.dateRange || null,
+        dateRangeMode: draft?.dateRangeMode || 'rolling_one_year',
+        initial_capital: draft?.initial_capital,
+        commission: draft?.commission,
+        slippage: draft?.slippage,
+        fixed_commission: draft?.fixed_commission,
+        min_commission: draft?.min_commission,
+        market_impact_bps: draft?.market_impact_bps,
+        market_impact_model: draft?.market_impact_model,
+        execution_lag: draft?.execution_lag,
+        parameters: draft?.parameters || {},
+        source: draft?.source || urlContext.source,
+        industry_name: draft?.industry_name,
+        stock_name: draft?.stock_name,
+        note: draft?.note || urlContext.note,
+      }
+    : null;
+  const activeDraft = urlPrefillDraft || draft;
+  if (!activeDraft?.symbol || !activeDraft?.strategy) {
+    return null;
+  }
+
+  return {
+    activeDraft,
+    resolvedDateRange: resolveBacktestDraftDateRange(activeDraft),
+  };
+};
+
+const buildFormValuesFromDraft = (activeDraft, resolvedDateRange) => ({
+  symbol: activeDraft.symbol,
+  strategy: activeDraft.strategy,
+  dateRange: resolvedDateRange,
+  initial_capital: activeDraft.initial_capital ?? DEFAULT_TRADING_ASSUMPTIONS.initial_capital,
+  commission: activeDraft.commission ?? DEFAULT_TRADING_ASSUMPTIONS.commission,
+  slippage: activeDraft.slippage ?? DEFAULT_TRADING_ASSUMPTIONS.slippage,
+  fixed_commission: activeDraft.fixed_commission ?? DEFAULT_TRADING_ASSUMPTIONS.fixed_commission,
+  min_commission: activeDraft.min_commission ?? DEFAULT_TRADING_ASSUMPTIONS.min_commission,
+  market_impact_bps: activeDraft.market_impact_bps ?? DEFAULT_TRADING_ASSUMPTIONS.market_impact_bps,
+  market_impact_model: activeDraft.market_impact_model ?? DEFAULT_TRADING_ASSUMPTIONS.market_impact_model,
+  execution_lag: activeDraft.execution_lag ?? DEFAULT_TRADING_ASSUMPTIONS.execution_lag,
+});
+
+const buildInitialFormValues = (strategies = []) => {
+  const draftState = resolveWorkspaceDraftState(strategies);
+  return {
+    symbol: 'AAPL',
+    strategy: strategies[0]?.name,
+    dateRange: getDefaultBacktestDateRange(),
+    ...DEFAULT_TRADING_ASSUMPTIONS,
+    ...(draftState ? buildFormValuesFromDraft(draftState.activeDraft, draftState.resolvedDateRange) : {}),
+  };
+};
 
 const estimateStrategyMinBars = (strategyName, parameters = {}) => {
   switch (strategyName) {
@@ -106,6 +178,7 @@ const estimateTradingDays = (dateRange) => {
 const StrategyForm = ({ strategies, onSubmit, loading }) => {
   const message = useSafeMessageApi();
   const [form] = Form.useForm();
+  const [initialFormValues] = useState(() => buildInitialFormValues(strategies));
   const [selectedStrategy, setSelectedStrategy] = useState(null);
   const [strategyParams, setStrategyParams] = useState({});
   const [savedConfigs, setSavedConfigs] = useState([]);
@@ -164,38 +237,11 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
 
   useEffect(() => {
     const applyWorkspaceDraft = () => {
-      const draft = loadBacktestWorkspaceDraft();
-      const urlContext = readResearchContext();
-      const urlPrefillDraft = (
-        urlContext.symbol
-        && urlContext.action === 'prefill_backtest'
-      )
-        ? {
-            symbol: urlContext.symbol,
-            strategy: draft?.strategy || strategies[0]?.name || 'buy_and_hold',
-            dateRange: draft?.dateRange || null,
-            dateRangeMode: draft?.dateRangeMode || 'rolling_one_year',
-            initial_capital: draft?.initial_capital,
-            commission: draft?.commission,
-            slippage: draft?.slippage,
-            fixed_commission: draft?.fixed_commission,
-            min_commission: draft?.min_commission,
-            market_impact_bps: draft?.market_impact_bps,
-            market_impact_model: draft?.market_impact_model,
-            execution_lag: draft?.execution_lag,
-            parameters: draft?.parameters || {},
-            source: draft?.source || urlContext.source,
-            industry_name: draft?.industry_name,
-            stock_name: draft?.stock_name,
-            note: draft?.note || urlContext.note,
-          }
-        : null;
-      const activeDraft = urlPrefillDraft || draft;
-      if (!activeDraft?.symbol || !activeDraft?.strategy) {
+      const draftState = resolveWorkspaceDraftState(strategies);
+      if (!draftState) {
         return;
       }
-
-      const resolvedDateRange = resolveBacktestDraftDateRange(activeDraft);
+      const { activeDraft, resolvedDateRange } = draftState;
 
       const strategy = strategies.find((item) => item.name === activeDraft.strategy);
       const resolvedStrategy = strategy || strategies[0] || null;
@@ -210,19 +256,11 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
         });
       }
 
-      form.setFieldsValue({
-        symbol: activeDraft.symbol,
-        strategy: activeDraft.strategy,
-        dateRange: resolvedDateRange,
-        initial_capital: activeDraft.initial_capital ?? DEFAULT_TRADING_ASSUMPTIONS.initial_capital,
-        commission: activeDraft.commission ?? DEFAULT_TRADING_ASSUMPTIONS.commission,
-        slippage: activeDraft.slippage ?? DEFAULT_TRADING_ASSUMPTIONS.slippage,
-        fixed_commission: activeDraft.fixed_commission ?? DEFAULT_TRADING_ASSUMPTIONS.fixed_commission,
-        min_commission: activeDraft.min_commission ?? DEFAULT_TRADING_ASSUMPTIONS.min_commission,
-        market_impact_bps: activeDraft.market_impact_bps ?? DEFAULT_TRADING_ASSUMPTIONS.market_impact_bps,
-        market_impact_model: activeDraft.market_impact_model ?? DEFAULT_TRADING_ASSUMPTIONS.market_impact_model,
-        execution_lag: activeDraft.execution_lag ?? DEFAULT_TRADING_ASSUMPTIONS.execution_lag,
-      });
+      const { dateRange, ...scalarValues } = buildFormValuesFromDraft(activeDraft, resolvedDateRange);
+      form.setFieldsValue(scalarValues);
+      if (!isSameDateRange(form.getFieldValue('dateRange'), dateRange)) {
+        form.setFieldValue('dateRange', dateRange);
+      }
     };
 
     applyWorkspaceDraft();
@@ -514,10 +552,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
         className="strategy-form"
         size="middle"
         initialValues={{
-          symbol: 'AAPL',
-          strategy: strategies[0]?.name,
-          dateRange: getDefaultBacktestDateRange(),
-          ...DEFAULT_TRADING_ASSUMPTIONS,
+          ...initialFormValues,
         }}
       >
         <div className="strategy-form-layout">
