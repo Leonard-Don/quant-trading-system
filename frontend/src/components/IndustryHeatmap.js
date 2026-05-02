@@ -29,7 +29,9 @@ const TOOLTIP_SHADOW = '0 10px 30px rgba(15, 23, 42, 0.18)';
 const HEATMAP_POSITIVE = 'var(--accent-danger)';
 const HEATMAP_NEGATIVE = 'var(--accent-success)';
 const HEATMAP_WARNING = 'var(--accent-warning)';
-const TILE_TEXT_SHADOW = '0 1px 3px rgba(15, 23, 42, 0.32)';
+// Stronger shadow keeps tile labels readable on muted (~0%) tiles where
+// the background can dip toward neutral grey.
+const TILE_TEXT_SHADOW = '0 1px 2px rgba(15, 23, 42, 0.55), 0 1px 6px rgba(15, 23, 42, 0.32)';
 const HEATMAP_LIVE_REQUEST_TIMEOUT_MS = 12000;
 const HEATMAP_HISTORY_FALLBACK_TIMEOUT_MS = 6000;
 
@@ -531,7 +533,9 @@ const IndustryHeatmap = ({
 
     // 红涨绿跌渐变色计算（共用逻辑）
     const redGreenGradient = useCallback((value, absMax) => {
-        if (value === 0) return '#555555';
+        // Slate-grey for true zero: pairs better with the dark theme + white
+        // text than the older neutral #555 (contrast ratio ~6.5:1 vs #f8fafc).
+        if (value === 0) return '#475569';
         const clampedMax = Math.max(absMax, 2);
         const intensity = Math.min(Math.abs(value) / clampedMax, 1);
         const t = Math.pow(intensity, 0.7);
