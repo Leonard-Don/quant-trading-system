@@ -2721,6 +2721,11 @@ a {
   min-width: 0;
 }
 
+.backtest-main-stage__health {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
 .backtest-main-stage__config {
   align-self: start;
 }

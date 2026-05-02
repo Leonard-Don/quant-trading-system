@@ -27,10 +27,36 @@ import {
   getDefaultBacktestDateRange,
   resolveBacktestDraftDateRange,
 } from '../utils/backtestDefaults';
+import { readResearchContext } from '../utils/researchContext';
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
 const DATE_FORMAT = 'YYYY-MM-DD';
+const DEFAULT_TRADING_ASSUMPTIONS = {
+  initial_capital: 10000,
+  commission: 0.1,
+  slippage: 0.1,
+  fixed_commission: 0,
+  min_commission: 0,
+  market_impact_bps: 0,
+  market_impact_model: 'constant',
+  execution_lag: 1,
+};
+const HANDOFF_METADATA_KEYS = ['source', 'industry_name', 'stock_name', 'note'];
+
+const normalizeSymbolForDraft = (symbol = '') => String(symbol || '').trim().toUpperCase();
+
+const pickHandoffMetadata = (...sources) => sources.reduce((metadata, source) => {
+  if (!source || typeof source !== 'object') {
+    return metadata;
+  }
+  HANDOFF_METADATA_KEYS.forEach((key) => {
+    if (source[key] !== undefined && source[key] !== null && source[key] !== '') {
+      metadata[key] = source[key];
+    }
+  });
+  return metadata;
+}, {});
 
 const estimateStrategyMinBars = (strategyName, parameters = {}) => {
   switch (strategyName) {
@@ -139,13 +165,39 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
   useEffect(() => {
     const applyWorkspaceDraft = () => {
       const draft = loadBacktestWorkspaceDraft();
-      if (!draft?.symbol || !draft?.strategy) {
+      const urlContext = readResearchContext();
+      const urlPrefillDraft = (
+        urlContext.symbol
+        && urlContext.action === 'prefill_backtest'
+      )
+        ? {
+            symbol: urlContext.symbol,
+            strategy: draft?.strategy || strategies[0]?.name || 'buy_and_hold',
+            dateRange: draft?.dateRange || null,
+            dateRangeMode: draft?.dateRangeMode || 'rolling_one_year',
+            initial_capital: draft?.initial_capital,
+            commission: draft?.commission,
+            slippage: draft?.slippage,
+            fixed_commission: draft?.fixed_commission,
+            min_commission: draft?.min_commission,
+            market_impact_bps: draft?.market_impact_bps,
+            market_impact_model: draft?.market_impact_model,
+            execution_lag: draft?.execution_lag,
+            parameters: draft?.parameters || {},
+            source: draft?.source || urlContext.source,
+            industry_name: draft?.industry_name,
+            stock_name: draft?.stock_name,
+            note: draft?.note || urlContext.note,
+          }
+        : null;
+      const activeDraft = urlPrefillDraft || draft;
+      if (!activeDraft?.symbol || !activeDraft?.strategy) {
         return;
       }
 
-      const resolvedDateRange = resolveBacktestDraftDateRange(draft);
+      const resolvedDateRange = resolveBacktestDraftDateRange(activeDraft);
 
-      const strategy = strategies.find((item) => item.name === draft.strategy);
+      const strategy = strategies.find((item) => item.name === activeDraft.strategy);
       const resolvedStrategy = strategy || strategies[0] || null;
       if (resolvedStrategy) {
         setSelectedStrategy(resolvedStrategy);
@@ -154,17 +206,22 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
         );
         setStrategyParams({
           ...defaultParams,
-          ...(draft.parameters || {}),
+          ...(activeDraft.parameters || {}),
         });
       }
 
       form.setFieldsValue({
-        symbol: draft.symbol,
-        strategy: draft.strategy,
+        symbol: activeDraft.symbol,
+        strategy: activeDraft.strategy,
         dateRange: resolvedDateRange,
-        initial_capital: draft.initial_capital ?? 10000,
-        commission: draft.commission ?? 0.1,
-        slippage: draft.slippage ?? 0.1,
+        initial_capital: activeDraft.initial_capital ?? DEFAULT_TRADING_ASSUMPTIONS.initial_capital,
+        commission: activeDraft.commission ?? DEFAULT_TRADING_ASSUMPTIONS.commission,
+        slippage: activeDraft.slippage ?? DEFAULT_TRADING_ASSUMPTIONS.slippage,
+        fixed_commission: activeDraft.fixed_commission ?? DEFAULT_TRADING_ASSUMPTIONS.fixed_commission,
+        min_commission: activeDraft.min_commission ?? DEFAULT_TRADING_ASSUMPTIONS.min_commission,
+        market_impact_bps: activeDraft.market_impact_bps ?? DEFAULT_TRADING_ASSUMPTIONS.market_impact_bps,
+        market_impact_model: activeDraft.market_impact_model ?? DEFAULT_TRADING_ASSUMPTIONS.market_impact_model,
+        execution_lag: activeDraft.execution_lag ?? DEFAULT_TRADING_ASSUMPTIONS.execution_lag,
       });
     };
 
@@ -183,8 +240,29 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       return;
     }
 
+    const currentSymbol = watchedValues?.symbol || 'AAPL';
+    const currentDraft = loadBacktestWorkspaceDraft();
+    const urlContext = readResearchContext();
+    const currentSymbolKey = normalizeSymbolForDraft(currentSymbol);
+    const shouldPreserveDraftMetadata = (
+      currentDraft?.symbol
+      && normalizeSymbolForDraft(currentDraft.symbol) === currentSymbolKey
+    );
+    const shouldPreserveUrlMetadata = (
+      urlContext.action === 'prefill_backtest'
+      && urlContext.symbol
+      && normalizeSymbolForDraft(urlContext.symbol) === currentSymbolKey
+    );
+    const handoffMetadata = pickHandoffMetadata(
+      shouldPreserveDraftMetadata ? currentDraft : null,
+      shouldPreserveUrlMetadata ? {
+        source: urlContext.source,
+        note: urlContext.note,
+      } : null
+    );
+
     saveBacktestWorkspaceDraft({
-      symbol: watchedValues?.symbol || 'AAPL',
+      symbol: currentSymbol,
       strategy: watchedValues?.strategy || selectedStrategy?.name || '',
       dateRange: watchedValues?.dateRange
         ? [
@@ -193,10 +271,16 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
           ]
         : null,
       dateRangeMode: getBacktestDraftDateRangeMode(watchedValues?.dateRange),
-      initial_capital: watchedValues?.initial_capital ?? 10000,
-      commission: watchedValues?.commission ?? 0.1,
-      slippage: watchedValues?.slippage ?? 0.1,
+      initial_capital: watchedValues?.initial_capital ?? DEFAULT_TRADING_ASSUMPTIONS.initial_capital,
+      commission: watchedValues?.commission ?? DEFAULT_TRADING_ASSUMPTIONS.commission,
+      slippage: watchedValues?.slippage ?? DEFAULT_TRADING_ASSUMPTIONS.slippage,
+      fixed_commission: watchedValues?.fixed_commission ?? DEFAULT_TRADING_ASSUMPTIONS.fixed_commission,
+      min_commission: watchedValues?.min_commission ?? DEFAULT_TRADING_ASSUMPTIONS.min_commission,
+      market_impact_bps: watchedValues?.market_impact_bps ?? DEFAULT_TRADING_ASSUMPTIONS.market_impact_bps,
+      market_impact_model: watchedValues?.market_impact_model ?? DEFAULT_TRADING_ASSUMPTIONS.market_impact_model,
+      execution_lag: watchedValues?.execution_lag ?? DEFAULT_TRADING_ASSUMPTIONS.execution_lag,
       parameters: strategyParams,
+      ...handoffMetadata,
       updated_at: new Date().toISOString(),
     });
   }, [selectedStrategy, strategyParams, watchedValues]);
@@ -235,7 +319,12 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       dateRange: data.dateRange ? [dayjs(data.dateRange[0]), dayjs(data.dateRange[1])] : null,
       initial_capital: data.initial_capital,
       commission: data.commission,
-      slippage: data.slippage
+      slippage: data.slippage,
+      fixed_commission: data.fixed_commission ?? DEFAULT_TRADING_ASSUMPTIONS.fixed_commission,
+      min_commission: data.min_commission ?? DEFAULT_TRADING_ASSUMPTIONS.min_commission,
+      market_impact_bps: data.market_impact_bps ?? DEFAULT_TRADING_ASSUMPTIONS.market_impact_bps,
+      market_impact_model: data.market_impact_model ?? DEFAULT_TRADING_ASSUMPTIONS.market_impact_model,
+      execution_lag: data.execution_lag ?? DEFAULT_TRADING_ASSUMPTIONS.execution_lag,
     });
     if (data.strategyParams) {
       setStrategyParams(data.strategyParams);
@@ -286,6 +375,11 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       initial_capital: values.initial_capital,
       commission: values.commission / 100,
       slippage: values.slippage / 100,
+      fixed_commission: values.fixed_commission ?? 0,
+      min_commission: values.min_commission ?? 0,
+      market_impact_bps: values.market_impact_bps ?? 0,
+      market_impact_model: values.market_impact_model || DEFAULT_TRADING_ASSUMPTIONS.market_impact_model,
+      execution_lag: values.execution_lag ?? DEFAULT_TRADING_ASSUMPTIONS.execution_lag,
       parameters: strategyParams
     };
     onSubmit(formData);
@@ -342,11 +436,17 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       label: '资金 / 成本',
       value: `${watchedValues?.initial_capital ? `$${Number(watchedValues.initial_capital).toLocaleString()}` : '$10,000'} · ${watchedValues?.commission ?? 0.1}% / ${watchedValues?.slippage ?? 0.1}%`,
     },
+    {
+      label: '执行假设',
+      value: `T+${watchedValues?.execution_lag ?? DEFAULT_TRADING_ASSUMPTIONS.execution_lag} · 冲击 ${watchedValues?.market_impact_bps ?? 0}bp`,
+    },
   ];
   const runBriefSymbol = watchedValues?.symbol || 'AAPL';
-  const runBriefCapital = Number(watchedValues?.initial_capital ?? 10000).toLocaleString();
-  const runBriefCommission = watchedValues?.commission ?? 0.1;
-  const runBriefSlippage = watchedValues?.slippage ?? 0.1;
+  const runBriefCapital = Number(watchedValues?.initial_capital ?? DEFAULT_TRADING_ASSUMPTIONS.initial_capital).toLocaleString();
+  const runBriefCommission = watchedValues?.commission ?? DEFAULT_TRADING_ASSUMPTIONS.commission;
+  const runBriefSlippage = watchedValues?.slippage ?? DEFAULT_TRADING_ASSUMPTIONS.slippage;
+  const runBriefExecutionLag = watchedValues?.execution_lag ?? DEFAULT_TRADING_ASSUMPTIONS.execution_lag;
+  const runBriefImpactBps = watchedValues?.market_impact_bps ?? DEFAULT_TRADING_ASSUMPTIONS.market_impact_bps;
   const recentConfigs = savedConfigs.slice(-6).reverse();
   const estimatedTradingDays = estimateTradingDays(watchedValues?.dateRange);
   const estimatedMinBars = estimateStrategyMinBars(selectedStrategy?.name, strategyParams);
@@ -417,9 +517,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
           symbol: 'AAPL',
           strategy: strategies[0]?.name,
           dateRange: getDefaultBacktestDateRange(),
-          initial_capital: 10000,
-          commission: 0.1,
-          slippage: 0.1
+          ...DEFAULT_TRADING_ASSUMPTIONS,
         }}
       >
         <div className="strategy-form-layout">
@@ -507,6 +605,73 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
                   style={{ width: '100%' }}
                 />
               </Form.Item>
+
+              <Form.Item
+                className="strategy-form-grid__item"
+                label="信号执行延迟 (K线)"
+                name="execution_lag"
+                rules={[{ required: true, message: '请输入执行延迟' }]}
+              >
+                <InputNumber
+                  min={0}
+                  max={5}
+                  step={1}
+                  precision={0}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+
+              <Form.Item
+                className="strategy-form-grid__item"
+                label="固定手续费"
+                name="fixed_commission"
+              >
+                <InputNumber
+                  min={0}
+                  max={10000}
+                  step={1}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+
+              <Form.Item
+                className="strategy-form-grid__item"
+                label="最低手续费"
+                name="min_commission"
+              >
+                <InputNumber
+                  min={0}
+                  max={10000}
+                  step={1}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+
+              <Form.Item
+                className="strategy-form-grid__item"
+                label="市场冲击 (bp)"
+                name="market_impact_bps"
+              >
+                <InputNumber
+                  min={0}
+                  max={1000}
+                  step={1}
+                  style={{ width: '100%' }}
+                />
+              </Form.Item>
+
+              <Form.Item
+                className="strategy-form-grid__item"
+                label="市场冲击模型"
+                name="market_impact_model"
+              >
+                <Select>
+                  <Option value="constant">常数</Option>
+                  <Option value="linear">线性</Option>
+                  <Option value="sqrt">平方根</Option>
+                  <Option value="almgren_chriss">Almgren-Chriss</Option>
+                </Select>
+              </Form.Item>
             </div>
           </div>
 
@@ -577,7 +742,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
             <div className="workspace-run-brief strategy-form-run-brief">
               <span className="workspace-run-brief__label">本次运行摘要</span>
               <span className="workspace-run-brief__value">
-                {`${runBriefSymbol} · ${selectedStrategy ? getStrategyName(selectedStrategy.name) : '待选策略'} · ${runBriefCapital} 美元 · 手续费 ${runBriefCommission}% · 滑点 ${runBriefSlippage}%`}
+                {`${runBriefSymbol} · ${selectedStrategy ? getStrategyName(selectedStrategy.name) : '待选策略'} · ${runBriefCapital} 美元 · 手续费 ${runBriefCommission}% · 滑点 ${runBriefSlippage}% · T+${runBriefExecutionLag} · 冲击 ${runBriefImpactBps}bp`}
               </span>
             </div>
 

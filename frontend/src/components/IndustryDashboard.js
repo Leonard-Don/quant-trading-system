@@ -18,7 +18,8 @@ import {
 import {
     FireOutlined,
     BranchesOutlined,
-    ReloadOutlined
+    ReloadOutlined,
+    BarChartOutlined
 } from '@ant-design/icons';
 import {
     ScatterChart,
@@ -49,6 +50,9 @@ import IndustryHeatmapStateBar from './industry/IndustryHeatmapStateBar';
 import { INDUSTRY_URL_DEFAULTS } from './industry/useIndustryUrlState';
 import useIndustryDashboardData from './industry/useIndustryDashboardData';
 import { useSafeMessageApi } from '../utils/messageApi';
+import { getDefaultBacktestDateRangeStrings } from '../utils/backtestDefaults';
+import { saveBacktestWorkspaceDraft } from '../utils/backtestWorkspace';
+import { buildBacktestLink, navigateToAppUrl } from '../utils/researchContext';
 import {
     INDUSTRY_ALERT_RECENCY_OPTIONS,
     INDUSTRY_ALERT_KIND_OPTIONS,
@@ -128,6 +132,42 @@ const IndustryDashboard = () => {
     const openSelectedIndustryDetailWithModal = () => {
         data.openSelectedIndustryDetail();
         setDetailVisible(true);
+    };
+
+    const handleBacktestStock = (record, source = 'industry_stock_table') => {
+        const symbol = String(record?.symbol || record?.code || '').trim().toUpperCase();
+        if (!symbol) {
+            message.warning('当前标的缺少代码，暂时无法带入回测。');
+            return;
+        }
+
+        const industryName = record?.industry || data.selectedIndustry || record?.industry_name || '';
+        const [startDate, endDate] = getDefaultBacktestDateRangeStrings();
+        saveBacktestWorkspaceDraft({
+            symbol,
+            strategy: 'buy_and_hold',
+            dateRange: [startDate, endDate],
+            dateRangeMode: 'rolling_one_year',
+            initial_capital: 10000,
+            commission: 0.1,
+            slippage: 0.1,
+            fixed_commission: 0,
+            min_commission: 0,
+            market_impact_bps: 0,
+            market_impact_model: 'constant',
+            execution_lag: 1,
+            parameters: {},
+            source,
+            industry_name: industryName,
+            stock_name: record?.name || '',
+            updated_at: new Date().toISOString(),
+        });
+        navigateToAppUrl(buildBacktestLink(
+            symbol,
+            source,
+            industryName ? `${industryName} 龙头/成分股` : '行业成分股'
+        ));
+        message.success(`已将 ${symbol} 带入主回测`);
     };
 
     const heatmapCoveragePct = data.heatmapSummary?.marketCapHealth?.coveragePct;
@@ -423,6 +463,26 @@ const IndustryDashboard = () => {
             width: 70,
             render: (value) => (
                 value === null || value === undefined || value <= 0 ? '-' : value.toFixed(1)
+            )
+        },
+        {
+            title: '操作',
+            key: 'backtest',
+            width: 82,
+            render: (_, record) => (
+                <Button
+                    className="industry-inline-link"
+                    type="link"
+                    size="small"
+                    icon={<BarChartOutlined />}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        handleBacktestStock(record, 'industry_stock_table');
+                    }}
+                    style={{ padding: 0, height: 'auto', fontSize: 12 }}
+                >
+                    回测
+                </Button>
             )
         }
     ];
@@ -908,6 +968,7 @@ const IndustryDashboard = () => {
                     bootstrapLoading={data.industryBootstrapLoading}
                     focusIndustry={data.selectedIndustry}
                     onClearFocusIndustry={() => data.setSelectedIndustry(null)}
+                    onBacktestStock={(record) => handleBacktestStock(record, 'leader_stock_panel')}
                 />
             ),
         },

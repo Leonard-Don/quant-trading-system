@@ -8,7 +8,8 @@ import {
 } from 'antd';
 import {
     CrownOutlined,
-    ReloadOutlined
+    ReloadOutlined,
+    BarChartOutlined
 } from '@ant-design/icons';
 import { getLeaderBoards, getLeaderStocks, getLeaderDetail, getIndustryTrend } from '../services/api';
 import StockDetailModal from './StockDetailModal';
@@ -223,6 +224,7 @@ const LeaderStockPanel = ({
     topIndustries = 5,
     perIndustry = 5,
     onStockClick,
+    onBacktestStock,
     focusIndustry = null,
     onClearFocusIndustry,
     bootstrappedOverview = null,
@@ -878,7 +880,22 @@ const LeaderStockPanel = ({
                             {scoreType === 'hot' ? '热点先锋' : '核心资产'}
                         </Tag>
                     </div>
-                    <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>点击查看详情</span>
+                    {onBacktestStock ? (
+                        <Button
+                            size="small"
+                            type="link"
+                            icon={<BarChartOutlined />}
+                            onClick={(event) => {
+                                event.stopPropagation();
+                                onBacktestStock(record);
+                            }}
+                            style={{ padding: 0, height: 'auto', fontSize: 11 }}
+                        >
+                            回测
+                        </Button>
+                    ) : (
+                        <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>点击查看详情</span>
+                    )}
                 </div>
             </div>
         );

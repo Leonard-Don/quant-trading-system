@@ -181,4 +181,18 @@ describe('App realtime view routing', () => {
     expect(window.location.search).not.toContain('symbol=AAPL');
     expect(window.location.search).not.toContain('period=2y');
   });
+
+  test('keeps an industry-to-backtest handoff symbol while normalizing the URL', async () => {
+    window.history.replaceState(null, '', '/?symbol=600519&source=industry_leader&action=prefill_backtest&note=leader');
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('BacktestDashboard')).toBeInTheDocument();
+    });
+
+    expect(window.location.search).toContain('symbol=600519');
+    expect(window.location.search).toContain('source=industry_leader');
+    expect(window.location.search).toContain('action=prefill_backtest');
+  });
 });

@@ -69,6 +69,7 @@ beforeAll(() => {
 
 afterEach(() => {
     window.localStorage.clear();
+    window.history.replaceState(null, '', '/');
 });
 
 
@@ -138,6 +139,11 @@ describe('StrategyForm Component', () => {
             await waitFor(() => {
                 expect(handleSubmit).toHaveBeenCalledWith(expect.objectContaining({
                     strategy: 'moving_average',
+                    execution_lag: 1,
+                    fixed_commission: 0,
+                    min_commission: 0,
+                    market_impact_bps: 0,
+                    market_impact_model: 'constant',
                 }));
             });
         });
@@ -231,6 +237,35 @@ describe('StrategyForm Component', () => {
             await waitFor(() => {
                 expect(screen.getByDisplayValue(dayjs().subtract(1, 'year').format('YYYY-MM-DD'))).toBeInTheDocument();
                 expect(screen.getByDisplayValue(dayjs().format('YYYY-MM-DD'))).toBeInTheDocument();
+            });
+        });
+
+        test('prefills the main backtest from an industry handoff URL', async () => {
+            window.history.replaceState(null, '', '/?symbol=600519&source=industry_leader&action=prefill_backtest&note=leader');
+
+            render(
+                <StrategyForm
+                    strategies={[
+                        {
+                            name: 'buy_and_hold',
+                            parameters: {},
+                        },
+                    ]}
+                    onSubmit={jest.fn()}
+                    loading={false}
+                />
+            );
+
+            await waitFor(() => {
+                expect(screen.getByDisplayValue('600519')).toBeInTheDocument();
+            });
+            await waitFor(() => {
+                const draft = JSON.parse(window.localStorage.getItem('backtest_workspace_draft'));
+                expect(draft).toMatchObject({
+                    symbol: '600519',
+                    source: 'industry_leader',
+                    note: 'leader',
+                });
             });
         });
     });

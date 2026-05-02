@@ -6,6 +6,11 @@ const PUBLIC_VIEWS = new Set(['backtest', 'realtime', 'industry']);
 
 const RESEARCH_KEYS = ['symbol', 'symbols', 'template', 'draft', 'action', 'source', 'note'];
 const CROSS_MARKET_KEYS = ['template', 'draft', 'action', 'source', 'note'];
+const BACKTEST_PREFILL_SOURCES = new Set([
+  'industry_leader',
+  'industry_stock_table',
+  'leader_stock_panel',
+]);
 const WORKBENCH_KEYS = [
   'workbench_refresh',
   'workbench_type',
@@ -69,6 +74,13 @@ export const sanitizeParamsForView = (params, view) => {
   if (publicView === 'backtest') {
     params.delete('period');
     const activeTab = params.get(TAB_QUERY_KEY) || 'new';
+    const shouldKeepMainBacktestPrefill = (
+      activeTab === 'new'
+      && (
+        params.get('action') === 'prefill_backtest'
+        || BACKTEST_PREFILL_SOURCES.has(params.get('source') || '')
+      )
+    );
     if (activeTab !== 'history') {
       params.delete('record');
       params.delete('history_symbol');
@@ -77,6 +89,10 @@ export const sanitizeParamsForView = (params, view) => {
     if (activeTab === 'cross-market') {
       RESEARCH_KEYS.forEach((key) => {
         if (!CROSS_MARKET_KEYS.includes(key)) params.delete(key);
+      });
+    } else if (shouldKeepMainBacktestPrefill) {
+      RESEARCH_KEYS.forEach((key) => {
+        if (!['symbol', 'action', 'source', 'note'].includes(key)) params.delete(key);
       });
     } else {
       RESEARCH_KEYS.forEach((key) => params.delete(key));
@@ -251,6 +267,24 @@ export const buildCrossMarketLink = (
     source,
     action: 'cross_market',
     note,
+  });
+
+export const buildBacktestLink = (
+  symbol,
+  source = 'industry_leader',
+  note = '',
+  currentSearch = window.location.search,
+) =>
+  buildAppUrl({
+    currentSearch,
+    view: 'backtest',
+    tab: undefined,
+    symbol: String(symbol || '').trim().toUpperCase(),
+    source,
+    action: 'prefill_backtest',
+    note,
+    template: undefined,
+    draft: undefined,
   });
 
 export const buildGodEyeLink = (currentSearch = window.location.search) =>
