@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -13,13 +13,13 @@ router = APIRouter()
 
 
 class ResearchJournalSnapshotRequest(BaseModel):
-    entries: List[dict] = Field(default_factory=list)
-    source_state: Dict[str, Any] = Field(default_factory=dict)
+    entries: list[dict] = Field(default_factory=list)
+    source_state: dict[str, Any] = Field(default_factory=dict)
     generated_at: str | None = None
 
 
 class ResearchJournalEntryRequest(BaseModel):
-    entry: Dict[str, Any] = Field(default_factory=dict)
+    entry: dict[str, Any] = Field(default_factory=dict)
 
 
 class ResearchJournalStatusRequest(BaseModel):

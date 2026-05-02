@@ -3,17 +3,16 @@
 """
 
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any
 
 from backend.app.services.runtime_state import get_data_manager
 from src.data.realtime_manager import realtime_manager
 from src.trading.trade_manager import trade_manager
 
-
 data_manager = get_data_manager()
 
 
-def resolve_trade_portfolio() -> Dict[str, Any]:
+def resolve_trade_portfolio() -> dict[str, Any]:
     """获取当前交易账户状态，并尽量补全持仓现价。"""
     current_prices = {}
     symbols = list(trade_manager.positions.keys())
@@ -41,7 +40,7 @@ def resolve_trade_portfolio() -> Dict[str, Any]:
     return trade_manager.get_portfolio_status(current_prices)
 
 
-def build_trade_stream_payload(history_limit: int = 50) -> Dict[str, Any]:
+def build_trade_stream_payload(history_limit: int = 50) -> dict[str, Any]:
     """构建交易频道推送使用的快照载荷。"""
     return {
         "portfolio": resolve_trade_portfolio(),

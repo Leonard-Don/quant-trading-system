@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
 from typing import Optional
+
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from backend.app.services.runtime_state import get_data_manager
@@ -22,7 +23,7 @@ async def get_portfolio():
     """获取当前账户余额、持仓和总资产"""
     try:
         return {
-            "success": True, 
+            "success": True,
             "data": resolve_trade_portfolio()
         }
     except Exception as e:
@@ -33,7 +34,7 @@ async def execute_trade(trade_request: TradeRequest):
     """执行买入或卖出交易"""
     try:
         price = trade_request.price
-        
+
         # 如果未提供价格，优先复用实时缓存中的最新价，保持与前端实时参考价一致。
         if price is None:
             realtime_quote = realtime_manager.get_quote_dict(trade_request.symbol, use_cache=True) or {}
@@ -62,7 +63,7 @@ async def execute_trade(trade_request: TradeRequest):
                 "trade": trade_result,
             },
         })
-        
+
         return {"success": True, "data": trade_result}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -74,7 +75,7 @@ async def get_trade_history(limit: int = 50):
     """获取历史交易记录"""
     try:
         return {
-            "success": True, 
+            "success": True,
             "data": trade_manager.get_history(limit)
         }
     except Exception as e:

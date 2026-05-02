@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any
 
 
-def _normalize_sparkline_points(points: List[float], max_points: int = 20) -> List[float]:
-    normalized: List[float] = []
+def _normalize_sparkline_points(points: list[float], max_points: int = 20) -> list[float]:
+    normalized: list[float] = []
     for point in points or []:
         try:
             value = float(point)
@@ -36,7 +36,7 @@ def _normalize_sparkline_points(points: List[float], max_points: int = 20) -> Li
     return sampled
 
 
-def _classify_industry_lifecycle(row: Dict[str, Any]) -> Dict[str, Any]:
+def _classify_industry_lifecycle(row: dict[str, Any]) -> dict[str, Any]:
     score = float(row.get("score") or row.get("total_score") or 0)
     momentum = float(row.get("momentum") or 0)
     change_pct = float(row.get("change_pct") or 0)
@@ -69,7 +69,7 @@ def _classify_industry_lifecycle(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _build_industry_events(industry_name: str) -> List[Dict[str, Any]]:
+def _build_industry_events(industry_name: str) -> list[dict[str, Any]]:
     now = datetime.now()
     base_events = [
         {"name": "财报密集披露窗口", "offset_days": 14, "type": "earnings", "impact": "fundamental"},
@@ -96,7 +96,7 @@ def _build_industry_events(industry_name: str) -> List[Dict[str, Any]]:
     ]
 
 
-def _cosine_similarity(left: List[float], right: List[float]) -> float:
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
     numerator = sum(a * b for a, b in zip(left, right))
     left_norm = math.sqrt(sum(a * a for a in left))
     right_norm = math.sqrt(sum(b * b for b in right))

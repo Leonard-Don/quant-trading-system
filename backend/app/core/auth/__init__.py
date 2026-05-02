@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import secrets
 import time
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
@@ -40,7 +41,7 @@ FALSE_ENV_VALUES = {"0", "false", "no", "off", "disabled"}
 oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/infrastructure/oauth/token", auto_error=False)
 
 
-OAUTH_PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
+OAUTH_PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
     "github": {
         "auth_url": "https://github.com/login/oauth/authorize",
         "token_url": "https://github.com/login/oauth/access_token",
@@ -62,7 +63,7 @@ OAUTH_PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
     },
 }
 
-ENV_OAUTH_PROVIDER_MAPPINGS: Dict[str, Dict[str, Any]] = {
+ENV_OAUTH_PROVIDER_MAPPINGS: dict[str, dict[str, Any]] = {
     "github": {
         "provider_id": "github",
         "provider_type": "github",
@@ -129,7 +130,7 @@ def is_auth_secret_production_ready(secret: Optional[str] = None) -> bool:
     return bool(value.strip()) and value != DEFAULT_AUTH_SECRET
 
 
-def _load_policy() -> Dict[str, Any]:
+def _load_policy() -> dict[str, Any]:
     records = persistence_manager.list_records(record_type=AUTH_POLICY_RECORD_TYPE, limit=1)
     payload = (records[0].get("payload") or {}) if records else {}
     required = bool(payload.get("required", _env_auth_required()))
@@ -158,7 +159,7 @@ def _default_refresh_ttl() -> int:
     return max(3600, min(int(os.getenv("AUTH_REFRESH_TOKEN_TTL", str(60 * 60 * 24 * 30))), 60 * 60 * 24 * 180))
 
 
-def _normalize_scope_items(scopes: Optional[List[str] | str]) -> List[str]:
+def _normalize_scope_items(scopes: Optional[list[str] | str]) -> list[str]:
     if isinstance(scopes, str):
         raw_items = scopes.replace(",", " ").split()
     else:
@@ -173,12 +174,12 @@ def _env_flag(name: str, default: bool = True) -> bool:
     return str(raw).strip().lower() not in {"0", "false", "no", "off", ""}
 
 
-def _oauth_provider_preset(provider_type: str) -> Dict[str, Any]:
+def _oauth_provider_preset(provider_type: str) -> dict[str, Any]:
     return OAUTH_PROVIDER_PRESETS.get(str(provider_type or "generic").strip().lower(), {})
 
 
-def _env_oauth_provider_specs() -> List[Dict[str, Any]]:
-    specs: List[Dict[str, Any]] = []
+def _env_oauth_provider_specs() -> list[dict[str, Any]]:
+    specs: list[dict[str, Any]] = []
     for mapping in ENV_OAUTH_PROVIDER_MAPPINGS.values():
         client_id = str(os.getenv(mapping["client_id_env"], "")).strip()
         if not client_id:
@@ -222,7 +223,7 @@ def _env_oauth_provider_specs() -> List[Dict[str, Any]]:
     return specs
 
 
-def _find_oauth_provider_record(provider_id: str) -> Optional[Dict[str, Any]]:
+def _find_oauth_provider_record(provider_id: str) -> Optional[dict[str, Any]]:
     normalized = str(provider_id or "").strip().lower()
     if not normalized:
         return None
@@ -232,7 +233,7 @@ def _find_oauth_provider_record(provider_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _sanitize_oauth_provider(record: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_oauth_provider(record: dict[str, Any]) -> dict[str, Any]:
     payload = record.get("payload") or {}
     provider_type = str(payload.get("provider_type") or "generic").strip().lower()
     preset = _oauth_provider_preset(provider_type)
@@ -264,7 +265,7 @@ def _sanitize_oauth_provider(record: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def list_oauth_providers(enabled_only: bool = False) -> List[Dict[str, Any]]:
+def list_oauth_providers(enabled_only: bool = False) -> list[dict[str, Any]]:
     providers = []
     for record in persistence_manager.list_records(record_type=AUTH_OAUTH_PROVIDER_RECORD_TYPE, limit=200):
         provider = _sanitize_oauth_provider(record)
@@ -274,8 +275,8 @@ def list_oauth_providers(enabled_only: bool = False) -> List[Dict[str, Any]]:
     return sorted(providers, key=lambda item: (not item.get("enabled"), item.get("provider_id") or ""))
 
 
-def sync_env_oauth_providers(updated_by: str = "env_sync") -> List[Dict[str, Any]]:
-    synced: List[Dict[str, Any]] = []
+def sync_env_oauth_providers(updated_by: str = "env_sync") -> list[dict[str, Any]]:
+    synced: list[dict[str, Any]] = []
     for spec in _env_oauth_provider_specs():
         synced.append(
             upsert_oauth_provider(
@@ -305,13 +306,13 @@ def sync_env_oauth_providers(updated_by: str = "env_sync") -> List[Dict[str, Any
     return synced
 
 
-def diagnose_oauth_provider(provider_id: str) -> Dict[str, Any]:
+def diagnose_oauth_provider(provider_id: str) -> dict[str, Any]:
     record = _find_oauth_provider_record(provider_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found")
     provider = _sanitize_oauth_provider(record)
     expected_redirect_uri = provider.get("redirect_uri") or f"{_backend_public_base_url()}/infrastructure/auth/oauth/providers/{provider['provider_id']}/callback"
-    findings: List[Dict[str, Any]] = []
+    findings: list[dict[str, Any]] = []
     if not provider.get("client_secret_configured"):
         findings.append({"severity": "high", "message": "Client secret 未配置，无法完成授权码换 token"})
     if not provider.get("frontend_origin"):
@@ -355,17 +356,17 @@ def upsert_oauth_provider(
     userinfo_url: Optional[str] = None,
     redirect_uri: str = "",
     frontend_origin: str = "",
-    scopes: Optional[List[str] | str] = None,
+    scopes: Optional[list[str] | str] = None,
     auto_create_user: bool = True,
     default_role: str = "researcher",
-    default_scopes: Optional[List[str] | str] = None,
+    default_scopes: Optional[list[str] | str] = None,
     subject_field: Optional[str] = None,
     display_name_field: Optional[str] = None,
     email_field: Optional[str] = None,
-    extra_params: Optional[Dict[str, Any]] = None,
-    metadata: Optional[Dict[str, Any]] = None,
+    extra_params: Optional[dict[str, Any]] = None,
+    metadata: Optional[dict[str, Any]] = None,
     updated_by: str = "system",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     normalized_provider_id = str(provider_id or "").strip().lower()
     if not normalized_provider_id:
         raise ValueError("provider_id is required")
@@ -411,7 +412,7 @@ def upsert_oauth_provider(
     return _sanitize_oauth_provider(record)
 
 
-def _find_oauth_state_record(state: str) -> Optional[Dict[str, Any]]:
+def _find_oauth_state_record(state: str) -> Optional[dict[str, Any]]:
     normalized = str(state or "").strip()
     if not normalized:
         return None
@@ -429,7 +430,7 @@ def _persist_oauth_state(
     redirect_uri: str,
     frontend_origin: str,
     expires_at: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     return persistence_manager.put_record(
         record_type=AUTH_OAUTH_STATE_RECORD_TYPE,
         record_key=state,
@@ -447,7 +448,7 @@ def _persist_oauth_state(
     )
 
 
-def _mark_oauth_state_used(record: Dict[str, Any]) -> Dict[str, Any]:
+def _mark_oauth_state_used(record: dict[str, Any]) -> dict[str, Any]:
     payload = record.get("payload") or {}
     return persistence_manager.put_record(
         record_type=AUTH_OAUTH_STATE_RECORD_TYPE,
@@ -469,11 +470,11 @@ def _pkce_challenge(code_verifier: str) -> str:
     digest = hashlib.sha256(str(code_verifier or "").encode("utf-8")).digest()
     return _b64url_encode(digest)
 
-def get_auth_policy() -> Dict[str, Any]:
+def get_auth_policy() -> dict[str, Any]:
     return _load_policy()
 
 
-def update_auth_policy(required: bool, updated_by: str = "system") -> Dict[str, Any]:
+def update_auth_policy(required: bool, updated_by: str = "system") -> dict[str, Any]:
     payload = {
         "required": bool(required),
         "updated_by": updated_by,
@@ -488,7 +489,7 @@ def update_auth_policy(required: bool, updated_by: str = "system") -> Dict[str, 
     return get_auth_policy()
 
 
-def _find_user_record(subject: str) -> Optional[Dict[str, Any]]:
+def _find_user_record(subject: str) -> Optional[dict[str, Any]]:
     normalized = str(subject or "").strip()
     if not normalized:
         return None
@@ -498,7 +499,7 @@ def _find_user_record(subject: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _sanitize_user(record: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_user(record: dict[str, Any]) -> dict[str, Any]:
     payload = record.get("payload") or {}
     return {
         "id": record.get("id"),
@@ -515,7 +516,7 @@ def _sanitize_user(record: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def _find_refresh_session(session_id: str) -> Optional[Dict[str, Any]]:
+def _find_refresh_session(session_id: str) -> Optional[dict[str, Any]]:
     normalized = str(session_id or "").strip()
     if not normalized:
         return None
@@ -525,7 +526,7 @@ def _find_refresh_session(session_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _sanitize_refresh_session(record: Dict[str, Any]) -> Dict[str, Any]:
+def _sanitize_refresh_session(record: dict[str, Any]) -> dict[str, Any]:
     payload = record.get("payload") or {}
     return {
         "id": record.get("id"),
@@ -542,7 +543,7 @@ def _sanitize_refresh_session(record: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def list_refresh_sessions(subject: Optional[str] = None, limit: int = 200) -> List[Dict[str, Any]]:
+def list_refresh_sessions(subject: Optional[str] = None, limit: int = 200) -> list[dict[str, Any]]:
     sessions = []
     for record in persistence_manager.list_records(record_type=AUTH_REFRESH_RECORD_TYPE, limit=limit):
         session = _sanitize_refresh_session(record)
@@ -552,7 +553,7 @@ def list_refresh_sessions(subject: Optional[str] = None, limit: int = 200) -> Li
     return sorted(sessions, key=lambda item: int(item.get("issued_at") or 0), reverse=True)
 
 
-def list_local_users() -> List[Dict[str, Any]]:
+def list_local_users() -> list[dict[str, Any]]:
     records = persistence_manager.list_records(record_type=AUTH_USER_RECORD_TYPE, limit=500)
     users = [_sanitize_user(record) for record in records]
     return sorted(users, key=lambda item: (item.get("role") != "admin", item.get("subject") or ""))
@@ -564,10 +565,10 @@ def upsert_local_user(
     password: Optional[str] = None,
     enabled: bool = True,
     display_name: Optional[str] = None,
-    scopes: Optional[List[str]] = None,
-    metadata: Optional[Dict[str, Any]] = None,
+    scopes: Optional[list[str]] = None,
+    metadata: Optional[dict[str, Any]] = None,
     updated_by: str = "system",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     normalized_subject = str(subject or "").strip()
     if not normalized_subject:
         raise ValueError("subject is required")
@@ -608,7 +609,7 @@ def authenticate_local_user(
     password: str,
     expires_in_seconds: int = 86_400,
     refresh_expires_in_seconds: Optional[int] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     record = _find_user_record(subject)
     if not record:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown user")
@@ -640,7 +641,7 @@ def authenticate_local_user(
     )
 
 
-def auth_status() -> Dict[str, Any]:
+def auth_status() -> dict[str, Any]:
     users = list_local_users()
     policy = get_auth_policy()
     sessions = list_refresh_sessions(limit=500)
@@ -656,7 +657,7 @@ def auth_status() -> Dict[str, Any]:
         item for item in sessions
         if not item.get("revoked_at") and int(item.get("expires_at") or 0) >= int(time.time())
     ]
-    readiness_findings: List[Dict[str, str]] = []
+    readiness_findings: list[dict[str, str]] = []
     if production_mode and not policy["required"]:
         readiness_findings.append({
             "severity": "high",
@@ -704,7 +705,7 @@ def create_access_token(
     subject: str,
     role: str = "researcher",
     expires_in_seconds: int = 86400,
-    extra_claims: Optional[Dict[str, Any]] = None,
+    extra_claims: Optional[dict[str, Any]] = None,
 ) -> str:
     header = {"alg": "HS256", "typ": "JWT"}
     now = int(time.time())
@@ -727,7 +728,7 @@ def create_refresh_token(
     role: str = "researcher",
     session_id: Optional[str] = None,
     expires_in_seconds: Optional[int] = None,
-    extra_claims: Optional[Dict[str, Any]] = None,
+    extra_claims: Optional[dict[str, Any]] = None,
 ) -> str:
     header = {"alg": "HS256", "typ": "JWT"}
     now = int(time.time())
@@ -747,7 +748,7 @@ def create_refresh_token(
     return f"{signing_input}.{_b64url_encode(signature)}"
 
 
-def verify_access_token(token: str) -> Dict[str, Any]:
+def verify_access_token(token: str) -> dict[str, Any]:
     try:
         header_raw, payload_raw, signature_raw = token.split(".", 2)
         signing_input = f"{header_raw}.{payload_raw}"
@@ -769,7 +770,7 @@ def refresh_access_token(
     refresh_token: str,
     expires_in_seconds: Optional[int] = None,
     refresh_expires_in_seconds: Optional[int] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     payload = verify_access_token(refresh_token)
     if payload.get("typ") != REFRESH_TOKEN_TYPE:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token required")
@@ -815,11 +816,11 @@ def _persist_refresh_session(
     *,
     session_id: str,
     refresh_token: str,
-    user: Dict[str, Any],
+    user: dict[str, Any],
     grant_type: str,
     expires_at: int,
-    metadata: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    metadata: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     payload = {
         "session_id": session_id,
         "subject": user.get("subject"),
@@ -843,7 +844,7 @@ def _persist_refresh_session(
     )
 
 
-def revoke_refresh_session(session_id: str, revoked_by: str = "system") -> Optional[Dict[str, Any]]:
+def revoke_refresh_session(session_id: str, revoked_by: str = "system") -> Optional[dict[str, Any]]:
     record = _find_refresh_session(session_id)
     if not record:
         return None
@@ -862,13 +863,13 @@ def revoke_refresh_session(session_id: str, revoked_by: str = "system") -> Optio
 
 
 def _issue_token_bundle(
-    user: Dict[str, Any],
+    user: dict[str, Any],
     *,
     access_expires_in_seconds: Optional[int] = None,
     refresh_expires_in_seconds: Optional[int] = None,
     grant_type: str = "password",
-    metadata: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    metadata: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     access_ttl = max(60, min(int(access_expires_in_seconds or _default_access_ttl()), 60 * 60 * 24 * 30))
     refresh_ttl = max(3600, min(int(refresh_expires_in_seconds or _default_refresh_ttl()), 60 * 60 * 24 * 180))
     scope_items = [str(item).strip() for item in (user.get("scopes") or []) if str(item).strip()]
@@ -925,7 +926,7 @@ def begin_oauth_authorization(
     *,
     redirect_uri: Optional[str] = None,
     frontend_origin: Optional[str] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     record = _find_oauth_provider_record(provider_id)
     if not record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found")
@@ -972,7 +973,7 @@ def begin_oauth_authorization(
     }
 
 
-def _resolve_oauth_user_identity(provider: Dict[str, Any], userinfo: Dict[str, Any]) -> Dict[str, Optional[str]]:
+def _resolve_oauth_user_identity(provider: dict[str, Any], userinfo: dict[str, Any]) -> dict[str, Optional[str]]:
     subject = str(userinfo.get(provider.get("subject_field") or "sub") or userinfo.get("sub") or userinfo.get("id") or "").strip()
     display_name = str(
         userinfo.get(provider.get("display_name_field") or "name")
@@ -991,7 +992,7 @@ def _resolve_oauth_user_identity(provider: Dict[str, Any], userinfo: Dict[str, A
     }
 
 
-def _find_linked_oauth_user(provider_id: str, external_subject: str, email: Optional[str]) -> Optional[Dict[str, Any]]:
+def _find_linked_oauth_user(provider_id: str, external_subject: str, email: Optional[str]) -> Optional[dict[str, Any]]:
     for record in persistence_manager.list_records(record_type=AUTH_USER_RECORD_TYPE, limit=500):
         payload = record.get("payload") or {}
         metadata = payload.get("metadata") or {}
@@ -1005,13 +1006,13 @@ def _find_linked_oauth_user(provider_id: str, external_subject: str, email: Opti
 
 
 def _upsert_oauth_user(
-    provider: Dict[str, Any],
+    provider: dict[str, Any],
     *,
     external_subject: str,
     display_name: str,
     email: Optional[str],
-    userinfo: Dict[str, Any],
-) -> Dict[str, Any]:
+    userinfo: dict[str, Any],
+) -> dict[str, Any]:
     existing = _find_linked_oauth_user(provider["provider_id"], external_subject, email)
     if not existing and not provider.get("auto_create_user", True):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="OAuth user auto-provisioning is disabled")
@@ -1055,7 +1056,7 @@ def _upsert_oauth_user(
     return _sanitize_user(record)
 
 
-def _fetch_oauth_userinfo(provider: Dict[str, Any], access_token: str) -> Dict[str, Any]:
+def _fetch_oauth_userinfo(provider: dict[str, Any], access_token: str) -> dict[str, Any]:
     if not provider.get("userinfo_url"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OAuth provider userinfo_url is not configured")
     headers = {
@@ -1096,7 +1097,7 @@ def exchange_oauth_authorization_code(
     redirect_uri: Optional[str] = None,
     expires_in_seconds: Optional[int] = None,
     refresh_expires_in_seconds: Optional[int] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     provider_record = _find_oauth_provider_record(provider_id)
     if not provider_record:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OAuth provider not found")
@@ -1177,7 +1178,7 @@ def exchange_oauth_authorization_code(
 async def get_current_user_optional(
     authorization: Optional[str] = Header(default=None),
     x_api_key: Optional[str] = Header(default=None),
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     configured_api_key = os.getenv("API_KEY")
     auth_required = get_auth_policy()["required"]
 

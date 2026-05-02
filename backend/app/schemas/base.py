@@ -1,11 +1,13 @@
 
+from typing import Any, Optional
+
 from pydantic import BaseModel
-from typing import Optional, Dict, Any
+
 
 class StrategyInfo(BaseModel):
     name: str
     description: str
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
 
 class MarketDataRequest(BaseModel):
     symbol: str

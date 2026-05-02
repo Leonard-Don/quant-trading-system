@@ -3,18 +3,48 @@
 提供热门行业识别和龙头股遴选功能
 """
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, StreamingResponse
-from typing import Any, Dict, List, Literal, Optional
+import contextlib
+import json
 import logging
-import time
+import math
 import re
 import threading
-import json
-import math
-from datetime import datetime, timedelta
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
+from datetime import datetime, timedelta
+from typing import Any, Literal, Optional
 
+from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, StreamingResponse
+
+from backend.app.api.v1.endpoints._industry_helpers import (
+    _build_industry_events,
+    _classify_industry_lifecycle,
+    _cosine_similarity,
+    _format_storage_size,
+    _model_to_dict,
+    _normalize_sparkline_points,
+)
+from backend.app.schemas.industry import (
+    ClusterResponse,
+    HeatmapDataItem,
+    HeatmapHistoryItem,
+    HeatmapHistoryResponse,
+    HeatmapResponse,
+    IndustryBootstrapResponse,
+    IndustryPreferencesResponse,
+    IndustryRankResponse,
+    IndustryRotationResponse,
+    IndustryStockBuildStatusResponse,
+    IndustryTrendResponse,
+    LeaderBoardsResponse,
+    LeaderDetailResponse,
+    LeaderStockResponse,
+    StockResponse,
+)
+from backend.app.services.industry_preferences import (
+    industry_preferences_store,
+)
 from src.analytics.industry_stock_details import (
     build_enriched_industry_stocks,
     coerce_optional_float,
@@ -22,28 +52,7 @@ from src.analytics.industry_stock_details import (
     has_meaningful_numeric,
     normalize_symbol,
 )
-from backend.app.services.industry_preferences import (
-    industry_preferences_store,
-)
 from src.utils.config import PROJECT_ROOT
-
-from backend.app.schemas.industry import (
-    IndustryRankResponse,
-    StockResponse,
-    LeaderStockResponse,
-    LeaderBoardsResponse,
-    IndustryBootstrapResponse,
-    LeaderDetailResponse,
-    HeatmapResponse,
-    HeatmapHistoryItem,
-    HeatmapHistoryResponse,
-    HeatmapDataItem,
-    IndustryTrendResponse,
-    ClusterResponse,
-    IndustryRotationResponse,
-    IndustryStockBuildStatusResponse,
-    IndustryPreferencesResponse,
-)
 
 # 延迟导入分析模块，避免启动时错误
 _industry_analyzer = None
@@ -86,7 +95,7 @@ _heatmap_refresh_inflight: set[int] = set()
 _parity_cache: dict = {}  # {key: {"data": ..., "ts": float}}
 _PARITY_CACHE_TTL = 1800  # 30分钟（评分在交易日内变化缓慢）
 
-INDUSTRY_ETF_MAP: Dict[str, List[Dict[str, str]]] = {
+INDUSTRY_ETF_MAP: dict[str, list[dict[str, str]]] = {
     "半导体": [{"symbol": "SOXX", "market": "US"}, {"symbol": "512760.SS", "market": "CN"}],
     "芯片": [{"symbol": "SOXX", "market": "US"}, {"symbol": "159995.SZ", "market": "CN"}],
     "人工智能": [{"symbol": "AIQ", "market": "US"}, {"symbol": "CHAT", "market": "US"}],
@@ -108,21 +117,6 @@ INDUSTRY_ETF_MAP: Dict[str, List[Dict[str, str]]] = {
     "有色": [{"symbol": "XME", "market": "US"}, {"symbol": "512400.SS", "market": "CN"}],
     "汽车": [{"symbol": "CARZ", "market": "US"}, {"symbol": "516110.SS", "market": "CN"}],
 }
-
-
-# Pure helpers (sparkline normalisation, lifecycle classification, etc.) live
-# in a sibling module so this file stays focused on routes + cache wiring.
-# Re-imported here for callsite stability.
-from backend.app.api.v1.endpoints._industry_helpers import (  # noqa: E402
-    _build_industry_events,
-    _classify_industry_lifecycle,
-    _cosine_similarity,
-    _format_storage_size,
-    _model_to_dict,
-    _normalize_sparkline_points,
-)
-
-
 def _load_symbol_mini_trend(symbol: str) -> list[float]:
     scorer = get_leader_scorer()
     provider = getattr(scorer, "provider", None)
@@ -152,7 +146,7 @@ def _attach_leader_mini_trends(leaders: list[LeaderStockResponse]) -> list[Leade
     with ThreadPoolExecutor(max_workers=min(6, len(symbols))) as executor:
         trend_values = list(executor.map(_load_symbol_mini_trend, symbols))
 
-    trend_map = {symbol: trend for symbol, trend in zip(symbols, trend_values)}
+    trend_map = dict(zip(symbols, trend_values))
     for leader in leaders:
         leader.mini_trend = trend_map.get(leader.symbol, [])
     return leaders
@@ -188,8 +182,8 @@ def _get_stale_endpoint_cache(key: str):
 
 
 def _serialize_heatmap_response(
-    heatmap_data: Dict[str, Any],
-    leading_stock_symbol_lookup: Optional[Dict[str, str]] = None,
+    heatmap_data: dict[str, Any],
+    leading_stock_symbol_lookup: Optional[dict[str, str]] = None,
 ) -> HeatmapResponse:
     leading_stock_symbol_lookup = leading_stock_symbol_lookup or _build_leading_stock_symbol_lookup()
 
@@ -246,7 +240,7 @@ def _serialize_heatmap_response(
     )
 
 
-def _build_hot_industry_rank_responses(analyzer, hot_industries: List[Dict[str, Any]]) -> List[IndustryRankResponse]:
+def _build_hot_industry_rank_responses(analyzer, hot_industries: list[dict[str, Any]]) -> list[IndustryRankResponse]:
     return [
         IndustryRankResponse(
             rank=ind.get("rank", 0),
@@ -300,7 +294,7 @@ def _get_stale_parity_cache(symbol: str, score_type: str):
     return entry["data"] if entry else None
 
 
-def _is_fresh_parity_entry(entry: Dict[str, Any]) -> bool:
+def _is_fresh_parity_entry(entry: dict[str, Any]) -> bool:
     return (time.time() - entry["ts"]) < _PARITY_CACHE_TTL
 
 
@@ -316,7 +310,7 @@ def _get_matching_parity_cache(
 
     normalized = normalize_symbol(raw)
     raw_casefold = raw.casefold()
-    matched_entries: list[tuple[Dict[str, Any], Optional[str]]] = []
+    matched_entries: list[tuple[dict[str, Any], Optional[str]]] = []
     seen_entry_ids: set[int] = set()
 
     if re.fullmatch(r"\d{6}", normalized):
@@ -367,7 +361,7 @@ def _get_matching_parity_cache(
     )
 
 
-def _build_parity_price_data(mini_trend: List[Any]) -> List[Dict[str, Any]]:
+def _build_parity_price_data(mini_trend: list[Any]) -> list[dict[str, Any]]:
     normalized_points = _normalize_sparkline_points(mini_trend or [], max_points=20)
     point_count = len(normalized_points)
     if point_count < 2:
@@ -433,7 +427,7 @@ def _leader_detail_error_status(error_message: str) -> int:
     return 502
 
 
-def _extract_leading_stock_symbol_lookup(industries) -> Dict[str, str]:
+def _extract_leading_stock_symbol_lookup(industries) -> dict[str, str]:
     if industries is None or industries.empty or not {"leading_stock_name", "leading_stock_code"}.issubset(industries.columns):
         return {}
 
@@ -478,7 +472,7 @@ def _collect_hot_leader_candidates(
     )
 
 
-def _build_leading_stock_symbol_lookup(force_refresh: bool = False) -> Dict[str, str]:
+def _build_leading_stock_symbol_lookup(force_refresh: bool = False) -> dict[str, str]:
     """复用 Sina 行业维表里的领涨股代码，减少热力图点击对名称解析的依赖。"""
     global _leading_stock_symbol_lookup_cache_time
 
@@ -527,9 +521,9 @@ def _build_leading_stock_symbol_lookup(force_refresh: bool = False) -> Dict[str,
     return symbol_lookup
 
 
-def _map_industry_etfs(industry_name: str) -> List[Dict[str, str]]:
+def _map_industry_etfs(industry_name: str) -> list[dict[str, str]]:
     normalized = str(industry_name or "")
-    matches: List[Dict[str, str]] = []
+    matches: list[dict[str, str]] = []
     for keyword, etfs in INDUSTRY_ETF_MAP.items():
         if keyword in normalized:
             matches.extend(etfs)
@@ -610,7 +604,7 @@ def _load_heatmap_history_from_disk() -> None:
         try:
             if _HEATMAP_HISTORY_FILE.exists():
                 file_size = _HEATMAP_HISTORY_FILE.stat().st_size
-                with open(_HEATMAP_HISTORY_FILE, "r", encoding="utf-8") as file:
+                with open(_HEATMAP_HISTORY_FILE, encoding="utf-8") as file:
                     payload = json.load(file)
                     if isinstance(payload, list):
                         _heatmap_history[:] = _trim_heatmap_history_payload(payload)
@@ -765,11 +759,11 @@ def _resolve_symbol_with_provider(symbol_or_name: str) -> str:
 
 
 def _build_stock_responses(
-    stocks: List[dict],
+    stocks: list[dict],
     industry_name: str,
     top_n: int,
     score_stage: Optional[str] = None,
-) -> List[StockResponse]:
+) -> list[StockResponse]:
     """将 provider 返回的原始成分股标准化为接口响应。"""
     normalized_stocks = []
     for idx, stock in enumerate(stocks[:top_n], 1):
@@ -797,7 +791,7 @@ def _build_stock_responses(
     return normalized_stocks
 
 
-def _count_quick_stock_detail_fields(stock: Dict[str, Any]) -> int:
+def _count_quick_stock_detail_fields(stock: dict[str, Any]) -> int:
     detail_fields = extract_stock_detail_fields(stock)
     return sum([
         1 if has_meaningful_numeric(detail_fields.get("market_cap")) else 0,
@@ -808,10 +802,10 @@ def _count_quick_stock_detail_fields(stock: Dict[str, Any]) -> int:
 
 
 def _promote_detail_ready_quick_rows(
-    stocks: List[Dict[str, Any]],
+    stocks: list[dict[str, Any]],
     visible_top_n: int = 5,
     detail_target: int = 2,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """在 quick 阶段尽量让首屏先出现有真实明细的成分股。"""
     if not stocks:
         return stocks
@@ -828,8 +822,8 @@ def _promote_detail_ready_quick_rows(
     if len(front_detail_indexes) >= target_count:
         return stocks
 
-    promoted_rows: List[Dict[str, Any]] = []
-    remaining_back_rows: List[Dict[str, Any]] = []
+    promoted_rows: list[dict[str, Any]] = []
+    remaining_back_rows: list[dict[str, Any]] = []
     needed_promotions = target_count - len(front_detail_indexes)
 
     for stock in back_rows:
@@ -860,7 +854,7 @@ def _promote_detail_ready_quick_rows(
     return kept_front_rows + promoted_rows + displaced_front_rows + remaining_back_rows
 
 
-def _load_cached_quick_valuation(provider, symbol: str) -> Dict[str, Any]:
+def _load_cached_quick_valuation(provider, symbol: str) -> dict[str, Any]:
     """仅读取缓存估值；旧测试桩不支持 cached_only 时退回老签名。"""
     if provider is None or not hasattr(provider, "get_stock_valuation"):
         return {}
@@ -883,15 +877,15 @@ def _load_cached_quick_valuation(provider, symbol: str) -> Dict[str, Any]:
 
 
 def _backfill_quick_rows_with_cached_valuation(
-    stocks: List[Dict[str, Any]],
+    stocks: list[dict[str, Any]],
     provider,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """用 cached-only 估值补齐 quick 首屏所需字段，避免远端冷启动阻塞接口。"""
     if not stocks or provider is None or not hasattr(provider, "get_stock_valuation"):
         return stocks
 
-    valuation_cache: Dict[str, Dict[str, Any]] = {}
-    enriched: List[Dict[str, Any]] = []
+    valuation_cache: dict[str, dict[str, Any]] = {}
+    enriched: list[dict[str, Any]] = []
 
     for stock in stocks:
         symbol = normalize_symbol(stock.get("symbol") or stock.get("code") or "")
@@ -945,7 +939,7 @@ def _build_full_industry_stock_response(
     industry_name: str,
     top_n: int,
     provider=None,
-) -> List[StockResponse]:
+) -> list[StockResponse]:
     """构造完整版行业成分股结果（评分排序 + 明细补齐 + 估值回填）。"""
     scorer = get_leader_scorer()
     provider = provider or _get_or_create_provider()
@@ -976,10 +970,10 @@ def _build_full_industry_stock_response(
 def _build_quick_industry_stock_response(
     industry_name: str,
     top_n: int,
-    provider_stocks: List[dict],
+    provider_stocks: list[dict],
     provider=None,
     enable_valuation_backfill: bool = True,
-) -> List[StockResponse]:
+) -> list[StockResponse]:
     """构造快速版行业成分股结果（仅用现有行情和缓存估值做轻量评分）。"""
     if not provider_stocks:
         return []
@@ -1021,9 +1015,9 @@ def _build_quick_industry_stock_response(
         return _build_stock_responses(provider_stocks, industry_name, top_n, score_stage="quick")
 
 
-def _coerce_trend_alignment_stock_rows(stocks: List[Any]) -> List[Dict[str, Any]]:
+def _coerce_trend_alignment_stock_rows(stocks: list[Any]) -> list[dict[str, Any]]:
     """将 StockResponse / dict 统一转成趋势面板可复用的成分股字典。"""
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for stock in stocks or []:
         payload = _model_to_dict(stock)
         symbol = normalize_symbol(payload.get("symbol") or payload.get("code") or "")
@@ -1050,7 +1044,7 @@ def _load_trend_alignment_stock_rows(
     industry_name: str,
     expected_count: int,
     provider=None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     为趋势详情加载一组与弹窗成分股列表更一致的股票行。
 
@@ -1066,7 +1060,7 @@ def _load_trend_alignment_stock_rows(
     if cached_rows is not None:
         return _coerce_trend_alignment_stock_rows(cached_rows)
 
-    provider_rows: List[Dict[str, Any]] = []
+    provider_rows: list[dict[str, Any]] = []
     cached_stock_loader = getattr(provider, "get_cached_stock_list_by_industry", None)
     if callable(cached_stock_loader):
         try:
@@ -1101,11 +1095,11 @@ def _load_trend_alignment_stock_rows(
 
 
 def _build_trend_summary_from_stock_rows(
-    stocks: List[Dict[str, Any]],
+    stocks: list[dict[str, Any]],
     expected_count: int,
     fallback_total_market_cap: float = 0.0,
     fallback_avg_pe: float = 0.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """根据统一股票列表重建趋势面板的成分股摘要字段。"""
     expected_count = max(int(expected_count or 0), 0)
     expected_count_base = max(expected_count, 1)
@@ -1203,8 +1197,8 @@ def _build_trend_summary_from_stock_rows(
 
 
 def _should_align_trend_with_stock_rows(
-    trend_data: Dict[str, Any],
-    stock_rows: List[Dict[str, Any]],
+    trend_data: dict[str, Any],
+    stock_rows: list[dict[str, Any]],
 ) -> bool:
     """判断趋势摘要是否应该回收成分股列表口径。"""
     if not stock_rows:
@@ -1293,7 +1287,7 @@ def _schedule_full_stock_cache_build(
     _stocks_full_build_executor.submit(_task)
 
 
-def _dedupe_leader_responses(leaders: List[LeaderStockResponse]) -> List[LeaderStockResponse]:
+def _dedupe_leader_responses(leaders: list[LeaderStockResponse]) -> list[LeaderStockResponse]:
     """按 symbol 去重，保留总分更高、信息更完整的记录。"""
     best_by_symbol: dict[str, LeaderStockResponse] = {}
 
@@ -1340,7 +1334,7 @@ def _get_or_create_provider():
 def get_industry_analyzer():
     """获取行业分析器实例（延迟初始化，自动选择数据源）"""
     global _industry_analyzer
-    
+
     if _industry_analyzer is None:
         try:
             from src.analytics.industry_analyzer import IndustryAnalyzer
@@ -1351,16 +1345,16 @@ def get_industry_analyzer():
             logger.error(f"Failed to initialize industry analyzer: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Industry analyzer initialization failed: {str(e)}"
+                detail=f"Industry analyzer initialization failed: {e!s}"
             )
-    
+
     return _industry_analyzer
 
 
 def get_leader_scorer():
     """获取龙头股评分器实例（延迟初始化）"""
     global _leader_scorer
-    
+
     if _leader_scorer is None:
         try:
             from src.analytics.leader_stock_scorer import LeaderStockScorer
@@ -1371,24 +1365,24 @@ def get_leader_scorer():
             logger.error(f"Failed to initialize leader scorer: {e}")
             raise HTTPException(
                 status_code=500,
-                detail=f"Leader scorer initialization failed: {str(e)}"
+                detail=f"Leader scorer initialization failed: {e!s}"
             )
-    
+
     return _leader_scorer
 
 
-@router.get("/industries/hot", response_model=List[IndustryRankResponse])
+@router.get("/industries/hot", response_model=list[IndustryRankResponse])
 def get_hot_industries(
     top_n: int = Query(10, ge=1, le=50, description="返回前N个热门行业"),
     lookback_days: int = Query(5, ge=1, le=30, description="回看周期（天）"),
     sort_by: str = Query("total_score", description="排序字段: total_score, change_pct, money_flow, industry_volatility"),
     order: str = Query("desc", description="排序顺序: desc, asc")
-) -> List[IndustryRankResponse]:
+) -> list[IndustryRankResponse]:
     """
     获取热门行业排名
-    
+
     基于动量、资金流向和成交量变化综合评分，识别当前市场关注度高的行业。
-    
+
     - **top_n**: 返回排名前 N 的行业
     - **lookback_days**: 用于计算动量和资金流向的回看周期
     - **sort_by**: 排序字段 (total_score, change_pct, money_flow, industry_volatility)
@@ -1423,16 +1417,16 @@ def get_hot_industries(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/industries/{industry_name}/stocks", response_model=List[StockResponse])
+@router.get("/industries/{industry_name}/stocks", response_model=list[StockResponse])
 def get_industry_stocks(
     industry_name: str,
     top_n: int = Query(20, ge=1, le=100, description="返回前N只股票")
-) -> List[StockResponse]:
+) -> list[StockResponse]:
     """
     获取行业成分股及排名
-    
+
     返回指定行业内按综合得分排名的股票列表。
-    
+
     - **industry_name**: 行业名称（如 "电子"、"医药生物"）
     - **top_n**: 返回排名前 N 的股票
     """
@@ -1548,7 +1542,7 @@ def get_industry_heatmap(
 ) -> HeatmapResponse:
     """
     获取行业热力图数据
-    
+
     返回所有行业的涨跌幅和市值数据，用于渲染热力图可视化。
     """
     try:
@@ -1648,7 +1642,7 @@ def get_industry_trend(
 ) -> IndustryTrendResponse:
     """
     获取行业趋势分析
-    
+
     返回指定行业的详细趋势分析，包括涨幅/跌幅前5的股票。
     """
     cache_key = f"trend:v5:{industry_name}:{days}"
@@ -1660,10 +1654,10 @@ def get_industry_trend(
 
         analyzer = get_industry_analyzer()
         trend_data = analyzer.get_industry_trend(industry_name, days=days)
-        
+
         if "error" in trend_data:
             raise HTTPException(status_code=404, detail=trend_data["error"])
-        
+
         result = IndustryTrendResponse(
             industry_name=trend_data.get("industry_name", ""),
             stock_count=trend_data.get("stock_count", 0),
@@ -1719,18 +1713,18 @@ def get_industry_trend(
                 aligned_payload = result.model_dump()
                 aligned_payload.update(aligned_summary)
                 result = IndustryTrendResponse(**aligned_payload)
-        
+
         # 2. 如果当前数据降级，尝试使用健康的过期缓存兜底
         if result.degraded:
             stale = _get_stale_endpoint_cache(cache_key)
             if stale is not None and not getattr(stale, "degraded", True):
                 logger.warning(f"Trend data degraded for {industry_name}, returning healthy stale cache")
                 return stale
-                
+
         # 3. 更新缓存（包含健康数据或只能接受的降级数据）
         _set_endpoint_cache(cache_key, result)
         return result
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -1748,13 +1742,13 @@ def get_industry_clusters(
 ) -> ClusterResponse:
     """
     获取行业聚类分析
-    
+
     使用 K-Means 算法将行业聚类为热门组和非热门组。
     """
     try:
         analyzer = get_industry_analyzer()
         cluster_data = analyzer.cluster_hot_industries(n_clusters=n_clusters)
-        
+
         return ClusterResponse(
             clusters=cluster_data.get("clusters", {}),
             hot_cluster=cluster_data.get("hot_cluster", -1),
@@ -1778,9 +1772,9 @@ def get_industry_rotation(
 ) -> IndustryRotationResponse:
     """
     获取行业轮动对比数据
-    
+
     比较多个行业在不同时间周期的涨跌幅表现。
-    
+
     - **industries**: 行业名称列表，用逗号分隔（如2-5个）
     """
     try:
@@ -1789,7 +1783,7 @@ def get_industry_rotation(
             raise HTTPException(status_code=400, detail="至少需要选择 2 个行业进行对比")
         if len(industry_list) > 5:
             industry_list = industry_list[:5]
-        
+
         requested_periods = None
         if periods:
             requested_periods = []
@@ -1804,10 +1798,10 @@ def get_industry_rotation(
 
         analyzer = get_industry_analyzer()
         rotation_data = analyzer.get_industry_rotation(industry_list, requested_periods)
-        
+
         if "error" in rotation_data:
             raise HTTPException(status_code=500, detail=rotation_data["error"])
-        
+
         return IndustryRotationResponse(
             industries=rotation_data.get("industries", []),
             periods=rotation_data.get("periods", []),
@@ -1995,7 +1989,7 @@ def _build_leader_boards_payload(
     if analyzer is None or hot_industries is None or top_industry_names is None:
         analyzer, hot_industries, top_industry_names = _build_leader_context(top_industries, analyzer=analyzer)
 
-    results: dict[str, List[LeaderStockResponse]] = {"core": [], "hot": []}
+    results: dict[str, list[LeaderStockResponse]] = {"core": [], "hot": []}
     errors: dict[str, str] = {}
     provider_stock_cache: dict[str, Any] = {}
     provider_stock_cache_lock = threading.Lock()
@@ -2311,7 +2305,7 @@ def _hydrate_bootstrap_with_cached_leaders(
 def _persist_leader_list_cache(
     cache_key: str,
     list_type: Literal["hot", "core"],
-    leaders: List[LeaderStockResponse],
+    leaders: list[LeaderStockResponse],
 ) -> None:
     if not leaders:
         return
@@ -2325,7 +2319,7 @@ def _load_provider_stocks_for_leaders(
     industry_name: str,
     shared_cache: Optional[dict[str, Any]] = None,
     shared_cache_lock: Optional[threading.Lock] = None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     cache_key = _get_leader_provider_stocks_cache_key(industry_name)
     cached_rows = _get_endpoint_cache(cache_key)
     if cached_rows is not None:
@@ -2357,7 +2351,7 @@ def _load_provider_stocks_for_leaders(
                     return shared_entry
         return []
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     load_error: Exception | None = None
     cached_loader = getattr(provider, "get_cached_stock_list_by_industry", None)
     try:
@@ -2398,7 +2392,7 @@ def _compute_core_leader_stocks(
     per_industry: int,
     provider_stock_cache: Optional[dict[str, Any]] = None,
     provider_stock_cache_lock: Optional[threading.Lock] = None,
-) -> List[LeaderStockResponse]:
+) -> list[LeaderStockResponse]:
     scorer = get_leader_scorer()
     provider = analyzer.provider
 
@@ -2476,15 +2470,13 @@ def _compute_core_leader_stocks(
             for sym in top_symbols:
                 snapshot = candidate_map.get(sym, {"symbol": sym, "name": sym})
                 score_detail = None
-                try:
+                with contextlib.suppress(Exception):
                     score_detail = scorer.score_stock_from_snapshot(
                         snapshot,
                         industry_stats=industry_stats,
                         enrich_financial=True,
                         cached_only=True,
                     )
-                except Exception:
-                    pass
                 if not score_detail or "error" in score_detail:
                     score_detail = scorer.score_stock_from_snapshot(
                         snapshot,
@@ -2541,7 +2533,7 @@ def _compute_hot_leader_stocks(
     per_industry: int,
     provider_stock_cache: Optional[dict[str, Any]] = None,
     provider_stock_cache_lock: Optional[threading.Lock] = None,
-) -> List[LeaderStockResponse]:
+) -> list[LeaderStockResponse]:
     lightweight_loader = getattr(analyzer, "_load_lightweight_money_flow", None)
     if callable(lightweight_loader):
         try:
@@ -2782,7 +2774,7 @@ def _load_leader_stock_list(
     top_industry_names: Optional[set[str]] = None,
     provider_stock_cache: Optional[dict[str, Any]] = None,
     provider_stock_cache_lock: Optional[threading.Lock] = None,
-) -> List[LeaderStockResponse]:
+) -> list[LeaderStockResponse]:
     cache_key = f"leaders:v3:{list_type}:{top_n}:{top_industries}:{per_industry}"
     cached = _get_endpoint_cache(cache_key)
     if cached is not None:
@@ -2832,13 +2824,13 @@ def _load_leader_stock_list(
         raise
 
 
-@router.get("/leaders", response_model=List[LeaderStockResponse])
+@router.get("/leaders", response_model=list[LeaderStockResponse])
 def get_leader_stocks(
     top_n: int = Query(20, ge=1, le=100, description="返回龙头股数量"),
     top_industries: int = Query(5, ge=1, le=20, description="从前N个热门行业中选取"),
     per_industry: int = Query(5, ge=1, le=20, description="每个行业选取的龙头数量"),
     list_type: Literal["hot", "core"] = Query("hot", description="榜单类型：hot(热点先锋) 或 core(核心资产)")
-) -> List[LeaderStockResponse]:
+) -> list[LeaderStockResponse]:
     """
     获取龙头股推荐列表
 
@@ -2893,7 +2885,7 @@ def get_industry_bootstrap(
             per_industry,
         )
 
-    errors: Dict[str, str] = {}
+    errors: dict[str, str] = {}
     try:
         analyzer = get_industry_analyzer()
         heatmap_data = analyzer.get_industry_heatmap_data(days=days)
@@ -2902,8 +2894,8 @@ def get_industry_bootstrap(
             _set_endpoint_cache(f"heatmap:v2:{days}", heatmap)
             _append_heatmap_history(days, heatmap)
 
-        ranking_rows: List[Dict[str, Any]] = []
-        hot_industries: List[IndustryRankResponse] = []
+        ranking_rows: list[dict[str, Any]] = []
+        hot_industries: list[IndustryRankResponse] = []
         try:
             ranking_rows = analyzer.rank_industries(
                 top_n=max(ranking_top_n, top_industries),
@@ -2982,9 +2974,9 @@ def get_leader_detail(
 ) -> LeaderDetailResponse:
     """
     获取龙头股详细分析
-    
+
     返回指定股票的完整分析报告，包括评分详情、技术分析和历史价格。
-    
+
     - **symbol**: 股票代码（如 "000001"、"600519"）
     """
     try:
@@ -3010,7 +3002,7 @@ def get_leader_detail(
 
         scorer = get_leader_scorer()
         detail = scorer.get_leader_detail(resolved_symbol, score_type=score_type)
-        
+
         if "error" in detail:
             stale_detail = _get_stale_endpoint_cache(cache_key)
             if stale_detail is not None:
@@ -3048,7 +3040,7 @@ def get_leader_detail(
                 status_code=_leader_detail_error_status(detail["error"]),
                 detail=detail["error"],
             )
-            
+
         # 尝试使用列表端点计算的快照得分来保证前端展示完全一致 (Score Parity)
         # 优先使用独立 parity 缓存（30分钟 TTL），过期后仍作为兜底
         if parity is None:
@@ -3070,7 +3062,7 @@ def get_leader_detail(
                 raw_data["market_cap"] = parity.market_cap
             if hasattr(parity, "pe_ratio") and has_meaningful_numeric(parity.pe_ratio) and not has_meaningful_numeric(raw_data.get("pe_ttm")):
                 raw_data["pe_ttm"] = parity.pe_ratio
-        
+
         result = LeaderDetailResponse(
             symbol=normalize_symbol(detail.get("symbol", resolved_symbol)),
             name=detail.get("name", ""),
@@ -3096,21 +3088,21 @@ def get_leader_detail(
 def health_check():
     """
     行业分析模块健康检查 + 数据源状态
-    
+
     返回当前活跃数据源、能力、连接状态等详细信息
     """
     import time
-    
+
     try:
         from src.data.providers.akshare_provider import AKSHARE_AVAILABLE
     except Exception:
         AKSHARE_AVAILABLE = False
-    
+
     # 判断当前活跃的 provider
     provider = _akshare_provider
     provider_name = "未初始化"
     provider_type = "none"
-    
+
     if provider is not None:
         class_name = type(provider).__name__
         if "Sina" in class_name:
@@ -3122,7 +3114,7 @@ def health_check():
         else:
             provider_name = class_name
             provider_type = "unknown"
-    
+
     # 数据源能力矩阵
     capabilities = {
         "akshare": {
@@ -3156,7 +3148,7 @@ def health_check():
             "status_detail": "多日涨跌与主力资金流向增强",
         },
     }
-    
+
     # 检查 AKShare 实际连接
     if AKSHARE_AVAILABLE:
         try:
@@ -3181,7 +3173,7 @@ def health_check():
     else:
         capabilities["akshare"]["status"] = "not_installed"
         capabilities["akshare"]["status_detail"] = "akshare 未安装"
-    
+
     # 检查 Sina 连接
     try:
         from src.data.providers.sina_provider import SinaFinanceProvider
@@ -3189,11 +3181,11 @@ def health_check():
         start = time.time()
         industries = sina.get_industry_list()
         elapsed = time.time() - start
-        
+
         # 兼容 DataFrame 判断和 None 判断
         is_success = False
         data_len = 0
-        
+
         if industries is not None:
             if hasattr(industries, 'empty'):
                 is_success = not industries.empty
@@ -3201,7 +3193,7 @@ def health_check():
             else:
                 is_success = len(industries) > 0
                 data_len = len(industries)
-                
+
         if is_success:
             capabilities["sina"]["status"] = "connected"
             capabilities["sina"]["status_detail"] = f"响应 {elapsed:.1f}s, {data_len} 行业"
@@ -3211,7 +3203,7 @@ def health_check():
     except Exception as e:
         capabilities["sina"]["status"] = "error"
         capabilities["sina"]["status_detail"] = str(e)[:80]
-        
+
     # 检查 THS 连接
     try:
         from src.data.providers.sina_ths_adapter import SinaIndustryAdapter
@@ -3219,7 +3211,7 @@ def health_check():
         start = time.time()
         ths_df = adapter._get_ths_flow_data(days=1)
         elapsed = time.time() - start
-        
+
         if not ths_df.empty:
             capabilities["ths"]["status"] = "connected"
             capabilities["ths"]["status_detail"] = f"响应 {elapsed:.1f}s, {len(ths_df)} 行业"
@@ -3229,12 +3221,12 @@ def health_check():
     except Exception as e:
         capabilities["ths"]["status"] = "error"
         capabilities["ths"]["status_detail"] = str(e)[:80]
-    
+
     # Sina fallback 状态
     has_sina_fallback = False
     if _industry_analyzer and hasattr(_industry_analyzer, '_sina_fallback'):
         has_sina_fallback = True
-    
+
     # 数据来源透出：当前生效的数据源组合
     data_sources_contributing = []
     if capabilities.get("ths", {}).get("status") == "connected":
@@ -3245,9 +3237,9 @@ def health_check():
         data_sources_contributing.append("akshare")
     if not data_sources_contributing:
         data_sources_contributing = ["unknown"]
-    
+
     data_source_mode = "sina_fallback" if has_sina_fallback else "ths_primary"
-    
+
     return {
         "status": "healthy" if provider is not None else "degraded",
         "active_provider": {

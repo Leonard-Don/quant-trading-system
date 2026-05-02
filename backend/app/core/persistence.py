@@ -13,7 +13,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from src.utils.config import PROJECT_ROOT
 
@@ -139,9 +139,9 @@ class PersistenceManager:
                 )
             connection.commit()
 
-    def _execute_postgres_script(self, script: str) -> List[str]:
+    def _execute_postgres_script(self, script: str) -> list[str]:
         statements = [item.strip() for item in str(script or "").split(";") if item.strip()]
-        executed: List[str] = []
+        executed: list[str] = []
         with self._lock, self._connect_postgres() as connection:
             with connection.cursor() as cursor:
                 for statement in statements:
@@ -150,9 +150,9 @@ class PersistenceManager:
             connection.commit()
         return executed
 
-    def persistence_diagnostics(self) -> Dict[str, Any]:
+    def persistence_diagnostics(self) -> dict[str, Any]:
         schema_path = self._schema_file_path()
-        diagnostics: Dict[str, Any] = {
+        diagnostics: dict[str, Any] = {
             "mode": "postgres" if self._driver.startswith("postgres") else "sqlite_fallback",
             "driver": self._driver,
             "database_url_configured": bool(self.database_url),
@@ -191,45 +191,44 @@ class PersistenceManager:
             return diagnostics
         started_at = time.perf_counter()
         try:
-            with self._lock, self._connect_postgres() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT current_database(), current_user, version()")
-                    db_name, current_user, version = cursor.fetchone()
-                    diagnostics["database_name"] = db_name
-                    diagnostics["current_user"] = current_user
-                    diagnostics["server_version"] = version
-                    cursor.execute("SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'")
-                    extension = cursor.fetchone()
-                    diagnostics["timescale_extension_installed"] = bool(extension)
-                    diagnostics["timescale_extension_version"] = extension[0] if extension else None
+            with self._lock, self._connect_postgres() as connection, connection.cursor() as cursor:
+                cursor.execute("SELECT current_database(), current_user, version()")
+                db_name, current_user, version = cursor.fetchone()
+                diagnostics["database_name"] = db_name
+                diagnostics["current_user"] = current_user
+                diagnostics["server_version"] = version
+                cursor.execute("SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'")
+                extension = cursor.fetchone()
+                diagnostics["timescale_extension_installed"] = bool(extension)
+                diagnostics["timescale_extension_version"] = extension[0] if extension else None
+                cursor.execute(
+                    """
+                    SELECT tablename
+                    FROM pg_tables
+                    WHERE schemaname = 'public'
+                      AND (tablename LIKE 'infra_%'
+                           OR tablename IN (
+                               'market_timeseries',
+                               'research_tasks',
+                               'strategy_config_versions',
+                               'alert_events',
+                               'valuation_snapshots',
+                               'data_quality_events'
+                           ))
+                    ORDER BY tablename
+                    """
+                )
+                diagnostics["tables"] = [row[0] for row in cursor.fetchall()]
+                if diagnostics["timescale_extension_installed"]:
                     cursor.execute(
                         """
-                        SELECT tablename
-                        FROM pg_tables
-                        WHERE schemaname = 'public'
-                          AND (tablename LIKE 'infra_%'
-                               OR tablename IN (
-                                   'market_timeseries',
-                                   'research_tasks',
-                                   'strategy_config_versions',
-                                   'alert_events',
-                                   'valuation_snapshots',
-                                   'data_quality_events'
-                               ))
-                        ORDER BY tablename
+                        SELECT hypertable_name
+                        FROM timescaledb_information.hypertables
+                        WHERE hypertable_schema = 'public'
+                        ORDER BY hypertable_name
                         """
                     )
-                    diagnostics["tables"] = [row[0] for row in cursor.fetchall()]
-                    if diagnostics["timescale_extension_installed"]:
-                        cursor.execute(
-                            """
-                            SELECT hypertable_name
-                            FROM timescaledb_information.hypertables
-                            WHERE hypertable_schema = 'public'
-                            ORDER BY hypertable_name
-                            """
-                        )
-                        diagnostics["hypertables"] = [row[0] for row in cursor.fetchall()]
+                    diagnostics["hypertables"] = [row[0] for row in cursor.fetchall()]
             diagnostics["connection_ok"] = True
             diagnostics["connection_latency_ms"] = round((time.perf_counter() - started_at) * 1000, 2)
         except Exception as exc:
@@ -241,7 +240,7 @@ class PersistenceManager:
             ]
             return diagnostics
 
-        recommendations: List[str] = []
+        recommendations: list[str] = []
         if not diagnostics["timescale_extension_installed"]:
             recommendations.append("Install or enable the timescaledb extension on the PostgreSQL instance")
         if "market_timeseries" not in diagnostics["tables"]:
@@ -253,14 +252,14 @@ class PersistenceManager:
         diagnostics["recommended_next_steps"] = recommendations
         return diagnostics
 
-    def bootstrap_postgres(self, enable_timescale_schema: bool = True) -> Dict[str, Any]:
+    def bootstrap_postgres(self, enable_timescale_schema: bool = True) -> dict[str, Any]:
         if not self.database_url:
             raise RuntimeError("DATABASE_URL is not configured")
         if not self._driver.startswith("postgres"):
             raise RuntimeError("PostgreSQL driver is not available; install psycopg or psycopg2")
 
-        executed: List[str] = []
-        warnings: List[str] = []
+        executed: list[str] = []
+        warnings: list[str] = []
         self._ensure_postgres_schema()
         executed.append("infra_records + infra_timeseries")
 
@@ -282,7 +281,7 @@ class PersistenceManager:
             "diagnostics": diagnostics,
         }
 
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         postgres_configured = bool(self.database_url)
         record_count = 0
         timeseries_count = 0
@@ -290,14 +289,13 @@ class PersistenceManager:
         diagnostics = self.persistence_diagnostics()
         try:
             if self._driver.startswith("postgres"):
-                with self._lock, self._connect_postgres() as connection:
-                    with connection.cursor() as cursor:
-                        cursor.execute("SELECT COUNT(*) FROM infra_records")
-                        record_count = int(cursor.fetchone()[0] or 0)
-                        cursor.execute("SELECT COUNT(*), COUNT(DISTINCT series_name) FROM infra_timeseries")
-                        counts = cursor.fetchone()
-                        timeseries_count = int(counts[0] or 0)
-                        distinct_series = int(counts[1] or 0)
+                with self._lock, self._connect_postgres() as connection, connection.cursor() as cursor:
+                    cursor.execute("SELECT COUNT(*) FROM infra_records")
+                    record_count = int(cursor.fetchone()[0] or 0)
+                    cursor.execute("SELECT COUNT(*), COUNT(DISTINCT series_name) FROM infra_timeseries")
+                    counts = cursor.fetchone()
+                    timeseries_count = int(counts[0] or 0)
+                    distinct_series = int(counts[1] or 0)
             else:
                 with self._lock, self._connect_sqlite() as connection:
                     row = connection.execute("SELECT COUNT(*) AS total FROM infra_records").fetchone()
@@ -341,9 +339,9 @@ class PersistenceManager:
             ),
         }
 
-    def sqlite_source_snapshot(self, sqlite_path: Optional[str | Path] = None) -> Dict[str, Any]:
+    def sqlite_source_snapshot(self, sqlite_path: Optional[str | Path] = None) -> dict[str, Any]:
         path = Path(sqlite_path or self.sqlite_path)
-        snapshot: Dict[str, Any] = {
+        snapshot: dict[str, Any] = {
             "path": str(path),
             "exists": path.exists(),
             "record_count": 0,
@@ -403,7 +401,7 @@ class PersistenceManager:
             snapshot["error"] = str(exc)
         return snapshot
 
-    def preview_sqlite_fallback_migration(self, sqlite_path: Optional[str | Path] = None) -> Dict[str, Any]:
+    def preview_sqlite_fallback_migration(self, sqlite_path: Optional[str | Path] = None) -> dict[str, Any]:
         source = self.sqlite_source_snapshot(sqlite_path=sqlite_path)
         diagnostics = self.persistence_diagnostics()
         can_migrate = bool(
@@ -432,10 +430,9 @@ class PersistenceManager:
         }
 
     def _record_exists_postgres(self, identifier: str) -> bool:
-        with self._lock, self._connect_postgres() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT 1 FROM infra_records WHERE id = %s LIMIT 1", (identifier,))
-                return bool(cursor.fetchone())
+        with self._lock, self._connect_postgres() as connection, connection.cursor() as cursor:
+            cursor.execute("SELECT 1 FROM infra_records WHERE id = %s LIMIT 1", (identifier,))
+            return bool(cursor.fetchone())
 
     def _timeseries_exists_postgres(
         self,
@@ -444,31 +441,30 @@ class PersistenceManager:
         symbol: str,
         timestamp: str,
         value: Optional[float],
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
     ) -> bool:
-        with self._lock, self._connect_postgres() as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT 1
-                    FROM infra_timeseries
-                    WHERE series_name = %s
-                      AND symbol = %s
-                      AND ts = %s
-                      AND ((value IS NULL AND %s IS NULL) OR value = %s)
-                      AND payload = %s::jsonb
-                    LIMIT 1
-                    """,
-                    (
-                        str(series_name or "generic"),
-                        str(symbol or "").upper(),
-                        str(timestamp),
-                        value,
-                        value,
-                        _json_dumps(payload or {}),
-                    ),
-                )
-                return bool(cursor.fetchone())
+        with self._lock, self._connect_postgres() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT 1
+                FROM infra_timeseries
+                WHERE series_name = %s
+                  AND symbol = %s
+                  AND ts = %s
+                  AND ((value IS NULL AND %s IS NULL) OR value = %s)
+                  AND payload = %s::jsonb
+                LIMIT 1
+                """,
+                (
+                    str(series_name or "generic"),
+                    str(symbol or "").upper(),
+                    str(timestamp),
+                    value,
+                    value,
+                    _json_dumps(payload or {}),
+                ),
+            )
+            return bool(cursor.fetchone())
 
     def _put_record_postgres_preserving_timestamps(
         self,
@@ -476,10 +472,10 @@ class PersistenceManager:
         identifier: str,
         normalized_type: str,
         normalized_key: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         created_at: str,
         updated_at: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         with self._lock, self._connect_postgres() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -511,9 +507,9 @@ class PersistenceManager:
         symbol: str,
         timestamp: str,
         value: Optional[float],
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         created_at: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         with self._lock, self._connect_postgres() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
@@ -553,7 +549,7 @@ class PersistenceManager:
         dedupe_timeseries: bool = True,
         record_limit: Optional[int] = None,
         timeseries_limit: Optional[int] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         source_path = Path(sqlite_path or self.sqlite_path)
         preview = self.preview_sqlite_fallback_migration(sqlite_path=source_path)
         if preview["status"] != "ready":
@@ -575,7 +571,7 @@ class PersistenceManager:
         with self._lock, self._connect_sqlite_path(source_path) as connection:
             if include_records:
                 query = "SELECT * FROM infra_records ORDER BY updated_at ASC"
-                params: List[Any] = []
+                params: list[Any] = []
                 if record_limit:
                     query += " LIMIT ?"
                     params.append(max(1, min(int(record_limit), 100_000)))
@@ -588,7 +584,7 @@ class PersistenceManager:
                     params.append(max(1, min(int(timeseries_limit), 100_000)))
                 timeseries_rows = connection.execute(query, params).fetchall()
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "status": "preview" if dry_run else "ok",
             "dry_run": dry_run,
             "source_path": str(source_path),
@@ -658,7 +654,7 @@ class PersistenceManager:
         result["post_migration"] = self.health()
         return result
 
-    def put_record(self, record_type: str, record_key: str, payload: Dict[str, Any], record_id: Optional[str] = None) -> Dict[str, Any]:
+    def put_record(self, record_type: str, record_key: str, payload: dict[str, Any], record_id: Optional[str] = None) -> dict[str, Any]:
         now = datetime.utcnow().isoformat()
         normalized_type = str(record_type or "generic").strip() or "generic"
         normalized_key = str(record_key or "default").strip() or "default"
@@ -698,9 +694,9 @@ class PersistenceManager:
         identifier: str,
         normalized_type: str,
         normalized_key: str,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         now: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         with self._lock, self._connect_postgres() as connection:
             with connection.cursor() as cursor:
                 cursor.execute("SELECT created_at FROM infra_records WHERE id = %s", (identifier,))
@@ -734,9 +730,9 @@ class PersistenceManager:
             "updated_at": now,
         }
 
-    def list_records(self, record_type: Optional[str] = None, limit: int = 50) -> List[Dict[str, Any]]:
+    def list_records(self, record_type: Optional[str] = None, limit: int = 50) -> list[dict[str, Any]]:
         query = "SELECT * FROM infra_records"
-        params: List[Any] = []
+        params: list[Any] = []
         if record_type:
             query += " WHERE record_type = ?"
             params.append(record_type)
@@ -744,11 +740,10 @@ class PersistenceManager:
         params.append(max(1, min(int(limit or 50), 200)))
         if self._driver.startswith("postgres"):
             placeholder = "%s"
-            with self._lock, self._connect_postgres() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(query.replace("?", placeholder), params)
-                    rows = cursor.fetchall()
-                    columns = [description[0] for description in cursor.description]
+            with self._lock, self._connect_postgres() as connection, connection.cursor() as cursor:
+                cursor.execute(query.replace("?", placeholder), params)
+                rows = cursor.fetchall()
+                columns = [description[0] for description in cursor.description]
             records = []
             for raw_row in rows:
                 row = dict(zip(columns, raw_row))
@@ -791,8 +786,8 @@ class PersistenceManager:
         symbol: str,
         timestamp: str,
         value: Optional[float],
-        payload: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        payload: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
         now = datetime.utcnow().isoformat()
         if self._driver.startswith("postgres"):
             with self._lock, self._connect_postgres() as connection:
@@ -854,10 +849,10 @@ class PersistenceManager:
         series_name: Optional[str] = None,
         symbol: Optional[str] = None,
         limit: int = 100,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         query = "SELECT * FROM infra_timeseries"
-        clauses: List[str] = []
-        params: List[Any] = []
+        clauses: list[str] = []
+        params: list[Any] = []
         if series_name:
             clauses.append("series_name = ?")
             params.append(str(series_name).strip())
@@ -871,11 +866,10 @@ class PersistenceManager:
 
         if self._driver.startswith("postgres"):
             placeholder = "%s"
-            with self._lock, self._connect_postgres() as connection:
-                with connection.cursor() as cursor:
-                    cursor.execute(query.replace("?", placeholder), params)
-                    rows = cursor.fetchall()
-                    columns = [description[0] for description in cursor.description]
+            with self._lock, self._connect_postgres() as connection, connection.cursor() as cursor:
+                cursor.execute(query.replace("?", placeholder), params)
+                rows = cursor.fetchall()
+                columns = [description[0] for description in cursor.description]
             items = []
             for raw_row in rows:
                 row = dict(zip(columns, raw_row))

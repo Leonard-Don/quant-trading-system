@@ -1,8 +1,9 @@
-from fastapi import APIRouter, HTTPException, Body
-from typing import List
-from datetime import datetime
-import pandas as pd
 import logging
+from datetime import datetime
+
+import pandas as pd
+from fastapi import APIRouter, Body, HTTPException
+
 from backend.app.services.runtime_state import get_data_manager
 from src.analytics.portfolio_optimizer import PortfolioOptimizer
 
@@ -13,7 +14,7 @@ optimizer = PortfolioOptimizer()
 
 @router.post("/optimize", summary="投资组合优化")
 async def optimize_portfolio(
-    symbols: List[str] = Body(..., embed=True),
+    symbols: list[str] = Body(..., embed=True),
     period: str = Body("1y", embed=True), # 1y, 6m, 3m
     objective: str = Body("max_sharpe", embed=True)
 ):
@@ -54,10 +55,10 @@ async def optimize_portfolio(
 
         # Create combined DataFrame
         combined_df = pd.DataFrame(price_data)
-        
+
         # Optimize
         result = optimizer.optimize_portfolio(combined_df, objective)
-        
+
         if not result["success"]:
              raise HTTPException(status_code=500, detail=result.get("error", "Optimization failed"))
 

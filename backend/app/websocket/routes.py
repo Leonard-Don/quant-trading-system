@@ -7,10 +7,12 @@ import hmac
 import logging
 import os
 from datetime import datetime
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from backend.app.services.trade_stream import build_trade_stream_payload
 from backend.app.websocket.connection_manager import manager
 from backend.app.websocket.trade_connection_manager import trade_ws_manager
-from backend.app.services.trade_stream import build_trade_stream_payload
 from src.data.realtime_manager import realtime_manager
 
 router = APIRouter()
@@ -136,7 +138,7 @@ async def _send_quote_snapshot(
 async def websocket_quotes(websocket: WebSocket):
     """
     WebSocket端点用于实时股票报价
-    
+
     消息格式:
     - 订阅: {"action": "subscribe", "symbol": "AAPL"}
     - 取消订阅: {"action": "unsubscribe", "symbol": "AAPL"}
@@ -147,18 +149,18 @@ async def websocket_quotes(websocket: WebSocket):
         return
 
     await manager.connect(websocket)
-    
+
     try:
         while True:
             # 接收客户端消息
             data = await websocket.receive_json()
             action = data.get("action", "").lower()
-            
+
             # 支持单个 symbol 或 symbols 列表
             symbols = data.get("symbols", [])
             if not symbols and data.get("symbol"):
                 symbols = [data.get("symbol")]
-            
+
             # 统一转大写
             symbols = [s.upper() for s in symbols if isinstance(s, str)]
 
@@ -228,7 +230,7 @@ async def websocket_quotes(websocket: WebSocket):
                 })
                 if not delivered:
                     return
-                
+
             else:
                 delivered = await manager.send_personal_message(websocket, {
                     "type": "error",
@@ -236,7 +238,7 @@ async def websocket_quotes(websocket: WebSocket):
                 })
                 if not delivered:
                     return
-                
+
     except WebSocketDisconnect:
         logger.info("WebSocket client disconnected")
     except Exception as e:
@@ -258,7 +260,7 @@ async def websocket_trades(websocket: WebSocket):
         return
 
     await trade_ws_manager.connect(websocket)
-    
+
     try:
         if not await trade_ws_manager.send_personal_message(websocket, {
             "type": "connected",

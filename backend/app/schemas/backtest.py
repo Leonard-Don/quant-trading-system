@@ -1,10 +1,12 @@
+from typing import Any, Optional
+
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
+
 
 class BacktestRequest(BaseModel):
     symbol: str
     strategy: str
-    parameters: Dict[str, Any] = {}
+    parameters: dict[str, Any] = {}
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     initial_capital: float = 10000
@@ -22,7 +24,7 @@ class BacktestRequest(BaseModel):
 
 class BacktestResponse(BaseModel):
     success: bool
-    data: Optional[Dict[str, Any]] = None
+    data: Optional[dict[str, Any]] = None
     error: Optional[str] = None
 
 
@@ -31,7 +33,7 @@ class BatchBacktestTaskRequest(BaseModel):
     research_label: Optional[str] = None
     symbol: str
     strategy: str
-    parameters: Dict[str, Any] = {}
+    parameters: dict[str, Any] = {}
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     initial_capital: float = 10000
@@ -49,7 +51,7 @@ class BatchBacktestTaskRequest(BaseModel):
 
 
 class BatchBacktestRequest(BaseModel):
-    tasks: List[BatchBacktestTaskRequest] = Field(..., min_length=1, max_length=50)
+    tasks: list[BatchBacktestTaskRequest] = Field(..., min_length=1, max_length=50)
     ranking_metric: str = "sharpe_ratio"
     ascending: bool = False
     top_n: Optional[int] = None
@@ -61,9 +63,9 @@ class BatchBacktestRequest(BaseModel):
 class WalkForwardRequest(BaseModel):
     symbol: str
     strategy: str
-    parameters: Dict[str, Any] = {}
-    parameter_grid: Optional[Dict[str, List[Any]]] = None
-    parameter_candidates: Optional[List[Dict[str, Any]]] = None
+    parameters: dict[str, Any] = {}
+    parameter_grid: Optional[dict[str, list[Any]]] = None
+    parameter_candidates: Optional[list[dict[str, Any]]] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     initial_capital: float = 10000
@@ -91,7 +93,7 @@ class WalkForwardRequest(BaseModel):
 class MarketRegimeRequest(BaseModel):
     symbol: str
     strategy: str
-    parameters: Dict[str, Any] = {}
+    parameters: dict[str, Any] = {}
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     initial_capital: float = 10000
@@ -111,10 +113,10 @@ class MarketRegimeRequest(BaseModel):
 
 
 class PortfolioStrategyRequest(BaseModel):
-    symbols: List[str]
+    symbols: list[str]
     strategy: str
-    parameters: Dict[str, Any] = {}
-    weights: Optional[List[float]] = None
+    parameters: dict[str, Any] = {}
+    weights: Optional[list[float]] = None
     objective: str = "equal_weight"
     start_date: Optional[str] = None
     end_date: Optional[str] = None
@@ -139,8 +141,8 @@ class AdvancedHistorySaveRequest(BaseModel):
     title: Optional[str] = None
     symbol: str
     strategy: str
-    parameters: Dict[str, Any] = {}
+    parameters: dict[str, Any] = {}
     start_date: Optional[str] = None
     end_date: Optional[str] = None
-    metrics: Dict[str, Any] = {}
-    result: Dict[str, Any]
+    metrics: dict[str, Any] = {}
+    result: dict[str, Any]

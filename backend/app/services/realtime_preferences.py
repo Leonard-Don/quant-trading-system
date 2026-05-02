@@ -6,7 +6,7 @@ import json
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from src.utils.config import PROJECT_ROOT
 
@@ -56,8 +56,8 @@ class RealtimePreferencesStore:
         normalized_profile = self._normalize_profile_id(profile_id)
         return self.storage_path / f"{normalized_profile}.json"
 
-    def _normalize_symbols(self, symbols: List[str]) -> List[str]:
-        normalized: List[str] = []
+    def _normalize_symbols(self, symbols: list[str]) -> list[str]:
+        normalized: list[str] = []
         seen = set()
         for symbol in symbols:
             if not isinstance(symbol, str):
@@ -68,9 +68,9 @@ class RealtimePreferencesStore:
                 seen.add(canonical)
         return normalized
 
-    def _normalize_preferences(self, payload: Dict[str, Any] | None) -> Dict[str, Any]:
+    def _normalize_preferences(self, payload: dict[str, Any] | None) -> dict[str, Any]:
         payload = dict(payload or {})
-        warnings: List[str] = []
+        warnings: list[str] = []
         raw_symbols = payload.get("symbols") or DEFAULT_PREFERENCES["symbols"]
         symbols = self._normalize_symbols(raw_symbols)
         if len(symbols) > MAX_SUBSCRIBED_SYMBOLS:
@@ -87,7 +87,7 @@ class RealtimePreferencesStore:
             )
             active_tab = DEFAULT_PREFERENCES["active_tab"]
 
-        symbol_categories: Dict[str, str] = {}
+        symbol_categories: dict[str, str] = {}
         if isinstance(raw_categories, dict):
             for raw_symbol, raw_category in raw_categories.items():
                 if not isinstance(raw_symbol, str) or not isinstance(raw_category, str):
@@ -101,7 +101,7 @@ class RealtimePreferencesStore:
                         f"symbol_categories['{symbol}']: skipped (invalid category '{category}')"
                     )
 
-        watch_groups: List[Dict[str, Any]] = []
+        watch_groups: list[dict[str, Any]] = []
         if isinstance(raw_watch_groups, list):
             if len(raw_watch_groups) > MAX_WATCH_GROUPS:
                 warnings.append(
@@ -121,7 +121,7 @@ class RealtimePreferencesStore:
                     )
                     group_symbols = group_symbols[:MAX_SYMBOLS_PER_WATCH_GROUP]
                 raw_weights = raw_group.get("weights") or {}
-                weights: Dict[str, float] = {}
+                weights: dict[str, float] = {}
                 if isinstance(raw_weights, dict):
                     for raw_symbol, raw_weight in raw_weights.items():
                         symbol = str(raw_symbol or "").strip().upper()
@@ -154,18 +154,18 @@ class RealtimePreferencesStore:
             "_warnings": warnings,
         }
 
-    def _load_preferences(self, profile_id: str | None) -> Dict[str, Any]:
+    def _load_preferences(self, profile_id: str | None) -> dict[str, Any]:
         preferences_file = self._get_preferences_file(profile_id)
         try:
             if preferences_file.exists():
-                with open(preferences_file, "r", encoding="utf-8") as file:
+                with open(preferences_file, encoding="utf-8") as file:
                     return self._normalize_preferences(json.load(file))
         except Exception as exc:
             logger.warning("Failed to load realtime preferences for %s: %s", profile_id, exc)
 
         return dict(DEFAULT_PREFERENCES)
 
-    def _persist(self, profile_id: str | None, preferences: Dict[str, Any]) -> None:
+    def _persist(self, profile_id: str | None, preferences: dict[str, Any]) -> None:
         preferences_file = self._get_preferences_file(profile_id)
         try:
             with open(preferences_file, "w", encoding="utf-8") as file:
@@ -173,7 +173,7 @@ class RealtimePreferencesStore:
         except Exception as exc:
             logger.error("Failed to persist realtime preferences for %s: %s", profile_id, exc)
 
-    def get_preferences(self, profile_id: str | None = None) -> Dict[str, Any]:
+    def get_preferences(self, profile_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             preferences = self._load_preferences(profile_id)
             return {
@@ -183,7 +183,7 @@ class RealtimePreferencesStore:
                 "watch_groups": list(preferences.get("watch_groups") or []),
             }
 
-    def update_preferences(self, payload: Dict[str, Any], profile_id: str | None = None) -> Dict[str, Any]:
+    def update_preferences(self, payload: dict[str, Any], profile_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             preferences = self._normalize_preferences(payload)
             warnings = preferences.pop("_warnings", [])

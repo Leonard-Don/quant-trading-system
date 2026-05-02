@@ -4,9 +4,11 @@ WebSocket实时数据推送模块
 
 import asyncio
 import logging
-from typing import Dict, Set, Any, Optional, Tuple
 from datetime import datetime
+from typing import Any, Optional
+
 from fastapi import WebSocket
+
 from src.data.realtime_manager import realtime_manager
 
 logger = logging.getLogger(__name__)
@@ -19,11 +21,11 @@ class ConnectionManager:
 
     def __init__(self):
         # symbol -> set of websocket connections
-        self.active_connections: Dict[str, Set[WebSocket]] = {}
+        self.active_connections: dict[str, set[WebSocket]] = {}
         # websocket -> set of subscribed symbols
-        self.subscriptions: Dict[WebSocket, Set[str]] = {}
-        self._send_queues: Dict[WebSocket, asyncio.Queue[Tuple[Dict[str, Any], Optional[asyncio.Future]]]] = {}
-        self._send_tasks: Dict[WebSocket, asyncio.Task] = {}
+        self.subscriptions: dict[WebSocket, set[str]] = {}
+        self._send_queues: dict[WebSocket, asyncio.Queue[tuple[dict[str, Any], Optional[asyncio.Future]]]] = {}
+        self._send_tasks: dict[WebSocket, asyncio.Task] = {}
         self.loop = None
 
     async def connect(self, websocket: WebSocket):
@@ -108,7 +110,7 @@ class ConnectionManager:
         finally:
             self._fail_pending_messages(queue)
 
-    async def _send_direct_message(self, websocket: WebSocket, message: Dict[str, Any]) -> bool:
+    async def _send_direct_message(self, websocket: WebSocket, message: dict[str, Any]) -> bool:
         try:
             await websocket.send_json(message)
             return True
@@ -120,16 +122,15 @@ class ConnectionManager:
     def _enqueue_message(
         self,
         websocket: WebSocket,
-        message: Dict[str, Any],
+        message: dict[str, Any],
         delivery_future: Optional[asyncio.Future] = None,
     ) -> bool:
         queue = self._send_queues.get(websocket)
         if queue is None:
             return False
 
-        if delivery_future is None and message.get("type") == "quote":
-            if self._replace_pending_quote(queue, message):
-                return True
+        if delivery_future is None and message.get("type") == "quote" and self._replace_pending_quote(queue, message):
+            return True
 
         try:
             queue.put_nowait((message, delivery_future))
@@ -144,7 +145,7 @@ class ConnectionManager:
             self.disconnect(websocket)
             return False
 
-    def _replace_pending_quote(self, queue: asyncio.Queue, message: Dict[str, Any]) -> bool:
+    def _replace_pending_quote(self, queue: asyncio.Queue, message: dict[str, Any]) -> bool:
         """如果队列里已有同 symbol 的未发送 quote，则只保留最新值。"""
         symbol = str(message.get("symbol") or "").upper()
         if not symbol:
@@ -170,7 +171,7 @@ class ConnectionManager:
                 symbol = quote.symbol
                 # 使用 run_coroutine_threadsafe 将异步任务提交到主事件循环
                 asyncio.run_coroutine_threadsafe(
-                    self.broadcast_quote(symbol, quote.to_dict()), 
+                    self.broadcast_quote(symbol, quote.to_dict()),
                     self.loop
                 )
             else:
@@ -178,7 +179,7 @@ class ConnectionManager:
         except Exception as e:
             logger.error(f"Error handling realtime update for {quote.symbol}: {e}")
 
-    async def subscribe(self, websocket: WebSocket, symbol: str) -> Dict[str, Any]:
+    async def subscribe(self, websocket: WebSocket, symbol: str) -> dict[str, Any]:
         """订阅股票实时数据"""
         symbol = symbol.upper()
 
@@ -210,7 +211,7 @@ class ConnectionManager:
 
         return {"symbol": symbol, "added": True, "duplicate": False}
 
-    async def unsubscribe(self, websocket: WebSocket, symbol: str) -> Dict[str, Any]:
+    async def unsubscribe(self, websocket: WebSocket, symbol: str) -> dict[str, Any]:
         """取消订阅"""
         symbol = symbol.upper()
 
@@ -234,7 +235,7 @@ class ConnectionManager:
         )
         return {"symbol": symbol, "removed": was_subscribed}
 
-    async def broadcast_quote(self, symbol: str, quote_data: Dict[str, Any]):
+    async def broadcast_quote(self, symbol: str, quote_data: dict[str, Any]):
         """向所有订阅者广播股票报价"""
         symbol = symbol.upper()
 
@@ -260,7 +261,7 @@ class ConnectionManager:
         if direct_deliveries:
             await asyncio.gather(*direct_deliveries, return_exceptions=True)
 
-    async def send_personal_message(self, websocket: WebSocket, message: Dict[str, Any]) -> bool:
+    async def send_personal_message(self, websocket: WebSocket, message: dict[str, Any]) -> bool:
         """发送个人消息"""
         if websocket not in self.subscriptions:
             return False

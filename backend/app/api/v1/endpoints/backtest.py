@@ -1,56 +1,57 @@
-import base64
-from fastapi import APIRouter, HTTPException
 import asyncio
-from datetime import datetime
+import base64
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
+from typing import Any, Optional
+
 import numpy as np
 import pandas as pd
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 
+from backend.app.core.task_queue import task_queue_manager
 from backend.app.schemas.backtest import (
+    AdvancedHistorySaveRequest,
     BacktestRequest,
     BacktestResponse,
     BatchBacktestRequest,
-    WalkForwardRequest,
     MarketRegimeRequest,
     PortfolioStrategyRequest,
-    AdvancedHistorySaveRequest,
+    WalkForwardRequest,
 )
-from backend.app.core.task_queue import task_queue_manager
 from backend.app.services.runtime_state import get_data_manager
-from src.backtest.history import backtest_history
-from src.backtest.batch_backtester import BatchBacktester, BacktestTask, WalkForwardAnalyzer
-from src.backtest.impact_model import estimate_market_impact_rate, normalize_market_impact_model
-from src.strategy.strategies import (
-    MovingAverageCrossover,
-    RSIStrategy,
-    BollingerBands,
-    BuyAndHold,
-    TurtleTradingStrategy,
-    MultiFactorStrategy,
-)
-from src.strategy.advanced_strategies import (
-    MACDStrategy,
-    MeanReversionStrategy,
-    VWAPStrategy,
-    MomentumStrategy,
-    StochasticOscillator,
-    ATRTrailingStop,
-)
-from src.strategy.strategy_validator import StrategyValidator
-from src.backtest.backtester import Backtester
-from src.backtest.portfolio_backtester import PortfolioBacktester
-from src.backtest.signal_adapter import SignalAdapter
 from src.analytics.dashboard import PerformanceAnalyzer
 from src.analytics.portfolio_optimizer import PortfolioOptimizer as AssetPortfolioOptimizer
-from src.utils.performance import timing_decorator
+from src.backtest.backtester import Backtester
+from src.backtest.batch_backtester import BacktestTask, BatchBacktester, WalkForwardAnalyzer
+from src.backtest.history import backtest_history
+from src.backtest.impact_model import normalize_market_impact_model
+from src.backtest.portfolio_backtester import PortfolioBacktester
+from src.backtest.signal_adapter import SignalAdapter
+from src.strategy.advanced_strategies import (
+    ATRTrailingStop,
+    MACDStrategy,
+    MeanReversionStrategy,
+    MomentumStrategy,
+    StochasticOscillator,
+    VWAPStrategy,
+)
+from src.strategy.strategies import (
+    BollingerBands,
+    BuyAndHold,
+    MovingAverageCrossover,
+    MultiFactorStrategy,
+    RSIStrategy,
+    TurtleTradingStrategy,
+)
+from src.strategy.strategy_validator import StrategyValidator
 from src.utils.data_validation import (
-    validate_and_fix_backtest_results,
     ensure_json_serializable,
     normalize_backtest_results,
+    validate_and_fix_backtest_results,
 )
-from fastapi.responses import Response
-from pydantic import BaseModel
+from src.utils.performance import timing_decorator
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -73,7 +74,7 @@ STRATEGIES = {
 }
 
 
-def _estimate_min_history_bars(strategy_name: str, cleaned_params: Dict[str, Any]) -> int:
+def _estimate_min_history_bars(strategy_name: str, cleaned_params: dict[str, Any]) -> int:
     if strategy_name == "moving_average":
         return int(cleaned_params.get("slow_period", 50))
     if strategy_name == "rsi":
@@ -114,11 +115,11 @@ def _estimate_min_history_bars(strategy_name: str, cleaned_params: Dict[str, Any
 def _build_no_trade_diagnostics(
     *,
     strategy_name: str,
-    cleaned_params: Dict[str, Any],
+    cleaned_params: dict[str, Any],
     data: pd.DataFrame,
     strategy,
-) -> Dict[str, Any]:
-    available_bars = int(len(data))
+) -> dict[str, Any]:
+    available_bars = len(data)
     required_bars = _estimate_min_history_bars(strategy_name, cleaned_params)
     signal_series = getattr(strategy, "signals", pd.Series(dtype="float64"))
     signal_series = (
@@ -177,7 +178,7 @@ def _parse_iso_datetime(value: Optional[str], field_name: str) -> Optional[datet
 
 def _resolve_date_range(
     start_date: Optional[str], end_date: Optional[str]
-) -> Tuple[Optional[datetime], Optional[datetime]]:
+) -> tuple[Optional[datetime], Optional[datetime]]:
     start_dt = _parse_iso_datetime(start_date, "start_date")
     end_dt = _parse_iso_datetime(end_date, "end_date")
 
@@ -202,7 +203,7 @@ def _fetch_backtest_data(
     return data
 
 
-def _create_strategy_instance(strategy_name: str, cleaned_params: Dict[str, Any]):
+def _create_strategy_instance(strategy_name: str, cleaned_params: dict[str, Any]):
     strategy_class = STRATEGIES[strategy_name]
 
     try:
@@ -269,7 +270,7 @@ def _create_strategy_instance(strategy_name: str, cleaned_params: Dict[str, Any]
     except (ValueError, TypeError) as exc:
         logger.error(f"Failed to create strategy instance: {exc}")
         raise HTTPException(
-            status_code=500, detail=f"Strategy creation failed: {str(exc)}"
+            status_code=500, detail=f"Strategy creation failed: {exc!s}"
         ) from exc
 
 
@@ -277,7 +278,7 @@ def run_backtest_pipeline(
     *,
     symbol: str,
     strategy_name: str,
-    parameters: Optional[Dict[str, Any]] = None,
+    parameters: Optional[dict[str, Any]] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     initial_capital: float = 10000,
@@ -293,7 +294,7 @@ def run_backtest_pipeline(
     execution_lag: int = 1,
     max_holding_days: Optional[int] = None,
     data=None,
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Run the normalized backtest execution pipeline used by all endpoints."""
     logger.info(f"Starting backtest for {symbol} with strategy {strategy_name}")
 
@@ -370,7 +371,7 @@ def run_backtest_pipeline(
     return results, cleaned_params
 
 
-def _build_comparison_entry(results: Dict[str, Any]) -> Dict[str, Any]:
+def _build_comparison_entry(results: dict[str, Any]) -> dict[str, Any]:
     comparison_entry = {
         "symbol": results.get("symbol"),
         "strategy": results.get("strategy"),
@@ -407,7 +408,7 @@ def _build_batch_backtester(max_workers: int, use_processes: bool = False) -> Ba
     return BatchBacktester(max_workers=max_workers, use_processes=use_processes)
 
 
-def _strategy_factory_for_batch(strategy_name: str, parameters: Dict[str, Any]):
+def _strategy_factory_for_batch(strategy_name: str, parameters: dict[str, Any]):
     is_valid, error_msg, cleaned_params = StrategyValidator.validate_strategy_params(
         strategy_name, parameters or {}
     )
@@ -416,7 +417,7 @@ def _strategy_factory_for_batch(strategy_name: str, parameters: Dict[str, Any]):
     return _create_strategy_instance(strategy_name, cleaned_params)
 
 
-def _series_from_portfolio_history(results: Dict[str, Any]) -> pd.Series:
+def _series_from_portfolio_history(results: dict[str, Any]) -> pd.Series:
     portfolio_history = results.get("portfolio_history") or results.get("portfolio") or []
     if not portfolio_history:
         return pd.Series(dtype="float64")
@@ -445,7 +446,7 @@ def _calculate_max_drawdown_from_series(values: pd.Series) -> float:
     return float(drawdown.min())
 
 
-def _returns_from_portfolio_history(results: Dict[str, Any]) -> pd.Series:
+def _returns_from_portfolio_history(results: dict[str, Any]) -> pd.Series:
     values = _series_from_portfolio_history(results)
     if values.empty:
         return pd.Series(dtype="float64")
@@ -479,7 +480,7 @@ def _simulate_monte_carlo_paths(
     simulations: int,
     horizon_days: Optional[int] = None,
     seed: Optional[int] = 42,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     clean_returns = pd.Series(returns).replace([np.inf, -np.inf], np.nan).dropna()
     clean_returns = clean_returns[clean_returns.index.notna()]
     if clean_returns.empty:
@@ -564,10 +565,10 @@ def _compare_return_significance(
     *,
     bootstrap_samples: int = 1000,
     seed: Optional[int] = 42,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     aligned = pd.concat([baseline.rename("baseline"), challenger.rename("challenger")], axis=1).dropna()
     if aligned.empty or len(aligned) < 10:
-        return {"status": "insufficient_data", "sample_size": int(len(aligned))}
+        return {"status": "insufficient_data", "sample_size": len(aligned)}
 
     diff = aligned["challenger"] - aligned["baseline"]
     observed_mean_delta = float(diff.mean())
@@ -599,7 +600,7 @@ def _compare_return_significance(
 
     return {
         "status": "ok",
-        "sample_size": int(len(aligned)),
+        "sample_size": len(aligned),
         "observed_mean_daily_delta": round(observed_mean_delta, 8),
         "observed_annualized_delta": round(float(observed_mean_delta * 252), 6),
         "observed_sharpe_delta": round(float(observed_sharpe_delta), 6),
@@ -666,13 +667,13 @@ def _classify_market_regimes(
 
 class CompareStrategyConfig(BaseModel):
     name: str
-    parameters: Dict[str, Any] = {}
+    parameters: dict[str, Any] = {}
 
 
 class CompareRequest(BaseModel):
     symbol: str
-    strategies: Optional[List[str]] = None
-    strategy_configs: Optional[List[CompareStrategyConfig]] = None
+    strategies: Optional[list[str]] = None
+    strategy_configs: Optional[list[CompareStrategyConfig]] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     initial_capital: float = 10000.0
@@ -702,7 +703,7 @@ class SignificanceCompareRequest(CompareRequest):
 
 
 class MultiPeriodBacktestRequest(BacktestRequest):
-    intervals: List[str] = ["1d", "1wk", "1mo"]
+    intervals: list[str] = Field(default_factory=lambda: ["1d", "1wk", "1mo"])
 
 
 class MarketImpactScenarioConfig(BaseModel):
@@ -715,11 +716,11 @@ class MarketImpactScenarioConfig(BaseModel):
 
 
 class MarketImpactAnalysisRequest(BacktestRequest):
-    scenarios: Optional[List[MarketImpactScenarioConfig]] = None
-    sample_trade_values: List[float] = [10000, 50000, 100000, 250000]
+    scenarios: Optional[list[MarketImpactScenarioConfig]] = None
+    sample_trade_values: list[float] = Field(default_factory=lambda: [10000, 50000, 100000, 250000])
 
 
-def _submit_async_backtest_task(task_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+def _submit_async_backtest_task(task_name: str, payload: dict[str, Any]) -> dict[str, Any]:
     task = task_queue_manager.submit(
         name=task_name,
         payload={
@@ -736,8 +737,8 @@ def _submit_async_backtest_task(task_name: str, payload: Dict[str, Any]) -> Dict
 
 
 def run_backtest_monte_carlo_sync(
-    request: MonteCarloBacktestRequest | Dict[str, Any],
-) -> Dict[str, Any]:
+    request: MonteCarloBacktestRequest | dict[str, Any],
+) -> dict[str, Any]:
     if isinstance(request, dict):
         request = MonteCarloBacktestRequest(**request)
     results, cleaned_params = run_backtest_pipeline(
@@ -782,8 +783,8 @@ def run_backtest_monte_carlo_sync(
 
 
 def compare_strategy_significance_sync(
-    request: SignificanceCompareRequest | Dict[str, Any],
-) -> Dict[str, Any]:
+    request: SignificanceCompareRequest | dict[str, Any],
+) -> dict[str, Any]:
     if isinstance(request, dict):
         request = SignificanceCompareRequest(**request)
     configs = _normalize_compare_configs(
@@ -859,8 +860,8 @@ def compare_strategy_significance_sync(
 
 
 def run_multi_period_backtest_sync(
-    request: MultiPeriodBacktestRequest | Dict[str, Any],
-) -> Dict[str, Any]:
+    request: MultiPeriodBacktestRequest | dict[str, Any],
+) -> dict[str, Any]:
     if isinstance(request, dict):
         request = MultiPeriodBacktestRequest(**request)
     allowed_intervals = {"1d", "1wk", "1mo"}
@@ -911,7 +912,7 @@ def run_multi_period_backtest_sync(
             {
                 "interval": interval,
                 "success": True,
-                "data_points": int(len(data)),
+                "data_points": len(data),
                 "parameters": cleaned_params,
                 "metrics": entry,
             }
@@ -941,8 +942,8 @@ def run_multi_period_backtest_sync(
 
 
 def run_market_impact_analysis_sync(
-    request: MarketImpactAnalysisRequest | Dict[str, Any],
-) -> Dict[str, Any]:
+    request: MarketImpactAnalysisRequest | dict[str, Any],
+) -> dict[str, Any]:
     if isinstance(request, dict):
         request = MarketImpactAnalysisRequest(**request)
     data = _fetch_backtest_data(request.symbol, request.start_date, request.end_date)
@@ -1270,7 +1271,7 @@ async def run_market_regime_backtest(request: MarketRegimeRequest):
             strategy_total_return = float(strategy_curve.iloc[-1] - 1) if not strategy_curve.empty else 0.0
             market_total_return = float(market_curve.iloc[-1] - 1) if not market_curve.empty else 0.0
             positive_days = int((group["strategy_return"] > 0).sum())
-            days = int(len(group))
+            days = len(group)
 
             regime_results.append({
                 "regime": regime_name,
@@ -1347,7 +1348,7 @@ async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
         component_results = []
         target_exposure_frames = []
 
-        for index, symbol in enumerate(symbols):
+        for _index, symbol in enumerate(symbols):
             data = _fetch_backtest_data(symbol, request.start_date, request.end_date)
             close_column = "close" if "close" in data.columns else "Close"
             price_data[symbol] = data[close_column]
@@ -1505,9 +1506,9 @@ async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
 
 
 def _normalize_compare_configs(
-    strategies: Optional[List[str]] = None,
-    strategy_configs: Optional[List[CompareStrategyConfig]] = None,
-) -> List[Dict[str, Any]]:
+    strategies: Optional[list[str]] = None,
+    strategy_configs: Optional[list[CompareStrategyConfig]] = None,
+) -> list[dict[str, Any]]:
     if strategy_configs:
         configs = [
             {
@@ -1536,7 +1537,7 @@ def _normalize_compare_configs(
 async def _compare_strategies_impl(
     *,
     symbol: str,
-    strategy_configs: List[Dict[str, Any]],
+    strategy_configs: list[dict[str, Any]],
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     initial_capital: float = 10000.0,
@@ -1702,7 +1703,7 @@ def run_backtest(request: BacktestRequest):
         raise
     except Exception as e:
         logger.error(f"Unexpected error running backtest: {e}", exc_info=True)
-        return BacktestResponse(success=False, error=f"Internal server error: {str(e)}")
+        return BacktestResponse(success=False, error=f"Internal server error: {e!s}")
 
 
 @router.post("/compare", summary="比较多个策略的性能")
@@ -1821,14 +1822,14 @@ async def queue_market_impact_analysis(request: MarketImpactAnalysisRequest):
 async def get_backtest_history(
     limit: int = 20,
     offset: int = 0,
-    symbol: str = None,
-    strategy: str = None,
-    record_type: str = None,
+    symbol: Optional[str] = None,
+    strategy: Optional[str] = None,
+    record_type: Optional[str] = None,
     summary_only: bool = False,
 ):
     """
     获取回测历史记录
-    
+
     Args:
         limit: 返回记录数量限制 (默认20)
         symbol: 按股票代码过滤
@@ -1857,7 +1858,7 @@ async def get_backtest_history(
 
 
 @router.get("/history/stats", summary="获取回测历史统计")
-async def get_backtest_stats(symbol: str = None, strategy: str = None, record_type: str = None):
+async def get_backtest_stats(symbol: Optional[str] = None, strategy: Optional[str] = None, record_type: Optional[str] = None):
     """获取回测历史统计信息"""
     try:
         stats = backtest_history.get_statistics(symbol=symbol, strategy=strategy, record_type=record_type)
@@ -1913,8 +1914,8 @@ class ReportRequest(BaseModel):
     """报告生成请求"""
     symbol: str
     strategy: str
-    backtest_result: Optional[Dict[str, Any]] = None
-    parameters: Optional[Dict[str, Any]] = None
+    backtest_result: Optional[dict[str, Any]] = None
+    parameters: Optional[dict[str, Any]] = None
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     initial_capital: float = 10000
@@ -1922,7 +1923,7 @@ class ReportRequest(BaseModel):
     slippage: float = 0.001
 
 
-def _build_report_pdf(request: ReportRequest) -> Tuple[bytes, str]:
+def _build_report_pdf(request: ReportRequest) -> tuple[bytes, str]:
     """Generate report bytes and filename through a single shared path."""
     from src.reporting import pdf_generator
 
@@ -1961,7 +1962,7 @@ def _build_report_pdf(request: ReportRequest) -> Tuple[bytes, str]:
 async def generate_report(request: ReportRequest):
     """
     生成策略回测报告 PDF
-    
+
     如果提供了 backtest_result，则直接使用；
     否则会先运行回测再生成报告。
     """
@@ -1975,7 +1976,7 @@ async def generate_report(request: ReportRequest):
                 "Content-Disposition": f"attachment; filename={filename}"
             }
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -2001,7 +2002,7 @@ async def generate_report_base64(request: ReportRequest):
                 "content_type": "application/pdf"
             }
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:

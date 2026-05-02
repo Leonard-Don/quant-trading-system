@@ -2,8 +2,9 @@
 行业分析 Schema 定义
 """
 
+from typing import Any, Optional
+
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
 
 
 class IndustryRankResponse(BaseModel):
@@ -20,8 +21,8 @@ class IndustryRankResponse(BaseModel):
     stock_count: int = Field(0, description="成分股数量")
     total_market_cap: float = Field(0, description="总市值")
     marketCapSource: str = Field("unknown", description="行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*")
-    mini_trend: List[float] = Field(default_factory=list, description="近5日相对走势火花线数据")
-    score_breakdown: List[Dict[str, Any]] = Field(default_factory=list, description="后端统一评分拆解数据")
+    mini_trend: list[float] = Field(default_factory=list, description="近5日相对走势火花线数据")
+    score_breakdown: list[dict[str, Any]] = Field(default_factory=list, description="后端统一评分拆解数据")
 
 
 class StockResponse(BaseModel):
@@ -51,15 +52,15 @@ class LeaderStockResponse(BaseModel):
     market_cap: float = Field(0, description="市值")
     pe_ratio: float = Field(0, description="市盈率")
     change_pct: float = Field(0, description="涨跌幅")
-    dimension_scores: Dict[str, Any] = Field(default_factory=dict, description="各维度得分")
-    mini_trend: List[float] = Field(default_factory=list, description="近期价格走势火花线数据")
+    dimension_scores: dict[str, Any] = Field(default_factory=dict, description="各维度得分")
+    mini_trend: list[float] = Field(default_factory=list, description="近期价格走势火花线数据")
 
 
 class LeaderBoardsResponse(BaseModel):
     """龙头股双榜单响应"""
-    core: List[LeaderStockResponse] = Field(default_factory=list, description="核心资产榜单")
-    hot: List[LeaderStockResponse] = Field(default_factory=list, description="热点先锋榜单")
-    errors: Dict[str, str] = Field(default_factory=dict, description="部分榜单失败时的错误提示")
+    core: list[LeaderStockResponse] = Field(default_factory=list, description="核心资产榜单")
+    hot: list[LeaderStockResponse] = Field(default_factory=list, description="热点先锋榜单")
+    errors: dict[str, str] = Field(default_factory=dict, description="部分榜单失败时的错误提示")
 
 
 class LeaderDetailResponse(BaseModel):
@@ -68,10 +69,10 @@ class LeaderDetailResponse(BaseModel):
     name: str = Field("", description="股票名称")
     total_score: float = Field(0, description="综合得分")
     score_type: Optional[str] = Field(None, description="评分类型: core(综合评分) 或 hot(动量评分)")
-    dimension_scores: Dict[str, Any] = Field(default_factory=dict, description="各维度得分")
-    raw_data: Dict[str, Any] = Field(default_factory=dict, description="原始数据")
-    technical_analysis: Dict[str, Any] = Field(default_factory=dict, description="技术分析")
-    price_data: List[Dict[str, Any]] = Field(default_factory=list, description="价格数据")
+    dimension_scores: dict[str, Any] = Field(default_factory=dict, description="各维度得分")
+    raw_data: dict[str, Any] = Field(default_factory=dict, description="原始数据")
+    technical_analysis: dict[str, Any] = Field(default_factory=dict, description="技术分析")
+    price_data: list[dict[str, Any]] = Field(default_factory=list, description="价格数据")
     degraded: bool = Field(False, description="是否为降级详情")
     note: Optional[str] = Field(None, description="降级或回退说明")
 
@@ -96,7 +97,7 @@ class HeatmapDataItem(BaseModel):
     marketCapSnapshotIsStale: bool = Field(False, description="快照市值是否超过新鲜度阈值")
     valuationSource: str = Field("unavailable", description="估值来源: akshare_sw/tencent_leader_proxy/unavailable")
     valuationQuality: str = Field("unavailable", description="估值质量: industry_level/leader_proxy/unavailable")
-    dataSources: List[str] = Field(default_factory=list, description="该行业记录使用到的数据源")
+    dataSources: list[str] = Field(default_factory=list, description="该行业记录使用到的数据源")
     # THS 增强字段
     industryIndex: float = Field(0, description="行业指数点位")
     totalInflow: float = Field(0, description="总流入资金（亿元）")
@@ -112,7 +113,7 @@ class HeatmapDataItem(BaseModel):
 
 class HeatmapResponse(BaseModel):
     """热力图响应"""
-    industries: List[HeatmapDataItem] = Field(default_factory=list, description="行业数据")
+    industries: list[HeatmapDataItem] = Field(default_factory=list, description="行业数据")
     max_value: float = Field(0, description="最大值")
     min_value: float = Field(0, description="最小值")
     update_time: str = Field(..., description="更新时间")
@@ -126,12 +127,12 @@ class HeatmapHistoryItem(BaseModel):
     update_time: str = Field(..., description="快照更新时间")
     max_value: float = Field(0, description="最大值")
     min_value: float = Field(0, description="最小值")
-    industries: List[HeatmapDataItem] = Field(default_factory=list, description="行业数据")
+    industries: list[HeatmapDataItem] = Field(default_factory=list, description="行业数据")
 
 
 class HeatmapHistoryResponse(BaseModel):
     """热力图历史响应"""
-    items: List[HeatmapHistoryItem] = Field(default_factory=list, description="历史快照列表")
+    items: list[HeatmapHistoryItem] = Field(default_factory=list, description="历史快照列表")
 
 
 class IndustryBootstrapResponse(BaseModel):
@@ -142,9 +143,9 @@ class IndustryBootstrapResponse(BaseModel):
     ranking_sort_by: str = Field("total_score", description="预热排行榜排序字段")
     ranking_order: str = Field("desc", description="预热排行榜排序方向")
     heatmap: HeatmapResponse = Field(..., description="热力图首屏数据")
-    hot_industries: List[IndustryRankResponse] = Field(default_factory=list, description="预热后的行业排行榜")
+    hot_industries: list[IndustryRankResponse] = Field(default_factory=list, description="预热后的行业排行榜")
     leaders: LeaderBoardsResponse = Field(default_factory=LeaderBoardsResponse, description="龙头股双榜单")
-    errors: Dict[str, str] = Field(default_factory=dict, description="非阻断预热错误")
+    errors: dict[str, str] = Field(default_factory=dict, description="非阻断预热错误")
 
 
 class IndustryTrendPoint(BaseModel):
@@ -171,8 +172,8 @@ class IndustryTrendResponse(BaseModel):
     period_days: int = Field(30, description="周期天数")
     period_change_pct: float = Field(0, description="周期内行业涨跌幅")
     period_money_flow: float = Field(0, description="周期内资金流向")
-    top_gainers: List[Dict[str, Any]] = Field(default_factory=list, description="涨幅前5")
-    top_losers: List[Dict[str, Any]] = Field(default_factory=list, description="跌幅前5")
+    top_gainers: list[dict[str, Any]] = Field(default_factory=list, description="涨幅前5")
+    top_losers: list[dict[str, Any]] = Field(default_factory=list, description="跌幅前5")
     rise_count: int = Field(0, description="上涨股票数")
     fall_count: int = Field(0, description="下跌股票数")
     flat_count: int = Field(0, description="平盘股票数")
@@ -185,7 +186,7 @@ class IndustryTrendResponse(BaseModel):
     market_cap_source: str = Field("unknown", description="市值来源")
     valuation_source: str = Field("unavailable", description="估值来源")
     valuation_quality: str = Field("unavailable", description="估值质量")
-    trend_series: List[IndustryTrendPoint] = Field(default_factory=list, description="行业指数趋势序列")
+    trend_series: list[IndustryTrendPoint] = Field(default_factory=list, description="行业指数趋势序列")
     degraded: bool = Field(False, description="是否为降级数据")
     note: Optional[str] = Field(None, description="降级或补充说明")
     update_time: str = Field(..., description="更新时间")
@@ -193,20 +194,20 @@ class IndustryTrendResponse(BaseModel):
 
 class ClusterResponse(BaseModel):
     """聚类分析响应"""
-    clusters: Dict[int, List[str]] = Field(default_factory=dict, description="各簇行业列表")
+    clusters: dict[int, list[str]] = Field(default_factory=dict, description="各簇行业列表")
     hot_cluster: int = Field(-1, description="热门簇索引")
-    cluster_stats: Dict[int, Dict[str, Any]] = Field(default_factory=dict, description="各簇统计")
-    points: List[Dict[str, Any]] = Field(default_factory=list, description="聚类散点数据")
+    cluster_stats: dict[int, dict[str, Any]] = Field(default_factory=dict, description="各簇统计")
+    points: list[dict[str, Any]] = Field(default_factory=list, description="聚类散点数据")
     selected_cluster_count: int = Field(0, description="自动选择的聚类数")
     silhouette_score: Optional[float] = Field(None, description="最佳聚类轮廓系数")
-    cluster_candidates: Dict[int, float] = Field(default_factory=dict, description="候选聚类数的轮廓系数")
+    cluster_candidates: dict[int, float] = Field(default_factory=dict, description="候选聚类数的轮廓系数")
 
 
 class IndustryRotationResponse(BaseModel):
     """行业轮动对比响应"""
-    industries: List[str] = Field(default_factory=list, description="对比行业列表")
-    periods: List[int] = Field(default_factory=list, description="统计周期")
-    data: List[Dict[str, Any]] = Field(default_factory=list, description="轮动数据")
+    industries: list[str] = Field(default_factory=list, description="对比行业列表")
+    periods: list[int] = Field(default_factory=list, description="统计周期")
+    data: list[dict[str, Any]] = Field(default_factory=list, description="轮动数据")
     update_time: str = Field(..., description="更新时间")
 
 
@@ -220,6 +221,6 @@ class IndustryStockBuildStatusResponse(BaseModel):
 
 
 class IndustryPreferencesResponse(BaseModel):
-    watchlist_industries: List[str] = Field(default_factory=list, description="观察列表")
-    saved_views: List[Dict[str, Any]] = Field(default_factory=list, description="保存视图")
-    alert_thresholds: Dict[str, float] = Field(default_factory=dict, description="行业提醒阈值")
+    watchlist_industries: list[str] = Field(default_factory=list, description="观察列表")
+    saved_views: list[dict[str, Any]] = Field(default_factory=list, description="保存视图")
+    alert_thresholds: dict[str, float] = Field(default_factory=dict, description="行业提醒阈值")

@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
-from backend.app.services.runtime_state import get_data_manager
 from backend.app.schemas.cross_market import (
     CrossMarketBacktestRequest,
     CrossMarketBacktestResponse,
 )
+from backend.app.services.runtime_state import get_data_manager
 from src.backtest.cross_market_backtester import CrossMarketBacktester
 from src.data.data_manager import DataManager
 

@@ -9,7 +9,7 @@ import threading
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from src.utils.config import PROJECT_ROOT
 
@@ -63,7 +63,7 @@ def _safe_iso(value: Any, fallback: str) -> str:
         return fallback
 
 
-def _stable_entry_id(entry: Dict[str, Any], index: int = 0) -> str:
+def _stable_entry_id(entry: dict[str, Any], index: int = 0) -> str:
     raw_id = _safe_text(entry.get("id"), 180)
     if raw_id:
         return raw_id
@@ -82,12 +82,12 @@ def _stable_entry_id(entry: Dict[str, Any], index: int = 0) -> str:
     return f"research_{digest}"
 
 
-def _coerce_mapping(value: Any) -> Dict[str, Any]:
+def _coerce_mapping(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, dict) else {}
 
 
-def _coerce_tags(value: Any) -> List[str]:
-    tags: List[str] = []
+def _coerce_tags(value: Any) -> list[str]:
+    tags: list[str] = []
     seen = set()
     if not isinstance(value, list):
         return tags
@@ -123,7 +123,7 @@ class ResearchJournalStore:
     def _get_journal_file(self, profile_id: str | None) -> Path:
         return self.storage_path / f"{self._normalize_profile_id(profile_id)}.json"
 
-    def _normalize_entry(self, raw_entry: Dict[str, Any], index: int = 0) -> Dict[str, Any] | None:
+    def _normalize_entry(self, raw_entry: dict[str, Any], index: int = 0) -> dict[str, Any] | None:
         if not isinstance(raw_entry, dict):
             return None
         now = _utc_now()
@@ -167,8 +167,8 @@ class ResearchJournalStore:
         }
         return entry
 
-    def _normalize_entries(self, entries: Any) -> List[Dict[str, Any]]:
-        deduped: Dict[str, Dict[str, Any]] = {}
+    def _normalize_entries(self, entries: Any) -> list[dict[str, Any]]:
+        deduped: dict[str, dict[str, Any]] = {}
         raw_entries = entries if isinstance(entries, list) else []
         for index, raw_entry in enumerate(raw_entries):
             normalized = self._normalize_entry(raw_entry, index=index)
@@ -187,7 +187,7 @@ class ResearchJournalStore:
             reverse=False,
         )[:MAX_RESEARCH_JOURNAL_ENTRIES]
 
-    def _normalize_source_state(self, source_state: Any) -> Dict[str, Any]:
+    def _normalize_source_state(self, source_state: Any) -> dict[str, Any]:
         if not isinstance(source_state, dict):
             return {}
         normalized = deepcopy(source_state)
@@ -201,7 +201,7 @@ class ResearchJournalStore:
             "message": "source_state too large; compacted by research journal store",
         }
 
-    def _normalize_payload(self, payload: Dict[str, Any] | None) -> Dict[str, Any]:
+    def _normalize_payload(self, payload: dict[str, Any] | None) -> dict[str, Any]:
         payload = dict(payload or {})
         updated_at = _utc_now()
         generated_at = _safe_iso(payload.get("generated_at") or payload.get("generatedAt"), updated_at)
@@ -212,17 +212,17 @@ class ResearchJournalStore:
             "updated_at": updated_at,
         }
 
-    def _load_journal(self, profile_id: str | None) -> Dict[str, Any]:
+    def _load_journal(self, profile_id: str | None) -> dict[str, Any]:
         journal_file = self._get_journal_file(profile_id)
         try:
             if journal_file.exists():
-                with open(journal_file, "r", encoding="utf-8") as file:
+                with open(journal_file, encoding="utf-8") as file:
                     return self._normalize_payload(json.load(file))
         except Exception as exc:
             logger.warning("Failed to load research journal for %s: %s", profile_id, exc)
         return deepcopy(DEFAULT_RESEARCH_JOURNAL)
 
-    def _persist(self, profile_id: str | None, payload: Dict[str, Any]) -> None:
+    def _persist(self, profile_id: str | None, payload: dict[str, Any]) -> None:
         journal_file = self._get_journal_file(profile_id)
         try:
             with open(journal_file, "w", encoding="utf-8") as file:
@@ -230,11 +230,11 @@ class ResearchJournalStore:
         except Exception as exc:
             logger.error("Failed to persist research journal for %s: %s", profile_id, exc)
 
-    def _build_summary(self, entries: List[Dict[str, Any]]) -> Dict[str, Any]:
-        type_counts: Dict[str, int] = {}
-        status_counts: Dict[str, int] = {}
-        symbol_counts: Dict[str, int] = {}
-        industry_counts: Dict[str, int] = {}
+    def _build_summary(self, entries: list[dict[str, Any]]) -> dict[str, Any]:
+        type_counts: dict[str, int] = {}
+        status_counts: dict[str, int] = {}
+        symbol_counts: dict[str, int] = {}
+        industry_counts: dict[str, int] = {}
 
         for entry in entries:
             type_counts[entry["type"]] = type_counts.get(entry["type"], 0) + 1
@@ -325,7 +325,7 @@ class ResearchJournalStore:
             "next_actions": next_actions[:4],
         }
 
-    def _with_summary(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _with_summary(self, payload: dict[str, Any]) -> dict[str, Any]:
         entries = list(payload.get("entries") or [])
         result = {
             "entries": entries,
@@ -336,17 +336,17 @@ class ResearchJournalStore:
         }
         return result
 
-    def get_snapshot(self, profile_id: str | None = None) -> Dict[str, Any]:
+    def get_snapshot(self, profile_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             return self._with_summary(self._load_journal(profile_id))
 
-    def update_snapshot(self, payload: Dict[str, Any], profile_id: str | None = None) -> Dict[str, Any]:
+    def update_snapshot(self, payload: dict[str, Any], profile_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             normalized = self._normalize_payload(payload)
             self._persist(profile_id, normalized)
             return self._with_summary(normalized)
 
-    def add_entry(self, entry: Dict[str, Any], profile_id: str | None = None) -> Dict[str, Any]:
+    def add_entry(self, entry: dict[str, Any], profile_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             current = self._load_journal(profile_id)
             normalized_entry = self._normalize_entry(entry, index=len(current.get("entries") or []))
@@ -361,7 +361,7 @@ class ResearchJournalStore:
             self._persist(profile_id, updated)
             return self._with_summary(updated)
 
-    def update_entry_status(self, entry_id: str, status: str, profile_id: str | None = None) -> Dict[str, Any]:
+    def update_entry_status(self, entry_id: str, status: str, profile_id: str | None = None) -> dict[str, Any]:
         normalized_status = _safe_text(status, 40)
         if normalized_status not in ENTRY_STATUSES:
             raise ValueError(f"invalid status '{status}'")
