@@ -6,11 +6,16 @@
 
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Optional, Tuple
-from datetime import datetime, timedelta
+from typing import Dict, List, Optional
+from datetime import datetime
 import logging
 
-from .news_fetcher import NewsFetcher, FinBERTAnalyzer, news_fetcher, finbert_analyzer
+from .news_fetcher import (
+    FinBERTAnalyzer,
+    NewsFetcher,
+    finbert_analyzer as default_finbert_analyzer,
+    news_fetcher as default_news_fetcher,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +51,8 @@ class SentimentSignalGenerator:
             bearish_threshold: 看跌阈值
             decay_hours: 情绪衰减时间（小时）
         """
-        self.news_fetcher = news_fetcher or globals()['news_fetcher']
-        self.sentiment_analyzer = sentiment_analyzer or globals()['finbert_analyzer']
+        self.news_fetcher = news_fetcher or default_news_fetcher
+        self.sentiment_analyzer = sentiment_analyzer or default_finbert_analyzer
         self.bullish_threshold = bullish_threshold
         self.bearish_threshold = bearish_threshold
         self.decay_hours = decay_hours
@@ -156,7 +161,7 @@ class SentimentSignalGenerator:
                     if isinstance(pub_time, str):
                         try:
                             pub_time = datetime.fromisoformat(pub_time.replace('Z', '+00:00'))
-                        except:
+                        except ValueError:
                             pub_time = now
                     
                     hours_ago = (now - pub_time.replace(tzinfo=None)).total_seconds() / 3600

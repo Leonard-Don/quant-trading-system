@@ -5,7 +5,7 @@ Twelve Data 数据提供器
 
 import pandas as pd
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, Dict, Any
 import logging
 import time

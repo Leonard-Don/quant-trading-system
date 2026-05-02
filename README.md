@@ -2,7 +2,7 @@
 
 # quant-trading-system
 
-**一个基于 FastAPI + React 的量化交易研究平台，聚焦 `策略回测`、`实时行情`、`行业热度` 三大工作区。**  
+**一个基于 FastAPI + React 的量化交易研究平台，聚焦 `今日研究`、`策略回测`、`实时行情`、`行业热度` 四个公开工作区。**
 *A quantitative research workspace focused on backtesting, realtime market monitoring, and industry heat analysis.*
 
 **当前版本：`v5.0.0`** · [查看更新日志](docs/CHANGELOG.md)
@@ -16,7 +16,7 @@
 
 <br />
 
-> 本地优先 · 三大工作区 · 可独立运行 · 自带浏览器回归验证
+> 本地优先 · 研究档案闭环 · 可独立运行 · 自带浏览器回归验证
 
 [本地体验](#-本地体验) · [核心能力](#-核心能力) · [界面预览](#-界面预览) · [快速开始](#-快速开始) · [测试验证](#-测试验证) · [API 文档](#-api-文档) · [更新日志](docs/CHANGELOG.md)
 
@@ -26,24 +26,25 @@
 
 ## 📌 仓库定位
 
-这个仓库是一个独立维护的量化研究项目，围绕三块核心工作区展开：
+这个仓库是一个独立维护的量化研究项目，围绕今日研究与三块核心工作区展开：
 
 | 模块 | 说明 |
 |------|------|
+| 🧭 今日研究 | 汇总回测快照、行业观察、实时提醒和复盘记录，形成当天处理队列与研究档案 |
 | 📊 策略回测 | 单资产 / 跨市场 / 批量 / Walk-Forward 回测引擎 |
 | 📈 实时行情 | 多市场实时行情聚合、WebSocket 推送、提醒与复盘 |
 | 🔥 行业热度 | 行业热力图、排行榜、龙头股分析与轮动观察 |
 
 这意味着：
 
-- 当前仓的前端主入口是 `backtest / realtime / industry`
+- 当前仓的前端主入口是 `today / backtest / realtime / industry`
 - 当前仓的后端接口围绕 `/backtest/*`、`/realtime/*`、`/industry/*`、`/cross-market/*` 等能力展开
 - 项目可以独立 clone、安装、启动和发布，不依赖其他 sibling repo
 
 ### 🎯 这个仓适合谁
 
 - 想直接拿到一个能跑起来的量化研究工作台，而不是只拿到一个算法库
-- 想把 `策略回测`、`实时行情`、`行业热度` 放在同一个前后端项目里联动验证
+- 想把 `策略回测`、`实时行情`、`行业热度` 和当天研究档案放在同一个前后端项目里联动验证
 - 想优先依赖真实页面和浏览器回归来确认功能，而不是只看接口或静态图
 
 ### 🔎 GitHub 首页建议先看
@@ -70,6 +71,7 @@ cp .env.example .env
 
 启动成功后直接访问：
 
+- `http://localhost:3000?view=today` 查看今日研究
 - `http://localhost:3000` 查看策略回测
 - `http://localhost:3000?view=realtime` 查看实时行情
 - `http://localhost:3000?view=industry` 查看行业热度
@@ -77,7 +79,7 @@ cp .env.example .env
 <div align="center">
   <img src="docs/screenshots/product-tour-v2.png" alt="产品总览" />
   <br />
-  <sub>当前版本聚焦策略回测、实时行情与行业热度三块能力</sub>
+  <sub>当前版本聚焦今日研究、策略回测、实时行情与行业热度四块公开能力</sub>
 </div>
 
 <br />

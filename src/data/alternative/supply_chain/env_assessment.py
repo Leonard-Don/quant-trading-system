@@ -6,7 +6,7 @@
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ..base_alt_provider import AntiCrawlMixin

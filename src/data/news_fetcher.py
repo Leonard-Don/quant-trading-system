@@ -4,6 +4,7 @@
 支持从多个新闻源获取财经新闻
 """
 
+from importlib.util import find_spec
 import requests
 from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
@@ -263,8 +264,9 @@ class FinBERTAnalyzer:
             return
         
         try:
+            if find_spec("torch") is None:
+                raise ImportError("torch is not installed")
             from transformers import AutoModelForSequenceClassification, AutoTokenizer
-            import torch
             
             logger.info(f"加载FinBERT模型: {self.model_name}")
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)

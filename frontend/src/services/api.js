@@ -792,6 +792,62 @@ export const updateRealtimeJournal = async (payload, profileId) => {
   return response.data;
 };
 
+export const getResearchJournalSnapshot = async (profileId) => {
+  const response = await api.get('/research-journal/snapshot', {
+    headers: profileId
+      ? {
+          'X-Research-Profile': profileId,
+        }
+      : undefined,
+  });
+  return response.data;
+};
+
+export const updateResearchJournalSnapshot = async (payload, profileId) => {
+  const response = await api.put(
+    '/research-journal/snapshot',
+    payload,
+    {
+      headers: profileId
+        ? {
+            'X-Research-Profile': profileId,
+          }
+        : undefined,
+    }
+  );
+  return response.data;
+};
+
+export const createResearchJournalEntry = async (entry, profileId) => {
+  const response = await api.post(
+    '/research-journal/entries',
+    { entry },
+    {
+      headers: profileId
+        ? {
+            'X-Research-Profile': profileId,
+          }
+        : undefined,
+    }
+  );
+  return response.data;
+};
+
+export const updateResearchJournalEntryStatus = async (entryId, status, profileId) => {
+  const response = await api.patch(
+    `/research-journal/entries/${encodeURIComponent(entryId)}/status`,
+    { status },
+    {
+      headers: profileId
+        ? {
+            'X-Research-Profile': profileId,
+          }
+        : undefined,
+    }
+  );
+  return response.data;
+};
+
 export const executeTrade = async (symbol, action, quantity, price = null) => {
   const response = await api.post('/trade/execute', {
     symbol,

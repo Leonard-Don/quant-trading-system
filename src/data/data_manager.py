@@ -11,14 +11,13 @@ import logging
 import asyncio
 import aiohttp
 from concurrent.futures import ThreadPoolExecutor
-from collections import OrderedDict
 import threading
 from functools import lru_cache
 from ..utils.performance import timing_decorator
 from ..utils.cache import CacheManager
 
 # 导入数据提供器
-from .providers import DataProviderFactory, BaseDataProvider, DataProviderError
+from .providers import DataProviderFactory
 from .alternative.alt_data_manager import AltDataManager
 
 logger = logging.getLogger(__name__)

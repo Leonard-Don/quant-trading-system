@@ -9,11 +9,13 @@ from datetime import datetime
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from .base_alt_provider import AltDataRecord
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from .alt_data_manager import AltDataManager
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler

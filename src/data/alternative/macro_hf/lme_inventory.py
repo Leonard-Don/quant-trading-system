@@ -6,8 +6,8 @@ LME 金属库存追踪
 """
 
 import logging
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -173,7 +173,6 @@ class LMEInventoryProvider(AntiCrawlMixin):
 
         price_data = data["data"]
         change_pct = price_data.get("change_pct", 0)
-        trend_direction = price_data.get("trend", "stable")
 
         # 基于价格趋势推断库存状态
         # 价格上涨 → 可能去库存（需求强于供给）

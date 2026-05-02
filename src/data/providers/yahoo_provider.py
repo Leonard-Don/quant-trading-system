@@ -155,7 +155,7 @@ class YahooFinanceProvider(BaseDataProvider):
         if price in (None, "") and is_crypto:
             return self._build_error_payload(normalized_symbol, "Yahoo crypto fast quote unavailable")
 
-        return {
+        payload = {
             "symbol": normalized_symbol,
             "price": price,
             "change": pick_number_lazy(

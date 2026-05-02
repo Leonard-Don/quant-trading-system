@@ -9,11 +9,10 @@ import pandas as pd
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import logging
-import requests
 from pathlib import Path
 import threading
 
-from .base_provider import BaseDataProvider, DataProviderError
+from .base_provider import BaseDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -220,7 +219,6 @@ class AKShareProvider(BaseDataProvider):
     
     def _clear_proxy_settings(self):
         """清除可能干扰 AKShare API 调用的代理设置（彻底阻断苹果系统的 scutil 注入）"""
-        import os
         import urllib.request
         
         # 1. 直接阻断底层 Mac OS 获取系统代理的路径
@@ -544,7 +542,7 @@ class AKShareProvider(BaseDataProvider):
         
         try:
             # 获取申万一级行业分类
-            df = ak.index_stock_cons_weight_csindex(symbol="000300")
+            ak.index_stock_cons_weight_csindex(symbol="000300")
             
             # 构建行业分类数据
             industries = []
@@ -947,7 +945,6 @@ class AKShareProvider(BaseDataProvider):
                     df_sina = df_sina.rename(columns={
                         "symbol": "代码", 
                         "name": "名称", 
-                        "mktcap": "总市值", 
                         "mktcap": "流通市值" # Sina 这个接口并没有直接的动态 PE，所以 PE 校验只能放空让它跳过
                     })
                     self._spot_cache = df_sina

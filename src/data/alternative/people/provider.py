@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from ..base_alt_provider import AltDataCategory, AltDataRecord, BaseAltDataProvider
 from ..supply_chain.hiring_tracker import TRACKED_COMPANIES
@@ -68,7 +68,7 @@ def _executive_source_meta(symbol: str) -> Dict[str, Any]:
             "source_reference": (
                 f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={normalized}&owner=exclude&count=40"
                 if not normalized.endswith(".HK")
-                else f"https://www.hkexnews.hk/sdw/search/searchsdw.aspx"
+                else "https://www.hkexnews.hk/sdw/search/searchsdw.aspx"
             ),
         }
     return {

@@ -510,7 +510,6 @@ class RealTimeDataManager(BaseComponent):
                 logger.warning("Historical fallback failed for %s: %s", symbol, exc)
                 return symbol, None
 
-        max_workers = min(len(normalized_symbols), 6)
         futures = {
             self.fetch_executor.submit(fetch_single_symbol, symbol): symbol
             for symbol in normalized_symbols

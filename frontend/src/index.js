@@ -1,5 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { App as AntdApp } from 'antd';
 import './index.css';
 import App from './App';
 import { ThemeProvider } from './contexts/ThemeContext';
@@ -10,7 +11,9 @@ root.render(
   <React.StrictMode>
     <I18nProvider>
       <ThemeProvider>
-        <App />
+        <AntdApp>
+          <App />
+        </AntdApp>
       </ThemeProvider>
     </I18nProvider>
   </React.StrictMode>
