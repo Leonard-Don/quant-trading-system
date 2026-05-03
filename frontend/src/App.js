@@ -12,7 +12,8 @@ import {
 } from '@ant-design/icons';
 
 import ErrorBoundary from './components/ErrorBoundary';
-import { getStrategies, runBacktest } from './services/api';
+import { getStrategies, runBacktest, createResearchJournalEntry } from './services/api';
+import { buildBacktestJournalEntry } from './utils/backtestJournalEntry';
 import { useTheme } from './contexts/ThemeContext';
 import { APP_VERSION } from './generated/version';
 import { useAppUrlState } from './hooks/useAppUrlState';
@@ -150,6 +151,15 @@ function App() {
           content: '回测完成！',
           duration: 3,
         });
+        // Auto-archive to research journal. Best-effort: a journal failure must
+        // never disturb the visible backtest result, which is the primary user
+        // outcome here.
+        const journalEntry = buildBacktestJournalEntry(formData, result.data);
+        if (journalEntry) {
+          createResearchJournalEntry(journalEntry).catch((archiveError) => {
+            console.warn('Auto-archive to research journal failed:', archiveError);
+          });
+        }
       } else {
         message.error({
           content: '回测失败: ' + result.error,
