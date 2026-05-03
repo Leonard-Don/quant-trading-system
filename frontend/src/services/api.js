@@ -1089,4 +1089,16 @@ export const runCrossMarketBacktest = async (payload) => {
   return response.data;
 };
 
+export const getPolicyRadarSignal = async () => {
+  const response = await api.get('/policy-radar/signal');
+  return response.data;
+};
+
+export const getPolicyRadarRecords = async ({ industry, timeframe = '7d', limit = 50 } = {}) => {
+  const params = { timeframe, limit };
+  if (industry) params.industry = industry;
+  const response = await api.get('/policy-radar/records', { params });
+  return response.data;
+};
+
 export default api;

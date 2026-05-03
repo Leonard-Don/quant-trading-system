@@ -47,6 +47,7 @@ import IndustryMarketSnapshotBar from './industry/IndustryMarketSnapshotBar';
 import IndustryResearchFocusPanel from './industry/IndustryResearchFocusPanel';
 import IndustryReplayPanel from './industry/IndustryReplayPanel';
 import IndustryHeatmapStateBar from './industry/IndustryHeatmapStateBar';
+import PolicyRadarPanel from './industry/PolicyRadarPanel';
 import { INDUSTRY_URL_DEFAULTS } from './industry/useIndustryUrlState';
 import useIndustryDashboardData from './industry/useIndustryDashboardData';
 import { useSafeMessageApi } from '../utils/messageApi';
@@ -1090,6 +1091,13 @@ const IndustryDashboard = () => {
                     onExport={data.handleExportSavedViews}
                     onImportClick={data.handleImportSavedViewsClick}
                 />
+            ),
+        },
+        {
+            key: 'policy',
+            label: '政策雷达',
+            children: (
+                <PolicyRadarPanel timeframe="30d" limit={15} />
             ),
         },
     ];
