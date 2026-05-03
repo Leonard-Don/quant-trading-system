@@ -141,6 +141,23 @@ describe('StrategyComparison', () => {
     mockOpenStrategyComparisonPrintWindow.mockClear();
   });
 
+  test('preselects the first available quick-start preset', async () => {
+    render(
+      <StrategyComparison
+        strategies={[
+          { name: 'buy_and_hold' },
+          { name: 'moving_average' },
+        ]}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('strategy-select')).toHaveValue('moving_average,buy_and_hold');
+    });
+    expect(screen.getByText('2 个')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '开始对比' })).toBeEnabled();
+  });
+
   test('renders compare results that include nested metrics mirrors', async () => {
     compareStrategies.mockResolvedValue({
       success: true,
