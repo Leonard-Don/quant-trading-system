@@ -373,7 +373,12 @@ code {
 }
 
 .industry-page-shell .app-page-hero {
-  padding: 18px 22px;
+  padding: 16px 18px;
+  border-radius: 8px;
+}
+
+.app-page-hero--industry::after {
+  display: none;
 }
 
 .industry-hero-header__content {
@@ -439,28 +444,37 @@ code {
 .industry-hero-summary-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.95fr);
-  gap: 14px;
+  gap: 12px;
   align-items: stretch;
-  margin-top: 12px;
+  margin-top: 10px;
 }
 
 .industry-hero-metrics {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-content: start;
+  gap: 8px;
 }
 
 .industry-hero-metrics .app-page-metric-card {
-  padding: 12px 14px;
-  min-height: 78px;
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
 }
 
 .industry-hero-metrics .app-page-metric-card__label {
-  margin-bottom: 6px;
+  margin-bottom: 0;
+  line-height: 1.2;
 }
 
 .industry-hero-metrics .app-page-metric-card__value {
   font-size: 14px;
-  line-height: 1.35;
+  line-height: 1.25;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .industry-hero-brief {
@@ -469,7 +483,7 @@ code {
   gap: 12px 16px;
   margin-top: 0;
   padding: 10px 12px;
-  border-radius: 18px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(148, 163, 184, 0.14);
 }
@@ -487,15 +501,19 @@ code {
 }
 
 .industry-hero-brief__title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   line-height: 1.35;
 }
 
 .industry-hero-brief__text {
   font-size: 13px;
-  line-height: 1.75;
+  line-height: 1.58;
   color: rgba(226, 232, 240, 0.88);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .app-page-banner-stack {
@@ -5098,8 +5116,8 @@ a {
   }
 
   .industry-page-shell .app-page-hero {
-    padding: 18px 16px;
-    border-radius: 20px;
+    padding: 14px;
+    border-radius: 8px;
   }
 
   .app-page-heading {
@@ -5110,6 +5128,18 @@ a {
     padding: 8px;
     border-radius: 12px;
     font-size: 16px;
+  }
+
+  .industry-hero-description {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.55;
+  }
+
+  .industry-hero-chip-row {
+    margin-top: 10px !important;
   }
 
   .app-page-context-rail {
@@ -5458,21 +5488,22 @@ a {
 
   .industry-hero-brief {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 8px;
+    padding: 10px;
   }
 
   .industry-hero-summary-grid {
-    gap: 10px;
-    margin-top: 12px;
+    gap: 8px;
+    margin-top: 10px;
   }
 
   .industry-hero-metrics {
-    gap: 10px;
+    gap: 8px;
   }
 
   .industry-hero-metrics .app-page-metric-card {
-    padding: 10px 12px;
-    min-height: 72px;
+    min-height: 46px;
+    padding: 8px 10px;
   }
 
   .industry-page-shell .app-page-metric-card__label {

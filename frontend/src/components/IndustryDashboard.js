@@ -1111,12 +1111,12 @@ const IndustryDashboard = () => {
                                 <Title level={3} style={{ margin: 0, color: '#f8fafc' }}>
                                     行业轮动大屏
                                 </Title>
-                                <Paragraph style={{ margin: '8px 0 0', color: 'rgba(226, 232, 240, 0.88)', maxWidth: 720 }}>
+                                <Paragraph className="industry-hero-description" style={{ margin: '8px 0 0', color: 'rgba(226, 232, 240, 0.88)', maxWidth: 720 }}>
                                     左侧先完成行业扫描与切换，右侧只保留当前焦点、龙头线索和下一步动作。
                                 </Paragraph>
                             </div>
                         </div>
-                        <Space wrap size={[8, 8]} style={{ marginTop: 12 }}>
+                        <Space wrap size={[8, 8]} className="industry-hero-chip-row" style={{ marginTop: 12 }}>
                             <Tag color={sentimentTone?.color === '#ff4d4f' ? 'error' : sentimentTone?.color === '#52c41a' ? 'success' : 'processing'} style={{ marginInlineEnd: 0 }}>
                                 市场情绪：{sentimentTone?.label || '待刷新'}
                             </Tag>
