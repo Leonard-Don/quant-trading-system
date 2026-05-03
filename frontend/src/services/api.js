@@ -494,6 +494,11 @@ export const getInfrastructureStatus = async () => {
   return response.data;
 };
 
+export const getProviderRuntimeStatus = async () => {
+  const response = await api.get('/system/providers/status', withTimeoutProfile('standard'));
+  return response.data;
+};
+
 export const createInfrastructureTask = async (payload) => {
   const response = await api.post('/infrastructure/tasks', payload, withTimeoutProfile('standard'));
   return response.data;
