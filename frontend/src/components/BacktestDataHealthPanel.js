@@ -4,9 +4,11 @@ import {
   ApiOutlined,
   CheckCircleOutlined,
   CopyOutlined,
+  DownOutlined,
   ExclamationCircleOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
+  UpOutlined,
 } from '@ant-design/icons';
 import { checkIndustryHealth, getProviderRuntimeStatus } from '../services/api';
 
@@ -205,6 +207,7 @@ function BacktestDataHealthPanel() {
   const [errorMessage, setErrorMessage] = useState('');
   const [providerErrorMessage, setProviderErrorMessage] = useState('');
   const [copyState, setCopyState] = useState('idle');
+  const [runtimeDetailsExpanded, setRuntimeDetailsExpanded] = useState(false);
 
   const applySnapshotResults = useCallback((healthResult, providerResult) => {
     if (healthResult.status === 'fulfilled') {
@@ -283,6 +286,15 @@ function BacktestDataHealthPanel() {
   const sources = Object.entries(healthData?.data_sources || {});
   const isHealthy = summary.status === 'healthy' && summary.connectedCount > 0;
   const providerRuntimeHealthy = providerSummary.openBreakerCount === 0;
+  const hasRuntimeWarning = providerSummary.openBreakerCount > 0
+    || providerSummary.halfOpenBreakerCount > 0
+    || Boolean(providerErrorMessage);
+  const showRuntimeDetails = Boolean(providerRuntimeData)
+    && (runtimeDetailsExpanded || hasRuntimeWarning);
+  const runtimePanelExpanded = showRuntimeDetails || Boolean(providerErrorMessage) || copyState === 'error';
+  const runtimeStatusMeta = providerRuntimeData
+    ? `${providerSummary.providerCount} Provider / ${providerSummary.breakerCount} 熔断器 / ${providerSummary.failureCount} 累计失败`
+    : '等待 Provider 状态';
   const providerRuntimeTag = providerErrorMessage
     ? { color: 'warning', label: '状态待确认' }
     : {
@@ -403,13 +415,30 @@ function BacktestDataHealthPanel() {
             </div>
           </div>
 
-          <div className="backtest-data-health-panel__runtime">
+          <div
+            className={`backtest-data-health-panel__runtime ${
+              runtimePanelExpanded
+                ? 'backtest-data-health-panel__runtime--expanded'
+                : 'backtest-data-health-panel__runtime--compact'
+            }`}
+          >
             <div className="backtest-data-health-panel__runtime-header">
               <div className="backtest-data-health-panel__runtime-title">
                 <SafetyCertificateOutlined /> Provider 熔断状态
               </div>
               <div className="backtest-data-health-panel__runtime-actions">
+                <span className="backtest-data-health-panel__runtime-meta">{runtimeStatusMeta}</span>
                 <Tag color={providerRuntimeTag.color}>{providerRuntimeTag.label}</Tag>
+                {providerRuntimeData ? (
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={showRuntimeDetails ? <UpOutlined /> : <DownOutlined />}
+                    onClick={() => setRuntimeDetailsExpanded((expanded) => !expanded)}
+                  >
+                    {showRuntimeDetails ? '收起明细' : '查看明细'}
+                  </Button>
+                ) : null}
                 <Button
                   size="small"
                   icon={<CopyOutlined />}
@@ -441,7 +470,7 @@ function BacktestDataHealthPanel() {
               />
             ) : null}
 
-            {providerRuntimeData ? (
+            {showRuntimeDetails ? (
               <>
                 <div className="summary-strip summary-strip--compact backtest-data-health-panel__runtime-summary">
                   <div className="summary-strip__item">
