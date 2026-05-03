@@ -1,6 +1,13 @@
 """
 行业分析 API 端点
 提供热门行业识别和龙头股遴选功能
+
+HTTP route layer plus a deliberate test-patch compatibility shim (the
+``_foo(*args, **kwargs)`` helpers between lines ~134–625) that mirrors
+runtime helpers so unit tests can ``monkeypatch`` against this module.
+Domain analytics live in ``src/analytics/industry_analyzer.py``;
+orchestration / caching lives in ``backend/app/services/industry/runtime.py``.
+Layer charter: ``docs/architecture/industry-layering.md``.
 """
 
 import json
