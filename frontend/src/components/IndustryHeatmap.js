@@ -15,223 +15,35 @@ import {
 } from '@ant-design/icons';
 import { getIndustryHeatmap, getIndustryHeatmapHistory } from '../services/api';
 import { activateOnEnterOrSpace } from './industry/industryShared';
+import {
+    HEATMAP_SURFACE,
+    TOOLTIP_BG,
+    TOOLTIP_PANEL,
+    TOOLTIP_PANEL_BORDER,
+    TOOLTIP_TEXT,
+    TOOLTIP_MUTED,
+    TOOLTIP_SUBTLE,
+    TOOLTIP_SHADOW,
+    HEATMAP_POSITIVE,
+    HEATMAP_NEGATIVE,
+    HEATMAP_WARNING,
+    TILE_TEXT_SHADOW,
+    HEATMAP_LIVE_REQUEST_TIMEOUT_MS,
+    HEATMAP_HISTORY_FALLBACK_TIMEOUT_MS,
+} from '../utils/industryHeatmapTokens';
+import {
+    matchesIndustrySearch,
+    syncHeatmapTileFocusState,
+    buildFallbackHeatmapPayload,
+} from '../utils/industrySearch';
+import { squarify } from '../utils/squarifiedTreemap';
 
 const { Text } = Typography;
 const { useBreakpoint } = Grid;
-const HEATMAP_SURFACE = 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary) 10%) 0%, color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-primary) 18%) 100%)';
-const TOOLTIP_BG = 'color-mix(in srgb, var(--bg-primary) 88%, #0f172a 12%)';
-const TOOLTIP_PANEL = 'color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary) 8%)';
-const TOOLTIP_PANEL_BORDER = 'color-mix(in srgb, var(--border-color) 82%, var(--text-primary) 18%)';
-const TOOLTIP_TEXT = 'var(--text-primary)';
-const TOOLTIP_MUTED = 'var(--text-secondary)';
-const TOOLTIP_SUBTLE = 'var(--text-muted)';
-const TOOLTIP_SHADOW = '0 10px 30px rgba(15, 23, 42, 0.18)';
-const HEATMAP_POSITIVE = 'var(--accent-danger)';
-const HEATMAP_NEGATIVE = 'var(--accent-success)';
-const HEATMAP_WARNING = 'var(--accent-warning)';
-// Stronger shadow keeps tile labels readable on muted (~0%) tiles where
-// the background can dip toward neutral grey.
-const TILE_TEXT_SHADOW = '0 1px 2px rgba(15, 23, 42, 0.55), 0 1px 6px rgba(15, 23, 42, 0.32)';
-const HEATMAP_LIVE_REQUEST_TIMEOUT_MS = 12000;
-const HEATMAP_HISTORY_FALLBACK_TIMEOUT_MS = 6000;
 
-const normalizeIndustrySearchText = (value) => String(value || '')
-    .toLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/[()（）]/g, '')
-    .replace(/[-_/]/g, '')
-    .replace(/及元件/g, '')
-    .replace(/板块/g, '')
-    .trim();
-
-const buildIndustrySearchCandidates = (name) => {
-    const raw = String(name || '').trim();
-    if (!raw) return [];
-
-    const canonical = raw.replace(/及元件/g, '').replace(/板块/g, '').trim();
-    const variants = new Set([
-        raw,
-        normalizeIndustrySearchText(raw),
-        canonical,
-        normalizeIndustrySearchText(canonical),
-    ]);
-
-    return Array.from(variants).filter(Boolean);
-};
-
-const matchesIndustrySearch = (name, searchTerm) => {
-    const normalizedQuery = normalizeIndustrySearchText(searchTerm);
-    if (!normalizedQuery) return true;
-    return buildIndustrySearchCandidates(name).some(
-        (candidate) => normalizeIndustrySearchText(candidate).includes(normalizedQuery)
-    );
-};
-
-const syncHeatmapTileFocusState = (node, active) => {
-    if (!node) return;
-    node.style.filter = active ? 'brightness(1.25)' : 'brightness(1)';
-    node.style.zIndex = active ? '10' : '1';
-    node.style.transform = active ? 'scale(1.02)' : 'scale(1)';
-};
-
-export const buildFallbackHeatmapPayload = (historyResponse, timeframe) => {
-    const historyItems = Array.isArray(historyResponse?.items) ? historyResponse.items : [];
-    const matchingItem = historyItems.find(
-        (item) => Number(item?.days || 0) === Number(timeframe || 0) && Array.isArray(item?.industries) && item.industries.length > 0
-    );
-    const fallbackItem = matchingItem || historyItems.find((item) => Array.isArray(item?.industries) && item.industries.length > 0);
-
-    if (!fallbackItem) {
-        return null;
-    }
-
-    return {
-        industries: fallbackItem.industries || [],
-        max_value: fallbackItem.max_value ?? 0,
-        min_value: fallbackItem.min_value ?? 0,
-        update_time: fallbackItem.update_time || fallbackItem.captured_at || '',
-    };
-};
-
-// ... (retain squarified treemap algorithms: worstAspectRatio, squarify, layoutRow) ...
-
-/**
- * 计算一组行在当前 rect 中的布局
- * @param {Array} row - 当前行的数据项 (已含 normalizedSize)
- * @param {number} w - 当前短边长度
- * @returns {number} 最差纵横比
- */
-function worstAspectRatio(row, w) {
-    if (row.length === 0 || w <= 0) return Infinity;
-    const s = row.reduce((acc, r) => acc + r.normalizedSize, 0);
-    const maxArea = Math.max(...row.map(r => r.normalizedSize));
-    const minArea = Math.min(...row.map(r => r.normalizedSize));
-    return Math.max(
-        (w * w * maxArea) / (s * s),
-        (s * s) / (w * w * minArea)
-    );
-}
-
-/**
- * Squarified Treemap 核心递归算法
- * 将 items 递归地排列到 rect 中
- */
-function squarify(items, rect) {
-    if (items.length === 0) return [];
-    if (items.length === 1) {
-        return [{ ...items[0], layout: { ...rect } }];
-    }
-
-    const { x, y, width, height } = rect;
-    const totalArea = width * height;
-    const totalSize = items.reduce((acc, item) => acc + item.normalizedSize, 0);
-
-    if (totalSize <= 0 || totalArea <= 0) {
-        return items.map(item => ({ ...item, layout: { x, y, width: 0, height: 0 } }));
-    }
-
-    // 归一化面积到像素面积
-    const scale = totalArea / totalSize;
-    const scaledItems = items.map(item => ({
-        ...item,
-        normalizedSize: item.normalizedSize * scale
-    }));
-
-    let currentRow = [];
-    let remaining = [...scaledItems];
-    let results = [];
-    let currentRect = { ...rect };
-
-    while (remaining.length > 0) {
-        const isWide = currentRect.width >= currentRect.height;
-        const shortSide = isWide ? currentRect.height : currentRect.width;
-        const item = remaining[0];
-        const testRow = [...currentRow, item];
-        const currentWorst = worstAspectRatio(currentRow, shortSide);
-        const testWorst = worstAspectRatio(testRow, shortSide);
-
-        if (currentRow.length === 0 || testWorst <= currentWorst) {
-            currentRow.push(item);
-            remaining.shift();
-        } else {
-            // 固定当前行，递归处理剩余
-            const rowResults = layoutRow(currentRow, currentRect, isWide);
-            results.push(...rowResults.items);
-            currentRect = rowResults.remainingRect;
-            currentRow = [];
-        }
-    }
-
-    // 最后一行
-    if (currentRow.length > 0) {
-        const isWide = currentRect.width >= currentRect.height;
-        const rowResults = layoutRow(currentRow, currentRect, isWide);
-        results.push(...rowResults.items);
-    }
-
-    return results;
-}
-
-/**
- * 在 rect 中排列一行
- */
-function layoutRow(row, rect, isWide) {
-    const { x, y, width, height } = rect;
-    const rowArea = row.reduce((acc, r) => acc + r.normalizedSize, 0);
-    const items = [];
-
-    if (isWide) {
-        const rowWidth = rowArea / height;
-        let offsetY = y;
-        for (const item of row) {
-            const itemHeight = item.normalizedSize / rowWidth;
-            items.push({
-                ...item,
-                layout: {
-                    x: x,
-                    y: offsetY,
-                    width: Math.max(rowWidth, 0),
-                    height: Math.max(itemHeight, 0)
-                }
-            });
-            offsetY += itemHeight;
-        }
-        return {
-            items,
-            remainingRect: {
-                x: x + rowWidth,
-                y,
-                width: Math.max(width - rowWidth, 0),
-                height
-            }
-        };
-    } else {
-        const rowHeight = rowArea / width;
-        let offsetX = x;
-        for (const item of row) {
-            const itemWidth = item.normalizedSize / rowHeight;
-            items.push({
-                ...item,
-                layout: {
-                    x: offsetX,
-                    y: y,
-                    width: Math.max(itemWidth, 0),
-                    height: Math.max(rowHeight, 0)
-                }
-            });
-            offsetX += itemWidth;
-        }
-        return {
-            items,
-            remainingRect: {
-                x,
-                y: y + rowHeight,
-                width,
-                height: Math.max(height - rowHeight, 0)
-            }
-        };
-    }
-}
+// Re-exported for backward compatibility with existing tests that import
+// `buildFallbackHeatmapPayload` from this module.
+export { buildFallbackHeatmapPayload };
 
 // ========================================
 // IndustryHeatmap 组件
