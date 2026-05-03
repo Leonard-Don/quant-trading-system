@@ -3,6 +3,7 @@ import { Alert, Button, Spin, Tag } from 'antd';
 import {
   ApiOutlined,
   CheckCircleOutlined,
+  CopyOutlined,
   ExclamationCircleOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
@@ -102,12 +103,108 @@ export const summarizeProviderRuntimeStatus = (runtimeData = {}) => {
   };
 };
 
+export const summarizeBacktestDataReadiness = (
+  healthSummary = {},
+  providerSummary = {},
+  { providerErrorMessage = '' } = {}
+) => {
+  const connectedCount = Number(healthSummary.connectedCount || 0);
+  const totalSources = Number(healthSummary.totalSources || 0);
+  const warningCount = Number(healthSummary.warningCount || 0);
+  const openBreakerCount = Number(providerSummary.openBreakerCount || 0);
+  const halfOpenBreakerCount = Number(providerSummary.halfOpenBreakerCount || 0);
+
+  if (totalSources > 0 && connectedCount === 0) {
+    return {
+      status: 'blocked',
+      label: '暂缓回测',
+      type: 'error',
+      detail: '当前没有可用行情来源，先恢复至少一个数据源再运行策略实验。',
+    };
+  }
+
+  if (openBreakerCount > 0) {
+    return {
+      status: 'degraded',
+      label: '降级可跑',
+      type: 'warning',
+      detail: `${openBreakerCount} 个 Provider 熔断，建议保留诊断快照，并复核回测结果是否来自预期数据源。`,
+    };
+  }
+
+  if (halfOpenBreakerCount > 0) {
+    return {
+      status: 'watch',
+      label: '探测恢复中',
+      type: 'warning',
+      detail: '存在半开探测中的 Provider，适合先刷新状态再执行关键回测。',
+    };
+  }
+
+  if (providerErrorMessage) {
+    return {
+      status: 'watch',
+      label: '状态待确认',
+      type: 'warning',
+      detail: 'Provider 运行状态暂不可读，当前只依据数据源健康结果判断。',
+    };
+  }
+
+  if (warningCount > 0) {
+    return {
+      status: 'watch',
+      label: '可跑但需复核',
+      type: 'warning',
+      detail: `${warningCount} 个数据源处于异常或降级状态，回测后需要复核贡献来源。`,
+    };
+  }
+
+  if (connectedCount > 0) {
+    return {
+      status: 'ready',
+      label: '可以回测',
+      type: 'success',
+      detail: '主要数据源可用，未发现 Provider 熔断。',
+    };
+  }
+
+  return {
+    status: 'unknown',
+    label: '等待检查',
+    type: 'default',
+    detail: '等待数据源健康检查返回结果。',
+  };
+};
+
+export const buildBacktestDataHealthSnapshot = ({
+  healthData = null,
+  providerRuntimeData = null,
+  readiness = null,
+  generatedAt = new Date(),
+} = {}) => {
+  const generatedAtValue = generatedAt instanceof Date
+    ? generatedAt.toISOString()
+    : String(generatedAt);
+
+  return JSON.stringify({
+    generated_at: generatedAtValue,
+    readiness: readiness ? {
+      status: readiness.status,
+      label: readiness.label,
+      detail: readiness.detail,
+    } : null,
+    data_source_health: healthData,
+    provider_runtime: providerRuntimeData,
+  }, null, 2);
+};
+
 function BacktestDataHealthPanel() {
   const [healthData, setHealthData] = useState(null);
   const [providerRuntimeData, setProviderRuntimeData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [providerErrorMessage, setProviderErrorMessage] = useState('');
+  const [copyState, setCopyState] = useState('idle');
 
   const applySnapshotResults = useCallback((healthResult, providerResult) => {
     if (healthResult.status === 'fulfilled') {
@@ -133,6 +230,7 @@ function BacktestDataHealthPanel() {
     setLoading(true);
     setErrorMessage('');
     setProviderErrorMessage('');
+    setCopyState('idle');
     try {
       const [healthResult, providerResult] = await Promise.allSettled([
         checkIndustryHealth(),
@@ -152,6 +250,7 @@ function BacktestDataHealthPanel() {
       setLoading(true);
       setErrorMessage('');
       setProviderErrorMessage('');
+      setCopyState('idle');
       try {
         const [healthResult, providerResult] = await Promise.allSettled([
           checkIndustryHealth(),
@@ -190,6 +289,27 @@ function BacktestDataHealthPanel() {
       color: providerRuntimeHealthy ? 'success' : 'error',
       label: providerRuntimeHealthy ? '未发现熔断' : `${providerSummary.openBreakerCount} 个熔断`,
     };
+  const readiness = useMemo(
+    () => summarizeBacktestDataReadiness(summary, providerSummary, { providerErrorMessage }),
+    [summary, providerSummary, providerErrorMessage]
+  );
+  const handleCopySnapshot = useCallback(async () => {
+    const snapshot = buildBacktestDataHealthSnapshot({
+      healthData,
+      providerRuntimeData,
+      readiness,
+    });
+
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error('clipboard unavailable');
+      }
+      await navigator.clipboard.writeText(snapshot);
+      setCopyState('success');
+    } catch (error) {
+      setCopyState('error');
+    }
+  }, [healthData, providerRuntimeData, readiness]);
 
   return (
     <div className="workspace-section backtest-data-health-panel">
@@ -273,13 +393,43 @@ function BacktestDataHealthPanel() {
             }
           />
 
+          <div className={`backtest-data-health-panel__readiness backtest-data-health-panel__readiness--${readiness.status}`}>
+            <div className="backtest-data-health-panel__readiness-main">
+              <span className="backtest-data-health-panel__readiness-label">回测前判断</span>
+              <Tag color={readiness.type}>{readiness.label}</Tag>
+            </div>
+            <div className="backtest-data-health-panel__readiness-detail">
+              {readiness.detail}
+            </div>
+          </div>
+
           <div className="backtest-data-health-panel__runtime">
             <div className="backtest-data-health-panel__runtime-header">
               <div className="backtest-data-health-panel__runtime-title">
                 <SafetyCertificateOutlined /> Provider 熔断状态
               </div>
-              <Tag color={providerRuntimeTag.color}>{providerRuntimeTag.label}</Tag>
+              <div className="backtest-data-health-panel__runtime-actions">
+                <Tag color={providerRuntimeTag.color}>{providerRuntimeTag.label}</Tag>
+                <Button
+                  size="small"
+                  icon={<CopyOutlined />}
+                  disabled={!healthData}
+                  onClick={handleCopySnapshot}
+                >
+                  {copyState === 'success' ? '已复制' : '复制诊断'}
+                </Button>
+              </div>
             </div>
+
+            {copyState === 'error' ? (
+              <Alert
+                className="backtest-data-health-panel__runtime-alert"
+                type="warning"
+                showIcon
+                message="诊断快照复制失败"
+                description="当前浏览器未开放剪贴板权限。"
+              />
+            ) : null}
 
             {providerErrorMessage ? (
               <Alert

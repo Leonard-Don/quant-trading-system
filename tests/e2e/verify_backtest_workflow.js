@@ -21,6 +21,8 @@ const assert = (condition, message) => {
 const waitForBacktestWorkspace = async (page) => {
   await page.getByText('策略回测工作台', { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('数据源健康', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  await page.getByText('回测前判断', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
+  await page.getByText('Provider 熔断状态', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('策略回测配置', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
 };
 
