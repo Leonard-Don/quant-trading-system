@@ -67,21 +67,8 @@ find . -name "*~" -delete 2>/dev/null || true
 find . -name ".#*" -delete 2>/dev/null || true
 echo -e "${GREEN}✓ 临时文件已清理${NC}"
 
-# 7. 清理Docker（可选）
-if command -v docker &> /dev/null; then
-    echo -e "\n${YELLOW}7. 清理Docker缓存（可选）...${NC}"
-    read -p "是否清理Docker悬空镜像？(y/N) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        docker system prune -f
-        echo -e "${GREEN}✓ Docker缓存已清理${NC}"
-    else
-        echo -e "${GREEN}✓ 跳过Docker清理${NC}"
-    fi
-fi
-
-# 8. 显示磁盘使用情况
-echo -e "\n${YELLOW}8. 磁盘使用情况...${NC}"
+# 7. 显示磁盘使用情况
+echo -e "\n${YELLOW}7. 磁盘使用情况...${NC}"
 du -sh . 2>/dev/null || true
 echo -e "${GREEN}✓ 项目总大小已显示${NC}"
 

@@ -82,9 +82,21 @@ class TestAPIIntegration:
         assert "metrics" in data
         assert "timestamp" in data
 
+    def test_provider_status_endpoint_is_non_invasive(self, client):
+        """数据源状态端点应返回断路器快照，不主动探测外部网络。"""
+        response = client.get("/system/providers/status")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["success"] is True
+        assert "providers" in data
+        assert "sina_ths" in data["providers"]
+        assert "circuit_breakers" in data["providers"]["sina_ths"]
+
     def test_backtest_endpoint(self, client, monkeypatch):
         """测试回测端点"""
         from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
         monkeypatch.setattr(
             backtest_endpoint.data_manager,
             "get_historical_data",
@@ -127,6 +139,7 @@ class TestAPIIntegration:
     def test_buy_and_hold_endpoint_has_non_zero_return(self, client, monkeypatch):
         """买入持有策略应在真实接口路径上返回非零收益并带镜像指标"""
         from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
         monkeypatch.setattr(
             backtest_endpoint.data_manager,
             "get_historical_data",
@@ -155,7 +168,9 @@ class TestAPIIntegration:
         assert results["metrics"]["total_return"] == results["total_return"]
         assert results["metrics"]["num_trades"] == results["num_trades"]
 
-    def test_backtest_endpoint_returns_no_trade_diagnostics_for_short_lookback(self, client, monkeypatch):
+    def test_backtest_endpoint_returns_no_trade_diagnostics_for_short_lookback(
+        self, client, monkeypatch
+    ):
         """短于策略观察窗口的回测应返回明确的无交易诊断。"""
         from backend.app.api.v1.endpoints import backtest as backtest_endpoint
 
@@ -237,7 +252,9 @@ class TestAPIIntegration:
         assert compare_results["metrics"]["num_trades"] == compare_results["num_trades"]
         assert compare_results["metrics"]["total_trades"] == compare_results["total_trades"]
         assert compare_results["total_return"] == pytest.approx(backtest_results["total_return"])
-        assert compare_results["annualized_return"] == pytest.approx(backtest_results["annualized_return"])
+        assert compare_results["annualized_return"] == pytest.approx(
+            backtest_results["annualized_return"]
+        )
         assert compare_results["num_trades"] == backtest_results["num_trades"]
         assert compare_results["profit_factor"] == backtest_results["profit_factor"]
 
@@ -284,7 +301,10 @@ class TestAPIIntegration:
         assert len(payload["data"]["ranked_results"]) == 1
         successful_results = [item for item in payload["data"]["results"] if item["success"]]
         assert len(successful_results) == 2
-        assert successful_results[0]["metrics"]["total_trades"] == successful_results[0]["metrics"]["num_trades"]
+        assert (
+            successful_results[0]["metrics"]["total_trades"]
+            == successful_results[0]["metrics"]["num_trades"]
+        )
         assert payload["data"]["execution"]["use_processes"] is False
 
     def test_batch_backtest_endpoint_respects_timeout(self, client, monkeypatch):
@@ -545,7 +565,9 @@ class TestAPIIntegration:
         assert payload["data"]["summary"]["strongest_regime"]["regime"]
         assert payload["data"]["regimes"]
 
-    def test_portfolio_strategy_endpoint_returns_combined_portfolio_metrics(self, client, monkeypatch):
+    def test_portfolio_strategy_endpoint_returns_combined_portfolio_metrics(
+        self, client, monkeypatch
+    ):
         from backend.app.api.v1.endpoints import backtest as backtest_endpoint
 
         monkeypatch.setattr(
@@ -627,7 +649,10 @@ class TestAPIIntegration:
                 "symbol": "AAPL",
                 "strategy_configs": [
                     {"name": "moving_average", "parameters": {"fast_period": 5, "slow_period": 12}},
-                    {"name": "macd", "parameters": {"fast_period": 12, "slow_period": 26, "signal_period": 9}},
+                    {
+                        "name": "macd",
+                        "parameters": {"fast_period": 12, "slow_period": 26, "signal_period": 9},
+                    },
                 ],
                 "start_date": "2024-01-01",
                 "end_date": "2024-01-06",
@@ -641,7 +666,10 @@ class TestAPIIntegration:
         payload = response.json()
         assert payload["success"] is True
         assert "macd" in payload["data"]
-        assert payload["data"]["macd"]["metrics"]["total_trades"] == payload["data"]["macd"]["total_trades"]
+        assert (
+            payload["data"]["macd"]["metrics"]["total_trades"]
+            == payload["data"]["macd"]["total_trades"]
+        )
 
     def test_compare_endpoint_supports_advanced_strategy_pairs(self, client, monkeypatch):
         """策略对比接口应支持高级策略组合，不因参数映射或校验缺口失败。"""

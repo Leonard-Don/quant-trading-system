@@ -8,18 +8,14 @@ LOG_DIR="$PROJECT_ROOT/logs"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 BACKEND_PID_FILE="$LOG_DIR/backend.pid"
 FRONTEND_PID_FILE="$LOG_DIR/frontend.pid"
-WITH_INFRA=0
-REMOVE_INFRA_VOLUMES=0
 WITH_WORKER=0
 
 usage() {
     cat <<'EOF'
-用法: ./scripts/stop_system.sh [--with-infra] [--with-worker] [--remove-infra-volumes] [--help]
+用法: ./scripts/stop_system.sh [--with-worker] [--help]
 
 选项:
-  --with-infra           停止前后端后，同时停止本地 TimescaleDB + Redis 容器
   --with-worker          停止本地 Celery worker
-  --remove-infra-volumes 与 --with-infra 搭配使用，额外删除容器数据卷
   --help                 显示帮助
 EOF
 }
@@ -111,15 +107,8 @@ stop_project_listeners_on_port() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --with-infra)
-            WITH_INFRA=1
-            ;;
         --with-worker)
             WITH_WORKER=1
-            ;;
-        --remove-infra-volumes)
-            REMOVE_INFRA_VOLUMES=1
-            WITH_INFRA=1
             ;;
         --help|-h)
             usage
@@ -150,14 +139,6 @@ pkill -f "node.*react-scripts" 2>/dev/null || true
 
 if [[ "$WITH_WORKER" -eq 1 ]]; then
     "$PROJECT_ROOT/scripts/stop_celery_worker.sh"
-fi
-
-if [[ "$WITH_INFRA" -eq 1 ]]; then
-    if [[ "$REMOVE_INFRA_VOLUMES" -eq 1 ]]; then
-        "$PROJECT_ROOT/scripts/stop_infra_stack.sh" --remove-volumes
-    else
-        "$PROJECT_ROOT/scripts/stop_infra_stack.sh"
-    fi
 fi
 
 echo "🏁 系统已完全停止"

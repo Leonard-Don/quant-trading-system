@@ -13,13 +13,10 @@ BACKEND_HOST="${BACKEND_HOST:-localhost}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_HOST="${FRONTEND_HOST:-localhost}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-INFRA_ENV_FILE="$LOG_DIR/infra-stack.env"
 WORKER_PID_FILE="$LOG_DIR/celery-worker.pid"
 
 INSTALL_DEPS=0
 FORCE_PORT_CLEANUP=0
-WITH_INFRA=0
-BOOTSTRAP_PERSISTENCE=0
 WITH_WORKER=0
 
 BACKEND_PID=""
@@ -33,14 +30,12 @@ BACKEND_HEALTH_FAILURE_THRESHOLD=3
 
 usage() {
     cat <<'EOF'
-用法: ./scripts/start_system.sh [--install] [--force-port-cleanup] [--with-infra] [--with-worker] [--bootstrap-persistence] [--help]
+用法: ./scripts/start_system.sh [--install] [--force-port-cleanup] [--with-worker] [--help]
 
 选项:
   --install             启动前安装/校验依赖（Python requirements + 前端依赖）
   --force-port-cleanup  如果 3000/8000 被占用，强制结束占用进程
-  --with-infra          启动本地 TimescaleDB + Redis 基础设施栈
   --with-worker         启动本地 Celery worker（需要已配置 broker）
-  --bootstrap-persistence  配合 --with-infra 使用，自动初始化 PostgreSQL / TimescaleDB schema
   --help                显示帮助
 EOF
 }
@@ -277,14 +272,8 @@ while [[ $# -gt 0 ]]; do
         --force-port-cleanup)
             FORCE_PORT_CLEANUP=1
             ;;
-        --with-infra)
-            WITH_INFRA=1
-            ;;
         --with-worker)
             WITH_WORKER=1
-            ;;
-        --bootstrap-persistence)
-            BOOTSTRAP_PERSISTENCE=1
             ;;
         --help|-h)
             usage
@@ -341,29 +330,6 @@ elif [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
     install_frontend_deps
 else
     log_info "✅ 前端依赖已存在"
-fi
-
-if [[ "$BOOTSTRAP_PERSISTENCE" -eq 1 && "$WITH_INFRA" -ne 1 ]]; then
-    log_error "❌ --bootstrap-persistence 需要与 --with-infra 一起使用"
-    exit 1
-fi
-
-if [[ "$WITH_INFRA" -eq 1 ]]; then
-    log_info "🐳 启动本地基础设施栈..."
-    if [[ "$BOOTSTRAP_PERSISTENCE" -eq 1 ]]; then
-        "$PROJECT_ROOT/scripts/start_infra_stack.sh" --bootstrap-persistence
-    else
-        "$PROJECT_ROOT/scripts/start_infra_stack.sh"
-    fi
-    if [[ -f "$INFRA_ENV_FILE" ]]; then
-        # shellcheck disable=SC1090
-        source "$INFRA_ENV_FILE"
-        export DATABASE_URL REDIS_URL CELERY_BROKER_URL CELERY_RESULT_BACKEND
-        log_info "✅ 已导入 infra 运行时环境"
-    else
-        log_error "❌ infra 环境文件未生成: $INFRA_ENV_FILE"
-        exit 1
-    fi
 fi
 
 if [[ "$WITH_WORKER" -eq 1 ]]; then
@@ -435,9 +401,6 @@ if [[ "$WITH_WORKER" -eq 1 ]]; then
 fi
 log_info ""
 log_info "🛑 停止系统: 按 Ctrl+C 或运行 ./scripts/stop_system.sh"
-if [[ "$WITH_INFRA" -eq 1 ]]; then
-    log_info "🐳 停止 infra: ./scripts/stop_system.sh --with-infra"
-fi
 if [[ "$WITH_WORKER" -eq 1 ]]; then
     log_info "🧵 停止 worker: ./scripts/stop_system.sh --with-worker"
 fi

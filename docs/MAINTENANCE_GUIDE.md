@@ -25,12 +25,8 @@ python3 ./scripts/health_check.py
 # 后端
 curl -fsS http://localhost:8000/health
 
-# 前端 nginx 层
-curl -fsS http://localhost:3000/healthz
-
-# Docker compose 状态
-docker compose ps
-docker compose logs --tail=200 backend
+# 前端
+curl -fsS http://localhost:3000
 ```
 
 ---
@@ -45,7 +41,6 @@ docker compose logs --tail=200 backend
 | 后端启动 | `logs/backend.log` | uvicorn stdout / stderr |
 | Celery worker | `logs/celery.log` | 异步任务 |
 | 前端启动 | `logs/frontend.log` | npm start 输出 |
-| Docker | `docker compose logs <svc>` | 容器化部署 |
 
 ### 2.2 日志轮换(关键)
 
@@ -64,18 +59,6 @@ docker compose logs --tail=200 backend
     copytruncate
     size 50M
 }
-```
-
-**Docker compose 部署**通过 `logging` driver 限制:
-
-```yaml
-services:
-  backend:
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "5"
 ```
 
 ### 2.3 日志级别动态调整
@@ -121,18 +104,14 @@ redis-cli FLUSHDB
 
 ## 4. 数据备份
 
-### 4.1 TimescaleDB
+### 4.1 外部 PostgreSQL / TimescaleDB
 
 ```bash
 # 完整逻辑备份(慢但兼容性最好)
-docker compose exec timescaledb \
-    pg_dump -U quant -d quant_research -Fc -f /tmp/backup.dump
-
-docker compose cp timescaledb:/tmp/backup.dump ./backups/quant-$(date +%F).dump
+pg_dump "$DATABASE_URL" -Fc -f ./backups/quant-$(date +%F).dump
 
 # 还原
-docker compose exec -T timescaledb \
-    pg_restore -U quant -d quant_research --clean < ./backups/quant-2026-05-02.dump
+pg_restore --clean --dbname "$DATABASE_URL" ./backups/quant-2026-05-02.dump
 ```
 
 ### 4.2 用户数据 / 研究档案
@@ -227,7 +206,7 @@ curl http://localhost:8000/api/v1/system/providers/status
 ### 7.4 前端找不到后端
 
 - `frontend/.env`(或构建参数)中的 `REACT_APP_API_URL` 是否指向了真实地址
-- 容器化部署:必须是 `/api`(由 nginx 代理),不能是 `http://localhost:8000`
+- 同域反向代理部署时，确认 `/api` 和 WebSocket 路径都转发到后端
 
 ### 7.5 日志显示 "ImportError: cannot import name '...'(circular import)"
 

@@ -1,12 +1,12 @@
 # 量化系统五阶段改进实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:subagent-driven-development` (recommended) or `superpowers:executing-plans` to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 解决项目评估中识别出的五项关键债务:工程化基础缺失、文档薄弱、性能基线缺失、数据源脆弱、巨型文件难维护。
 
 **Architecture:** 五阶段独立交付,各自一个或多个 commit。Phase 1-4 可在单 session 完成;Phase 5 三个巨型文件每个单独成 commit,可独立 review。
 
-**Tech Stack:** ruff / pre-commit / pyproject.toml / pytest-benchmark / Docker multi-stage / FastAPI services 分层。
+**Tech Stack:** ruff / pre-commit / pyproject.toml / pytest-benchmark / FastAPI services 分层。
 
 **Branch policy:** 工作直接在 `main`(单人项目),每 phase 独立 commit。
 
@@ -24,28 +24,23 @@
 
 ### Tasks
 
-- [ ] **1.1 创建 pyproject.toml** — 包含 `[tool.ruff]`(line-length 100, target-version py313, 启用 E/F/W/I/UP/B/SIM 规则集,排除 frontend/.playwright/cache/data/.pytest_cache)、`[tool.black]`、`[tool.mypy]`(ignore_missing_imports=true 暂时)、`[tool.pytest.ini_options]`(从 pytest.ini 迁移)
-- [ ] **1.2 创建 .pre-commit-config.yaml** — hooks: pre-commit-hooks(trailing-whitespace, end-of-file-fixer, check-yaml, check-added-large-files), ruff (lint + format), black, mypy(可选 stage=manual)
-- [ ] **1.3 更新 requirements-dev.txt** — 加 `ruff>=0.6.0`;flake8/isort/autopep8 标注为待删除(先注释,确认不破坏 CI 后再删)
-- [ ] **1.4 删除 pytest.ini**(配置已迁移到 pyproject.toml)
-- [ ] **1.5 安装并跑首次 ruff** — `pip install ruff && ruff check . --fix --unsafe-fixes` → 接受可自动修复的改动
-- [ ] **1.6 跑测试确认无回归** — `pytest tests/unit -q`
-- [ ] **1.7 安装 pre-commit hook + 跑一次** — `pre-commit install && pre-commit run --all-files` (允许 black 一次性格式化)
-- [ ] **1.8 commit** — `chore: add pyproject + ruff + pre-commit config`
+- [x] **1.1 创建 pyproject.toml** — 包含 `[tool.ruff]`(line-length 100, target-version py313, 启用 E/F/W/I/UP/B/SIM 规则集,排除 frontend/.playwright/cache/data/.pytest_cache)、`[tool.black]`、`[tool.mypy]`(ignore_missing_imports=true 暂时)、`[tool.pytest.ini_options]`(从 pytest.ini 迁移)
+- [x] **1.2 创建 .pre-commit-config.yaml** — hooks: pre-commit-hooks(trailing-whitespace, end-of-file-fixer, check-yaml, check-added-large-files), ruff (lint + format), black, mypy(可选 stage=manual)
+- [x] **1.3 更新 requirements-dev.txt** — 加 `ruff>=0.6.0`;flake8/isort/autopep8 标注为待删除(先注释,确认不破坏 CI 后再删)
+- [x] **1.4 删除 pytest.ini**(配置已迁移到 pyproject.toml)
+- [x] **1.5 安装并跑首次 ruff** — `pip install ruff && ruff check . --fix --unsafe-fixes` → 接受可自动修复的改动
+- [x] **1.6 跑测试确认无回归** — `pytest tests/unit -q`
+- [x] **1.7 安装 pre-commit hook + 跑一次** — `pre-commit install && pre-commit run --all-files` (允许 black 一次性格式化)
+- [x] **1.8 commit** — `chore: add pyproject + ruff + pre-commit config`
 
 ---
 
-## Phase 2 — 后端 Dockerfile + 文档充实
+## Phase 2 — 文档与运行说明充实
 
-**目的:** 让"5 分钟跑起来"成立(目前缺后端容器);把空架子文档(MAINTENANCE/PERFORMANCE)填实;新增 ARCHITECTURE.md 与 EXTENDING.md。
+**目的:** 让"5 分钟跑起来"成立;把空架子文档(MAINTENANCE/PERFORMANCE)填实;新增 ARCHITECTURE.md 与 EXTENDING.md。仓库不再维护本地基础设施编排，外部数据库和 broker 通过环境变量接入。
 
 **Files:**
-- Create: `Dockerfile.backend` — Python 3.13-slim,多阶段构建(builder + runtime),non-root user,uvicorn 启动
-- Create: `Dockerfile.frontend` — node:22-alpine 构建 → nginx 1.27-alpine 提供静态产物
-- Create: `docker-compose.yml`(根目录) — 整合 infra + backend + frontend 三个 service,supersede `docker-compose.quant-infra.yml` 时不破坏现有脚本
-- Create: `nginx.conf` — 反向代理 `/api` → backend,SPA fallback
-- Create: `.dockerignore` — 排除 node_modules / __pycache__ / .git / cache / data / logs / output / tmp
-- Modify: `docs/DEPLOYMENT.md` — 加 Docker 部署章节
+- Modify: `docs/DEPLOYMENT.md` — 加本地进程部署与外部服务接入章节
 - Modify: `docs/MAINTENANCE_GUIDE.md` — 扩写日志轮换、备份、健康检查、常见排障
 - Modify: `docs/PERFORMANCE_OPTIMIZATION.md` — 扩写缓存策略、并发模型、性能基准、优化点
 - Create: `docs/ARCHITECTURE.md` — 分层、模块依赖、数据流、关键决策(Mermaid)
@@ -53,18 +48,12 @@
 
 ### Tasks
 
-- [ ] **2.1 创建 .dockerignore**
-- [ ] **2.2 创建 Dockerfile.backend** — 多阶段:`python:3.13-slim` builder pip 安装到 venv,runtime 复制 venv,USER appuser,EXPOSE 8000,CMD `uvicorn backend.main:app --host 0.0.0.0 --port 8000`
-- [ ] **2.3 创建 Dockerfile.frontend** — node:22-alpine 跑 `npm ci && npm run build`;runtime 用 nginx:1.27-alpine 复制 build/
-- [ ] **2.4 创建 nginx.conf** — server listen 80,location / SPA fallback,location /api/ proxy_pass
-- [ ] **2.5 创建根目录 docker-compose.yml** — 整合 timescale + redis + backend(depends_on healthy) + frontend
-- [ ] **2.6 本地验证 docker compose build** — `docker compose build`(只验证 build 通过,不强求运行)
-- [ ] **2.7 扩写 docs/DEPLOYMENT.md** — 加 ## Docker 一键部署 章节
-- [ ] **2.8 扩写 docs/MAINTENANCE_GUIDE.md** — 日志轮换 logrotate 模板、cache/data 备份脚本、redis/timescale 备份、健康检查检查项、排障 FAQ
-- [ ] **2.9 扩写 docs/PERFORMANCE_OPTIMIZATION.md** — 缓存层级图、并发模型、批量接口、关键基准
-- [ ] **2.10 创建 docs/ARCHITECTURE.md** — 模块图(Mermaid)、关键决策记录、数据流
-- [ ] **2.11 创建 docs/EXTENDING.md** — 添加新策略 / 新 provider / 新 endpoint 的 walkthrough
-- [ ] **2.12 commit** — `docs: add Dockerfile + flesh out ops/architecture docs`
+- [x] **2.1 扩写 docs/DEPLOYMENT.md** — 本地进程部署、外部数据库 / broker 环境变量、worker 启动
+- [x] **2.2 扩写 docs/MAINTENANCE_GUIDE.md** — 日志轮换 logrotate 模板、cache/data 备份脚本、外部 DB 备份、健康检查检查项、排障 FAQ
+- [x] **2.3 扩写 docs/PERFORMANCE_OPTIMIZATION.md** — 缓存层级图、并发模型、批量接口、关键基准
+- [x] **2.4 创建 docs/ARCHITECTURE.md** — 模块图(Mermaid)、关键决策记录、数据流
+- [x] **2.5 创建 docs/EXTENDING.md** — 添加新策略 / 新 provider / 新 endpoint 的 walkthrough
+- [x] **2.6 commit** — `docs: flesh out ops and architecture docs`
 
 ---
 
@@ -80,12 +69,12 @@
 
 ### Tasks
 
-- [ ] **3.1 加 pytest-benchmark 到 requirements-dev.txt**
-- [ ] **3.2 在 pyproject.toml 注册 marker** — `markers = ["perf: marks tests as performance regression"]`
-- [ ] **3.3 写性能测试** — `tests/integration/test_backtest_perf.py`:对 `/api/v1/backtest/` 用 mocked yfinance 数据触发主回测,断言 < 2.0s
-- [ ] **3.4 本地跑** — `pytest tests/integration/test_backtest_perf.py --benchmark-only -v`
-- [ ] **3.5 加 CI perf job**(可 continue-on-error 试跑期间)
-- [ ] **3.6 commit** — `test: add backtest performance SLA + CI perf job`
+- [x] **3.1 加 pytest-benchmark 到 requirements-dev.txt**
+- [x] **3.2 在 pyproject.toml 注册 marker** — `markers = ["perf: marks tests as performance regression"]`
+- [x] **3.3 写性能测试** — `tests/integration/test_backtest_perf.py`:对 `/api/v1/backtest/` 用 mocked yfinance 数据触发主回测,断言 < 2.0s
+- [x] **3.4 本地跑** — `pytest tests/integration/test_backtest_perf.py --benchmark-only -v`
+- [x] **3.5 加 CI perf job**(可 continue-on-error 试跑期间)
+- [x] **3.6 commit** — `test: add backtest performance SLA + CI perf job`
 
 ---
 
@@ -102,14 +91,14 @@
 
 ### Tasks
 
-- [ ] **4.1 二次确认 ta 零引用** — `grep -rn "import ta\|from ta" --include="*.py" src backend tests`(包括非 ^ 锚点)
-- [ ] **4.2 从 requirements.txt 删 `ta==0.11.0`** + commit `chore: drop unused ta dependency`
-- [ ] **4.3 写断路器单元测试**(TDD) — `test_circuit_breaker.py`:closed → open(N 次失败后)→ half_open(冷却后允许试探)→ closed/open
-- [ ] **4.4 实现 CircuitBreaker** — 状态: closed/open/half_open;`failure_threshold=5`、`recovery_timeout=60s`、`half_open_max_calls=1`;线程安全(threading.Lock)
-- [ ] **4.5 跑断路器测试** — `pytest tests/unit/test_circuit_breaker.py -v`
-- [ ] **4.6 套到 akshare/sina_ths 关键方法** — 如 `get_realtime_quotes`、`get_industry_data` 等高频外部调用点
-- [ ] **4.7 跑 provider 相关现有测试,确认无回归**
-- [ ] **4.8 commit** — `feat(data): add circuit breaker for fragile providers`
+- [x] **4.1 二次确认 ta 零引用** — `grep -rn "import ta\|from ta" --include="*.py" src backend tests`(包括非 ^ 锚点)
+- [x] **4.2 从 requirements.txt 删 `ta==0.11.0`** + commit `chore: drop unused ta dependency`
+- [x] **4.3 写断路器单元测试**(TDD) — `test_circuit_breaker.py`:closed → open(N 次失败后)→ half_open(冷却后允许试探)→ closed/open
+- [x] **4.4 实现 CircuitBreaker** — 状态: closed/open/half_open;`failure_threshold=5`、`recovery_timeout=60s`、`half_open_max_calls=1`;线程安全(threading.Lock)
+- [x] **4.5 跑断路器测试** — `pytest tests/unit/test_circuit_breaker.py -v`
+- [x] **4.6 套到 akshare/sina_ths 关键方法** — 如 `get_realtime_quotes`、`get_industry_data` 等高频外部调用点
+- [x] **4.7 跑 provider 相关现有测试,确认无回归**
+- [x] **4.8 commit** — `feat(data): add circuit breaker for fragile providers`
 
 ---
 
@@ -134,18 +123,18 @@
 
 ### Tasks(5A)
 
-- [ ] **5A.1 重命名** — `git mv backend/app/core/auth.py backend/app/core/auth_legacy.py`(临时)
-- [ ] **5A.2 创建 auth/ package + __init__.py 重导出**(空)
-- [ ] **5A.3 拆 secrets.py** — 把 `_auth_secret / _env_auth_required / _env_bool_value / _env_flag` 移过去
-- [ ] **5A.4 拆 passwords.py** — `_hash_password / _verify_password`
-- [ ] **5A.5 拆 tokens.py** — token 工具
-- [ ] **5A.6 拆 policy.py** — policy 函数 + production 判定
-- [ ] **5A.7 拆 oauth_providers.py / oauth_states.py / users.py** — 按列表迁移
-- [ ] **5A.8 在 __init__.py 重导出所有原对外 API**(从 auth_legacy.py 提取使用方再导出)
-- [ ] **5A.9 删除 auth_legacy.py**
-- [ ] **5A.10 全量跑测试** — `pytest tests/unit tests/integration -q`
-- [ ] **5A.11 grep 检查所有 `from backend.app.core.auth import ...` 调用方仍能 resolve**
-- [ ] **5A.12 commit** — `refactor(auth): split monolithic auth.py into focused modules`
+- [x] **5A.1 重命名** — `git mv backend/app/core/auth.py backend/app/core/auth_legacy.py`(临时)
+- [x] **5A.2 创建 auth/ package + __init__.py 重导出**(空)
+- [x] **5A.3 拆 secrets.py** — 把 `_auth_secret / _env_auth_required / _env_bool_value / _env_flag` 移过去
+- [x] **5A.4 拆 passwords.py** — `_hash_password / _verify_password`
+- [x] **5A.5 拆 tokens.py** — token 工具
+- [x] **5A.6 拆 policy.py** — policy 函数 + production 判定
+- [x] **5A.7 拆 oauth_providers.py / oauth_states.py / users.py** — 按列表迁移
+- [x] **5A.8 在 __init__.py 重导出所有原对外 API**(从 auth_legacy.py 提取使用方再导出)
+- [x] **5A.9 删除 auth_legacy.py**
+- [x] **5A.10 全量跑测试** — `pytest tests/unit tests/integration -q`
+- [x] **5A.11 grep 检查所有 `from backend.app.core.auth import ...` 调用方仍能 resolve**
+- [x] **5A.12 commit** — `refactor(auth): split monolithic auth.py into focused modules`
 
 ### 5B — backtest.py endpoint(2087 行)
 
@@ -163,16 +152,16 @@
 
 ### Tasks(5B)
 
-- [ ] **5B.1 创建 services/backtest/ 包**
-- [ ] **5B.2 抽 utils.py** — 基础工具函数(数据获取、参数解析、最小窗口估算)
-- [ ] **5B.3 抽 pipeline.py** — `run_backtest_pipeline`
-- [ ] **5B.4 抽 monte_carlo.py** — Monte Carlo 模拟与指标 helper
-- [ ] **5B.5 抽 comparison.py** — 对比与显著性
-- [ ] **5B.6 抽 multi_period.py** — 多周期 + 市场状态分类
-- [ ] **5B.7 抽 impact.py** — 市场冲击分析
-- [ ] **5B.8 endpoint 改为薄壳** — 只 import + 调用 service + 返回响应
-- [ ] **5B.9 全量跑测试** — `pytest tests/unit/test_backtester* tests/integration -q`
-- [ ] **5B.10 commit** — `refactor(backtest): extract sync logic into services package`
+- [x] **5B.1 创建 services/backtest/ 包**
+- [x] **5B.2 抽 utils.py** — 基础工具函数(数据获取、参数解析、最小窗口估算)
+- [x] **5B.3 抽 pipeline.py** — `run_backtest_pipeline`
+- [x] **5B.4 抽 monte_carlo.py** — Monte Carlo 模拟与指标 helper
+- [x] **5B.5 抽 comparison.py** — 对比与显著性
+- [x] **5B.6 抽 multi_period.py** — 多周期 + 市场状态分类
+- [x] **5B.7 抽 impact.py** — 市场冲击分析
+- [x] **5B.8 endpoint 改为薄壳** — 只 import + 调用 service + 返回响应
+- [x] **5B.9 全量跑测试** — `pytest tests/unit/test_backtester* tests/integration -q`
+- [x] **5B.10 commit** — `refactor(backtest): extract sync logic into services package`
 
 ### 5C — industry.py endpoint(3349 行)
 
@@ -192,17 +181,17 @@
 
 ### Tasks(5C)
 
-- [ ] **5C.1 创建 services/industry/ 包**
-- [ ] **5C.2 抽 cache.py**(8 个函数)
-- [ ] **5C.3 抽 heatmap.py**(8 个函数)
-- [ ] **5C.4 抽 leaders.py**(7 个函数)
-- [ ] **5C.5 抽 parity.py**(3 个函数)
-- [ ] **5C.6 抽 stocks.py**(12 个函数)
-- [ ] **5C.7 抽 trend.py**(4 个函数)
-- [ ] **5C.8 抽 lifecycle.py + dependencies.py**(剩余)
-- [ ] **5C.9 endpoint 改为薄壳**
-- [ ] **5C.10 全量跑测试** — `pytest tests/unit/test_industry* tests/unit/test_industry_leader* tests/integration -q`
-- [ ] **5C.11 commit** — `refactor(industry): split 3349-line endpoint into focused services`
+- [x] **5C.1 创建 services/industry/ 包**
+- [x] **5C.2 抽 cache.py**(8 个函数)
+- [x] **5C.3 抽 heatmap.py**(8 个函数)
+- [x] **5C.4 抽 leaders.py**(7 个函数)
+- [x] **5C.5 抽 parity.py**(3 个函数)
+- [x] **5C.6 抽 stocks.py**(12 个函数)
+- [x] **5C.7 抽 trend.py**(4 个函数)
+- [x] **5C.8 抽 lifecycle.py + dependencies.py**(剩余)
+- [x] **5C.9 endpoint 改为薄壳**
+- [x] **5C.10 全量跑测试** — `pytest tests/unit/test_industry* tests/unit/test_industry_leader* tests/integration -q`
+- [x] **5C.11 commit** — `refactor(industry): split 3349-line endpoint into focused services`
 
 ---
 
@@ -213,7 +202,6 @@
 | 评估建议 | 实施 phase |
 |---|---|
 | pyproject + ruff + pre-commit | Phase 1 ✓ |
-| 后端 Dockerfile | Phase 2 ✓ |
 | 充实运维/架构文档 | Phase 2 ✓ |
 | pytest-benchmark + e2e CI | Phase 3 ✓ |
 | ta → 移除 | Phase 4 ✓ |
@@ -227,7 +215,7 @@
 - **Phase 5(拆分)是最大风险点** — 每文件单独 commit,跑测试后再合并 / 推进
 - **Phase 1 的 ruff --fix --unsafe-fixes 可能改大量代码** — 先用 `--fix` 不带 unsafe,review diff 再决定
 - **ta 的 grep 已确认零引用** — 风险低
-- **Dockerfile 验证只到 build,不强求 up** — 避免本地 docker daemon 依赖
+- **外部服务只通过环境变量接入** — 仓库不维护本地基础设施编排
 
 ### 执行顺序
 
