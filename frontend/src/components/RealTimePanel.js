@@ -1529,7 +1529,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         <Card
           className="realtime-hero-card realtime-hero-card--compact"
           style={{
-            borderRadius: 28,
+            borderRadius: 8,
             overflow: 'hidden',
             border: '1px solid color-mix(in srgb, var(--accent-primary) 24%, var(--border-color) 76%)',
             boxShadow: '0 24px 60px rgba(15, 23, 42, 0.10)',
@@ -1569,11 +1569,11 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
                 </div>
               </div>
               <div className="realtime-hero__meta">
-                <div className="realtime-hero__chip">当前分组：{getCategoryLabel(activeTab)}</div>
-                <div className="realtime-hero__chip">链路模式：{transportModeLabel}</div>
-                <div className="realtime-hero__chip">自动更新：{isAutoUpdate ? '开启' : '暂停'}</div>
-                <div className="realtime-hero__chip">行情时间：{lastMarketUpdateLabel}</div>
-                {reconnectAttempts > 0 && <div className="realtime-hero__chip">重连 {reconnectAttempts}</div>}
+                <div className="realtime-hero__chip realtime-hero__chip--category">当前分组：{getCategoryLabel(activeTab)}</div>
+                <div className="realtime-hero__chip realtime-hero__chip--transport">链路模式：{transportModeLabel}</div>
+                <div className="realtime-hero__chip realtime-hero__chip--auto">自动更新：{isAutoUpdate ? '开启' : '暂停'}</div>
+                <div className="realtime-hero__chip realtime-hero__chip--time">行情时间：{lastMarketUpdateLabel}</div>
+                {reconnectAttempts > 0 && <div className="realtime-hero__chip realtime-hero__chip--reconnect">重连 {reconnectAttempts}</div>}
               </div>
               <div className="realtime-hero__metric-grid">
                 {heroPrimaryStats.map((item) => (
@@ -2152,8 +2152,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         .realtime-hero {
           display: grid;
           grid-template-columns: minmax(0, 1.42fr) minmax(420px, 0.9fr);
-          gap: 14px;
-          padding: 14px 18px;
+          gap: 12px;
+          padding: 12px 14px;
           background:
             linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary) 88%) 0%, color-mix(in srgb, var(--accent-secondary) 10%, var(--bg-secondary) 90%) 100%);
         }
@@ -2265,8 +2265,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         }
 
         .realtime-hero__metric {
-          padding: 10px 12px;
-          border-radius: 14px;
+          padding: 9px 10px;
+          border-radius: 8px;
           background: color-mix(in srgb, var(--bg-secondary) 88%, white 12%);
           border: 1px solid color-mix(in srgb, var(--border-color) 78%, white 22%);
         }
@@ -2313,8 +2313,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           display: grid;
           gap: 8px 10px;
           align-content: start;
-          padding: 10px;
-          border-radius: 18px;
+          padding: 8px;
+          border-radius: 8px;
           background: color-mix(in srgb, var(--bg-secondary) 90%, white 10%);
           border: 1px solid color-mix(in srgb, var(--accent-primary) 16%, var(--border-color) 84%);
         }
@@ -2377,8 +2377,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         }
 
         .realtime-hero__signal-card {
-          padding: 10px 12px;
-          border-radius: 14px;
+          padding: 9px 10px;
+          border-radius: 8px;
         }
 
         .realtime-hero__signal-card-title {
@@ -3056,12 +3056,26 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           }
 
           .realtime-hero {
-            gap: 12px;
-            padding: 14px;
+            gap: 8px;
+            padding: 10px;
           }
 
           .realtime-hero__main {
-            gap: 10px;
+            gap: 8px;
+          }
+
+          .realtime-hero__statusbar {
+            gap: 6px;
+          }
+
+          .realtime-hero__eyebrow {
+            font-size: 10px;
+            letter-spacing: 0.14em;
+          }
+
+          .realtime-hero__headline .ant-typography {
+            font-size: 21px !important;
+            line-height: 1.16;
           }
 
           .realtime-hero__subtitle {
@@ -3081,13 +3095,15 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           }
 
           .realtime-hero__meta {
-            display: grid;
-            grid-auto-flow: column;
-            grid-auto-columns: max-content;
-            overflow-x: auto;
-            overscroll-behavior-x: contain;
-            padding-bottom: 2px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
             scrollbar-width: none;
+          }
+
+          .realtime-hero__chip--category,
+          .realtime-hero__chip--auto {
+            display: none;
           }
 
           .realtime-hero__meta::-webkit-scrollbar,
@@ -3114,7 +3130,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           }
 
           .realtime-hero__chip {
-            padding: 5px 9px;
+            padding: 4px 8px;
             font-size: 10px;
           }
 
@@ -3126,15 +3142,29 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
           .realtime-hero__metric-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 6px;
           }
 
           .realtime-hero__metric {
-            padding: 10px 11px;
+            min-height: 40px;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            grid-template-areas: "label value";
+            align-items: center;
+            gap: 8px;
+            padding: 7px 8px;
+          }
+
+          .realtime-hero__metric-label {
+            grid-area: label;
+            letter-spacing: 0.08em;
           }
 
           .realtime-hero__metric-value {
-            margin-top: 6px;
-            font-size: 19px;
+            grid-area: value;
+            margin-top: 0;
+            font-size: 18px;
+            text-align: right;
           }
 
           .realtime-hero__metric-detail {
@@ -3143,7 +3173,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
           .realtime-hero__sidecar {
             gap: 6px;
-            padding: 10px;
+            padding: 8px;
           }
 
           .realtime-hero__utility-row {
@@ -3157,7 +3187,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
             width: 100%;
             justify-content: space-between;
             gap: 10px;
-            padding: 8px 10px;
+            padding: 6px 8px;
           }
 
           .realtime-hero__toggle-pill .ant-typography {
@@ -3165,17 +3195,22 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           }
 
           .realtime-hero__refresh {
-            min-height: 38px;
+            min-height: 34px;
           }
 
           .realtime-hero__secondary-button,
           .realtime-hero__utility-actions .ant-btn {
-            min-height: 34px;
+            min-height: 32px;
             min-width: 0;
           }
 
           .realtime-hero__signal-card {
-            padding: 8px 10px;
+            padding: 7px 8px;
+          }
+
+          .realtime-hero__signal-pill {
+            padding: 3px 7px;
+            font-size: 9px;
           }
 
           .realtime-hero__utility-actions .ant-btn {
