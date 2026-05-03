@@ -12,6 +12,7 @@ import {
   Space,
   Spin,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import {
@@ -179,6 +180,18 @@ const TodayResearchDashboard = () => {
   const nextActions = summary.next_actions || [];
   const symbolTimeline = summary.symbol_timeline || [];
   const entries = journal.entries || EMPTY_ENTRIES;
+  const activeEntries = useMemo(
+    () => entries.filter((entry) => entry.status === 'open' || entry.status === 'watching'),
+    [entries]
+  );
+  const highPriorityActiveCount = useMemo(
+    () => activeEntries.filter((entry) => entry.priority === 'high').length,
+    [activeEntries]
+  );
+  const primaryQueueEntry = actionQueue[0] || null;
+  const visibleQueueEntries = primaryQueueEntry ? actionQueue.slice(1, 5) : actionQueue.slice(0, 5);
+  const hiddenQueueCount = Math.max(actionQueue.length - (primaryQueueEntry ? 1 : 0) - visibleQueueEntries.length, 0);
+  const isJournalEmpty = entries.length === 0;
   const filteredEntries = useMemo(
     () => filterResearchEntries(entries, entryFilters),
     [entries, entryFilters]
@@ -255,6 +268,10 @@ const TodayResearchDashboard = () => {
       return;
     }
     navigateToAppUrl(buildAppUrl({ view: 'today' }));
+  }, []);
+
+  const handleOpenModule = useCallback((view) => {
+    navigateToAppUrl(buildAppUrl({ view }));
   }, []);
 
   const handleMarkDone = useCallback(async (entry) => {
@@ -356,36 +373,142 @@ const TodayResearchDashboard = () => {
     setEntryFilters({ ...DEFAULT_ENTRY_FILTERS });
   }, []);
 
-  const renderEntry = (entry) => (
-    <div className="today-research-entry" key={entry.id} data-testid="today-research-entry">
-      <div className="today-research-entry__icon">{TYPE_ICON[entry.type] || <FileTextOutlined />}</div>
-      <div className="today-research-entry__main">
-        <Space wrap size={6}>
-          <Tag color={TYPE_COLOR[entry.type]}>{TODAY_RESEARCH_TYPE_LABELS[entry.type]}</Tag>
-          <Tag color={STATUS_COLOR[entry.status]}>{TODAY_RESEARCH_STATUS_LABELS[entry.status]}</Tag>
-          <Tag color={PRIORITY_COLOR[entry.priority]}>优先级 {TODAY_RESEARCH_PRIORITY_LABELS[entry.priority]}</Tag>
-          {entry.symbol ? <Tag>{entry.symbol}</Tag> : null}
-          {entry.industry ? <Tag>{entry.industry}</Tag> : null}
-        </Space>
-        <div className="today-research-entry__title">{entry.title}</div>
-        {entry.summary ? <div className="today-research-entry__summary">{entry.summary}</div> : null}
-        {entry.note ? <div className="today-research-entry__note">{entry.note}</div> : null}
-        <div className="today-research-entry__meta">
-          {entry.source_label || entry.source} · {formatTime(entry.updated_at)}
+  const renderEntry = (entry, options = {}) => {
+    const { compact = false } = options;
+    return (
+      <div
+        className={`today-research-entry${compact ? ' today-research-entry--compact' : ''}`}
+        key={entry.id}
+        data-testid="today-research-entry"
+      >
+        <div className="today-research-entry__icon">{TYPE_ICON[entry.type] || <FileTextOutlined />}</div>
+        <div className="today-research-entry__main">
+          <Space wrap size={6}>
+            <Tag color={TYPE_COLOR[entry.type]}>{TODAY_RESEARCH_TYPE_LABELS[entry.type]}</Tag>
+            <Tag color={STATUS_COLOR[entry.status]}>{TODAY_RESEARCH_STATUS_LABELS[entry.status]}</Tag>
+            <Tag color={PRIORITY_COLOR[entry.priority]}>优先级 {TODAY_RESEARCH_PRIORITY_LABELS[entry.priority]}</Tag>
+            {entry.symbol ? <Tag>{entry.symbol}</Tag> : null}
+            {entry.industry ? <Tag>{entry.industry}</Tag> : null}
+          </Space>
+          <div className="today-research-entry__title">{entry.title}</div>
+          {entry.summary ? <div className="today-research-entry__summary">{entry.summary}</div> : null}
+          {!compact && entry.note ? <div className="today-research-entry__note">{entry.note}</div> : null}
+          <div className="today-research-entry__meta">
+            {entry.source_label || entry.source} · {formatTime(entry.updated_at)}
+          </div>
         </div>
+        <Space className="today-research-entry__actions" wrap>
+          <Button size="small" onClick={() => handleOpenEntry(entry)}>
+            {entry.action?.label || '打开'}
+          </Button>
+          {entry.status !== 'done' && entry.status !== 'archived' ? (
+            <Button size="small" icon={<CheckCircleOutlined />} onClick={() => handleMarkDone(entry)}>
+              完成
+            </Button>
+          ) : null}
+        </Space>
       </div>
-      <Space className="today-research-entry__actions" wrap>
-        <Button size="small" onClick={() => handleOpenEntry(entry)}>
-          {entry.action?.label || '打开'}
+    );
+  };
+
+  const renderManualEntryCard = () => (
+    <Card className="today-research-panel">
+      <div className="today-research-panel__head">
+        <div>
+          <div className="today-research-panel__title">新增记录</div>
+          <div className="today-research-panel__desc">盘前计划、人工判断或临时线索可以直接沉淀到档案。</div>
+        </div>
+        <PlusOutlined />
+      </div>
+      <Form layout="vertical" form={form} onFinish={handleCreateManualEntry}>
+        <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入标题' }]}>
+          <Input placeholder="例如：半导体龙头继续跟踪" />
+        </Form.Item>
+        <Space.Compact style={{ width: '100%' }}>
+          <Form.Item name="symbol" label="标的" style={{ flex: 1 }}>
+            <Input placeholder="AAPL / 600519" />
+          </Form.Item>
+          <Form.Item name="industry" label="行业" style={{ flex: 1 }}>
+            <Input placeholder="半导体" />
+          </Form.Item>
+        </Space.Compact>
+        <Form.Item name="priority" label="优先级" initialValue="medium">
+          <Select
+            options={[
+              { label: '高', value: 'high' },
+              { label: '中', value: 'medium' },
+              { label: '低', value: 'low' },
+            ]}
+          />
+        </Form.Item>
+        <Form.Item name="summary" label="摘要">
+          <Input placeholder="一句话说明为什么要跟踪" />
+        </Form.Item>
+        <Form.Item name="note" label="记录">
+          <TextArea rows={4} placeholder="写下判断依据、下一步动作或需要复核的数据源" />
+        </Form.Item>
+        <Button type="primary" htmlType="submit" block>
+          加入研究档案
         </Button>
-        {entry.status !== 'done' && entry.status !== 'archived' ? (
-          <Button size="small" icon={<CheckCircleOutlined />} onClick={() => handleMarkDone(entry)}>
+      </Form>
+    </Card>
+  );
+
+  const renderEmptyWorkbench = () => (
+    <Card className="today-research-panel today-research-empty-workbench">
+      <div className="today-research-empty-workbench__content">
+        <div className="app-page-section-kicker">START HERE</div>
+        <div className="today-research-empty-workbench__title">先生成一条研究线索</div>
+        <p>
+          今日研究会自动收集回测快照、实时复盘和行业观察；现在可以直接从一个模块开始，或先手动记下一条判断。
+        </p>
+      </div>
+      <div className="today-research-empty-actions">
+        <Button icon={<BarChartOutlined />} onClick={() => handleOpenModule('backtest')}>
+          跑一次回测
+        </Button>
+        <Button icon={<LineChartOutlined />} onClick={() => handleOpenModule('realtime')}>
+          保存实时复盘
+        </Button>
+        <Button icon={<FireOutlined />} onClick={() => handleOpenModule('industry')}>
+          加入行业观察
+        </Button>
+      </div>
+    </Card>
+  );
+
+  const renderPrimaryQueueEntry = () => {
+    if (!primaryQueueEntry) {
+      return (
+        <div className="today-research-focus-card today-research-focus-card--empty">
+          <Empty description="当前没有待处理项" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        </div>
+      );
+    }
+
+    return (
+      <div className="today-research-focus-card">
+        <div className="today-research-focus-card__meta">
+          <span>当前优先项</span>
+          <Tag color={PRIORITY_COLOR[primaryQueueEntry.priority]}>
+            优先级 {TODAY_RESEARCH_PRIORITY_LABELS[primaryQueueEntry.priority]}
+          </Tag>
+        </div>
+        <div className="today-research-focus-card__title">{primaryQueueEntry.title}</div>
+        <p>
+          {primaryQueueEntry.summary || primaryQueueEntry.note || '先打开上下文确认是否需要升级为回测、复盘或交易计划。'}
+        </p>
+        <Space wrap>
+          <Button type="primary" size="small" onClick={() => handleOpenEntry(primaryQueueEntry)}>
+            {primaryQueueEntry.action?.label || '打开'}
+          </Button>
+          <Button size="small" icon={<CheckCircleOutlined />} onClick={() => handleMarkDone(primaryQueueEntry)}>
             完成
           </Button>
-        ) : null}
-      </Space>
-    </div>
-  );
+        </Space>
+      </div>
+    );
+  };
 
   if (loading) {
     return (
@@ -405,19 +528,24 @@ const TodayResearchDashboard = () => {
           <p>
             把回测快照、行业观察、实时提醒和复盘记录收成一张桌面工作台，先处理队列，再回到具体模块深挖。
           </p>
-          <Space wrap>
+          <div className="today-research-hero__status">
+            <span>活跃线索 {activeEntries.length} 条</span>
+            <span>高优先级 {highPriorityActiveCount} 条</span>
+            <span>最近同步 {formatTime(journal.updated_at || journal.generated_at)}</span>
+          </div>
+          <Space wrap className="today-research-hero__actions">
             <Button type="primary" icon={<CloudSyncOutlined />} loading={syncing} onClick={() => syncJournal()}>
               同步当前状态
             </Button>
-            <Button icon={<ExportOutlined />} onClick={handleExportBackup}>
-              导出备份
-            </Button>
-            <Button icon={<ImportOutlined />} onClick={() => setBackupVisible(true)}>
-              导入备份
-            </Button>
-            <Button icon={<ReloadOutlined />} onClick={() => syncJournal()}>
-              刷新
-            </Button>
+            <Tooltip title="刷新">
+              <Button aria-label="刷新" icon={<ReloadOutlined />} onClick={() => syncJournal()} />
+            </Tooltip>
+            <Tooltip title="导出备份">
+              <Button aria-label="导出备份" icon={<ExportOutlined />} onClick={handleExportBackup} />
+            </Tooltip>
+            <Tooltip title="导入备份">
+              <Button aria-label="导入备份" icon={<ImportOutlined />} onClick={() => setBackupVisible(true)} />
+            </Tooltip>
           </Space>
         </div>
         <div className="today-research-hero__metrics">
@@ -440,192 +568,166 @@ const TodayResearchDashboard = () => {
         </div>
       </section>
 
-      <div className="today-research-grid">
-        <Card className="today-research-panel today-research-panel--queue">
-          <div className="today-research-panel__head">
-            <div>
-              <div className="today-research-panel__title">处理队列</div>
-              <div className="today-research-panel__desc">优先看仍处于待处理或跟踪中的线索。</div>
-            </div>
-            <Tag color="orange">{actionQueue.length} 条</Tag>
-          </div>
-          {nextActions.length ? (
-            <div className="today-research-next-actions">
-              {nextActions.map((action) => (
-                <Alert
-                  key={action.key}
-                  type={action.key === 'review_high_alerts' ? 'warning' : 'info'}
-                  showIcon
-                  message={action.title}
-                  description={action.description}
-                />
-              ))}
-            </div>
-          ) : null}
-          <div className="today-research-entry-list">
-            {actionQueue.length ? actionQueue.slice(0, 8).map(renderEntry) : (
-              <Empty description="当前没有待处理项" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            )}
-          </div>
-        </Card>
-
-        <Card className="today-research-panel">
-          <div className="today-research-panel__head">
-            <div>
-              <div className="today-research-panel__title">新增记录</div>
-              <div className="today-research-panel__desc">盘前计划、人工判断或临时线索可以直接沉淀到档案。</div>
-            </div>
-            <PlusOutlined />
-          </div>
-          <Form layout="vertical" form={form} onFinish={handleCreateManualEntry}>
-            <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入标题' }]}>
-              <Input placeholder="例如：半导体龙头继续跟踪" />
-            </Form.Item>
-            <Space.Compact style={{ width: '100%' }}>
-              <Form.Item name="symbol" label="标的" style={{ flex: 1 }}>
-                <Input placeholder="AAPL / 600519" />
-              </Form.Item>
-              <Form.Item name="industry" label="行业" style={{ flex: 1 }}>
-                <Input placeholder="半导体" />
-              </Form.Item>
-            </Space.Compact>
-            <Form.Item name="priority" label="优先级" initialValue="medium">
-              <Select
-                options={[
-                  { label: '高', value: 'high' },
-                  { label: '中', value: 'medium' },
-                  { label: '低', value: 'low' },
-                ]}
-              />
-            </Form.Item>
-            <Form.Item name="summary" label="摘要">
-              <Input placeholder="一句话说明为什么要跟踪" />
-            </Form.Item>
-            <Form.Item name="note" label="记录">
-              <TextArea rows={4} placeholder="写下判断依据、下一步动作或需要复核的数据源" />
-            </Form.Item>
-            <Button type="primary" htmlType="submit" block>
-              加入研究档案
-            </Button>
-          </Form>
-        </Card>
-      </div>
-
-      <div className="today-research-grid today-research-grid--secondary">
-        <Card className="today-research-panel">
-          <div className="today-research-panel__head">
-            <div>
-              <div className="today-research-panel__title">标的时间线</div>
-              <div className="today-research-panel__desc">按标的聚合回测、提醒和复盘，方便回看链路。</div>
-            </div>
-            <Tag>{symbolTimeline.length} 个标的</Tag>
-          </div>
-          {symbolTimeline.length ? (
-            <div className="today-research-symbol-list">
-              {symbolTimeline.map((item) => (
-                <div className="today-research-symbol" key={item.symbol}>
-                  <div className="today-research-symbol__head">
-                    <strong>{item.symbol}</strong>
-                    <Tag>{item.count} 条</Tag>
-                  </div>
-                  <div className="today-research-symbol__events">
-                    {(item.entries || []).slice(0, 4).map((entry) => (
-                      <button key={entry.id} type="button" onClick={() => handleOpenEntry(entry)}>
-                        <span>{TODAY_RESEARCH_TYPE_LABELS[entry.type]}</span>
-                        <strong>{entry.title}</strong>
-                      </button>
-                    ))}
-                  </div>
+      {isJournalEmpty ? (
+        <div className="today-research-grid today-research-grid--empty">
+          {renderEmptyWorkbench()}
+          {renderManualEntryCard()}
+        </div>
+      ) : (
+        <>
+          <div className="today-research-grid">
+            <Card className="today-research-panel today-research-panel--queue">
+              <div className="today-research-panel__head">
+                <div>
+                  <div className="today-research-panel__title">处理队列</div>
+                  <div className="today-research-panel__desc">优先看仍处于待处理或跟踪中的线索。</div>
                 </div>
-              ))}
-            </div>
-          ) : (
-            <Empty description="还没有标的级记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          )}
-        </Card>
+                <Tag color="orange">{actionQueue.length} 条</Tag>
+              </div>
+              {renderPrimaryQueueEntry()}
+              {nextActions.length ? (
+                <div className="today-research-next-actions">
+                  {nextActions.map((action) => (
+                    <Alert
+                      key={action.key}
+                      type={action.key === 'review_high_alerts' ? 'warning' : 'info'}
+                      showIcon
+                      message={action.title}
+                      description={action.description}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              <div className="today-research-entry-list today-research-entry-list--compact">
+                {visibleQueueEntries.map((entry) => renderEntry(entry, { compact: true }))}
+              </div>
+              {hiddenQueueCount > 0 ? (
+                <div className="today-research-queue-footnote">
+                  其余 {hiddenQueueCount} 条仍保留在下方完整档案流中，避免首屏重复铺满。
+                </div>
+              ) : null}
+            </Card>
 
-        <Card className="today-research-panel">
-          <div className="today-research-panel__head">
-            <div>
-              <div className="today-research-panel__title">数据来源</div>
-              <div className="today-research-panel__desc">当前页从这些已有模块收集状态。</div>
-            </div>
-            <Tag color="green">本地 + 后端</Tag>
+            {renderManualEntryCard()}
           </div>
-          <div className="today-research-source-grid">
-            <div><span>回测快照</span><strong>{sourceCounts.backtest_snapshots || 0}</strong></div>
-            <div><span>复盘快照</span><strong>{sourceCounts.realtime_review_snapshots || 0}</strong></div>
-            <div><span>实时提醒</span><strong>{sourceCounts.realtime_alert_hit_history || 0}</strong></div>
-            <div><span>行业观察</span><strong>{sourceCounts.industry_watchlist || 0}</strong></div>
-            <div><span>行业提醒</span><strong>{sourceCounts.industry_alert_history || 0}</strong></div>
-            <div><span>提醒规则</span><strong>{sourceCounts.price_alert_rules || 0}</strong></div>
-          </div>
-          <Alert
-            className="today-research-backup-alert"
-            type="success"
-            showIcon
-            message="档案已接入后端快照"
-            description={`当前 profile: ${profileId}，最近同步 ${formatTime(journal.updated_at || journal.generated_at)}。`}
-          />
-        </Card>
-      </div>
 
-      <Card className="today-research-panel">
-        <div className="today-research-panel__head">
-          <div>
-            <div className="today-research-panel__title">完整档案流</div>
-            <div className="today-research-panel__desc">所有来源统一成一条可回看的研究流。</div>
+          <div className="today-research-grid today-research-grid--secondary">
+            <Card className="today-research-panel">
+              <div className="today-research-panel__head">
+                <div>
+                  <div className="today-research-panel__title">标的时间线</div>
+                  <div className="today-research-panel__desc">按标的聚合回测、提醒和复盘，方便回看链路。</div>
+                </div>
+                <Tag>{symbolTimeline.length} 个标的</Tag>
+              </div>
+              {symbolTimeline.length ? (
+                <div className="today-research-symbol-list">
+                  {symbolTimeline.map((item) => (
+                    <div className="today-research-symbol" key={item.symbol}>
+                      <div className="today-research-symbol__head">
+                        <strong>{item.symbol}</strong>
+                        <Tag>{item.count} 条</Tag>
+                      </div>
+                      <div className="today-research-symbol__events">
+                        {(item.entries || []).slice(0, 4).map((entry) => (
+                          <button key={entry.id} type="button" onClick={() => handleOpenEntry(entry)}>
+                            <span>{TODAY_RESEARCH_TYPE_LABELS[entry.type]}</span>
+                            <strong>{entry.title}</strong>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <Empty description="还没有标的级记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              )}
+            </Card>
+
+            <Card className="today-research-panel">
+              <div className="today-research-panel__head">
+                <div>
+                  <div className="today-research-panel__title">数据来源</div>
+                  <div className="today-research-panel__desc">当前页从这些已有模块收集状态。</div>
+                </div>
+                <Tag color="green">本地 + 后端</Tag>
+              </div>
+              <div className="today-research-source-grid">
+                <div><span>回测快照</span><strong>{sourceCounts.backtest_snapshots || 0}</strong></div>
+                <div><span>复盘快照</span><strong>{sourceCounts.realtime_review_snapshots || 0}</strong></div>
+                <div><span>实时提醒</span><strong>{sourceCounts.realtime_alert_hit_history || 0}</strong></div>
+                <div><span>行业观察</span><strong>{sourceCounts.industry_watchlist || 0}</strong></div>
+                <div><span>行业提醒</span><strong>{sourceCounts.industry_alert_history || 0}</strong></div>
+                <div><span>提醒规则</span><strong>{sourceCounts.price_alert_rules || 0}</strong></div>
+              </div>
+              <Alert
+                className="today-research-backup-alert"
+                type="success"
+                showIcon
+                message="档案已接入后端快照"
+                description={`当前 profile: ${profileId}，最近同步 ${formatTime(journal.updated_at || journal.generated_at)}。`}
+              />
+            </Card>
           </div>
-          <Tag color={hasActiveEntryFilters ? 'blue' : undefined}>
-            {hasActiveEntryFilters ? `${filteredEntries.length} / ${entries.length} 条` : `${entries.length} 条`}
-          </Tag>
-        </div>
-        <div className="today-research-filter-bar">
-          <Space wrap size={[10, 10]} className="today-research-filter-bar__controls">
-            <Select
-              aria-label="按状态筛选研究档案"
-              className="today-research-filter-bar__select"
-              value={entryFilters.status}
-              options={STATUS_FILTER_OPTIONS}
-              onChange={(value) => handleEntryFilterChange('status', value)}
-            />
-            <Select
-              aria-label="按优先级筛选研究档案"
-              className="today-research-filter-bar__select"
-              value={entryFilters.priority}
-              options={PRIORITY_FILTER_OPTIONS}
-              onChange={(value) => handleEntryFilterChange('priority', value)}
-            />
-            <Select
-              aria-label="按类型筛选研究档案"
-              className="today-research-filter-bar__select"
-              value={entryFilters.type}
-              options={TYPE_FILTER_OPTIONS}
-              onChange={(value) => handleEntryFilterChange('type', value)}
-            />
-            <Input.Search
-              allowClear
-              aria-label="筛选研究档案"
-              className="today-research-filter-bar__search"
-              placeholder="搜索标的、行业或记录"
-              value={entryFilters.keyword}
-              onChange={handleEntryKeywordChange}
-              onSearch={(value) => handleEntryFilterChange('keyword', value)}
-            />
-            <Button disabled={!hasActiveEntryFilters} onClick={handleClearEntryFilters}>
-              清除筛选
-            </Button>
-          </Space>
-          <div className="today-research-filter-bar__summary">
-            显示 <strong>{filteredEntries.length}</strong> / {entries.length} 条
-          </div>
-        </div>
-        <div className="today-research-entry-list today-research-entry-list--archive">
-          {filteredEntries.length ? filteredEntries.map(renderEntry) : (
-            <Empty description={hasActiveEntryFilters ? '当前筛选没有匹配记录' : '还没有研究档案，先跑一次回测或保存一条实时复盘快照。'} />
-          )}
-        </div>
-      </Card>
+
+          <Card className="today-research-panel">
+            <div className="today-research-panel__head">
+              <div>
+                <div className="today-research-panel__title">完整档案流</div>
+                <div className="today-research-panel__desc">所有来源统一成一条可回看的研究流。</div>
+              </div>
+              <Tag color={hasActiveEntryFilters ? 'blue' : undefined}>
+                {hasActiveEntryFilters ? `${filteredEntries.length} / ${entries.length} 条` : `${entries.length} 条`}
+              </Tag>
+            </div>
+            <div className="today-research-filter-bar">
+              <Space wrap size={[10, 10]} className="today-research-filter-bar__controls">
+                <Select
+                  aria-label="按状态筛选研究档案"
+                  className="today-research-filter-bar__select"
+                  value={entryFilters.status}
+                  options={STATUS_FILTER_OPTIONS}
+                  onChange={(value) => handleEntryFilterChange('status', value)}
+                />
+                <Select
+                  aria-label="按优先级筛选研究档案"
+                  className="today-research-filter-bar__select"
+                  value={entryFilters.priority}
+                  options={PRIORITY_FILTER_OPTIONS}
+                  onChange={(value) => handleEntryFilterChange('priority', value)}
+                />
+                <Select
+                  aria-label="按类型筛选研究档案"
+                  className="today-research-filter-bar__select"
+                  value={entryFilters.type}
+                  options={TYPE_FILTER_OPTIONS}
+                  onChange={(value) => handleEntryFilterChange('type', value)}
+                />
+                <Input.Search
+                  allowClear
+                  aria-label="筛选研究档案"
+                  className="today-research-filter-bar__search"
+                  placeholder="搜索标的、行业或记录"
+                  value={entryFilters.keyword}
+                  onChange={handleEntryKeywordChange}
+                  onSearch={(value) => handleEntryFilterChange('keyword', value)}
+                />
+                <Button disabled={!hasActiveEntryFilters} onClick={handleClearEntryFilters}>
+                  清除筛选
+                </Button>
+              </Space>
+              <div className="today-research-filter-bar__summary">
+                显示 <strong>{filteredEntries.length}</strong> / {entries.length} 条
+              </div>
+            </div>
+            <div className="today-research-entry-list today-research-entry-list--archive">
+              {filteredEntries.length ? filteredEntries.map(renderEntry) : (
+                <Empty description={hasActiveEntryFilters ? '当前筛选没有匹配记录' : '还没有研究档案，先跑一次回测或保存一条实时复盘快照。'} />
+              )}
+            </div>
+          </Card>
+        </>
+      )}
 
       <Modal
         title="研究档案备份"
