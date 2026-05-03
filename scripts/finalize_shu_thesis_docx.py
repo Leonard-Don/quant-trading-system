@@ -3727,6 +3727,84 @@ def normalize_standalone_project_scope(doc: Document) -> None:
             replace_paragraph_text(paragraph, normalized)
 
 
+def polish_final_submission_copy(doc: Document) -> None:
+    """Tighten final wording so the thesis reads like a formal submission."""
+    exact_replacements = {
+        "把文献里的龙头股识别方法和当前项目放在一起看，有一个很直接的共识：真正能长期代表行业状态的股票，通常不会只靠某一天的涨幅来判断。规模、盈利、成长和估值提供的是相对稳定的基本面线索，成交额、换手率和近期动量则更侧重反映市场对该判断的短期确认程度。[4-5][8-12]":
+            "综合相关文献与本系统实现可以发现，能够长期代表行业状态的股票，通常不能只依据单日涨幅判断。规模、盈利、成长和估值提供的是相对稳定的基本面线索，成交额、换手率和近期动量则更侧重反映市场对该判断的短期确认程度。[4-5][8-12]",
+        "总体来看，现有研究已经为热门行业识别和龙头股筛选提供了较充分的理论基础，但一落到工程实现，就还会遇到两个明显空档：一是多源适配、字段回退、缓存和页面展示这些真正影响可用性的细节经常被简化；二是行业识别和龙头股遴选常被拆开讨论，缺少统一的研究闭环。本文的重点不是再堆一个复杂模型，而是在真实项目基础上，把多源数据获取、行业评分、龙头股筛选和前端展示真正接起来。":
+            "总体来看，现有研究已经为热门行业识别和龙头股筛选提供了较充分的理论基础，但落实到工程实现层面，仍存在两个明显不足：一是多源适配、字段回退、缓存和页面展示等直接影响可用性的细节经常被简化；二是行业识别和龙头股遴选常被拆开讨论，缺少统一的研究闭环。本文的重点不是继续堆叠复杂模型，而是在系统实现基础上，将多源数据获取、行业评分、龙头股筛选和前端展示有效连接起来。",
+        "在这个课题里，“龙头股”并不等于某一天涨得最快的股票。更常见的情况是，短期涨幅靠前的个股未必真的能代表行业，有时只是情绪推动；真正更能代表行业状态的，往往是那些规模、盈利、成长和市场关注度都更加稳定的公司。传统龙头企业识别也大多沿着这个思路，从市值规模、产业地位、盈利质量、成长能力、估值合理性和市场表现等多个维度综合判断。[4-5][8-12]":
+            "在本课题中，“龙头股”并不等同于单日涨幅最高的股票。短期涨幅靠前的个股未必能够代表行业状态，有时更多反映市场情绪推动；更能体现行业代表性的，通常是规模、盈利、成长和市场关注度较稳定的公司。传统龙头企业识别也大多沿着这一思路，从市值规模、产业地位、盈利质量、成长能力、估值合理性和市场表现等多个维度综合判断。[4-5][8-12]",
+        "这样分层之后，每一层要解决的问题会清楚很多。表现层只需要关心图表交互和结果展示，服务层负责把分析结果组织成统一响应，分析层专注评分计算与结果解释，数据层则通过名称映射、节点回退、符号缓存和过期缓存保障等机制提高数据可用性。后面如果要替换局部数据源，或者微调评分权重，改动也大多集中在分析层和数据层，不必把前端页面整体重写一遍。":
+            "完成分层后，各层职责更加清晰。表现层主要负责图表交互和结果展示，服务层负责将分析结果组织为统一响应，分析层专注于评分计算与结果解释，数据层则通过名称映射、节点回退、符号缓存和过期缓存保障等机制提高数据可用性。后续若需要替换局部数据源或微调评分权重，改动也大多集中在分析层和数据层，无需整体重写前端页面。",
+        "和那种只依赖单一接口的数据抓取脚本相比，这套架构更适合支撑准实时行业研究。一方面，多源适配提高了行业目录、资金流、成分股、估值和历史走势等字段的覆盖率；另一方面，缓存和分层封装让页面响应速度与结果口径更容易保持一致。对论文写作来说，这一点也很重要，因为只有系统本身运行得足够稳定，后面获得的快照样本和案例分析才有说服力。":
+            "与仅依赖单一接口的数据抓取脚本相比，这套架构更适合支撑准实时行业研究。一方面，多源适配提高了行业目录、资金流、成分股、估值和历史走势等字段的覆盖率；另一方面，缓存和分层封装使页面响应速度与结果口径更容易保持一致。对论文写作而言，这一点具有重要意义，因为只有系统本身运行足够稳定，后续获得的快照样本和案例分析才具有说服力。",
+        "从毕业设计展示角度看，四层架构还有一个好处：它能把论文中的模型说明和真实页面运行过程对应起来。答辩时如果从前端热力图开始演示，页面请求会先进入服务层，再调用分析层和数据层；如果从代码角度说明，则可以反过来从数据适配器、行业分析器、评分器一路讲到前端展示。两种讲法对应的是同一条链路，能够减少论文和项目脱节的问题。":
+            "从毕业设计展示角度看，四层架构还有一项优势：它能够将论文中的模型说明与页面运行过程对应起来。答辩时若从前端热力图开始演示，页面请求会先进入服务层，再调用分析层和数据层；若从代码角度说明，则可以反向从数据适配器、行业分析器和评分器说明至前端展示。两种说明路径对应同一条链路，能够减少论文表述与系统实现脱节的问题。",
+        "表现层并不是简单负责“好看”。行业热度页面需要同时承载总览、排序、筛选、下钻和回放等动作，因此前端组件必须把热力图、排行榜、详情弹窗和偏好配置组织在同一个状态流里。如果前端只展示静态表格，用户就难以从行业热度继续推进到龙头股遴选。":
+            "表现层并不仅承担视觉呈现功能。行业热度页面需要同时承载总览、排序、筛选、下钻和回放等动作，因此前端组件必须把热力图、排行榜、详情弹窗和偏好配置组织在同一个状态流中。如果前端只展示静态表格，使用者就难以从行业热度继续推进到龙头股遴选。",
+        "文件化存储还有一个好处，是非常适合毕业设计阶段的复核。老师或答辩委员如果追问第六章表格里的数据来源，论文可以直接说明其来自固定快照文件，而不是当天重新计算出的临时结果。对一个本地运行的研究原型来说，这种透明度比复杂数据库更重要。":
+            "文件化存储还有一项优势，即较适合毕业设计阶段的复核。评阅教师或答辩委员如果追问第六章表格中的数据来源，论文可以直接说明其来自固定快照文件，而不是当天重新计算出的临时结果。对于本地运行的研究原型而言，这种透明度比复杂数据库更具现实意义。",
+        "这种拆分可以降低单次请求压力。若把所有字段都塞进一个接口，首屏加载会被详情数据拖慢；若每个小字段都组织为单独接口，前端又会出现过多请求。当前设计介于两者之间，把常用汇总结果和详情结果分开，既能保证首屏速度，也能支持用户继续下钻。":
+            "这种拆分可以降低单次请求压力。若将所有字段集中在单一接口中，首屏加载会被详情数据拖慢；若每个细粒度字段都组织为单独接口，前端又会出现过多请求。当前设计介于两者之间，将常用汇总结果和详情结果分开，既能保证首屏速度，也能支持使用者继续下钻。",
+    }
+    phrase_replacements = {
+        "真正的完整投资验证": "更完整的投资有效性验证",
+        "很容易把短期情绪波动当成热点": "容易把短期情绪波动当成热点",
+        "行业研究真正需要的是": "行业研究更需要的是",
+        "很强的时序性": "较强的时序性",
+        "用户通常不会只接受一个最终分数。研究者会继续追问": "研究者通常不会只接受一个最终分数，而会继续追问",
+        "真正需要的全部字段": "需要的全部字段",
+        "用户操作": "使用者操作",
+        "用户选中": "使用者选中",
+        "才真正能转化": "才能转化",
+        "使用户不必": "使使用者不必",
+        "方便用户判断": "便于使用者判断",
+        "真正完成行业综合评分": "承担行业综合评分",
+        "很容易和项目当前状态脱节": "容易与系统当前状态脱节",
+        "项目当前状态": "系统当前状态",
+        "真实项目实现": "系统实现",
+        "本项目当前": "本系统当前",
+        "本项目中": "本系统中",
+        "用户状态": "使用者状态",
+        "用户习惯": "研究习惯",
+        "尺度差异很大": "尺度差异较大",
+        "用户可能看到": "使用者可能看到",
+        "短期涨幅很高但波动也很剧烈": "短期涨幅较高但波动也较剧烈",
+        "短期涨幅很高但估值": "短期涨幅较高但估值",
+        "减少用户把短期涨幅等同于长期龙头的误解": "减少使用者将短期涨幅等同于长期龙头的误解",
+        "提醒用户区分": "提醒使用者区分",
+        "用户实际浏览页面的路径": "使用者实际浏览页面的路径",
+        "真正影响使用体验的还有": "直接影响使用体验的还有",
+        "帮助用户理解": "帮助使用者理解",
+        "用户关心的行业": "使用者关注的行业",
+        "当前项目": "本系统",
+        "项目代码": "系统代码",
+        "真实项目基础": "系统实现基础",
+        "数据层则承担了系统可靠性的底座作用": "数据层承担系统可靠性的基础保障作用",
+        "模型公式即使写得很清楚": "模型公式即使表述清晰",
+        "还有一个好处": "还有一项优势",
+        "这样做的好处是": "这样做的优势在于",
+    }
+
+    paragraphs = list(doc.paragraphs)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                paragraphs.extend(cell.paragraphs)
+
+    for paragraph in paragraphs:
+        original = paragraph.text.strip()
+        if not original:
+            continue
+        polished = exact_replacements.get(original, original)
+        for old, new in phrase_replacements.items():
+            polished = polished.replace(old, new)
+        if polished != original:
+            replace_paragraph_text(paragraph, polished)
+
+
 def remove_repeated_long_body_paragraphs(doc: Document) -> None:
     """Remove accidental repeated body paragraphs introduced by iterative regeneration."""
     seen: set[str] = set()
@@ -4319,13 +4397,16 @@ def main() -> None:
     update_body_content(source_layout_doc)
     polish_academic_tone(source_layout_doc)
     normalize_standalone_project_scope(source_layout_doc)
+    polish_final_submission_copy(source_layout_doc)
     remove_repeated_long_body_paragraphs(source_layout_doc)
     replace_formula_tables(source_layout_doc)
     relayout_figures(source_layout_doc)
+    polish_final_submission_copy(source_layout_doc)
     normalize_major_breaks(source_layout_doc)
 
     composed_doc = compose_official_template(source_layout_doc, Document(str(DOC_PATH)))
     normalize_reference_entries(composed_doc)
+    polish_final_submission_copy(composed_doc)
     format_data_tables(composed_doc)
     configure_headers_and_footers(composed_doc)
     format_paragraphs(composed_doc)
@@ -4335,6 +4416,7 @@ def main() -> None:
     pdf_path = export_submission_artifacts(DOC_PATH)
     toc_pages = compute_toc_pages_from_pdf(pdf_path)
     rebuild_toc(composed_doc, toc_pages)
+    polish_final_submission_copy(composed_doc)
     format_paragraphs(composed_doc)
     apply_minor_layout_overrides(composed_doc)
     composed_doc.save(str(DOC_PATH))
@@ -4343,6 +4425,7 @@ def main() -> None:
     verified_toc_pages = compute_toc_pages_from_pdf(pdf_path)
     if verified_toc_pages != toc_pages:
         rebuild_toc(composed_doc, verified_toc_pages)
+        polish_final_submission_copy(composed_doc)
         format_paragraphs(composed_doc)
         apply_minor_layout_overrides(composed_doc)
         composed_doc.save(str(DOC_PATH))
