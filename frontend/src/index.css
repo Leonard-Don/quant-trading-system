@@ -3043,6 +3043,98 @@ a {
   line-height: 1.45;
 }
 
+.backtest-data-health-panel__runtime {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.backtest-data-health-panel__runtime-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.backtest-data-health-panel__runtime-title {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.backtest-data-health-panel__runtime-summary.summary-strip {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.backtest-data-health-panel__runtime-summary .summary-strip__item {
+  padding: 10px 12px;
+  border-radius: 8px;
+}
+
+.backtest-data-health-panel__runtime-alert.ant-alert {
+  margin-bottom: 10px;
+  padding: 9px 12px;
+}
+
+.backtest-data-health-panel__provider-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.backtest-data-health-panel__provider-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
+  gap: 10px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.backtest-data-health-panel__provider-main {
+  min-width: 0;
+}
+
+.backtest-data-health-panel__provider-name {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.backtest-data-health-panel__provider-description {
+  display: block;
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-secondary);
+}
+
+.backtest-data-health-panel__breaker-tags {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.backtest-data-health-panel__breaker-tags .ant-tag {
+  margin: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .today-research-page {
   display: flex;
   flex-direction: column;
@@ -4832,6 +4924,19 @@ a {
 
   .summary-strip {
     grid-template-columns: 1fr;
+  }
+
+  .backtest-data-health-panel__summary.summary-strip,
+  .backtest-data-health-panel__runtime-summary.summary-strip {
+    grid-template-columns: 1fr;
+  }
+
+  .backtest-data-health-panel__provider-row {
+    grid-template-columns: 1fr;
+  }
+
+  .backtest-data-health-panel__breaker-tags {
+    justify-content: flex-start;
   }
 
   .backtest-main-stage__empty-card {
