@@ -220,8 +220,7 @@ quant-trading-system/
 │   ├── e2e/                        # Playwright 浏览器 E2E
 │   └── manual/                     # 手动验证脚本
 ├── docs/                           # 项目文档
-├── scripts/                        # 启停、检查、文档生成、验证等 30+ 运维脚本
-└── docker-compose.quant-infra.yml  # 本地基础设施 (TimescaleDB + Redis)
+└── scripts/                        # 启停、检查、文档生成、验证等运维脚本
 ```
 
 ### 技术栈
@@ -262,7 +261,6 @@ quant-trading-system/
 | Python | `3.9+` | `3.13` |
 | Node.js | `16+` | `22` |
 | npm | `8+` | `10+` |
-| Docker | 可选 | `24+` (用于 TimescaleDB + Redis) |
 
 ### 一键启动
 
@@ -283,16 +281,14 @@ cp .env.example .env
 # 1. 安装后端依赖
 pip install -r requirements-dev.txt
 
-# 2. （可选）启动基础设施 - TimescaleDB + Redis
-./scripts/start_infra_stack.sh
-
-# 3. （可选）启动 Celery Worker
+# 2. （可选）启动 Celery Worker
+# 需要自行配置 CELERY_BROKER_URL
 ./scripts/start_celery_worker.sh
 
-# 4. 启动后端
+# 3. 启动后端
 python scripts/start_backend.py
 
-# 5. 启动前端（新终端）
+# 4. 启动前端（新终端）
 cd frontend
 npm install
 npm start
@@ -309,27 +305,9 @@ npm start
 | 交易配置 | 初始资金、佣金、滑点、风控阈值 |
 | API 配置 | 前后端地址、端口、CORS |
 | 安全配置 | 限流、加密、审计日志 |
-| 基础设施 | TimescaleDB、Redis、Celery |
+| 可选外部服务 | 数据库、Redis、Celery broker |
 | OAuth | GitHub / Google OAuth 集成 |
 | 通知 | 邮件、钉钉、企业微信 |
-
-### Docker 基础设施
-
-本地开发可通过 Docker Compose 一键启动 TimescaleDB 和 Redis：
-
-```bash
-# 启动
-./scripts/start_infra_stack.sh
-
-# 停止
-./scripts/stop_infra_stack.sh
-```
-
-或直接使用 Docker Compose：
-
-```bash
-docker compose -f docker-compose.quant-infra.yml up -d
-```
 
 ### 健康检查
 
@@ -438,8 +416,6 @@ GitHub Actions 会在每次 push 到 `main` 或 PR 时自动运行：
 | `scripts/stop_system.sh` | 一键停止所有服务 |
 | `scripts/start_backend.py` | 单独启动后端 |
 | `scripts/start_frontend.sh` | 单独启动前端 |
-| `scripts/start_infra_stack.sh` | 启动 Docker 基础设施 |
-| `scripts/stop_infra_stack.sh` | 停止 Docker 基础设施 |
 | `scripts/start_celery_worker.sh` | 启动 Celery 异步任务进程 |
 | `scripts/stop_celery_worker.sh` | 停止 Celery 进程 |
 | `scripts/health_check.py` | 全链路健康检查 |

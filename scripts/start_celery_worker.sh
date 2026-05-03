@@ -7,19 +7,16 @@ PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="$PROJECT_ROOT/logs"
 PID_FILE="$LOG_DIR/celery-worker.pid"
 LOG_FILE="$LOG_DIR/celery-worker.log"
-INFRA_ENV_FILE="$LOG_DIR/infra-stack.env"
 
 LOG_LEVEL="${CELERY_LOGLEVEL:-info}"
 CONCURRENCY="${CELERY_WORKER_CONCURRENCY:-1}"
 POOL="${CELERY_WORKER_POOL:-solo}"
-USE_INFRA_ENV=1
 
 usage() {
     cat <<'EOF'
-用法: ./scripts/start_celery_worker.sh [--no-infra-env] [--loglevel LEVEL] [--concurrency N] [--pool NAME] [--help]
+用法: ./scripts/start_celery_worker.sh [--loglevel LEVEL] [--concurrency N] [--pool NAME] [--help]
 
 选项:
-  --no-infra-env     不自动读取 logs/infra-stack.env
   --loglevel LEVEL   Celery 日志级别，默认 info
   --concurrency N    Worker 并发数，默认 1
   --pool NAME        Worker pool，默认 solo（适合本地开发）
@@ -42,9 +39,6 @@ process_alive() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --no-infra-env)
-            USE_INFRA_ENV=0
-            ;;
         --loglevel)
             LOG_LEVEL="${2:-info}"
             shift
@@ -72,12 +66,6 @@ done
 
 mkdir -p "$LOG_DIR"
 
-if [[ "$USE_INFRA_ENV" -eq 1 && -f "$INFRA_ENV_FILE" ]]; then
-    # shellcheck disable=SC1090
-    source "$INFRA_ENV_FILE"
-    export DATABASE_URL REDIS_URL CELERY_BROKER_URL CELERY_RESULT_BACKEND
-fi
-
 if [[ -f "$PID_FILE" ]]; then
     EXISTING_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
     if [[ -n "$EXISTING_PID" ]] && process_alive "$EXISTING_PID"; then
@@ -89,7 +77,7 @@ if [[ -f "$PID_FILE" ]]; then
 fi
 
 if [[ -z "${CELERY_BROKER_URL:-}" ]]; then
-    log_error "❌ 未配置 CELERY_BROKER_URL。可先运行 ./scripts/start_infra_stack.sh 或导出 broker 环境变量。"
+    log_error "❌ 未配置 CELERY_BROKER_URL。请先导出 broker 环境变量。"
     exit 1
 fi
 

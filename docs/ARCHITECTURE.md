@@ -193,7 +193,7 @@ sequenceDiagram
 
 ### ADR-003 TimescaleDB 而非纯 PostgreSQL
 **为何**:行情天然是时序数据,hypertable + 自动分区让 5 年×3000 标的的明细能 O(秒) 级聚合查询。
-**取舍**:增加部署依赖(Docker 镜像更大);TimescaleDB 的 OSS 版本不支持多节点。
+**取舍**:需要自行准备外部数据库服务;TimescaleDB 的 OSS 版本不支持多节点。
 
 ### ADR-004 前端用 CRA + Antd 5 + 自管 Context
 **为何**:研究工具不追求极致 bundle 大小;Antd 提供 80% 的组件;不引 Redux 减少认知负担。
@@ -214,10 +214,10 @@ sequenceDiagram
 | 失败 | 表现 | 兜底 |
 |------|------|------|
 | akshare 网站改版 | provider 抛 ParseError | 断路器 5 次失败后开路,切到 sina |
-| TimescaleDB 不可用 | 启动期 health check 失败 | 后端拒绝启动;降级到 SQLite fallback(`src/data/alt_data`) |
+| TimescaleDB 不可用 | 持久化诊断失败 | 降级到 SQLite fallback(`src/data/alt_data`) |
 | Redis 不可用 | celery 任务积压 | 同步路径不受影响;异步接口返回 503 |
 | 单个策略炸 | 主回测端点 500 | error_handler 包装为统一错误响应,不影响其他端点 |
-| 前端 bundle 加载失败 | 白屏 | nginx fallback 到 `index.html`;React error boundary 显示重试按钮 |
+| 前端 bundle 加载失败 | 白屏 | React error boundary 显示重试按钮 |
 
 ---
 

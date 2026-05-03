@@ -86,7 +86,7 @@ npm run build
 
 如需同域代理，可将 API 绑定到 `/api`，并配置前端 `REACT_APP_API_URL` 为 `https://your-domain.com/api`。
 
-```nginx
+```conf
 server {
     listen 80;
     server_name your-domain.com;
@@ -106,131 +106,36 @@ server {
 }
 ```
 
-## Docker 一键部署(全栈)
+## 可选外部服务
 
-仓库根目录的 [`docker-compose.yml`](../docker-compose.yml) 提供 **TimescaleDB + Redis + Backend + Frontend** 四个 service 的一键部署能力,适用于本地完整体验和最小化生产部署。
+当前公开仓默认按本地进程方式运行，不再提供仓内基础设施编排。若需要更强的持久化或异步执行能力，可以自行准备外部服务，并通过环境变量接入。
 
-### 镜像构成
+| 能力 | 环境变量 | 未配置时行为 |
+|------|----------|--------------|
+| PostgreSQL / TimescaleDB | `DATABASE_URL` | 使用本地 SQLite fallback |
+| Redis / Celery broker | `REDIS_URL` 或 `CELERY_BROKER_URL` | 异步任务回退到本地执行路径 |
+| Celery result backend | `CELERY_RESULT_BACKEND` | 复用 broker 或使用本地状态 |
 
-| 服务 | 镜像来源 | 端口 |
-|------|---------|------|
-| `timescaledb` | `timescale/timescaledb:latest-pg16` | `5432` |
-| `redis` | `redis:7-alpine` | `6379` |
-| `backend` | 仓内 [`Dockerfile.backend`](../Dockerfile.backend) 多阶段构建,Python 3.13-slim,non-root user | `8000` |
-| `frontend` | 仓内 [`Dockerfile.frontend`](../Dockerfile.frontend) (node:22-alpine 构建 → nginx:1.27-alpine 提供静态产物 + `/api` 反向代理) | `3000 → 80` |
-
-### 启动
-
-```bash
-# 1. 准备 .env(必须设置真实 AUTH_SECRET)
-cp .env.example .env
-sed -i.bak 's/AUTH_SECRET=.*/AUTH_SECRET="please-replace-with-32-byte-random"/' .env
-
-# 2. 一次性构建并启动
-docker compose up -d --build
-
-# 3. 跟踪日志
-docker compose logs -f backend frontend
-
-# 4. 健康检查
-curl http://localhost:8000/health
-curl http://localhost:3000/healthz
-```
-
-### 镜像版本固定
-
-`docker-compose.yml` 顶部支持以下变量(在 `.env` 中设置):
-
-| 变量 | 默认值 | 用途 |
-|------|--------|------|
-| `IMAGE_TAG` | `dev` | 给 backend / frontend 镜像打 tag |
-| `TIMESCALE_TAG` | `latest-pg16` | 升级前固定到具体版本 |
-| `REDIS_TAG` | `7-alpine` | 同上 |
-| `PYTHON_VERSION` | `3.13` | 通过 `--build-arg` 传给 `Dockerfile.backend` |
-| `NODE_VERSION` | `22` | 同上,传给 `Dockerfile.frontend` |
-
-### 数据持久化
-
-四个命名卷:`timescale_data` / `redis_data` / `backend_logs` / `backend_cache` / `backend_data`。
-
-```bash
-# 备份 TimescaleDB
-docker compose exec timescaledb pg_dump -U quant quant_research > backup-$(date +%F).sql
-
-# 完整下线 + 数据卷一并清除(危险)
-docker compose down -v
-```
-
-### 反向代理建议
-
-`Dockerfile.frontend` 已经把 `/api` 和 `/ws` 在 nginx 内部代理到 backend,所以前端容器自带"网关"。如要部署到公网域名,只需把外层反向代理(traefik / cloudflared / 自建 nginx)指向前端容器的 `80` 端口,即可同时拿到静态资源 + API + WebSocket。
-
-如果使用 Traefik,可通过 labels 自动暴露:
-
-```yaml
-frontend:
-  labels:
-    - traefik.enable=true
-    - traefik.http.routers.quant.rule=Host(`quant.example.com`)
-    - traefik.http.routers.quant.entrypoints=websecure
-    - traefik.http.routers.quant.tls.certresolver=letsencrypt
-```
-
-### 单独启动基础设施(开发模式)
-
-如果仍想在宿主机直接 `python backend/main.py + npm start` 调试,只跑 infra:
-
-```bash
-# 用 infra-only 编排
-docker compose -f docker-compose.quant-infra.yml up -d
-```
-
----
-
-## (旧)仅基础设施部署
-
-当前仓库还保留独立的 [`docker-compose.quant-infra.yml`](../docker-compose.quant-infra.yml) 用于一键启动:
-
-- `PostgreSQL + TimescaleDB`
-- `Redis`
-
-推荐的本地启动顺序如下：
+常用顺序：
 
 ```bash
 cp .env.example .env
-./scripts/start_infra_stack.sh --bootstrap-persistence
-source ./logs/infra-stack.env
+
+# 如需外部数据库 / broker，在 .env 或 shell 中配置对应变量
+export DATABASE_URL="postgresql://user:password@host:5432/quant_research"
+export CELERY_BROKER_URL="redis://host:6379/0"
+export CELERY_RESULT_BACKEND="redis://host:6379/1"
+
+# 可选：迁移本地 fallback 数据到外部 PostgreSQL
+python3 ./scripts/migrate_infra_store.py --dry-run
+
+# 可选：启动 worker
 ./scripts/start_celery_worker.sh
-python3 ./scripts/migrate_infra_store.py
+
+# 启动前后端
 ./scripts/start_system.sh
 ```
 
-如果希望一次性把基础设施和前后端一起拉起，可以直接使用：
-
-```bash
-./scripts/start_system.sh --with-infra --with-worker --bootstrap-persistence
-```
-
-停止命令：
-
-```bash
-./scripts/stop_system.sh --with-infra --with-worker
-```
-
-如需连同数据库和 Redis 数据卷一起删除：
-
-```bash
-./scripts/stop_system.sh --with-infra --remove-infra-volumes
-```
-
-说明：
-
-- `start_infra_stack.sh` 会在 `logs/infra-stack.env` 中生成推荐的 `DATABASE_URL / REDIS_URL / CELERY_*` 运行时环境。
-- `start_celery_worker.sh` 默认会复用 `logs/infra-stack.env` 中的 broker 配置，并以本地开发更稳妥的 `solo` pool 启动 worker。
-- `migrate_infra_store.py` 可先做 dry-run 预览，再使用 `--apply` 将原 SQLite fallback 的 records / timeseries 迁移到 PostgreSQL。
-- `--bootstrap-persistence` 会在 TimescaleDB 就绪后自动执行 `backend/app/db/timescale_schema.sql` 对应的 bootstrap 流程。
-- 若当前机器未安装 Docker / docker compose，系统仍可继续使用 SQLite + 本地执行器降级运行。
-
 ---
 
-**最后更新**: 2026-03-20
+**最后更新**: 2026-05-03

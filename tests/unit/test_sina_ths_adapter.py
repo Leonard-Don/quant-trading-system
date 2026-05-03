@@ -4,7 +4,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 
+from src.data.providers.circuit_breaker import CircuitOpenError, CircuitState
 from src.data.providers.sina_provider import SinaFinanceProvider
 from src.data.providers.sina_ths_adapter import SinaIndustryAdapter
 
@@ -21,7 +23,13 @@ def test_attach_industry_codes_before_market_cap_fallback():
 
     ths_df = pd.DataFrame(
         [
-            {"行业": "半导体及元件", "industry_name": "半导体及元件", "净额": 1, "流入": 10, "流出": 5},
+            {
+                "行业": "半导体及元件",
+                "industry_name": "半导体及元件",
+                "净额": 1,
+                "流入": 10,
+                "流出": 5,
+            },
             {"行业": "软件开发", "industry_name": "软件开发", "净额": 2, "流入": 8, "流出": 4},
         ]
     )
@@ -36,14 +44,11 @@ def test_compute_industry_market_caps_fetches_all_pages():
     adapter = SinaIndustryAdapter()
     adapter.sina = MagicMock()
     adapter._resolve_sina_industry_code = MagicMock(return_value="new_test")
-    adapter.sina.get_industry_stocks.return_value = (
-        [{"code": f"{i:06d}", "mktcap": 1} for i in range(1, 51)]
-        + [{"code": "000003", "mktcap": 30}]
-    )
+    adapter.sina.get_industry_stocks.return_value = [
+        {"code": f"{i:06d}", "mktcap": 1} for i in range(1, 51)
+    ] + [{"code": "000003", "mktcap": 30}]
 
-    df = pd.DataFrame(
-        [{"industry_name": "半导体及元件", "industry_code": "new_test"}]
-    )
+    df = pd.DataFrame([{"industry_name": "半导体及元件", "industry_code": "new_test"}])
 
     adapter._compute_industry_market_caps(df)
 
@@ -69,7 +74,9 @@ def test_resolve_sina_industry_code_uses_sina_node_code():
 def test_resolve_sina_industry_code_prefers_persistent_snapshot_before_live():
     adapter = SinaIndustryAdapter()
     adapter.sina = MagicMock()
-    adapter.sina.get_industry_list.side_effect = AssertionError("live Sina industry list should not run")
+    adapter.sina.get_industry_list.side_effect = AssertionError(
+        "live Sina industry list should not run"
+    )
     original_cache = SinaIndustryAdapter._sina_industry_list_shared_cache
     original_cache_time = SinaIndustryAdapter._sina_industry_list_shared_cache_time
     SinaIndustryAdapter._sina_industry_list_shared_cache = None
@@ -102,7 +109,9 @@ def test_resolve_sina_industry_code_prefers_cached_new_node_over_hangye_fallback
         ]
     )
 
-    with patch.object(SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_dlhy"}):
+    with patch.object(
+        SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_dlhy"}
+    ):
         assert adapter._resolve_sina_industry_code("电力", "881145") == "new_dlhy"
 
 
@@ -111,7 +120,9 @@ def test_resolve_sina_industry_code_avoids_overbroad_cached_alias():
     adapter.sina = MagicMock()
     adapter.sina.get_industry_list.return_value = pd.DataFrame()
 
-    with patch.object(SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_ylqx"}):
+    with patch.object(
+        SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_ylqx"}
+    ):
         assert adapter._resolve_sina_industry_code("医疗服务", "881160") is None
 
 
@@ -124,7 +135,9 @@ def test_resolve_sina_industry_code_avoids_overbroad_live_new_node_match():
         ]
     )
 
-    with patch.object(SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_swzz"}):
+    with patch.object(
+        SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_swzz"}
+    ):
         assert adapter._resolve_sina_industry_code("医疗服务", "881160") is None
 
 
@@ -137,7 +150,9 @@ def test_resolve_sina_industry_code_uses_cached_new_node_for_logistics_family():
         ]
     )
 
-    with patch.object(SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_wzwm"}):
+    with patch.object(
+        SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_wzwm"}
+    ):
         assert adapter._resolve_sina_industry_code("物流", "881159") == "new_wzwm"
 
 
@@ -146,46 +161,65 @@ def test_resolve_sina_industry_node_marks_proxy_source():
     adapter.sina = MagicMock()
     adapter.sina.get_industry_list.return_value = pd.DataFrame()
 
-    with patch.object(SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_dzqj"}):
-        assert adapter._resolve_sina_industry_node("半导体", "881121") == ("new_dzqj", "sina_proxy_stock_sum")
+    with patch.object(
+        SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_dzqj"}
+    ):
+        assert adapter._resolve_sina_industry_node("半导体", "881121") == (
+            "new_dzqj",
+            "sina_proxy_stock_sum",
+        )
 
 
 def test_resolve_sina_industry_node_uses_persistent_lookup_before_dataframe_scan():
     adapter = SinaIndustryAdapter()
     adapter.sina = MagicMock()
 
-    with patch.object(
-        SinaFinanceProvider,
-        "_get_persistent_industry_list_lookup",
-        return_value={"白酒": [{"industry_name": "白酒", "industry_code": "new_bj"}]},
-    ), patch.object(
-        SinaIndustryAdapter,
-        "_get_sina_industry_list",
-        side_effect=AssertionError("persistent lookup should resolve before DataFrame scan"),
+    with (
+        patch.object(
+            SinaFinanceProvider,
+            "_get_persistent_industry_list_lookup",
+            return_value={"白酒": [{"industry_name": "白酒", "industry_code": "new_bj"}]},
+        ),
+        patch.object(
+            SinaIndustryAdapter,
+            "_get_sina_industry_list",
+            side_effect=AssertionError("persistent lookup should resolve before DataFrame scan"),
+        ),
     ):
-        assert adapter._resolve_sina_industry_node("白酒", allow_live=False) == ("new_bj", "sina_stock_sum")
+        assert adapter._resolve_sina_industry_node("白酒", allow_live=False) == (
+            "new_bj",
+            "sina_stock_sum",
+        )
 
 
 def test_get_cached_stock_list_by_industry_uses_persistent_proxy_snapshot():
     adapter = SinaIndustryAdapter()
     adapter.sina = MagicMock()
     adapter.akshare = MagicMock()
-    adapter.sina._get_persistent_industry_stock_rows.side_effect = lambda code: [
-        {
-            "code": "688981",
-            "name": "中芯国际",
-            "change_pct": 1.8,
-            "mktcap": 42000000,
-            "volume": 100,
-            "amount": 200,
-            "turnover_ratio": 4.6,
-            "pe_ratio": 52.7,
-            "pb_ratio": 3.1,
-        }
-    ] if code == "new_dzqj" else []
+    adapter.sina._get_persistent_industry_stock_rows.side_effect = lambda code: (
+        [
+            {
+                "code": "688981",
+                "name": "中芯国际",
+                "change_pct": 1.8,
+                "mktcap": 42000000,
+                "volume": 100,
+                "amount": 200,
+                "turnover_ratio": 4.6,
+                "pe_ratio": 52.7,
+                "pb_ratio": 3.1,
+            }
+        ]
+        if code == "new_dzqj"
+        else []
+    )
 
-    with patch.object(SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_dzqj"}):
-        with patch.object(SinaFinanceProvider, "_load_persistent_industry_list", return_value=pd.DataFrame()):
+    with patch.object(
+        SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_dzqj"}
+    ):
+        with patch.object(
+            SinaFinanceProvider, "_load_persistent_industry_list", return_value=pd.DataFrame()
+        ):
             stocks = adapter.get_cached_stock_list_by_industry("半导体")
 
     assert len(stocks) == 1
@@ -221,7 +255,10 @@ def test_get_ths_industry_catalog_uses_persistent_snapshot_before_live(tmp_path)
     )
 
     try:
-        with patch("src.data.providers.sina_ths_adapter.ak.stock_board_industry_name_ths", side_effect=AssertionError("live THS catalog should not run")):
+        with patch(
+            "src.data.providers.sina_ths_adapter.ak.stock_board_industry_name_ths",
+            side_effect=AssertionError("live THS catalog should not run"),
+        ):
             catalog = adapter._get_ths_industry_catalog()
     finally:
         SinaIndustryAdapter._ths_catalog_snapshot_path = original_path
@@ -274,8 +311,12 @@ def test_get_ths_flow_data_parses_html_without_pandas_read_html(monkeypatch):
         status_code = 200
         text = sample_html
 
-    monkeypatch.setattr(SinaIndustryAdapter, "_build_ths_request_headers", lambda *args, **kwargs: ({}, False))
-    monkeypatch.setattr("src.data.providers.sina_ths_adapter.requests.get", lambda *args, **kwargs: _Response())
+    monkeypatch.setattr(
+        SinaIndustryAdapter, "_build_ths_request_headers", lambda *args, **kwargs: ({}, False)
+    )
+    monkeypatch.setattr(
+        "src.data.providers.sina_ths_adapter.requests.get", lambda *args, **kwargs: _Response()
+    )
     monkeypatch.setattr(
         "src.data.providers.sina_ths_adapter.pd.read_html",
         lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("read_html should not run")),
@@ -306,7 +347,9 @@ def test_get_cached_stock_list_by_industry_falls_back_to_akshare_snapshot():
     ]
 
     with patch.object(SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value=set()):
-        with patch.object(SinaFinanceProvider, "_load_persistent_industry_list", return_value=pd.DataFrame()):
+        with patch.object(
+            SinaFinanceProvider, "_load_persistent_industry_list", return_value=pd.DataFrame()
+        ):
             stocks = adapter.get_cached_stock_list_by_industry("白酒")
 
     assert len(stocks) == 1
@@ -330,15 +373,18 @@ def test_get_cached_sina_industry_codes_reuses_name_level_cache():
     SinaIndustryAdapter._sina_cached_stock_nodes_time = 0
 
     try:
-        with patch.object(
-            SinaIndustryAdapter,
-            "_get_cached_sina_stock_nodes",
-            side_effect=[frozenset({"new_dzqj"})],
-        ) as stock_nodes_mock, patch.object(
-            SinaFinanceProvider,
-            "_get_persistent_industry_list_lookup",
-            side_effect=[{"半导体": [{"industry_code": "new_dzqj"}]}],
-        ) as lookup_mock:
+        with (
+            patch.object(
+                SinaIndustryAdapter,
+                "_get_cached_sina_stock_nodes",
+                side_effect=[frozenset({"new_dzqj"})],
+            ) as stock_nodes_mock,
+            patch.object(
+                SinaFinanceProvider,
+                "_get_persistent_industry_list_lookup",
+                side_effect=[{"半导体": [{"industry_code": "new_dzqj"}]}],
+            ) as lookup_mock,
+        ):
             first = adapter._get_cached_sina_industry_codes("半导体")
             second = adapter._get_cached_sina_industry_codes("半导体")
     finally:
@@ -357,7 +403,9 @@ def test_get_stock_list_by_industry_fast_mode_uses_cached_summary_only_for_final
     adapter = SinaIndustryAdapter()
     adapter.sina = MagicMock()
     adapter.akshare = MagicMock()
-    adapter.akshare.get_stock_list_by_industry.side_effect = AssertionError("fast mode should not hit live akshare")
+    adapter.akshare.get_stock_list_by_industry.side_effect = AssertionError(
+        "fast mode should not hit live akshare"
+    )
     adapter._resolve_sina_industry_code = MagicMock(return_value=None)
     adapter._build_symbol_cache_industry_fallback = MagicMock(return_value=[])
     adapter.get_cached_stock_list_by_industry = MagicMock(return_value=[])
@@ -374,7 +422,9 @@ def test_get_stock_list_by_industry_fast_mode_uses_cached_summary_only_for_final
 def test_get_stock_list_by_industry_fast_mode_named_fallback_prefers_persistent_industry_list():
     adapter = SinaIndustryAdapter()
     adapter.sina = MagicMock()
-    adapter.sina.get_industry_list.side_effect = AssertionError("fast mode named fallback should not run live Sina list")
+    adapter.sina.get_industry_list.side_effect = AssertionError(
+        "fast mode named fallback should not run live Sina list"
+    )
     adapter.sina.get_industry_stocks.return_value = [
         {
             "code": "600519",
@@ -423,7 +473,9 @@ def test_get_stock_list_by_industry_fast_mode_named_fallback_prefers_persistent_
 def test_get_stock_list_by_industry_fast_mode_skips_live_sina_industry_list_for_node_resolution():
     adapter = SinaIndustryAdapter()
     adapter.sina = MagicMock()
-    adapter.sina.get_industry_list.side_effect = AssertionError("fast mode node resolution should not run live Sina list")
+    adapter.sina.get_industry_list.side_effect = AssertionError(
+        "fast mode node resolution should not run live Sina list"
+    )
     adapter.sina.get_industry_stocks.return_value = []
     adapter.akshare = MagicMock()
     adapter.akshare.get_stock_list_by_industry.return_value = []
@@ -437,10 +489,15 @@ def test_get_stock_list_by_industry_fast_mode_skips_live_sina_industry_list_for_
     SinaIndustryAdapter._sina_industry_list_shared_cache_time = 0
 
     try:
-        with patch.object(SinaFinanceProvider, "_get_persistent_industry_list_lookup", return_value={}), patch.object(
-            SinaIndustryAdapter,
-            "_get_cached_sina_stock_nodes",
-            return_value=set(),
+        with (
+            patch.object(
+                SinaFinanceProvider, "_get_persistent_industry_list_lookup", return_value={}
+            ),
+            patch.object(
+                SinaIndustryAdapter,
+                "_get_cached_sina_stock_nodes",
+                return_value=set(),
+            ),
         ):
             stocks = adapter.get_stock_list_by_industry("养殖业", fast_mode=True)
     finally:
@@ -456,7 +513,9 @@ def test_get_stock_list_by_industry_fast_mode_uses_persistent_leader_before_aksh
     adapter.sina = MagicMock()
     adapter.sina.get_industry_list.return_value = pd.DataFrame()
     adapter.akshare = MagicMock()
-    adapter.akshare.get_stock_list_by_industry.side_effect = AssertionError("should not call live akshare")
+    adapter.akshare.get_stock_list_by_industry.side_effect = AssertionError(
+        "should not call live akshare"
+    )
     adapter._resolve_sina_industry_code = MagicMock(return_value=None)
     adapter._build_symbol_cache_industry_fallback = MagicMock(return_value=[])
     adapter.get_cached_stock_list_by_industry = MagicMock(return_value=[])
@@ -515,7 +574,9 @@ def test_compute_industry_market_caps_marks_proxy_source():
     adapter = SinaIndustryAdapter()
     adapter.sina = MagicMock()
     adapter.akshare = MagicMock()
-    adapter._resolve_sina_industry_node = MagicMock(return_value=("new_dzqj", "sina_proxy_stock_sum"))
+    adapter._resolve_sina_industry_node = MagicMock(
+        return_value=("new_dzqj", "sina_proxy_stock_sum")
+    )
     adapter.sina.get_industry_stocks.return_value = [
         {"code": "688981", "mktcap": 100},
         {"code": "603986", "mktcap": 200},
@@ -533,18 +594,37 @@ def test_compute_industry_market_caps_marks_proxy_source():
 def test_persist_market_cap_snapshot_merges_real_entries(tmp_path):
     adapter = SinaIndustryAdapter()
     original_path = SinaIndustryAdapter._industry_market_cap_snapshot_path
-    SinaIndustryAdapter._industry_market_cap_snapshot_path = tmp_path / "industry_market_cap_snapshot.json"
+    SinaIndustryAdapter._industry_market_cap_snapshot_path = (
+        tmp_path / "industry_market_cap_snapshot.json"
+    )
     try:
         adapter._persist_market_cap_snapshot(
             pd.DataFrame(
                 [
-                    {"industry_name": "电力", "industry_code": "881145", "total_market_cap": 2e12, "market_cap_source": "akshare_metadata"},
-                    {"industry_name": "食品加工制造", "industry_code": "881127", "total_market_cap": 5e11, "market_cap_source": "sina_stock_sum"},
-                    {"industry_name": "未知行业", "industry_code": "999999", "total_market_cap": 1.0, "market_cap_source": "estimated_from_flow"},
+                    {
+                        "industry_name": "电力",
+                        "industry_code": "881145",
+                        "total_market_cap": 2e12,
+                        "market_cap_source": "akshare_metadata",
+                    },
+                    {
+                        "industry_name": "食品加工制造",
+                        "industry_code": "881127",
+                        "total_market_cap": 5e11,
+                        "market_cap_source": "sina_stock_sum",
+                    },
+                    {
+                        "industry_name": "未知行业",
+                        "industry_code": "999999",
+                        "total_market_cap": 1.0,
+                        "market_cap_source": "estimated_from_flow",
+                    },
                 ]
             )
         )
-        payload = json.loads(SinaIndustryAdapter._industry_market_cap_snapshot_path.read_text(encoding="utf-8"))
+        payload = json.loads(
+            SinaIndustryAdapter._industry_market_cap_snapshot_path.read_text(encoding="utf-8")
+        )
     finally:
         SinaIndustryAdapter._industry_market_cap_snapshot_path = original_path
 
@@ -579,7 +659,12 @@ def test_persist_market_cap_snapshot_preserves_existing_entries(tmp_path):
         adapter._persist_market_cap_snapshot(
             pd.DataFrame(
                 [
-                    {"industry_name": "食品加工制造", "industry_code": "881127", "total_market_cap": 5e11, "market_cap_source": "sina_stock_sum"},
+                    {
+                        "industry_name": "食品加工制造",
+                        "industry_code": "881127",
+                        "total_market_cap": 5e11,
+                        "market_cap_source": "sina_stock_sum",
+                    },
                 ]
             )
         )
@@ -617,7 +702,13 @@ def test_apply_persistent_market_cap_snapshot_fills_missing_caps(tmp_path):
     try:
         df = pd.DataFrame(
             [
-                {"industry_name": "电力", "industry_code": "881145", "total_market_cap": 0.0, "market_cap_source": "unknown", "data_sources": ["ths"]},
+                {
+                    "industry_name": "电力",
+                    "industry_code": "881145",
+                    "total_market_cap": 0.0,
+                    "market_cap_source": "unknown",
+                    "data_sources": ["ths"],
+                },
             ]
         )
         assert adapter._apply_persistent_market_cap_snapshot(df) is True
@@ -657,7 +748,13 @@ def test_apply_persistent_market_cap_snapshot_marks_stale_age(tmp_path):
     try:
         df = pd.DataFrame(
             [
-                {"industry_name": "电力", "industry_code": "881145", "total_market_cap": 0.0, "market_cap_source": "unknown", "data_sources": ["ths"]},
+                {
+                    "industry_name": "电力",
+                    "industry_code": "881145",
+                    "total_market_cap": 0.0,
+                    "market_cap_source": "unknown",
+                    "data_sources": ["ths"],
+                },
             ]
         )
         adapter._apply_persistent_market_cap_snapshot(df)
@@ -686,7 +783,8 @@ def test_get_persistent_market_cap_snapshot_status_counts_stale_entries(tmp_path
                         "industry_name": "食品加工制造",
                         "total_market_cap": 5e11,
                         "market_cap_source": "sina_stock_sum",
-                        "updated_at": now - (SinaIndustryAdapter._market_cap_snapshot_stale_after_hours + 3) * 3600,
+                        "updated_at": now
+                        - (SinaIndustryAdapter._market_cap_snapshot_stale_after_hours + 3) * 3600,
                     },
                 },
             },
@@ -706,7 +804,9 @@ def test_get_persistent_market_cap_snapshot_status_counts_stale_entries(tmp_path
     assert status["entries"] == 2
     assert status["fresh_entries"] == 1
     assert status["stale_entries"] == 1
-    assert status["max_age_hours"] >= SinaIndustryAdapter._market_cap_snapshot_stale_after_hours + 2.9
+    assert (
+        status["max_age_hours"] >= SinaIndustryAdapter._market_cap_snapshot_stale_after_hours + 2.9
+    )
     assert status["source_counts"] == {"akshare_metadata": 1, "sina_stock_sum": 1}
 
 
@@ -739,7 +839,11 @@ def test_load_persistent_market_cap_snapshot_reuses_memory_when_file_unchanged(t
 
     try:
         first = SinaIndustryAdapter._load_persistent_market_cap_snapshot()
-        with patch.object(Path, "read_text", side_effect=AssertionError("read_text should not run on warm snapshot load")):
+        with patch.object(
+            Path,
+            "read_text",
+            side_effect=AssertionError("read_text should not run on warm snapshot load"),
+        ):
             second = SinaIndustryAdapter._load_persistent_market_cap_snapshot()
     finally:
         SinaIndustryAdapter._industry_market_cap_snapshot_path = original_path
@@ -809,21 +913,30 @@ def test_enrich_with_akshare_uses_precise_join_keys():
     SinaIndustryAdapter._akshare_valuation_snapshot_cache_time = 0
     SinaIndustryAdapter._akshare_valuation_snapshot_failure_at = 0
 
-    source_df = pd.DataFrame(
-        [{"industry_name": "房地产开发", "leading_stock": "万科A"}]
-    )
+    source_df = pd.DataFrame([{"industry_name": "房地产开发", "leading_stock": "万科A"}])
     meta_df = pd.DataFrame(
         [
-            {"industry_name": "房地产服务", "total_market_cap": 999, "turnover_rate": 8.8, "market_cap_source": "akshare_metadata"},
+            {
+                "industry_name": "房地产服务",
+                "total_market_cap": 999,
+                "turnover_rate": 8.8,
+                "market_cap_source": "akshare_metadata",
+            },
         ]
     )
     valuation_df = pd.DataFrame(
         [{"行业名称": "房地产服务", "TTM(滚动)市盈率": 22.2, "市净率": 1.5, "静态股息率": 0.8}]
     )
 
-    with patch("src.data.providers.akshare_provider.AKShareProvider._get_industry_metadata", return_value=meta_df), patch(
-        "src.data.providers.sina_ths_adapter.ak.sw_index_first_info",
-        return_value=valuation_df,
+    with (
+        patch(
+            "src.data.providers.akshare_provider.AKShareProvider._get_industry_metadata",
+            return_value=meta_df,
+        ),
+        patch(
+            "src.data.providers.sina_ths_adapter.ak.sw_index_first_info",
+            return_value=valuation_df,
+        ),
     ):
         enriched = adapter._enrich_with_akshare(source_df.copy())
 
@@ -838,12 +951,29 @@ def test_enrich_with_akshare_marks_sources_when_matched():
     SinaIndustryAdapter._akshare_valuation_snapshot_cache_time = 0
     SinaIndustryAdapter._akshare_valuation_snapshot_failure_at = 0
     source_df = pd.DataFrame([{"industry_name": "白酒", "leading_stock": "贵州茅台"}])
-    meta_df = pd.DataFrame([{"industry_name": "白酒", "total_market_cap": 123.0, "turnover_rate": 2.5, "market_cap_source": "akshare_metadata"}])
-    valuation_df = pd.DataFrame([{"行业名称": "白酒", "TTM(滚动)市盈率": 18.8, "市净率": 3.2, "静态股息率": 1.1}])
+    meta_df = pd.DataFrame(
+        [
+            {
+                "industry_name": "白酒",
+                "total_market_cap": 123.0,
+                "turnover_rate": 2.5,
+                "market_cap_source": "akshare_metadata",
+            }
+        ]
+    )
+    valuation_df = pd.DataFrame(
+        [{"行业名称": "白酒", "TTM(滚动)市盈率": 18.8, "市净率": 3.2, "静态股息率": 1.1}]
+    )
 
-    with patch("src.data.providers.akshare_provider.AKShareProvider._get_industry_metadata", return_value=meta_df), patch(
-        "src.data.providers.sina_ths_adapter.ak.sw_index_first_info",
-        return_value=valuation_df,
+    with (
+        patch(
+            "src.data.providers.akshare_provider.AKShareProvider._get_industry_metadata",
+            return_value=meta_df,
+        ),
+        patch(
+            "src.data.providers.sina_ths_adapter.ak.sw_index_first_info",
+            return_value=valuation_df,
+        ),
     ):
         enriched = adapter._enrich_with_akshare(source_df.copy())
 
@@ -859,7 +989,9 @@ def test_get_akshare_valuation_snapshot_cached_only_schedules_background_refresh
     SinaIndustryAdapter._akshare_valuation_snapshot_failure_at = 0
     SinaIndustryAdapter._akshare_valuation_snapshot_refresh_future = None
 
-    with patch.object(SinaIndustryAdapter, "_schedule_akshare_valuation_snapshot_refresh") as schedule_refresh:
+    with patch.object(
+        SinaIndustryAdapter, "_schedule_akshare_valuation_snapshot_refresh"
+    ) as schedule_refresh:
         snapshot = SinaIndustryAdapter._get_akshare_valuation_snapshot(
             cached_only=True,
             schedule_refresh=True,
@@ -887,12 +1019,15 @@ def test_get_ths_hexin_v_reuses_cached_token_within_ttl():
             assert name == "v"
             return f"token-{type(self).instances}"
 
-    with patch(
-        "src.data.providers.sina_ths_adapter.ak.stock_feature.stock_fund_flow._get_file_content_ths",
-        return_value="fake-js",
-    ), patch(
-        "src.data.providers.sina_ths_adapter.py_mini_racer.MiniRacer",
-        side_effect=_DummyRacer,
+    with (
+        patch(
+            "src.data.providers.sina_ths_adapter.ak.stock_feature.stock_fund_flow._get_file_content_ths",
+            return_value="fake-js",
+        ),
+        patch(
+            "src.data.providers.sina_ths_adapter.py_mini_racer.MiniRacer",
+            side_effect=_DummyRacer,
+        ),
     ):
         first_token, first_from_cache = SinaIndustryAdapter._get_ths_hexin_v()
         second_token, second_from_cache = SinaIndustryAdapter._get_ths_hexin_v()
@@ -908,9 +1043,24 @@ def test_ensure_flow_strength_rebuilds_from_main_net_ratio():
     adapter = SinaIndustryAdapter()
     df = pd.DataFrame(
         [
-            {"industry_name": "电子", "main_net_inflow": 5_000_000_000, "main_net_ratio": 5.0, "flow_strength": 0.0},
-            {"industry_name": "医药生物", "main_net_inflow": 3_000_000_000, "main_net_ratio": 3.0, "flow_strength": 0.0},
-            {"industry_name": "计算机", "main_net_inflow": -1_000_000_000, "main_net_ratio": -1.0, "flow_strength": 0.0},
+            {
+                "industry_name": "电子",
+                "main_net_inflow": 5_000_000_000,
+                "main_net_ratio": 5.0,
+                "flow_strength": 0.0,
+            },
+            {
+                "industry_name": "医药生物",
+                "main_net_inflow": 3_000_000_000,
+                "main_net_ratio": 3.0,
+                "flow_strength": 0.0,
+            },
+            {
+                "industry_name": "计算机",
+                "main_net_inflow": -1_000_000_000,
+                "main_net_ratio": -1.0,
+                "flow_strength": 0.0,
+            },
         ]
     )
 
@@ -984,3 +1134,30 @@ def test_normalize_to_ths_industry_name_does_not_collapse_broad_industry_to_subs
     SinaIndustryAdapter._ths_catalog_shared_cache_time = 10**12
 
     assert adapter._normalize_to_ths_industry_name("医药生物") == "医药生物"
+
+
+def test_sina_ths_adapter_circuit_short_circuits_after_repeated_failures():
+    original_breakers = SinaIndustryAdapter._circuit_breakers
+    SinaIndustryAdapter._circuit_breakers = {}
+    calls = 0
+
+    def unstable_fetch():
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("upstream unavailable")
+
+    try:
+        for _ in range(5):
+            with pytest.raises(RuntimeError):
+                SinaIndustryAdapter._call_with_circuit("unit_test_fetch", unstable_fetch)
+
+        breaker = SinaIndustryAdapter._circuit_breakers["unit_test_fetch"]
+        assert breaker.state is CircuitState.OPEN
+
+        with pytest.raises(CircuitOpenError):
+            SinaIndustryAdapter._call_with_circuit("unit_test_fetch", unstable_fetch)
+
+        assert calls == 5
+        assert SinaIndustryAdapter.get_circuit_status()["unit_test_fetch"]["state"] == "open"
+    finally:
+        SinaIndustryAdapter._circuit_breakers = original_breakers

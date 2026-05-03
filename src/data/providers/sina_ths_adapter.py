@@ -23,6 +23,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 
 from .sina_provider import SinaFinanceProvider
 from .akshare_provider import AKShareProvider
+from .circuit_breaker import CircuitBreaker
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ SINA_TO_THS_MAP = {
     "医疗器械": "医疗器械",
     "生物制药": "生物制品",
     "酿酒行业": "饮料制造",
-    "白酒": "饮料制造", 
+    "白酒": "饮料制造",
     "饮料制造": "饮料制造",
     "食品行业": "食品加工制造",
     "纺织行业": "纺织制造",
@@ -106,7 +107,7 @@ SINA_TO_THS_MAP = {
     "互联网": "互联网电商",
     "软件服务": "软件开发",
     "综合": "综合",
-    "工艺商品": "家用轻工"
+    "工艺商品": "家用轻工",
 }
 
 SINA_NEW_NODE_NAME_MAP = {
@@ -221,6 +222,7 @@ SW_INDEX_ALIAS_MAP = {
     "电机": "电力设备",
 }
 
+
 def map_sina_to_ths(sina_name: str) -> str:
     """尝试将新浪行业名称映射到同花顺"""
     # 彻底清理后缀
@@ -239,10 +241,10 @@ def map_ths_to_sina(ths_name: str) -> List[str]:
     for sina, ths in SINA_TO_THS_MAP.items():
         if ths == ths_name:
             possible_names.append(sina)
-    
+
     # 2. 特殊硬编码处理，确保核心行业能够补全
     ths_clean = ths_name.replace("Ⅲ", "").replace("Ⅱ", "").strip()
-    
+
     if "白酒" in ths_clean or "饮料" in ths_clean:
         possible_names.extend(["酿酒行业", "食品饮料"])
     if "半导体" in ths_clean or "元件" in ths_clean:
@@ -255,16 +257,16 @@ def map_ths_to_sina(ths_name: str) -> List[str]:
         possible_names.extend(["医药生物", "生物制药", "医疗器械"])
     if "房地产" in ths_clean:
         possible_names.append("房地产")
-    
+
     # 3. 启发式替换
     possible_names.append(ths_clean.replace("开采加工", "行业"))
     possible_names.append(ths_clean.replace("制造", "行业"))
     possible_names.append(ths_clean.replace("设备", "行业"))
     possible_names.append(ths_clean + "行业")
-    
+
     # 4. 原名兜底
     possible_names.append(ths_name)
-    
+
     deduped = []
     seen = set()
     for name in possible_names:
@@ -294,8 +296,9 @@ class SinaIndustryAdapter:
 
         hot_industries = analyzer.rank_industries(top_n=10)
     """
+
     _symbol_cache_lock = threading.Lock()
-    
+
     _stock_name_to_symbol_cache: Dict[str, str] = {}
     _stock_name_cache_time: float = 0
     _stock_name_cache_loaded: bool = False
@@ -317,10 +320,16 @@ class SinaIndustryAdapter:
     _sina_industry_list_shared_cache_time: float = 0
     _sina_industry_list_ttl_seconds: int = 600
     _sina_industry_list_lock = threading.Lock()
-    _ths_catalog_snapshot_path = Path(__file__).resolve().parents[3] / "cache" / "ths_industry_catalog_snapshot.json"
-    _symbol_cache_path = Path(__file__).resolve().parents[3] / "cache" / "industry_symbol_cache.json"
+    _ths_catalog_snapshot_path = (
+        Path(__file__).resolve().parents[3] / "cache" / "ths_industry_catalog_snapshot.json"
+    )
+    _symbol_cache_path = (
+        Path(__file__).resolve().parents[3] / "cache" / "industry_symbol_cache.json"
+    )
     _history_cache_path = Path(__file__).resolve().parents[3] / "cache" / "history_cache.json"
-    _industry_market_cap_snapshot_path = Path(__file__).resolve().parents[3] / "cache" / "industry_market_cap_snapshot.json"
+    _industry_market_cap_snapshot_path = (
+        Path(__file__).resolve().parents[3] / "cache" / "industry_market_cap_snapshot.json"
+    )
     _history_cache: Dict[str, Any] = {}
     _history_cache_loaded: bool = False
     _market_cap_snapshot_payload_cache: Dict[str, Any] | None = None
@@ -334,9 +343,13 @@ class SinaIndustryAdapter:
     _akshare_valuation_snapshot_refresh_lock = threading.Lock()
     _akshare_valuation_snapshot_refresh_executor = ThreadPoolExecutor(max_workers=1)
     _akshare_valuation_snapshot_refresh_future: Future | None = None
+    _circuit_breakers: Dict[str, CircuitBreaker] = {}
+    _circuit_breaker_lock = threading.Lock()
 
     @staticmethod
-    def _numeric_series_or_default(df: pd.DataFrame, column: str, default: float = 0.0) -> pd.Series:
+    def _numeric_series_or_default(
+        df: pd.DataFrame, column: str, default: float = 0.0
+    ) -> pd.Series:
         if column in df.columns:
             return pd.to_numeric(df[column], errors="coerce").fillna(default)
         return pd.Series(default, index=df.index, dtype="float64")
@@ -352,17 +365,17 @@ class SinaIndustryAdapter:
         aliases = {normalized}
 
         # 清理前缀 N/C/U/W/*ST/ST，兼容脱帽和上市首日名称变体。
-        prefix_clean = re.sub(r'^[NCUW\*]*(ST)?', '', normalized, flags=re.IGNORECASE).strip()
+        prefix_clean = re.sub(r"^[NCUW\*]*(ST)?", "", normalized, flags=re.IGNORECASE).strip()
         if prefix_clean:
             aliases.add(prefix_clean)
 
         # 清理科创/注册制后缀，如 "-U"、"-W"、"-A"。
-        suffix_clean = re.sub(r'-[A-Z]+$', '', normalized, flags=re.IGNORECASE).strip()
+        suffix_clean = re.sub(r"-[A-Z]+$", "", normalized, flags=re.IGNORECASE).strip()
         if suffix_clean:
             aliases.add(suffix_clean)
 
         # 组合清理前后缀，兼容类似 "N亚虹医药-U" 变体。
-        combined_clean = re.sub(r'-[A-Z]+$', '', prefix_clean, flags=re.IGNORECASE).strip()
+        combined_clean = re.sub(r"-[A-Z]+$", "", prefix_clean, flags=re.IGNORECASE).strip()
         if combined_clean:
             aliases.add(combined_clean)
 
@@ -448,10 +461,7 @@ class SinaIndustryAdapter:
     def _persist_history_cache(cls):
         try:
             cls._history_cache_path.parent.mkdir(parents=True, exist_ok=True)
-            payload = {
-                "updated_at": time.time(),
-                "cache": cls._history_cache
-            }
+            payload = {"updated_at": time.time(), "cache": cls._history_cache}
             with open(cls._history_cache_path, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
         except Exception as e:
@@ -504,9 +514,10 @@ class SinaIndustryAdapter:
                 return {}
             stat = path.stat()
             cache_meta = cls._market_cap_snapshot_payload_cache_meta
-            if (
-                cls._market_cap_snapshot_payload_cache is not None
-                and cache_meta == (str(path), stat.st_mtime_ns, stat.st_size)
+            if cls._market_cap_snapshot_payload_cache is not None and cache_meta == (
+                str(path),
+                stat.st_mtime_ns,
+                stat.st_size,
             ):
                 return copy.deepcopy(cls._market_cap_snapshot_payload_cache)
 
@@ -545,7 +556,9 @@ class SinaIndustryAdapter:
         tmp_path.replace(cls._industry_market_cap_snapshot_path)
         try:
             stat = cls._industry_market_cap_snapshot_path.stat()
-            cls._market_cap_snapshot_payload_cache = copy.deepcopy(payload if isinstance(payload, dict) else {})
+            cls._market_cap_snapshot_payload_cache = copy.deepcopy(
+                payload if isinstance(payload, dict) else {}
+            )
             cls._market_cap_snapshot_payload_cache_meta = (
                 str(cls._industry_market_cap_snapshot_path),
                 stat.st_mtime_ns,
@@ -636,7 +649,8 @@ class SinaIndustryAdapter:
                         "industry_code": code,
                         "industry_name": str(row.get("industry_name", "")).strip(),
                         "total_market_cap": float(row.get("total_market_cap", 0) or 0),
-                        "market_cap_source": str(row.get("market_cap_source", "unknown")).strip() or "unknown",
+                        "market_cap_source": str(row.get("market_cap_source", "unknown")).strip()
+                        or "unknown",
                     }
                 )
             if not snapshot_rows:
@@ -652,9 +666,21 @@ class SinaIndustryAdapter:
                 changed = False
                 for item in snapshot_rows:
                     current = existing.get(item["industry_code"], {})
-                    current_name = str(current.get("industry_name", "")).strip() if isinstance(current, dict) else ""
-                    current_source = str(current.get("market_cap_source", "unknown")).strip() if isinstance(current, dict) else "unknown"
-                    current_cap = float(current.get("total_market_cap", 0) or 0) if isinstance(current, dict) else 0.0
+                    current_name = (
+                        str(current.get("industry_name", "")).strip()
+                        if isinstance(current, dict)
+                        else ""
+                    )
+                    current_source = (
+                        str(current.get("market_cap_source", "unknown")).strip()
+                        if isinstance(current, dict)
+                        else "unknown"
+                    )
+                    current_cap = (
+                        float(current.get("total_market_cap", 0) or 0)
+                        if isinstance(current, dict)
+                        else 0.0
+                    )
                     same_record = (
                         current_name == item["industry_name"]
                         and current_source == item["market_cap_source"]
@@ -702,14 +728,9 @@ class SinaIndustryAdapter:
 
         caps = self._numeric_series_or_default(df, "total_market_cap", 0.0)
         sources = df["market_cap_source"].astype(str).fillna("unknown")
-        fill_mask = (
-            df["industry_code"].astype(str).map(lambda code: str(code).strip() in snapshot)
-            & (
-                caps.le(1)
-                | sources.eq("unknown")
-                | sources.str.startswith("estimated")
-            )
-        )
+        fill_mask = df["industry_code"].astype(str).map(
+            lambda code: str(code).strip() in snapshot
+        ) & (caps.le(1) | sources.eq("unknown") | sources.str.startswith("estimated"))
         if not fill_mask.any():
             return False
 
@@ -735,13 +756,21 @@ class SinaIndustryAdapter:
                 return False
             return age >= self.__class__._market_cap_snapshot_stale_after_hours
 
-        df.loc[fill_mask, "total_market_cap"] = df.loc[fill_mask, "industry_code"].apply(snapshot_cap)
-        df.loc[fill_mask, "market_cap_source"] = df.loc[fill_mask, "industry_code"].apply(snapshot_source)
-        df.loc[fill_mask, "market_cap_snapshot_age_hours"] = df.loc[fill_mask, "industry_code"].apply(snapshot_age_hours)
-        df.loc[fill_mask, "market_cap_snapshot_is_stale"] = df.loc[fill_mask, "industry_code"].apply(snapshot_is_stale)
+        df.loc[fill_mask, "total_market_cap"] = df.loc[fill_mask, "industry_code"].apply(
+            snapshot_cap
+        )
+        df.loc[fill_mask, "market_cap_source"] = df.loc[fill_mask, "industry_code"].apply(
+            snapshot_source
+        )
+        df.loc[fill_mask, "market_cap_snapshot_age_hours"] = df.loc[
+            fill_mask, "industry_code"
+        ].apply(snapshot_age_hours)
+        df.loc[fill_mask, "market_cap_snapshot_is_stale"] = df.loc[
+            fill_mask, "industry_code"
+        ].apply(snapshot_is_stale)
         self._append_data_source(df, fill_mask, "snapshot")
         return True
-    
+
     def __init__(self):
         """初始化适配器"""
         self.__class__._ensure_symbol_cache_loaded()
@@ -749,6 +778,24 @@ class SinaIndustryAdapter:
         self.akshare = AKShareProvider()
         self._industry_cache: Dict[str, pd.DataFrame] = {}
         logger.info("SinaIndustryAdapter initialized")
+
+    @classmethod
+    def _call_with_circuit(cls, breaker_key: str, fn, *args, **kwargs):
+        with cls._circuit_breaker_lock:
+            breaker = cls._circuit_breakers.get(breaker_key)
+            if breaker is None:
+                breaker = CircuitBreaker(
+                    failure_threshold=5,
+                    recovery_timeout=60.0,
+                    name=f"sina_ths.{breaker_key}",
+                )
+                cls._circuit_breakers[breaker_key] = breaker
+        return breaker.call(fn, *args, **kwargs)
+
+    @classmethod
+    def get_circuit_status(cls) -> Dict[str, Any]:
+        with cls._circuit_breaker_lock:
+            return {name: breaker.status() for name, breaker in cls._circuit_breakers.items()}
 
     def _build_symbol_cache_industry_fallback(self, industry_name: str) -> List[Dict[str, Any]]:
         """使用本地股票名缓存构造高置信度行业兜底，避免单一数据源抖动时成分股完全丢失。"""
@@ -778,7 +825,9 @@ class SinaIndustryAdapter:
                     "pb_ratio": float(row.get("pb_ratio", 0) or 0),
                 }
         except Exception as e:
-            logger.warning(f"Failed to load cached bank constituents from persistent Sina cache: {e}")
+            logger.warning(
+                f"Failed to load cached bank constituents from persistent Sina cache: {e}"
+            )
 
         self.__class__._ensure_symbol_cache_loaded()
         for name, symbol in self.__class__._stock_name_to_symbol_cache.items():
@@ -796,7 +845,11 @@ class SinaIndustryAdapter:
             )
 
         if fallback_stocks:
-            logger.info("Using symbol-cache fallback for %s with %s candidates", normalized, len(fallback_stocks))
+            logger.info(
+                "Using symbol-cache fallback for %s with %s candidates",
+                normalized,
+                len(fallback_stocks),
+            )
         return list(fallback_stocks.values())
 
     def _refine_proxy_constituents(
@@ -821,12 +874,17 @@ class SinaIndustryAdapter:
 
         if normalized == "证券" and resolved_code == "new_jrhy":
             broker_aliases = {"东方财富", "同花顺", "指南针", "大智慧"}
-            return keep_by_predicate(
-                lambda name: ("证券" in name) or (name in broker_aliases)
-            )
+            return keep_by_predicate(lambda name: ("证券" in name) or (name in broker_aliases))
 
         if normalized == "保险" and resolved_code == "new_jrhy":
-            insurer_aliases = {"中国平安", "中国太保", "中国人寿", "中国人保", "新华保险", "天茂集团"}
+            insurer_aliases = {
+                "中国平安",
+                "中国太保",
+                "中国人寿",
+                "中国人保",
+                "新华保险",
+                "天茂集团",
+            }
             return keep_by_predicate(
                 lambda name: ("保险" in name) or ("人寿" in name) or (name in insurer_aliases)
             )
@@ -847,13 +905,18 @@ class SinaIndustryAdapter:
         if not persistent_df.empty:
             persistent_df = persistent_df.copy()
             if {"industry_name", "industry_code"}.issubset(persistent_df.columns):
-                persistent_df["industry_name"] = persistent_df["industry_name"].astype(str).str.strip()
+                persistent_df["industry_name"] = (
+                    persistent_df["industry_name"].astype(str).str.strip()
+                )
                 self.__class__._ths_catalog_shared_cache = persistent_df
                 self.__class__._ths_catalog_shared_cache_time = now
                 return persistent_df.copy()
 
         try:
-            df = ak.stock_board_industry_name_ths()
+            df = self._call_with_circuit(
+                "stock_board_industry_name_ths",
+                ak.stock_board_industry_name_ths,
+            )
             if not df.empty:
                 df = df.rename(columns={"name": "industry_name", "code": "industry_code"})
                 df["industry_name"] = df["industry_name"].astype(str).str.strip()
@@ -893,7 +956,10 @@ class SinaIndustryAdapter:
             return pd.DataFrame()
 
         try:
-            df = ak.stock_board_industry_summary_ths()
+            df = self._call_with_circuit(
+                "stock_board_industry_summary_ths",
+                ak.stock_board_industry_summary_ths,
+            )
             if not df.empty:
                 df = df.rename(
                     columns={
@@ -936,7 +1002,11 @@ class SinaIndustryAdapter:
             cached = cls._ths_js_content_cache
             if cached:
                 return cached
-            cls._ths_js_content_cache = ak.stock_feature.stock_fund_flow._get_file_content_ths("ths.js")
+            cls._ths_js_content_cache = cls._call_with_circuit(
+                "ths_js_content",
+                ak.stock_feature.stock_fund_flow._get_file_content_ths,
+                "ths.js",
+            )
             return cls._ths_js_content_cache
 
     @classmethod
@@ -1016,7 +1086,9 @@ class SinaIndustryAdapter:
 
             # 2. 规范化键唯一命中
             normalized_key = self._normalize_industry_join_key(raw_name)
-            ths_catalog["join_key"] = ths_catalog["industry_name"].apply(self._normalize_industry_join_key)
+            ths_catalog["join_key"] = ths_catalog["industry_name"].apply(
+                self._normalize_industry_join_key
+            )
             exact_key_matches = ths_catalog[ths_catalog["join_key"] == normalized_key]
             if len(exact_key_matches) == 1:
                 return str(exact_key_matches.iloc[0]["industry_name"])
@@ -1081,7 +1153,10 @@ class SinaIndustryAdapter:
     @classmethod
     def _get_cached_sina_stock_nodes(cls) -> frozenset[str]:
         now = time.time()
-        if cls._sina_cached_stock_nodes is not None and now - cls._sina_cached_stock_nodes_time < 600:
+        if (
+            cls._sina_cached_stock_nodes is not None
+            and now - cls._sina_cached_stock_nodes_time < 600
+        ):
             return cls._sina_cached_stock_nodes
 
         codes = SinaFinanceProvider._get_persistent_industry_stock_codes()
@@ -1105,7 +1180,8 @@ class SinaIndustryAdapter:
         if (
             cached is not None
             and not cached.empty
-            and now - self.__class__._sina_industry_list_shared_cache_time < self.__class__._sina_industry_list_ttl_seconds
+            and now - self.__class__._sina_industry_list_shared_cache_time
+            < self.__class__._sina_industry_list_ttl_seconds
         ):
             return cached.copy()
 
@@ -1127,7 +1203,8 @@ class SinaIndustryAdapter:
             if (
                 cached is not None
                 and not cached.empty
-                and now - self.__class__._sina_industry_list_shared_cache_time < self.__class__._sina_industry_list_ttl_seconds
+                and now - self.__class__._sina_industry_list_shared_cache_time
+                < self.__class__._sina_industry_list_ttl_seconds
             ):
                 return cached.copy()
 
@@ -1139,7 +1216,10 @@ class SinaIndustryAdapter:
                 return persistent_df.copy()
 
             try:
-                live_df = self.sina.get_industry_list()
+                live_df = self._call_with_circuit(
+                    "sina_industry_list",
+                    self.sina.get_industry_list,
+                )
                 if live_df is not None and not live_df.empty:
                     live_df = live_df.copy()
                     self.__class__._sina_industry_list_shared_cache = live_df
@@ -1174,14 +1254,15 @@ class SinaIndustryAdapter:
                 code_map[self._normalize_industry_join_key(industry_name)] = industry_code
 
             result["industry_code"] = result["industry_name"].apply(
-                lambda name: code_map.get(str(name).strip())
-                or code_map.get(self._normalize_industry_join_key(str(name)))
+                lambda name: (
+                    code_map.get(str(name).strip())
+                    or code_map.get(self._normalize_industry_join_key(str(name)))
+                )
             )
 
         if (
-            ("industry_code" not in result.columns or result["industry_code"].isna().any())
-            and hasattr(self.sina, "get_industry_list")
-        ):
+            "industry_code" not in result.columns or result["industry_code"].isna().any()
+        ) and hasattr(self.sina, "get_industry_list"):
             try:
                 sina_df = self._get_sina_industry_list(allow_live=True)
                 if not sina_df.empty:
@@ -1192,13 +1273,21 @@ class SinaIndustryAdapter:
                         if not industry_name or not industry_code:
                             continue
                         sina_code_map[industry_name] = industry_code
-                        sina_code_map[self._normalize_industry_join_key(industry_name)] = industry_code
+                        sina_code_map[self._normalize_industry_join_key(industry_name)] = (
+                            industry_code
+                        )
                     if "industry_code" not in result.columns:
                         result["industry_code"] = pd.NA
-                    missing_mask = result["industry_code"].isna() | result["industry_code"].astype(str).str.strip().eq("")
-                    result.loc[missing_mask, "industry_code"] = result.loc[missing_mask, "industry_name"].apply(
-                        lambda name: sina_code_map.get(str(name).strip())
-                        or sina_code_map.get(self._normalize_industry_join_key(str(name)))
+                    missing_mask = result["industry_code"].isna() | result["industry_code"].astype(
+                        str
+                    ).str.strip().eq("")
+                    result.loc[missing_mask, "industry_code"] = result.loc[
+                        missing_mask, "industry_name"
+                    ].apply(
+                        lambda name: (
+                            sina_code_map.get(str(name).strip())
+                            or sina_code_map.get(self._normalize_industry_join_key(str(name)))
+                        )
                     )
             except Exception as e:
                 logger.warning(f"Failed to attach Sina industry codes: {e}")
@@ -1234,6 +1323,7 @@ class SinaIndustryAdapter:
                 seen.add(normalized)
 
         fallback_code = None
+
         def _record_resolved_code(normalized: str, resolved_code: Any) -> str | None:
             nonlocal fallback_code
             resolved_code = str(resolved_code or "").strip()
@@ -1264,7 +1354,10 @@ class SinaIndustryAdapter:
                 return resolved_from_persistent, "sina_stock_sum"
 
             if allow_live and fallback_code is None and hasattr(self.sina, "get_industry_list"):
-                live_industries = self.sina.get_industry_list()
+                live_industries = self._call_with_circuit(
+                    "sina_industry_list",
+                    self.sina.get_industry_list,
+                )
                 if live_industries is not None and not live_industries.empty:
                     self.__class__._sina_industry_list_shared_cache = live_industries.copy()
                     self.__class__._sina_industry_list_shared_cache_time = time.time()
@@ -1378,7 +1471,11 @@ class SinaIndustryAdapter:
 
         now = time.time()
         cache_entry = self.__class__._cached_sina_industry_codes_cache.get(raw_name)
-        if cache_entry and now - float(cache_entry.get("ts") or 0) < self.__class__._cached_sina_industry_codes_ttl_seconds:
+        if (
+            cache_entry
+            and now - float(cache_entry.get("ts") or 0)
+            < self.__class__._cached_sina_industry_codes_ttl_seconds
+        ):
             return list(cache_entry.get("codes") or [])
 
         ordered_names = self._get_candidate_industry_names(raw_name)
@@ -1441,7 +1538,9 @@ class SinaIndustryAdapter:
                             include_market_cap_lookup=False,
                         )
                     except Exception as exc:
-                        logger.warning(f"Failed to persist unified stock snapshot for {raw_name}: {exc}")
+                        logger.warning(
+                            f"Failed to persist unified stock snapshot for {raw_name}: {exc}"
+                        )
                 logger.debug(
                     "Using persistent Sina industry stocks snapshot for %s via %s (%s rows)",
                     raw_name,
@@ -1470,7 +1569,9 @@ class SinaIndustryAdapter:
                 if cached_rows:
                     return cached_rows
             except Exception as exc:
-                logger.warning(f"AKShare cached industry stocks fallback for {raw_name} failed: {exc}")
+                logger.warning(
+                    f"AKShare cached industry stocks fallback for {raw_name} failed: {exc}"
+                )
 
         return []
 
@@ -1521,8 +1622,12 @@ class SinaIndustryAdapter:
                     "change_pct": change_pct,
                     "market_cap": float(valuation_snapshot.get("market_cap") or 0),
                     "amount": float(valuation_snapshot.get("amount") or 0),
-                    "pe_ratio": float(valuation_snapshot.get("pe_ttm") or valuation_snapshot.get("pe_ratio") or 0),
-                    "pb_ratio": float(valuation_snapshot.get("pb") or valuation_snapshot.get("pb_ratio") or 0),
+                    "pe_ratio": float(
+                        valuation_snapshot.get("pe_ttm") or valuation_snapshot.get("pe_ratio") or 0
+                    ),
+                    "pb_ratio": float(
+                        valuation_snapshot.get("pb") or valuation_snapshot.get("pb_ratio") or 0
+                    ),
                 }
             ]
 
@@ -1533,21 +1638,30 @@ class SinaIndustryAdapter:
         if not name:
             return name
         self.__class__._ensure_symbol_cache_loaded()
-        
+
         current_time = time.time()
         # 缓存 12 小时 (43200 秒)
-        if current_time - self.__class__._stock_name_cache_time > 43200 or not self.__class__._stock_name_to_symbol_cache:
+        if (
+            current_time - self.__class__._stock_name_cache_time > 43200
+            or not self.__class__._stock_name_to_symbol_cache
+        ):
             with self.__class__._symbol_cache_lock:
                 refreshed_time = self.__class__._stock_name_cache_time
-                if current_time - refreshed_time > 43200 or not self.__class__._stock_name_to_symbol_cache:
+                if (
+                    current_time - refreshed_time > 43200
+                    or not self.__class__._stock_name_to_symbol_cache
+                ):
                     try:
                         logger.info("Updating stock name -> symbol global cache from AKShare")
-                        df = ak.stock_info_a_code_name()
+                        df = self._call_with_circuit(
+                            "stock_info_a_code_name",
+                            ak.stock_info_a_code_name,
+                        )
                         if not df.empty:
                             new_cache = {}
                             for _, row in df.iterrows():
-                                code = str(row['code'])
-                                row_name = str(row['name'])
+                                code = str(row["code"])
+                                row_name = str(row["name"])
                                 for alias in self.__class__._build_name_aliases(row_name):
                                     new_cache[alias] = code
 
@@ -1561,7 +1675,10 @@ class SinaIndustryAdapter:
 
                         try:
                             industries = self._get_sina_industry_list(allow_live=True)
-                            if not industries.empty and {"leading_stock_name", "leading_stock_code"}.issubset(industries.columns):
+                            if not industries.empty and {
+                                "leading_stock_name",
+                                "leading_stock_code",
+                            }.issubset(industries.columns):
                                 pairs = list(
                                     zip(
                                         industries["leading_stock_name"].astype(str).tolist(),
@@ -1570,7 +1687,9 @@ class SinaIndustryAdapter:
                                 )
                                 self.__class__._update_symbol_cache_from_pairs(pairs)
                         except Exception as fallback_error:
-                            logger.warning(f"Failed to build fallback symbol cache from Sina industries: {fallback_error}")
+                            logger.warning(
+                                f"Failed to build fallback symbol cache from Sina industries: {fallback_error}"
+                            )
 
         for alias in self.__class__._build_name_aliases(name):
             symbol = self.__class__._stock_name_to_symbol_cache.get(alias)
@@ -1578,11 +1697,11 @@ class SinaIndustryAdapter:
                 return symbol
 
         return name
-    
+
     def get_industry_classification(self) -> pd.DataFrame:
         """
         获取行业分类（THS 主；Sina 兜底）
-        
+
         Returns:
             包含 industry_name 列的 DataFrame
         """
@@ -1594,10 +1713,12 @@ class SinaIndustryAdapter:
         if df.empty:
             return pd.DataFrame()
 
-        return pd.DataFrame({
-            "industry_name": df["industry_name"].apply(map_sina_to_ths),
-            "industry_code": df["industry_code"],
-        }).drop_duplicates(subset=["industry_name"], keep="first")
+        return pd.DataFrame(
+            {
+                "industry_name": df["industry_name"].apply(map_sina_to_ths),
+                "industry_code": df["industry_code"],
+            }
+        ).drop_duplicates(subset=["industry_name"], keep="first")
 
     def _resolve_sw_industry_index_code(
         self,
@@ -1618,7 +1739,9 @@ class SinaIndustryAdapter:
         resolved_name = str(industry_name or "").strip()
         if not resolved_name and requested_code:
             ths_catalog = self._get_ths_industry_catalog()
-            if not ths_catalog.empty and {"industry_name", "industry_code"}.issubset(ths_catalog.columns):
+            if not ths_catalog.empty and {"industry_name", "industry_code"}.issubset(
+                ths_catalog.columns
+            ):
                 matched = ths_catalog[
                     ths_catalog["industry_code"].astype(str).str.strip() == requested_code
                 ]
@@ -1637,8 +1760,7 @@ class SinaIndustryAdapter:
             if str(name or "").strip() and str(code or "").strip()
         }
         sw_key_map = {
-            self._normalize_industry_join_key(name): code
-            for name, code in sw_name_map.items()
+            self._normalize_industry_join_key(name): code for name, code in sw_name_map.items()
         }
 
         candidate_names: List[str] = []
@@ -1739,7 +1861,7 @@ class SinaIndustryAdapter:
             return pd.DataFrame(columns=headers), page_num
 
         return pd.DataFrame(rows, columns=headers), page_num
-    
+
     def _get_ths_flow_data(self, days: int) -> pd.DataFrame:
         """获取同花顺真实行业资金流向和涨跌幅 (不受代理拦截)"""
         try:
@@ -1749,7 +1871,7 @@ class SinaIndustryAdapter:
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.85 Safari/537.36",
                 "Accept": "text/html, */*; q=0.01",
             }
-            
+
             if days <= 1:
                 base_url = "http://data.10jqka.com.cn/funds/hyzjl/field/tradezdf/order/desc/page/{}/ajax/1/free/1/"
             else:
@@ -1757,28 +1879,48 @@ class SinaIndustryAdapter:
                 actual_days = min(supported, key=lambda x: abs(x - days))
                 base_url = f"http://data.10jqka.com.cn/funds/hyzjl/board/{actual_days}/field/tradezdf/order/desc/page/{{}}/ajax/1/free/1/"
 
-            request_headers, used_cached_headers = self.__class__._build_ths_request_headers(headers_base)
+            request_headers, used_cached_headers = self.__class__._build_ths_request_headers(
+                headers_base
+            )
 
             def _fetch_page(page: int, headers: Dict[str, str]) -> pd.DataFrame:
-                response = requests.get(base_url.format(page), headers=headers, timeout=15)
+                response = self._call_with_circuit(
+                    "ths_flow_http",
+                    requests.get,
+                    base_url.format(page),
+                    headers=headers,
+                    timeout=15,
+                )
                 if response.status_code == 200 and response.text.strip():
                     parsed_df, _ = self.__class__._parse_ths_flow_html(response.text)
                     return parsed_df
                 return pd.DataFrame()
 
-            r = requests.get(base_url.format(1), headers=request_headers, timeout=15)
+            r = self._call_with_circuit(
+                "ths_flow_http",
+                requests.get,
+                base_url.format(1),
+                headers=request_headers,
+                timeout=15,
+            )
             if used_cached_headers and (r.status_code != 200 or not r.text.strip()):
                 request_headers, _ = self.__class__._build_ths_request_headers(
                     headers_base,
                     force_refresh=True,
                 )
-                r = requests.get(base_url.format(1), headers=request_headers, timeout=15)
+                r = self._call_with_circuit(
+                    "ths_flow_http",
+                    requests.get,
+                    base_url.format(1),
+                    headers=request_headers,
+                    timeout=15,
+                )
 
             big_df = pd.DataFrame()
             page_num = 1
             if r.status_code == 200 and r.text.strip():
                 big_df, page_num = self.__class__._parse_ths_flow_html(r.text)
-            
+
             if page_num > 1:
                 ordered_frames = {}
                 with ThreadPoolExecutor(max_workers=min(4, page_num - 1)) as executor:
@@ -1796,7 +1938,7 @@ class SinaIndustryAdapter:
 
             if not big_df.empty and "行业" in big_df.columns:
                 big_df["industry_name"] = big_df["行业"].str.replace("Ⅲ", "").str.replace("Ⅱ", "")
-                
+
             return big_df
         except Exception as e:
             logger.error(f"Failed to fetch THS flow data: {e}")
@@ -1808,13 +1950,13 @@ class SinaIndustryAdapter:
         """
         # ========== 第一步：获取 THS 核心数据 ==========
         ths_df = self._get_ths_flow_data(days)
-        
+
         if not ths_df.empty:
             result = self._process_ths_raw_data(ths_df)
             result = self._ensure_data_quality_columns(result, "ths")
             if lightweight:
                 return result
-            
+
             # ========== 第二步：AKShare 增强（市值、换手率、估值） ==========
             try:
                 result = self._enrich_with_akshare(
@@ -1824,13 +1966,16 @@ class SinaIndustryAdapter:
                 self._persist_market_cap_snapshot(result)
             except Exception as e:
                 logger.warning(f"Failed to enrich with AKShare metadata: {e}")
-                
+
             # ========== 第三步：Sina & 启发式辅助（市值兜底） ==========
             total_market_caps = self._numeric_series_or_default(result, "total_market_cap", 0.0)
             if "total_market_cap" not in result.columns or total_market_caps.max() <= 1:
                 self._apply_persistent_market_cap_snapshot(result)
                 logger.info("Falling back to Sina/Heuristics for market cap...")
-                sina_df = self.sina.get_industry_money_flow()
+                sina_df = self._call_with_circuit(
+                    "sina_industry_money_flow",
+                    self.sina.get_industry_money_flow,
+                )
                 total_market_caps = self._numeric_series_or_default(result, "total_market_cap", 0.0)
                 if total_market_caps.max() > 1:
                     pass
@@ -1838,7 +1983,9 @@ class SinaIndustryAdapter:
                     self._compute_industry_market_caps(result)
                     self._persist_market_cap_snapshot(result)
                     # 检查是否成功由于没有抛错机制
-                    total_market_caps = self._numeric_series_or_default(result, "total_market_cap", 0.0)
+                    total_market_caps = self._numeric_series_or_default(
+                        result, "total_market_cap", 0.0
+                    )
                     if "total_market_cap" not in result.columns or total_market_caps.max() <= 1:
                         result["total_market_cap"] = self._estimate_market_cap_from_flow(result)
                         result["is_estimated_cap"] = True
@@ -1851,11 +1998,14 @@ class SinaIndustryAdapter:
         else:
             # ========== 兜底层：Sina 模式 ==========
             logger.warning("THS data unavailable, falling back to Sina-only")
-            sina_df = self.sina.get_industry_money_flow()
+            sina_df = self._call_with_circuit(
+                "sina_industry_money_flow",
+                self.sina.get_industry_money_flow,
+            )
             if sina_df.empty:
                 logger.error("Both THS and Sina data unavailable")
                 return pd.DataFrame()
-            
+
             result = sina_df.copy()
             result = self._attach_industry_codes(result)
             result = self._ensure_data_quality_columns(result, "sina")
@@ -1863,10 +2013,12 @@ class SinaIndustryAdapter:
                 return result
             if "main_net_inflow" not in result.columns:
                 if "turnover" in result.columns and "change_pct" in result.columns:
-                    result["main_net_inflow"] = result["turnover"].fillna(0) * (result["change_pct"].fillna(0) / 100) * 0.2
+                    result["main_net_inflow"] = (
+                        result["turnover"].fillna(0) * (result["change_pct"].fillna(0) / 100) * 0.2
+                    )
                 else:
                     result["main_net_inflow"] = 0.0
-            
+
             try:
                 self._compute_industry_market_caps(result)
                 self._persist_market_cap_snapshot(result)
@@ -1880,7 +2032,7 @@ class SinaIndustryAdapter:
                         result["total_market_cap"] = 1.0
                         result["is_estimated_cap"] = True
                         result["market_cap_source"] = "constant_fallback"
-            
+
             # 保证即便在 Sina 模式下，也拥有 pe_ttm, pb 字段
             if "pe_ttm" not in result.columns:
                 result["pe_ttm"] = None
@@ -1901,10 +2053,17 @@ class SinaIndustryAdapter:
 
         # ========== 第五步：兜底默认值填补 ==========
         defaults = {
-            "change_pct": 0.0, "flow_strength": 0.0, "turnover_rate": 0.0,
-            "main_net_ratio": 0.0, "total_market_cap": 1.0, "industry_index": 0.0,
-            "total_inflow": 0.0, "total_outflow": 0.0, "leading_stock_change": 0.0,
-            "leading_stock_price": 0.0, "stock_count": 0
+            "change_pct": 0.0,
+            "flow_strength": 0.0,
+            "turnover_rate": 0.0,
+            "main_net_ratio": 0.0,
+            "total_market_cap": 1.0,
+            "industry_index": 0.0,
+            "total_inflow": 0.0,
+            "total_outflow": 0.0,
+            "leading_stock_change": 0.0,
+            "leading_stock_price": 0.0,
+            "stock_count": 0,
         }
         for col, val in defaults.items():
             if col not in result.columns:
@@ -1918,28 +2077,35 @@ class SinaIndustryAdapter:
         if mask.any():
             is_estimated = result.get("is_estimated_cap", pd.Series(False, index=result.index))
             valid_for_turnover = mask & (~is_estimated)
-            
+
             if valid_for_turnover.any():
                 inflow = self._numeric_series_or_default(result, "total_inflow", 0.0)
                 outflow = self._numeric_series_or_default(result, "total_outflow", 0.0)
                 cap = self._numeric_series_or_default(result, "total_market_cap", 0.0)
                 # 流入+流出≈总成交额(亿元)，市值(元)；换手率=(成交额/市值)*100
                 vol_yi = inflow + outflow
-                
+
                 valid1 = valid_for_turnover & (cap > 1e7) & (vol_yi > 0)
                 if valid1.any():
-                    result.loc[valid1, "turnover_rate"] = (vol_yi.loc[valid1] * 1e8 / cap.loc[valid1] * 100).clip(upper=999)
-                
+                    result.loc[valid1, "turnover_rate"] = (
+                        vol_yi.loc[valid1] * 1e8 / cap.loc[valid1] * 100
+                    ).clip(upper=999)
+
                 # Sina 模式：用 turnover(成交额, 元) 估算
                 if "turnover" in result.columns:
                     t = pd.to_numeric(result["turnover"], errors="coerce").fillna(0)
                     fallback = valid_for_turnover & (~valid1) & (cap > 1e7) & (t > 0)
                     if fallback.any():
-                        result.loc[fallback, "turnover_rate"] = (t.loc[fallback] / cap.loc[fallback] * 100).clip(upper=999)
+                        result.loc[fallback, "turnover_rate"] = (
+                            t.loc[fallback] / cap.loc[fallback] * 100
+                        ).clip(upper=999)
 
         if "market_cap_source" not in result.columns:
             result["market_cap_source"] = "unknown"
-        missing_cap_source = result["market_cap_source"].astype(str).str.strip().eq("") | result["market_cap_source"].isna()
+        missing_cap_source = (
+            result["market_cap_source"].astype(str).str.strip().eq("")
+            | result["market_cap_source"].isna()
+        )
         estimated_cap = result.get("is_estimated_cap", pd.Series(False, index=result.index))
         if not isinstance(estimated_cap, pd.Series):
             estimated_cap = pd.Series(bool(estimated_cap), index=result.index)
@@ -1989,10 +2155,16 @@ class SinaIndustryAdapter:
 
     def _process_ths_raw_data(self, ths_df: pd.DataFrame) -> pd.DataFrame:
         """解析 THS 原始数据框并提取规范字段"""
-        ths_df = ths_df.drop_duplicates(subset=["industry_name"], keep="first").reset_index(drop=True)
-        
+        ths_df = ths_df.drop_duplicates(subset=["industry_name"], keep="first").reset_index(
+            drop=True
+        )
+
         net_cols = [c for c in ths_df.columns if "净额" in c]
-        chg_cols = [c for c in ths_df.columns if ("涨跌幅" in c or "阶段涨跌幅" in c) and not c.endswith(".1")]
+        chg_cols = [
+            c
+            for c in ths_df.columns
+            if ("涨跌幅" in c or "阶段涨跌幅" in c) and not c.endswith(".1")
+        ]
         inflow_cols = [c for c in ths_df.columns if "流入" in c and "净" not in c]
         outflow_cols = [c for c in ths_df.columns if "流出" in c]
         index_cols = [c for c in ths_df.columns if "行业指数" in c or "指数" in c]
@@ -2000,35 +2172,63 @@ class SinaIndustryAdapter:
         price_cols = [c for c in ths_df.columns if "当前价" in c]
         count_cols = [c for c in ths_df.columns if "公司家数" in c]
         leading_name_cols = [c for c in ths_df.columns if c == "领涨股"]
-        
+
         result = pd.DataFrame()
         result["industry_name"] = ths_df["industry_name"]
-        
+
         if chg_cols:
-            result["change_pct"] = pd.to_numeric(ths_df[chg_cols[0]].astype(str).str.replace("%", ""), errors="coerce").fillna(0).values
+            result["change_pct"] = (
+                pd.to_numeric(ths_df[chg_cols[0]].astype(str).str.replace("%", ""), errors="coerce")
+                .fillna(0)
+                .values
+            )
         if net_cols:
-            result["main_net_inflow"] = pd.to_numeric(ths_df[net_cols[0]], errors="coerce").fillna(0).values * 1e8
+            result["main_net_inflow"] = (
+                pd.to_numeric(ths_df[net_cols[0]], errors="coerce").fillna(0).values * 1e8
+            )
         if inflow_cols:
-            result["total_inflow"] = pd.to_numeric(ths_df[inflow_cols[0]], errors="coerce").fillna(0).values
+            result["total_inflow"] = (
+                pd.to_numeric(ths_df[inflow_cols[0]], errors="coerce").fillna(0).values
+            )
         if outflow_cols:
-            result["total_outflow"] = pd.to_numeric(ths_df[outflow_cols[0]], errors="coerce").fillna(0).values
+            result["total_outflow"] = (
+                pd.to_numeric(ths_df[outflow_cols[0]], errors="coerce").fillna(0).values
+            )
         if index_cols:
-            result["industry_index"] = pd.to_numeric(ths_df[index_cols[0]], errors="coerce").fillna(0).values
+            result["industry_index"] = (
+                pd.to_numeric(ths_df[index_cols[0]], errors="coerce").fillna(0).values
+            )
         if count_cols:
-            result["stock_count"] = pd.to_numeric(ths_df[count_cols[0]], errors="coerce").fillna(0).astype(int).values
+            result["stock_count"] = (
+                pd.to_numeric(ths_df[count_cols[0]], errors="coerce").fillna(0).astype(int).values
+            )
         if leading_name_cols:
-            result["leading_stock"] = ths_df[leading_name_cols[0]].apply(lambda x: str(x).strip() if pd.notna(x) and str(x).strip() else None).values
+            result["leading_stock"] = (
+                ths_df[leading_name_cols[0]]
+                .apply(lambda x: str(x).strip() if pd.notna(x) and str(x).strip() else None)
+                .values
+            )
         if leading_chg_cols:
-            result["leading_stock_change"] = pd.to_numeric(ths_df[leading_chg_cols[0]].astype(str).str.replace("%", ""), errors="coerce").fillna(0).values
+            result["leading_stock_change"] = (
+                pd.to_numeric(
+                    ths_df[leading_chg_cols[0]].astype(str).str.replace("%", ""), errors="coerce"
+                )
+                .fillna(0)
+                .values
+            )
         if price_cols:
-            result["leading_stock_price"] = pd.to_numeric(ths_df[price_cols[0]], errors="coerce").fillna(0).values
-            
+            result["leading_stock_price"] = (
+                pd.to_numeric(ths_df[price_cols[0]], errors="coerce").fillna(0).values
+            )
+
         if net_cols and inflow_cols and outflow_cols:
             net_amt = pd.to_numeric(ths_df[net_cols[0]], errors="coerce").fillna(0)
             inflow_amt = result.get("total_inflow", 0)
             outflow_amt = result.get("total_outflow", 0)
             total_amt = inflow_amt + outflow_amt
-            result["main_net_ratio"] = pd.Series([n / t * 100 if t > 0 else 0.0 for n, t in zip(net_amt.values, total_amt.values)])
+            result["main_net_ratio"] = pd.Series(
+                [n / t * 100 if t > 0 else 0.0 for n, t in zip(net_amt.values, total_amt.values)]
+            )
 
         return self._attach_industry_codes(result)
 
@@ -2037,16 +2237,28 @@ class SinaIndustryAdapter:
         now = time.time()
         if (
             cls._akshare_valuation_snapshot_failure_at
-            and now - cls._akshare_valuation_snapshot_failure_at < cls._akshare_valuation_snapshot_cooldown_seconds
+            and now - cls._akshare_valuation_snapshot_failure_at
+            < cls._akshare_valuation_snapshot_cooldown_seconds
         ):
             logger.info("Skipping AKShare industry valuation snapshot refresh during cooldown")
-            return cls._akshare_valuation_snapshot_cache.copy() if cls._akshare_valuation_snapshot_cache is not None else pd.DataFrame()
+            return (
+                cls._akshare_valuation_snapshot_cache.copy()
+                if cls._akshare_valuation_snapshot_cache is not None
+                else pd.DataFrame()
+            )
 
         try:
-            valuation_df = ak.sw_index_first_info()
+            valuation_df = cls._call_with_circuit(
+                "sw_index_first_info",
+                ak.sw_index_first_info,
+            )
             if valuation_df is None or valuation_df.empty:
                 cls._akshare_valuation_snapshot_failure_at = now
-                return cls._akshare_valuation_snapshot_cache.copy() if cls._akshare_valuation_snapshot_cache is not None else pd.DataFrame()
+                return (
+                    cls._akshare_valuation_snapshot_cache.copy()
+                    if cls._akshare_valuation_snapshot_cache is not None
+                    else pd.DataFrame()
+                )
             cls._akshare_valuation_snapshot_cache = valuation_df.copy()
             cls._akshare_valuation_snapshot_cache_time = now
             cls._akshare_valuation_snapshot_failure_at = 0
@@ -2054,7 +2266,11 @@ class SinaIndustryAdapter:
         except Exception as exc:
             cls._akshare_valuation_snapshot_failure_at = now
             logger.warning(f"Valuation snapshot refresh failed: {exc}")
-            return cls._akshare_valuation_snapshot_cache.copy() if cls._akshare_valuation_snapshot_cache is not None else pd.DataFrame()
+            return (
+                cls._akshare_valuation_snapshot_cache.copy()
+                if cls._akshare_valuation_snapshot_cache is not None
+                else pd.DataFrame()
+            )
 
     @classmethod
     def _schedule_akshare_valuation_snapshot_refresh(cls) -> Optional[Future]:
@@ -2085,14 +2301,19 @@ class SinaIndustryAdapter:
         now = time.time()
         if (
             cls._akshare_valuation_snapshot_cache is not None
-            and now - cls._akshare_valuation_snapshot_cache_time < cls._akshare_valuation_snapshot_ttl_seconds
+            and now - cls._akshare_valuation_snapshot_cache_time
+            < cls._akshare_valuation_snapshot_ttl_seconds
         ):
             return cls._akshare_valuation_snapshot_cache
 
         if cached_only:
             if schedule_refresh:
                 cls._schedule_akshare_valuation_snapshot_refresh()
-            return cls._akshare_valuation_snapshot_cache.copy() if cls._akshare_valuation_snapshot_cache is not None else pd.DataFrame()
+            return (
+                cls._akshare_valuation_snapshot_cache.copy()
+                if cls._akshare_valuation_snapshot_cache is not None
+                else pd.DataFrame()
+            )
 
         return cls._refresh_akshare_valuation_snapshot_blocking()
 
@@ -2104,33 +2325,36 @@ class SinaIndustryAdapter:
     ) -> pd.DataFrame:
         """使用 AKShare 数据增强总市值、换手率和估值指标"""
         df["match_key"] = df["industry_name"].apply(self._normalize_industry_join_key)
-        
+
         # 1. 补充行业源数据（总市值、换手率）
         try:
             ak_provider = self.akshare
             meta_df = ak_provider._get_industry_metadata()
             if not meta_df.empty:
                 meta_df = meta_df.copy()
-                meta_df["match_key"] = meta_df["industry_name"].apply(self._normalize_industry_join_key)
+                meta_df["match_key"] = meta_df["industry_name"].apply(
+                    self._normalize_industry_join_key
+                )
                 meta_df = meta_df.drop_duplicates(subset=["match_key"], keep="first")
-                
-                meta_merge_df = meta_df[["match_key", "total_market_cap", "turnover_rate", "market_cap_source"]].rename(
-                    columns={"market_cap_source": "metadata_market_cap_source"}
-                )
-                df = pd.merge(
-                    df,
-                    meta_merge_df,
-                    on="match_key",
-                    how="left"
-                )
-                
+
+                meta_merge_df = meta_df[
+                    ["match_key", "total_market_cap", "turnover_rate", "market_cap_source"]
+                ].rename(columns={"market_cap_source": "metadata_market_cap_source"})
+                df = pd.merge(df, meta_merge_df, on="match_key", how="left")
+
                 # 清洗非数字值
                 df["total_market_cap"] = pd.to_numeric(df["total_market_cap"], errors="coerce")
                 df["turnover_rate"] = pd.to_numeric(df["turnover_rate"], errors="coerce")
                 matched_cap = df["total_market_cap"].notna() & (df["total_market_cap"] > 0)
                 if matched_cap.any():
-                    source_series = df.loc[matched_cap, "metadata_market_cap_source"].astype(str).replace({"": "akshare_metadata", "nan": "akshare_metadata"})
-                    df.loc[matched_cap, "market_cap_source"] = source_series.where(source_series.ne("unknown"), "akshare_metadata")
+                    source_series = (
+                        df.loc[matched_cap, "metadata_market_cap_source"]
+                        .astype(str)
+                        .replace({"": "akshare_metadata", "nan": "akshare_metadata"})
+                    )
+                    df.loc[matched_cap, "market_cap_source"] = source_series.where(
+                        source_series.ne("unknown"), "akshare_metadata"
+                    )
                     self._append_data_source(df, matched_cap, "akshare")
                 df = df.drop(columns=["metadata_market_cap_source"], errors="ignore")
         except Exception as e:
@@ -2144,46 +2368,64 @@ class SinaIndustryAdapter:
             )
             if not ak_sw.empty:
                 ak_sw = ak_sw.copy()
-                ak_sw = ak_sw.rename(columns={
-                    "行业名称": "ak_name",
-                    "TTM(滚动)市盈率": "pe_ttm",
-                    "市净率": "pb",
-                    "静态股息率": "dividend_yield"
-                })
+                ak_sw = ak_sw.rename(
+                    columns={
+                        "行业名称": "ak_name",
+                        "TTM(滚动)市盈率": "pe_ttm",
+                        "市净率": "pb",
+                        "静态股息率": "dividend_yield",
+                    }
+                )
                 ak_sw["match_key"] = ak_sw["ak_name"].apply(self._normalize_industry_join_key)
                 ak_sw = ak_sw.drop_duplicates(subset=["match_key"], keep="first")
-                
+
                 df = pd.merge(
-                    df, 
-                    ak_sw[["match_key", "pe_ttm", "pb", "dividend_yield"]], 
-                    on="match_key", 
-                    how="left"
+                    df,
+                    ak_sw[["match_key", "pe_ttm", "pb", "dividend_yield"]],
+                    on="match_key",
+                    how="left",
                 )
-                matched_valuation = df["pe_ttm"].notna() | df["pb"].notna() | df["dividend_yield"].notna()
+                matched_valuation = (
+                    df["pe_ttm"].notna() | df["pb"].notna() | df["dividend_yield"].notna()
+                )
                 if matched_valuation.any():
                     df.loc[matched_valuation, "valuation_source"] = "akshare_sw"
                     df.loc[matched_valuation, "valuation_quality"] = "industry_level"
                     self._append_data_source(df, matched_valuation, "akshare")
         except Exception as e:
             logger.warning(f"Valuation Enrichment failed: {e}")
-            
+
         # 3. 腾讯极速行情兜底：如果 AKShare 挂了或返回 0.0（无效值）导致 pe_ttm 缺失，直接拿该行业领涨股的估值作为代表
         has_no_pe = "pe_ttm" not in df.columns or df["pe_ttm"].isna().all()
         has_zero_pe = not has_no_pe and (df["pe_ttm"] == 0).all()
-        
+
         if include_leader_valuation_fallback and (has_no_pe or has_zero_pe):
-            logger.info(f"Using Tencent fallback (reason: {'missing' if has_no_pe else 'zero'}) to fetch representative PE/PB from leading stocks...")
+            logger.info(
+                f"Using Tencent fallback (reason: {'missing' if has_no_pe else 'zero'}) to fetch representative PE/PB from leading stocks..."
+            )
             import requests
+
             pe_list, pb_list = [], []
             for _, row in df.iterrows():
                 pe_val, pb_val = None, None
                 leader = str(row.get("leading_stock", ""))
                 sym = self.get_symbol_by_name(leader)
                 if sym and sym.isdigit():
-                    prefix = "sh" if sym.startswith("6") else "sz" if sym.startswith(("0", "3")) else "bj"
+                    prefix = (
+                        "sh"
+                        if sym.startswith("6")
+                        else "sz"
+                        if sym.startswith(("0", "3"))
+                        else "bj"
+                    )
                     url = f"http://qt.gtimg.cn/q={prefix}{sym}"
                     try:
-                        r = requests.get(url, timeout=3)
+                        r = self._call_with_circuit(
+                            "em_stock_detail_http",
+                            requests.get,
+                            url,
+                            timeout=3,
+                        )
                         if r.status_code == 200 and "v_" in r.text:
                             parts = r.text.split('"')[1].split("~")
                             if len(parts) > 46:
@@ -2197,12 +2439,15 @@ class SinaIndustryAdapter:
                         pass
                 pe_list.append(pe_val)
                 pb_list.append(pb_val)
-            
+
             # 如果之前有空列，或者未创建，则覆盖
             df["pe_ttm"] = pe_list
             df["pb"] = pb_list
             # 股息率腾讯不直接带在基础报价中，留空
-            tencent_mask = pd.Series([(pe is not None or pb is not None) for pe, pb in zip(pe_list, pb_list)], index=df.index)
+            tencent_mask = pd.Series(
+                [(pe is not None or pb is not None) for pe, pb in zip(pe_list, pb_list)],
+                index=df.index,
+            )
             if tencent_mask.any():
                 df.loc[tencent_mask, "valuation_source"] = "tencent_leader_proxy"
                 df.loc[tencent_mask, "valuation_quality"] = "leader_proxy"
@@ -2210,16 +2455,15 @@ class SinaIndustryAdapter:
 
         return df.drop(columns=["match_key"], errors="ignore")
 
-    
     def _compute_industry_market_caps(self, df: pd.DataFrame):
         """
         通过并行获取各行业成分股，汇总计算行业总市值
-        
+
         Uses a cache to avoid repeated API calls within a short period.
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import time
-        
+
         # 检查缓存
         cache_key = "_industry_mktcap_cache"
         now = time.time()
@@ -2227,12 +2471,10 @@ class SinaIndustryAdapter:
             cached_data, cached_time = getattr(self, cache_key)
             if now - cached_time < 600:  # 10 分钟缓存
                 # 应用缓存的市值数据
-                df["total_market_cap"] = df["industry_code"].map(
-                    lambda c: cached_data.get(c, 0)
-                )
+                df["total_market_cap"] = df["industry_code"].map(lambda c: cached_data.get(c, 0))
                 df["total_market_cap"] = df["total_market_cap"].fillna(0)
                 return
-        
+
         if "industry_code" not in df.columns or df["industry_code"].isna().all():
             updated = self._attach_industry_codes(df)
             if "industry_code" in updated.columns:
@@ -2240,18 +2482,27 @@ class SinaIndustryAdapter:
         if "industry_code" not in df.columns or df["industry_code"].isna().all():
             logger.warning("No industry_code column, cannot compute market caps")
             return
-        
+
         industry_codes = df["industry_code"].tolist()
-        industry_names = df["industry_name"].tolist() if "industry_name" in df.columns else industry_codes
-        
+        industry_names = (
+            df["industry_name"].tolist() if "industry_name" in df.columns else industry_codes
+        )
+
         mktcap_map = {}
-        
+
         def fetch_industry_mktcap(code, name):
             """获取单个行业的总市值"""
             try:
                 resolved_code, resolved_source = self._resolve_sina_industry_node(name, code)
                 if resolved_code:
-                    stocks = self.sina.get_industry_stocks(resolved_code, page=1, count=50, fetch_all=True)
+                    stocks = self._call_with_circuit(
+                        "sina_industry_stocks",
+                        self.sina.get_industry_stocks,
+                        resolved_code,
+                        page=1,
+                        count=50,
+                        fetch_all=True,
+                    )
                     total_cap = sum(s.get("mktcap", 0) for s in stocks) * 10000  # 万元->元
                     if total_cap > 0:
                         return code, total_cap, resolved_source
@@ -2260,9 +2511,11 @@ class SinaIndustryAdapter:
             except Exception as e:
                 logger.debug(f"Failed to get stocks for {name}: {e}")
                 return code, 0, "unknown"
-        
+
         # 并行获取（最多 5 个并发，避免过快请求）
-        logger.info(f"Computing market caps for {len(industry_codes)} industries via Sina stocks...")
+        logger.info(
+            f"Computing market caps for {len(industry_codes)} industries via Sina stocks..."
+        )
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = {
                 executor.submit(fetch_industry_mktcap, code, name): code
@@ -2277,27 +2530,27 @@ class SinaIndustryAdapter:
                     df.loc[df["industry_code"] == code, "market_cap_source"] = source
                     if source in {"sina_stock_sum", "sina_proxy_stock_sum"}:
                         self._append_data_source(df, df["industry_code"] == code, "sina")
-        
+
         # 应用市值数据
         df["total_market_cap"] = df["industry_code"].map(mktcap_map).fillna(0)
-        
+
         nonzero = (df["total_market_cap"] > 0).sum()
         logger.info(f"Industry market caps computed: {nonzero}/{len(df)} have data")
-        
+
         # 更新缓存
         setattr(self, cache_key, (mktcap_map, now))
 
     def _estimate_market_cap_from_flow(self, df: pd.DataFrame) -> pd.Series:
         """
         当真实市值数据不可用时，用 THS 成交总额估算行业相对规模。
-        
+
         估算优先级:
         1. total_inflow + total_outflow（THS 成交总额，亿元）× 1e8 → 元
         2. stock_count × 100亿（行业成分股数 × 平均市值粗估）
         3. 全部回退为 1.0（避免方块等大）
         """
         if "total_inflow" in df.columns and "total_outflow" in df.columns:
-            total_volume = (df["total_inflow"].fillna(0) + df["total_outflow"].fillna(0))
+            total_volume = df["total_inflow"].fillna(0) + df["total_outflow"].fillna(0)
             if total_volume.sum() > 0:
                 logger.info("Estimating market cap from THS trading volume (total_inflow+outflow)")
                 # 成交总额（亿元）× 1e8 = 元，再 × 10 作为换手率≈10%的粗略估算
@@ -2307,23 +2560,25 @@ class SinaIndustryAdapter:
                 if pd.notna(median_val) and median_val > 0:
                     estimated = estimated.where(estimated > 0, median_val * 0.5)
                 return estimated
-        
+
         if "stock_count" in df.columns:
             counts = df["stock_count"].fillna(0).astype(float)
             if counts.sum() > 0:
                 logger.info("Estimating market cap from stock_count")
                 # 每家公司平均约100亿市值，粗略估算
                 return counts * 100 * 1e8
-        
+
         logger.warning("Cannot estimate market cap, using constant 1.0")
         return pd.Series([1.0] * len(df), index=df.index)
-    
-    def get_stock_list_by_industry(self, industry_name: str, fast_mode: bool = False) -> List[Dict[str, Any]]:
+
+    def get_stock_list_by_industry(
+        self, industry_name: str, fast_mode: bool = False
+    ) -> List[Dict[str, Any]]:
         """
         获取行业成分股列表（融合模式：取 AKShare 与 Sina 并集，解决降级时数据过少问题）
         """
         ths_industry_name = self._normalize_to_ths_industry_name(industry_name)
-        merged_stocks = {} # symbol -> data
+        merged_stocks = {}  # symbol -> data
 
         def merge_akshare_rows():
             try:
@@ -2339,7 +2594,9 @@ class SinaIndustryAdapter:
                     for stock in ak_stocks:
                         merged_stocks[stock["symbol"]] = stock
             except Exception as e:
-                logger.warning(f"AKShare get_stock_list failed for industry {ths_industry_name}: {e}")
+                logger.warning(
+                    f"AKShare get_stock_list failed for industry {ths_industry_name}: {e}"
+                )
 
         if fast_mode:
             try:
@@ -2349,7 +2606,9 @@ class SinaIndustryAdapter:
                     if symbol:
                         merged_stocks[symbol] = stock
             except Exception as exc:
-                logger.warning(f"Cached industry stocks fallback for {ths_industry_name} failed: {exc}")
+                logger.warning(
+                    f"Cached industry stocks fallback for {ths_industry_name} failed: {exc}"
+                )
         else:
             merge_akshare_rows()
 
@@ -2361,14 +2620,22 @@ class SinaIndustryAdapter:
                     allow_live=not fast_mode,
                 )
                 if resolved_code:
-                    sina_stocks = self.sina.get_industry_stocks(resolved_code)
-                    sina_stocks = self._refine_proxy_constituents(ths_industry_name, sina_stocks, resolved_code)
+                    sina_stocks = self._call_with_circuit(
+                        "sina_industry_stocks",
+                        self.sina.get_industry_stocks,
+                        resolved_code,
+                    )
+                    sina_stocks = self._refine_proxy_constituents(
+                        ths_industry_name, sina_stocks, resolved_code
+                    )
                     for stock in self._normalize_sina_stock_rows(sina_stocks):
                         symbol = str(stock.get("symbol") or "").strip()
                         if symbol and symbol not in merged_stocks:
                             merged_stocks[symbol] = stock
             except Exception as e:
-                logger.warning(f"Sina resolved-node fallback for industry {ths_industry_name} failed: {e}")
+                logger.warning(
+                    f"Sina resolved-node fallback for industry {ths_industry_name} failed: {e}"
+                )
 
         # 3. 如果节点码未命中或数据依然偏少，再尝试基于行业列表名称匹配。
         if len(merged_stocks) < 10:
@@ -2381,8 +2648,14 @@ class SinaIndustryAdapter:
                         industry_code = str(row.get("industry_code") or "").strip()
                         if not industry_code:
                             continue
-                        sina_stocks = self.sina.get_industry_stocks(industry_code)
-                        sina_stocks = self._refine_proxy_constituents(ths_industry_name, sina_stocks, industry_code)
+                        sina_stocks = self._call_with_circuit(
+                            "sina_industry_stocks",
+                            self.sina.get_industry_stocks,
+                            industry_code,
+                        )
+                        sina_stocks = self._refine_proxy_constituents(
+                            ths_industry_name, sina_stocks, industry_code
+                        )
 
                         for stock in self._normalize_sina_stock_rows(sina_stocks):
                             symbol = str(stock.get("symbol") or "").strip()
@@ -2395,7 +2668,10 @@ class SinaIndustryAdapter:
                         break
 
                 if not matched_named_fallback and not fast_mode:
-                    live_industries = self.sina.get_industry_list()
+                    live_industries = self._call_with_circuit(
+                        "sina_industry_list",
+                        self.sina.get_industry_list,
+                    )
                     if live_industries is not None and not live_industries.empty:
                         self.__class__._sina_industry_list_shared_cache = live_industries.copy()
                         self.__class__._sina_industry_list_shared_cache_time = time.time()
@@ -2405,8 +2681,14 @@ class SinaIndustryAdapter:
                             if match.empty:
                                 continue
                             industry_code = match.iloc[0]["industry_code"]
-                            sina_stocks = self.sina.get_industry_stocks(industry_code)
-                            sina_stocks = self._refine_proxy_constituents(ths_industry_name, sina_stocks, industry_code)
+                            sina_stocks = self._call_with_circuit(
+                                "sina_industry_stocks",
+                                self.sina.get_industry_stocks,
+                                industry_code,
+                            )
+                            sina_stocks = self._refine_proxy_constituents(
+                                ths_industry_name, sina_stocks, industry_code
+                            )
 
                             for stock in self._normalize_sina_stock_rows(sina_stocks):
                                 symbol = str(stock.get("symbol") or "").strip()
@@ -2425,17 +2707,23 @@ class SinaIndustryAdapter:
                     if symbol and symbol not in merged_stocks:
                         merged_stocks[symbol] = stock
             except Exception as e:
-                logger.warning(f"Symbol-cache fallback for industry {ths_industry_name} failed: {e}")
+                logger.warning(
+                    f"Symbol-cache fallback for industry {ths_industry_name} failed: {e}"
+                )
 
         if fast_mode and not merged_stocks:
             try:
-                persistent_leader_rows = self._build_persistent_leading_stock_fallback(ths_industry_name)
+                persistent_leader_rows = self._build_persistent_leading_stock_fallback(
+                    ths_industry_name
+                )
                 for stock in persistent_leader_rows:
                     symbol = str(stock.get("symbol") or stock.get("code") or "").strip()
                     if symbol:
                         merged_stocks[symbol] = stock
             except Exception as exc:
-                logger.warning(f"Persistent leader fallback for industry {ths_industry_name} failed: {exc}")
+                logger.warning(
+                    f"Persistent leader fallback for industry {ths_industry_name} failed: {exc}"
+                )
 
         if fast_mode and not merged_stocks:
             logger.info(
@@ -2452,7 +2740,7 @@ class SinaIndustryAdapter:
         else:
             log_fn = logger.debug if fast_mode else logger.warning
             log_fn(f"No stocks found for industry {ths_industry_name} from any source.")
-            
+
         # 3. 最后兜底：如果依然没有数据，尝试使用 THS 领涨股构造最小可用成分股
         if not merged_stocks:
             try:
@@ -2469,7 +2757,9 @@ class SinaIndustryAdapter:
                                 "symbol": str(leader_symbol),
                                 "code": str(leader_symbol),
                                 "name": leader_name,
-                                "change_pct": float(row.get("leading_stock_change") or row.get("change_pct") or 0),
+                                "change_pct": float(
+                                    row.get("leading_stock_change") or row.get("change_pct") or 0
+                                ),
                                 "market_cap": float(valuation.get("market_cap") or 0),
                                 "pe_ratio": float(valuation.get("pe_ttm") or 0),
                                 "pb_ratio": float(valuation.get("pb") or 0),
@@ -2485,7 +2775,7 @@ class SinaIndustryAdapter:
         else:
             log_fn = logger.debug if fast_mode else logger.warning
             log_fn(f"No stocks found for industry {ths_industry_name} from any source.")
-            
+
         return result
 
     def get_latest_quote(self, symbol: str) -> Dict[str, Any]:
@@ -2506,15 +2796,23 @@ class SinaIndustryAdapter:
                     "volume": quote.get("volume"),
                     "amount": quote.get("amount"),
                     "source": "akshare_realtime",
-                    "updated_at": quote.get("timestamp").isoformat() if getattr(quote.get("timestamp"), "isoformat", None) else quote.get("timestamp"),
+                    "updated_at": quote.get("timestamp").isoformat()
+                    if getattr(quote.get("timestamp"), "isoformat", None)
+                    else quote.get("timestamp"),
                 }
         except Exception as e:
             logger.warning(f"AKShare latest quote failed for {symbol}: {e}")
 
         try:
-            prefix = "sh" if symbol.startswith("6") else "sz" if symbol.startswith(("0", "3")) else "bj"
+            prefix = (
+                "sh" if symbol.startswith("6") else "sz" if symbol.startswith(("0", "3")) else "bj"
+            )
             sina_symbol = f"{prefix}{symbol}"
-            data = self.sina.get_stock_realtime([sina_symbol])
+            data = self._call_with_circuit(
+                "sina_stock_realtime",
+                self.sina.get_stock_realtime,
+                [sina_symbol],
+            )
             if not data.empty:
                 row = data.iloc[0]
                 current_price = float(row.get("price", 0) or 0)
@@ -2543,8 +2841,10 @@ class SinaIndustryAdapter:
             logger.warning(f"Sina latest quote failed for {symbol}: {e}")
 
         return {"symbol": symbol, "error": "Quote not found"}
-    
-    def get_industry_index(self, industry_code: str, start_date=None, end_date=None) -> pd.DataFrame:
+
+    def get_industry_index(
+        self, industry_code: str, start_date=None, end_date=None
+    ) -> pd.DataFrame:
         """
         获取行业指数历史数据
 
@@ -2553,7 +2853,7 @@ class SinaIndustryAdapter:
 
         Args:
             industry_code: 行业代码
-            
+
         Returns:
             行业指数 OHLCV 数据；失败时返回空 DataFrame
         """
@@ -2604,25 +2904,37 @@ class SinaIndustryAdapter:
 
         if cached_only:
             return {"symbol": symbol, "error": "Cached valuation unavailable"}
-            
+
         try:
             # 降级：转换股票代码为新浪格式
-            prefix = "sh" if symbol.startswith("6") else "sz" if symbol.startswith(("0", "3")) else "bj"
+            prefix = (
+                "sh" if symbol.startswith("6") else "sz" if symbol.startswith(("0", "3")) else "bj"
+            )
             sina_symbol = f"{prefix}{symbol}"
-            
-            data = self.sina.get_stock_realtime([sina_symbol])
+
+            data = self._call_with_circuit(
+                "sina_stock_realtime",
+                self.sina.get_stock_realtime,
+                [sina_symbol],
+            )
             if data.empty:
                 return {"error": f"No data for {symbol}"}
-            
+
             row = data.iloc[0]
-            
+
             # 引入腾讯财经备用接口获取市值、PE、换手率等估值核心参数
             market_cap, pe_ttm, turnover, pb = 0.0, 0.0, 0.0, 0.0
             try:
                 import requests
+
                 # 腾讯财经格式: sz000001, sh600000, bj832471 等与新浪拼法完全一致
                 url = f"http://qt.gtimg.cn/q={sina_symbol}"
-                resp = requests.get(url, timeout=5)
+                resp = self._call_with_circuit(
+                    "tencent_stock_detail_http",
+                    requests.get,
+                    url,
+                    timeout=5,
+                )
                 if resp.status_code == 200 and "v_" in resp.text:
                     parts = resp.text.split('"')[1].split("~")
                     if len(parts) > 46:
@@ -2633,11 +2945,11 @@ class SinaIndustryAdapter:
                         pb = float(parts[46]) if parts[46] else 0
             except Exception as e:
                 logger.warning(f"Tencent fallback failed for {symbol}: {e}")
-                
+
             pre_close = float(row.get("pre_close", 1))
             current = float(row.get("price", 0))
             change_pct = (current - pre_close) / pre_close * 100 if pre_close > 0 else 0
-            
+
             return {
                 "symbol": symbol,
                 "name": row.get("name", ""),
@@ -2671,28 +2983,29 @@ class SinaIndustryAdapter:
         获取股票历史 K 线数据（增加磁盘持久化缓存，优先 AKShare(EastMoney)，失败则降级）
         """
         self.__class__._ensure_history_cache_loaded()
-        
+
         from datetime import datetime, timedelta
+
         if end_date is None:
             end_date = datetime.now()
         if start_date is None:
             start_date = end_date - timedelta(days=90)
-            
+
         start_str = start_date.strftime("%Y%m%d")
         end_str = end_date.strftime("%Y%m%d") if isinstance(end_date, datetime) else str(end_date)
-            
+
         cache_key = f"{symbol}_{start_str}_{end_str}"
-        
+
         # 1. 检查缓存 (TTL: 4小时)
         cache_entry = self.__class__._history_cache.get(cache_key)
         if cache_entry:
             timestamp = cache_entry.get("timestamp", 0)
-            if time.time() - timestamp < 14400: # 4小时
+            if time.time() - timestamp < 14400:  # 4小时
                 try:
                     df = pd.DataFrame(cache_entry["data"])
                     if not df.empty:
-                        df['date'] = pd.to_datetime(df['date'])
-                        df.set_index('date', inplace=True)
+                        df["date"] = pd.to_datetime(df["date"])
+                        df.set_index("date", inplace=True)
                         return df
                 except Exception as e:
                     logger.warning(f"Error decoding history cache for {symbol}: {e}")
@@ -2701,37 +3014,53 @@ class SinaIndustryAdapter:
         try:
             df = self.akshare.get_historical_data(symbol, start_date, end_date)
         except Exception as e:
-            logger.warning(f"AKShare historical data failed for {symbol}: {e}, falling back to Sina Daily")
-            
+            logger.warning(
+                f"AKShare historical data failed for {symbol}: {e}, falling back to Sina Daily"
+            )
+
         if df.empty:
             try:
                 # 降级：转换股票代码为新浪格式
-                prefix = "sh" if symbol.startswith("6") else "sz" if symbol.startswith(("0", "3")) else "bj"
+                prefix = (
+                    "sh"
+                    if symbol.startswith("6")
+                    else "sz"
+                    if symbol.startswith(("0", "3"))
+                    else "bj"
+                )
                 sina_symbol = f"{prefix}{symbol}"
-                
-                df_fallback = ak.stock_zh_a_daily(symbol=sina_symbol, start_date=start_str, end_date=end_str)
-                if not df_fallback.empty and 'close' in df_fallback.columns:
-                    df_fallback['date'] = pd.to_datetime(df_fallback['date'])
-                    df_fallback.set_index('date', inplace=True)
+
+                df_fallback = self._call_with_circuit(
+                    "stock_zh_a_daily",
+                    ak.stock_zh_a_daily,
+                    symbol=sina_symbol,
+                    start_date=start_str,
+                    end_date=end_str,
+                )
+                if not df_fallback.empty and "close" in df_fallback.columns:
+                    df_fallback["date"] = pd.to_datetime(df_fallback["date"])
+                    df_fallback.set_index("date", inplace=True)
                     df = df_fallback
             except Exception as fallback_e:
-                logger.debug(f"Historical data completely failed to load for {symbol}: {fallback_e}")
+                logger.debug(
+                    f"Historical data completely failed to load for {symbol}: {fallback_e}"
+                )
 
         # 2. 如果获取成功，存入缓存
         if not df.empty:
             try:
                 # 准备序列化数据 (重置索引以便保存日期列)
                 cache_data = df.reset_index()
-                cache_data['date'] = cache_data['date'].dt.strftime('%Y-%m-%d')
-                
+                cache_data["date"] = cache_data["date"].dt.strftime("%Y-%m-%d")
+
                 self.__class__._history_cache[cache_key] = {
                     "timestamp": time.time(),
-                    "data": cache_data.to_dict(orient="records")
+                    "data": cache_data.to_dict(orient="records"),
                 }
                 self.__class__._persist_history_cache()
             except Exception as e:
                 logger.warning(f"Failed to cache history data for {symbol}: {e}")
-                
+
         return df
 
 
@@ -2740,30 +3069,44 @@ class SinaIndustryAdapter:
 def create_industry_provider():
     """
     创建行业数据提供器
-    
+
     始终返回 SinaIndustryAdapter，因为该适配器内部已实现了
     对 THS、AKShare、Sina 的三层数据融合和能力回退机制。
-    
+
     Returns:
         可用的数据提供器实例
     """
     logger.info("Initializing THS-first industry provider (THS + AKShare + Sina + Tencent)")
     return SinaIndustryAdapter()
 
+
 # 测试代码
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    
+
     adapter = SinaIndustryAdapter()
-    
+
     print("=== Industry Classification ===")
     industries = adapter.get_industry_classification()
     print(industries.head(10).to_string())
-    
+
     print("\n=== Money Flow ===")
     flow = adapter.get_industry_money_flow()
-    print(flow[["industry_name", "change_pct", "main_net_inflow", "flow_strength", "total_market_cap", "turnover_rate"]].head(10).to_string())
-    
+    print(
+        flow[
+            [
+                "industry_name",
+                "change_pct",
+                "main_net_inflow",
+                "flow_strength",
+                "total_market_cap",
+                "turnover_rate",
+            ]
+        ]
+        .head(10)
+        .to_string()
+    )
+
     print("\n=== Industry Stocks ===")
     if not industries.empty:
         name = industries.iloc[0]["industry_name"]

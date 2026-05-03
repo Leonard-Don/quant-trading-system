@@ -8,7 +8,7 @@
 - 仓库文档与测试元数据同步收口：README、结构说明、API 文档、E2E package 名称和发布说明已全部对齐新的双仓边界
 
 ## v4.0.0 (2026-04-14)
-- 基础设施层正式产品化：新增 `Infrastructure` API、认证令牌、持久化状态、Redis/Celery 任务队列、通知能力与 TimescaleDB schema，并补齐基础设施独立启动、迁移与健康检查脚本
+- 基础设施层正式产品化：新增 `Infrastructure` API、认证令牌、持久化状态、Redis/Celery 任务队列、通知能力与 TimescaleDB schema，并补齐迁移与健康检查脚本
 - Quant Lab 升级为独立量化实验台，覆盖策略优化、批量回测、基准对比、组合实验、Walk-Forward、风险中心、交易日志、告警编排与估值实验等新工作流
 - GodEye 从宏观错误定价扩展到结构性衰败与部门混乱监控，新增 people / governance / execution / physical / evidence 维度雷达、部门执行混乱看板、贸易论点跟踪与物理世界观测面板
 - 研究运营链路继续深度模块化：Research Workbench、实时复盘、行业研究、跨市场分析与定价研究新增更多状态持久化、异步处理、复制分享与上下文切换能力

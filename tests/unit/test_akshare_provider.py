@@ -6,8 +6,10 @@ import threading
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 
 from src.data.providers.akshare_provider import AKShareProvider
+from src.data.providers.circuit_breaker import CircuitOpenError, CircuitState
 
 
 def test_get_industry_metadata_persists_snapshot(tmp_path):
@@ -23,9 +25,12 @@ def test_get_industry_metadata_persists_snapshot(tmp_path):
         ]
     )
 
-    with patch.object(AKShareProvider, "_industry_meta_cache_path", cache_path), patch(
-        "src.data.providers.akshare_provider.ak.stock_board_industry_name_em",
-        return_value=raw_df,
+    with (
+        patch.object(AKShareProvider, "_industry_meta_cache_path", cache_path),
+        patch(
+            "src.data.providers.akshare_provider.ak.stock_board_industry_name_em",
+            return_value=raw_df,
+        ),
     ):
         df = provider._get_industry_metadata()
 
@@ -65,9 +70,12 @@ def test_get_industry_metadata_uses_persistent_snapshot_on_failure(tmp_path):
     provider._industry_meta_cache = None
     provider._industry_meta_cache_time = None
 
-    with patch.object(AKShareProvider, "_industry_meta_cache_path", cache_path), patch(
-        "src.data.providers.akshare_provider.ak.stock_board_industry_name_em",
-        side_effect=RuntimeError("upstream unavailable"),
+    with (
+        patch.object(AKShareProvider, "_industry_meta_cache_path", cache_path),
+        patch(
+            "src.data.providers.akshare_provider.ak.stock_board_industry_name_em",
+            side_effect=RuntimeError("upstream unavailable"),
+        ),
     ):
         df = provider._get_industry_metadata()
 
@@ -106,14 +114,18 @@ def test_get_stock_list_by_industry_reuses_cached_snapshot():
         ]
     )
 
-    with patch.object(provider, "_get_industry_metadata", return_value=industry_meta), patch.object(
-        provider,
-        "_get_all_stocks_market_cap",
-        return_value={},
-    ), patch(
-        "src.data.providers.akshare_provider.ak.stock_board_industry_cons_em",
-        return_value=stocks_df,
-    ) as stock_cons:
+    with (
+        patch.object(provider, "_get_industry_metadata", return_value=industry_meta),
+        patch.object(
+            provider,
+            "_get_all_stocks_market_cap",
+            return_value={},
+        ),
+        patch(
+            "src.data.providers.akshare_provider.ak.stock_board_industry_cons_em",
+            return_value=stocks_df,
+        ) as stock_cons,
+    ):
         first = provider.get_stock_list_by_industry("白酒", include_market_cap_lookup=False)
         second = provider.get_stock_list_by_industry("白酒", include_market_cap_lookup=False)
 
@@ -156,9 +168,12 @@ def test_get_stock_list_by_industry_prefers_persistent_snapshot_for_fast_lookup(
     AKShareProvider._shared_industry_stock_snapshot = None
     AKShareProvider._shared_industry_stock_snapshot_time = None
 
-    with patch.object(AKShareProvider, "_industry_stock_snapshot_path", snapshot_path), patch(
-        "src.data.providers.akshare_provider.ak.stock_board_industry_cons_em",
-        side_effect=AssertionError("live industry stock fetch should not run"),
+    with (
+        patch.object(AKShareProvider, "_industry_stock_snapshot_path", snapshot_path),
+        patch(
+            "src.data.providers.akshare_provider.ak.stock_board_industry_cons_em",
+            side_effect=AssertionError("live industry stock fetch should not run"),
+        ),
     ):
         stocks = provider.get_stock_list_by_industry("白酒", include_market_cap_lookup=False)
 
@@ -209,13 +224,17 @@ def test_get_stock_list_by_industry_dedupes_concurrent_live_fetches():
         gate.wait(timeout=1)
         return stocks_df
 
-    with patch.object(provider, "_get_industry_metadata", return_value=industry_meta), patch.object(
-        provider,
-        "_get_all_stocks_market_cap",
-        return_value={},
-    ), patch(
-        "src.data.providers.akshare_provider.ak.stock_board_industry_cons_em",
-        side_effect=_slow_stock_fetch,
+    with (
+        patch.object(provider, "_get_industry_metadata", return_value=industry_meta),
+        patch.object(
+            provider,
+            "_get_all_stocks_market_cap",
+            return_value={},
+        ),
+        patch(
+            "src.data.providers.akshare_provider.ak.stock_board_industry_cons_em",
+            side_effect=_slow_stock_fetch,
+        ),
     ):
         with ThreadPoolExecutor(max_workers=2) as executor:
             future_one = executor.submit(provider.get_stock_list_by_industry, "白酒", False)
@@ -268,9 +287,35 @@ def test_persist_stock_list_snapshot_skips_disk_write_when_snapshot_unchanged(tm
     AKShareProvider._shared_industry_stock_snapshot = None
     AKShareProvider._shared_industry_stock_snapshot_time = None
 
-    with patch.object(AKShareProvider, "_industry_stock_snapshot_path", snapshot_path), patch.object(
-        Path,
-        "write_text",
-        side_effect=AssertionError("unchanged stock snapshot should not be rewritten"),
+    with (
+        patch.object(AKShareProvider, "_industry_stock_snapshot_path", snapshot_path),
+        patch.object(
+            Path,
+            "write_text",
+            side_effect=AssertionError("unchanged stock snapshot should not be rewritten"),
+        ),
     ):
         provider.persist_stock_list_snapshot("白酒", stocks, include_market_cap_lookup=False)
+
+
+def test_akshare_provider_circuit_short_circuits_after_repeated_failures():
+    provider = AKShareProvider()
+    calls = 0
+
+    def unstable_fetch():
+        nonlocal calls
+        calls += 1
+        raise RuntimeError("upstream unavailable")
+
+    for _ in range(5):
+        with pytest.raises(RuntimeError):
+            provider._call_akshare("unit_test_fetch", unstable_fetch)
+
+    breaker = provider._akshare_breakers["unit_test_fetch"]
+    assert breaker.state is CircuitState.OPEN
+
+    with pytest.raises(CircuitOpenError):
+        provider._call_akshare("unit_test_fetch", unstable_fetch)
+
+    assert calls == 5
+    assert provider.get_circuit_status()["unit_test_fetch"]["state"] == "open"
