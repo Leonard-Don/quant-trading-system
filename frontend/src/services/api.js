@@ -693,6 +693,17 @@ export const getRealtimeQuote = async (symbol) => {
   return response.data;
 };
 
+export const getMultipleQuotes = async (symbols = []) => {
+  const list = (Array.isArray(symbols) ? symbols : [])
+    .map((symbol) => String(symbol || '').trim())
+    .filter(Boolean);
+  if (list.length === 0) return { success: true, data: {} };
+  const response = await api.get('/realtime/quotes', {
+    params: { symbols: list.join(',') },
+  });
+  return response.data;
+};
+
 export const getRealtimeReplay = async (symbol, params = {}) => {
   const search = new URLSearchParams();
   if (params.period) search.set('period', params.period);
@@ -1098,6 +1109,27 @@ export const getPolicyRadarRecords = async ({ industry, timeframe = '7d', limit 
   const params = { timeframe, limit };
   if (industry) params.industry = industry;
   const response = await api.get('/policy-radar/records', { params });
+  return response.data;
+};
+
+export const getPaperAccount = async () => {
+  const response = await api.get('/paper/account');
+  return response.data;
+};
+
+export const submitPaperOrder = async (order) => {
+  const response = await api.post('/paper/orders', order);
+  return response.data;
+};
+
+export const listPaperOrders = async ({ limit = 100 } = {}) => {
+  const response = await api.get('/paper/orders', { params: { limit } });
+  return response.data;
+};
+
+export const resetPaperAccount = async ({ initialCapital } = {}) => {
+  const body = initialCapital != null ? { initial_capital: initialCapital } : {};
+  const response = await api.post('/paper/reset', body);
   return response.data;
 };
 

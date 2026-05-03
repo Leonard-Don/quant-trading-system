@@ -9,6 +9,7 @@ import {
   MoonOutlined,
   FireOutlined,
   FundOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 
 import ErrorBoundary from './components/ErrorBoundary';
@@ -27,6 +28,7 @@ const RealTimePanel = lazyWithRetry(() => import('./components/RealTimePanel'));
 const IndustryDashboard = lazyWithRetry(() => import('./components/IndustryDashboard'));
 const BacktestDashboard = lazyWithRetry(() => import('./components/BacktestDashboard'));
 const TodayResearchDashboard = lazyWithRetry(() => import('./components/TodayResearchDashboard'));
+const PaperTradingPanel = lazyWithRetry(() => import('./components/PaperTradingPanel'));
 
 // 懒加载占位组件
 const LazyLoadFallback = () => (
@@ -46,8 +48,8 @@ const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
 const VIEW_QUERY_KEY = 'view';
-const VALID_VIEWS = new Set(['today', 'backtest', 'realtime', 'industry']);
-const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry']);
+const VALID_VIEWS = new Set(['today', 'backtest', 'realtime', 'industry', 'paper']);
+const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry', 'paper']);
 const FULL_VIEW_SET = new Set(['realtime']);
 const readViewStateFromLocation = (search = window.location.search, revision = 0) => {
   const params = new URLSearchParams(search);
@@ -199,6 +201,11 @@ function App() {
       key: 'industry',
       icon: <FireOutlined />,
       label: '行业热度',
+    },
+    {
+      key: 'paper',
+      icon: <ThunderboltOutlined />,
+      label: '纸面账户',
     }
   ];
 
@@ -224,6 +231,9 @@ function App() {
 
       case 'industry':
         return <Suspense fallback={<LazyLoadFallback />}><IndustryDashboard /></Suspense>;
+
+      case 'paper':
+        return <Suspense fallback={<LazyLoadFallback />}><PaperTradingPanel /></Suspense>;
       case 'backtest':
       default:
         return (
