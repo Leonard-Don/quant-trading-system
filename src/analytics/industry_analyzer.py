@@ -1,6 +1,12 @@
 """
 行业分析引擎
 用于识别热门行业和行业轮动趋势
+
+This module is the *domain core* of the industry feature — pure analytics on
+top of a provider, no caching / scheduling / HTTP concerns. It is wrapped by
+``backend/app/services/industry/runtime.py`` (orchestration) and
+``backend/app/api/v1/endpoints/industry.py`` (HTTP routes + test-patch shim).
+Layer charter: ``docs/architecture/industry-layering.md``.
 """
 
 import pandas as pd

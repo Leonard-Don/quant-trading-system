@@ -1,4 +1,12 @@
-"""Runtime helpers for the industry API surface."""
+"""Runtime helpers for the industry API surface.
+
+Orchestration layer for the industry feature: caching, in-flight dedup,
+prewarm scheduling, payload serialization, disk persistence, and provider
+fallback. Wraps the pure analytics in ``src/analytics/industry_analyzer.py``
+and is exposed through ``backend/app/api/v1/endpoints/industry.py`` (which
+also maintains a test-patch shim mirroring helpers from this module).
+Layer charter: ``docs/architecture/industry-layering.md``.
+"""
 
 from __future__ import annotations
 
