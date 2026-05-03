@@ -198,6 +198,43 @@ describe('BacktestDataHealthPanel', () => {
     });
   });
 
+  test('collapses healthy provider runtime details until requested', async () => {
+    checkIndustryHealth.mockResolvedValue({
+      status: 'healthy',
+      active_provider: { name: '新浪财经 (Sina Finance)', type: 'sina' },
+      data_source_mode: 'sina_primary',
+      data_sources_contributing: ['sina'],
+      data_sources: {
+        sina: { name: '新浪财经 (Sina Finance)', status: 'connected' },
+      },
+    });
+    getProviderRuntimeStatus.mockResolvedValue({
+      success: true,
+      timestamp: '2026-05-03T12:00:00',
+      providers: {
+        yahoo: {
+          provider: { name: 'yahoo', description: 'US market fallback' },
+          circuit_breakers: {},
+        },
+      },
+    });
+
+    render(<BacktestDataHealthPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText('可以回测')).toBeInTheDocument();
+      expect(screen.getByText('1 Provider / 0 熔断器 / 0 累计失败')).toBeInTheDocument();
+      expect(screen.queryByText('US market fallback')).not.toBeInTheDocument();
+    });
+
+    await act(async () => {
+      userEvent.click(screen.getByRole('button', { name: /查看明细/ }));
+    });
+
+    expect(screen.getByText('US market fallback')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /收起明细/ })).toBeInTheDocument();
+  });
+
   test('copies the current diagnostic snapshot to clipboard', async () => {
     checkIndustryHealth.mockResolvedValue({
       status: 'healthy',
