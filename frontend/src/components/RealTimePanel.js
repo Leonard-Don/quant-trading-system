@@ -2583,7 +2583,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         .realtime-search-compact .ant-btn {
           flex: 0 0 72px;
           min-width: 72px;
-          padding-inline: 12px;
+          padding-inline: 12px !important;
         }
 
         .realtime-board-head {
