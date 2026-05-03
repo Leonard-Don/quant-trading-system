@@ -51,6 +51,7 @@ const StrategyComparison = ({ strategies }) => {
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState(null);
     const [strategyParameters, setStrategyParameters] = useState({});
+    const [hasAppliedDefaultPreset, setHasAppliedDefaultPreset] = useState(false);
     const [params, setParams] = useState({
         symbol: 'AAPL',
         selectedStrategies: [],
@@ -86,6 +87,17 @@ const StrategyComparison = ({ strategies }) => {
             },
         ].filter((preset) => preset.strategies.every((strategyName) => availableStrategies.has(strategyName)));
     }, [strategies]);
+
+    useEffect(() => {
+        if (hasAppliedDefaultPreset || params.selectedStrategies.length || !comparisonPresets.length) {
+            return;
+        }
+        setParams((previous) => ({
+            ...previous,
+            selectedStrategies: comparisonPresets[0].strategies,
+        }));
+        setHasAppliedDefaultPreset(true);
+    }, [comparisonPresets, hasAppliedDefaultPreset, params.selectedStrategies.length]);
 
     useEffect(() => {
         setStrategyParameters((previous) => {
@@ -156,6 +168,7 @@ const StrategyComparison = ({ strategies }) => {
     };
 
     const applyPreset = (presetStrategies) => {
+        setHasAppliedDefaultPreset(true);
         setParams((previous) => ({ ...previous, selectedStrategies: presetStrategies }));
     };
 
@@ -391,7 +404,10 @@ const StrategyComparison = ({ strategies }) => {
                             value={params.selectedStrategies}
                             style={{ width: '100%' }}
                             placeholder="选择要对比的策略"
-                            onChange={(values) => setParams(prev => ({ ...prev, selectedStrategies: values }))}
+                            onChange={(values) => {
+                                setHasAppliedDefaultPreset(true);
+                                setParams(prev => ({ ...prev, selectedStrategies: values }));
+                            }}
                             maxTagCount="responsive"
                         >
                             {strategies.map(s => (
