@@ -7,7 +7,7 @@
  * polling (backend doesn't push prices in v0).
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     App as AntdApp,
     Button,
@@ -96,9 +96,15 @@ const PaperTradingPanel = () => {
     const refresh = useCallback(() => setRefreshKey((value) => value + 1), []);
 
     // One-shot consume of the cross-workspace handoff (e.g. from a backtest
-    // result panel). Runs once on mount; cleared after consumption.
+    // result panel). We hold off until the account has loaded so the Form
+    // element is mounted (the panel renders an <Empty> placeholder before
+    // that, and setFieldsValue on a disconnected form instance is a no-op
+    // that emits a noisy console warning).
+    const prefillConsumedRef = useRef(false);
     useEffect(() => {
+        if (!account || prefillConsumedRef.current) return;
         const prefill = consumePaperPrefill();
+        prefillConsumedRef.current = true;
         if (!prefill) return;
         const fields = {};
         if (prefill.symbol) fields.symbol = prefill.symbol;
@@ -110,7 +116,7 @@ const PaperTradingPanel = () => {
             orderForm.setFieldsValue(fields);
             setPrefillSource(prefill.sourceLabel || '已预填');
         }
-    }, [orderForm]);
+    }, [account, orderForm]);
 
     const dismissPrefill = useCallback(() => setPrefillSource(null), []);
 

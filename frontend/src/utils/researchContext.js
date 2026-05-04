@@ -2,7 +2,7 @@ import { pushAppUrl } from './appUrlState';
 
 const VIEW_QUERY_KEY = 'view';
 const TAB_QUERY_KEY = 'tab';
-const PUBLIC_VIEWS = new Set(['today', 'backtest', 'realtime', 'industry']);
+const PUBLIC_VIEWS = new Set(['today', 'backtest', 'realtime', 'industry', 'paper']);
 
 const RESEARCH_KEYS = ['symbol', 'symbols', 'template', 'draft', 'action', 'source', 'note'];
 const CROSS_MARKET_KEYS = ['template', 'draft', 'action', 'source', 'note'];
