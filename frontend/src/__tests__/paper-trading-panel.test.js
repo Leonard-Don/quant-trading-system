@@ -26,6 +26,7 @@ const mockListOrders = jest.fn();
 const mockSubmitOrder = jest.fn();
 const mockResetAccount = jest.fn();
 const mockGetMultipleQuotes = jest.fn();
+const mockCreateJournalEntry = jest.fn();
 
 jest.mock('../services/api', () => ({
     getPaperAccount: (...args) => mockGetAccount(...args),
@@ -33,6 +34,7 @@ jest.mock('../services/api', () => ({
     submitPaperOrder: (...args) => mockSubmitOrder(...args),
     resetPaperAccount: (...args) => mockResetAccount(...args),
     getMultipleQuotes: (...args) => mockGetMultipleQuotes(...args),
+    createResearchJournalEntry: (...args) => mockCreateJournalEntry(...args),
 }));
 
 const renderWithApp = (node) => render(<AntdApp>{node}</AntdApp>);
@@ -78,6 +80,7 @@ describe('PaperTradingPanel', () => {
         mockSubmitOrder.mockReset();
         mockResetAccount.mockReset();
         mockGetMultipleQuotes.mockReset();
+        mockCreateJournalEntry.mockReset();
         mockGetMultipleQuotes.mockResolvedValue({
             success: true,
             data: { quotes: { AAPL: { price: 165 } } },
@@ -148,6 +151,38 @@ describe('PaperTradingPanel', () => {
         await waitFor(() => {
             expect(screen.getByText('insufficient cash')).toBeInTheDocument();
         });
+    });
+
+    it('archives current positions to the research journal on demand', async () => {
+        mockCreateJournalEntry.mockResolvedValue({ success: true });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+
+        const btn = screen.getByTestId('paper-snapshot-positions');
+        expect(btn).not.toBeDisabled();
+        fireEvent.click(btn);
+
+        await waitFor(() => expect(mockCreateJournalEntry).toHaveBeenCalledTimes(1));
+        const archived = mockCreateJournalEntry.mock.calls[0][0];
+        expect(archived).toMatchObject({
+            id: 'paper-position:AAPL',
+            type: 'trade_plan',
+            symbol: 'AAPL',
+        });
+        expect(archived.title).toContain('AAPL 纸面持仓');
+    });
+
+    it('disables the archive button when there are no positions', async () => {
+        mockGetAccount.mockResolvedValue({
+            success: true,
+            data: { ...ACCOUNT_WITH_POSITION, positions: [], orders_count: 0 },
+        });
+        mockListOrders.mockResolvedValue({ success: true, data: { orders: [], limit: 50 } });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 0')).toBeInTheDocument());
+        expect(screen.getByTestId('paper-snapshot-positions')).toBeDisabled();
     });
 
     it('consumes a backtest prefill from sessionStorage and prefills the order form', async () => {
