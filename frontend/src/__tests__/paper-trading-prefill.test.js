@@ -5,6 +5,7 @@ import {
     consumePaperPrefill,
     peekPaperPrefill,
     buildPrefillFromBacktest,
+    buildPrefillFromJournalEntry,
 } from '../utils/paperTradingPrefill';
 
 describe('paperTradingPrefill', () => {
@@ -101,5 +102,76 @@ describe('buildPrefillFromBacktest', () => {
             trades: [{ type: 'BUY', quantity: 1 }],
         });
         expect(result.sourceLabel).toBe('由回测带入');
+    });
+});
+
+describe('buildPrefillFromJournalEntry', () => {
+    const FULL_ENTRY = {
+        type: 'backtest',
+        symbol: 'aapl',
+        raw: {
+            strategy: 'BollingerBands',
+            last_trade: { side: 'BUY', quantity: 4, price: 130, date: '2024-08-01' },
+        },
+    };
+
+    it('extracts side + quantity from raw.last_trade', () => {
+        expect(buildPrefillFromJournalEntry(FULL_ENTRY)).toEqual({
+            symbol: 'AAPL',
+            side: 'BUY',
+            quantity: 4,
+            sourceLabel: '由 BollingerBands · 档案带入',
+        });
+    });
+
+    it('falls back to symbol-only when last_trade is absent', () => {
+        const entry = {
+            type: 'backtest',
+            symbol: 'MSFT',
+            raw: { strategy: 'BuyAndHold' },
+        };
+        expect(buildPrefillFromJournalEntry(entry)).toEqual({
+            symbol: 'MSFT',
+            side: null,
+            quantity: null,
+            sourceLabel: '由 BuyAndHold · 档案带入',
+        });
+    });
+
+    it('returns null for non-backtest entry types', () => {
+        expect(buildPrefillFromJournalEntry({ ...FULL_ENTRY, type: 'manual' })).toBeNull();
+        expect(buildPrefillFromJournalEntry({ ...FULL_ENTRY, type: 'industry_watch' })).toBeNull();
+    });
+
+    it('returns null when symbol is missing', () => {
+        expect(buildPrefillFromJournalEntry({ ...FULL_ENTRY, symbol: '' })).toBeNull();
+        expect(buildPrefillFromJournalEntry({ type: 'backtest', raw: {} })).toBeNull();
+    });
+
+    it('rejects an invalid side label without dropping symbol', () => {
+        const entry = {
+            type: 'backtest',
+            symbol: 'AAPL',
+            raw: {
+                strategy: 'BB',
+                last_trade: { side: 'HOLD', quantity: 5 },
+            },
+        };
+        const result = buildPrefillFromJournalEntry(entry);
+        expect(result.side).toBeNull();
+        expect(result.symbol).toBe('AAPL');
+    });
+
+    it('uses generic source label when raw is missing entirely', () => {
+        const entry = { type: 'backtest', symbol: 'AAPL' };
+        const result = buildPrefillFromJournalEntry(entry);
+        expect(result.sourceLabel).toBe('由档案带入');
+        expect(result.side).toBeNull();
+        expect(result.quantity).toBeNull();
+    });
+
+    it('returns null on null / undefined input', () => {
+        expect(buildPrefillFromJournalEntry(null)).toBeNull();
+        expect(buildPrefillFromJournalEntry(undefined)).toBeNull();
     });
 });

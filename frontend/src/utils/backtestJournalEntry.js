@@ -53,6 +53,20 @@ export const buildBacktestJournalEntry = (formData, result) => {
         `收益 ${formatPercent(totalReturn)}，Sharpe ${sharpe !== null ? sharpe.toFixed(2) : '—'}`
     );
 
+    // Pull off the last trade so a downstream consumer (journal entry → paper
+    // trading handoff) can prefill side/quantity without needing the full
+    // trades array — that array can be hundreds of rows on a long backtest.
+    const trades = Array.isArray(result.trades) ? result.trades : [];
+    const lastTrade = trades.length > 0 ? trades[trades.length - 1] : null;
+    const lastTradeSummary = lastTrade
+        ? {
+            side: lastTrade.type || lastTrade.side || null,
+            quantity: safeNumber(lastTrade.quantity),
+            price: safeNumber(lastTrade.price),
+            date: lastTrade.date || null,
+        }
+        : null;
+
     const entry = {
         type: 'backtest',
         status: 'open',
@@ -78,6 +92,7 @@ export const buildBacktestJournalEntry = (formData, result) => {
             initial_capital: formData.initial_capital ?? null,
             commission: formData.commission ?? null,
             slippage: formData.slippage ?? null,
+            last_trade: lastTradeSummary,
         },
         tags: ['auto', strategyName].filter(Boolean),
     };

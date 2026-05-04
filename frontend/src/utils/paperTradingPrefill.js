@@ -113,3 +113,37 @@ export const buildPrefillFromBacktest = (results) => {
         sourceLabel,
     };
 };
+
+/**
+ * Derive a paper-trading prefill from a research-journal entry of type
+ * 'backtest'. Returns null for non-backtest types or entries missing the
+ * minimum required (symbol). Older entries archived before E embedded
+ * `raw.last_trade` gracefully fall back to symbol-only prefill.
+ */
+export const buildPrefillFromJournalEntry = (entry) => {
+    if (!entry || typeof entry !== 'object') return null;
+    if (entry.type !== 'backtest') return null;
+    const symbol = String(entry.symbol || '').trim().toUpperCase();
+    if (!symbol) return null;
+
+    const raw = entry.raw && typeof entry.raw === 'object' ? entry.raw : {};
+    const lastTrade = raw.last_trade && typeof raw.last_trade === 'object' ? raw.last_trade : null;
+    const sideCandidate = lastTrade?.side;
+    const side = sideCandidate === 'BUY' || sideCandidate === 'SELL' ? sideCandidate : null;
+    const rawQuantity = lastTrade?.quantity;
+    const quantity = typeof rawQuantity === 'number' && Number.isFinite(rawQuantity) && rawQuantity > 0
+        ? rawQuantity
+        : null;
+
+    const strategyName = String(raw.strategy || '').trim();
+    const sourceLabel = strategyName
+        ? `由 ${strategyName} · 档案带入`
+        : '由档案带入';
+
+    return {
+        symbol,
+        side,
+        quantity,
+        sourceLabel,
+    };
+};
