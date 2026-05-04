@@ -189,14 +189,26 @@ class PaperTradingStore:
         commission = float(request.get("commission") or 0)
         if commission < 0:
             raise PaperTradingError("commission must be non-negative")
+        slippage_bps = float(request.get("slippage_bps") or 0)
+        if slippage_bps < 0:
+            raise PaperTradingError("slippage_bps must be non-negative")
         note = str(request.get("note") or "")[:200]
+
+        # BUY pays *more* when slippage moves the market against the trader;
+        # SELL receives *less*. bps = 1/10_000 of the underlying price.
+        slippage_factor = slippage_bps / 10_000.0
+        effective_fill_price = (
+            fill_price * (1.0 + slippage_factor)
+            if side == "BUY"
+            else fill_price * (1.0 - slippage_factor)
+        )
 
         positions: dict[str, dict[str, Any]] = account.setdefault("positions", {})
         cash = float(account.get("cash", 0.0))
         now = _utc_now()
 
         if side == "BUY":
-            cost = quantity * fill_price + commission
+            cost = quantity * effective_fill_price + commission
             if cost > cash + 1e-9:  # tolerance for float accumulation
                 raise PaperTradingError(
                     f"insufficient cash: need {cost:.4f}, have {cash:.4f}"
@@ -207,7 +219,7 @@ class PaperTradingStore:
                 old_avg = float(existing.get("avg_cost", 0))
                 new_qty = old_qty + quantity
                 new_avg = (
-                    (old_qty * old_avg + quantity * fill_price) / new_qty
+                    (old_qty * old_avg + quantity * effective_fill_price) / new_qty
                     if new_qty > 0
                     else 0.0
                 )
@@ -218,7 +230,7 @@ class PaperTradingStore:
                 positions[symbol] = {
                     "symbol": symbol,
                     "quantity": quantity,
-                    "avg_cost": fill_price,
+                    "avg_cost": effective_fill_price,
                     "opened_at": now,
                     "updated_at": now,
                 }
@@ -230,7 +242,7 @@ class PaperTradingStore:
                 raise PaperTradingError(
                     f"insufficient position for {symbol}: need {quantity}, have {have}"
                 )
-            proceeds = quantity * fill_price - commission
+            proceeds = quantity * effective_fill_price - commission
             new_qty = float(existing.get("quantity", 0)) - quantity
             if new_qty <= 1e-9:
                 positions.pop(symbol, None)
@@ -245,6 +257,8 @@ class PaperTradingStore:
             "side": side,
             "quantity": quantity,
             "fill_price": fill_price,
+            "effective_fill_price": effective_fill_price,
+            "slippage_bps": slippage_bps,
             "commission": commission,
             "submitted_at": now,
             "note": note,

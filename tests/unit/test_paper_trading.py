@@ -147,6 +147,89 @@ def test_persistence_round_trip(store, tmp_path):
     assert account["cash"] == pytest.approx(9000.0)
 
 
+def test_buy_with_slippage_uses_effective_fill_price(store):
+    # 10 bps = 0.1% — BUY pays a worse price than the user's fill_price.
+    result = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 10,
+            "fill_price": 100.0,
+            "slippage_bps": 10,
+        },
+        profile_id="alice",
+    )
+    order = result["order"]
+    assert order["effective_fill_price"] == pytest.approx(100.10)
+    assert order["slippage_bps"] == 10
+    account = result["account"]
+    # Cash debited at effective price × quantity (no commission)
+    assert account["cash"] == pytest.approx(10000.0 - 1001.0)
+    # Position avg_cost is the slipped (worse) price
+    assert account["positions"][0]["avg_cost"] == pytest.approx(100.10)
+
+
+def test_sell_with_slippage_credits_lower_proceeds(store):
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 10, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    # 20 bps = 0.2% — SELL receives a worse price than the user's fill_price.
+    result = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 10,
+            "fill_price": 110.0,
+            "slippage_bps": 20,
+        },
+        profile_id="alice",
+    )
+    order = result["order"]
+    assert order["effective_fill_price"] == pytest.approx(109.78)
+    # Cash should reflect proceeds at slipped price: 10 × 109.78 = 1097.80
+    expected_cash = 10000.0 - 1000.0 + 10 * 109.78
+    assert result["account"]["cash"] == pytest.approx(expected_cash)
+
+
+def test_zero_slippage_matches_pre_c2_behaviour(store):
+    """Default slippage_bps=0 must give an order indistinguishable in
+    cost / avg_cost / cash from the pre-C2 contract."""
+    result_with_zero = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "slippage_bps": 0,
+        },
+        profile_id="alice",
+    )
+    assert result_with_zero["order"]["effective_fill_price"] == pytest.approx(100.0)
+    assert result_with_zero["account"]["cash"] == pytest.approx(10000.0 - 500.0)
+    assert result_with_zero["account"]["positions"][0]["avg_cost"] == pytest.approx(100.0)
+
+
+def test_order_record_persists_both_fill_prices(store, tmp_path):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 1,
+            "fill_price": 200.0,
+            "slippage_bps": 5,
+        },
+        profile_id="alice",
+    )
+    fresh = PaperTradingStore(storage_path=tmp_path)
+    orders = fresh.list_orders(profile_id="alice")
+    assert len(orders) == 1
+    persisted = orders[0]
+    assert persisted["fill_price"] == 200.0
+    assert persisted["effective_fill_price"] == pytest.approx(200.10)
+    assert persisted["slippage_bps"] == 5
+
+
 def test_orders_returned_newest_first(store):
     store.submit_order(
         {"symbol": "AAPL", "side": "BUY", "quantity": 1, "fill_price": 100.0},
@@ -230,6 +313,21 @@ def test_endpoint_reset(client):
     data = reset.json()["data"]
     assert data["cash"] == 50000.0
     assert data["positions"] == []
+
+
+def test_endpoint_rejects_excessive_slippage_bps(client):
+    api, _ = client
+    response = api.post(
+        "/paper/orders",
+        json={
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 1,
+            "fill_price": 100,
+            "slippage_bps": 200,  # > 100 cap
+        },
+    )
+    assert response.status_code == 422
 
 
 def test_endpoint_profile_header_isolation(client, tmp_path):
