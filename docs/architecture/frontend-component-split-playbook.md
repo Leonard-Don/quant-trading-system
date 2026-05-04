@@ -127,5 +127,7 @@ See docs/superpowers/specs/<spec>.md.
 |------|------|---------|------------|-------------|
 | `IndustryHeatmap.js` | 第 1 层完成 | 2014 → 1826 (−188) | `c4cced1` | 2026-05-03 |
 | `MarketAnalysis.js` | 第 1 层完成 | 2660 → 2566 (−94) | `2c13f3b` | 2026-05-04 |
-| `CrossMarketBacktestPanel.js` | 第 1 层完成 | 2858 → 2727 (−131) | （本批次）| 2026-05-04 |
-| `RealTimePanel.js` | 待开始 | 3273 | — | — |
+| `CrossMarketBacktestPanel.js` | 第 1 层完成 | 2858 → 2727 (−131) | `8bb39a5` | 2026-05-04 |
+| `RealTimePanel.js` | 第 1 层完成 | 3273 → 3066 (−207) | （本批次）| 2026-05-04 |
+
+**Layer 1 全部完成。** 累计 4 个 mega-component 各减 90~210 行不等，共 −620 行，全部抽到 11 个聚焦的 utils 文件。下一步如果要继续，是 layer 2（展示子组件抽离），单 component 一次 session，从体量最小的 IndustryHeatmap 开始最稳。
