@@ -126,6 +126,6 @@ See docs/superpowers/specs/<spec>.md.
 | 组件 | 状态 | 行数变化 | 完成 commit | session 日期 |
 |------|------|---------|------------|-------------|
 | `IndustryHeatmap.js` | 第 1 层完成 | 2014 → 1826 (−188) | `c4cced1` | 2026-05-03 |
+| `MarketAnalysis.js` | 第 1 层完成 | 2660 → 2566 (−94) | （本批次）| 2026-05-04 |
 | `RealTimePanel.js` | 待开始 | — | — | — |
 | `CrossMarketBacktestPanel.js` | 待开始 | — | — | — |
-| `MarketAnalysis.js` | 待开始 | — | — | — |
