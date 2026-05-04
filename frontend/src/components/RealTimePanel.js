@@ -92,7 +92,6 @@ import {
     filterReviewSnapshots,
     formatCompactCurrency,
     getSnapshotOutcomeMeta,
-    getTimelineTone,
     loadDiagnosticsEnabled,
     normalizeGroupWeights,
 } from '../utils/realtimePanelHelpers';
