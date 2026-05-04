@@ -164,9 +164,7 @@ jobs:
 
       - name: Run research E2E suite
         working-directory: tests/e2e
-        run: |
-          npm run verify:industry
-          npm run verify:realtime
+        run: npm run verify:all
 
       - name: Stop local application
         if: always()
