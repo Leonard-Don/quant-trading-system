@@ -15,6 +15,7 @@ import {
 import ErrorBoundary from './components/ErrorBoundary';
 import { getStrategies, runBacktest, createResearchJournalEntry } from './services/api';
 import { buildBacktestJournalEntry } from './utils/backtestJournalEntry';
+import { buildPrefillFromBacktest, setPaperPrefill } from './utils/paperTradingPrefill';
 import { useTheme } from './contexts/ThemeContext';
 import { APP_VERSION } from './generated/version';
 import { useAppUrlState } from './hooks/useAppUrlState';
@@ -221,6 +222,16 @@ function App() {
     }
   }, [isMobile, locationState.pathname, locationState.search]);
 
+  const handleSendBacktestToPaper = useCallback((backtestResult) => {
+    const prefill = buildPrefillFromBacktest(backtestResult);
+    if (!prefill) {
+      message.warning('当前回测结果不足以预填纸面订单（缺少标的或成交记录）');
+      return;
+    }
+    setPaperPrefill(prefill);
+    setCurrentView('paper');
+  }, [message, setCurrentView]);
+
   const renderContent = () => {
     switch (currentView) {
       case 'today':
@@ -243,6 +254,7 @@ function App() {
               onSubmit={handleBacktest}
               loading={loading}
               results={results}
+              onSendToPaperTrading={handleSendBacktestToPaper}
             />
           </Suspense>
         );

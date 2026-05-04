@@ -149,4 +149,30 @@ describe('PaperTradingPanel', () => {
             expect(screen.getByText('insufficient cash')).toBeInTheDocument();
         });
     });
+
+    it('consumes a backtest prefill from sessionStorage and prefills the order form', async () => {
+        // Stage the prefill before mounting (mirrors the flow App.js drives)
+        window.sessionStorage.setItem(
+            'paper-trading-prefill',
+            JSON.stringify({
+                symbol: 'MSFT',
+                side: 'SELL',
+                quantity: 7,
+                sourceLabel: '由 BollingerBands · 回测带入',
+                writtenAt: Date.now(),
+            }),
+        );
+
+        renderWithApp(<PaperTradingPanel />);
+
+        await waitFor(() => {
+            expect(screen.getByTestId('paper-prefill-tag')).toBeInTheDocument();
+        });
+        expect(screen.getByText(/由 BollingerBands · 回测带入/)).toBeInTheDocument();
+        // The form's symbol input should now hold the prefilled symbol
+        expect(screen.getByPlaceholderText('如 AAPL')).toHaveValue('MSFT');
+        // sessionStorage entry must be drained after consumption so a refresh
+        // doesn't re-apply a stale prefill
+        expect(window.sessionStorage.getItem('paper-trading-prefill')).toBeNull();
+    });
 });

@@ -87,7 +87,7 @@ const buildNoTradeGuideItems = (result = {}, diagnostics = {}) => {
   return items;
 };
 
-const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, onContinueAdvancedExperiment }) => {
+const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, onContinueAdvancedExperiment, onSendToPaperTrading }) => {
   const message = useSafeMessageApi();
   const [activeTab, setActiveTab] = useState('overview');
   const [marketRegimeLoading, setMarketRegimeLoading] = useState(false);
@@ -1071,6 +1071,16 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
             >
               继续做高级实验
             </Button>
+            {onSendToPaperTrading && normalizedResults.symbol ? (
+              <Button
+                icon={<ThunderboltOutlined />}
+                onClick={() => onSendToPaperTrading(normalizedResults)}
+                size="small"
+                data-testid="results-send-to-paper"
+              >
+                送到纸面账户
+              </Button>
+            ) : null}
             <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
               <Button icon={<DownloadOutlined />} size="small">
                 导出报告

@@ -74,7 +74,7 @@ const readBacktestLocationState = (search = window.location.search) => {
     };
 };
 
-const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) => {
+const BacktestDashboard = ({ strategies, height, onSubmit, loading, results, onSendToPaperTrading }) => {
     const appUrlState = useAppUrlState();
     const { activeTab, highlightRecordId } = useMemo(
         () => readBacktestLocationState(appUrlState.search),
@@ -195,6 +195,7 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
                             isRefreshing={loading}
                             onOpenHistoryRecord={handleOpenHistoryRecord}
                             onContinueAdvancedExperiment={handleContinueToAdvancedExperiment}
+                            onSendToPaperTrading={onSendToPaperTrading}
                         />
                     ) : (
                         <Card
