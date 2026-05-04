@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Card, Spin, Empty, Tooltip, Typography, Tag, Row, Col, Statistic, message, Button, Input, Radio, Select, Space, Progress, Slider, Grid } from 'antd';
+import { Card, Spin, Empty, Tooltip, Typography, Tag, Row, Col, Statistic, message, Button, Input, Radio, Select, Space, Progress, Slider, Grid, Switch } from 'antd';
 import {
     RiseOutlined,
     FallOutlined,
@@ -13,7 +13,11 @@ import {
     FullscreenOutlined,
     FullscreenExitOutlined
 } from '@ant-design/icons';
-import { getIndustryHeatmap, getIndustryHeatmapHistory } from '../services/api';
+import { getIndustryHeatmap, getIndustryHeatmapHistory, getPolicyRadarSignal } from '../services/api';
+import {
+    buildPolicyOverlay,
+    lookupPolicyOverlay,
+} from '../utils/industryPolicyOverlay';
 import { activateOnEnterOrSpace } from './industry/industryShared';
 import {
     HEATMAP_SURFACE,
@@ -97,8 +101,46 @@ const IndustryHeatmap = ({
     const [sizeMetric, setSizeMetric] = useState('market_cap'); // 方块大小: market_cap, turnover, net_inflow
     const [colorMetric, setColorMetric] = useState('change_pct'); // 颜色含义: change_pct, net_inflow_ratio, turnover_rate
 
+    // 政策叠加：把 policy_radar industry_signals 叠加到 tile 右上角徽标。
+    // 默认 off 不破坏既有视觉；on 时才发起一次请求。
+    const [policyOverlayOn, setPolicyOverlayOn] = useState(false);
+    const [policyIndustrySignals, setPolicyIndustrySignals] = useState(null);
+    const [policyOverlayLoading, setPolicyOverlayLoading] = useState(false);
+
     // AbortController refs
     const loadDataAbortRef = useRef(null);
+
+    // Lazy-fetch policy radar signal on toggle. Cache the result so toggling
+    // off then back on doesn't re-hit the network unnecessarily within the
+    // same component lifecycle.
+    useEffect(() => {
+        if (!policyOverlayOn) return undefined;
+        if (policyIndustrySignals !== null) return undefined;
+        let cancelled = false;
+        setPolicyOverlayLoading(true);
+        getPolicyRadarSignal()
+            .then((response) => {
+                if (cancelled) return;
+                const payload = response?.data || {};
+                setPolicyIndustrySignals(payload.industry_signals || {});
+            })
+            .catch(() => {
+                if (cancelled) return;
+                // Don't toast — overlay is opt-in and best-effort.
+                setPolicyIndustrySignals({});
+            })
+            .finally(() => {
+                if (!cancelled) setPolicyOverlayLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [policyOverlayOn, policyIndustrySignals]);
+
+    // Memoize the normalized overlay map. Recomputes when either the
+    // policy payload or the rendered industry list changes.
+    const policyOverlayMap = useMemo(() => {
+        if (!policyOverlayOn || !policyIndustrySignals) return null;
+        return buildPolicyOverlay(data?.industries || [], policyIndustrySignals);
+    }, [policyOverlayOn, policyIndustrySignals, data]);
 
     useEffect(() => {
         if (!focusControlKey) return undefined;
@@ -762,6 +804,15 @@ const IndustryHeatmap = ({
 
                     const bgColor = getColor(displayValue, colorMetric, maxAbsChange);
 
+                    const policyEntry = policyOverlayMap
+                        ? lookupPolicyOverlay(item.name, policyOverlayMap)
+                        : null;
+                    const policyBadge = policyEntry && policyEntry.signal !== 'neutral'
+                        ? policyEntry.signal === 'bullish'
+                            ? { glyph: '▲', color: HEATMAP_POSITIVE, label: '政策利好' }
+                            : { glyph: '▼', color: HEATMAP_NEGATIVE, label: '政策利空' }
+                        : null;
+
                     const isLargeBlock = layout.width > 90 && layout.height > 70;
                     const isMediumBlock = layout.width > 55 && layout.height > 40;
                     const isSmallBlock = layout.width > 35 && layout.height > 22;
@@ -1069,6 +1120,30 @@ const IndustryHeatmap = ({
                                 onFocus={(e) => syncHeatmapTileFocusState(e.currentTarget, true)}
                                 onBlur={(e) => syncHeatmapTileFocusState(e.currentTarget, false)}
                             >
+                                {policyBadge && (
+                                    <Tooltip
+                                        title={`${policyBadge.label}（${policyEntry.mentions || 0} 个事件，影响 ${(policyEntry.avgImpact ?? 0).toFixed(2)}）`}
+                                    >
+                                        <div
+                                            className="heatmap-policy-badge"
+                                            data-testid={`heatmap-policy-badge-${item.name}`}
+                                            style={{
+                                                position: 'absolute',
+                                                top: 4,
+                                                left: 4,
+                                                zIndex: 6,
+                                                color: policyBadge.color,
+                                                fontSize: layout.width > 90 ? 12 : 10,
+                                                lineHeight: 1,
+                                                pointerEvents: 'auto',
+                                                textShadow: '0 1px 2px rgba(15, 23, 42, 0.7)',
+                                            }}
+                                            aria-label={policyBadge.label}
+                                        >
+                                            {policyBadge.glyph}
+                                        </div>
+                                    </Tooltip>
+                                )}
                                 {(layout.width > 70 && layout.height > 40) && (
                                     <div
                                         className="heatmap-source-corner"
@@ -1577,6 +1652,19 @@ const IndustryHeatmap = ({
                     aria-label="按行业名称筛选热力图"
                     name="industry-heatmap-search"
                 />
+                <Tooltip title="叠加政策雷达信号到 tile 右上角徽标">
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Switch
+                            size="small"
+                            checked={policyOverlayOn}
+                            onChange={setPolicyOverlayOn}
+                            loading={policyOverlayLoading}
+                            data-testid="heatmap-policy-overlay-toggle"
+                            aria-label="切换政策雷达叠加"
+                        />
+                        <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>政策</Text>
+                    </span>
+                </Tooltip>
                 <Select
                     value={refreshSec}
                     onChange={setRefreshSec}
