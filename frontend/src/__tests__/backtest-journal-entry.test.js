@@ -53,6 +53,28 @@ describe('buildBacktestJournalEntry', () => {
         expect(entry.raw.initial_capital).toBe(100000);
     });
 
+    it('embeds last_trade summary under raw when trades are present', () => {
+        const result = {
+            ...RESULT,
+            trades: [
+                { type: 'BUY', quantity: 5, price: 100, date: '2024-06-01' },
+                { type: 'SELL', quantity: 5, price: 120, date: '2024-09-01' },
+            ],
+        };
+        const entry = buildBacktestJournalEntry(FORM, result);
+        expect(entry.raw.last_trade).toEqual({
+            side: 'SELL',
+            quantity: 5,
+            price: 120,
+            date: '2024-09-01',
+        });
+    });
+
+    it('last_trade is null when the backtest produced no trades', () => {
+        const entry = buildBacktestJournalEntry(FORM, { ...RESULT, trades: [] });
+        expect(entry.raw.last_trade).toBeNull();
+    });
+
     it('summary embeds period and headline metrics in human form', () => {
         const entry = buildBacktestJournalEntry(FORM, RESULT);
         expect(entry.summary).toContain('2024-01-01');

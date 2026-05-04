@@ -27,6 +27,7 @@ import {
   LineChartOutlined,
   PlusOutlined,
   ReloadOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 
 import {
@@ -37,6 +38,10 @@ import {
 } from '../services/api';
 import { loadRealtimeProfileId } from '../hooks/useRealtimePreferences';
 import { buildAppUrl, navigateToAppUrl } from '../utils/researchContext';
+import {
+  buildPrefillFromJournalEntry,
+  setPaperPrefill,
+} from '../utils/paperTradingPrefill';
 import {
   TODAY_RESEARCH_PRIORITY_LABELS,
   TODAY_RESEARCH_STATUS_LABELS,
@@ -274,6 +279,16 @@ const TodayResearchDashboard = () => {
     navigateToAppUrl(buildAppUrl({ view }));
   }, []);
 
+  const handleSendEntryToPaper = useCallback((entry) => {
+    const prefill = buildPrefillFromJournalEntry(entry);
+    if (!prefill) {
+      messageApi.warning('该档案不足以预填纸面订单（缺少标的）');
+      return;
+    }
+    setPaperPrefill(prefill);
+    navigateToAppUrl(buildAppUrl({ view: 'paper' }));
+  }, [messageApi]);
+
   const handleMarkDone = useCallback(async (entry) => {
     try {
       const response = await updateResearchJournalEntryStatus(entry.id, 'done', profileId);
@@ -401,6 +416,16 @@ const TodayResearchDashboard = () => {
           <Button size="small" onClick={() => handleOpenEntry(entry)}>
             {entry.action?.label || '打开'}
           </Button>
+          {entry.type === 'backtest' && entry.symbol ? (
+            <Button
+              size="small"
+              icon={<ThunderboltOutlined />}
+              onClick={() => handleSendEntryToPaper(entry)}
+              data-testid="today-entry-send-to-paper"
+            >
+              送到纸面账户
+            </Button>
+          ) : null}
           {entry.status !== 'done' && entry.status !== 'archived' ? (
             <Button size="small" icon={<CheckCircleOutlined />} onClick={() => handleMarkDone(entry)}>
               完成
