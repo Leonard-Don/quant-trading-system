@@ -29,6 +29,7 @@ import {
     Typography,
 } from 'antd';
 import {
+    CloudUploadOutlined,
     DollarOutlined,
     LineChartOutlined,
     ReloadOutlined,
@@ -36,6 +37,7 @@ import {
 } from '@ant-design/icons';
 
 import {
+    createResearchJournalEntry,
     getMultipleQuotes,
     getPaperAccount,
     listPaperOrders,
@@ -43,6 +45,7 @@ import {
     submitPaperOrder,
 } from '../services/api';
 import { consumePaperPrefill } from '../utils/paperTradingPrefill';
+import { buildPaperPositionEntry } from '../utils/paperPositionJournal';
 
 const { Title, Text } = Typography;
 
@@ -89,6 +92,7 @@ const PaperTradingPanel = () => {
     const [quoteMap, setQuoteMap] = useState({});
     const [submitting, setSubmitting] = useState(false);
     const [resetting, setResetting] = useState(false);
+    const [snapshotting, setSnapshotting] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
     const [prefillSource, setPrefillSource] = useState(null);
     const [orderForm] = Form.useForm();
@@ -216,6 +220,33 @@ const PaperTradingPanel = () => {
             message.error(error?.message || '重置失败');
         } finally {
             setResetting(false);
+        }
+    };
+
+    const handleSnapshotPositions = async () => {
+        const enriched = summary.positions || [];
+        const entries = enriched
+            .map((position) => buildPaperPositionEntry(position))
+            .filter(Boolean);
+        if (entries.length === 0) return;
+
+        setSnapshotting(true);
+        try {
+            const results = await Promise.allSettled(
+                entries.map((entry) => createResearchJournalEntry(entry)),
+            );
+            const fulfilled = results.filter((r) => r.status === 'fulfilled').length;
+            if (fulfilled === entries.length) {
+                message.success(`已归档 ${fulfilled} 条持仓到今日研究档案`);
+            } else if (fulfilled > 0) {
+                message.warning(`归档完成 ${fulfilled}/${entries.length}（部分失败）`);
+            } else {
+                message.error('归档失败：研究档案不可用');
+            }
+        } catch (error) {
+            message.error(error?.message || '归档失败');
+        } finally {
+            setSnapshotting(false);
         }
     };
 
@@ -351,6 +382,18 @@ const PaperTradingPanel = () => {
                     >
                         刷新
                     </Button>
+                    <Tooltip title={summary.positions.length === 0 ? '暂无持仓可归档' : '把当前持仓写入今日研究档案，方便回到研究工作区时一眼看到'}>
+                        <Button
+                            size="small"
+                            icon={<CloudUploadOutlined />}
+                            onClick={handleSnapshotPositions}
+                            loading={snapshotting}
+                            disabled={summary.positions.length === 0}
+                            data-testid="paper-snapshot-positions"
+                        >
+                            归档到档案
+                        </Button>
+                    </Tooltip>
                     <Popconfirm
                         title="重置账户？"
                         description="将清空持仓、订单与盈亏，回到初始资金状态。"
