@@ -153,6 +153,45 @@ describe('PaperTradingPanel', () => {
         });
     });
 
+    it('forwards slippage_bps in the order payload when the user fills it', async () => {
+        mockSubmitOrder.mockResolvedValue({ success: true, data: { account: ACCOUNT_WITH_POSITION } });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+
+        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
+        fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '120' } });
+        fireEvent.change(screen.getByPlaceholderText('如 5'), { target: { value: '8' } });
+
+        fireEvent.click(screen.getByRole('button', { name: '提交订单' }));
+
+        await waitFor(() => expect(mockSubmitOrder).toHaveBeenCalledTimes(1));
+        const sent = mockSubmitOrder.mock.calls[0][0];
+        expect(sent).toMatchObject({
+            symbol: 'AAPL',
+            side: 'BUY',
+            quantity: 5,
+            fill_price: 120,
+            slippage_bps: 8,
+        });
+    });
+
+    it('defaults slippage_bps to 0 when the user leaves the field blank', async () => {
+        mockSubmitOrder.mockResolvedValue({ success: true, data: { account: ACCOUNT_WITH_POSITION } });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+
+        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '1' } });
+        fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '100' } });
+        fireEvent.click(screen.getByRole('button', { name: '提交订单' }));
+
+        await waitFor(() => expect(mockSubmitOrder).toHaveBeenCalledTimes(1));
+        expect(mockSubmitOrder.mock.calls[0][0].slippage_bps).toBe(0);
+    });
+
     it('archives current positions to the research journal on demand', async () => {
         mockCreateJournalEntry.mockResolvedValue({ success: true });
 

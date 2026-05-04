@@ -12,6 +12,10 @@ class PaperOrderRequest(BaseModel):
     side: Literal["BUY", "SELL"]
     quantity: float = Field(..., gt=0)
     fill_price: float = Field(..., gt=0)
+    # Execution slippage in basis points (1 bp = 0.01%).
+    # Capped at 100 bp (1%) to prevent obviously-mistyped catastrophes
+    # like 5000 ("user meant 5%" → silently fills 50% off).
+    slippage_bps: float = Field(default=0.0, ge=0, le=100)
     commission: float = Field(default=0.0, ge=0)
     note: str = Field(default="", max_length=200)
 

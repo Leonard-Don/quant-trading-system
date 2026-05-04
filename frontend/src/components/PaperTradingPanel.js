@@ -194,10 +194,11 @@ const PaperTradingPanel = () => {
                 quantity: Number(values.quantity),
                 fill_price: Number(values.fill_price),
                 commission: Number(values.commission || 0),
+                slippage_bps: Number(values.slippage_bps || 0),
             };
             await submitPaperOrder(payload);
             message.success(`${payload.side} ${payload.quantity} ${payload.symbol} @ ${payload.fill_price} 已成交`);
-            orderForm.resetFields(['quantity', 'fill_price', 'commission']);
+            orderForm.resetFields(['quantity', 'fill_price', 'commission', 'slippage_bps']);
             refresh();
         } catch (error) {
             const detail = error?.response?.data?.error?.message
@@ -420,7 +421,7 @@ const PaperTradingPanel = () => {
                                 {prefillSource}
                             </Tag>
                         ) : null}
-                        <Form form={orderForm} layout="vertical" initialValues={{ side: 'BUY', commission: 0 }}>
+                        <Form form={orderForm} layout="vertical" initialValues={{ side: 'BUY', commission: 0, slippage_bps: 0 }}>
                             <Form.Item label="方向" name="side">
                                 <Segmented options={[{ label: '买入', value: 'BUY' }, { label: '卖出', value: 'SELL' }]} />
                             </Form.Item>
@@ -447,6 +448,22 @@ const PaperTradingPanel = () => {
                             </Form.Item>
                             <Form.Item label="手续费（可选）" name="commission">
                                 <InputNumber min={0} style={{ width: '100%' }} />
+                            </Form.Item>
+                            <Form.Item
+                                label={(
+                                    <Tooltip title="执行滑点（基点 / bps），范围 0–100。BUY 时实际成交价 = 成交价 ×（1 + bps/10000），SELL 反之；模拟市场冲击。">
+                                        <span>滑点（可选，bps）</span>
+                                    </Tooltip>
+                                )}
+                                name="slippage_bps"
+                            >
+                                <InputNumber
+                                    min={0}
+                                    max={100}
+                                    step={1}
+                                    style={{ width: '100%' }}
+                                    placeholder="如 5"
+                                />
                             </Form.Item>
                             <Form.Item style={{ marginBottom: 0 }}>
                                 <Button type="primary" loading={submitting} onClick={handleSubmit} block>
