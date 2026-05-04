@@ -70,32 +70,26 @@ import {
 } from '../services/api';
 import lazyWithRetry from '../utils/lazyWithRetry';
 import { MarketAnalysisSkeleton } from './SkeletonLoaders';
+import {
+    buildAnalysisCacheKey,
+    clearAnalysisCache,
+    readAnalysisCacheEntry,
+    writeAnalysisCache,
+} from '../utils/marketAnalysisCache';
+import {
+    DEFAULT_VOLUME_TREND,
+    DISPLAY_EMPTY,
+    formatDisplayNumber,
+    formatDisplayPercent,
+    formatMetaTime,
+    normalizeVolumeTrend,
+} from '../utils/marketAnalysisFormatters';
 
-import { Tooltip } from 'antd'; // Careful, we have RechartsTooltip imported as well. 
+import { Tooltip } from 'antd'; // Careful, we have RechartsTooltip imported as well.
 
 const { Title, Text } = Typography;
 const { Search } = Input;
-const DEFAULT_VOLUME_TREND = {
-    trend: 'unknown',
-    direction: 'neutral',
-    volume_ratio: 0,
-    avg_volume_5d: 0,
-    avg_volume_20d: 0,
-    current_volume: 0
-};
 
-const normalizeVolumeTrend = (value) => {
-    if (!value) return { ...DEFAULT_VOLUME_TREND };
-    if (typeof value === 'string') {
-        return { ...DEFAULT_VOLUME_TREND, trend: value };
-    }
-    return { ...DEFAULT_VOLUME_TREND, ...value };
-};
-
-const DISPLAY_EMPTY = '--';
-export const ANALYSIS_CACHE_TTL_MS = 2 * 60 * 1000;
-export const ANALYSIS_CACHE_MAX_ENTRIES = 96;
-const analysisResponseCache = new Map();
 const AIPredictionPanel = lazyWithRetry(() => import('./AIPredictionPanel'));
 const CandlestickChart = lazyWithRetry(() => import('./CandlestickChart'));
 const TAB_LABELS = {
@@ -111,101 +105,13 @@ const TAB_LABELS = {
     prediction: 'AI 预测',
 };
 
-const buildAnalysisCacheKey = (tab, symbol, interval = '') => `${tab}|${symbol || ''}|${interval || ''}`;
-const clearAnalysisCache = (symbol, interval) => {
-    const keyFragments = [
-        buildAnalysisCacheKey('overview', symbol, interval),
-        buildAnalysisCacheKey('trend', symbol, interval),
-        buildAnalysisCacheKey('volume', symbol, interval),
-        buildAnalysisCacheKey('sentiment', symbol, interval),
-        buildAnalysisCacheKey('pattern', symbol, interval),
-        buildAnalysisCacheKey('fundamental', symbol),
-        buildAnalysisCacheKey('technical', symbol, interval),
-        buildAnalysisCacheKey('events', symbol),
-        buildAnalysisCacheKey('sentimentHistory', symbol),
-        buildAnalysisCacheKey('industry', symbol),
-        buildAnalysisCacheKey('risk', symbol, interval),
-        buildAnalysisCacheKey('correlation', symbol),
-    ];
-    keyFragments.forEach((cacheKey) => analysisResponseCache.delete(cacheKey));
-};
-const trimAnalysisCacheToLimit = () => {
-    while (analysisResponseCache.size > ANALYSIS_CACHE_MAX_ENTRIES) {
-        const oldestCacheKey = analysisResponseCache.keys().next().value;
-        if (oldestCacheKey === undefined) {
-            return;
-        }
-        analysisResponseCache.delete(oldestCacheKey);
-    }
-};
-const sweepExpiredAnalysisCacheEntries = (now = Date.now()) => {
-    analysisResponseCache.forEach((entry, cacheKey) => {
-        if (now - entry.cachedAt > ANALYSIS_CACHE_TTL_MS) {
-            analysisResponseCache.delete(cacheKey);
-        }
-    });
-};
-const touchAnalysisCacheEntry = (cacheKey, cachedEntry) => {
-    analysisResponseCache.delete(cacheKey);
-    analysisResponseCache.set(cacheKey, cachedEntry);
-};
-const readAnalysisCacheEntry = (cacheKey, now = Date.now()) => {
-    const cached = analysisResponseCache.get(cacheKey);
-    if (!cached) {
-        return null;
-    }
-
-    if (now - cached.cachedAt > ANALYSIS_CACHE_TTL_MS) {
-        analysisResponseCache.delete(cacheKey);
-        return null;
-    }
-
-    touchAnalysisCacheEntry(cacheKey, cached);
-    return cached;
-};
-const writeAnalysisCache = (cacheKey, data, cachedAt = Date.now()) => {
-    sweepExpiredAnalysisCacheEntries(cachedAt);
-    analysisResponseCache.delete(cacheKey);
-    analysisResponseCache.set(cacheKey, {
-        data,
-        cachedAt,
-    });
-    trimAnalysisCacheToLimit();
-    return cachedAt;
-};
-export const __TEST_ONLY__ = {
-    clearAnalysisResponseCache: () => analysisResponseCache.clear(),
-    getAnalysisCacheSize: () => analysisResponseCache.size,
-    readAnalysisCacheEntry,
-    writeAnalysisCache,
-};
-
-const formatDisplayNumber = (value, digits = 2, suffix = '') => {
-    if (value === null || value === undefined || Number.isNaN(Number(value))) {
-        return DISPLAY_EMPTY;
-    }
-    return `${Number(value).toFixed(digits)}${suffix}`;
-};
-
-const formatDisplayPercent = (value, digits = 2, valueIsRatio = false) => {
-    if (value === null || value === undefined || Number.isNaN(Number(value))) {
-        return DISPLAY_EMPTY;
-    }
-    const numericValue = valueIsRatio ? Number(value) * 100 : Number(value);
-    return `${numericValue.toFixed(digits)}%`;
-};
-const formatMetaTime = (timestamp) => {
-    if (!timestamp) {
-        return DISPLAY_EMPTY;
-    }
-
-    return new Intl.DateTimeFormat('zh-CN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-    }).format(timestamp);
-};
+// Re-exported for backward compatibility with existing tests; new
+// callers should import from utils directly.
+export {
+    ANALYSIS_CACHE_TTL_MS,
+    ANALYSIS_CACHE_MAX_ENTRIES,
+    __TEST_ONLY__,
+} from '../utils/marketAnalysisCache';
 
 const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
     const [symbol, setSymbol] = useState(propSymbol || 'AAPL');
