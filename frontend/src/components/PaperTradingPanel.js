@@ -42,6 +42,7 @@ import {
     resetPaperAccount,
     submitPaperOrder,
 } from '../services/api';
+import { consumePaperPrefill } from '../utils/paperTradingPrefill';
 
 const { Title, Text } = Typography;
 
@@ -89,9 +90,29 @@ const PaperTradingPanel = () => {
     const [submitting, setSubmitting] = useState(false);
     const [resetting, setResetting] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
+    const [prefillSource, setPrefillSource] = useState(null);
     const [orderForm] = Form.useForm();
 
     const refresh = useCallback(() => setRefreshKey((value) => value + 1), []);
+
+    // One-shot consume of the cross-workspace handoff (e.g. from a backtest
+    // result panel). Runs once on mount; cleared after consumption.
+    useEffect(() => {
+        const prefill = consumePaperPrefill();
+        if (!prefill) return;
+        const fields = {};
+        if (prefill.symbol) fields.symbol = prefill.symbol;
+        if (prefill.side === 'BUY' || prefill.side === 'SELL') fields.side = prefill.side;
+        if (typeof prefill.quantity === 'number' && Number.isFinite(prefill.quantity) && prefill.quantity > 0) {
+            fields.quantity = prefill.quantity;
+        }
+        if (Object.keys(fields).length > 0) {
+            orderForm.setFieldsValue(fields);
+            setPrefillSource(prefill.sourceLabel || '已预填');
+        }
+    }, [orderForm]);
+
+    const dismissPrefill = useCallback(() => setPrefillSource(null), []);
 
     // Initial / on-action load
     useEffect(() => {
@@ -339,6 +360,17 @@ const PaperTradingPanel = () => {
             <Row gutter={[16, 16]}>
                 <Col xs={24} md={10}>
                     <Card title={<><DollarOutlined /> 下单</>} size="small">
+                        {prefillSource ? (
+                            <Tag
+                                color="processing"
+                                closable
+                                onClose={dismissPrefill}
+                                style={{ marginBottom: 12 }}
+                                data-testid="paper-prefill-tag"
+                            >
+                                {prefillSource}
+                            </Tag>
+                        ) : null}
                         <Form form={orderForm} layout="vertical" initialValues={{ side: 'BUY', commission: 0 }}>
                             <Form.Item label="方向" name="side">
                                 <Segmented options={[{ label: '买入', value: 'BUY' }, { label: '卖出', value: 'SELL' }]} />
