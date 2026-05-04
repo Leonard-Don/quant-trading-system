@@ -48,7 +48,35 @@ import {
 } from '../services/api';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
 import { useSafeMessageApi } from '../utils/messageApi';
-import { getDefaultBacktestDateRangeStrings } from '../utils/backtestDefaults';
+import {
+    ASSET_CLASS_LABELS,
+    ASSET_CLASS_OPTIONS,
+    DEFAULT_CONSTRAINTS,
+    DEFAULT_CROSS_MARKET_END_DATE,
+    DEFAULT_CROSS_MARKET_START_DATE,
+    DEFAULT_PARAMETERS,
+    DEFAULT_QUALITY,
+    createAsset,
+    normalizeAssets,
+} from '../utils/crossMarketDefaults';
+import {
+    buildDisplayTier,
+    buildDisplayTone,
+    formatConstructionMode,
+    formatExecutionChannel,
+    formatTradeAction,
+    formatVenue,
+} from '../utils/crossMarketFormatters';
+import {
+    getBetaMeta,
+    getCalendarMeta,
+    getCapacityMeta,
+    getCointegrationMeta,
+    getConcentrationMeta,
+    getLiquidityMeta,
+    getMarginMeta,
+    getSelectionQualityMeta,
+} from '../utils/crossMarketMeta';
 import {
   buildCrossMarketCards,
   CROSS_MARKET_DIMENSION_LABELS,
@@ -59,69 +87,11 @@ import { formatResearchSource, navigateByResearchAction, readResearchContext } f
 
 const { Paragraph, Text } = Typography;
 
-const ASSET_CLASS_OPTIONS = [
-  { value: 'US_STOCK', label: '美股' },
-  { value: 'ETF', label: 'ETF 基金' },
-  { value: 'COMMODITY_FUTURES', label: '商品期货' },
-];
-
-const ASSET_CLASS_LABELS = Object.fromEntries(
-  ASSET_CLASS_OPTIONS.map((option) => [option.value, option.label])
-);
-
-const CONSTRUCTION_MODE_LABELS = {
-  equal_weight: '等权配置',
-  ols_hedge: '滚动 OLS 对冲',
-};
-
-const [DEFAULT_CROSS_MARKET_START_DATE, DEFAULT_CROSS_MARKET_END_DATE] = getDefaultBacktestDateRangeStrings();
-
-const DEFAULT_PARAMETERS = {
-  lookback: 20,
-  entry_threshold: 1.5,
-  exit_threshold: 0.5,
-};
-
-const DEFAULT_QUALITY = {
-  construction_mode: 'equal_weight',
-  min_history_days: 60,
-  min_overlap_ratio: 0.7,
-};
-
-const DEFAULT_CONSTRAINTS = {
-  max_single_weight: null,
-  min_single_weight: null,
-};
-
-const createAsset = (side, index) => ({
-  key: `${side}-${index}-${Date.now()}`,
-  side,
-  symbol: '',
-  asset_class: 'ETF',
-  weight: null,
-});
-
-const normalizeAssets = (assets, side) =>
-  assets
-    .filter((asset) => asset.side === side)
-    .map((asset) => ({
-      ...asset,
-      symbol: (asset.symbol || '').trim().toUpperCase(),
-    }));
-
-const formatConstructionMode = (value) => CONSTRUCTION_MODE_LABELS[value] || value || '未设置';
-
-const buildDisplayTier = (score) => {
-  if (score >= 2.6) return '优先部署';
-  if (score >= 1.4) return '重点跟踪';
-  return '候选模板';
-};
-
-const buildDisplayTone = (score) => {
-  if (score >= 2.6) return 'volcano';
-  if (score >= 1.4) return 'gold';
-  return 'blue';
-};
+// Defaults / formatters / meta-resolvers extracted to dedicated utils so
+// the host component focuses on orchestration. See:
+//   - utils/crossMarketDefaults.js
+//   - utils/crossMarketFormatters.js
+//   - utils/crossMarketMeta.js
 
 const extractRecentComparisonLead = (task = {}) => {
   const history = task?.snapshot_history || [];
@@ -157,111 +127,10 @@ const extractCoreLegPressure = (overlay = {}) => {
   };
 };
 
-const formatTradeAction = (value) => {
-  const action = String(value || '').toUpperCase();
-  if (!action) {
-    return '-';
-  }
-
-  return action
-    .replace('OPEN', '开仓')
-    .replace('CLOSE', '平仓')
-    .replace('LONG', '多头')
-    .replace('SHORT', '空头')
-    .replaceAll('_', ' ');
-};
-
-const formatExecutionChannel = (value = '') => {
-  const mapping = {
-    cash_equity: '现货股票',
-    futures: '期货通道',
-  };
-  return mapping[value] || value || '-';
-};
-
-const formatVenue = (value = '') => {
-  const mapping = {
-    US_EQUITY: '美股主板',
-    US_ETF: '美股 ETF',
-    COMEX_CME: 'CME / COMEX',
-  };
-  return mapping[value] || value || '-';
-};
-
-const getConcentrationMeta = (level = '') => {
-  const mapping = {
-    high: { color: 'red', label: '高集中' },
-    moderate: { color: 'orange', label: '中等集中' },
-    balanced: { color: 'green', label: '相对均衡' },
-  };
-  return mapping[level] || { color: 'default', label: level || '未评估' };
-};
-
-const getCapacityMeta = (band = '') => {
-  const mapping = {
-    light: { color: 'green', label: '轻量' },
-    moderate: { color: 'orange', label: '中等' },
-    heavy: { color: 'red', label: '偏重' },
-  };
-  return mapping[band] || { color: 'default', label: band || '-' };
-};
-
-const getLiquidityMeta = (band = '') => {
-  const mapping = {
-    comfortable: { color: 'green', label: '流动性舒适' },
-    watch: { color: 'orange', label: '需要留意' },
-    stretched: { color: 'red', label: '流动性偏紧' },
-    unknown: { color: 'default', label: '流动性未知' },
-  };
-  return mapping[band] || { color: 'default', label: band || '-' };
-};
-
-const getMarginMeta = (level = '') => {
-  const mapping = {
-    manageable: { color: 'green', label: '保证金可控' },
-    elevated: { color: 'orange', label: '保证金偏高' },
-    aggressive: { color: 'red', label: '保证金激进' },
-  };
-  return mapping[level] || { color: 'default', label: level || '-' };
-};
-
-const getBetaMeta = (level = '') => {
-  const mapping = {
-    balanced: { color: 'green', label: 'Beta 较中性' },
-    watch: { color: 'orange', label: 'Beta 需留意' },
-    stretched: { color: 'red', label: 'Beta 偏离较大' },
-    unknown: { color: 'default', label: 'Beta 未知' },
-  };
-  return mapping[level] || { color: 'default', label: level || '-' };
-};
-
-const getCointegrationMeta = (level = '') => {
-  const mapping = {
-    strong: { color: 'green', label: '协整较强' },
-    watch: { color: 'orange', label: '协整待确认' },
-    weak: { color: 'red', label: '协整偏弱' },
-    unknown: { color: 'default', label: '协整未知' },
-  };
-  return mapping[level] || { color: 'default', label: level || '-' };
-};
-
-const getCalendarMeta = (level = '') => {
-  const mapping = {
-    aligned: { color: 'green', label: '日历较对齐' },
-    watch: { color: 'orange', label: '日历有错位' },
-    stretched: { color: 'red', label: '日历错位明显' },
-  };
-  return mapping[level] || { color: 'default', label: level || '-' };
-};
-
-const getSelectionQualityMeta = (label = '') => {
-  const mapping = {
-    original: { type: 'info', title: '本次回测沿用原始推荐强度运行' },
-    softened: { type: 'warning', title: '本次回测生成复核型结果：基于收缩后的推荐强度运行' },
-    auto_downgraded: { type: 'warning', title: '本次回测生成复核型结果：基于自动降级后的推荐强度运行' },
-  };
-  return mapping[label] || mapping.original;
-};
+// formatTradeAction / formatExecutionChannel / formatVenue moved to
+// utils/crossMarketFormatters.js. The eight `get*Meta` resolvers live in
+// utils/crossMarketMeta.js so they can be unit-tested independently of
+// this component.
 
 const getSelectionQualityExplanationLines = (refreshMeta = {}) => {
   const lines = [];
