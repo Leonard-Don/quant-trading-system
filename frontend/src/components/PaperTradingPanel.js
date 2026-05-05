@@ -570,6 +570,42 @@ const PaperTradingPanel = () => {
                 );
             },
         },
+        {
+            title: '触发来源',
+            key: 'note',
+            width: 130,
+            render: (_value, record) => {
+                const note = String(record?.note || '');
+                if (!note) return <Text type="secondary">手动</Text>;
+                if (note === 'stop_loss_triggered') {
+                    return (
+                        <Tag color="green" data-testid={`paper-order-source-${record?.id}`}>
+                            止损自动
+                        </Tag>
+                    );
+                }
+                if (note === 'take_profit_triggered') {
+                    return (
+                        <Tag color="red" data-testid={`paper-order-source-${record?.id}`}>
+                            止盈自动
+                        </Tag>
+                    );
+                }
+                if (note === 'limit_triggered') {
+                    return (
+                        <Tag color="blue" data-testid={`paper-order-source-${record?.id}`}>
+                            限价触发
+                        </Tag>
+                    );
+                }
+                // Free-form notes (manual annotations) shown as a muted tag
+                return (
+                    <Tooltip title={note}>
+                        <Tag data-testid={`paper-order-source-${record?.id}`}>注</Tag>
+                    </Tooltip>
+                );
+            },
+        },
     ];
 
     if (!account) {

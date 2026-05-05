@@ -501,6 +501,49 @@ describe('PaperTradingPanel', () => {
         expect(screen.getByTestId('paper-export-positions-csv')).toBeDisabled();
     });
 
+    it('labels auto-triggered orders in the 触发来源 column', async () => {
+        const stopLossOrder = {
+            id: 'ord-sl', symbol: 'AAPL', side: 'SELL', quantity: 10,
+            fill_price: 95, effective_fill_price: 94.91, slippage_bps: 10,
+            commission: 0, submitted_at: '2026-05-05T11:00:00+00:00',
+            note: 'stop_loss_triggered',
+        };
+        const takeProfitOrder = {
+            id: 'ord-tp', symbol: 'AAPL', side: 'SELL', quantity: 10,
+            fill_price: 130, effective_fill_price: 129.87, slippage_bps: 10,
+            commission: 0, submitted_at: '2026-05-05T12:00:00+00:00',
+            note: 'take_profit_triggered',
+        };
+        const limitOrder = {
+            id: 'ord-lim', symbol: 'AAPL', side: 'BUY', quantity: 5,
+            fill_price: 95, effective_fill_price: 95, slippage_bps: 0,
+            commission: 0, submitted_at: '2026-05-05T13:00:00+00:00',
+            note: 'limit_triggered',
+        };
+        const manualOrder = {
+            id: 'ord-man', symbol: 'AAPL', side: 'BUY', quantity: 1,
+            fill_price: 100, effective_fill_price: 100, slippage_bps: 0,
+            commission: 0, submitted_at: '2026-05-05T14:00:00+00:00',
+            note: '',
+        };
+        mockListOrders.mockResolvedValue({
+            success: true,
+            data: { orders: [stopLossOrder, takeProfitOrder, limitOrder, manualOrder], limit: 50 },
+        });
+
+        renderWithApp(<PaperTradingPanel />);
+
+        await waitFor(() => {
+            expect(screen.getByTestId('paper-order-source-ord-sl')).toBeInTheDocument();
+        });
+        expect(screen.getByTestId('paper-order-source-ord-sl').textContent).toBe('止损自动');
+        expect(screen.getByTestId('paper-order-source-ord-tp').textContent).toBe('止盈自动');
+        expect(screen.getByTestId('paper-order-source-ord-lim').textContent).toBe('限价触发');
+        // Manual orders show "手动" plain text, no tag testid
+        expect(screen.queryByTestId('paper-order-source-ord-man')).not.toBeInTheDocument();
+        expect(screen.getByText('手动')).toBeInTheDocument();
+    });
+
     it('shows effective_fill_price and a slippage tag in the order history', async () => {
         const orderWithSlippage = {
             id: 'ord-slip',
