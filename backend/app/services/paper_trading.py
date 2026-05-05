@@ -192,6 +192,18 @@ class PaperTradingStore:
         slippage_bps = float(request.get("slippage_bps") or 0)
         if slippage_bps < 0:
             raise PaperTradingError("slippage_bps must be non-negative")
+        # stop_loss_pct only applies to BUY orders. For SELL we accept the
+        # field (so a generic API client can always send it) but ignore it
+        # without raising.
+        raw_stop_loss = request.get("stop_loss_pct")
+        stop_loss_pct: float | None = None
+        if raw_stop_loss is not None:
+            try:
+                stop_loss_pct = float(raw_stop_loss)
+            except (TypeError, ValueError) as exc:
+                raise PaperTradingError("stop_loss_pct must be a number") from exc
+            if stop_loss_pct < 0 or stop_loss_pct > 0.5:
+                raise PaperTradingError("stop_loss_pct must be in [0, 0.5]")
         note = str(request.get("note") or "")[:200]
 
         # BUY pays *more* when slippage moves the market against the trader;
@@ -226,14 +238,25 @@ class PaperTradingStore:
                 existing["quantity"] = new_qty
                 existing["avg_cost"] = new_avg
                 existing["updated_at"] = now
+                # Stop-loss merge: new pct (if supplied) wins, else keep old.
+                # Either way recompute stop_loss_price against the new avg.
+                if stop_loss_pct is not None:
+                    existing["stop_loss_pct"] = stop_loss_pct
+                effective_pct = existing.get("stop_loss_pct")
+                if effective_pct is not None:
+                    existing["stop_loss_price"] = new_avg * (1.0 - float(effective_pct))
             else:
-                positions[symbol] = {
+                position_payload = {
                     "symbol": symbol,
                     "quantity": quantity,
                     "avg_cost": effective_fill_price,
                     "opened_at": now,
                     "updated_at": now,
                 }
+                if stop_loss_pct is not None:
+                    position_payload["stop_loss_pct"] = stop_loss_pct
+                    position_payload["stop_loss_price"] = effective_fill_price * (1.0 - stop_loss_pct)
+                positions[symbol] = position_payload
             account["cash"] = cash - cost
         else:  # SELL
             existing = positions.get(symbol)
