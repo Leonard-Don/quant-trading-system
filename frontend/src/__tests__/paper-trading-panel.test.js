@@ -39,6 +39,11 @@ jest.mock('../services/api', () => ({
     cancelPaperOrder: (...args) => mockCancelPaperOrder(...args),
 }));
 
+const mockExportToCSV = jest.fn();
+jest.mock('../utils/export', () => ({
+    exportToCSV: (...args) => mockExportToCSV(...args),
+}));
+
 const renderWithApp = (node) => render(<AntdApp>{node}</AntdApp>);
 
 const ACCOUNT_WITH_POSITION = {
@@ -84,6 +89,7 @@ describe('PaperTradingPanel', () => {
         mockGetMultipleQuotes.mockReset();
         mockCreateJournalEntry.mockReset();
         mockCancelPaperOrder.mockReset();
+        mockExportToCSV.mockReset();
         mockGetMultipleQuotes.mockResolvedValue({
             success: true,
             data: { quotes: { AAPL: { price: 165 } } },
@@ -431,6 +437,36 @@ describe('PaperTradingPanel', () => {
         });
         // Cancel chain should also fire to remove the pending order.
         await waitFor(() => expect(mockCancelPaperOrder).toHaveBeenCalledWith('ord-pending-trig'));
+    });
+
+    it('exports orders to CSV when the button is clicked', async () => {
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+
+        const exportBtn = screen.getByTestId('paper-export-orders-csv');
+        expect(exportBtn).not.toBeDisabled(); // ORDERS_HISTORY has 1 order
+
+        fireEvent.click(exportBtn);
+
+        await waitFor(() => expect(mockExportToCSV).toHaveBeenCalledTimes(1));
+        const args = mockExportToCSV.mock.calls[0];
+        // 1st arg: rows (built via buildPaperOrderRows)
+        expect(args[0]).toHaveLength(1);
+        expect(args[0][0].symbol).toBe('AAPL');
+        // 2nd arg: filename starts with paper_orders_
+        expect(args[1]).toMatch(/^paper_orders_\d{8}_\d{4}$/);
+        // 3rd arg: column definitions
+        expect(args[2]).toEqual(expect.arrayContaining([
+            expect.objectContaining({ key: 'symbol' }),
+            expect.objectContaining({ key: 'effective_fill_price' }),
+        ]));
+    });
+
+    it('disables the CSV export button when there are no orders', async () => {
+        mockListOrders.mockResolvedValue({ success: true, data: { orders: [], limit: 50 } });
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+        expect(screen.getByTestId('paper-export-orders-csv')).toBeDisabled();
     });
 
     it('shows effective_fill_price and a slippage tag in the order history', async () => {

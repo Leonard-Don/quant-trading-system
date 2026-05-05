@@ -46,6 +46,12 @@ import {
 } from '../services/api';
 import { consumePaperPrefill } from '../utils/paperTradingPrefill';
 import { buildPaperPositionEntry } from '../utils/paperPositionJournal';
+import { exportToCSV } from '../utils/export';
+import {
+    buildPaperOrderRows,
+    buildPaperOrderCsvFilename,
+    PAPER_ORDER_CSV_COLUMNS,
+} from '../utils/paperOrderExport';
 
 const { Title, Text } = Typography;
 
@@ -379,6 +385,18 @@ const PaperTradingPanel = () => {
         }
     };
 
+    const handleExportOrdersCsv = () => {
+        if (!orders || orders.length === 0) return;
+        try {
+            const rows = buildPaperOrderRows(orders);
+            const filename = buildPaperOrderCsvFilename();
+            exportToCSV(rows, filename, PAPER_ORDER_CSV_COLUMNS);
+            message.success(`已导出 ${rows.length} 条订单到 ${filename}.csv`);
+        } catch (error) {
+            message.error(error?.message || 'CSV 导出失败');
+        }
+    };
+
     const positionColumns = [
         { title: '标的', dataIndex: 'symbol', key: 'symbol' },
         {
@@ -615,6 +633,16 @@ const PaperTradingPanel = () => {
                             data-testid="paper-snapshot-positions"
                         >
                             归档到档案
+                        </Button>
+                    </Tooltip>
+                    <Tooltip title={orders.length === 0 ? '暂无订单可导出' : '导出最近订单流水为 CSV，可用 Excel / pandas 接续分析'}>
+                        <Button
+                            size="small"
+                            onClick={handleExportOrdersCsv}
+                            disabled={orders.length === 0}
+                            data-testid="paper-export-orders-csv"
+                        >
+                            导出 CSV
                         </Button>
                     </Tooltip>
                     <Popconfirm
