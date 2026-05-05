@@ -69,3 +69,60 @@ export const buildPaperOrderCsvFilename = (now = new Date()) => {
     const minute = pad2(now.getMinutes());
     return `paper_orders_${year}${month}${day}_${hour}${minute}`;
 };
+
+// ---------------------------------------------------------------------------
+// Positions export
+// ---------------------------------------------------------------------------
+
+export const PAPER_POSITION_CSV_COLUMNS = [
+    { key: 'symbol', title: '标的' },
+    { key: 'quantity', title: '数量' },
+    { key: 'avg_cost', title: '均价' },
+    { key: 'last_price', title: '现价' },
+    { key: 'market_value', title: '市值' },
+    { key: 'unrealized_pnl', title: '浮动盈亏' },
+    { key: 'stop_loss_price', title: '止损价' },
+    { key: 'take_profit_price', title: '止盈价' },
+    { key: 'opened_at', title: '开仓时间' },
+    { key: 'updated_at', title: '更新时间' },
+];
+
+/**
+ * Map a position list (the same enriched shape PaperTradingPanel renders
+ * in the positions table) into CSV rows. Defensive against missing
+ * mark-to-market fields — last_price / market_value / unrealized_pnl
+ * are blank when the realtime quote hasn't arrived yet.
+ */
+export const buildPaperPositionRows = (positions = []) => {
+    const list = Array.isArray(positions) ? positions : [];
+    return list.map((position) => {
+        const quantity = safeNumber(position?.quantity);
+        const avgCost = safeNumber(position?.avg_cost);
+        const lastPrice = safeNumber(position?.last_price);
+        const marketValue = safeNumber(position?.market_value);
+        const unrealized = safeNumber(position?.unrealized_pnl);
+        const stopLoss = safeNumber(position?.stop_loss_price);
+        const takeProfit = safeNumber(position?.take_profit_price);
+        return {
+            symbol: position?.symbol || '',
+            quantity: quantity ?? '',
+            avg_cost: avgCost ?? '',
+            last_price: lastPrice ?? '',
+            market_value: marketValue ?? '',
+            unrealized_pnl: unrealized ?? '',
+            stop_loss_price: stopLoss ?? '',
+            take_profit_price: takeProfit ?? '',
+            opened_at: position?.opened_at || '',
+            updated_at: position?.updated_at || '',
+        };
+    });
+};
+
+export const buildPaperPositionCsvFilename = (now = new Date()) => {
+    const year = now.getFullYear();
+    const month = pad2(now.getMonth() + 1);
+    const day = pad2(now.getDate());
+    const hour = pad2(now.getHours());
+    const minute = pad2(now.getMinutes());
+    return `paper_positions_${year}${month}${day}_${hour}${minute}`;
+};
