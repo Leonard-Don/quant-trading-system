@@ -73,3 +73,15 @@ async def reset_paper_account(payload: PaperResetRequest, request: Request) -> d
         initial_capital=payload.initial_capital, profile_id=profile_id
     )
     return {"success": True, "data": account}
+
+
+@router.delete("/orders/{order_id}", summary="取消一笔挂单（仅 LIMIT pending）")
+async def cancel_paper_order(order_id: str, request: Request) -> dict:
+    profile_id = _resolve_profile(request)
+    try:
+        account = paper_trading_store.cancel_order(order_id, profile_id=profile_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"order {order_id} not found") from exc
+    except PaperTradingError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"success": True, "data": account}

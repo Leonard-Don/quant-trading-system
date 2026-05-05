@@ -56,6 +56,7 @@ def _default_account(initial_capital: float | None = None) -> dict[str, Any]:
         "cash": capital,
         "positions": {},
         "orders": [],
+        "pending_orders": [],
         "created_at": now,
         "updated_at": now,
     }
@@ -124,6 +125,11 @@ class PaperTradingStore:
         if not isinstance(orders, list):
             orders = []
         merged["orders"] = [order for order in orders if isinstance(order, dict)]
+        # pending_orders new in C5 — older account files won't carry it
+        pending = raw.get("pending_orders")
+        if not isinstance(pending, list):
+            pending = []
+        merged["pending_orders"] = [order for order in pending if isinstance(order, dict)]
         merged["initial_capital"] = float(raw.get("initial_capital") or defaults["initial_capital"])
         merged["cash"] = float(raw.get("cash") or 0.0)
         return merged
@@ -159,8 +165,18 @@ class PaperTradingStore:
         order_request: dict[str, Any],
         profile_id: str | None = None,
     ) -> dict[str, Any]:
+        order_type = str(order_request.get("order_type") or "MARKET").upper()
         with self._lock:
             account = self._load(profile_id)
+            if order_type == "LIMIT":
+                order = self._queue_limit_order(account, order_request)
+                account["updated_at"] = _utc_now()
+                self._persist(profile_id, account)
+                return {
+                    "order": order,
+                    "account": self._public_view(profile_id, account),
+                }
+            # MARKET — default behavior, fills immediately
             order = self._apply_order(account, order_request)
             account["updated_at"] = _utc_now()
             account["orders"] = (account.get("orders") or [])[-MAX_PAPER_ORDERS + 1 :]
@@ -170,6 +186,26 @@ class PaperTradingStore:
                 "order": order,
                 "account": self._public_view(profile_id, account),
             }
+
+    def cancel_order(self, order_id: str, profile_id: str | None = None) -> dict[str, Any]:
+        """Cancel a pending LIMIT order. Filled orders cannot be cancelled."""
+        with self._lock:
+            account = self._load(profile_id)
+            pending = account.get("pending_orders") or []
+            for index, candidate in enumerate(pending):
+                if candidate.get("id") == order_id:
+                    pending.pop(index)
+                    account["pending_orders"] = pending
+                    account["updated_at"] = _utc_now()
+                    self._persist(profile_id, account)
+                    return self._public_view(profile_id, account)
+            # Not in pending — check if it's a filled order to give a useful error
+            for candidate in account.get("orders") or []:
+                if candidate.get("id") == order_id:
+                    raise PaperTradingError(
+                        f"order {order_id} already filled, cannot cancel",
+                    )
+            raise KeyError(order_id)
 
     # ------------------------------------------------------------------
     # Internals
@@ -301,14 +337,51 @@ class PaperTradingStore:
             "note": note,
         }
 
+    def _queue_limit_order(self, account: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
+        """Add a LIMIT order to the pending list without touching cash or positions."""
+        symbol = _normalize_symbol(request.get("symbol", ""))
+        if not symbol:
+            raise PaperTradingError("symbol is required")
+        side = _normalize_side(str(request.get("side", "")))
+        quantity = float(request.get("quantity") or 0)
+        if quantity <= 0:
+            raise PaperTradingError("quantity must be positive")
+        raw_limit = request.get("limit_price")
+        if raw_limit is None:
+            raise PaperTradingError("limit_price is required for LIMIT orders")
+        try:
+            limit_price = float(raw_limit)
+        except (TypeError, ValueError) as exc:
+            raise PaperTradingError("limit_price must be a number") from exc
+        if limit_price <= 0:
+            raise PaperTradingError("limit_price must be positive")
+        note = str(request.get("note") or "")[:200]
+
+        pending = account.setdefault("pending_orders", [])
+        order = {
+            "id": f"ord-pending-{uuid.uuid4().hex[:10]}",
+            "symbol": symbol,
+            "side": side,
+            "quantity": quantity,
+            "order_type": "LIMIT",
+            "limit_price": limit_price,
+            "submitted_at": _utc_now(),
+            "note": note,
+        }
+        pending.append(order)
+        return order
+
     def _public_view(self, profile_id: str | None, account: dict[str, Any]) -> dict[str, Any]:
         positions_payload = list(account.get("positions", {}).values())
         positions_payload.sort(key=lambda position: position.get("symbol", ""))
+        pending_payload = list(account.get("pending_orders") or [])
+        pending_payload.sort(key=lambda order: order.get("submitted_at") or "", reverse=True)
         return {
             "profile_id": self._normalize_profile_id(profile_id),
             "initial_capital": float(account.get("initial_capital", 0.0)),
             "cash": float(account.get("cash", 0.0)),
             "positions": [deepcopy(position) for position in positions_payload],
+            "pending_orders": [deepcopy(order) for order in pending_payload],
             "orders_count": len(account.get("orders") or []),
             "created_at": account.get("created_at", _utc_now()),
             "updated_at": account.get("updated_at", _utc_now()),

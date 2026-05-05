@@ -1133,4 +1133,9 @@ export const resetPaperAccount = async ({ initialCapital } = {}) => {
   return response.data;
 };
 
+export const cancelPaperOrder = async (orderId) => {
+  const response = await api.delete(`/paper/orders/${encodeURIComponent(orderId)}`);
+  return response.data;
+};
+
 export default api;
