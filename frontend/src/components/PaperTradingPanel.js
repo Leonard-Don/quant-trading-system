@@ -138,18 +138,48 @@ const PaperTradingPanel = () => {
         return () => { cancelled = true; };
     }, [refreshKey]);
 
-    // Stop-loss trigger guard: prevents the same position from being
-    // auto-SELL'd twice while the first SELL request is in flight (the
-    // position stays in `account.positions` until the refresh fires).
-    const stopLossInFlightRef = useRef(new Set());
+    // Auto-trigger guard: prevents the same position+kind from being
+    // double-fired while the first SELL request is in flight.
+    // Key shape: `${kind}:${symbol}` so stop-loss and take-profit can each
+    // be tracked independently for the same symbol.
+    const autoTriggerInFlightRef = useRef(new Set());
 
-    // Quote polling for held positions + stop-loss trigger detection.
+    // Quote polling for held positions + stop-loss / take-profit detection.
     useEffect(() => {
         const positionsForPoll = account?.positions || [];
         const symbols = positionsForPoll.map((position) => position.symbol);
         if (symbols.length === 0) return undefined;
 
         let cancelled = false;
+
+        const fireAutoSell = (position, lastPrice, kind, label, tone) => {
+            const inFlightKey = `${kind}:${position.symbol}`;
+            if (autoTriggerInFlightRef.current.has(inFlightKey)) return;
+            autoTriggerInFlightRef.current.add(inFlightKey);
+            submitPaperOrder({
+                symbol: position.symbol,
+                side: 'SELL',
+                quantity: position.quantity,
+                fill_price: lastPrice,
+                commission: 0,
+                slippage_bps: 10,
+                note: `${kind}_triggered`,
+            }).then(() => {
+                const reporter = tone === 'success' ? message.success : message.warning;
+                reporter(
+                    `${position.symbol} 触发${label}：自动按 ${formatMoney(lastPrice)} 卖出 ${position.quantity}`,
+                );
+                autoTriggerInFlightRef.current.delete(inFlightKey);
+                refresh();
+            }).catch((error) => {
+                autoTriggerInFlightRef.current.delete(inFlightKey);
+                const detail = error?.response?.data?.error?.message
+                    || error?.message
+                    || `${label}单提交失败`;
+                message.error(`${position.symbol} ${label}失败：${detail}`);
+            });
+        };
+
         const fetchQuotes = async () => {
             try {
                 const response = await getMultipleQuotes(symbols);
@@ -167,40 +197,19 @@ const PaperTradingPanel = () => {
                 }
                 setQuoteMap(next);
 
-                // Check each held position against its stop-loss price.
                 positionsForPoll.forEach((position) => {
-                    const stopLossPrice = Number(position?.stop_loss_price);
                     const lastPrice = Number(next[position.symbol]?.price);
-                    if (
-                        Number.isFinite(stopLossPrice)
-                        && stopLossPrice > 0
-                        && Number.isFinite(lastPrice)
-                        && lastPrice > 0
-                        && lastPrice <= stopLossPrice
-                        && !stopLossInFlightRef.current.has(position.symbol)
-                    ) {
-                        stopLossInFlightRef.current.add(position.symbol);
-                        submitPaperOrder({
-                            symbol: position.symbol,
-                            side: 'SELL',
-                            quantity: position.quantity,
-                            fill_price: lastPrice,
-                            commission: 0,
-                            slippage_bps: 10,
-                            note: 'stop_loss_triggered',
-                        }).then(() => {
-                            message.warning(
-                                `${position.symbol} 触发止损：自动按 ${formatMoney(lastPrice)} 卖出 ${position.quantity}`,
-                            );
-                            stopLossInFlightRef.current.delete(position.symbol);
-                            refresh();
-                        }).catch((error) => {
-                            stopLossInFlightRef.current.delete(position.symbol);
-                            const detail = error?.response?.data?.error?.message
-                                || error?.message
-                                || '止损单提交失败';
-                            message.error(`${position.symbol} 止损失败：${detail}`);
-                        });
+                    if (!Number.isFinite(lastPrice) || lastPrice <= 0) return;
+
+                    const stopLossPrice = Number(position?.stop_loss_price);
+                    if (Number.isFinite(stopLossPrice) && stopLossPrice > 0 && lastPrice <= stopLossPrice) {
+                        fireAutoSell(position, lastPrice, 'stop_loss', '止损', 'warning');
+                        return;
+                    }
+
+                    const takeProfitPrice = Number(position?.take_profit_price);
+                    if (Number.isFinite(takeProfitPrice) && takeProfitPrice > 0 && lastPrice >= takeProfitPrice) {
+                        fireAutoSell(position, lastPrice, 'take_profit', '止盈', 'success');
                     }
                 });
             } catch (_err) {
@@ -214,7 +223,12 @@ const PaperTradingPanel = () => {
             cancelled = true;
             clearInterval(handle);
         };
-    }, [account?.positions, message, refresh]);
+        // message + refresh are referentially unstable (AntdApp.useApp returns
+        // a new object each render). Including them in deps would re-create
+        // the polling interval on every parent render and stall test runs.
+        // The closure captures their current values which are idempotent.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [account?.positions]);
 
     const summary = useMemo(() => {
         const positions = account?.positions || [];
@@ -239,15 +253,22 @@ const PaperTradingPanel = () => {
                 commission: Number(values.commission || 0),
                 slippage_bps: Number(values.slippage_bps || 0),
             };
-            // Stop-loss is BUY-only and the form takes a percent; convert to
-            // the [0, 0.5] ratio the backend expects.
+            // Stop-loss / take-profit are BUY-only. The form takes percents;
+            // convert to the ratios the backend expects.
             const stopLossPercent = Number(values.stop_loss_pct);
             if (payload.side === 'BUY' && Number.isFinite(stopLossPercent) && stopLossPercent > 0) {
                 payload.stop_loss_pct = stopLossPercent / 100;
             }
+            const takeProfitPercent = Number(values.take_profit_pct);
+            if (payload.side === 'BUY' && Number.isFinite(takeProfitPercent) && takeProfitPercent > 0) {
+                payload.take_profit_pct = takeProfitPercent / 100;
+            }
             await submitPaperOrder(payload);
             message.success(`${payload.side} ${payload.quantity} ${payload.symbol} @ ${payload.fill_price} 已成交`);
-            orderForm.resetFields(['quantity', 'fill_price', 'commission', 'slippage_bps', 'stop_loss_pct']);
+            orderForm.resetFields([
+                'quantity', 'fill_price', 'commission', 'slippage_bps',
+                'stop_loss_pct', 'take_profit_pct',
+            ]);
             refresh();
         } catch (error) {
             const detail = error?.response?.data?.error?.message
@@ -359,6 +380,36 @@ const PaperTradingPanel = () => {
                 return (
                     <div data-testid={`paper-position-stop-loss-${record?.symbol}`}>
                         {formatMoney(stopLossPrice)}
+                        {distanceLabel}
+                    </div>
+                );
+            },
+        },
+        {
+            title: '止盈价',
+            key: 'take_profit',
+            align: 'right',
+            render: (_value, record) => {
+                const takeProfitPrice = Number(record?.take_profit_price);
+                if (!Number.isFinite(takeProfitPrice) || takeProfitPrice <= 0) {
+                    return <Text type="secondary">—</Text>;
+                }
+                const lastPrice = Number(record?.last_price);
+                let distanceLabel = null;
+                if (Number.isFinite(lastPrice) && lastPrice > 0) {
+                    const distancePct = ((takeProfitPrice - lastPrice) / lastPrice) * 100;
+                    const tone = distancePct < 1
+                        ? 'var(--accent-success)'
+                        : 'var(--text-muted)';
+                    distanceLabel = (
+                        <div style={{ fontSize: 10, color: tone }}>
+                            距触发 {distancePct.toFixed(2)}%
+                        </div>
+                    );
+                }
+                return (
+                    <div data-testid={`paper-position-take-profit-${record?.symbol}`}>
+                        {formatMoney(takeProfitPrice)}
                         {distanceLabel}
                     </div>
                 );
@@ -593,6 +644,23 @@ const PaperTradingPanel = () => {
                                     style={{ width: '100%' }}
                                     placeholder="如 5（百分比）"
                                     data-testid="paper-stop-loss-input"
+                                />
+                            </Form.Item>
+                            <Form.Item
+                                label={(
+                                    <Tooltip title="止盈百分比，仅对 BUY 生效。设 10 表示当现价涨至 avg_cost × 1.10 以上时，前端 quote 轮询会自动按市价 SELL（带 10 bps 滑点）。范围 0–500%。">
+                                        <span>止盈（可选，%）</span>
+                                    </Tooltip>
+                                )}
+                                name="take_profit_pct"
+                            >
+                                <InputNumber
+                                    min={0}
+                                    max={500}
+                                    step={1}
+                                    style={{ width: '100%' }}
+                                    placeholder="如 10（百分比）"
+                                    data-testid="paper-take-profit-input"
                                 />
                             </Form.Item>
                             <Form.Item style={{ marginBottom: 0 }}>

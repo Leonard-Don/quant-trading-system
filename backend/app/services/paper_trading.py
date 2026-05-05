@@ -192,18 +192,22 @@ class PaperTradingStore:
         slippage_bps = float(request.get("slippage_bps") or 0)
         if slippage_bps < 0:
             raise PaperTradingError("slippage_bps must be non-negative")
-        # stop_loss_pct only applies to BUY orders. For SELL we accept the
-        # field (so a generic API client can always send it) but ignore it
-        # without raising.
-        raw_stop_loss = request.get("stop_loss_pct")
-        stop_loss_pct: float | None = None
-        if raw_stop_loss is not None:
+        # stop_loss_pct / take_profit_pct only apply to BUY. SELL silently
+        # ignores them so a generic client can always send the same shape.
+        def _parse_optional_pct(field_name: str, upper: float) -> float | None:
+            raw = request.get(field_name)
+            if raw is None:
+                return None
             try:
-                stop_loss_pct = float(raw_stop_loss)
+                value = float(raw)
             except (TypeError, ValueError) as exc:
-                raise PaperTradingError("stop_loss_pct must be a number") from exc
-            if stop_loss_pct < 0 or stop_loss_pct > 0.5:
-                raise PaperTradingError("stop_loss_pct must be in [0, 0.5]")
+                raise PaperTradingError(f"{field_name} must be a number") from exc
+            if value < 0 or value > upper:
+                raise PaperTradingError(f"{field_name} must be in [0, {upper}]")
+            return value
+
+        stop_loss_pct = _parse_optional_pct("stop_loss_pct", 0.5)
+        take_profit_pct = _parse_optional_pct("take_profit_pct", 5.0)
         note = str(request.get("note") or "")[:200]
 
         # BUY pays *more* when slippage moves the market against the trader;
@@ -238,13 +242,20 @@ class PaperTradingStore:
                 existing["quantity"] = new_qty
                 existing["avg_cost"] = new_avg
                 existing["updated_at"] = now
-                # Stop-loss merge: new pct (if supplied) wins, else keep old.
-                # Either way recompute stop_loss_price against the new avg.
+                # Stop-loss / take-profit merge: new pct (if supplied) wins,
+                # else keep old. Either way recompute the trigger price
+                # against the new weighted avg.
                 if stop_loss_pct is not None:
                     existing["stop_loss_pct"] = stop_loss_pct
-                effective_pct = existing.get("stop_loss_pct")
-                if effective_pct is not None:
-                    existing["stop_loss_price"] = new_avg * (1.0 - float(effective_pct))
+                effective_sl = existing.get("stop_loss_pct")
+                if effective_sl is not None:
+                    existing["stop_loss_price"] = new_avg * (1.0 - float(effective_sl))
+
+                if take_profit_pct is not None:
+                    existing["take_profit_pct"] = take_profit_pct
+                effective_tp = existing.get("take_profit_pct")
+                if effective_tp is not None:
+                    existing["take_profit_price"] = new_avg * (1.0 + float(effective_tp))
             else:
                 position_payload = {
                     "symbol": symbol,
@@ -256,6 +267,9 @@ class PaperTradingStore:
                 if stop_loss_pct is not None:
                     position_payload["stop_loss_pct"] = stop_loss_pct
                     position_payload["stop_loss_price"] = effective_fill_price * (1.0 - stop_loss_pct)
+                if take_profit_pct is not None:
+                    position_payload["take_profit_pct"] = take_profit_pct
+                    position_payload["take_profit_price"] = effective_fill_price * (1.0 + take_profit_pct)
                 positions[symbol] = position_payload
             account["cash"] = cash - cost
         else:  # SELL

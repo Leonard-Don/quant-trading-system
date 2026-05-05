@@ -262,6 +262,72 @@ describe('PaperTradingPanel', () => {
         });
     });
 
+    it('forwards take_profit_pct (converted from percent to ratio) on a BUY order', async () => {
+        mockSubmitOrder.mockResolvedValue({ success: true, data: { account: ACCOUNT_WITH_POSITION } });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+
+        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
+        fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '120' } });
+        fireEvent.change(screen.getByTestId('paper-take-profit-input'), { target: { value: '15' } });
+
+        fireEvent.click(screen.getByRole('button', { name: '提交订单' }));
+
+        await waitFor(() => expect(mockSubmitOrder).toHaveBeenCalledTimes(1));
+        const sent = mockSubmitOrder.mock.calls[0][0];
+        // 15% → 0.15
+        expect(sent.take_profit_pct).toBeCloseTo(0.15);
+    });
+
+    it('renders take_profit_price and the trigger-distance label on positions that have one', async () => {
+        const positionWithTakeProfit = {
+            ...ACCOUNT_WITH_POSITION.positions[0],
+            take_profit_pct: 0.15,
+            take_profit_price: 172.5,
+        };
+        mockGetAccount.mockResolvedValue({
+            success: true,
+            data: { ...ACCOUNT_WITH_POSITION, positions: [positionWithTakeProfit] },
+        });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => {
+            expect(screen.getByTestId('paper-position-take-profit-AAPL')).toBeInTheDocument();
+        });
+        const cell = screen.getByTestId('paper-position-take-profit-AAPL');
+        expect(cell.textContent).toContain('$172.50');
+        expect(cell.textContent).toContain('距触发');
+    });
+
+    it('auto-submits a SELL when a quote crosses above take_profit_price', async () => {
+        const positionWithTakeProfit = {
+            ...ACCOUNT_WITH_POSITION.positions[0],
+            take_profit_pct: 0.10,
+            take_profit_price: 160, // lower than the mocked quote (165)
+        };
+        mockGetAccount.mockResolvedValue({
+            success: true,
+            data: { ...ACCOUNT_WITH_POSITION, positions: [positionWithTakeProfit] },
+        });
+        mockSubmitOrder.mockResolvedValue({ success: true, data: { account: ACCOUNT_WITH_POSITION } });
+
+        renderWithApp(<PaperTradingPanel />);
+
+        await waitFor(() => {
+            expect(mockSubmitOrder).toHaveBeenCalledTimes(1);
+        });
+        const autoSell = mockSubmitOrder.mock.calls[0][0];
+        expect(autoSell).toMatchObject({
+            symbol: 'AAPL',
+            side: 'SELL',
+            quantity: 10,
+            note: 'take_profit_triggered',
+            slippage_bps: 10,
+        });
+    });
+
     it('shows effective_fill_price and a slippage tag in the order history', async () => {
         const orderWithSlippage = {
             id: 'ord-slip',
