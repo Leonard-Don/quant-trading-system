@@ -37,6 +37,7 @@ import {
 } from '@ant-design/icons';
 
 import {
+    cancelPaperOrder,
     createResearchJournalEntry,
     getMultipleQuotes,
     getPaperAccount,
@@ -144,10 +145,18 @@ const PaperTradingPanel = () => {
     // be tracked independently for the same symbol.
     const autoTriggerInFlightRef = useRef(new Set());
 
-    // Quote polling for held positions + stop-loss / take-profit detection.
+    // Quote polling for held positions + pending LIMIT orders.
     useEffect(() => {
         const positionsForPoll = account?.positions || [];
-        const symbols = positionsForPoll.map((position) => position.symbol);
+        const pendingOrders = account?.pending_orders || [];
+        const symbolSet = new Set();
+        positionsForPoll.forEach((position) => {
+            if (position?.symbol) symbolSet.add(position.symbol);
+        });
+        pendingOrders.forEach((order) => {
+            if (order?.symbol) symbolSet.add(order.symbol);
+        });
+        const symbols = Array.from(symbolSet);
         if (symbols.length === 0) return undefined;
 
         let cancelled = false;
@@ -212,6 +221,50 @@ const PaperTradingPanel = () => {
                         fireAutoSell(position, lastPrice, 'take_profit', '止盈', 'success');
                     }
                 });
+
+                // Pending LIMIT triggers — independent of held positions, so
+                // we may need quotes for symbols that aren't currently held.
+                // The fetchQuotes call above only requested held symbols;
+                // for pending-only symbols we rely on the next poll cycle
+                // (where they'll be in the symbols list because the effect
+                // also recomputes the symbols set on each render).
+                (account?.pending_orders || []).forEach((pendingOrder) => {
+                    const lastPrice = Number(next[pendingOrder.symbol]?.price);
+                    const limitPrice = Number(pendingOrder.limit_price);
+                    if (!Number.isFinite(lastPrice) || !Number.isFinite(limitPrice)) return;
+                    const inFlightKey = `limit:${pendingOrder.id}`;
+                    if (autoTriggerInFlightRef.current.has(inFlightKey)) return;
+
+                    const triggered = pendingOrder.side === 'BUY'
+                        ? lastPrice <= limitPrice
+                        : lastPrice >= limitPrice;
+                    if (!triggered) return;
+
+                    autoTriggerInFlightRef.current.add(inFlightKey);
+                    submitPaperOrder({
+                        symbol: pendingOrder.symbol,
+                        side: pendingOrder.side,
+                        quantity: pendingOrder.quantity,
+                        fill_price: limitPrice,
+                        commission: 0,
+                        slippage_bps: 0,
+                        note: 'limit_triggered',
+                    }).then(() => cancelPaperOrder(pendingOrder.id))
+                      .then(() => {
+                          message.success(
+                              `${pendingOrder.symbol} 限价 ${pendingOrder.side} ${pendingOrder.quantity} 已成交 @ ${formatMoney(limitPrice)}`,
+                          );
+                          autoTriggerInFlightRef.current.delete(inFlightKey);
+                          refresh();
+                      })
+                      .catch((error) => {
+                          autoTriggerInFlightRef.current.delete(inFlightKey);
+                          const detail = error?.response?.data?.error?.message
+                              || error?.message
+                              || '限价单触发失败';
+                          message.error(`${pendingOrder.symbol} 限价单触发失败：${detail}`);
+                      });
+                });
             } catch (_err) {
                 // best-effort polling — silent on transient failure
             }
@@ -228,7 +281,7 @@ const PaperTradingPanel = () => {
         // the polling interval on every parent render and stall test runs.
         // The closure captures their current values which are idempotent.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [account?.positions]);
+    }, [account?.positions, account?.pending_orders]);
 
     const summary = useMemo(() => {
         const positions = account?.positions || [];
@@ -245,14 +298,22 @@ const PaperTradingPanel = () => {
         try {
             const values = await orderForm.validateFields();
             setSubmitting(true);
+            const orderType = (values.order_type === 'LIMIT') ? 'LIMIT' : 'MARKET';
+            const fillPrice = Number(values.fill_price);
             const payload = {
                 symbol: String(values.symbol || '').trim().toUpperCase(),
                 side: values.side || 'BUY',
                 quantity: Number(values.quantity),
-                fill_price: Number(values.fill_price),
+                fill_price: fillPrice,
                 commission: Number(values.commission || 0),
                 slippage_bps: Number(values.slippage_bps || 0),
+                order_type: orderType,
             };
+            if (orderType === 'LIMIT') {
+                // For LIMIT, the form's "成交价" field doubles as the limit
+                // price (we don't show a second numeric input — see spec).
+                payload.limit_price = fillPrice;
+            }
             // Stop-loss / take-profit are BUY-only. The form takes percents;
             // convert to the ratios the backend expects.
             const stopLossPercent = Number(values.stop_loss_pct);
@@ -264,7 +325,10 @@ const PaperTradingPanel = () => {
                 payload.take_profit_pct = takeProfitPercent / 100;
             }
             await submitPaperOrder(payload);
-            message.success(`${payload.side} ${payload.quantity} ${payload.symbol} @ ${payload.fill_price} 已成交`);
+            const successMsg = orderType === 'LIMIT'
+                ? `${payload.side} ${payload.quantity} ${payload.symbol} 限价单已挂出 @ ${payload.fill_price}`
+                : `${payload.side} ${payload.quantity} ${payload.symbol} @ ${payload.fill_price} 已成交`;
+            message.success(successMsg);
             orderForm.resetFields([
                 'quantity', 'fill_price', 'commission', 'slippage_bps',
                 'stop_loss_pct', 'take_profit_pct',
@@ -585,7 +649,16 @@ const PaperTradingPanel = () => {
                                 {prefillSource}
                             </Tag>
                         ) : null}
-                        <Form form={orderForm} layout="vertical" initialValues={{ side: 'BUY', commission: 0, slippage_bps: 0 }}>
+                        <Form form={orderForm} layout="vertical" initialValues={{ side: 'BUY', commission: 0, slippage_bps: 0, order_type: 'MARKET' }}>
+                            <Form.Item label="单类型" name="order_type">
+                                <Segmented
+                                    options={[
+                                        { label: '市价单', value: 'MARKET' },
+                                        { label: '限价单', value: 'LIMIT' },
+                                    ]}
+                                    data-testid="paper-order-type-toggle"
+                                />
+                            </Form.Item>
                             <Form.Item label="方向" name="side">
                                 <Segmented options={[{ label: '买入', value: 'BUY' }, { label: '卖出', value: 'SELL' }]} />
                             </Form.Item>
@@ -684,6 +757,60 @@ const PaperTradingPanel = () => {
                     </Card>
                 </Col>
             </Row>
+
+            <Card title="挂单（限价单 / Pending）" size="small" style={{ marginTop: 16 }}>
+                <Table
+                    dataSource={account?.pending_orders || []}
+                    rowKey="id"
+                    size="small"
+                    pagination={false}
+                    locale={{ emptyText: '当前无挂单' }}
+                    columns={[
+                        {
+                            title: '提交时间', dataIndex: 'submitted_at', key: 'submitted_at', width: 200,
+                        },
+                        {
+                            title: '方向', dataIndex: 'side', key: 'side', width: 80,
+                            render: (value) => (
+                                <Tag color={value === 'BUY' ? 'red' : 'green'}>{value}</Tag>
+                            ),
+                        },
+                        { title: '标的', dataIndex: 'symbol', key: 'symbol', width: 100 },
+                        { title: '数量', dataIndex: 'quantity', key: 'quantity', align: 'right', width: 100 },
+                        {
+                            title: '限价', dataIndex: 'limit_price', key: 'limit_price',
+                            align: 'right', width: 120, render: formatMoney,
+                        },
+                        {
+                            title: '操作', key: 'action', width: 100, align: 'right',
+                            render: (_value, record) => (
+                                <Popconfirm
+                                    title={`取消此挂单？`}
+                                    onConfirm={async () => {
+                                        try {
+                                            await cancelPaperOrder(record.id);
+                                            message.success(`已取消挂单 ${record.symbol} ${record.side} ${record.quantity}`);
+                                            refresh();
+                                        } catch (error) {
+                                            message.error(`取消失败：${error?.message || '未知错误'}`);
+                                        }
+                                    }}
+                                    okText="取消挂单"
+                                    cancelText="返回"
+                                >
+                                    <Button
+                                        size="small"
+                                        danger
+                                        data-testid={`paper-cancel-pending-${record.id}`}
+                                    >
+                                        取消
+                                    </Button>
+                                </Popconfirm>
+                            ),
+                        },
+                    ]}
+                />
+            </Card>
 
             <Card title="近期订单" size="small" style={{ marginTop: 16 }}>
                 <Table

@@ -11,7 +11,11 @@ class PaperOrderRequest(BaseModel):
     symbol: str = Field(..., min_length=1, max_length=40)
     side: Literal["BUY", "SELL"]
     quantity: float = Field(..., gt=0)
+    # MARKET (default) → fills immediately at fill_price.
+    # LIMIT → queued; service uses limit_price as the resting price.
+    order_type: Literal["MARKET", "LIMIT"] = "MARKET"
     fill_price: float = Field(..., gt=0)
+    limit_price: Optional[float] = Field(default=None, gt=0)
     # Execution slippage in basis points (1 bp = 0.01%).
     # Capped at 100 bp (1%) to prevent obviously-mistyped catastrophes
     # like 5000 ("user meant 5%" → silently fills 50% off).

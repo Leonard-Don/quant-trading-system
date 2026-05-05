@@ -368,6 +368,107 @@ def test_buy_with_both_stop_loss_and_take_profit(store):
     assert position["take_profit_price"] == pytest.approx(115.0)
 
 
+def test_limit_order_queues_into_pending_without_touching_cash(store):
+    result = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "fill_price": 100,  # ignored for LIMIT
+            "limit_price": 95,
+        },
+        profile_id="alice",
+    )
+    account = result["account"]
+    assert account["cash"] == pytest.approx(10000.0)  # cash untouched
+    assert account["positions"] == []
+    assert len(account["pending_orders"]) == 1
+    pending = account["pending_orders"][0]
+    assert pending["symbol"] == "AAPL"
+    assert pending["side"] == "BUY"
+    assert pending["limit_price"] == pytest.approx(95)
+    assert pending["order_type"] == "LIMIT"
+    assert pending["id"].startswith("ord-pending-")
+
+
+def test_limit_order_without_limit_price_raises_business_error(store):
+    with pytest.raises(PaperTradingError, match="limit_price is required"):
+        store.submit_order(
+            {
+                "symbol": "AAPL",
+                "side": "BUY",
+                "quantity": 1,
+                "order_type": "LIMIT",
+                "fill_price": 100,
+                # no limit_price
+            },
+            profile_id="alice",
+        )
+
+
+def test_cancel_pending_order_removes_it(store):
+    result = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 1,
+            "order_type": "LIMIT",
+            "fill_price": 100,
+            "limit_price": 95,
+        },
+        profile_id="alice",
+    )
+    pending_id = result["account"]["pending_orders"][0]["id"]
+    after = store.cancel_order(pending_id, profile_id="alice")
+    assert after["pending_orders"] == []
+
+
+def test_cancel_already_filled_order_raises_business_error(store):
+    result = store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 1, "fill_price": 100},
+        profile_id="alice",
+    )
+    # The MARKET fill went to orders, not pending; trying to cancel by id
+    # should give a clear "already filled" error.
+    filled_id = store.list_orders(profile_id="alice")[0]["id"]
+    with pytest.raises(PaperTradingError, match="already filled"):
+        store.cancel_order(filled_id, profile_id="alice")
+
+
+def test_cancel_unknown_order_raises_keyerror(store):
+    with pytest.raises(KeyError):
+        store.cancel_order("ord-nonexistent", profile_id="alice")
+
+
+def test_endpoint_delete_pending_order_returns_account_view(client):
+    api, _ = client
+    posted = api.post(
+        "/paper/orders",
+        json={
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 1,
+            "order_type": "LIMIT",
+            "fill_price": 100,
+            "limit_price": 95,
+        },
+    ).json()
+    pending_id = posted["data"]["account"]["pending_orders"][0]["id"]
+
+    response = api.delete(f"/paper/orders/{pending_id}")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["pending_orders"] == []
+
+
+def test_endpoint_delete_unknown_order_returns_404(client):
+    api, _ = client
+    response = api.delete("/paper/orders/ord-doesnotexist")
+    assert response.status_code == 404
+
+
 def test_endpoint_rejects_excessive_take_profit_pct(client):
     api, _ = client
     response = api.post(

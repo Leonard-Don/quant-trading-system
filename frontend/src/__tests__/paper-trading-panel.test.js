@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 // Polyfill matchMedia — JSDOM doesn't ship it, and antd's Statistic / Row / Col
@@ -27,6 +27,7 @@ const mockSubmitOrder = jest.fn();
 const mockResetAccount = jest.fn();
 const mockGetMultipleQuotes = jest.fn();
 const mockCreateJournalEntry = jest.fn();
+const mockCancelPaperOrder = jest.fn();
 
 jest.mock('../services/api', () => ({
     getPaperAccount: (...args) => mockGetAccount(...args),
@@ -35,6 +36,7 @@ jest.mock('../services/api', () => ({
     resetPaperAccount: (...args) => mockResetAccount(...args),
     getMultipleQuotes: (...args) => mockGetMultipleQuotes(...args),
     createResearchJournalEntry: (...args) => mockCreateJournalEntry(...args),
+    cancelPaperOrder: (...args) => mockCancelPaperOrder(...args),
 }));
 
 const renderWithApp = (node) => render(<AntdApp>{node}</AntdApp>);
@@ -81,6 +83,7 @@ describe('PaperTradingPanel', () => {
         mockResetAccount.mockReset();
         mockGetMultipleQuotes.mockReset();
         mockCreateJournalEntry.mockReset();
+        mockCancelPaperOrder.mockReset();
         mockGetMultipleQuotes.mockResolvedValue({
             success: true,
             data: { quotes: { AAPL: { price: 165 } } },
@@ -326,6 +329,108 @@ describe('PaperTradingPanel', () => {
             note: 'take_profit_triggered',
             slippage_bps: 10,
         });
+    });
+
+    it('forwards order_type=LIMIT and limit_price when the limit order_type is selected', async () => {
+        mockSubmitOrder.mockResolvedValue({
+            success: true,
+            data: { account: ACCOUNT_WITH_POSITION, order: { id: 'ord-pending-x' } },
+        });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+
+        // Click the LIMIT segment via Segmented (clicks on labelled radio)
+        // Antd's Segmented renders a radio group internally — the simplest
+        // accessible click is on the label "限价单".
+        fireEvent.click(screen.getByText('限价单'));
+
+        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'msft' } });
+        fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
+        fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '95' } });
+
+        fireEvent.click(screen.getByRole('button', { name: '提交订单' }));
+
+        await waitFor(() => expect(mockSubmitOrder).toHaveBeenCalledTimes(1));
+        const sent = mockSubmitOrder.mock.calls[0][0];
+        expect(sent).toMatchObject({
+            symbol: 'MSFT',
+            side: 'BUY',
+            quantity: 5,
+            order_type: 'LIMIT',
+            limit_price: 95,
+            fill_price: 95,
+        });
+    });
+
+    it('renders pending orders and the cancel button calls cancelPaperOrder', async () => {
+        const accountWithPending = {
+            ...ACCOUNT_WITH_POSITION,
+            pending_orders: [
+                {
+                    id: 'ord-pending-abc',
+                    symbol: 'GOOG',
+                    side: 'BUY',
+                    quantity: 3,
+                    limit_price: 110,
+                    submitted_at: '2026-05-05T08:00:00+00:00',
+                    order_type: 'LIMIT',
+                },
+            ],
+        };
+        mockGetAccount.mockResolvedValue({ success: true, data: accountWithPending });
+        mockCancelPaperOrder.mockResolvedValue({ success: true });
+
+        renderWithApp(<PaperTradingPanel />);
+
+        await waitFor(() => {
+            expect(screen.getByTestId('paper-cancel-pending-ord-pending-abc')).toBeInTheDocument();
+        });
+        // Pending order shows symbol + limit price
+        expect(screen.getByText('GOOG')).toBeInTheDocument();
+        expect(screen.getByText('$110.00')).toBeInTheDocument();
+
+        // Trigger the Popconfirm flow
+        fireEvent.click(screen.getByTestId('paper-cancel-pending-ord-pending-abc'));
+        const overlay = document.querySelector('.ant-popover');
+        expect(overlay).not.toBeNull();
+        fireEvent.click(within(overlay).getByRole('button', { name: '取消挂单' }));
+
+        await waitFor(() => expect(mockCancelPaperOrder).toHaveBeenCalledWith('ord-pending-abc'));
+    });
+
+    it('auto-fires the LIMIT trigger when a quote crosses the limit price', async () => {
+        const accountWithPending = {
+            ...ACCOUNT_WITH_POSITION,
+            pending_orders: [
+                {
+                    id: 'ord-pending-trig',
+                    symbol: 'AAPL',     // matches the mock quote (price=165)
+                    side: 'SELL',
+                    quantity: 10,
+                    limit_price: 160,    // SELL triggers when last >= limit; 165 ≥ 160
+                    submitted_at: '2026-05-05T08:00:00+00:00',
+                    order_type: 'LIMIT',
+                },
+            ],
+        };
+        mockGetAccount.mockResolvedValue({ success: true, data: accountWithPending });
+        mockSubmitOrder.mockResolvedValue({ success: true, data: { account: accountWithPending } });
+        mockCancelPaperOrder.mockResolvedValue({ success: true });
+
+        renderWithApp(<PaperTradingPanel />);
+
+        await waitFor(() => expect(mockSubmitOrder).toHaveBeenCalledTimes(1));
+        const fired = mockSubmitOrder.mock.calls[0][0];
+        expect(fired).toMatchObject({
+            symbol: 'AAPL',
+            side: 'SELL',
+            quantity: 10,
+            note: 'limit_triggered',
+            fill_price: 160,
+        });
+        // Cancel chain should also fire to remove the pending order.
+        await waitFor(() => expect(mockCancelPaperOrder).toHaveBeenCalledWith('ord-pending-trig'));
     });
 
     it('shows effective_fill_price and a slippage tag in the order history', async () => {
