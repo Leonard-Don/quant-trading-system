@@ -469,6 +469,38 @@ describe('PaperTradingPanel', () => {
         expect(screen.getByTestId('paper-export-orders-csv')).toBeDisabled();
     });
 
+    it('exports current positions to CSV when its button is clicked', async () => {
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+
+        const positionsBtn = screen.getByTestId('paper-export-positions-csv');
+        expect(positionsBtn).not.toBeDisabled(); // 1 position present
+        fireEvent.click(positionsBtn);
+
+        await waitFor(() => expect(mockExportToCSV).toHaveBeenCalledTimes(1));
+        const args = mockExportToCSV.mock.calls[0];
+        // 1 row for AAPL position
+        expect(args[0]).toHaveLength(1);
+        expect(args[0][0].symbol).toBe('AAPL');
+        // Filename starts with paper_positions_
+        expect(args[1]).toMatch(/^paper_positions_\d{8}_\d{4}$/);
+        // Column list includes the position-specific cols
+        expect(args[2]).toEqual(expect.arrayContaining([
+            expect.objectContaining({ key: 'avg_cost' }),
+            expect.objectContaining({ key: 'stop_loss_price' }),
+        ]));
+    });
+
+    it('disables the positions CSV button when there are no positions', async () => {
+        mockGetAccount.mockResolvedValue({
+            success: true,
+            data: { ...ACCOUNT_WITH_POSITION, positions: [] },
+        });
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 0')).toBeInTheDocument());
+        expect(screen.getByTestId('paper-export-positions-csv')).toBeDisabled();
+    });
+
     it('shows effective_fill_price and a slippage tag in the order history', async () => {
         const orderWithSlippage = {
             id: 'ord-slip',

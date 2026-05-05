@@ -2,6 +2,9 @@ import {
     buildPaperOrderRows,
     buildPaperOrderCsvFilename,
     PAPER_ORDER_CSV_COLUMNS,
+    buildPaperPositionRows,
+    buildPaperPositionCsvFilename,
+    PAPER_POSITION_CSV_COLUMNS,
 } from '../utils/paperOrderExport';
 
 describe('PAPER_ORDER_CSV_COLUMNS', () => {
@@ -109,5 +112,80 @@ describe('buildPaperOrderCsvFilename', () => {
     it('defaults to current time when no Date is passed', () => {
         const result = buildPaperOrderCsvFilename();
         expect(result).toMatch(/^paper_orders_\d{8}_\d{4}$/);
+    });
+});
+
+describe('PAPER_POSITION_CSV_COLUMNS', () => {
+    it('lists position columns in display order', () => {
+        const keys = PAPER_POSITION_CSV_COLUMNS.map((c) => c.key);
+        expect(keys).toEqual([
+            'symbol',
+            'quantity',
+            'avg_cost',
+            'last_price',
+            'market_value',
+            'unrealized_pnl',
+            'stop_loss_price',
+            'take_profit_price',
+            'opened_at',
+            'updated_at',
+        ]);
+    });
+});
+
+describe('buildPaperPositionRows', () => {
+    it('flattens an enriched position into the column shape', () => {
+        const position = {
+            symbol: 'AAPL',
+            quantity: 10,
+            avg_cost: 150,
+            last_price: 165,
+            market_value: 1650,
+            unrealized_pnl: 150,
+            stop_loss_price: 142.5,
+            take_profit_price: 180,
+            opened_at: '2026-05-01T08:00:00+00:00',
+            updated_at: '2026-05-05T12:00:00+00:00',
+        };
+        expect(buildPaperPositionRows([position])).toEqual([{
+            symbol: 'AAPL',
+            quantity: 10,
+            avg_cost: 150,
+            last_price: 165,
+            market_value: 1650,
+            unrealized_pnl: 150,
+            stop_loss_price: 142.5,
+            take_profit_price: 180,
+            opened_at: '2026-05-01T08:00:00+00:00',
+            updated_at: '2026-05-05T12:00:00+00:00',
+        }]);
+    });
+
+    it('blanks out missing mark-to-market fields (no quote yet)', () => {
+        const position = {
+            symbol: 'AAPL',
+            quantity: 10,
+            avg_cost: 150,
+            // no last_price / market_value / unrealized_pnl
+        };
+        const row = buildPaperPositionRows([position])[0];
+        expect(row.last_price).toBe('');
+        expect(row.market_value).toBe('');
+        expect(row.unrealized_pnl).toBe('');
+        expect(row.stop_loss_price).toBe('');
+        expect(row.take_profit_price).toBe('');
+    });
+
+    it('returns empty for null / non-array input', () => {
+        expect(buildPaperPositionRows(null)).toEqual([]);
+        expect(buildPaperPositionRows(undefined)).toEqual([]);
+        expect(buildPaperPositionRows('nope')).toEqual([]);
+    });
+});
+
+describe('buildPaperPositionCsvFilename', () => {
+    it('formats as paper_positions_YYYYMMDD_HHmm', () => {
+        const fixed = new Date('2026-05-05T10:30:00');
+        expect(buildPaperPositionCsvFilename(fixed)).toBe('paper_positions_20260505_1030');
     });
 });

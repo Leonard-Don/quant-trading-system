@@ -51,6 +51,9 @@ import {
     buildPaperOrderRows,
     buildPaperOrderCsvFilename,
     PAPER_ORDER_CSV_COLUMNS,
+    buildPaperPositionRows,
+    buildPaperPositionCsvFilename,
+    PAPER_POSITION_CSV_COLUMNS,
 } from '../utils/paperOrderExport';
 
 const { Title, Text } = Typography;
@@ -397,6 +400,19 @@ const PaperTradingPanel = () => {
         }
     };
 
+    const handleExportPositionsCsv = () => {
+        const positionsList = summary.positions || [];
+        if (positionsList.length === 0) return;
+        try {
+            const rows = buildPaperPositionRows(positionsList);
+            const filename = buildPaperPositionCsvFilename();
+            exportToCSV(rows, filename, PAPER_POSITION_CSV_COLUMNS);
+            message.success(`已导出 ${rows.length} 条持仓到 ${filename}.csv`);
+        } catch (error) {
+            message.error(error?.message || 'CSV 导出失败');
+        }
+    };
+
     const positionColumns = [
         { title: '标的', dataIndex: 'symbol', key: 'symbol' },
         {
@@ -642,7 +658,17 @@ const PaperTradingPanel = () => {
                             disabled={orders.length === 0}
                             data-testid="paper-export-orders-csv"
                         >
-                            导出 CSV
+                            导出订单 CSV
+                        </Button>
+                    </Tooltip>
+                    <Tooltip title={summary.positions.length === 0 ? '暂无持仓可导出' : '导出当前持仓快照（含浮动盈亏 / 止损止盈）为 CSV'}>
+                        <Button
+                            size="small"
+                            onClick={handleExportPositionsCsv}
+                            disabled={summary.positions.length === 0}
+                            data-testid="paper-export-positions-csv"
+                        >
+                            导出持仓 CSV
                         </Button>
                     </Tooltip>
                     <Popconfirm
