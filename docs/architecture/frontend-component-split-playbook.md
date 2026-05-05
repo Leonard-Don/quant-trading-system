@@ -125,7 +125,7 @@ See docs/superpowers/specs/<spec>.md.
 
 | 组件 | 状态 | 行数变化 | 完成 commit | session 日期 |
 |------|------|---------|------------|-------------|
-| `IndustryHeatmap.js` | 第 2 层进行中（HeatmapLegend 已抽出）| L1: 2014 → 1826 (−188) → 加 D2 1914 → L2: 1829 (−85) | L1 `c4cced1` / L2 (本批次) | 2026-05-03 → 2026-05-05 |
+| `IndustryHeatmap.js` | 第 2 层进行中（HeatmapLegend + HeatmapStatsBar 已抽出）| L1: 2014 → 1826 (−188) → 加 D2 1914 → L2: 1706 (−208) | L1 `c4cced1` / L2.1 `d67ea4b` / L2.2 (本批次) | 2026-05-03 → 2026-05-05 |
 | `MarketAnalysis.js` | 第 1 层完成 | 2660 → 2566 (−94) | `2c13f3b` | 2026-05-04 |
 | `CrossMarketBacktestPanel.js` | 第 1 层完成 | 2858 → 2727 (−131) | `8bb39a5` | 2026-05-04 |
 | `RealTimePanel.js` | 第 1 层完成 | 3273 → 3066 (−207) | `afd8bac` | 2026-05-04 |
