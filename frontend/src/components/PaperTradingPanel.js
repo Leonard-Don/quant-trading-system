@@ -308,11 +308,45 @@ const PaperTradingPanel = () => {
         },
         {
             title: '成交价',
-            dataIndex: 'fill_price',
             key: 'fill_price',
             align: 'right',
-            width: 120,
-            render: formatMoney,
+            width: 130,
+            render: (_value, record) => {
+                const requested = Number(record?.fill_price);
+                // Older orders persisted before C2 don't carry effective_fill_price;
+                // fall back to fill_price so historical rows still render normally.
+                const rawEffective = record?.effective_fill_price ?? record?.fill_price;
+                const effective = Number(rawEffective);
+                const slippageBps = Number(record?.slippage_bps || 0);
+                const hasSlippage = slippageBps > 0
+                    && Number.isFinite(requested)
+                    && Number.isFinite(effective)
+                    && Math.abs(effective - requested) > 1e-9;
+
+                if (!hasSlippage) {
+                    return formatMoney(Number.isFinite(effective) ? effective : requested);
+                }
+
+                const slippageCost = (effective - requested) * Number(record.quantity || 0);
+                return (
+                    <Tooltip
+                        title={(
+                            <div style={{ fontSize: 12, lineHeight: 1.6 }}>
+                                <div>报价价：{formatMoney(requested)}</div>
+                                <div>滑点：{slippageBps} bps</div>
+                                <div>滑点成本：{formatMoney(Math.abs(slippageCost))}</div>
+                            </div>
+                        )}
+                    >
+                        <Text data-testid={`paper-order-effective-${record?.id}`}>
+                            {formatMoney(effective)}{' '}
+                            <Tag color="orange" style={{ marginLeft: 4, fontSize: 10 }}>
+                                {slippageBps}bps
+                            </Tag>
+                        </Text>
+                    </Tooltip>
+                );
+            },
         },
     ];
 

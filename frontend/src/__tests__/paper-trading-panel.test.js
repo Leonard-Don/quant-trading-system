@@ -192,6 +192,68 @@ describe('PaperTradingPanel', () => {
         expect(mockSubmitOrder.mock.calls[0][0].slippage_bps).toBe(0);
     });
 
+    it('shows effective_fill_price and a slippage tag in the order history', async () => {
+        const orderWithSlippage = {
+            id: 'ord-slip',
+            symbol: 'AAPL',
+            side: 'BUY',
+            quantity: 10,
+            fill_price: 100,
+            effective_fill_price: 100.05, // 5 bps
+            slippage_bps: 5,
+            commission: 0,
+            submitted_at: '2026-05-05T10:00:00+00:00',
+            note: '',
+        };
+        mockListOrders.mockResolvedValue({
+            success: true,
+            data: { orders: [orderWithSlippage], limit: 50 },
+        });
+
+        renderWithApp(<PaperTradingPanel />);
+
+        await waitFor(() => {
+            expect(screen.getByTestId('paper-order-effective-ord-slip')).toBeInTheDocument();
+        });
+        const cell = screen.getByTestId('paper-order-effective-ord-slip');
+        // Effective price is shown
+        expect(cell.textContent).toContain('$100.05');
+        // Slippage tag is visible
+        expect(cell.textContent).toContain('5bps');
+    });
+
+    it('falls back to fill_price for orders without effective_fill_price (pre-C2)', async () => {
+        const legacyOrder = {
+            id: 'ord-legacy',
+            symbol: 'AAPL',
+            side: 'BUY',
+            quantity: 5,
+            fill_price: 150,
+            // No effective_fill_price / slippage_bps — older order shape
+            commission: 0,
+            submitted_at: '2026-05-01T10:00:00+00:00',
+            note: '',
+        };
+        mockListOrders.mockResolvedValue({
+            success: true,
+            data: { orders: [legacyOrder], limit: 50 },
+        });
+
+        renderWithApp(<PaperTradingPanel />);
+
+        // ACCOUNT_WITH_POSITION's positions table also renders $150.00
+        // (avg_cost), so wait on the legacy order's specific marker:
+        // its absence of the effective-price testid (we don't render the
+        // tag wrapper unless slippage > 0).
+        await waitFor(() => expect(mockListOrders).toHaveBeenCalled());
+        // Wait for the orders table to render the legacy order. The
+        // orders table column displays $150.00 plain text, so getAllByText
+        // is the right query.
+        const cells = await screen.findAllByText('$150.00');
+        expect(cells.length).toBeGreaterThan(0);
+        expect(screen.queryByTestId('paper-order-effective-ord-legacy')).not.toBeInTheDocument();
+    });
+
     it('archives current positions to the research journal on demand', async () => {
         mockCreateJournalEntry.mockResolvedValue({ success: true });
 
