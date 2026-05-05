@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import {
     Card,
     Input,
@@ -81,7 +81,6 @@ import {
     writeAnalysisCache,
 } from '../utils/marketAnalysisCache';
 import {
-    DEFAULT_VOLUME_TREND,
     DISPLAY_EMPTY,
     formatDisplayNumber,
     formatDisplayPercent,

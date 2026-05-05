@@ -17,7 +17,6 @@ import {
     Form,
     Input,
     InputNumber,
-    Modal,
     Popconfirm,
     Row,
     Segmented,
@@ -55,11 +54,6 @@ const QUOTE_POLL_MS = 5000;
 const formatMoney = (value) => {
     if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
     return `$${value.toFixed(2)}`;
-};
-
-const formatPercent = (value) => {
-    if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
-    return `${(value * 100).toFixed(2)}%`;
 };
 
 const computeMarkToMarket = (positions, quoteMap) => {

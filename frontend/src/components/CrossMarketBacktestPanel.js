@@ -17,10 +17,8 @@ import {
   Typography,
 } from 'antd';
 import {
-  PlusOutlined,
   ReloadOutlined,
   ThunderboltOutlined,
-  DeleteOutlined,
 } from '@ant-design/icons';
 import {
   Bar,
@@ -51,7 +49,6 @@ import { formatCurrency, formatPercentage, getValueColor } from '../utils/format
 import { useSafeMessageApi } from '../utils/messageApi';
 import {
     ASSET_CLASS_LABELS,
-    ASSET_CLASS_OPTIONS,
     DEFAULT_CONSTRAINTS,
     DEFAULT_CROSS_MARKET_END_DATE,
     DEFAULT_CROSS_MARKET_START_DATE,

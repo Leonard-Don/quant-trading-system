@@ -85,7 +85,6 @@ import {
     REALTIME_EXPORT_VERSION,
     REVIEW_SCOPE_OPTIONS,
     REVIEW_SNAPSHOT_VERSION,
-    SNAPSHOT_OUTCOME_OPTIONS,
 } from '../utils/realtimePanelConstants';
 import {
     buildRealtimeDetailTimeline,
