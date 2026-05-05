@@ -1,14 +1,12 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Card, Spin, Empty, Tooltip, Typography, Tag, Row, Col, Statistic, message, Button, Input, Radio, Select, Space, Progress, Slider, Grid, Switch } from 'antd';
+import { Card, Spin, Empty, Tooltip, Typography, Tag, Row, Col, Statistic, message, Button, Input, Radio, Select, Space, Progress, Grid, Switch } from 'antd';
 import {
     RiseOutlined,
     FallOutlined,
     ReloadOutlined,
     FireOutlined,
     DashboardOutlined,
-    BarChartOutlined,
-    BgColorsOutlined,
     SearchOutlined,
     FullscreenOutlined,
     FullscreenExitOutlined
@@ -18,6 +16,7 @@ import {
     buildPolicyOverlay,
     lookupPolicyOverlay,
 } from '../utils/industryPolicyOverlay';
+import HeatmapLegend from './industry/HeatmapLegend';
 import { activateOnEnterOrSpace } from './industry/industryShared';
 import {
     HEATMAP_SURFACE,
@@ -1407,103 +1406,17 @@ const IndustryHeatmap = ({
             .slice(0, 3);
     }, [data]);
 
-    // 渲染图例
+    // 渲染图例 — 拆到 ./industry/HeatmapLegend.js（layer 2 子组件）
     const renderLegend = (
-        <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginTop: 12,
-            gap: 12,
-            flexWrap: 'wrap'
-        }}>
-            {/* 颜色图例 + 大小图例 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <BgColorsOutlined />
-                    <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                        {legendMeta.leftLabel}
-                    </Text>
-                    <div style={{
-                        width: 120,
-                        height: 8,
-                        background: colorMetric === 'turnover_rate'
-                            ? 'linear-gradient(to right, blue, yellow, red)'
-                            : 'linear-gradient(to right, rgb(20, 180, 40), #6B6B6B, rgb(235, 20, 20))',
-                        borderRadius: 4
-                    }} />
-                    <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                        {legendMeta.rightLabel}
-                    </Text>
-                </div>
-                <div style={{ minWidth: 280, maxWidth: 380, flex: '1 1 280px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                        <Text style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                            色阶区间刷选
-                        </Text>
-                        <Text style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                            {effectiveLegendRange[0].toFixed(colorMetric === 'pe_ttm' ? 0 : 1)}
-                            {legendMeta.suffix}
-                            {' '}~{' '}
-                            {effectiveLegendRange[1].toFixed(colorMetric === 'pe_ttm' ? 0 : 1)}
-                            {legendMeta.suffix}
-                        </Text>
-                    </div>
-                    <div data-testid="heatmap-legend-slider">
-                        <Slider
-                            range
-                            min={legendMeta.min}
-                            max={legendMeta.max}
-                            step={legendMeta.step}
-                            value={effectiveLegendRange}
-                            onChange={(value) => onLegendRangeChange?.(value)}
-                            onChangeComplete={(value) => onLegendRangeChange?.(value)}
-                            tooltip={{ open: false }}
-                        />
-                    </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <BarChartOutlined />
-                    <Text style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        方块大小 = {
-                            sizeMetric === 'market_cap' ? '总市值' :
-                                sizeMetric === 'turnover' ? '当日总成交额' :
-                                    sizeMetric === 'net_inflow' ? '净流入绝对值' : '未知'
-                        }
-                    </Text>
-                </div>
-            </div>
-
-            {/* 资金流入 TOP3 横幅 */}
-            {top3InflowBanner.length > 0 && (
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '4px 10px',
-                    background: 'color-mix(in srgb, var(--accent-danger) 10%, var(--bg-secondary) 90%)',
-                    borderRadius: 6,
-                    border: '1px solid color-mix(in srgb, var(--accent-danger) 24%, var(--border-color) 76%)',
-                    flexWrap: 'wrap'
-                }}>
-                    <span style={{ fontSize: 11, color: 'var(--accent-danger)', whiteSpace: 'nowrap' }}>💰 净流入 TOP</span>
-                    {top3InflowBanner.map((ind, idx) => (
-                        <Tag
-                            key={ind.name}
-                            color={idx === 0 ? 'red' : idx === 1 ? 'volcano' : 'orange'}
-                            style={{ margin: 0, cursor: 'pointer', fontSize: 11 }}
-                            onClick={() => onIndustryClick?.(ind.name)}
-                            role="button"
-                            tabIndex={0}
-                            aria-label={`查看 ${ind.name} 行业详情`}
-                            onKeyDown={(event) => activateOnEnterOrSpace(event, () => onIndustryClick?.(ind.name))}
-                        >
-                            {ind.name}
-                        </Tag>
-                    ))}
-                </div>
-            )}
-        </div>
+        <HeatmapLegend
+            legendMeta={legendMeta}
+            effectiveLegendRange={effectiveLegendRange}
+            colorMetric={colorMetric}
+            sizeMetric={sizeMetric}
+            onLegendRangeChange={onLegendRangeChange}
+            top3InflowBanner={top3InflowBanner}
+            onIndustryClick={onIndustryClick}
+        />
     );
 
     const timeframeOptions = [
