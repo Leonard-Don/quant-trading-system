@@ -22,6 +22,11 @@ class PaperOrderRequest(BaseModel):
     # SELL ignores it. Capped at 0.5 (50% drawdown) — anything wider is
     # almost certainly a typo.
     stop_loss_pct: Optional[float] = Field(default=None, ge=0, le=0.5)
+    # Optional take-profit as a fraction of avg_cost. Symmetric mirror of
+    # stop_loss_pct: triggers an auto-SELL when last_price ≥ avg_cost ×
+    # (1 + pct). Capped at 5.0 (a 500% gain target — anything beyond
+    # that is almost certainly a typo).
+    take_profit_pct: Optional[float] = Field(default=None, ge=0, le=5.0)
 
 
 class PaperResetRequest(BaseModel):

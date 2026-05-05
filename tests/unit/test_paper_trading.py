@@ -313,6 +313,76 @@ def test_sell_ignores_stop_loss_pct_in_request(store):
     assert result["account"]["positions"] == []
 
 
+def test_buy_with_take_profit_pct_records_take_profit_price(store):
+    result = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "take_profit_pct": 0.10,
+        },
+        profile_id="alice",
+    )
+    position = result["account"]["positions"][0]
+    assert position["take_profit_pct"] == pytest.approx(0.10)
+    assert position["take_profit_price"] == pytest.approx(110.0)
+
+
+def test_addon_buy_recomputes_take_profit_price_against_new_avg(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 10,
+            "fill_price": 100.0,
+            "take_profit_pct": 0.20,
+        },
+        profile_id="alice",
+    )
+    # Add 10 more at 200 → new avg = 150, take_profit should rebase to 150 × 1.20 = 180
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 10, "fill_price": 200.0},
+        profile_id="alice",
+    )
+    position = store.get_account(profile_id="alice")["positions"][0]
+    assert position["take_profit_pct"] == pytest.approx(0.20)
+    assert position["take_profit_price"] == pytest.approx(180.0)
+
+
+def test_buy_with_both_stop_loss_and_take_profit(store):
+    """Both bands can coexist on the same position."""
+    result = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+            "take_profit_pct": 0.15,
+        },
+        profile_id="alice",
+    )
+    position = result["account"]["positions"][0]
+    assert position["stop_loss_price"] == pytest.approx(95.0)
+    assert position["take_profit_price"] == pytest.approx(115.0)
+
+
+def test_endpoint_rejects_excessive_take_profit_pct(client):
+    api, _ = client
+    response = api.post(
+        "/paper/orders",
+        json={
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 1,
+            "fill_price": 100,
+            "take_profit_pct": 6.0,  # > 5.0 cap
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_endpoint_rejects_excessive_stop_loss_pct(client):
     api, _ = client
     response = api.post(
