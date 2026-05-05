@@ -115,6 +115,23 @@ export const buildPrefillFromBacktest = (results) => {
 };
 
 /**
+ * True only when a prefill carries enough information for the auto-execute
+ * fast path (symbol + concrete side + positive quantity). Symbol-only
+ * prefills (e.g. backtests with no trades) must take the manual path so
+ * the user fills side / quantity themselves.
+ */
+export const canAutoExecutePrefill = (prefill) =>
+    Boolean(
+        prefill
+            && typeof prefill.symbol === 'string'
+            && prefill.symbol.length > 0
+            && (prefill.side === 'BUY' || prefill.side === 'SELL')
+            && typeof prefill.quantity === 'number'
+            && Number.isFinite(prefill.quantity)
+            && prefill.quantity > 0,
+    );
+
+/**
  * Derive a paper-trading prefill from a research-journal entry of type
  * 'backtest'. Returns null for non-backtest types or entries missing the
  * minimum required (symbol). Older entries archived before E embedded

@@ -12,6 +12,8 @@ import {
   Dropdown,
   Alert,
   Input,
+  Popconfirm,
+  Tooltip,
 } from 'antd';
 import {
   CopyOutlined,
@@ -36,6 +38,10 @@ import { getStrategyDetails, getStrategyName } from '../constants/strategies';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
 import { normalizeBacktestResult } from '../utils/backtest';
 import { buildBacktestActionPosture, buildSignalExplanation } from '../utils/backtestResearch';
+import {
+  buildPrefillFromBacktest,
+  canAutoExecutePrefill,
+} from '../utils/paperTradingPrefill';
 import { buildMarketRegimeInsight } from '../utils/advancedBacktestLab';
 import {
   buildBacktestResearchSnapshot,
@@ -87,7 +93,7 @@ const buildNoTradeGuideItems = (result = {}, diagnostics = {}) => {
   return items;
 };
 
-const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, onContinueAdvancedExperiment, onSendToPaperTrading }) => {
+const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, onContinueAdvancedExperiment, onSendToPaperTrading, onAutoExecuteToPaperTrading }) => {
   const message = useSafeMessageApi();
   const [activeTab, setActiveTab] = useState('overview');
   const [marketRegimeLoading, setMarketRegimeLoading] = useState(false);
@@ -1081,6 +1087,40 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
                 送到纸面账户
               </Button>
             ) : null}
+            {onAutoExecuteToPaperTrading && normalizedResults.symbol ? (() => {
+              const autoPrefill = buildPrefillFromBacktest(normalizedResults);
+              const canAuto = canAutoExecutePrefill(autoPrefill);
+              const button = (
+                <Button
+                  icon={<ThunderboltOutlined />}
+                  size="small"
+                  type="primary"
+                  ghost
+                  disabled={!canAuto}
+                  data-testid="results-auto-execute-to-paper"
+                >
+                  按市价直接下单到纸面
+                </Button>
+              );
+              if (!canAuto) {
+                return (
+                  <Tooltip title="需要回测产生过交易（含买卖方向与数量）才能直接下单">
+                    {button}
+                  </Tooltip>
+                );
+              }
+              return (
+                <Popconfirm
+                  title="按当前市价立即下单？"
+                  description={`将以最新行情价为 ${autoPrefill.symbol} 下单 ${autoPrefill.side} ${autoPrefill.quantity} 股，订单立即成交。`}
+                  okText="下单"
+                  cancelText="取消"
+                  onConfirm={() => onAutoExecuteToPaperTrading(normalizedResults)}
+                >
+                  {button}
+                </Popconfirm>
+              );
+            })() : null}
             <Dropdown menu={{ items: exportMenuItems }} placement="bottomRight">
               <Button icon={<DownloadOutlined />} size="small">
                 导出报告

@@ -13,9 +13,19 @@ import {
 } from '@ant-design/icons';
 
 import ErrorBoundary from './components/ErrorBoundary';
-import { getStrategies, runBacktest, createResearchJournalEntry } from './services/api';
+import {
+  getStrategies,
+  runBacktest,
+  createResearchJournalEntry,
+  getRealtimeQuote,
+  submitPaperOrder,
+} from './services/api';
 import { buildBacktestJournalEntry } from './utils/backtestJournalEntry';
-import { buildPrefillFromBacktest, setPaperPrefill } from './utils/paperTradingPrefill';
+import {
+  buildPrefillFromBacktest,
+  canAutoExecutePrefill,
+  setPaperPrefill,
+} from './utils/paperTradingPrefill';
 import { useTheme } from './contexts/ThemeContext';
 import { APP_VERSION } from './generated/version';
 import { useAppUrlState } from './hooks/useAppUrlState';
@@ -232,6 +242,49 @@ function App() {
     setCurrentView('paper');
   }, [message, setCurrentView]);
 
+  const handleAutoExecuteBacktestToPaper = useCallback(async (backtestResult) => {
+    const prefill = buildPrefillFromBacktest(backtestResult);
+    if (!canAutoExecutePrefill(prefill)) {
+      message.warning('当前回测结果缺少有效成交信息，无法直接下单');
+      return;
+    }
+
+    // Best-effort: any failure (quote unavailable, order rejected) falls
+    // back to the F path so the user lands in the paper workspace with a
+    // prefilled form rather than a dead end.
+    try {
+      const quoteResp = await getRealtimeQuote(prefill.symbol);
+      const quotePayload = quoteResp?.data || quoteResp || {};
+      const price = Number(quotePayload.price ?? quotePayload.last_price ?? quotePayload.close);
+      if (!Number.isFinite(price) || price <= 0) {
+        message.warning('行情不可用，已切到手填模式');
+        setPaperPrefill(prefill);
+        setCurrentView('paper');
+        return;
+      }
+      await submitPaperOrder({
+        symbol: prefill.symbol,
+        side: prefill.side,
+        quantity: prefill.quantity,
+        fill_price: price,
+        commission: 0,
+        slippage_bps: 0,
+      });
+      message.success(
+        `已按市价 $${price.toFixed(2)} 下单 ${prefill.side} ${prefill.quantity} ${prefill.symbol}`,
+      );
+      setCurrentView('paper');
+    } catch (error) {
+      const detail = error?.response?.data?.error?.message
+        || error?.response?.data?.detail
+        || error?.message
+        || '下单失败';
+      message.error(`直接下单失败：${detail}（已切到手填模式）`);
+      setPaperPrefill(prefill);
+      setCurrentView('paper');
+    }
+  }, [message, setCurrentView]);
+
   const renderContent = () => {
     switch (currentView) {
       case 'today':
@@ -255,6 +308,7 @@ function App() {
               loading={loading}
               results={results}
               onSendToPaperTrading={handleSendBacktestToPaper}
+              onAutoExecuteToPaperTrading={handleAutoExecuteBacktestToPaper}
             />
           </Suspense>
         );

@@ -6,6 +6,7 @@ import {
     peekPaperPrefill,
     buildPrefillFromBacktest,
     buildPrefillFromJournalEntry,
+    canAutoExecutePrefill,
 } from '../utils/paperTradingPrefill';
 
 describe('paperTradingPrefill', () => {
@@ -173,5 +174,34 @@ describe('buildPrefillFromJournalEntry', () => {
     it('returns null on null / undefined input', () => {
         expect(buildPrefillFromJournalEntry(null)).toBeNull();
         expect(buildPrefillFromJournalEntry(undefined)).toBeNull();
+    });
+});
+
+describe('canAutoExecutePrefill', () => {
+    it('accepts a complete prefill with side + quantity', () => {
+        expect(canAutoExecutePrefill({
+            symbol: 'AAPL', side: 'BUY', quantity: 5, sourceLabel: 's',
+        })).toBe(true);
+        expect(canAutoExecutePrefill({
+            symbol: 'AAPL', side: 'SELL', quantity: 1, sourceLabel: 's',
+        })).toBe(true);
+    });
+
+    it('rejects when side is missing or invalid', () => {
+        expect(canAutoExecutePrefill({ symbol: 'AAPL', side: null, quantity: 5 })).toBe(false);
+        expect(canAutoExecutePrefill({ symbol: 'AAPL', side: 'HOLD', quantity: 5 })).toBe(false);
+    });
+
+    it('rejects when quantity is missing or non-positive', () => {
+        expect(canAutoExecutePrefill({ symbol: 'AAPL', side: 'BUY', quantity: null })).toBe(false);
+        expect(canAutoExecutePrefill({ symbol: 'AAPL', side: 'BUY', quantity: 0 })).toBe(false);
+        expect(canAutoExecutePrefill({ symbol: 'AAPL', side: 'BUY', quantity: -2 })).toBe(false);
+    });
+
+    it('rejects empty / null prefill', () => {
+        expect(canAutoExecutePrefill(null)).toBe(false);
+        expect(canAutoExecutePrefill(undefined)).toBe(false);
+        expect(canAutoExecutePrefill({})).toBe(false);
+        expect(canAutoExecutePrefill({ symbol: '', side: 'BUY', quantity: 5 })).toBe(false);
     });
 });
