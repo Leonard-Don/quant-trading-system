@@ -125,9 +125,9 @@ See docs/superpowers/specs/<spec>.md.
 
 | 组件 | 状态 | 行数变化 | 完成 commit | session 日期 |
 |------|------|---------|------------|-------------|
-| `IndustryHeatmap.js` | 第 1 层完成 | 2014 → 1826 (−188) | `c4cced1` | 2026-05-03 |
+| `IndustryHeatmap.js` | 第 2 层进行中（HeatmapLegend 已抽出）| L1: 2014 → 1826 (−188) → 加 D2 1914 → L2: 1829 (−85) | L1 `c4cced1` / L2 (本批次) | 2026-05-03 → 2026-05-05 |
 | `MarketAnalysis.js` | 第 1 层完成 | 2660 → 2566 (−94) | `2c13f3b` | 2026-05-04 |
 | `CrossMarketBacktestPanel.js` | 第 1 层完成 | 2858 → 2727 (−131) | `8bb39a5` | 2026-05-04 |
-| `RealTimePanel.js` | 第 1 层完成 | 3273 → 3066 (−207) | （本批次）| 2026-05-04 |
+| `RealTimePanel.js` | 第 1 层完成 | 3273 → 3066 (−207) | `afd8bac` | 2026-05-04 |
 
-**Layer 1 全部完成。** 累计 4 个 mega-component 各减 90~210 行不等，共 −620 行，全部抽到 11 个聚焦的 utils 文件。下一步如果要继续，是 layer 2（展示子组件抽离），单 component 一次 session，从体量最小的 IndustryHeatmap 开始最稳。
+**Layer 1 全部完成；Layer 2 在 IndustryHeatmap 上开门**。HeatmapLegend 是第一个被拆出的 presentational 子组件（154 行，完全无 hooks，单测覆盖 6 个用例）。剩余 layer-2 候选：renderStats（约 100 行 useMemo 渲染统计 strip）、renderDesktopControls / renderMobileControls（约 300 行控制条，但属于 layer 3 状态密集区）。继续在 IndustryHeatmap 推进 layer 2 之前可以先重复同样模式给其他 mega-component，或 layer 3 单独立 session。
