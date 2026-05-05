@@ -127,7 +127,7 @@ See docs/superpowers/specs/<spec>.md.
 |------|------|---------|------------|-------------|
 | `IndustryHeatmap.js` | 第 2 层进行中（HeatmapLegend + HeatmapStatsBar 已抽出）| L1: 2014 → 1826 (−188) → 加 D2 1914 → L2: 1706 (−208) | L1 `c4cced1` / L2.1 `d67ea4b` / L2.2 (本批次) | 2026-05-03 → 2026-05-05 |
 | `MarketAnalysis.js` | 第 2 层进行中（ScoreVisuals 已抽出）| L1: 2660 → 2566 (−94) / L2: 2480 (−86) | L1 `2c13f3b` / L2 (本批次)| 2026-05-04 → 2026-05-05 |
-| `CrossMarketBacktestPanel.js` | 第 1 层完成 | 2858 → 2727 (−131) | `8bb39a5` | 2026-05-04 |
+| `CrossMarketBacktestPanel.js` | 第 2 层进行中（AssetSection 已抽出）| L1: 2858 → 2727 (−131) / L2: 2688 (−39) | L1 `8bb39a5` / L2 (本批次) | 2026-05-04 → 2026-05-05 |
 | `RealTimePanel.js` | 第 1 层完成 | 3273 → 3066 (−207) | `afd8bac` | 2026-05-04 |
 
 **Layer 1 全部完成；Layer 2 在 IndustryHeatmap 上开门**。HeatmapLegend 是第一个被拆出的 presentational 子组件（154 行，完全无 hooks，单测覆盖 6 个用例）。剩余 layer-2 候选：renderStats（约 100 行 useMemo 渲染统计 strip）、renderDesktopControls / renderMobileControls（约 300 行控制条，但属于 layer 3 状态密集区）。继续在 IndustryHeatmap 推进 layer 2 之前可以先重复同样模式给其他 mega-component，或 layer 3 单独立 session。

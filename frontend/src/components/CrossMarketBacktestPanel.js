@@ -38,6 +38,7 @@ import {
 import ResearchPlaybook from './research-playbook/ResearchPlaybook';
 import CrossMarketDiagnosticsSection from './cross-market/CrossMarketDiagnosticsSection';
 import CrossMarketBasketSummaryCard from './cross-market/CrossMarketBasketSummaryCard';
+import CrossMarketAssetSection from './cross-market/CrossMarketAssetSection';
 import {
   buildCrossMarketPlaybook,
 } from './research-playbook/playbookViewModels';
@@ -623,56 +624,16 @@ function CrossMarketBacktestPanel() {
     }
   };
 
+  // renderAssetSection 拆到 ./cross-market/CrossMarketAssetSection.js（layer 2 子组件）
   const renderAssetSection = (title, sideAssets, side) => (
-    <Card
+    <CrossMarketAssetSection
       title={title}
-      extra={
-        <Button size="small" icon={<PlusOutlined />} onClick={() => addAsset(side)}>
-          新增
-        </Button>
-      }
-      variant="borderless"
-      className="workspace-panel cross-market-asset-card"
-    >
-      <Space direction="vertical" style={{ width: '100%' }} size={12}>
-        {sideAssets.map((asset) => (
-          <Row gutter={12} key={asset.key}>
-            <Col xs={24} md={8}>
-              <Input
-                value={asset.symbol}
-                placeholder="资产代码"
-                onChange={(event) => updateAsset(asset.key, 'symbol', event.target.value)}
-              />
-            </Col>
-            <Col xs={24} md={8}>
-              <Select
-                value={asset.asset_class}
-                options={ASSET_CLASS_OPTIONS}
-                style={{ width: '100%' }}
-                onChange={(value) => updateAsset(asset.key, 'asset_class', value)}
-              />
-            </Col>
-            <Col xs={18} md={6}>
-              <InputNumber
-                value={asset.weight}
-                min={0.01}
-                step={0.05}
-                placeholder="权重"
-                style={{ width: '100%' }}
-                onChange={(value) => updateAsset(asset.key, 'weight', value)}
-              />
-            </Col>
-            <Col xs={6} md={2}>
-              <Button
-                icon={<DeleteOutlined />}
-                danger
-                onClick={() => removeAsset(asset.key)}
-              />
-            </Col>
-          </Row>
-        ))}
-      </Space>
-    </Card>
+      side={side}
+      sideAssets={sideAssets}
+      onAdd={addAsset}
+      onUpdate={updateAsset}
+      onRemove={removeAsset}
+    />
   );
 
   const correlationColumns = useMemo(() => {
