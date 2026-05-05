@@ -192,6 +192,76 @@ describe('PaperTradingPanel', () => {
         expect(mockSubmitOrder.mock.calls[0][0].slippage_bps).toBe(0);
     });
 
+    it('forwards stop_loss_pct (converted from percent to ratio) on a BUY order', async () => {
+        mockSubmitOrder.mockResolvedValue({ success: true, data: { account: ACCOUNT_WITH_POSITION } });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+
+        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
+        fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '120' } });
+        // Use the dedicated stop-loss testid; both slippage and stop-loss have placeholder "如 5"
+        const stopLossInput = screen.getByTestId('paper-stop-loss-input');
+        fireEvent.change(stopLossInput, { target: { value: '5' } });
+
+        fireEvent.click(screen.getByRole('button', { name: '提交订单' }));
+
+        await waitFor(() => expect(mockSubmitOrder).toHaveBeenCalledTimes(1));
+        const sent = mockSubmitOrder.mock.calls[0][0];
+        // 5% → 0.05
+        expect(sent.stop_loss_pct).toBeCloseTo(0.05);
+    });
+
+    it('renders stop_loss_price and the trigger-distance label on positions that have one', async () => {
+        const positionWithStopLoss = {
+            ...ACCOUNT_WITH_POSITION.positions[0],
+            stop_loss_pct: 0.05,
+            stop_loss_price: 142.5,
+        };
+        mockGetAccount.mockResolvedValue({
+            success: true,
+            data: { ...ACCOUNT_WITH_POSITION, positions: [positionWithStopLoss] },
+        });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => {
+            expect(screen.getByTestId('paper-position-stop-loss-AAPL')).toBeInTheDocument();
+        });
+        // The cell should show the formatted stop-loss price
+        const cell = screen.getByTestId('paper-position-stop-loss-AAPL');
+        expect(cell.textContent).toContain('$142.50');
+        // And the distance label (165 quote / 142.5 stop → ~13.64% above)
+        expect(cell.textContent).toContain('距触发');
+    });
+
+    it('auto-submits a SELL when a quote crosses below stop_loss_price', async () => {
+        const positionWithStopLoss = {
+            ...ACCOUNT_WITH_POSITION.positions[0],
+            stop_loss_pct: 0.05,
+            stop_loss_price: 200, // higher than the mocked quote (165)
+        };
+        mockGetAccount.mockResolvedValue({
+            success: true,
+            data: { ...ACCOUNT_WITH_POSITION, positions: [positionWithStopLoss] },
+        });
+        mockSubmitOrder.mockResolvedValue({ success: true, data: { account: ACCOUNT_WITH_POSITION } });
+
+        renderWithApp(<PaperTradingPanel />);
+
+        await waitFor(() => {
+            expect(mockSubmitOrder).toHaveBeenCalledTimes(1);
+        });
+        const autoSell = mockSubmitOrder.mock.calls[0][0];
+        expect(autoSell).toMatchObject({
+            symbol: 'AAPL',
+            side: 'SELL',
+            quantity: 10,
+            note: 'stop_loss_triggered',
+            slippage_bps: 10,
+        });
+    });
+
     it('shows effective_fill_price and a slippage tag in the order history', async () => {
         const orderWithSlippage = {
             id: 'ord-slip',

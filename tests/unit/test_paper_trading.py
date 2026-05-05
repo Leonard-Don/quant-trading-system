@@ -230,6 +230,104 @@ def test_order_record_persists_both_fill_prices(store, tmp_path):
     assert persisted["slippage_bps"] == 5
 
 
+def test_buy_with_stop_loss_pct_records_stop_loss_price_on_position(store):
+    result = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    position = result["account"]["positions"][0]
+    assert position["stop_loss_pct"] == pytest.approx(0.05)
+    assert position["stop_loss_price"] == pytest.approx(95.0)
+
+
+def test_addon_buy_without_stop_loss_pct_keeps_old_pct_but_recomputes_price(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 10,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    # Add 10 more at 200 → new avg = 150, stop_loss should rebase to 150 × 0.95 = 142.5
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 10, "fill_price": 200.0},
+        profile_id="alice",
+    )
+    position = store.get_account(profile_id="alice")["positions"][0]
+    assert position["stop_loss_pct"] == pytest.approx(0.05)
+    assert position["avg_cost"] == pytest.approx(150.0)
+    assert position["stop_loss_price"] == pytest.approx(142.5)
+
+
+def test_addon_buy_with_new_stop_loss_pct_supersedes_old(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 10,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 10,
+            "fill_price": 200.0,
+            "stop_loss_pct": 0.10,
+        },
+        profile_id="alice",
+    )
+    position = store.get_account(profile_id="alice")["positions"][0]
+    assert position["stop_loss_pct"] == pytest.approx(0.10)
+    assert position["stop_loss_price"] == pytest.approx(150.0 * 0.90)
+
+
+def test_sell_ignores_stop_loss_pct_in_request(store):
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    # SELL with stop_loss_pct shouldn't error or alter the (now-removed) position
+    result = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "fill_price": 110.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    assert result["account"]["positions"] == []
+
+
+def test_endpoint_rejects_excessive_stop_loss_pct(client):
+    api, _ = client
+    response = api.post(
+        "/paper/orders",
+        json={
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 1,
+            "fill_price": 100,
+            "stop_loss_pct": 0.6,  # > 0.5 cap
+        },
+    )
+    assert response.status_code == 422
+
+
 def test_orders_returned_newest_first(store):
     store.submit_order(
         {"symbol": "AAPL", "side": "BUY", "quantity": 1, "fill_price": 100.0},

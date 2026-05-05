@@ -18,6 +18,10 @@ class PaperOrderRequest(BaseModel):
     slippage_bps: float = Field(default=0.0, ge=0, le=100)
     commission: float = Field(default=0.0, ge=0)
     note: str = Field(default="", max_length=200)
+    # Optional stop-loss as a fraction of avg_cost. Only meaningful on BUY;
+    # SELL ignores it. Capped at 0.5 (50% drawdown) — anything wider is
+    # almost certainly a typo.
+    stop_loss_pct: Optional[float] = Field(default=None, ge=0, le=0.5)
 
 
 class PaperResetRequest(BaseModel):
