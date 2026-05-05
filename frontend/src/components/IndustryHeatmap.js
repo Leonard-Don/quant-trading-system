@@ -1,12 +1,9 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Card, Spin, Empty, Tooltip, Typography, Tag, Row, Col, Statistic, message, Button, Input, Radio, Select, Space, Progress, Grid, Switch } from 'antd';
+import { Card, Spin, Empty, Tooltip, Typography, Tag, message, Button, Input, Radio, Select, Space, Grid, Switch } from 'antd';
 import {
-    RiseOutlined,
-    FallOutlined,
     ReloadOutlined,
     FireOutlined,
-    DashboardOutlined,
     SearchOutlined,
     FullscreenOutlined,
     FullscreenExitOutlined
@@ -17,6 +14,7 @@ import {
     lookupPolicyOverlay,
 } from '../utils/industryPolicyOverlay';
 import HeatmapLegend from './industry/HeatmapLegend';
+import HeatmapStatsBar from './industry/HeatmapStatsBar';
 import { activateOnEnterOrSpace } from './industry/industryShared';
 import {
     HEATMAP_SURFACE,
@@ -518,129 +516,10 @@ const IndustryHeatmap = ({
     };
 
     // 渲染统计信息
-    const renderStats = useMemo(() => {
-        if (!data?.industries) return null;
-
-        const industries = data.industries;
-        const total = industries.length;
-        const upCount = industries.filter(i => i.value > 0).length;
-        const downCount = industries.filter(i => i.value < 0).length;
-        const flatCount = industries.filter(i => i.value === 0).length;
-        const upRatio = total > 0 ? Math.round((upCount / total) * 100) : 0;
-
-        // 市场情绪
-        const sentimentRatio = upCount / (total || 1);
-        const sentiment = sentimentRatio > 0.6
-            ? { label: '偏多', color: HEATMAP_POSITIVE, bg: 'color-mix(in srgb, var(--accent-danger) 12%, var(--bg-secondary) 88%)' }
-            : sentimentRatio < 0.4
-                ? { label: '偏空', color: HEATMAP_NEGATIVE, bg: 'color-mix(in srgb, var(--accent-success) 12%, var(--bg-secondary) 88%)' }
-                : { label: '中性', color: HEATMAP_WARNING, bg: 'color-mix(in srgb, var(--accent-warning) 12%, var(--bg-secondary) 88%)' };
-
-        // 资金 TOP3 流入行业
-        const top3Inflow = [...industries]
-            .filter(i => (i.moneyFlow || 0) > 0)
-            .sort((a, b) => (b.moneyFlow || 0) - (a.moneyFlow || 0))
-            .slice(0, 3);
-
-        return (
-            <div style={{ marginBottom: 16 }}>
-                {/* 第一行：数字统计 */}
-                <Row gutter={12} align="middle" style={{ marginBottom: 10 }}>
-                    <Col flex="none">
-                        <Statistic
-                            title="上涨"
-                            value={upCount}
-                            valueStyle={{ color: HEATMAP_POSITIVE, fontSize: 22 }}
-                            prefix={<RiseOutlined style={{ fontSize: 14 }} />}
-                        />
-                    </Col>
-                    <Col flex="none">
-                        <Statistic
-                            title="下跌"
-                            value={downCount}
-                            valueStyle={{ color: HEATMAP_NEGATIVE, fontSize: 22 }}
-                            prefix={<FallOutlined style={{ fontSize: 14 }} />}
-                        />
-                    </Col>
-                    <Col flex="none">
-                        <Statistic
-                            title="平盘"
-                            value={flatCount}
-                            valueStyle={{ color: 'var(--text-muted)', fontSize: 22 }}
-                            prefix={<DashboardOutlined style={{ fontSize: 14 }} />}
-                        />
-                    </Col>
-
-                    {/* 市场广度进度条 */}
-                    <Col flex="1" style={{ minWidth: 140 }}>
-                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>市场广度 ({upRatio}%)</div>
-                        <Progress
-                            percent={upRatio}
-                            showInfo={false}
-                            strokeColor={HEATMAP_POSITIVE}
-                            trailColor={HEATMAP_NEGATIVE}
-                            size="small"
-                        />
-                    </Col>
-
-                    {/* 市场情绪标签 */}
-                    <Col flex="none">
-                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>市场情绪</div>
-                        <Tag
-                            style={{
-                                color: sentiment.color,
-                                background: sentiment.bg,
-                                border: `1px solid ${sentiment.color}`,
-                                fontWeight: 'bold',
-                                fontSize: 13,
-                                padding: '2px 10px'
-                            }}
-                        >
-                            {sentiment.label}
-                        </Tag>
-                    </Col>
-
-                    <Col flex="none">
-                        <Statistic
-                            title="更新时间"
-                            value={data.update_time ? new Date(data.update_time).toLocaleTimeString('zh-CN', { hour12: false }) : '-'}
-                            valueStyle={{ fontSize: 13 }}
-                        />
-                    </Col>
-                </Row>
-
-                {/* 第二行：资金净流入 TOP3 */}
-                {top3Inflow.length > 0 && (
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '6px 10px',
-                        background: 'color-mix(in srgb, var(--accent-danger) 10%, var(--bg-secondary) 90%)',
-                        borderRadius: 6,
-                        border: '1px solid color-mix(in srgb, var(--accent-danger) 22%, var(--border-color) 78%)',
-                        flexWrap: 'wrap'
-                    }}>
-                        <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>💰 主力净流入</span>
-                        {top3Inflow.map((ind, idx) => (
-                            <Tag
-                                key={ind.name}
-                                color={idx === 0 ? 'red' : idx === 1 ? 'volcano' : 'orange'}
-                                style={{ cursor: 'pointer', margin: 0 }}
-                                onClick={() => onIndustryClick?.(ind.name)}
-                                role="button"
-                                tabIndex={0}
-                                aria-label={`查看 ${ind.name} 行业详情，主力净流入 ${(ind.moneyFlow / 1e8).toFixed(1)} 亿`}
-                                onKeyDown={(event) => activateOnEnterOrSpace(event, () => onIndustryClick?.(ind.name))}
-                            >
-                                {ind.name} +{(ind.moneyFlow / 1e8).toFixed(1)}亿
-                            </Tag>
-                        ))}
-                    </div>
-                )}
-            </div>
-        );
-    }, [data, onIndustryClick]);
+    // renderStats 拆到 ./industry/HeatmapStatsBar.js（layer 2 第二个子组件）
+    const renderStats = (
+        <HeatmapStatsBar data={data} onIndustryClick={onIndustryClick} />
+    );
 
     // 使用 Treemap 计算布局和渲染
     const renderTreemap = useMemo(() => {
