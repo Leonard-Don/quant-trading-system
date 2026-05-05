@@ -40,7 +40,6 @@ import {
     ReloadOutlined,
 } from '@ant-design/icons';
 import {
-    Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
     ComposedChart, ReferenceArea, ReferenceLine, Scatter,
     ResponsiveContainer,
     Tooltip as RechartsTooltip,
@@ -70,6 +69,11 @@ import {
 } from '../services/api';
 import lazyWithRetry from '../utils/lazyWithRetry';
 import { MarketAnalysisSkeleton } from './SkeletonLoaders';
+import {
+    RecommendationTag,
+    ScoreGauge,
+    ScoreRadarChart,
+} from './market-analysis/MarketAnalysisScoreVisuals';
 import {
     buildAnalysisCacheKey,
     clearAnalysisCache,
@@ -723,98 +727,8 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
 
     // --- Render Helpers ---
 
-    const renderScoreGauge = useCallback((score) => {
-        let color = '#1890ff';
-        if (score >= 75) color = '#00b578';
-        else if (score >= 50) color = '#1890ff';
-        else if (score >= 30) color = '#faad14';
-        else color = '#ff3030';
-
-        return (
-            <div style={{ textAlign: 'center' }}>
-                <Progress
-                    type="dashboard"
-                    percent={score}
-                    format={(percent) => (
-                        <>
-                            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{percent}</div>
-                            <div style={{ fontSize: '12px', color: '#888' }}>综合评分</div>
-                        </>
-                    )}
-                    strokeColor={color}
-                    size={180}
-                />
-            </div>
-        );
-    }, []);
-
-    const renderRecommendation = useCallback((rec) => {
-        let color = 'default';
-        if (rec.includes('买入')) color = 'success';
-        else if (rec.includes('卖出')) color = 'error';
-        else if (rec.includes('持有')) color = 'warning';
-
-        return (
-            <Tag color={color} style={{ fontSize: '16px', padding: '5px 10px' }}>
-                {rec}
-            </Tag>
-        );
-    }, []);
-
-    const renderRadarChart = useCallback((scores) => {
-        const chartData = [
-            { subject: '趋势', A: scores.trend, fullMark: 100 },
-            { subject: '量价', A: scores.volume, fullMark: 100 },
-            { subject: '情绪', A: scores.sentiment, fullMark: 100 },
-            { subject: '技术', A: scores.technical, fullMark: 100 },
-        ];
-
-        return (
-            <div className="radar-chart-container">
-                <ResponsiveContainer width="100%" height={240}>
-                    <RadarChart cx="50%" cy="50%" outerRadius="70%" data={chartData}>
-                        <defs>
-                            <linearGradient id="radarFill" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#2db7f5" stopOpacity={0.8} />
-                                <stop offset="95%" stopColor="#00b578" stopOpacity={0.4} />
-                            </linearGradient>
-                        </defs>
-                        <PolarGrid gridType="circle" stroke="rgba(148, 163, 184, 0.2)" />
-                        <PolarAngleAxis
-                            dataKey="subject"
-                            tick={{ fill: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}
-                        />
-                        <PolarRadiusAxis
-                            angle={30}
-                            domain={[0, 100]}
-                            tick={{ fontSize: 10, fill: '#94a3b8' }}
-                            axisLine={false}
-                            tickCount={6}
-                        />
-                        <Radar
-                            name="综合评分"
-                            dataKey="A"
-                            stroke="#2db7f5"
-                            strokeWidth={2.5}
-                            fill="url(#radarFill)"
-                            fillOpacity={0.8}
-                            activeDot={{ r: 4, stroke: '#fff', strokeWidth: 2 }}
-                        />
-                        <RechartsTooltip
-                            contentStyle={{
-                                backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                                borderRadius: '8px',
-                                border: 'none',
-                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                            }}
-                            itemStyle={{ color: '#333', fontWeight: 500 }}
-                            formatter={(value) => [`${value}分`, '得分']}
-                        />
-                    </RadarChart>
-                </ResponsiveContainer>
-            </div>
-        );
-    }, []);
+    // renderScoreGauge / renderRecommendation / renderRadarChart 拆到
+    // ./market-analysis/MarketAnalysisScoreVisuals.js（layer 2 子组件）
 
     // --- Tab Contents (Memoized) ---
 
@@ -896,14 +810,14 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                             placement="right"
                         >
                             <div style={{ cursor: 'pointer' }}>
-                                {renderScoreGauge(overviewData.overall_score)}
+                                <ScoreGauge score={overviewData.overall_score} />
                             </div>
                         </Popover>
                         <div style={{ textAlign: 'center', marginTop: 16 }}>
                             <Space direction="vertical">
                                 <Text type="secondary">投资建议</Text>
                                 <Tooltip title={overviewData.recommendation_reasons?.length ? recommendationReasonContent : ''}>
-                                    {renderRecommendation(overviewData.recommendation)}
+                                    <RecommendationTag recommendation={overviewData.recommendation} />
                                 </Tooltip>
                                 <Text type="secondary" style={{ fontSize: '12px' }}>
                                     置信度: {translateConfidence(overviewData.confidence)}
@@ -915,7 +829,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
 
                 <Col xs={24} md={8}>
                     <Card title="维度评分" variant="borderless">
-                        {renderRadarChart(overviewData.scores)}
+                        <ScoreRadarChart scores={overviewData.scores} />
                     </Card>
                 </Col>
 
@@ -1114,7 +1028,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 </Col>
             </Row>
         );
-    }, [loadingTab.overview, loadingTab.technical, loadingTab.events, errorTab.overview, overviewData, technicalData, eventData, renderScoreGauge, renderRadarChart, renderRecommendation, symbol]);
+    }, [loadingTab.overview, loadingTab.technical, loadingTab.events, errorTab.overview, overviewData, technicalData, eventData, symbol]);
 
     // 2. Trend Content
     const trendContent = useMemo(() => {
