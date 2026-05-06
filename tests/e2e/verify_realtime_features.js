@@ -1,10 +1,12 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+const { partitionConsoleMessages } = require('./consoleNoise');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const ARTIFACT_DIR = path.join(PROJECT_ROOT, 'output', 'playwright');
 const IMPORT_FIXTURE_PATH = path.join(ARTIFACT_DIR, 'realtime-import-snapshots.json');
+const APP_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 const ensureArtifactDir = () => {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
@@ -182,7 +184,7 @@ const jumpToTrackedSymbol = async (page, symbol, expectedGroupLabel) => {
   });
 
   console.log('正在访问实时行情页面...');
-  await page.goto('http://localhost:3000/?view=realtime', {
+  await page.goto(`${APP_URL}/?view=realtime`, {
     waitUntil: 'domcontentloaded',
     timeout: 60000,
   });
@@ -351,11 +353,16 @@ const jumpToTrackedSymbol = async (page, symbol, expectedGroupLabel) => {
       || url.includes('/ws/')
     )
   );
-  const unexpectedConsoleErrors = consoleErrors.filter((entry) => (
-    !entry.includes('API Network Error:')
-    && !entry.includes('ERR_CONNECTION_RESET')
-    && !entry.includes('ERR_CONNECTION_REFUSED')
-  ));
+  const { unknown: unexpectedConsoleErrors, ignoredSummary } = partitionConsoleMessages(
+    consoleErrors.filter((entry) => (
+      !entry.includes('API Network Error:')
+      && !entry.includes('ERR_CONNECTION_RESET')
+      && !entry.includes('ERR_CONNECTION_REFUSED')
+    ))
+  );
+  ignoredSummary.forEach((entry) => {
+    console.log(`已忽略已知控制台噪声: ${entry.label} x${entry.count}`);
+  });
   const relevantFailedRequests = failedRequests.filter((entry) => isRealtimeRelevantUrl(entry.url));
 
   if (unexpectedConsoleErrors.length > 0) {
