@@ -57,7 +57,17 @@ vi.mock('../generated/version', () => ({ APP_VERSION: 'test' }));
 vi.mock('@ant-design/icons', () => {
   const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
-  return new Proxy({}, { get: () => MockIcon });
+  return {
+    DashboardOutlined: MockIcon,
+    BarChartOutlined: MockIcon,
+    LineChartOutlined: MockIcon,
+    MenuOutlined: MockIcon,
+    SunOutlined: MockIcon,
+    MoonOutlined: MockIcon,
+    FireOutlined: MockIcon,
+    FundOutlined: MockIcon,
+    ThunderboltOutlined: MockIcon,
+  };
 });
 
 vi.mock('antd', () => {

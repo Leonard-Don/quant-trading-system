@@ -7,11 +7,57 @@ import "@testing-library/jest-dom";
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
-// Ensure each Vitest case starts with a clean Testing Library DOM. CRA/Jest
-// setups performed this automatically; without it, long CI shards can retain
-// portals/forms from prior tests and queries start seeing duplicate elements.
+const installMatchMedia = () => {
+  const matchMedia = vi.fn().mockImplementation((query) => {
+    const mediaQueryList = {
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(() => false),
+    };
+    return mediaQueryList;
+  });
+
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: matchMedia,
+  });
+  Object.defineProperty(globalThis, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: matchMedia,
+  });
+};
+
+const installGetComputedStyleShim = () => {
+  const originalGetComputedStyle = window.getComputedStyle.bind(window);
+  Object.defineProperty(window, "getComputedStyle", {
+    writable: true,
+    configurable: true,
+    value: (element) => originalGetComputedStyle(element),
+  });
+};
+
+installMatchMedia();
+installGetComputedStyleShim();
+
+// Ensure each Vitest case starts with a clean Testing Library DOM and stable
+// browser shims. CRA/Jest setups performed cleanup automatically; without it,
+// long CI shards can retain portals/forms or polluted matchMedia mocks from
+// prior tests and queries start seeing duplicate elements or AntD breakpoint
+// listeners receive malformed events.
 afterEach(() => {
   cleanup();
+  window.localStorage?.clear();
+  window.sessionStorage?.clear();
+  vi.useRealTimers();
+  installMatchMedia();
+  installGetComputedStyleShim();
 });
 
 // Shim: expose `jest` globally as an alias for vitest's `vi`. Tests that
