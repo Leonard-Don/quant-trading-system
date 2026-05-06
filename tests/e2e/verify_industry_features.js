@@ -1,6 +1,8 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 
+const API_BASE_URL = process.env.API_URL || process.env.BACKEND_URL || 'http://127.0.0.1:8000';
+
 const normalizeUrl = (value) => {
   const url = new URL(value);
   const params = new URLSearchParams(url.search);
@@ -79,17 +81,17 @@ const isHeatmapSearchEmptyStateVisible = async (page) => page.evaluate(() => {
   return bodyText.includes('未找到匹配的行业') || bodyText.includes('当前筛选条件下未找到匹配行业');
 });
 
-const readIndustryPreferences = async (page) => page.evaluate(async () => {
-  const response = await fetch('/industry/preferences');
+const readIndustryPreferences = async (page) => page.evaluate(async (apiBaseUrl) => {
+  const response = await fetch(`${apiBaseUrl}/industry/preferences`);
   if (!response.ok) {
     throw new Error(`Failed to load industry preferences: ${response.status}`);
   }
   return response.json();
-});
+}, API_BASE_URL);
 
 const writeIndustryPreferences = async (page, payload) => {
-  await page.evaluate(async (nextPayload) => {
-    const response = await fetch('/industry/preferences', {
+  await page.evaluate(async ({ apiBaseUrl, nextPayload }) => {
+    const response = await fetch(`${apiBaseUrl}/industry/preferences`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(nextPayload),
@@ -97,7 +99,7 @@ const writeIndustryPreferences = async (page, payload) => {
     if (!response.ok) {
       throw new Error(`Failed to update industry preferences: ${response.status}`);
     }
-  }, payload);
+  }, { apiBaseUrl: API_BASE_URL, nextPayload: payload });
 };
 
 const resetIndustryPreferences = async (page) => {
