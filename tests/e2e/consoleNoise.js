@@ -12,7 +12,7 @@ const KNOWN_CONSOLE_NOISE_PATTERNS = [
   {
     key: 'react-find-dom-node-strict-mode',
     label: 'React StrictMode findDOMNode deprecation warning',
-    pattern: /Warning:\s*findDOMNode is deprecated.*reactjs\.org\/link\/strict-mode-find-node/i,
+    pattern: /Warning:\s*(?:findDOMNode is deprecated|%s is deprecated in StrictMode).*reactjs\.org\/link\/strict-mode-find-node/i,
   },
   {
     key: 'industry-heatmap-timeout-fallback',
