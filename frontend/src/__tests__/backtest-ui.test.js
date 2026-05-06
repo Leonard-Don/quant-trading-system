@@ -12,21 +12,21 @@ import {
   runMarketRegimeBacktest,
 } from '../services/api';
 
-jest.mock('../services/api', () => ({
-  getBacktestHistory: jest.fn(),
-  getBacktestHistoryStats: jest.fn(),
-  getBacktestRecord: jest.fn(),
-  deleteBacktestRecord: jest.fn(),
-  downloadBacktestReport: jest.fn(),
-  runMarketRegimeBacktest: jest.fn(),
+vi.mock('../services/api', () => ({
+  getBacktestHistory: vi.fn(),
+  getBacktestHistoryStats: vi.fn(),
+  getBacktestRecord: vi.fn(),
+  deleteBacktestRecord: vi.fn(),
+  downloadBacktestReport: vi.fn(),
+  runMarketRegimeBacktest: vi.fn(),
 }));
 
-jest.mock('../components/PerformanceChart', () => () => <div>PerformanceChart</div>);
-jest.mock('../components/DrawdownChart', () => () => <div>DrawdownChart</div>);
-jest.mock('../components/MonthlyHeatmap', () => () => <div>MonthlyHeatmap</div>);
-jest.mock('../components/RiskRadar', () => () => <div>RiskRadar</div>);
-jest.mock('../components/ReturnHistogram', () => () => <div>ReturnHistogram</div>);
-jest.mock('recharts', () => {
+vi.mock('../components/PerformanceChart', () => ({ default: () => <div>PerformanceChart</div> }));
+vi.mock('../components/DrawdownChart', () => ({ default: () => <div>DrawdownChart</div> }));
+vi.mock('../components/MonthlyHeatmap', () => ({ default: () => <div>MonthlyHeatmap</div> }));
+vi.mock('../components/RiskRadar', () => ({ default: () => <div>RiskRadar</div> }));
+vi.mock('../components/ReturnHistogram', () => ({ default: () => <div>ReturnHistogram</div> }));
+vi.mock('recharts', () => {
   const React = require('react');
   const MockChart = ({ children }) => <div>{children}</div>;
   const MockElement = () => null;
@@ -65,23 +65,23 @@ beforeAll(() => {
   }
 
   if (!window.URL.createObjectURL) {
-    window.URL.createObjectURL = jest.fn(() => 'blob:test');
+    window.URL.createObjectURL = vi.fn(() => 'blob:test');
   }
   if (!window.URL.revokeObjectURL) {
-    window.URL.revokeObjectURL = jest.fn();
+    window.URL.revokeObjectURL = vi.fn();
   }
 });
 
 afterEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   window.localStorage.clear();
   window.history.replaceState(null, '', '/');
 });
 
 describe('ResultsDisplay', () => {
   test('renders top-level metrics and normalizes compatibility trade fields', async () => {
-    const onOpenHistoryRecord = jest.fn();
-    const onContinueAdvancedExperiment = jest.fn();
+    const onOpenHistoryRecord = vi.fn();
+    const onContinueAdvancedExperiment = vi.fn();
     runMarketRegimeBacktest.mockResolvedValue({
       success: true,
       data: {
@@ -258,7 +258,7 @@ describe('ResultsDisplay', () => {
   });
 
   test('saves a research snapshot with note and opens its history record', async () => {
-    const onOpenHistoryRecord = jest.fn();
+    const onOpenHistoryRecord = vi.fn();
     render(
       <ResultsDisplay
         onOpenHistoryRecord={onOpenHistoryRecord}
@@ -406,7 +406,7 @@ describe('BacktestHistory', () => {
       expect(screen.getByText('AAPL')).toBeInTheDocument();
     });
 
-    const anchor = { click: jest.fn(), href: '', download: '' };
+    const anchor = { click: vi.fn(), href: '', download: '' };
     const createElementSpy = jest
       .spyOn(document, 'createElement')
       .mockImplementation((tagName) => {
@@ -415,8 +415,8 @@ describe('BacktestHistory', () => {
         }
         return document.createElementNS('http://www.w3.org/1999/xhtml', tagName);
       });
-    const appendChildSpy = jest.spyOn(document.body, 'appendChild').mockImplementation(() => anchor);
-    const removeChildSpy = jest.spyOn(document.body, 'removeChild').mockImplementation(() => anchor);
+    const appendChildSpy = vi.spyOn(document.body, 'appendChild').mockImplementation(() => anchor);
+    const removeChildSpy = vi.spyOn(document.body, 'removeChild').mockImplementation(() => anchor);
 
     try {
       const downloadButton = container.querySelector('tbody button.ant-btn-primary');

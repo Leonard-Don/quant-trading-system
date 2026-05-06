@@ -4,10 +4,10 @@ import '@testing-library/jest-dom';
 
 import PolicyRadarPanel from '../components/industry/PolicyRadarPanel';
 
-const mockGetSignal = jest.fn();
-const mockGetRecords = jest.fn();
+const mockGetSignal = vi.fn();
+const mockGetRecords = vi.fn();
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
     getPolicyRadarSignal: (...args) => mockGetSignal(...args),
     getPolicyRadarRecords: (...args) => mockGetRecords(...args),
 }));

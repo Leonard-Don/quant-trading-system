@@ -21,15 +21,15 @@ import { App as AntdApp } from 'antd';
 
 import PaperTradingPanel from '../components/PaperTradingPanel';
 
-const mockGetAccount = jest.fn();
-const mockListOrders = jest.fn();
-const mockSubmitOrder = jest.fn();
-const mockResetAccount = jest.fn();
-const mockGetMultipleQuotes = jest.fn();
-const mockCreateJournalEntry = jest.fn();
-const mockCancelPaperOrder = jest.fn();
+const mockGetAccount = vi.fn();
+const mockListOrders = vi.fn();
+const mockSubmitOrder = vi.fn();
+const mockResetAccount = vi.fn();
+const mockGetMultipleQuotes = vi.fn();
+const mockCreateJournalEntry = vi.fn();
+const mockCancelPaperOrder = vi.fn();
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
     getPaperAccount: (...args) => mockGetAccount(...args),
     listPaperOrders: (...args) => mockListOrders(...args),
     submitPaperOrder: (...args) => mockSubmitOrder(...args),
@@ -39,8 +39,8 @@ jest.mock('../services/api', () => ({
     cancelPaperOrder: (...args) => mockCancelPaperOrder(...args),
 }));
 
-const mockExportToCSV = jest.fn();
-jest.mock('../utils/export', () => ({
+const mockExportToCSV = vi.fn();
+vi.mock('../utils/export', () => ({
     exportToCSV: (...args) => mockExportToCSV(...args),
 }));
 

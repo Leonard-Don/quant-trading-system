@@ -1,7 +1,7 @@
-jest.mock('../services/api', () => ({
-  getIndustryStockBuildStatus: jest.fn(),
-  getIndustryStocks: jest.fn(),
-  getLeaderDetail: jest.fn(),
+vi.mock('../services/api', () => ({
+  getIndustryStockBuildStatus: vi.fn(),
+  getIndustryStocks: vi.fn(),
+  getLeaderDetail: vi.fn(),
 }));
 
 import { hasDisplayReadyIndustryStockDetails } from '../components/industry/useIndustryStocks';

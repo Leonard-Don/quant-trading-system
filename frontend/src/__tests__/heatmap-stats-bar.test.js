@@ -95,7 +95,7 @@ describe('HeatmapStatsBar', () => {
     });
 
     it('clicking an inflow tag forwards the symbol via onIndustryClick', () => {
-        const onIndustryClick = jest.fn();
+        const onIndustryClick = vi.fn();
         render(<HeatmapStatsBar data={buildData()} onIndustryClick={onIndustryClick} />);
         fireEvent.click(screen.getByText(/新能源/));
         expect(onIndustryClick).toHaveBeenCalledWith('新能源');

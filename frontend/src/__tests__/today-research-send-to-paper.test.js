@@ -24,30 +24,30 @@ import { App as AntdApp } from 'antd';
 
 import TodayResearchDashboard from '../components/TodayResearchDashboard';
 
-const mockGetSnapshot = jest.fn();
-const mockUpdateSnapshot = jest.fn();
-const mockUpdateStatus = jest.fn();
-const mockCreateEntry = jest.fn();
-const mockNavigate = jest.fn();
-const mockSetPaperPrefill = jest.fn();
+const mockGetSnapshot = vi.fn();
+const mockUpdateSnapshot = vi.fn();
+const mockUpdateStatus = vi.fn();
+const mockCreateEntry = vi.fn();
+const mockNavigate = vi.fn();
+const mockSetPaperPrefill = vi.fn();
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
     getResearchJournalSnapshot: (...args) => mockGetSnapshot(...args),
     updateResearchJournalSnapshot: (...args) => mockUpdateSnapshot(...args),
     updateResearchJournalEntryStatus: (...args) => mockUpdateStatus(...args),
     createResearchJournalEntry: (...args) => mockCreateEntry(...args),
 }));
 
-jest.mock('../utils/researchContext', () => {
-    const actual = jest.requireActual('../utils/researchContext');
+vi.mock('../utils/researchContext', async () => {
+    const actual = await vi.importActual('../utils/researchContext');
     return {
         ...actual,
         navigateToAppUrl: (...args) => mockNavigate(...args),
     };
 });
 
-jest.mock('../utils/paperTradingPrefill', () => {
-    const actual = jest.requireActual('../utils/paperTradingPrefill');
+vi.mock('../utils/paperTradingPrefill', async () => {
+    const actual = await vi.importActual('../utils/paperTradingPrefill');
     return {
         ...actual,
         setPaperPrefill: (...args) => mockSetPaperPrefill(...args),

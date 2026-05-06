@@ -131,11 +131,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
       - name: Run frontend regression suite
         run: |
-          CI=1 npm test -- --runInBand --watch=false src/__tests__
+          CI=1 npm test
 
       - name: Build frontend
         run: npm run build
@@ -173,7 +173,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
       - name: Install research E2E dependencies
         working-directory: tests/e2e

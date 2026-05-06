@@ -1,14 +1,14 @@
 describe('api auth storage', () => {
   beforeEach(() => {
-    jest.resetModules();
+    vi.resetModules();
     window.localStorage.clear();
   });
 
-  it('migrates legacy Quant Lab token keys to public research keys on load', () => {
+  it('migrates legacy Quant Lab token keys to public research keys on load', async () => {
     window.localStorage.setItem('quant_lab_auth_token', 'legacy-access');
     window.localStorage.setItem('quant_lab_refresh_token', 'legacy-refresh');
 
-    const { getApiAuthToken, getApiRefreshToken } = require('../services/api');
+    const { getApiAuthToken, getApiRefreshToken } = await import('../services/api');
 
     expect(getApiAuthToken()).toBe('legacy-access');
     expect(getApiRefreshToken()).toBe('legacy-refresh');
@@ -18,8 +18,8 @@ describe('api auth storage', () => {
     expect(window.localStorage.getItem('quant_lab_refresh_token')).toBeNull();
   });
 
-  it('writes only current public research token keys', () => {
-    const { setApiAuthToken, setApiRefreshToken } = require('../services/api');
+  it('writes only current public research token keys', async () => {
+    const { setApiAuthToken, setApiRefreshToken } = await import('../services/api');
 
     setApiAuthToken('access-token');
     setApiRefreshToken('refresh-token');

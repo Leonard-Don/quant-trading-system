@@ -28,9 +28,9 @@ describe('CrossMarketAssetSection', () => {
             title="多头篮子"
             side="long"
             sideAssets={baseAssets}
-            onAdd={jest.fn()}
-            onUpdate={jest.fn()}
-            onRemove={jest.fn()}
+            onAdd={vi.fn()}
+            onUpdate={vi.fn()}
+            onRemove={vi.fn()}
             {...props}
         />,
     );
@@ -45,7 +45,7 @@ describe('CrossMarketAssetSection', () => {
     });
 
     it('clicking 新增 forwards the side label to onAdd', () => {
-        const onAdd = jest.fn();
+        const onAdd = vi.fn();
         renderSection({ onAdd });
         // Antd composes the icon's a11y name + text → "plus 新增"
         fireEvent.click(screen.getByRole('button', { name: /新增/ }));
@@ -53,7 +53,7 @@ describe('CrossMarketAssetSection', () => {
     });
 
     it('symbol edits forward (key, "symbol", newValue) to onUpdate', () => {
-        const onUpdate = jest.fn();
+        const onUpdate = vi.fn();
         const { container } = renderSection({ onUpdate });
         const firstSymbol = container.querySelectorAll('input[placeholder="资产代码"]')[0];
         fireEvent.change(firstSymbol, { target: { value: 'TSLA' } });
@@ -61,7 +61,7 @@ describe('CrossMarketAssetSection', () => {
     });
 
     it('delete button forwards the asset key to onRemove', () => {
-        const onRemove = jest.fn();
+        const onRemove = vi.fn();
         renderSection({ onRemove });
         const deleteButtons = screen.getAllByRole('button', { name: /删除/ });
         fireEvent.click(deleteButtons[1]);

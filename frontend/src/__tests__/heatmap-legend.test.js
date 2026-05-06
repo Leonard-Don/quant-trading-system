@@ -33,9 +33,9 @@ describe('HeatmapLegend', () => {
             effectiveLegendRange={[-1.5, 2.5]}
             colorMetric="change_pct"
             sizeMetric="market_cap"
-            onLegendRangeChange={jest.fn()}
+            onLegendRangeChange={vi.fn()}
             top3InflowBanner={[]}
-            onIndustryClick={jest.fn()}
+            onIndustryClick={vi.fn()}
             {...overrides}
         />,
     );
@@ -64,7 +64,7 @@ describe('HeatmapLegend', () => {
     });
 
     it('renders the top3 inflow banner with clickable tags', () => {
-        const onIndustryClick = jest.fn();
+        const onIndustryClick = vi.fn();
         renderLegend({
             top3InflowBanner: [
                 { name: '新能源', moneyFlow: 1000 },
@@ -86,7 +86,7 @@ describe('HeatmapLegend', () => {
     });
 
     it('forwards range changes to onLegendRangeChange', () => {
-        const onLegendRangeChange = jest.fn();
+        const onLegendRangeChange = vi.fn();
         const { container } = renderLegend({ onLegendRangeChange });
         // The Slider component triggers onChange via its internal handles.
         // Easiest behavioral assertion: the slider node is rendered with

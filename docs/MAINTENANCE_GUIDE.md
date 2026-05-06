@@ -205,7 +205,7 @@ curl http://localhost:8000/api/v1/system/providers/status
 
 ### 7.4 前端找不到后端
 
-- `frontend/.env`(或构建参数)中的 `REACT_APP_API_URL` 是否指向了真实地址
+- `frontend/.env`(或构建参数)中的 `VITE_API_URL` 是否指向了真实地址
 - 同域反向代理部署时，确认 `/api` 和 WebSocket 路径都转发到后端
 
 ### 7.5 日志显示 "ImportError: cannot import name '...'(circular import)"
@@ -222,7 +222,7 @@ git fetch && git pull --rebase
 
 # 2. 同步依赖
 pip install -r requirements-dev.txt
-cd frontend && npm install --legacy-peer-deps && cd ..
+cd frontend && npm install && cd ..
 
 # 3. 运行迁移(若 alembic 有新 head)
 alembic upgrade head

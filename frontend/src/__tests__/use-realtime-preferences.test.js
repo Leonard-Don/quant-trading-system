@@ -3,11 +3,11 @@ import { act, renderHook } from '@testing-library/react';
 import api from '../services/api';
 import { useRealtimePreferences } from '../hooks/useRealtimePreferences';
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   __esModule: true,
   default: {
-    get: jest.fn(),
-    put: jest.fn(),
+    get: vi.fn(),
+    put: vi.fn(),
   },
 }));
 
@@ -22,8 +22,8 @@ describe('useRealtimePreferences', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    jest.useFakeTimers();
+    vi.clearAllMocks();
+    vi.useFakeTimers();
     window.localStorage.clear();
     window.history.replaceState(null, '', '/');
     api.get.mockResolvedValue({
@@ -40,8 +40,8 @@ describe('useRealtimePreferences', () => {
   });
 
   afterEach(() => {
-    jest.runOnlyPendingTimers();
-    jest.useRealTimers();
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
   });
 
   test('hydrates preferences from backend when local state is unchanged', async () => {
@@ -70,7 +70,7 @@ describe('useRealtimePreferences', () => {
     });
 
     await act(async () => {
-      jest.advanceTimersByTime(600);
+      vi.advanceTimersByTime(600);
       await Promise.resolve();
     });
 

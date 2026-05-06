@@ -4,9 +4,9 @@ import { render, screen, waitFor } from '@testing-library/react';
 import IndustryHeatmap, { buildFallbackHeatmapPayload } from '../components/IndustryHeatmap';
 import { getIndustryHeatmap, getIndustryHeatmapHistory } from '../services/api';
 
-jest.mock('../services/api', () => ({
-  getIndustryHeatmap: jest.fn(),
-  getIndustryHeatmapHistory: jest.fn(),
+vi.mock('../services/api', () => ({
+  getIndustryHeatmap: vi.fn(),
+  getIndustryHeatmapHistory: vi.fn(),
 }));
 
 describe('IndustryHeatmap history fallback', () => {
@@ -22,11 +22,11 @@ describe('IndustryHeatmap history fallback', () => {
         matches: false,
         media: query,
         onchange: null,
-        addListener: jest.fn((listener) => listener(mediaQueryList)),
-        removeListener: jest.fn(),
-        addEventListener: jest.fn((_, listener) => listener(mediaQueryList)),
-        removeEventListener: jest.fn(),
-        dispatchEvent: jest.fn(),
+        addListener: vi.fn((listener) => listener(mediaQueryList)),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn((_, listener) => listener(mediaQueryList)),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
       };
       return mediaQueryList;
     };
@@ -42,8 +42,8 @@ describe('IndustryHeatmap history fallback', () => {
   });
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    vi.clearAllMocks();
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -79,7 +79,7 @@ describe('IndustryHeatmap history fallback', () => {
   });
 
   it('falls back to the latest history snapshot when the live heatmap request fails', async () => {
-    const onDataLoad = jest.fn();
+    const onDataLoad = vi.fn();
     getIndustryHeatmap.mockRejectedValueOnce(new Error('live heatmap unavailable'));
     getIndustryHeatmapHistory.mockResolvedValueOnce({
       items: [
@@ -105,7 +105,7 @@ describe('IndustryHeatmap history fallback', () => {
 
     render(
       <IndustryHeatmap
-        onIndustryClick={jest.fn()}
+        onIndustryClick={vi.fn()}
         onDataLoad={onDataLoad}
         showStats={false}
       />
@@ -124,7 +124,7 @@ describe('IndustryHeatmap history fallback', () => {
   });
 
   it('uses bootstrapped heatmap data without issuing an extra live request', async () => {
-    const onDataLoad = jest.fn();
+    const onDataLoad = vi.fn();
     const payload = {
       industries: [
         {
@@ -144,7 +144,7 @@ describe('IndustryHeatmap history fallback', () => {
 
     render(
       <IndustryHeatmap
-        onIndustryClick={jest.fn()}
+        onIndustryClick={vi.fn()}
         onDataLoad={onDataLoad}
         initialData={payload}
         bootstrapLoading={false}

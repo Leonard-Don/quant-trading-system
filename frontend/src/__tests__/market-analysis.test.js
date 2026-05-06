@@ -8,30 +8,30 @@ import MarketAnalysis, {
 } from '../components/MarketAnalysis';
 import { getAnalysisOverview } from '../services/api';
 
-jest.mock('../services/api', () => ({
-  getAnalysisOverview: jest.fn(),
-  analyzeTrend: jest.fn(),
-  analyzeVolumePrice: jest.fn(),
-  analyzeSentiment: jest.fn(),
-  recognizePatterns: jest.fn(),
-  getFundamentalAnalysis: jest.fn(),
-  getKlines: jest.fn(),
-  getTechnicalIndicators: jest.fn(),
-  getSentimentHistory: jest.fn(),
-  getIndustryComparison: jest.fn(),
-  getRiskMetrics: jest.fn(),
-  getCorrelationAnalysis: jest.fn(),
-  getEventSummary: jest.fn(),
+vi.mock('../services/api', () => ({
+  getAnalysisOverview: vi.fn(),
+  analyzeTrend: vi.fn(),
+  analyzeVolumePrice: vi.fn(),
+  analyzeSentiment: vi.fn(),
+  recognizePatterns: vi.fn(),
+  getFundamentalAnalysis: vi.fn(),
+  getKlines: vi.fn(),
+  getTechnicalIndicators: vi.fn(),
+  getSentimentHistory: vi.fn(),
+  getIndustryComparison: vi.fn(),
+  getRiskMetrics: vi.fn(),
+  getCorrelationAnalysis: vi.fn(),
+  getEventSummary: vi.fn(),
 }));
 
-jest.mock('../components/SkeletonLoaders', () => ({
+vi.mock('../components/SkeletonLoaders', () => ({
   MarketAnalysisSkeleton: () => <div>loading</div>,
 }));
 
-jest.mock('../components/AIPredictionPanel', () => () => <div>AI</div>);
-jest.mock('../components/CandlestickChart', () => () => <div>Chart</div>);
+vi.mock('../components/AIPredictionPanel', () => ({ default: () => <div>AI</div> }));
+vi.mock('../components/CandlestickChart', () => ({ default: () => <div>Chart</div> }));
 
-jest.mock('recharts', () => {
+vi.mock('recharts', () => {
   const Mock = () => null;
 
   return {
@@ -57,33 +57,8 @@ jest.mock('recharts', () => {
   };
 });
 
-jest.mock('@ant-design/icons', () => {
-  const React = require('react');
-  const MockIcon = () => <span data-testid="icon" />;
 
-  return {
-    RiseOutlined: MockIcon,
-    FallOutlined: MockIcon,
-    WarningOutlined: MockIcon,
-    RadarChartOutlined: MockIcon,
-    BarChartOutlined: MockIcon,
-    ThunderboltOutlined: MockIcon,
-    RobotOutlined: MockIcon,
-    SolutionOutlined: MockIcon,
-    InfoCircleOutlined: MockIcon,
-    ExperimentOutlined: MockIcon,
-    FundOutlined: MockIcon,
-    LineChartOutlined: MockIcon,
-    BankOutlined: MockIcon,
-    CalendarOutlined: MockIcon,
-    DollarCircleOutlined: MockIcon,
-    NotificationOutlined: MockIcon,
-    DashboardOutlined: MockIcon,
-    ReloadOutlined: MockIcon,
-  };
-});
-
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const passthrough = ({ children }) => <div>{children}</div>;
@@ -168,14 +143,14 @@ const overviewPayload = {
 
 describe('MarketAnalysis cache behavior', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     __TEST_ONLY__.clearAnalysisResponseCache();
     getAnalysisOverview.mockResolvedValue(overviewPayload);
   });
 
   afterEach(() => {
     cleanup();
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   test('reuses cached overview data when reopening the same symbol and interval', async () => {
@@ -226,7 +201,7 @@ describe('MarketAnalysis cache behavior', () => {
   });
 
   test('expires cached entries once ttl has elapsed', async () => {
-    const nowSpy = jest.spyOn(Date, 'now');
+    const nowSpy = vi.spyOn(Date, 'now');
     nowSpy.mockReturnValue(1_000);
 
     const view = render(<MarketAnalysis symbol="NVDA" embedMode />);

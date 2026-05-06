@@ -90,22 +90,26 @@ cd backend && alembic upgrade head
 - `DATA_CACHE_SIZE`（默认 `100`）
 - `CACHE_TTL`（默认 `3600`）
 
-前端通过 `frontend/.env*` 或构建环境变量设置：
-- `REACT_APP_API_URL`（默认 `http://localhost:8000`）
-- `REACT_APP_API_TIMEOUT`
+前端通过 `frontend/.env*` 或构建环境变量设置（**v5.1 起改为 Vite 命名约定**，`REACT_APP_*` 旧名已废弃）：
+- `VITE_API_URL`（默认 `http://localhost:8000`）
+- `VITE_API_TIMEOUT`
+- `VITE_API_TIMEOUT_ANALYSIS` / `VITE_API_TIMEOUT_STANDARD` / `VITE_API_TIMEOUT_DASHBOARD`
+- `VITE_REALTIME_WS_TOKEN`（实时行情/交易 WS 鉴权 token，可选）
+
+> **BREAKING（CRA→Vite 迁移）**：从 v5.1 起前端构建工具由 `react-scripts` 切换为 Vite，所有 `REACT_APP_*` 环境变量需改名为 `VITE_*`（含 `.env*` 文件、CI/CD 配置、Docker 注入）。变量语义和默认值保持不变。
 
 ## 前后端通信方式
 
-- 开发环境：`frontend/package.json` 里保留了 `proxy=http://localhost:8000`
-- 前端请求默认读取 `REACT_APP_API_URL`，未设置时回退到 `http://localhost:8000`
-- WebSocket 会基于同一个 `REACT_APP_API_URL` 自动推导 `ws://` 或 `wss://`
+- 开发环境：`frontend/vite.config.js` 中 `server.proxy` 把 `/api`、`/ws`、`/health` 转发到 `http://127.0.0.1:8000`
+- 前端请求默认读取 `VITE_API_URL`，未设置时回退到 `http://localhost:8000`
+- WebSocket 会基于同一个 `VITE_API_URL` 自动推导 `ws://` 或 `wss://`
 - 生产环境推荐二选一：
   - 同域反向代理，前端静态资源和 API 由同一域名提供
-  - 显式设置 `REACT_APP_API_URL=https://your-domain.com/api`
+  - 显式设置 `VITE_API_URL=https://your-domain.com/api`
 
 ### 6. 反向代理示例
 
-如需同域代理，可将 API 绑定到 `/api`，并配置前端 `REACT_APP_API_URL` 为 `https://your-domain.com/api`。
+如需同域代理，可将 API 绑定到 `/api`，并配置前端 `VITE_API_URL` 为 `https://your-domain.com/api`。
 
 ```conf
 server {

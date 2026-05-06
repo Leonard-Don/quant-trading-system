@@ -1,5 +1,18 @@
 # 更新日志
 
+## v5.1.0 (Unreleased) — Vite 迁移
+- **BREAKING（前端）**：构建工具由 `react-scripts`（CRA，已 deprecated）切换为 **Vite 7**，测试运行器由 Jest 切换为 **Vitest 3.2**。
+- **BREAKING（前端环境变量）**：所有 `REACT_APP_*` 重命名为 `VITE_*`，对应 `.env*` 文件、CI/CD 配置和 Docker 注入需同步更新。语义和默认值保持不变。
+  - `REACT_APP_API_URL` → `VITE_API_URL`
+  - `REACT_APP_API_TIMEOUT` → `VITE_API_TIMEOUT`
+  - `REACT_APP_API_TIMEOUT_ANALYSIS|STANDARD|DASHBOARD` → `VITE_API_TIMEOUT_ANALYSIS|STANDARD|DASHBOARD`
+  - `REACT_APP_REALTIME_WS_TOKEN` → `VITE_REALTIME_WS_TOKEN`
+- 开发代理由 `package.json` 顶层 `proxy` 字段迁移到 `vite.config.js` 的 `server.proxy`，新增 `/api`、`/ws`（含 `ws: true` 升级）、`/health` 三条规则。
+- HTML 入口从 `frontend/public/index.html` 迁移到 `frontend/index.html` 并显式 `<script type="module" src="/src/index.js">`。
+- 测试 API 全面迁移：`jest.mock` → `vi.mock`、`jest.requireActual` → `await vi.importActual`、env 写入 `process.env.REACT_APP_*` → `vi.stubEnv('VITE_*')`，并在 `vitest.setup.js` 中保留 `globalThis.jest = vi` 兼容垫片。
+- 构建产物路径保持 `frontend/build/`（通过 `vite.config.js` 中 `build.outDir = 'build'` 显式覆盖 Vite 默认 `dist/`）。
+- 收益：dev server 冷启动 / HMR 显著加速；依赖图收敛，去除 `--legacy-peer-deps` 依赖（`react-scripts` 5.0.1 stuck on 旧 peer 范围）；构建产物体积下降。
+
 ## v5.0.0 (2026-04-18)
 - 公开仓正式收敛为 `策略回测 / 实时行情 / 行业热度` 三块能力，`定价研究`、`上帝视角`、`研究工作台` 与 `Quant Lab` 已迁移到私有 companion repo `super-pricing-system`
 - 前端公开入口只保留 `backtest / realtime / industry`，历史系统页旧链接会自动回落到 `backtest`

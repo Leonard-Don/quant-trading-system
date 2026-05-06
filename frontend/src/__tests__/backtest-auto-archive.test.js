@@ -15,28 +15,28 @@ import App from '../App';
 
 let onSubmitFromBacktestDashboard = null;
 
-jest.mock('../components/ErrorBoundary', () => ({
+vi.mock('../components/ErrorBoundary', () => ({
   __esModule: true,
   default: ({ children }) => <>{children}</>,
 }));
 
-jest.mock('../components/RealTimePanel', () => ({
+vi.mock('../components/RealTimePanel', () => ({
   __esModule: true,
   default: () => <div>RealTimePanel</div>,
 }));
 
-jest.mock('../components/IndustryDashboard', () => ({
+vi.mock('../components/IndustryDashboard', () => ({
   __esModule: true,
   default: () => <div>IndustryDashboard</div>,
 }));
 
-jest.mock('../components/TodayResearchDashboard', () => ({
+vi.mock('../components/TodayResearchDashboard', () => ({
   __esModule: true,
   default: () => <div>TodayResearchDashboard</div>,
 }));
 
 // Capture the onSubmit callback so the test can fire a synthetic backtest run.
-jest.mock('../components/BacktestDashboard', () => ({
+vi.mock('../components/BacktestDashboard', () => ({
   __esModule: true,
   default: ({ onSubmit }) => {
     onSubmitFromBacktestDashboard = onSubmit;
@@ -44,39 +44,34 @@ jest.mock('../components/BacktestDashboard', () => ({
   },
 }));
 
-const mockRunBacktest = jest.fn();
-const mockCreateResearchJournalEntry = jest.fn();
+const mockRunBacktest = vi.fn();
+const mockCreateResearchJournalEntry = vi.fn();
 
-jest.mock('../services/api', () => ({
-  getStrategies: jest.fn(() => Promise.resolve([])),
+vi.mock('../services/api', () => ({
+  getStrategies: vi.fn(() => Promise.resolve([])),
   runBacktest: (...args) => mockRunBacktest(...args),
   createResearchJournalEntry: (...args) => mockCreateResearchJournalEntry(...args),
 }));
 
-jest.mock('../contexts/ThemeContext', () => ({
+vi.mock('../contexts/ThemeContext', () => ({
   useTheme: () => ({
     isDarkMode: false,
-    toggleTheme: jest.fn(),
+    toggleTheme: vi.fn(),
   }),
 }));
 
-jest.mock('../generated/version', () => ({ APP_VERSION: 'test' }));
+vi.mock('../generated/version', () => ({ APP_VERSION: 'test' }));
 
-jest.mock('@ant-design/icons', () => {
-  const React = require('react');
-  const MockIcon = () => <span data-testid="icon" />;
-  return new Proxy({}, { get: () => MockIcon });
-});
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
   const AntdApp = ({ children }) => <div>{children}</div>;
   AntdApp.useApp = () => ({
     message: {
-      error: jest.fn(),
-      loading: jest.fn(),
-      destroy: jest.fn(),
-      success: jest.fn(),
+      error: vi.fn(),
+      loading: vi.fn(),
+      destroy: vi.fn(),
+      success: vi.fn(),
     },
   });
 
@@ -133,11 +128,11 @@ describe('App backtest auto-archive', () => {
     mockCreateResearchJournalEntry.mockReset();
     window.history.replaceState(null, '', '/?view=backtest');
     // Suppress the warn we deliberately log in the failure-path test
-    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   test('archives a successful backtest run as a journal entry', async () => {

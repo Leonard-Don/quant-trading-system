@@ -16,17 +16,17 @@ import App from '../App';
 let onSubmitFromBacktestDashboard = null;
 let onAutoExecuteFromBacktestDashboard = null;
 
-jest.mock('../components/ErrorBoundary', () => ({
+vi.mock('../components/ErrorBoundary', () => ({
   __esModule: true,
   default: ({ children }) => <>{children}</>,
 }));
 
-jest.mock('../components/RealTimePanel', () => ({ __esModule: true, default: () => <div>RealTimePanel</div> }));
-jest.mock('../components/IndustryDashboard', () => ({ __esModule: true, default: () => <div>IndustryDashboard</div> }));
-jest.mock('../components/TodayResearchDashboard', () => ({ __esModule: true, default: () => <div>TodayResearchDashboard</div> }));
-jest.mock('../components/PaperTradingPanel', () => ({ __esModule: true, default: () => <div>PaperTradingPanel</div> }));
+vi.mock('../components/RealTimePanel', () => ({ __esModule: true, default: () => <div>RealTimePanel</div> }));
+vi.mock('../components/IndustryDashboard', () => ({ __esModule: true, default: () => <div>IndustryDashboard</div> }));
+vi.mock('../components/TodayResearchDashboard', () => ({ __esModule: true, default: () => <div>TodayResearchDashboard</div> }));
+vi.mock('../components/PaperTradingPanel', () => ({ __esModule: true, default: () => <div>PaperTradingPanel</div> }));
 
-jest.mock('../components/BacktestDashboard', () => ({
+vi.mock('../components/BacktestDashboard', () => ({
   __esModule: true,
   default: ({ onSubmit, onAutoExecuteToPaperTrading }) => {
     onSubmitFromBacktestDashboard = onSubmit;
@@ -35,41 +35,36 @@ jest.mock('../components/BacktestDashboard', () => ({
   },
 }));
 
-const mockRunBacktest = jest.fn();
-const mockGetRealtimeQuote = jest.fn();
-const mockSubmitPaperOrder = jest.fn();
-const mockCreateResearchJournalEntry = jest.fn();
+const mockRunBacktest = vi.fn();
+const mockGetRealtimeQuote = vi.fn();
+const mockSubmitPaperOrder = vi.fn();
+const mockCreateResearchJournalEntry = vi.fn();
 
-jest.mock('../services/api', () => ({
-  getStrategies: jest.fn(() => Promise.resolve([])),
+vi.mock('../services/api', () => ({
+  getStrategies: vi.fn(() => Promise.resolve([])),
   runBacktest: (...args) => mockRunBacktest(...args),
   createResearchJournalEntry: (...args) => mockCreateResearchJournalEntry(...args),
   getRealtimeQuote: (...args) => mockGetRealtimeQuote(...args),
   submitPaperOrder: (...args) => mockSubmitPaperOrder(...args),
 }));
 
-jest.mock('../contexts/ThemeContext', () => ({
-  useTheme: () => ({ isDarkMode: false, toggleTheme: jest.fn() }),
+vi.mock('../contexts/ThemeContext', () => ({
+  useTheme: () => ({ isDarkMode: false, toggleTheme: vi.fn() }),
 }));
 
-jest.mock('../generated/version', () => ({ APP_VERSION: 'test' }));
+vi.mock('../generated/version', () => ({ APP_VERSION: 'test' }));
 
-jest.mock('@ant-design/icons', () => {
-  const React = require('react');
-  const MockIcon = () => <span data-testid="icon" />;
-  return new Proxy({}, { get: () => MockIcon });
-});
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
   const AntdApp = ({ children }) => <div>{children}</div>;
   AntdApp.useApp = () => ({
     message: {
-      error: jest.fn(),
-      loading: jest.fn(),
-      destroy: jest.fn(),
-      success: jest.fn(),
-      warning: jest.fn(),
+      error: vi.fn(),
+      loading: vi.fn(),
+      destroy: vi.fn(),
+      success: vi.fn(),
+      warning: vi.fn(),
     },
   });
 
@@ -119,11 +114,11 @@ describe('App auto-execute backtest to paper', () => {
     mockCreateResearchJournalEntry.mockReset();
     window.history.replaceState(null, '', '/?view=backtest');
     window.sessionStorage.clear();
-    jest.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {
-    jest.restoreAllMocks();
+    vi.restoreAllMocks();
   });
 
   test('happy path: fetches quote, submits order, navigates to paper', async () => {

@@ -45,16 +45,16 @@ describe('strategyComparisonReport', () => {
 
   test('opens printable report window and writes HTML into it', () => {
     const documentApi = {
-      open: jest.fn(),
-      write: jest.fn(),
-      close: jest.fn(),
+      open: vi.fn(),
+      write: vi.fn(),
+      close: vi.fn(),
     };
     const popupWindow = {
       document: documentApi,
-      focus: jest.fn(),
+      focus: vi.fn(),
       opener: {},
     };
-    const openSpy = jest.spyOn(window, 'open').mockReturnValue(popupWindow);
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(popupWindow);
 
     const opened = openStrategyComparisonPrintWindow('<html><body>策略对比报告</body></html>');
 

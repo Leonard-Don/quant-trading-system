@@ -18,7 +18,7 @@ if (typeof window.matchMedia !== 'function') {
 // Recharts' ResponsiveContainer requires a real layout size, which JSDOM
 // doesn't provide. Mock it (and the radar primitives we render) like
 // market-analysis.test.js does.
-jest.mock('recharts', () => {
+vi.mock('recharts', () => {
     const Mock = () => null;
     return {
         Radar: Mock,

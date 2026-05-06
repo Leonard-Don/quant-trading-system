@@ -10,7 +10,7 @@ describe('lazyWithRetry', () => {
 
   test('retries recoverable lazy import failures before resolving', async () => {
     const module = { default: () => null };
-    const importer = jest.fn()
+    const importer = vi.fn()
       .mockRejectedValueOnce(new TypeError('Load failed'))
       .mockResolvedValueOnce(module);
 
@@ -19,7 +19,7 @@ describe('lazyWithRetry', () => {
   });
 
   test('does not retry non-recoverable lazy import failures', async () => {
-    const importer = jest.fn()
+    const importer = vi.fn()
       .mockRejectedValueOnce(new Error('business logic failed'));
 
     await expect(importWithRetry(importer, { retries: 2, retryDelayMs: 0 })).rejects.toThrow('business logic failed');

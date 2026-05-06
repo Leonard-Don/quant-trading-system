@@ -5,18 +5,18 @@ import '@testing-library/jest-dom';
 import StrategyComparison from '../components/StrategyComparison';
 import { compareStrategies } from '../services/api';
 
-jest.mock('../services/api', () => ({
-  compareStrategies: jest.fn(),
+vi.mock('../services/api', () => ({
+  compareStrategies: vi.fn(),
 }));
 
-const mockOpenStrategyComparisonPrintWindow = jest.fn(() => true);
+const mockOpenStrategyComparisonPrintWindow = vi.fn(() => true);
 
-jest.mock('../utils/strategyComparisonReport', () => ({
-  buildStrategyComparisonReportHtml: jest.fn(() => '<html><body>report</body></html>'),
+vi.mock('../utils/strategyComparisonReport', () => ({
+  buildStrategyComparisonReportHtml: vi.fn(() => '<html><body>report</body></html>'),
   openStrategyComparisonPrintWindow: (...args) => mockOpenStrategyComparisonPrintWindow(...args),
 }));
 
-jest.mock('recharts', () => {
+vi.mock('recharts', () => {
   const React = require('react');
   const MockChart = ({ children }) => <div>{children}</div>;
   return {
@@ -37,12 +37,12 @@ jest.mock('recharts', () => {
   };
 });
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
   const mockMessage = {
-    warning: jest.fn(),
-    success: jest.fn(),
-    error: jest.fn(),
+    warning: vi.fn(),
+    success: vi.fn(),
+    error: vi.fn(),
   };
 
   const Select = ({ mode, value = [], onChange, children }) => (

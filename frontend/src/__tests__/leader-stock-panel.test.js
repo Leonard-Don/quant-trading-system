@@ -11,9 +11,9 @@ import {
 } from '../services/api';
 
 const mockMessageApi = {
-  success: jest.fn(),
-  error: jest.fn(),
-  warning: jest.fn(),
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
 };
 
 const buildLeaderBoardCacheKey = (topN, topIndustries, perIndustry) => (
@@ -36,31 +36,22 @@ const buildLeaderRecord = (overrides = {}) => ({
   ...overrides,
 });
 
-jest.mock('../services/api', () => ({
-  getLeaderBoards: jest.fn(),
-  getLeaderStocks: jest.fn(),
-  getLeaderDetail: jest.fn(),
-  getIndustryTrend: jest.fn(),
+vi.mock('../services/api', () => ({
+  getLeaderBoards: vi.fn(),
+  getLeaderStocks: vi.fn(),
+  getLeaderDetail: vi.fn(),
+  getIndustryTrend: vi.fn(),
 }));
 
-jest.mock('../utils/messageApi', () => ({
+vi.mock('../utils/messageApi', () => ({
   useSafeMessageApi: () => mockMessageApi,
 }));
 
-jest.mock('../components/StockDetailModal', () => () => null);
-jest.mock('../components/common/MiniSparkline', () => () => <div data-testid="mini-sparkline" />);
+vi.mock('../components/StockDetailModal', () => ({ default: () => null }));
+vi.mock('../components/common/MiniSparkline', () => ({ default: () => <div data-testid="mini-sparkline" /> }));
 
-jest.mock('@ant-design/icons', () => {
-  const React = require('react');
-  const MockIcon = () => <span data-testid="icon" />;
-  return {
-    CrownOutlined: MockIcon,
-    ReloadOutlined: MockIcon,
-    BarChartOutlined: MockIcon,
-  };
-});
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const Card = ({ title, extra, children }) => (
@@ -91,7 +82,7 @@ jest.mock('antd', () => {
 
 describe('LeaderStockPanel', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     __resetLeaderBoardClientCacheForTests();
     window.sessionStorage.clear();
     getLeaderBoards.mockResolvedValue({ core: [], hot: [], errors: {} });
@@ -140,8 +131,8 @@ describe('LeaderStockPanel', () => {
   });
 
   test('keeps cached overview visible when refresh fails', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const cacheKey = buildLeaderBoardCacheKey(5, 5, 3);
     try {
       window.sessionStorage.setItem(cacheKey, JSON.stringify({
@@ -254,7 +245,7 @@ describe('LeaderStockPanel', () => {
   });
 
   test('exposes a backtest handoff action for leader rows', async () => {
-    const handleBacktestStock = jest.fn();
+    const handleBacktestStock = vi.fn();
 
     render(
       <LeaderStockPanel

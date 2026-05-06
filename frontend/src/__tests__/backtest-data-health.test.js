@@ -11,9 +11,9 @@ import BacktestDataHealthPanel, {
 } from '../components/BacktestDataHealthPanel';
 import { checkIndustryHealth, getProviderRuntimeStatus } from '../services/api';
 
-jest.mock('../services/api', () => ({
-  checkIndustryHealth: jest.fn(),
-  getProviderRuntimeStatus: jest.fn(),
+vi.mock('../services/api', () => ({
+  checkIndustryHealth: vi.fn(),
+  getProviderRuntimeStatus: vi.fn(),
 }));
 
 beforeAll(() => {
@@ -27,18 +27,26 @@ beforeAll(() => {
       dispatchEvent: () => false,
     });
   }
-  Object.defineProperty(navigator, 'clipboard', {
+});
+
+let writeTextMock;
+
+beforeEach(() => {
+  writeTextMock = vi.fn().mockResolvedValue(undefined);
+  if (!navigator.clipboard) {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {},
+    });
+  }
+  Object.defineProperty(navigator.clipboard, 'writeText', {
     configurable: true,
-    value: {
-      writeText: jest.fn(),
-    },
+    value: writeTextMock,
   });
 });
 
 afterEach(() => {
-  jest.clearAllMocks();
-  navigator.clipboard.writeText.mockReset();
-  navigator.clipboard.writeText.mockResolvedValue(undefined);
+  vi.clearAllMocks();
 });
 
 describe('BacktestDataHealthPanel', () => {
@@ -219,6 +227,7 @@ describe('BacktestDataHealthPanel', () => {
       },
     });
 
+    const user = userEvent.setup();
     render(<BacktestDataHealthPanel />);
 
     await waitFor(() => {
@@ -227,9 +236,7 @@ describe('BacktestDataHealthPanel', () => {
       expect(screen.queryByText('US market fallback')).not.toBeInTheDocument();
     });
 
-    await act(async () => {
-      userEvent.click(screen.getByRole('button', { name: /查看明细/ }));
-    });
+    await user.click(screen.getByText('查看明细', { selector: 'button, button *' }).closest('button'));
 
     expect(screen.getByText('US market fallback')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /收起明细/ })).toBeInTheDocument();
@@ -256,20 +263,19 @@ describe('BacktestDataHealthPanel', () => {
       },
     });
 
+    const user = userEvent.setup();
     render(<BacktestDataHealthPanel />);
 
     await waitFor(() => {
       expect(screen.getByText('可以回测')).toBeInTheDocument();
     });
 
-    await act(async () => {
-      userEvent.click(screen.getByRole('button', { name: /复制诊断/ }));
-    });
+    await user.click(screen.getByText('复制诊断', { selector: 'button, button *' }).closest('button'));
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+    expect(writeTextMock).toHaveBeenCalledWith(
       expect.stringContaining('"readiness"')
     );
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+    expect(writeTextMock).toHaveBeenCalledWith(
       expect.stringContaining('"provider_runtime"')
     );
     await waitFor(() => {

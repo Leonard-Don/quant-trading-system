@@ -20,19 +20,8 @@ class MockResizeObserver {
 
 global.ResizeObserver = MockResizeObserver;
 
-jest.mock('@ant-design/icons', () => {
-  const React = require('react');
-  const MockIcon = () => <span data-testid="icon" />;
 
-  return {
-    ArrowUpOutlined: MockIcon,
-    ArrowDownOutlined: MockIcon,
-    BellOutlined: MockIcon,
-    DollarOutlined: MockIcon,
-  };
-});
-
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   return {
@@ -104,7 +93,7 @@ const createProps = (symbolCount = 60) => {
     EMPTY_NUMERIC_TEXT: '--',
     activeTab: 'us',
     categoryOptions: [{ key: 'us', label: '美股' }],
-    onActiveTabChange: jest.fn(),
+    onActiveTabChange: vi.fn(),
     buildMiniTrendSeries: () => [1, 2, 3, 4],
     buildSparklinePoints: () => '0,32 48,28 96,18 144,10',
     currentTabSymbols: symbols,
@@ -124,25 +113,25 @@ const createProps = (symbolCount = 60) => {
         background: 'rgba(34, 197, 94, 0.14)',
       },
     }),
-    handleOpenAlerts: jest.fn(),
-    handleOpenTrade: jest.fn(),
-    handleShowDetail: jest.fn(),
+    handleOpenAlerts: vi.fn(),
+    handleOpenTrade: vi.fn(),
+    handleShowDetail: vi.fn(),
     hasNumericValue: (value) => value !== null && value !== undefined && !Number.isNaN(Number(value)),
     inferSymbolCategory: () => 'us',
-    onClearSelectedQuotes: jest.fn(),
-    onMoveSelectedQuotesToCategory: jest.fn(),
-    onRemoveSelectedQuotes: jest.fn(),
-    onSelectAllCurrentTab: jest.fn(),
-    onSetDraggingSymbol: jest.fn(),
-    onToggleQuoteSelection: jest.fn(),
+    onClearSelectedQuotes: vi.fn(),
+    onMoveSelectedQuotesToCategory: vi.fn(),
+    onRemoveSelectedQuotes: vi.fn(),
+    onSelectAllCurrentTab: vi.fn(),
+    onSetDraggingSymbol: vi.fn(),
+    onToggleQuoteSelection: vi.fn(),
     quoteSortMode: 'default',
-    onQuoteSortModeChange: jest.fn(),
+    onQuoteSortModeChange: vi.fn(),
     quoteViewMode: 'grid',
-    onQuoteViewModeChange: jest.fn(),
+    onQuoteViewModeChange: vi.fn(),
     quotes,
-    removeSymbol: jest.fn(),
+    removeSymbol: vi.fn(),
     resolveSymbolCategory: () => 'us',
-    reorderWithinCategory: jest.fn(),
+    reorderWithinCategory: vi.fn(),
     selectedCurrentTabSymbols: [],
     selectedQuoteSymbols: [],
     sortSymbolsForDisplay: (items) => [...items],

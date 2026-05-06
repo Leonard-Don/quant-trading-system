@@ -8,12 +8,12 @@ import StrategyForm from '../components/StrategyForm';
 import dayjs from '../utils/dayjs';
 
 // 模拟 API 服务
-jest.mock('../services/api', () => ({
-    getStrategies: jest.fn(() => Promise.resolve([
+vi.mock('../services/api', () => ({
+    getStrategies: vi.fn(() => Promise.resolve([
         { id: 'sma_crossover', name: 'SMA Crossover', description: 'Moving average crossover strategy' },
         { id: 'rsi', name: 'RSI', description: 'Relative Strength Index strategy' }
     ])),
-    runBacktest: jest.fn(() => Promise.resolve({
+    runBacktest: vi.fn(() => Promise.resolve({
         success: true,
         metrics: {
             total_return: 0.15,
@@ -24,25 +24,25 @@ jest.mock('../services/api', () => ({
 }));
 
 // 模拟 antd 组件
-jest.mock('antd', () => {
-    const antd = jest.requireActual('antd');
+vi.mock('antd', async () => {
+    const antd = await vi.importActual('antd');
     return {
         ...antd,
         message: {
-            success: jest.fn(),
-            error: jest.fn(),
-            warning: jest.fn(),
-            loading: jest.fn()
+            success: vi.fn(),
+            error: vi.fn(),
+            warning: vi.fn(),
+            loading: vi.fn()
         }
     };
 });
 
-jest.mock('../utils/messageApi', () => ({
+vi.mock('../utils/messageApi', () => ({
     useSafeMessageApi: () => ({
-        success: jest.fn(),
-        error: jest.fn(),
-        warning: jest.fn(),
-        info: jest.fn(),
+        success: vi.fn(),
+        error: vi.fn(),
+        warning: vi.fn(),
+        info: vi.fn(),
     }),
 }));
 
@@ -112,7 +112,7 @@ describe('StrategyForm Component', () => {
 
     describe('Strategy Selection', () => {
         test('syncs strategy field from loaded strategies before submit', async () => {
-            const handleSubmit = jest.fn();
+            const handleSubmit = vi.fn();
             render(
                 <StrategyForm
                     strategies={[
@@ -190,7 +190,7 @@ describe('StrategyForm Component', () => {
                             },
                         },
                     ]}
-                    onSubmit={jest.fn()}
+                    onSubmit={vi.fn()}
                     loading={false}
                 />
             );
@@ -229,7 +229,7 @@ describe('StrategyForm Component', () => {
                             },
                         },
                     ]}
-                    onSubmit={jest.fn()}
+                    onSubmit={vi.fn()}
                     loading={false}
                 />
             );
@@ -251,7 +251,7 @@ describe('StrategyForm Component', () => {
                             parameters: {},
                         },
                     ]}
-                    onSubmit={jest.fn()}
+                    onSubmit={vi.fn()}
                     loading={false}
                 />
             );

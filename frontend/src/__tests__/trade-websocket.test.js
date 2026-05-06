@@ -9,8 +9,8 @@ describe('tradeWebSocketService', () => {
     tradeWebSocketService.disconnect();
     tradeWebSocketService.listeners = new Map();
     tradeWebSocketService.reconnectAttempts = 0;
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    mathRandomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.5);
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
   });
 
   afterEach(() => {
@@ -18,7 +18,7 @@ describe('tradeWebSocketService', () => {
       tradeWebSocketService.disconnect();
     }
     global.WebSocket = originalWebSocket;
-    jest.useRealTimers();
+    vi.useRealTimers();
     consoleErrorSpy.mockRestore();
     mathRandomSpy.mockRestore();
   });
@@ -26,11 +26,11 @@ describe('tradeWebSocketService', () => {
   test('rejects the connect promise when the initial trade websocket connection closes before opening', async () => {
     let socketInstance = null;
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = vi.fn().mockImplementation(() => {
       socketInstance = {
         readyState: 0,
-        close: jest.fn(),
-        send: jest.fn(),
+        close: vi.fn(),
+        send: vi.fn(),
       };
       return socketInstance;
     });
@@ -46,13 +46,13 @@ describe('tradeWebSocketService', () => {
 
   test('sends heartbeat ping frames while connected and stops after disconnect', async () => {
     let socketInstance = null;
-    jest.useFakeTimers();
+    vi.useFakeTimers();
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = vi.fn().mockImplementation(() => {
       socketInstance = {
         readyState: 0,
-        close: jest.fn(),
-        send: jest.fn(),
+        close: vi.fn(),
+        send: vi.fn(),
       };
       return socketInstance;
     });
@@ -63,12 +63,12 @@ describe('tradeWebSocketService', () => {
     socketInstance.onopen?.();
     await connectPromise;
 
-    jest.advanceTimersByTime(tradeWebSocketService.heartbeatIntervalMs);
+    vi.advanceTimersByTime(tradeWebSocketService.heartbeatIntervalMs);
     expect(socketInstance.send).toHaveBeenCalledWith(JSON.stringify({ action: 'ping' }));
 
     const sendCountAfterHeartbeat = socketInstance.send.mock.calls.length;
     tradeWebSocketService.disconnect();
-    jest.advanceTimersByTime(tradeWebSocketService.heartbeatIntervalMs * 2);
+    vi.advanceTimersByTime(tradeWebSocketService.heartbeatIntervalMs * 2);
 
     expect(socketInstance.send).toHaveBeenCalledTimes(sendCountAfterHeartbeat);
   });
@@ -76,13 +76,13 @@ describe('tradeWebSocketService', () => {
   test('emits reconnect metadata with exponential backoff after disconnect', async () => {
     let socketInstance = null;
     const connectionEvents = [];
-    jest.useFakeTimers();
+    vi.useFakeTimers();
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = vi.fn().mockImplementation(() => {
       socketInstance = {
         readyState: 0,
-        close: jest.fn(),
-        send: jest.fn(),
+        close: vi.fn(),
+        send: vi.fn(),
       };
       return socketInstance;
     });
@@ -124,10 +124,10 @@ describe('tradeWebSocketService', () => {
   });
 
   test('appends the realtime websocket token for trade streams when configured', () => {
-    process.env.REACT_APP_REALTIME_WS_TOKEN = 'secret-token';
+    vi.stubEnv('VITE_REALTIME_WS_TOKEN', 'secret-token');
 
     expect(tradeWebSocketService.getWebSocketUrl()).toContain('token=secret-token');
 
-    delete process.env.REACT_APP_REALTIME_WS_TOKEN;
+    vi.unstubAllEnvs();
   });
 });
