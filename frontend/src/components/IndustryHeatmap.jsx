@@ -324,11 +324,11 @@ const IndustryHeatmap = ({
                 return;
             }
             if (loadDataAbortRef.current !== currentAbort) return;
-            console.error('Failed to load industry heatmap:', err);
             const usedFallback = await loadHistoryFallback(currentAbort, 'error');
             if (usedFallback) {
                 return;
             }
+            console.error('Failed to load industry heatmap:', err);
             setError(err.userMessage || '加载行业数据失败');
             setLoadSource('');
             message.error('加载行业数据失败');
