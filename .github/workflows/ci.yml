@@ -68,14 +68,38 @@ jobs:
         run: |
           mypy --explicit-package-bases --namespace-packages --follow-imports=silent \
             src/analytics/technical_indicators.py \
-            src/analytics/industry/
+            src/analytics/industry/ \
+            src/backtest/__init__.py \
+            src/backtest/base_backtester.py \
+            src/backtest/batch_backtester.py \
+            src/backtest/execution_engine.py \
+            src/backtest/impact_model.py \
+            src/backtest/metrics.py \
+            src/backtest/portfolio_backtester.py \
+            src/backtest/position_sizer.py \
+            src/backtest/risk_manager.py \
+            src/backtest/signal_adapter.py \
+            src/trading/__init__.py \
+            src/trading/trade_manager.py \
+            src/trading/cross_market/__init__.py \
+            src/trading/cross_market/cross_market_strategy.py \
+            src/trading/cross_market/execution_router.py \
+            src/trading/cross_market/hedge_portfolio.py \
+            backend/app/services/industry_preferences.py \
+            backend/app/services/paper_trading.py \
+            backend/app/services/realtime_alerts.py \
+            backend/app/services/realtime_journal.py \
+            backend/app/services/runtime_state.py \
+            backend/app/services/trade_stream.py \
+            backend/app/services/backtest/__init__.py \
+            backend/app/services/industry/__init__.py
 
       - name: Mypy broad probe (non-blocking)
         continue-on-error: true
         run: |
           mypy --explicit-package-bases --namespace-packages \
             backend/app/services src/analytics/technical_indicators.py \
-            src/analytics/industry/ || true
+            src/analytics/industry/ src/backtest/ src/trading/ || true
 
   perf:
     runs-on: ubuntu-latest
