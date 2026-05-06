@@ -39,7 +39,7 @@ import CrossMarketBasketSummaryCard from './cross-market/CrossMarketBasketSummar
 import CrossMarketAssetSection from './cross-market/CrossMarketAssetSection';
 import {
   buildCrossMarketPlaybook,
-} from './research-playbook/playbookViewModels';
+} from './research-playbook/playbookViewModels.js';
 import { buildSnapshotComparison } from '../utils/snapshotCompare';
 import {
   getCrossMarketTemplates,
@@ -81,7 +81,7 @@ import {
   CROSS_MARKET_FACTOR_LABELS,
 } from '../utils/crossMarketRecommendations';
 import { useAppUrlState } from '../hooks/useAppUrlState';
-import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext';
+import { formatResearchSource, navigateByResearchAction, readResearchContext } from '../utils/researchContext.js';
 
 const { Paragraph, Text } = Typography;
 

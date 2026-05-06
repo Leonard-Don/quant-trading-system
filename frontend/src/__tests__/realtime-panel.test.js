@@ -42,36 +42,40 @@ vi.mock('../utils/messageApi', () => ({
   useSafeMessageApi: () => mockMessageApi,
 }));
 
-vi.mock('../components/TradePanel', () => (props) => {
-  mockTradePanelSpy(props);
-  return props.visible ? <div data-testid="trade-panel">{props.defaultSymbol}</div> : null;
-});
+vi.mock('../components/TradePanel', () => ({
+  default: (props) => {
+    mockTradePanelSpy(props);
+    return props.visible ? <div data-testid="trade-panel">{props.defaultSymbol}</div> : null;
+  },
+}));
 
-vi.mock('../components/RealtimeStockDetailModal', () => (props) => {
-  mockRealtimeStockDetailModalSpy(props);
-  if (!props.open) {
-    return null;
-  }
+vi.mock('../components/RealtimeStockDetailModal', () => ({
+  default: (props) => {
+    mockRealtimeStockDetailModalSpy(props);
+    if (!props.open) {
+      return null;
+    }
 
-  return (
-    <div data-testid="realtime-stock-detail-modal">
-      {props.symbol}
-      {(props.compareCandidates || [])
-        .filter((item) => item?.symbol && item.symbol !== props.symbol)
-        .slice(0, 3)
-        .map((item) => (
-          <button
-            key={`detail-switch-${item.symbol}`}
-            type="button"
-            aria-label={`切换到 ${item.symbol}`}
-            onClick={() => props.onNavigateSymbol?.(item.symbol)}
-          >
-            {`切换到 ${item.symbol}`}
-          </button>
-        ))}
-    </div>
-  );
-});
+    return (
+      <div data-testid="realtime-stock-detail-modal">
+        {props.symbol}
+        {(props.compareCandidates || [])
+          .filter((item) => item?.symbol && item.symbol !== props.symbol)
+          .slice(0, 3)
+          .map((item) => (
+            <button
+              key={`detail-switch-${item.symbol}`}
+              type="button"
+              aria-label={`切换到 ${item.symbol}`}
+              onClick={() => props.onNavigateSymbol?.(item.symbol)}
+            >
+              {`切换到 ${item.symbol}`}
+            </button>
+          ))}
+      </div>
+    );
+  },
+}));
 
 vi.mock('@ant-design/icons', () => {
   const React = require('react');

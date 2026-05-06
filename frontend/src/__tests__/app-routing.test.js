@@ -64,6 +64,7 @@ vi.mock('@ant-design/icons', () => {
     FundOutlined: MockIcon,
     RadarChartOutlined: MockIcon,
     FolderOutlined: MockIcon,
+    ThunderboltOutlined: MockIcon,
   };
 });
 

@@ -1,8 +1,8 @@
-import { formatResearchSource } from '../../utils/researchContext';
+import { formatResearchSource } from '../../utils/researchContext.js';
 import {
   buildCrossMarketRefreshPriorityEvent,
   buildTradeThesisRefreshPriorityEvent,
-} from '../../utils/workbenchPriorityEvents';
+} from '../../utils/workbenchPriorityEvents.js';
 
 const STATUS_LABELS = {
   ready: '待执行',

@@ -1,27 +1,31 @@
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import CrossMarketBacktestPanel from '../components/CrossMarketBacktestPanel';
 
-vi.mock('antd/lib/grid/hooks/useBreakpoint', () => jest.fn(() => ({})));
-vi.mock('antd/es/grid/hooks/useBreakpoint', () => jest.fn(() => ({})));
-vi.mock('antd/lib/_util/responsiveObserver', () => () => ({
-  matchHandlers: {},
-  dispatch: jest.fn(),
-  subscribe: jest.fn(() => Symbol('token')),
-  unsubscribe: jest.fn(),
-  register: jest.fn(),
-  unregister: jest.fn(),
-  responsiveMap: {},
+vi.mock('antd/lib/grid/hooks/useBreakpoint', () => ({ default: jest.fn(() => ({})) }));
+vi.mock('antd/es/grid/hooks/useBreakpoint', () => ({ default: jest.fn(() => ({})) }));
+vi.mock('antd/lib/_util/responsiveObserver', () => ({
+  default: () => ({
+    matchHandlers: {},
+    dispatch: jest.fn(),
+    subscribe: jest.fn(() => Symbol('token')),
+    unsubscribe: jest.fn(),
+    register: jest.fn(),
+    unregister: jest.fn(),
+    responsiveMap: {},
+  }),
 }));
-vi.mock('antd/es/_util/responsiveObserver', () => () => ({
-  matchHandlers: {},
-  dispatch: jest.fn(),
-  subscribe: jest.fn(() => Symbol('token')),
-  unsubscribe: jest.fn(),
-  register: jest.fn(),
-  unregister: jest.fn(),
-  responsiveMap: {},
+vi.mock('antd/es/_util/responsiveObserver', () => ({
+  default: () => ({
+    matchHandlers: {},
+    dispatch: jest.fn(),
+    subscribe: jest.fn(() => Symbol('token')),
+    unsubscribe: jest.fn(),
+    register: jest.fn(),
+    unregister: jest.fn(),
+    responsiveMap: {},
+  }),
 }));
 
 vi.mock('recharts', () => {
@@ -51,39 +55,50 @@ vi.mock('antd', async () => {
   };
 });
 
-vi.mock('../components/research-playbook/ResearchPlaybook', () => (props) => (
-  <div>
-    <div>{props.playbook?.stageLabel || ''}</div>
-    {props.onSaveTask ? (
-      <button type="button" onClick={props.onSaveTask}>
-        保存到研究工作台
-      </button>
-    ) : null}
-    {props.onUpdateSnapshot ? (
-      <button type="button" onClick={props.onUpdateSnapshot}>
-        更新当前任务快照
-      </button>
-    ) : null}
-  </div>
-));
+vi.mock('../components/research-playbook/ResearchPlaybook', () => ({
+  default: (props) => (
+    <div>
+      <div>{props.playbook?.stageLabel || ''}</div>
+      {props.onSaveTask ? (
+        <button type="button" onClick={props.onSaveTask}>
+          保存到研究工作台
+        </button>
+      ) : null}
+      {props.onUpdateSnapshot ? (
+        <button type="button" onClick={props.onUpdateSnapshot}>
+          更新当前任务快照
+        </button>
+      ) : null}
+    </div>
+  ),
+}));
 
-vi.mock('../components/cross-market/CrossMarketDiagnosticsSection', () => () => <div>diagnostics</div>);
-vi.mock('../components/cross-market/CrossMarketBasketSummaryCard', () => () => <div>basket-summary</div>);
+vi.mock('../components/cross-market/CrossMarketDiagnosticsSection', () => ({ default: () => <div>diagnostics</div> }));
+vi.mock('../components/cross-market/CrossMarketBasketSummaryCard', () => ({ default: () => <div>basket-summary</div> }));
 
-vi.mock('../components/research-playbook/playbookViewModels', () => ({
+const playbookViewModelMocks = vi.hoisted(() => ({
   buildCrossMarketPlaybook: jest.fn(() => ({
     stageLabel: '待运行',
     steps: [],
   })),
 }));
 
+vi.mock('../components/research-playbook/playbookViewModels.js', () => ({
+  buildCrossMarketPlaybook: playbookViewModelMocks.buildCrossMarketPlaybook,
+}));
+
 vi.mock('../utils/snapshotCompare', () => ({
   buildSnapshotComparison: jest.fn(() => null),
 }));
 
-vi.mock('../services/api', () => ({
+const apiMocks = vi.hoisted(() => ({
   getCrossMarketTemplates: jest.fn(),
   runCrossMarketBacktest: jest.fn(),
+}));
+
+vi.mock('../services/api', () => ({
+  getCrossMarketTemplates: apiMocks.getCrossMarketTemplates,
+  runCrossMarketBacktest: apiMocks.runCrossMarketBacktest,
 }));
 
 const mockMessageApi = {
@@ -100,8 +115,12 @@ vi.mock('../utils/messageApi', () => ({
   useSafeMessageApi: () => mockMessageApi,
 }));
 
-vi.mock('../utils/crossMarketRecommendations', () => ({
+const crossMarketRecommendationMocks = vi.hoisted(() => ({
   buildCrossMarketCards: jest.fn(),
+}));
+
+vi.mock('../utils/crossMarketRecommendations', () => ({
+  buildCrossMarketCards: crossMarketRecommendationMocks.buildCrossMarketCards,
   CROSS_MARKET_DIMENSION_LABELS: {
     policy_execution: '政策执行',
     people_fragility: '人的脆弱度',
@@ -112,22 +131,26 @@ vi.mock('../utils/crossMarketRecommendations', () => ({
   },
 }));
 
-const mockNavigateByResearchAction = jest.fn();
-const mockReadResearchContext = jest.fn();
-
-vi.mock('../utils/researchContext', () => ({
+const researchContextMocks = vi.hoisted(() => ({
   formatResearchSource: jest.fn(() => '研究工作台'),
-  navigateByResearchAction: (...args) => mockNavigateByResearchAction(...args),
-  readResearchContext: (...args) => mockReadResearchContext(...args),
+  navigateByResearchAction: jest.fn(),
+  readResearchContext: jest.fn(),
+}));
+
+vi.mock('../utils/researchContext.js', () => ({
+  formatResearchSource: researchContextMocks.formatResearchSource,
+  navigateByResearchAction: researchContextMocks.navigateByResearchAction,
+  readResearchContext: researchContextMocks.readResearchContext,
 }));
 
 const {
   getCrossMarketTemplates,
   runCrossMarketBacktest,
-} = require('../services/api');
-const { buildCrossMarketCards } = require('../utils/crossMarketRecommendations');
-const { buildCrossMarketPlaybook } = require('../components/research-playbook/playbookViewModels');
-const { formatResearchSource } = require('../utils/researchContext');
+} = apiMocks;
+const { buildCrossMarketCards } = crossMarketRecommendationMocks;
+const { buildCrossMarketPlaybook } = playbookViewModelMocks;
+const { formatResearchSource } = researchContextMocks;
+const { navigateByResearchAction: mockNavigateByResearchAction, readResearchContext: mockReadResearchContext } = researchContextMocks;
 
 const queueContext = {
   source: 'research_workbench',
@@ -307,6 +330,11 @@ beforeAll(() => {
     writable: true,
     value: matchMedia,
   });
+});
+
+afterEach(() => {
+  cleanup();
+  window.history.replaceState(null, '', '/');
 });
 
 describe('CrossMarketBacktestPanel retained cross-market flow', () => {
