@@ -1,235 +1,50 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Card, Spin, Empty, Tooltip, Typography, Tag, Row, Col, Statistic, message, Button, Input, Radio, Select, Space, Progress, Slider, Grid } from 'antd';
+import { Card, Spin, Empty, Tooltip, Typography, Tag, message, Button, Input, Radio, Select, Space, Grid, Switch } from 'antd';
 import {
-    RiseOutlined,
-    FallOutlined,
     ReloadOutlined,
     FireOutlined,
-    DashboardOutlined,
-    BarChartOutlined,
-    BgColorsOutlined,
     SearchOutlined,
     FullscreenOutlined,
     FullscreenExitOutlined
 } from '@ant-design/icons';
-import { getIndustryHeatmap, getIndustryHeatmapHistory } from '../services/api';
+import { getIndustryHeatmap, getIndustryHeatmapHistory, getPolicyRadarSignal } from '../services/api';
+import {
+    buildPolicyOverlay,
+    lookupPolicyOverlay,
+} from '../utils/industryPolicyOverlay';
+import HeatmapLegend from './industry/HeatmapLegend';
+import HeatmapStatsBar from './industry/HeatmapStatsBar';
 import { activateOnEnterOrSpace } from './industry/industryShared';
+import {
+    HEATMAP_SURFACE,
+    TOOLTIP_BG,
+    TOOLTIP_PANEL,
+    TOOLTIP_PANEL_BORDER,
+    TOOLTIP_TEXT,
+    TOOLTIP_MUTED,
+    TOOLTIP_SUBTLE,
+    TOOLTIP_SHADOW,
+    HEATMAP_POSITIVE,
+    HEATMAP_NEGATIVE,
+    HEATMAP_WARNING,
+    TILE_TEXT_SHADOW,
+    HEATMAP_LIVE_REQUEST_TIMEOUT_MS,
+    HEATMAP_HISTORY_FALLBACK_TIMEOUT_MS,
+} from '../utils/industryHeatmapTokens';
+import {
+    matchesIndustrySearch,
+    syncHeatmapTileFocusState,
+    buildFallbackHeatmapPayload,
+} from '../utils/industrySearch';
+import { squarify } from '../utils/squarifiedTreemap';
 
 const { Text } = Typography;
 const { useBreakpoint } = Grid;
-const HEATMAP_SURFACE = 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 90%, var(--bg-primary) 10%) 0%, color-mix(in srgb, var(--bg-secondary) 82%, var(--bg-primary) 18%) 100%)';
-const TOOLTIP_BG = 'color-mix(in srgb, var(--bg-primary) 88%, #0f172a 12%)';
-const TOOLTIP_PANEL = 'color-mix(in srgb, var(--bg-secondary) 92%, var(--bg-primary) 8%)';
-const TOOLTIP_PANEL_BORDER = 'color-mix(in srgb, var(--border-color) 82%, var(--text-primary) 18%)';
-const TOOLTIP_TEXT = 'var(--text-primary)';
-const TOOLTIP_MUTED = 'var(--text-secondary)';
-const TOOLTIP_SUBTLE = 'var(--text-muted)';
-const TOOLTIP_SHADOW = '0 10px 30px rgba(15, 23, 42, 0.18)';
-const HEATMAP_POSITIVE = 'var(--accent-danger)';
-const HEATMAP_NEGATIVE = 'var(--accent-success)';
-const HEATMAP_WARNING = 'var(--accent-warning)';
-const TILE_TEXT_SHADOW = '0 1px 3px rgba(15, 23, 42, 0.32)';
-const HEATMAP_LIVE_REQUEST_TIMEOUT_MS = 12000;
-const HEATMAP_HISTORY_FALLBACK_TIMEOUT_MS = 6000;
 
-const normalizeIndustrySearchText = (value) => String(value || '')
-    .toLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/[()（）]/g, '')
-    .replace(/[-_/]/g, '')
-    .replace(/及元件/g, '')
-    .replace(/板块/g, '')
-    .trim();
-
-const buildIndustrySearchCandidates = (name) => {
-    const raw = String(name || '').trim();
-    if (!raw) return [];
-
-    const canonical = raw.replace(/及元件/g, '').replace(/板块/g, '').trim();
-    const variants = new Set([
-        raw,
-        normalizeIndustrySearchText(raw),
-        canonical,
-        normalizeIndustrySearchText(canonical),
-    ]);
-
-    return Array.from(variants).filter(Boolean);
-};
-
-const matchesIndustrySearch = (name, searchTerm) => {
-    const normalizedQuery = normalizeIndustrySearchText(searchTerm);
-    if (!normalizedQuery) return true;
-    return buildIndustrySearchCandidates(name).some(
-        (candidate) => normalizeIndustrySearchText(candidate).includes(normalizedQuery)
-    );
-};
-
-const syncHeatmapTileFocusState = (node, active) => {
-    if (!node) return;
-    node.style.filter = active ? 'brightness(1.25)' : 'brightness(1)';
-    node.style.zIndex = active ? '10' : '1';
-    node.style.transform = active ? 'scale(1.02)' : 'scale(1)';
-};
-
-export const buildFallbackHeatmapPayload = (historyResponse, timeframe) => {
-    const historyItems = Array.isArray(historyResponse?.items) ? historyResponse.items : [];
-    const matchingItem = historyItems.find(
-        (item) => Number(item?.days || 0) === Number(timeframe || 0) && Array.isArray(item?.industries) && item.industries.length > 0
-    );
-    const fallbackItem = matchingItem || historyItems.find((item) => Array.isArray(item?.industries) && item.industries.length > 0);
-
-    if (!fallbackItem) {
-        return null;
-    }
-
-    return {
-        industries: fallbackItem.industries || [],
-        max_value: fallbackItem.max_value ?? 0,
-        min_value: fallbackItem.min_value ?? 0,
-        update_time: fallbackItem.update_time || fallbackItem.captured_at || '',
-    };
-};
-
-// ... (retain squarified treemap algorithms: worstAspectRatio, squarify, layoutRow) ...
-
-/**
- * 计算一组行在当前 rect 中的布局
- * @param {Array} row - 当前行的数据项 (已含 normalizedSize)
- * @param {number} w - 当前短边长度
- * @returns {number} 最差纵横比
- */
-function worstAspectRatio(row, w) {
-    if (row.length === 0 || w <= 0) return Infinity;
-    const s = row.reduce((acc, r) => acc + r.normalizedSize, 0);
-    const maxArea = Math.max(...row.map(r => r.normalizedSize));
-    const minArea = Math.min(...row.map(r => r.normalizedSize));
-    return Math.max(
-        (w * w * maxArea) / (s * s),
-        (s * s) / (w * w * minArea)
-    );
-}
-
-/**
- * Squarified Treemap 核心递归算法
- * 将 items 递归地排列到 rect 中
- */
-function squarify(items, rect) {
-    if (items.length === 0) return [];
-    if (items.length === 1) {
-        return [{ ...items[0], layout: { ...rect } }];
-    }
-
-    const { x, y, width, height } = rect;
-    const totalArea = width * height;
-    const totalSize = items.reduce((acc, item) => acc + item.normalizedSize, 0);
-
-    if (totalSize <= 0 || totalArea <= 0) {
-        return items.map(item => ({ ...item, layout: { x, y, width: 0, height: 0 } }));
-    }
-
-    // 归一化面积到像素面积
-    const scale = totalArea / totalSize;
-    const scaledItems = items.map(item => ({
-        ...item,
-        normalizedSize: item.normalizedSize * scale
-    }));
-
-    let currentRow = [];
-    let remaining = [...scaledItems];
-    let results = [];
-    let currentRect = { ...rect };
-
-    while (remaining.length > 0) {
-        const isWide = currentRect.width >= currentRect.height;
-        const shortSide = isWide ? currentRect.height : currentRect.width;
-        const item = remaining[0];
-        const testRow = [...currentRow, item];
-        const currentWorst = worstAspectRatio(currentRow, shortSide);
-        const testWorst = worstAspectRatio(testRow, shortSide);
-
-        if (currentRow.length === 0 || testWorst <= currentWorst) {
-            currentRow.push(item);
-            remaining.shift();
-        } else {
-            // 固定当前行，递归处理剩余
-            const rowResults = layoutRow(currentRow, currentRect, isWide);
-            results.push(...rowResults.items);
-            currentRect = rowResults.remainingRect;
-            currentRow = [];
-        }
-    }
-
-    // 最后一行
-    if (currentRow.length > 0) {
-        const isWide = currentRect.width >= currentRect.height;
-        const rowResults = layoutRow(currentRow, currentRect, isWide);
-        results.push(...rowResults.items);
-    }
-
-    return results;
-}
-
-/**
- * 在 rect 中排列一行
- */
-function layoutRow(row, rect, isWide) {
-    const { x, y, width, height } = rect;
-    const rowArea = row.reduce((acc, r) => acc + r.normalizedSize, 0);
-    const items = [];
-
-    if (isWide) {
-        const rowWidth = rowArea / height;
-        let offsetY = y;
-        for (const item of row) {
-            const itemHeight = item.normalizedSize / rowWidth;
-            items.push({
-                ...item,
-                layout: {
-                    x: x,
-                    y: offsetY,
-                    width: Math.max(rowWidth, 0),
-                    height: Math.max(itemHeight, 0)
-                }
-            });
-            offsetY += itemHeight;
-        }
-        return {
-            items,
-            remainingRect: {
-                x: x + rowWidth,
-                y,
-                width: Math.max(width - rowWidth, 0),
-                height
-            }
-        };
-    } else {
-        const rowHeight = rowArea / width;
-        let offsetX = x;
-        for (const item of row) {
-            const itemWidth = item.normalizedSize / rowHeight;
-            items.push({
-                ...item,
-                layout: {
-                    x: offsetX,
-                    y: y,
-                    width: Math.max(itemWidth, 0),
-                    height: Math.max(rowHeight, 0)
-                }
-            });
-            offsetX += itemWidth;
-        }
-        return {
-            items,
-            remainingRect: {
-                x,
-                y: y + rowHeight,
-                width,
-                height: Math.max(height - rowHeight, 0)
-            }
-        };
-    }
-}
+// Re-exported for backward compatibility with existing tests that import
+// `buildFallbackHeatmapPayload` from this module.
+export { buildFallbackHeatmapPayload };
 
 // ========================================
 // IndustryHeatmap 组件
@@ -283,8 +98,46 @@ const IndustryHeatmap = ({
     const [sizeMetric, setSizeMetric] = useState('market_cap'); // 方块大小: market_cap, turnover, net_inflow
     const [colorMetric, setColorMetric] = useState('change_pct'); // 颜色含义: change_pct, net_inflow_ratio, turnover_rate
 
+    // 政策叠加：把 policy_radar industry_signals 叠加到 tile 右上角徽标。
+    // 默认 off 不破坏既有视觉；on 时才发起一次请求。
+    const [policyOverlayOn, setPolicyOverlayOn] = useState(false);
+    const [policyIndustrySignals, setPolicyIndustrySignals] = useState(null);
+    const [policyOverlayLoading, setPolicyOverlayLoading] = useState(false);
+
     // AbortController refs
     const loadDataAbortRef = useRef(null);
+
+    // Lazy-fetch policy radar signal on toggle. Cache the result so toggling
+    // off then back on doesn't re-hit the network unnecessarily within the
+    // same component lifecycle.
+    useEffect(() => {
+        if (!policyOverlayOn) return undefined;
+        if (policyIndustrySignals !== null) return undefined;
+        let cancelled = false;
+        setPolicyOverlayLoading(true);
+        getPolicyRadarSignal()
+            .then((response) => {
+                if (cancelled) return;
+                const payload = response?.data || {};
+                setPolicyIndustrySignals(payload.industry_signals || {});
+            })
+            .catch(() => {
+                if (cancelled) return;
+                // Don't toast — overlay is opt-in and best-effort.
+                setPolicyIndustrySignals({});
+            })
+            .finally(() => {
+                if (!cancelled) setPolicyOverlayLoading(false);
+            });
+        return () => { cancelled = true; };
+    }, [policyOverlayOn, policyIndustrySignals]);
+
+    // Memoize the normalized overlay map. Recomputes when either the
+    // policy payload or the rendered industry list changes.
+    const policyOverlayMap = useMemo(() => {
+        if (!policyOverlayOn || !policyIndustrySignals) return null;
+        return buildPolicyOverlay(data?.industries || [], policyIndustrySignals);
+    }, [policyOverlayOn, policyIndustrySignals, data]);
 
     useEffect(() => {
         if (!focusControlKey) return undefined;
@@ -531,7 +384,9 @@ const IndustryHeatmap = ({
 
     // 红涨绿跌渐变色计算（共用逻辑）
     const redGreenGradient = useCallback((value, absMax) => {
-        if (value === 0) return '#555555';
+        // Slate-grey for true zero: pairs better with the dark theme + white
+        // text than the older neutral #555 (contrast ratio ~6.5:1 vs #f8fafc).
+        if (value === 0) return '#475569';
         const clampedMax = Math.max(absMax, 2);
         const intensity = Math.min(Math.abs(value) / clampedMax, 1);
         const t = Math.pow(intensity, 0.7);
@@ -661,129 +516,10 @@ const IndustryHeatmap = ({
     };
 
     // 渲染统计信息
-    const renderStats = useMemo(() => {
-        if (!data?.industries) return null;
-
-        const industries = data.industries;
-        const total = industries.length;
-        const upCount = industries.filter(i => i.value > 0).length;
-        const downCount = industries.filter(i => i.value < 0).length;
-        const flatCount = industries.filter(i => i.value === 0).length;
-        const upRatio = total > 0 ? Math.round((upCount / total) * 100) : 0;
-
-        // 市场情绪
-        const sentimentRatio = upCount / (total || 1);
-        const sentiment = sentimentRatio > 0.6
-            ? { label: '偏多', color: HEATMAP_POSITIVE, bg: 'color-mix(in srgb, var(--accent-danger) 12%, var(--bg-secondary) 88%)' }
-            : sentimentRatio < 0.4
-                ? { label: '偏空', color: HEATMAP_NEGATIVE, bg: 'color-mix(in srgb, var(--accent-success) 12%, var(--bg-secondary) 88%)' }
-                : { label: '中性', color: HEATMAP_WARNING, bg: 'color-mix(in srgb, var(--accent-warning) 12%, var(--bg-secondary) 88%)' };
-
-        // 资金 TOP3 流入行业
-        const top3Inflow = [...industries]
-            .filter(i => (i.moneyFlow || 0) > 0)
-            .sort((a, b) => (b.moneyFlow || 0) - (a.moneyFlow || 0))
-            .slice(0, 3);
-
-        return (
-            <div style={{ marginBottom: 16 }}>
-                {/* 第一行：数字统计 */}
-                <Row gutter={12} align="middle" style={{ marginBottom: 10 }}>
-                    <Col flex="none">
-                        <Statistic
-                            title="上涨"
-                            value={upCount}
-                            valueStyle={{ color: HEATMAP_POSITIVE, fontSize: 22 }}
-                            prefix={<RiseOutlined style={{ fontSize: 14 }} />}
-                        />
-                    </Col>
-                    <Col flex="none">
-                        <Statistic
-                            title="下跌"
-                            value={downCount}
-                            valueStyle={{ color: HEATMAP_NEGATIVE, fontSize: 22 }}
-                            prefix={<FallOutlined style={{ fontSize: 14 }} />}
-                        />
-                    </Col>
-                    <Col flex="none">
-                        <Statistic
-                            title="平盘"
-                            value={flatCount}
-                            valueStyle={{ color: 'var(--text-muted)', fontSize: 22 }}
-                            prefix={<DashboardOutlined style={{ fontSize: 14 }} />}
-                        />
-                    </Col>
-
-                    {/* 市场广度进度条 */}
-                    <Col flex="1" style={{ minWidth: 140 }}>
-                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>市场广度 ({upRatio}%)</div>
-                        <Progress
-                            percent={upRatio}
-                            showInfo={false}
-                            strokeColor={HEATMAP_POSITIVE}
-                            trailColor={HEATMAP_NEGATIVE}
-                            size="small"
-                        />
-                    </Col>
-
-                    {/* 市场情绪标签 */}
-                    <Col flex="none">
-                        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>市场情绪</div>
-                        <Tag
-                            style={{
-                                color: sentiment.color,
-                                background: sentiment.bg,
-                                border: `1px solid ${sentiment.color}`,
-                                fontWeight: 'bold',
-                                fontSize: 13,
-                                padding: '2px 10px'
-                            }}
-                        >
-                            {sentiment.label}
-                        </Tag>
-                    </Col>
-
-                    <Col flex="none">
-                        <Statistic
-                            title="更新时间"
-                            value={data.update_time ? new Date(data.update_time).toLocaleTimeString('zh-CN', { hour12: false }) : '-'}
-                            valueStyle={{ fontSize: 13 }}
-                        />
-                    </Col>
-                </Row>
-
-                {/* 第二行：资金净流入 TOP3 */}
-                {top3Inflow.length > 0 && (
-                    <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        padding: '6px 10px',
-                        background: 'color-mix(in srgb, var(--accent-danger) 10%, var(--bg-secondary) 90%)',
-                        borderRadius: 6,
-                        border: '1px solid color-mix(in srgb, var(--accent-danger) 22%, var(--border-color) 78%)',
-                        flexWrap: 'wrap'
-                    }}>
-                        <span style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>💰 主力净流入</span>
-                        {top3Inflow.map((ind, idx) => (
-                            <Tag
-                                key={ind.name}
-                                color={idx === 0 ? 'red' : idx === 1 ? 'volcano' : 'orange'}
-                                style={{ cursor: 'pointer', margin: 0 }}
-                                onClick={() => onIndustryClick?.(ind.name)}
-                                role="button"
-                                tabIndex={0}
-                                aria-label={`查看 ${ind.name} 行业详情，主力净流入 ${(ind.moneyFlow / 1e8).toFixed(1)} 亿`}
-                                onKeyDown={(event) => activateOnEnterOrSpace(event, () => onIndustryClick?.(ind.name))}
-                            >
-                                {ind.name} +{(ind.moneyFlow / 1e8).toFixed(1)}亿
-                            </Tag>
-                        ))}
-                    </div>
-                )}
-            </div>
-        );
-    }, [data, onIndustryClick]);
+    // renderStats 拆到 ./industry/HeatmapStatsBar.js（layer 2 第二个子组件）
+    const renderStats = (
+        <HeatmapStatsBar data={data} onIndustryClick={onIndustryClick} />
+    );
 
     // 使用 Treemap 计算布局和渲染
     const renderTreemap = useMemo(() => {
@@ -945,6 +681,15 @@ const IndustryHeatmap = ({
                     else if (colorMetric === 'turnover_rate') displayValue = item.turnoverRate || 0;
 
                     const bgColor = getColor(displayValue, colorMetric, maxAbsChange);
+
+                    const policyEntry = policyOverlayMap
+                        ? lookupPolicyOverlay(item.name, policyOverlayMap)
+                        : null;
+                    const policyBadge = policyEntry && policyEntry.signal !== 'neutral'
+                        ? policyEntry.signal === 'bullish'
+                            ? { glyph: '▲', color: HEATMAP_POSITIVE, label: '政策利好' }
+                            : { glyph: '▼', color: HEATMAP_NEGATIVE, label: '政策利空' }
+                        : null;
 
                     const isLargeBlock = layout.width > 90 && layout.height > 70;
                     const isMediumBlock = layout.width > 55 && layout.height > 40;
@@ -1253,6 +998,30 @@ const IndustryHeatmap = ({
                                 onFocus={(e) => syncHeatmapTileFocusState(e.currentTarget, true)}
                                 onBlur={(e) => syncHeatmapTileFocusState(e.currentTarget, false)}
                             >
+                                {policyBadge && (
+                                    <Tooltip
+                                        title={`${policyBadge.label}（${policyEntry.mentions || 0} 个事件，影响 ${(policyEntry.avgImpact ?? 0).toFixed(2)}）`}
+                                    >
+                                        <div
+                                            className="heatmap-policy-badge"
+                                            data-testid={`heatmap-policy-badge-${item.name}`}
+                                            style={{
+                                                position: 'absolute',
+                                                top: 4,
+                                                left: 4,
+                                                zIndex: 6,
+                                                color: policyBadge.color,
+                                                fontSize: layout.width > 90 ? 12 : 10,
+                                                lineHeight: 1,
+                                                pointerEvents: 'auto',
+                                                textShadow: '0 1px 2px rgba(15, 23, 42, 0.7)',
+                                            }}
+                                            aria-label={policyBadge.label}
+                                        >
+                                            {policyBadge.glyph}
+                                        </div>
+                                    </Tooltip>
+                                )}
                                 {(layout.width > 70 && layout.height > 40) && (
                                     <div
                                         className="heatmap-source-corner"
@@ -1505,6 +1274,7 @@ const IndustryHeatmap = ({
         legendRangeValue,
         loadData,
         onLegendRangeChange,
+        policyOverlayMap,
     ]);
 
     // 计算资金流入 TOP3（用于图例横幅，来自内存数据无需新 API）
@@ -1516,103 +1286,17 @@ const IndustryHeatmap = ({
             .slice(0, 3);
     }, [data]);
 
-    // 渲染图例
+    // 渲染图例 — 拆到 ./industry/HeatmapLegend.js（layer 2 子组件）
     const renderLegend = (
-        <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginTop: 12,
-            gap: 12,
-            flexWrap: 'wrap'
-        }}>
-            {/* 颜色图例 + 大小图例 */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <BgColorsOutlined />
-                    <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                        {legendMeta.leftLabel}
-                    </Text>
-                    <div style={{
-                        width: 120,
-                        height: 8,
-                        background: colorMetric === 'turnover_rate'
-                            ? 'linear-gradient(to right, blue, yellow, red)'
-                            : 'linear-gradient(to right, rgb(20, 180, 40), #6B6B6B, rgb(235, 20, 20))',
-                        borderRadius: 4
-                    }} />
-                    <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                        {legendMeta.rightLabel}
-                    </Text>
-                </div>
-                <div style={{ minWidth: 280, maxWidth: 380, flex: '1 1 280px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                        <Text style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                            色阶区间刷选
-                        </Text>
-                        <Text style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                            {effectiveLegendRange[0].toFixed(colorMetric === 'pe_ttm' ? 0 : 1)}
-                            {legendMeta.suffix}
-                            {' '}~{' '}
-                            {effectiveLegendRange[1].toFixed(colorMetric === 'pe_ttm' ? 0 : 1)}
-                            {legendMeta.suffix}
-                        </Text>
-                    </div>
-                    <div data-testid="heatmap-legend-slider">
-                        <Slider
-                            range
-                            min={legendMeta.min}
-                            max={legendMeta.max}
-                            step={legendMeta.step}
-                            value={effectiveLegendRange}
-                            onChange={(value) => onLegendRangeChange?.(value)}
-                            onChangeComplete={(value) => onLegendRangeChange?.(value)}
-                            tooltip={{ open: false }}
-                        />
-                    </div>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <BarChartOutlined />
-                    <Text style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        方块大小 = {
-                            sizeMetric === 'market_cap' ? '总市值' :
-                                sizeMetric === 'turnover' ? '当日总成交额' :
-                                    sizeMetric === 'net_inflow' ? '净流入绝对值' : '未知'
-                        }
-                    </Text>
-                </div>
-            </div>
-
-            {/* 资金流入 TOP3 横幅 */}
-            {top3InflowBanner.length > 0 && (
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    padding: '4px 10px',
-                    background: 'color-mix(in srgb, var(--accent-danger) 10%, var(--bg-secondary) 90%)',
-                    borderRadius: 6,
-                    border: '1px solid color-mix(in srgb, var(--accent-danger) 24%, var(--border-color) 76%)',
-                    flexWrap: 'wrap'
-                }}>
-                    <span style={{ fontSize: 11, color: 'var(--accent-danger)', whiteSpace: 'nowrap' }}>💰 净流入 TOP</span>
-                    {top3InflowBanner.map((ind, idx) => (
-                        <Tag
-                            key={ind.name}
-                            color={idx === 0 ? 'red' : idx === 1 ? 'volcano' : 'orange'}
-                            style={{ margin: 0, cursor: 'pointer', fontSize: 11 }}
-                            onClick={() => onIndustryClick?.(ind.name)}
-                            role="button"
-                            tabIndex={0}
-                            aria-label={`查看 ${ind.name} 行业详情`}
-                            onKeyDown={(event) => activateOnEnterOrSpace(event, () => onIndustryClick?.(ind.name))}
-                        >
-                            {ind.name}
-                        </Tag>
-                    ))}
-                </div>
-            )}
-        </div>
+        <HeatmapLegend
+            legendMeta={legendMeta}
+            effectiveLegendRange={effectiveLegendRange}
+            colorMetric={colorMetric}
+            sizeMetric={sizeMetric}
+            onLegendRangeChange={onLegendRangeChange}
+            top3InflowBanner={top3InflowBanner}
+            onIndustryClick={onIndustryClick}
+        />
     );
 
     const timeframeOptions = [
@@ -1761,6 +1445,19 @@ const IndustryHeatmap = ({
                     aria-label="按行业名称筛选热力图"
                     name="industry-heatmap-search"
                 />
+                <Tooltip title="叠加政策雷达信号到 tile 右上角徽标">
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <Switch
+                            size="small"
+                            checked={policyOverlayOn}
+                            onChange={setPolicyOverlayOn}
+                            loading={policyOverlayLoading}
+                            data-testid="heatmap-policy-overlay-toggle"
+                            aria-label="切换政策雷达叠加"
+                        />
+                        <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>政策</Text>
+                    </span>
+                </Tooltip>
                 <Select
                     value={refreshSec}
                     onChange={setRefreshSec}

@@ -1,27 +1,27 @@
+import logging
+from datetime import datetime
 
 from fastapi import APIRouter
-from datetime import datetime
-import logging
+
 from backend.app.core.config import config
 from backend.app.services.runtime_state import get_data_manager
-from src.utils.performance import performance_metrics, performance_monitor
-
-from src.strategy.strategies import (
-    MovingAverageCrossover,
-    RSIStrategy,
-    BollingerBands,
-    BuyAndHold,
-    TurtleTradingStrategy,
-    MultiFactorStrategy,
-)
 from src.strategy.advanced_strategies import (
+    ATRTrailingStop,
     MACDStrategy,
     MeanReversionStrategy,
-    VWAPStrategy,
     MomentumStrategy,
     StochasticOscillator,
-    ATRTrailingStop,
+    VWAPStrategy,
 )
+from src.strategy.strategies import (
+    BollingerBands,
+    BuyAndHold,
+    MovingAverageCrossover,
+    MultiFactorStrategy,
+    RSIStrategy,
+    TurtleTradingStrategy,
+)
+from src.utils.performance import performance_metrics, performance_monitor
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -42,11 +42,12 @@ STRATEGIES = {
     "multi_factor": MultiFactorStrategy,
 }
 
+
 @router.get("/status", summary="系统状态检查", deprecated=True)
 async def get_system_status(detailed: bool = False):
     """
     系统状态检查接口
-    
+
     Args:
         detailed: 是否执行详细检查 (默认 False，仅返回基础资源使用情况)
     """
@@ -54,6 +55,7 @@ async def get_system_status(detailed: bool = False):
         if not detailed:
             # 轻量级检查 (原 /status 逻辑)
             import psutil
+
             memory = psutil.virtual_memory()
             cpu_percent = psutil.cpu_percent(interval=0.1)
 
@@ -96,6 +98,7 @@ async def get_system_status(detailed: bool = False):
             "version": config["app_version"],
         }
 
+
 @router.get("/performance", summary="获取性能指标概览", deprecated=True)
 async def get_system_performance_overview():
     """获取性能指标"""
@@ -111,6 +114,7 @@ async def get_system_performance_overview():
         logger.error(f"Performance metrics error: {e}")
         return {"success": False, "error": str(e)}
 
+
 @router.get("/health-check", summary="综合健康检查", deprecated=True)
 def comprehensive_health_check():
     """综合健康检查"""
@@ -122,6 +126,7 @@ def comprehensive_health_check():
     except Exception as e:
         logger.error(f"Health check error: {e}")
         return {"success": False, "error": str(e)}
+
 
 @router.get("/metrics", summary="获取详细性能指标", deprecated=True)
 async def get_performance_metrics():
@@ -145,6 +150,41 @@ async def get_performance_metrics():
         logger.error(f"获取性能指标失败: {e}")
         return {"success": False, "error": str(e)}
 
+
+@router.get("/providers/status", summary="数据源运行状态")
+async def get_provider_runtime_status():
+    """Return provider registry and circuit-breaker state without probing remotes."""
+    try:
+        data_manager = get_data_manager()
+        provider_factory = getattr(data_manager, "provider_factory", None)
+        providers = (
+            provider_factory.get_provider_runtime_status() if provider_factory is not None else {}
+        )
+
+        from src.data.providers.sina_ths_adapter import SinaIndustryAdapter
+
+        providers["sina_ths"] = {
+            "provider": {
+                "name": "sina_ths",
+                "description": "THS-first industry adapter with Sina/AKShare fallbacks",
+            },
+            "circuit_breakers": SinaIndustryAdapter.get_circuit_status(),
+        }
+
+        return {
+            "success": True,
+            "timestamp": datetime.now().isoformat(),
+            "providers": providers,
+        }
+    except Exception as e:
+        logger.error(f"Provider status error: {e}", exc_info=True)
+        return {
+            "success": False,
+            "timestamp": datetime.now().isoformat(),
+            "error": str(e),
+        }
+
+
 @router.get("/dependencies", summary="依赖项连通性检查", deprecated=True)
 async def check_dependencies():
     """
@@ -152,89 +192,84 @@ async def check_dependencies():
     包括：yfinance API、缓存系统、ML模型等
     """
     import time
+
     dependencies = {}
     overall_status = "healthy"
-    
+
     # 1. 检查 yfinance API 连通性
     try:
         start = time.time()
         import yfinance as yf
+
         ticker = yf.Ticker("AAPL")
         info = ticker.info
         elapsed = round((time.time() - start) * 1000, 2)
         dependencies["yfinance_api"] = {
             "status": "healthy" if info else "degraded",
             "response_time_ms": elapsed,
-            "message": "能够获取股票数据" if info else "返回数据为空"
+            "message": "能够获取股票数据" if info else "返回数据为空",
         }
     except Exception as e:
         overall_status = "degraded"
         dependencies["yfinance_api"] = {
             "status": "unhealthy",
             "error": str(e),
-            "message": "无法连接到 Yahoo Finance API"
+            "message": "无法连接到 Yahoo Finance API",
         }
-    
+
     # 2. 检查缓存系统
     try:
         dm = get_data_manager()
         cache_info = {
             "status": "healthy",
-            "cache_size": len(dm.cache.cache) if hasattr(dm.cache, 'cache') else 0,
-            "max_size": dm.cache.max_size if hasattr(dm.cache, 'max_size') else "unknown"
+            "cache_size": len(dm.cache.cache) if hasattr(dm.cache, "cache") else 0,
+            "max_size": dm.cache.max_size if hasattr(dm.cache, "max_size") else "unknown",
         }
         dependencies["cache_system"] = cache_info
     except Exception as e:
-        dependencies["cache_system"] = {
-            "status": "degraded",
-            "error": str(e)
-        }
-    
+        dependencies["cache_system"] = {"status": "degraded", "error": str(e)}
+
     # 3. 检查 ML 模型状态
     try:
         import os
+
         model_path = os.path.join(os.path.dirname(__file__), "../../../../src/analytics/model_data")
         model_path = os.path.abspath(model_path)
         if os.path.exists(model_path):
-            model_files = [f for f in os.listdir(model_path) if f.endswith('.joblib')]
+            model_files = [f for f in os.listdir(model_path) if f.endswith(".joblib")]
             dependencies["ml_models"] = {
                 "status": "healthy",
                 "cached_models": len(model_files) // 2,  # 每个模型有2个文件
-                "model_files": model_files[:10]  # 只显示前10个
+                "model_files": model_files[:10],  # 只显示前10个
             }
         else:
             dependencies["ml_models"] = {
                 "status": "healthy",
                 "cached_models": 0,
-                "message": "无缓存模型，将在首次预测时训练"
+                "message": "无缓存模型，将在首次预测时训练",
             }
     except Exception as e:
-        dependencies["ml_models"] = {
-            "status": "degraded",
-            "error": str(e)
-        }
-    
+        dependencies["ml_models"] = {"status": "degraded", "error": str(e)}
+
     # 4. 检查磁盘空间
     try:
         import psutil
-        disk = psutil.disk_usage('/')
+
+        disk = psutil.disk_usage("/")
         disk_status = "healthy" if disk.percent < 90 else "warning"
         if disk.percent >= 90:
             overall_status = "warning"
         dependencies["disk_space"] = {
             "status": disk_status,
             "used_percent": disk.percent,
-            "free_gb": round(disk.free / (1024**3), 2)
+            "free_gb": round(disk.free / (1024**3), 2),
         }
     except Exception as e:
-        dependencies["disk_space"] = {
-            "status": "unknown",
-            "error": str(e)
-        }
-    
+        dependencies["disk_space"] = {"status": "unknown", "error": str(e)}
+
     return {
         "overall_status": overall_status,
         "timestamp": datetime.now().isoformat(),
         "dependencies": dependencies,
-        "version": config["app_version"]
+        "version": config["app_version"],
     }

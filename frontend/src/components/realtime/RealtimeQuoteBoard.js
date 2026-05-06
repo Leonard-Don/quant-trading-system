@@ -169,6 +169,8 @@ const RealtimeQuoteBoard = ({
     const freshness = getQuoteFreshness(quote);
     const sparklineSeries = buildMiniTrendSeries(quote);
     const sparklinePoints = buildSparklinePoints(sparklineSeries);
+    const sparklineLabel = isListMode ? '快照轨迹' : '轨迹';
+    const sparklineTitle = isListMode ? '快照轨迹' : '昨收 / 开盘 / 区间 / 现价';
     const isSelected = selectedQuoteSymbols.includes(symbol);
     const isDragging = draggingSymbol === symbol;
     const sourceMeta = getRealtimeQuoteSourceMeta(quote.source);
@@ -296,7 +298,7 @@ const RealtimeQuoteBoard = ({
                       points={sparklinePoints}
                     />
                   </svg>
-                  <span>{isListMode ? '快照轨迹' : '昨收 / 开盘 / 区间 / 现价'}</span>
+                  <span title={sparklineTitle}>{sparklineLabel}</span>
                 </div>
               )}
             </div>

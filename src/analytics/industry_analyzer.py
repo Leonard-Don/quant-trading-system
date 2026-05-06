@@ -1,6 +1,12 @@
 """
 行业分析引擎
 用于识别热门行业和行业轮动趋势
+
+This module is the *domain core* of the industry feature — pure analytics on
+top of a provider, no caching / scheduling / HTTP concerns. It is wrapped by
+``backend/app/services/industry/runtime.py`` (orchestration) and
+``backend/app/api/v1/endpoints/industry.py`` (HTTP routes + test-patch shim).
+Layer charter: ``docs/architecture/industry-layering.md``.
 """
 
 import pandas as pd
@@ -14,6 +20,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
+from src.analytics.industry.computations import (
+    apply_historical_volatility,
+    derive_size_source,
+    scale_rank_score,
+    weighted_std,
+)
+from src.analytics.industry.heatmap_history import (
+    load_heatmap_history_trend_lookup,
+    load_trend_aliases,
+)
 from src.analytics.industry_stock_details import (
     build_enriched_industry_stocks,
     extract_stock_detail_fields,
@@ -22,105 +38,12 @@ from src.analytics.industry_stock_details import (
 from src.utils.config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
-_TREND_ALIAS_CACHE: Optional[Dict[str, str]] = None
-_HEATMAP_HISTORY_TREND_CACHE: Optional[Dict[tuple[int | None, int], Dict[str, List[float]]]] = None
-_HEATMAP_HISTORY_TREND_CACHE_MTIME: float = 0.0
 _SINGLE_FLIGHT_MISS = object()
 
 
-def _load_trend_aliases() -> Dict[str, str]:
-    global _TREND_ALIAS_CACHE
-    if _TREND_ALIAS_CACHE is not None:
-        return _TREND_ALIAS_CACHE
-
-    alias_file = PROJECT_ROOT / "data" / "industry" / "trend_aliases.json"
-    try:
-        with open(alias_file, "r", encoding="utf-8") as file:
-            payload = json.load(file)
-            if isinstance(payload, dict):
-                _TREND_ALIAS_CACHE = {
-                    str(key).strip(): str(value).strip()
-                    for key, value in payload.items()
-                    if key and value
-                }
-                return _TREND_ALIAS_CACHE
-    except FileNotFoundError:
-        logger.warning("Industry trend alias file not found: %s", alias_file)
-    except Exception as exc:
-        logger.warning("Failed to load industry trend aliases: %s", exc)
-
-    _TREND_ALIAS_CACHE = {}
-    return _TREND_ALIAS_CACHE
-
-
-def _load_heatmap_history_trend_lookup(
-    max_points: int = 5,
-    preferred_days: Optional[int] = None,
-) -> Dict[str, List[float]]:
-    global _HEATMAP_HISTORY_TREND_CACHE, _HEATMAP_HISTORY_TREND_CACHE_MTIME
-
-    history_file = PROJECT_ROOT / "data" / "industry" / "heatmap_history.json"
-    if not history_file.exists():
-        return {}
-
-    try:
-        current_mtime = history_file.stat().st_mtime
-    except OSError:
-        return {}
-
-    cache_key = (preferred_days, max_points)
-    if (
-        _HEATMAP_HISTORY_TREND_CACHE is not None
-        and _HEATMAP_HISTORY_TREND_CACHE_MTIME == current_mtime
-        and cache_key in _HEATMAP_HISTORY_TREND_CACHE
-    ):
-        return _HEATMAP_HISTORY_TREND_CACHE[cache_key]
-
-    try:
-        payload = json.loads(history_file.read_text(encoding="utf-8"))
-    except Exception as exc:
-        logger.warning("Failed to read heatmap history trend cache: %s", exc)
-        return {}
-
-    if not isinstance(payload, list) or not payload:
-        return {}
-
-    selected_snapshots = payload
-    if preferred_days is not None:
-        preferred_matches = [
-            item for item in payload
-            if int(item.get("days") or 0) == int(preferred_days)
-        ]
-        if len(preferred_matches) >= 2:
-            selected_snapshots = preferred_matches
-
-    selected_snapshots = selected_snapshots[-max(max_points, 2):]
-    trend_lookup: Dict[str, List[float]] = {}
-    for snapshot in selected_snapshots:
-        for industry in snapshot.get("industries") or []:
-            industry_name = str(industry.get("name") or "").strip()
-            if not industry_name:
-                continue
-            point = industry.get("total_score")
-            if point is None:
-                point = industry.get("value")
-            try:
-                numeric_point = float(point)
-            except (TypeError, ValueError):
-                continue
-            trend_lookup.setdefault(industry_name, []).append(round(numeric_point, 3))
-
-    filtered_lookup = {
-        industry_name: values
-        for industry_name, values in trend_lookup.items()
-        if len(values) >= 2
-    }
-
-    if _HEATMAP_HISTORY_TREND_CACHE is None or _HEATMAP_HISTORY_TREND_CACHE_MTIME != current_mtime:
-        _HEATMAP_HISTORY_TREND_CACHE = {}
-        _HEATMAP_HISTORY_TREND_CACHE_MTIME = current_mtime
-    _HEATMAP_HISTORY_TREND_CACHE[cache_key] = filtered_lookup
-    return filtered_lookup
+# Backwards-compat shims: a few sites in this module still call by the old names.
+_load_trend_aliases = load_trend_aliases
+_load_heatmap_history_trend_lookup = load_heatmap_history_trend_lookup
 
 
 class IndustryAnalyzer:
@@ -260,36 +183,8 @@ class IndustryAnalyzer:
                 self._inflight_loads.pop(key, None)
                 inflight["event"].set()
 
-    @staticmethod
-    def _derive_size_source(market_cap_source: Any) -> str:
-        """将热力图尺寸来源收敛到与 marketCapSource 一致的类别。"""
-        source = str(market_cap_source or "unknown").strip()
-        if source.startswith("snapshot_"):
-            return "snapshot"
-        if source == "sina_proxy_stock_sum":
-            return "proxy"
-        if source == "unknown" or source.startswith("estimated") or source == "constant_fallback":
-            return "estimated"
-        return "live"
-
-    @staticmethod
-    def _scale_rank_score(series: pd.Series) -> pd.Series:
-        """
-        将横截面原始分数压缩到统一的 0-100 展示口径。
-
-        这里保留 20-95 的可读区间，避免排序分数在样本很集中时出现 0/100 贴边。
-        """
-        clean = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan).fillna(0.0)
-        if clean.empty:
-            return clean
-        if len(clean) == 1:
-            return pd.Series([50.0], index=clean.index, dtype=float)
-
-        s_min = clean.min()
-        s_max = clean.max()
-        if s_max <= s_min:
-            return pd.Series(50.0, index=clean.index, dtype=float)
-        return 20 + 75 * (clean - s_min) / (s_max - s_min)
+    _derive_size_source = staticmethod(derive_size_source)
+    _scale_rank_score = staticmethod(scale_rank_score)
 
     def _calculate_rank_score_series(self, df: pd.DataFrame) -> pd.Series:
         """
@@ -395,20 +290,7 @@ class IndustryAnalyzer:
             },
         ]
 
-    @staticmethod
-    def _weighted_std(values: np.ndarray, weights: np.ndarray) -> float:
-        """计算加权标准差；权重不可用时退化为普通标准差。"""
-        clean_values = np.asarray(values, dtype=float)
-        clean_weights = np.asarray(weights, dtype=float)
-        if clean_values.size == 0:
-            return 0.0
-        if clean_values.size == 1:
-            return 0.0
-        if clean_weights.size != clean_values.size or clean_weights.sum() <= 0:
-            return float(np.std(clean_values))
-        mean = np.average(clean_values, weights=clean_weights)
-        variance = np.average((clean_values - mean) ** 2, weights=clean_weights)
-        return float(np.sqrt(max(variance, 0.0)))
+    _weighted_std = staticmethod(weighted_std)
 
     def _ensure_industry_volatility(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -450,31 +332,7 @@ class IndustryAnalyzer:
             result["industry_volatility_source"] = "unavailable"
         return result
 
-    @staticmethod
-    def _apply_historical_volatility(df: pd.DataFrame, historical_vol_df: pd.DataFrame) -> pd.DataFrame:
-        """用真实历史波动率覆盖现有代理波动率。"""
-        if df.empty or historical_vol_df.empty:
-            return df
-        merged = df.merge(
-            historical_vol_df[["industry_name", "industry_volatility"]],
-            on="industry_name",
-            how="left",
-            suffixes=("", "_historical"),
-        )
-        if "industry_volatility_historical" in merged.columns:
-            historical_mask = pd.to_numeric(
-                merged["industry_volatility_historical"],
-                errors="coerce",
-            ).notna()
-            merged["industry_volatility"] = pd.to_numeric(
-                merged["industry_volatility_historical"],
-                errors="coerce",
-            ).fillna(pd.to_numeric(merged.get("industry_volatility", 0), errors="coerce").fillna(0.0))
-            if "industry_volatility_source" not in merged.columns:
-                merged["industry_volatility_source"] = None
-            merged.loc[historical_mask, "industry_volatility_source"] = "historical_index"
-            merged = merged.drop(columns=["industry_volatility_historical"])
-        return merged
+    _apply_historical_volatility = staticmethod(apply_historical_volatility)
 
     def _is_cache_valid(self) -> bool:
         """[Deprecated] Compatibility legacy check"""

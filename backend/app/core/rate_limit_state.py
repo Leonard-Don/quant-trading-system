@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from src.middleware.rate_limiter import RateLimiter
 
-
 rate_limiter = RateLimiter(requests_per_minute=100, burst_size=120)
 rate_limiter.configure_endpoint_rules(
     [

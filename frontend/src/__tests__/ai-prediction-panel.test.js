@@ -5,14 +5,14 @@ import '@testing-library/jest-dom';
 import AIPredictionPanel from '../components/AIPredictionPanel';
 import { compareModelPredictions, trainAllModels } from '../services/api';
 
-jest.mock('../services/api', () => ({
-  compareModelPredictions: jest.fn(),
-  predictPrice: jest.fn(),
-  predictWithLSTM: jest.fn(),
-  trainAllModels: jest.fn(),
+vi.mock('../services/api', () => ({
+  compareModelPredictions: vi.fn(),
+  predictPrice: vi.fn(),
+  predictWithLSTM: vi.fn(),
+  trainAllModels: vi.fn(),
 }));
 
-jest.mock('recharts', () => {
+vi.mock('recharts', () => {
   const React = require('react');
   const Mock = ({ children }) => <div>{children}</div>;
 
@@ -29,20 +29,8 @@ jest.mock('recharts', () => {
   };
 });
 
-jest.mock('@ant-design/icons', () => {
-  const React = require('react');
-  const MockIcon = () => <span data-testid="icon" />;
 
-  return {
-    RobotOutlined: MockIcon,
-    ArrowUpOutlined: MockIcon,
-    ArrowDownOutlined: MockIcon,
-    ExperimentOutlined: MockIcon,
-    ReloadOutlined: MockIcon,
-  };
-});
-
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const Card = ({ title, extra, children }) => (
@@ -91,8 +79,8 @@ jest.mock('antd', () => {
     Tooltip,
     Space,
     message: {
-      success: jest.fn(),
-      error: jest.fn(),
+      success: vi.fn(),
+      error: vi.fn(),
     },
   };
 });
@@ -109,7 +97,7 @@ const createDeferred = () => {
 
 describe('AIPredictionPanel', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     trainAllModels.mockResolvedValue({});
     compareModelPredictions.mockResolvedValue({
       symbol: 'AAPL',

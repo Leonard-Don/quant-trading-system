@@ -6,77 +6,60 @@ import App from '../App';
 
 let mockBreakpoints = { lg: true };
 let mockIsDarkMode = false;
-const mockToggleTheme = jest.fn();
+const mockToggleTheme = vi.fn();
 
-jest.mock('../components/ErrorBoundary', () => ({
+vi.mock('../components/ErrorBoundary', () => ({
   __esModule: true,
   default: ({ children }) => <>{children}</>,
 }));
 
-jest.mock('../components/RealTimePanel', () => ({
+vi.mock('../components/RealTimePanel', () => ({
   __esModule: true,
   default: () => <div>RealTimePanel</div>,
 }));
 
-jest.mock('../components/IndustryDashboard', () => ({
+vi.mock('../components/IndustryDashboard', () => ({
   __esModule: true,
   default: () => <div>IndustryDashboard</div>,
 }));
 
-jest.mock('../components/BacktestDashboard', () => ({
+vi.mock('../components/BacktestDashboard', () => ({
   __esModule: true,
   default: () => <div>BacktestDashboard</div>,
 }));
 
-jest.mock('../components/TodayResearchDashboard', () => ({
+vi.mock('../components/TodayResearchDashboard', () => ({
   __esModule: true,
   default: () => <div>TodayResearchDashboard</div>,
 }));
 
-jest.mock('../services/api', () => ({
-  getStrategies: jest.fn(() => Promise.resolve([])),
-  runBacktest: jest.fn(),
+vi.mock('../services/api', () => ({
+  getStrategies: vi.fn(() => Promise.resolve([])),
+  runBacktest: vi.fn(),
 }));
 
-jest.mock('../contexts/ThemeContext', () => ({
+vi.mock('../contexts/ThemeContext', () => ({
   useTheme: () => ({
     isDarkMode: mockIsDarkMode,
     toggleTheme: mockToggleTheme,
   }),
 }));
 
-jest.mock('../generated/version', () => ({
+vi.mock('../generated/version', () => ({
   APP_VERSION: 'test-version',
 }));
 
-jest.mock('@ant-design/icons', () => {
-  const React = require('react');
-  const MockIcon = () => <span data-testid="icon" />;
 
-  return {
-    DashboardOutlined: MockIcon,
-    BarChartOutlined: MockIcon,
-    LineChartOutlined: MockIcon,
-    MenuOutlined: MockIcon,
-    SunOutlined: MockIcon,
-    MoonOutlined: MockIcon,
-    FireOutlined: MockIcon,
-    FundOutlined: MockIcon,
-    RadarChartOutlined: MockIcon,
-    FolderOutlined: MockIcon,
-  };
-});
-
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const AntdApp = ({ children, ...rest }) => <div {...rest}>{children}</div>;
   AntdApp.useApp = () => ({
     message: {
-      error: jest.fn(),
-      loading: jest.fn(),
-      destroy: jest.fn(),
-      success: jest.fn(),
+      error: vi.fn(),
+      loading: vi.fn(),
+      destroy: vi.fn(),
+      success: vi.fn(),
     },
   });
 

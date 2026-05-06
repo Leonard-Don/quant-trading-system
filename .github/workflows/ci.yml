@@ -34,7 +34,83 @@ jobs:
 
       - name: Run backend regression suite
         run: |
-          pytest tests/unit tests/integration -q --cov=src --cov=backend --cov-report=xml
+          pytest tests/unit tests/integration -q -m "not perf" --cov=src --cov=backend --cov-report=xml
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          if-no-files-found: ignore
+          path: coverage.xml
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Mypy on clean modules (must pass)
+        run: |
+          mypy --explicit-package-bases --namespace-packages --follow-imports=silent \
+            src/analytics/technical_indicators.py \
+            src/analytics/industry/
+
+      - name: Mypy broad probe (non-blocking)
+        continue-on-error: true
+        run: |
+          mypy --explicit-package-bases --namespace-packages \
+            backend/app/services src/analytics/technical_indicators.py \
+            src/analytics/industry/ || true
+
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run performance SLA suite
+        run: |
+          mkdir -p .benchmarks
+          pytest -m perf --benchmark-only --benchmark-json=.benchmarks/result.json -v
+
+      - name: Upload benchmark JSON
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-benchmarks
+          if-no-files-found: ignore
+          path: .benchmarks/result.json
 
   frontend:
     runs-on: ubuntu-latest
@@ -55,11 +131,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
       - name: Run frontend regression suite
         run: |
-          CI=1 npm test -- --runInBand --watch=false src/__tests__
+          CI=1 npm test
 
       - name: Build frontend
         run: npm run build
@@ -97,7 +173,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
       - name: Install research E2E dependencies
         working-directory: tests/e2e
@@ -121,9 +197,7 @@ jobs:
 
       - name: Run research E2E suite
         working-directory: tests/e2e
-        run: |
-          npm run verify:industry
-          npm run verify:realtime
+        run: npm run verify:all
 
       - name: Stop local application
         if: always()

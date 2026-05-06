@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -73,20 +73,20 @@ class CrossMarketTemplateContext(BaseModel):
     structural_decay_radar_score: Optional[float] = None
     structural_decay_radar_action_hint: Optional[str] = None
     structural_decay_radar_risk_budget_scale: Optional[float] = None
-    structural_decay_radar_top_signals: List[Dict[str, Any]] = Field(default_factory=list)
-    bias_highlights_raw: List[str] = Field(default_factory=list)
-    bias_highlights: List[str] = Field(default_factory=list)
-    bias_actions: List[Dict[str, Any]] = Field(default_factory=list)
-    signal_attribution: List[Dict[str, Any]] = Field(default_factory=list)
-    driver_summary: List[Dict[str, Any]] = Field(default_factory=list)
-    dominant_drivers: List[Dict[str, Any]] = Field(default_factory=list)
-    core_legs: List[Dict[str, Any]] = Field(default_factory=list)
-    support_legs: List[Dict[str, Any]] = Field(default_factory=list)
+    structural_decay_radar_top_signals: list[dict[str, Any]] = Field(default_factory=list)
+    bias_highlights_raw: list[str] = Field(default_factory=list)
+    bias_highlights: list[str] = Field(default_factory=list)
+    bias_actions: list[dict[str, Any]] = Field(default_factory=list)
+    signal_attribution: list[dict[str, Any]] = Field(default_factory=list)
+    driver_summary: list[dict[str, Any]] = Field(default_factory=list)
+    dominant_drivers: list[dict[str, Any]] = Field(default_factory=list)
+    core_legs: list[dict[str, Any]] = Field(default_factory=list)
+    support_legs: list[dict[str, Any]] = Field(default_factory=list)
     theme_core: Optional[str] = None
     theme_support: Optional[str] = None
     execution_posture: Optional[str] = None
-    base_assets: List[CrossMarketTemplateAsset] = Field(default_factory=list)
-    raw_bias_assets: List[CrossMarketTemplateAsset] = Field(default_factory=list)
+    base_assets: list[CrossMarketTemplateAsset] = Field(default_factory=list)
+    raw_bias_assets: list[CrossMarketTemplateAsset] = Field(default_factory=list)
 
 
 class CrossMarketAllocationConstraints(BaseModel):
@@ -103,12 +103,12 @@ class CrossMarketAllocationConstraints(BaseModel):
 
 
 class CrossMarketBacktestRequest(BaseModel):
-    assets: List[CrossMarketAsset] = Field(..., min_length=1, max_length=50)
+    assets: list[CrossMarketAsset] = Field(..., min_length=1, max_length=50)
     template_context: Optional[CrossMarketTemplateContext] = None
     allocation_constraints: Optional[CrossMarketAllocationConstraints] = None
     strategy: str = "spread_zscore"
     construction_mode: str = "equal_weight"
-    parameters: Dict[str, Any] = Field(
+    parameters: dict[str, Any] = Field(
         default_factory=lambda: {
             "lookback": 20,
             "entry_threshold": 1.5,
@@ -126,5 +126,5 @@ class CrossMarketBacktestRequest(BaseModel):
 
 class CrossMarketBacktestResponse(BaseModel):
     success: bool
-    data: Optional[Dict[str, Any]] = None
+    data: Optional[dict[str, Any]] = None
     error: Optional[str] = None

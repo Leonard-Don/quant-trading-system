@@ -24,38 +24,26 @@ const createDeferred = () => {
   return { promise, resolve, reject };
 };
 
-jest.mock('../services/api', () => ({
-  getPortfolio: jest.fn(),
-  getTradeHistory: jest.fn(),
-  getRealtimeQuote: jest.fn(),
-  executeTrade: jest.fn(),
-  resetAccount: jest.fn(),
+vi.mock('../services/api', () => ({
+  getPortfolio: vi.fn(),
+  getTradeHistory: vi.fn(),
+  getRealtimeQuote: vi.fn(),
+  executeTrade: vi.fn(),
+  resetAccount: vi.fn(),
 }));
 
-jest.mock('../services/tradeWebsocket', () => ({
+vi.mock('../services/tradeWebsocket', () => ({
   __esModule: true,
   default: {
-    addListener: jest.fn(),
-    connect: jest.fn(),
-    disconnect: jest.fn(),
-    getStatus: jest.fn(() => ({ isConnected: true })),
+    addListener: vi.fn(),
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    getStatus: vi.fn(() => ({ isConnected: true })),
   },
 }));
 
-jest.mock('@ant-design/icons', () => {
-  const React = require('react');
-  const MockIcon = () => <span data-testid="icon" />;
 
-  return {
-    HistoryOutlined: MockIcon,
-    ReloadOutlined: MockIcon,
-    ArrowUpOutlined: MockIcon,
-    ArrowDownOutlined: MockIcon,
-    BellOutlined: MockIcon,
-  };
-});
-
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const Card = ({ title, children }) => (
@@ -131,9 +119,9 @@ jest.mock('antd', () => {
       Text: ({ children }) => <span>{children}</span>,
     },
     message: {
-      success: jest.fn(),
-      error: jest.fn(),
-      warning: jest.fn(),
+      success: vi.fn(),
+      error: vi.fn(),
+      warning: vi.fn(),
     },
   };
 });
@@ -149,7 +137,7 @@ describe('TradePanel', () => {
 
   beforeEach(() => {
     mockListeners.clear();
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     tradeWebSocketService.addListener.mockImplementation((event, callback) => {
       mockListeners.set(event, callback);
       return () => mockListeners.delete(event);
@@ -177,7 +165,7 @@ describe('TradePanel', () => {
       <TradePanel
         visible
         defaultSymbol="^GSPC"
-        onClose={jest.fn()}
+        onClose={vi.fn()}
       />
     );
 
@@ -193,7 +181,7 @@ describe('TradePanel', () => {
       <TradePanel
         visible
         defaultSymbol="AAPL"
-        onClose={jest.fn()}
+        onClose={vi.fn()}
       />
     );
 
@@ -249,7 +237,7 @@ describe('TradePanel', () => {
       <TradePanel
         visible
         defaultSymbol="AAPL"
-        onClose={jest.fn()}
+        onClose={vi.fn()}
       />
     ));
 
@@ -267,7 +255,7 @@ describe('TradePanel', () => {
       <TradePanel
         visible={false}
         defaultSymbol="AAPL"
-        onClose={jest.fn()}
+        onClose={vi.fn()}
       />
     );
     await act(async () => {
@@ -278,7 +266,7 @@ describe('TradePanel', () => {
       <TradePanel
         visible
         defaultSymbol="MSFT"
-        onClose={jest.fn()}
+        onClose={vi.fn()}
       />
     );
     await act(async () => {
@@ -316,7 +304,7 @@ describe('TradePanel', () => {
       <TradePanel
         visible
         defaultSymbol="AAPL"
-        onClose={jest.fn()}
+        onClose={vi.fn()}
       />
     ));
 
@@ -324,7 +312,7 @@ describe('TradePanel', () => {
       <TradePanel
         visible
         defaultSymbol="MSFT"
-        onClose={jest.fn()}
+        onClose={vi.fn()}
       />
     );
     await act(async () => {
@@ -384,7 +372,7 @@ describe('TradePanel', () => {
           sourceDescription: 'NVDA 当前涨幅 3.20%，处于盘中强势区间。',
           note: '由异动雷达自动生成，适合先做纸面进场推演。',
         }}
-        onClose={jest.fn()}
+        onClose={vi.fn()}
       />
     );
 
@@ -406,7 +394,7 @@ describe('TradePanel', () => {
   });
 
   test('emits alert drafts from the active trade plan', async () => {
-    const onCreateAlertFromPlan = jest.fn();
+    const onCreateAlertFromPlan = vi.fn();
     const planDraft = {
       symbol: 'NVDA',
       action: 'BUY',
@@ -426,7 +414,7 @@ describe('TradePanel', () => {
         defaultSymbol="NVDA"
         planDraft={planDraft}
         onCreateAlertFromPlan={onCreateAlertFromPlan}
-        onClose={jest.fn()}
+        onClose={vi.fn()}
       />
     );
 
@@ -456,7 +444,7 @@ describe('TradePanel', () => {
           takeProfit: 947.76,
           sourceTitle: '强势拉升',
         }}
-        onClose={jest.fn()}
+        onClose={vi.fn()}
       />
     );
 

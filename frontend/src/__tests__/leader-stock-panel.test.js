@@ -11,9 +11,9 @@ import {
 } from '../services/api';
 
 const mockMessageApi = {
-  success: jest.fn(),
-  error: jest.fn(),
-  warning: jest.fn(),
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
 };
 
 const buildLeaderBoardCacheKey = (topN, topIndustries, perIndustry) => (
@@ -36,31 +36,22 @@ const buildLeaderRecord = (overrides = {}) => ({
   ...overrides,
 });
 
-jest.mock('../services/api', () => ({
-  getLeaderBoards: jest.fn(),
-  getLeaderStocks: jest.fn(),
-  getLeaderDetail: jest.fn(),
-  getIndustryTrend: jest.fn(),
+vi.mock('../services/api', () => ({
+  getLeaderBoards: vi.fn(),
+  getLeaderStocks: vi.fn(),
+  getLeaderDetail: vi.fn(),
+  getIndustryTrend: vi.fn(),
 }));
 
-jest.mock('../utils/messageApi', () => ({
+vi.mock('../utils/messageApi', () => ({
   useSafeMessageApi: () => mockMessageApi,
 }));
 
-jest.mock('../components/StockDetailModal', () => () => null);
-jest.mock('../components/common/MiniSparkline', () => () => <div data-testid="mini-sparkline" />);
+vi.mock('../components/StockDetailModal', () => ({ default: () => null }));
+vi.mock('../components/common/MiniSparkline', () => ({ default: () => <div data-testid="mini-sparkline" /> }));
 
-jest.mock('@ant-design/icons', () => {
-  const React = require('react');
-  const MockIcon = () => <span data-testid="icon" />;
-  return {
-    CrownOutlined: MockIcon,
-    ReloadOutlined: MockIcon,
-    BarChartOutlined: MockIcon,
-  };
-});
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const Card = ({ title, extra, children }) => (
@@ -91,7 +82,7 @@ jest.mock('antd', () => {
 
 describe('LeaderStockPanel', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     __resetLeaderBoardClientCacheForTests();
     window.sessionStorage.clear();
     getLeaderBoards.mockResolvedValue({ core: [], hot: [], errors: {} });
@@ -140,28 +131,35 @@ describe('LeaderStockPanel', () => {
   });
 
   test('keeps cached overview visible when refresh fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const cacheKey = buildLeaderBoardCacheKey(5, 5, 3);
-    window.sessionStorage.setItem(cacheKey, JSON.stringify({
-      version: 1,
-      timestamp: Date.now(),
-      core: [buildLeaderRecord({ name: '缓存核心', symbol: '600001' })],
-      hot: [buildLeaderRecord({ name: '缓存热点', symbol: '300001', score_type: 'hot' })],
-      errors: {},
-    }));
+    try {
+      window.sessionStorage.setItem(cacheKey, JSON.stringify({
+        version: 1,
+        timestamp: Date.now(),
+        core: [buildLeaderRecord({ name: '缓存核心', symbol: '600001' })],
+        hot: [buildLeaderRecord({ name: '缓存热点', symbol: '300001', score_type: 'hot' })],
+        errors: {},
+      }));
 
-    getLeaderBoards.mockRejectedValue(new Error('overview failed'));
-    getLeaderStocks.mockRejectedValue(new Error('legacy failed'));
+      getLeaderBoards.mockRejectedValue(new Error('overview failed'));
+      getLeaderStocks.mockRejectedValue(new Error('legacy failed'));
 
-    render(<LeaderStockPanel topN={5} topIndustries={5} perIndustry={3} />);
+      render(<LeaderStockPanel topN={5} topIndustries={5} perIndustry={3} />);
 
-    expect(screen.getByText('缓存核心')).toBeInTheDocument();
-    expect(screen.getByText('缓存热点')).toBeInTheDocument();
+      expect(screen.getByText('缓存核心')).toBeInTheDocument();
+      expect(screen.getByText('缓存热点')).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(screen.getByText('龙头股榜单刷新失败，当前展示的是稍早快照')).toBeInTheDocument();
-    });
+      await waitFor(() => {
+        expect(screen.getByText('龙头股榜单刷新失败，当前展示的是稍早快照')).toBeInTheDocument();
+      });
 
-    expect(screen.queryByText('龙头股榜单加载失败，请稍后重试')).not.toBeInTheDocument();
+      expect(screen.queryByText('龙头股榜单加载失败，请稍后重试')).not.toBeInTheDocument();
+    } finally {
+      warnSpy.mockRestore();
+      errorSpy.mockRestore();
+    }
   });
 
   test('reuses in-flight overview request across remounts', async () => {
@@ -247,7 +245,7 @@ describe('LeaderStockPanel', () => {
   });
 
   test('exposes a backtest handoff action for leader rows', async () => {
-    const handleBacktestStock = jest.fn();
+    const handleBacktestStock = vi.fn();
 
     render(
       <LeaderStockPanel

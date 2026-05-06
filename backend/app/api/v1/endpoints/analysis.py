@@ -1,23 +1,30 @@
-from fastapi import APIRouter, HTTPException
-from fastapi.concurrency import run_in_threadpool
-from datetime import datetime, timedelta
-from functools import partial
 import json
 import logging
-from typing import List, Optional
-from backend.app.services.runtime_state import get_data_manager
-from backend.app.schemas.analysis import TrendAnalysisRequest, TrendAnalysisResponse
+from datetime import datetime, timedelta
+from functools import partial
+from typing import Optional
+
 import numpy as np
 import pandas as pd
+from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
-from src.analytics.trend_analyzer import TrendAnalyzer
-from src.analytics.volume_price_analyzer import VolumePriceAnalyzer
-from src.analytics.sentiment_analyzer import SentimentAnalyzer
+
+from backend.app.schemas.analysis import TrendAnalysisRequest, TrendAnalysisResponse
+from backend.app.services.runtime_state import get_data_manager
 from src.analytics.comprehensive_scorer import ComprehensiveScorer
-from src.analytics.pattern_recognizer import PatternRecognizer
 from src.analytics.fundamental_analyzer import FundamentalAnalyzer
 from src.analytics.model_comparator import model_comparator
+from src.analytics.pattern_recognizer import PatternRecognizer
 from src.analytics.predictor import PricePredictor
+from src.analytics.sentiment_analyzer import SentimentAnalyzer
+from src.analytics.technical_indicators import (
+    calculate_bollinger,
+    calculate_macd,
+    calculate_rsi,
+)
+from src.analytics.trend_analyzer import TrendAnalyzer
+from src.analytics.volume_price_analyzer import VolumePriceAnalyzer
 from src.utils.cache import cache_manager
 
 router = APIRouter()
@@ -200,7 +207,7 @@ async def comprehensive_analysis(request: TrendAnalysisRequest):
             request.symbol,
             include_pattern=True,
         )
-        
+
         # 准备近期K线数据 (用于前端图表显示)
         result["klines"] = _build_klines(data, limit=150)
 
@@ -246,18 +253,18 @@ async def analysis_overview(request: TrendAnalysisRequest):
         raw_indicators = trend_analysis.get("indicators", {})
         volatility = trend_analysis.get("volatility", {})
         signal_strength = trend_analysis.get("signal_strength", {})
-        
+
         # 转换 RSI
         rsi_val = raw_indicators.get("rsi", 50)
         rsi_obj = {
             "value": rsi_val,
             "status": "overbought" if rsi_val > 70 else "oversold" if rsi_val < 30 else "neutral"
         }
-        
+
         # 转换 MACD
         macd_val = raw_indicators.get("macd", 0)
         macd_obj = {"value": macd_val}
-        
+
         # 转换 Bollinger (从波动率数据获取宽度, 位置暂无只能估算或缺省)
         bollinger_obj = {
             "bandwidth": volatility.get("bollinger_width", 0),
@@ -466,7 +473,7 @@ async def predict_prices(request: TrendAnalysisRequest):
 
 
 class CorrelationRequest(BaseModel):
-    symbols: List[str]  # List of stock symbols to analyze
+    symbols: list[str]  # List of stock symbols to analyze
     period_days: int = 90  # Number of days to analyze
 
 @router.post("/correlation", summary="多股票相关性分析")
@@ -518,8 +525,8 @@ async def analyze_correlation(request: CorrelationRequest):
         correlation_matrix = returns.corr()
 
         corr_data = []
-        for i, sym1 in enumerate(valid_symbols):
-            for j, sym2 in enumerate(valid_symbols):
+        for sym1 in valid_symbols:
+            for sym2 in valid_symbols:
                 corr_data.append({
                     "symbol1": sym1,
                     "symbol2": sym2,
@@ -573,7 +580,7 @@ def get_correlation_interpretation(avg_corr: float) -> dict:
     else:
         level = "very_low"
         description = "这些股票几乎不相关，是理想的分散化组合"
-    
+
     return {"level": level, "description": description}
 
 
@@ -593,13 +600,13 @@ async def compare_model_predictions(request: TrendAnalysisRequest):
 
         # 获取历史数据
         data = await _run_blocking(_load_requested_history, request)
-        
+
         if data.empty:
             raise HTTPException(
-                status_code=404, 
+                status_code=404,
                 detail=f"No data found for symbol {request.symbol}"
             )
-        
+
         # 比较预测
         result = await _run_blocking(
             model_comparator.compare_predictions,
@@ -607,7 +614,7 @@ async def compare_model_predictions(request: TrendAnalysisRequest):
             request.symbol,
             5,
         )
-        
+
         response = {
             "symbol": request.symbol,
             "timestamp": datetime.now().isoformat(),
@@ -615,7 +622,7 @@ async def compare_model_predictions(request: TrendAnalysisRequest):
         }
         _set_cached_analysis("prediction_compare", request, response)
         return response
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -630,23 +637,23 @@ async def predict_with_lstm(request: TrendAnalysisRequest):
     """
     try:
         data = await _run_blocking(_load_requested_history, request)
-        
+
         if data.empty:
             raise HTTPException(
-                status_code=404, 
+                status_code=404,
                 detail=f"No data found for symbol {request.symbol}"
             )
-        
+
         # LSTM 预测
         from src.analytics.lstm_predictor import lstm_predictor
         result = await _run_blocking(lstm_predictor.predict, data, request.symbol, days=5)
-        
+
         return {
             "symbol": request.symbol,
             "timestamp": datetime.now().isoformat(),
             **result
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -662,27 +669,27 @@ async def train_all_models(request: TrendAnalysisRequest):
     """
     try:
         data = await _run_blocking(_load_requested_history, request)
-        
+
         if data.empty:
             raise HTTPException(
-                status_code=404, 
+                status_code=404,
                 detail=f"No data found for symbol {request.symbol}"
             )
-        
+
         if len(data) < 100:
             raise HTTPException(
                 status_code=400,
                 detail="需要至少100条历史数据来训练模型"
             )
-        
+
         # 训练所有模型
         result = await _run_blocking(model_comparator.train_all_models, data, request.symbol)
-        
+
         return {
             "timestamp": datetime.now().isoformat(),
             **result
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -692,112 +699,6 @@ async def train_all_models(request: TrendAnalysisRequest):
 
 # ==================== 市场分析增强 API ====================
 
-def _calculate_rsi(data: pd.DataFrame, periods: int = 14) -> dict:
-    """计算 RSI 指标"""
-    close = data['close']
-    delta = close.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=periods).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=periods).mean()
-    rs = gain / loss
-    rsi = 100 - (100 / (1 + rs))
-    current_rsi = float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else 50
-    
-    if current_rsi > 70:
-        status = "overbought"
-        signal = "超买，可能面临回调"
-    elif current_rsi < 30:
-        status = "oversold"
-        signal = "超卖，可能出现反弹"
-    else:
-        status = "neutral"
-        signal = "中性区间"
-    
-    return {
-        "value": round(current_rsi, 2),
-        "status": status,
-        "signal": signal
-    }
-
-
-def _calculate_macd(data: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9) -> dict:
-    """计算 MACD 指标"""
-    close = data['close']
-    exp1 = close.ewm(span=fast, adjust=False).mean()
-    exp2 = close.ewm(span=slow, adjust=False).mean()
-    macd_line = exp1 - exp2
-    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
-    histogram = macd_line - signal_line
-    
-    current_macd = float(macd_line.iloc[-1]) if not pd.isna(macd_line.iloc[-1]) else 0
-    current_signal = float(signal_line.iloc[-1]) if not pd.isna(signal_line.iloc[-1]) else 0
-    current_hist = float(histogram.iloc[-1]) if not pd.isna(histogram.iloc[-1]) else 0
-    prev_hist = float(histogram.iloc[-2]) if len(histogram) > 1 and not pd.isna(histogram.iloc[-2]) else 0
-    
-    if current_macd > current_signal and current_hist > 0:
-        status = "bullish"
-        if current_hist > prev_hist:
-            trend = "加速上涨"
-        else:
-            trend = "上涨减速"
-    elif current_macd < current_signal and current_hist < 0:
-        status = "bearish"
-        if current_hist < prev_hist:
-            trend = "加速下跌"
-        else:
-            trend = "下跌减速"
-    else:
-        status = "neutral"
-        trend = "横盘整理"
-    
-    return {
-        "value": round(current_macd, 4),
-        "signal_line": round(current_signal, 4),
-        "histogram": round(current_hist, 4),
-        "status": status,
-        "trend": trend
-    }
-
-
-def _calculate_bollinger(data: pd.DataFrame, periods: int = 20, std_dev: float = 2.0) -> dict:
-    """计算布林带指标"""
-    close = data['close']
-    middle = close.rolling(window=periods).mean()
-    std = close.rolling(window=periods).std()
-    upper = middle + (std * std_dev)
-    lower = middle - (std * std_dev)
-    
-    current_close = float(close.iloc[-1])
-    current_upper = float(upper.iloc[-1]) if not pd.isna(upper.iloc[-1]) else current_close * 1.05
-    current_middle = float(middle.iloc[-1]) if not pd.isna(middle.iloc[-1]) else current_close
-    current_lower = float(lower.iloc[-1]) if not pd.isna(lower.iloc[-1]) else current_close * 0.95
-    
-    bandwidth = ((current_upper - current_lower) / current_middle * 100) if current_middle != 0 else 0
-    
-    # 判断位置
-    if current_close >= current_upper:
-        position = "above_upper"
-        signal = "价格突破上轨，可能超买"
-    elif current_close <= current_lower:
-        position = "below_lower"
-        signal = "价格突破下轨，可能超卖"
-    elif current_close > current_middle:
-        position = "upper_half"
-        signal = "价格在中轨上方，偏强"
-    else:
-        position = "lower_half"
-        signal = "价格在中轨下方，偏弱"
-    
-    return {
-        "upper": round(current_upper, 2),
-        "middle": round(current_middle, 2),
-        "lower": round(current_lower, 2),
-        "current_price": round(current_close, 2),
-        "position": position,
-        "bandwidth": round(bandwidth, 2),
-        "signal": signal
-    }
-
-
 @router.post("/technical-indicators", summary="技术指标快照")
 async def get_technical_indicators(request: TrendAnalysisRequest):
     """
@@ -805,17 +706,17 @@ async def get_technical_indicators(request: TrendAnalysisRequest):
     """
     try:
         data = await _run_blocking(_load_requested_history, request)
-        
+
         if data.empty:
             raise HTTPException(
                 status_code=404,
                 detail=f"No data found for symbol {request.symbol}"
             )
-        
-        rsi = _calculate_rsi(data)
-        macd = _calculate_macd(data)
-        bollinger = _calculate_bollinger(data)
-        
+
+        rsi = calculate_rsi(data)
+        macd = calculate_macd(data)
+        bollinger = calculate_bollinger(data)
+
         # 综合技术信号
         bullish_count = sum([
             rsi["status"] == "oversold",
@@ -827,7 +728,7 @@ async def get_technical_indicators(request: TrendAnalysisRequest):
             macd["status"] == "bearish",
             bollinger["position"] in ["above_upper"]
         ])
-        
+
         if bullish_count >= 2:
             overall_signal = "bullish"
             overall_description = "多数指标看涨"
@@ -837,7 +738,7 @@ async def get_technical_indicators(request: TrendAnalysisRequest):
         else:
             overall_signal = "neutral"
             overall_description = "技术面分歧"
-        
+
         return {
             "symbol": request.symbol,
             "timestamp": datetime.now().isoformat(),
@@ -851,7 +752,7 @@ async def get_technical_indicators(request: TrendAnalysisRequest):
                 "bearish_indicators": bearish_count
             }
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -875,27 +776,27 @@ async def get_sentiment_history(request: TrendAnalysisRequest, days: int = 30):
             end_date=end_date,
             interval="1d",
         )
-        
+
         if data.empty or len(data) < 30:
             raise HTTPException(
                 status_code=404,
                 detail=f"Insufficient data for symbol {request.symbol}"
             )
-        
+
         # 计算每日恐慌贪婪指数
         history = []
         close = data['close']
         volume = data['volume']
-        
+
         for i in range(20, len(data)):
-            
+
             window_data = data.iloc[max(0, i-50):i+1].copy()
             if len(window_data) < 20:
                 continue
-            
+
             # 改进的恐慌贪婪指数计算
             score = 50.0
-            
+
             # 1. 动量（20日）- 权重 30%
             momentum = (close.iloc[i] - close.iloc[i-20]) / close.iloc[i-20] * 100
             if momentum > 15:
@@ -914,7 +815,7 @@ async def get_sentiment_history(request: TrendAnalysisRequest, days: int = 30):
                 score -= 10
             elif momentum < 0:
                 score -= 5
-            
+
             # 2. 成交量变化（相对20日均量）- 权重 15%
             avg_volume = volume.iloc[max(0, i-20):i].mean()
             if avg_volume > 0:
@@ -925,7 +826,7 @@ async def get_sentiment_history(request: TrendAnalysisRequest, days: int = 30):
                     score += 5 if momentum > 0 else -5
                 elif volume_ratio < 0.7:
                     score -= 3  # 缩量通常表示观望
-            
+
             # 3. 价格相对位置（距离52周高低点）- 权重 20%
             high_52w = close.iloc[max(0, i-252):i+1].max()
             low_52w = close.iloc[max(0, i-252):i+1].min()
@@ -939,7 +840,7 @@ async def get_sentiment_history(request: TrendAnalysisRequest, days: int = 30):
                     score -= 15  # 接近历史低点
                 elif price_position < 0.4:
                     score -= 8
-            
+
             # 4. 短期动量（5日）- 权重 15%
             short_momentum = (close.iloc[i] - close.iloc[i-5]) / close.iloc[i-5] * 100
             if short_momentum > 5:
@@ -950,7 +851,7 @@ async def get_sentiment_history(request: TrendAnalysisRequest, days: int = 30):
                 score -= 10
             elif short_momentum < -2:
                 score -= 5
-            
+
             # 5. 波动率 - 权重 20%
             returns = close.iloc[max(0, i-20):i+1].pct_change()
             volatility = returns.std() * np.sqrt(252) * 100
@@ -962,23 +863,23 @@ async def get_sentiment_history(request: TrendAnalysisRequest, days: int = 30):
                 score -= 15  # 高波动表示恐惧
             elif volatility > 35:
                 score -= 8
-            
+
             score = max(0, min(100, score))
-            
+
             date_str = data.index[i].strftime("%Y-%m-%d")
             sentiment = "extreme_greed" if score >= 75 else "greed" if score >= 55 else "neutral" if score >= 45 else "fear" if score >= 25 else "extreme_fear"
-            
+
             history.append({
                 "date": date_str,
                 "fear_greed_index": round(score, 1),
                 "sentiment": sentiment
             })
-        
+
         # 计算趋势
         if len(history) >= 7:
             recent_avg = np.mean([h["fear_greed_index"] for h in history[-7:]])
             older_avg = np.mean([h["fear_greed_index"] for h in history[-14:-7]]) if len(history) >= 14 else recent_avg
-            
+
             if recent_avg > older_avg + 5:
                 trend = "increasing"
                 trend_description = "情绪转向乐观"
@@ -991,9 +892,9 @@ async def get_sentiment_history(request: TrendAnalysisRequest, days: int = 30):
         else:
             trend = "unknown"
             trend_description = "数据不足"
-        
+
         avg_30d = np.mean([h["fear_greed_index"] for h in history]) if history else 50
-        
+
         return {
             "symbol": request.symbol,
             "timestamp": datetime.now().isoformat(),
@@ -1003,7 +904,7 @@ async def get_sentiment_history(request: TrendAnalysisRequest, days: int = 30):
             "avg_30d": round(avg_30d, 1),
             "current": history[-1] if history else None
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -1019,18 +920,18 @@ async def get_industry_comparison(request: TrendAnalysisRequest):
     try:
         # 获取目标股票的基本面数据
         target_fundamental = await _run_blocking(fundamental_analyzer.analyze, request.symbol)
-        
+
         # fundamental_analyzer.analyze() 直接返回 {metrics, valuation, ...}
         if not target_fundamental or not target_fundamental.get("metrics"):
             raise HTTPException(
                 status_code=404,
                 detail=f"Fundamental data not available for {request.symbol}"
             )
-        
+
         target_metrics = target_fundamental.get("metrics", {})
         industry = target_metrics.get("industry", "Unknown")
         sector = target_metrics.get("sector", "Unknown")
-        
+
         # 定义同行业竞争对手（根据行业预定义）
         industry_peers = {
             "Technology": ["AAPL", "MSFT", "GOOGL", "META", "NVDA", "AMD", "INTC"],
@@ -1042,11 +943,11 @@ async def get_industry_comparison(request: TrendAnalysisRequest):
             "Banks—Diversified": ["JPM", "BAC", "WFC", "C", "GS", "MS"],
             "Default": ["SPY", "QQQ", "DIA"]  # 默认使用指数对比
         }
-        
+
         # 获取对应行业的竞争对手
         peer_symbols = industry_peers.get(industry, industry_peers.get(sector, industry_peers["Default"]))
         peer_symbols = [s for s in peer_symbols if s != request.symbol][:5]  # 排除自身，最多5个
-        
+
         peers = []
         for peer_symbol in peer_symbols:
             try:
@@ -1064,7 +965,7 @@ async def get_industry_comparison(request: TrendAnalysisRequest):
                     })
             except Exception as e:
                 logger.warning(f"Could not fetch data for peer {peer_symbol}: {e}")
-        
+
         # 目标股票数据
         target = {
             "symbol": request.symbol,
@@ -1075,22 +976,22 @@ async def get_industry_comparison(request: TrendAnalysisRequest):
             "market_cap": target_metrics.get("market_cap", 0),
             "price_to_book": round(target_metrics.get("price_to_book", 0) or 0, 2)
         }
-        
+
         # 计算行业平均值
-        all_companies = [target] + peers
+        all_companies = [target, *peers]
         industry_avg = {
             "pe_ratio": round(np.mean([c["pe_ratio"] for c in all_companies if c["pe_ratio"] > 0]), 2),
             "revenue_growth": round(np.mean([c["revenue_growth"] for c in all_companies]), 2),
             "profit_margin": round(np.mean([c["profit_margin"] for c in all_companies]), 2)
         }
-        
+
         # 计算排名
         sorted_by_pe = sorted([c for c in all_companies if c["pe_ratio"] > 0], key=lambda x: x["pe_ratio"])
         sorted_by_growth = sorted(all_companies, key=lambda x: x["revenue_growth"], reverse=True)
-        
+
         target["pe_rank"] = next((i+1 for i, c in enumerate(sorted_by_pe) if c["symbol"] == request.symbol), 0)
         target["growth_rank"] = next((i+1 for i, c in enumerate(sorted_by_growth) if c["symbol"] == request.symbol), 0)
-        
+
         return {
             "symbol": request.symbol,
             "timestamp": datetime.now().isoformat(),
@@ -1101,7 +1002,7 @@ async def get_industry_comparison(request: TrendAnalysisRequest):
             "industry_avg": industry_avg,
             "total_companies": len(all_companies)
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -1116,48 +1017,48 @@ async def get_risk_metrics(request: TrendAnalysisRequest):
     """
     try:
         data = await _run_blocking(_load_requested_history, request)
-        
+
         if data.empty or len(data) < 50:
             raise HTTPException(
                 status_code=404,
                 detail=f"Insufficient data for risk calculation: {request.symbol}"
             )
-        
+
         close = data['close']
         returns = close.pct_change().dropna()
-        
+
         # 1. VaR 计算 (历史模拟法)
         var_95 = np.percentile(returns, 5) * 100  # 95% VaR
         var_99 = np.percentile(returns, 1) * 100  # 99% VaR
-        
+
         # 2. 最大回撤
         cumulative = (1 + returns).cumprod()
         rolling_max = cumulative.cummax()
         drawdown = (cumulative - rolling_max) / rolling_max
         max_drawdown = drawdown.min() * 100
-        
+
         # 找出最大回撤区间
         max_dd_end_idx = drawdown.idxmin()
         max_dd_start_idx = cumulative.loc[:max_dd_end_idx].idxmax()
-        
+
         # 3. 年化收益率
         total_return = (close.iloc[-1] - close.iloc[0]) / close.iloc[0]
         years = len(data) / 252  # 假设252个交易日
         annual_return = ((1 + total_return) ** (1/years) - 1) * 100 if years > 0 else 0
-        
+
         # 4. 年化波动率
         annual_volatility = returns.std() * np.sqrt(252) * 100
-        
+
         # 5. 夏普比率 (假设无风险利率 4%)
         risk_free_rate = 0.04
         excess_return = annual_return / 100 - risk_free_rate
         sharpe_ratio = excess_return / (annual_volatility / 100) if annual_volatility != 0 else 0
-        
+
         # 6. 索提诺比率 (仅考虑下行波动率)
         negative_returns = returns[returns < 0]
         downside_volatility = negative_returns.std() * np.sqrt(252) * 100 if len(negative_returns) > 0 else annual_volatility
         sortino_ratio = excess_return / (downside_volatility / 100) if downside_volatility != 0 else 0
-        
+
         # 7. Beta (相对于SPY)
         try:
             spy_data = await _run_blocking(
@@ -1181,7 +1082,7 @@ async def get_risk_metrics(request: TrendAnalysisRequest):
                 beta = 1.0
         except Exception:
             beta = 1.0
-        
+
         # 风险等级判断
         risk_score = 0
         if abs(var_95) > 5:
@@ -1196,7 +1097,7 @@ async def get_risk_metrics(request: TrendAnalysisRequest):
             risk_score += 1
         if sharpe_ratio < 0.5:
             risk_score += 1
-        
+
         if risk_score >= 5:
             risk_level = "very_high"
             risk_description = "风险极高，谨慎投资"
@@ -1209,7 +1110,7 @@ async def get_risk_metrics(request: TrendAnalysisRequest):
         else:
             risk_level = "low"
             risk_description = "相对低风险"
-        
+
         return {
             "symbol": request.symbol,
             "timestamp": datetime.now().isoformat(),
@@ -1229,7 +1130,7 @@ async def get_risk_metrics(request: TrendAnalysisRequest):
             "risk_description": risk_description,
             "data_points": len(returns)
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:

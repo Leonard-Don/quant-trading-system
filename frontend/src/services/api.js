@@ -1,8 +1,8 @@
 import axios from 'axios';
 
 const DEFAULT_LOCAL_API_BASE_URL = 'http://127.0.0.1:8000';
-const API_BASE_URL = process.env.REACT_APP_API_URL || DEFAULT_LOCAL_API_BASE_URL;
-const API_TIMEOUT = parseInt(process.env.REACT_APP_API_TIMEOUT) || 300000;
+const API_BASE_URL = import.meta.env.VITE_API_URL || DEFAULT_LOCAL_API_BASE_URL;
+const API_TIMEOUT = parseInt(import.meta.env.VITE_API_TIMEOUT) || 300000;
 const API_AUTH_TOKEN_KEY = 'quant_research_auth_token';
 const API_REFRESH_TOKEN_KEY = 'quant_research_refresh_token';
 const LEGACY_API_AUTH_TOKEN_KEY = 'quant_lab_auth_token';
@@ -72,9 +72,9 @@ const parseTimeout = (value, fallback) => {
 };
 export const API_TIMEOUT_PROFILES = {
   default: API_TIMEOUT,
-  analysis: parseTimeout(process.env.REACT_APP_API_TIMEOUT_ANALYSIS, 120000),
-  standard: parseTimeout(process.env.REACT_APP_API_TIMEOUT_STANDARD, 30000),
-  dashboard: parseTimeout(process.env.REACT_APP_API_TIMEOUT_DASHBOARD, 45000),
+  analysis: parseTimeout(import.meta.env.VITE_API_TIMEOUT_ANALYSIS, 120000),
+  standard: parseTimeout(import.meta.env.VITE_API_TIMEOUT_STANDARD, 30000),
+  dashboard: parseTimeout(import.meta.env.VITE_API_TIMEOUT_DASHBOARD, 45000),
 };
 export const withTimeoutProfile = (profile = 'default', config = {}) => ({
   ...config,
@@ -494,6 +494,11 @@ export const getInfrastructureStatus = async () => {
   return response.data;
 };
 
+export const getProviderRuntimeStatus = async () => {
+  const response = await api.get('/system/providers/status', withTimeoutProfile('standard'));
+  return response.data;
+};
+
 export const createInfrastructureTask = async (payload) => {
   const response = await api.post('/infrastructure/tasks', payload, withTimeoutProfile('standard'));
   return response.data;
@@ -685,6 +690,17 @@ export const getPortfolio = async () => {
 
 export const getRealtimeQuote = async (symbol) => {
   const response = await api.get(`/realtime/quote/${encodeURIComponent(symbol)}`);
+  return response.data;
+};
+
+export const getMultipleQuotes = async (symbols = []) => {
+  const list = (Array.isArray(symbols) ? symbols : [])
+    .map((symbol) => String(symbol || '').trim())
+    .filter(Boolean);
+  if (list.length === 0) return { success: true, data: {} };
+  const response = await api.get('/realtime/quotes', {
+    params: { symbols: list.join(',') },
+  });
   return response.data;
 };
 
@@ -1081,6 +1097,44 @@ export const getCrossMarketTemplates = async () => {
 
 export const runCrossMarketBacktest = async (payload) => {
   const response = await api.post('/cross-market/backtest', payload, withTimeoutProfile('analysis'));
+  return response.data;
+};
+
+export const getPolicyRadarSignal = async () => {
+  const response = await api.get('/policy-radar/signal');
+  return response.data;
+};
+
+export const getPolicyRadarRecords = async ({ industry, timeframe = '7d', limit = 50 } = {}) => {
+  const params = { timeframe, limit };
+  if (industry) params.industry = industry;
+  const response = await api.get('/policy-radar/records', { params });
+  return response.data;
+};
+
+export const getPaperAccount = async () => {
+  const response = await api.get('/paper/account');
+  return response.data;
+};
+
+export const submitPaperOrder = async (order) => {
+  const response = await api.post('/paper/orders', order);
+  return response.data;
+};
+
+export const listPaperOrders = async ({ limit = 100 } = {}) => {
+  const response = await api.get('/paper/orders', { params: { limit } });
+  return response.data;
+};
+
+export const resetPaperAccount = async ({ initialCapital } = {}) => {
+  const body = initialCapital != null ? { initial_capital: initialCapital } : {};
+  const response = await api.post('/paper/reset', body);
+  return response.data;
+};
+
+export const cancelPaperOrder = async (orderId) => {
+  const response = await api.delete(`/paper/orders/${encodeURIComponent(orderId)}`);
   return response.data;
 };
 

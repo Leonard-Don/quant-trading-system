@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { App as AntdApp, Layout, Typography, Menu, Space, Button, Tooltip, Spin, Grid } from 'antd';
 import {
   DashboardOutlined,
@@ -9,22 +9,37 @@ import {
   MoonOutlined,
   FireOutlined,
   FundOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 
 import ErrorBoundary from './components/ErrorBoundary';
-import { getStrategies, runBacktest } from './services/api';
+import {
+  getStrategies,
+  runBacktest,
+  createResearchJournalEntry,
+  getRealtimeQuote,
+  submitPaperOrder,
+} from './services/api';
+import { buildBacktestJournalEntry } from './utils/backtestJournalEntry';
+import {
+  buildPrefillFromBacktest,
+  canAutoExecutePrefill,
+  setPaperPrefill,
+} from './utils/paperTradingPrefill';
 import { useTheme } from './contexts/ThemeContext';
 import { APP_VERSION } from './generated/version';
 import { useAppUrlState } from './hooks/useAppUrlState';
 import { replaceAppUrl } from './utils/appUrlState';
+import lazyWithRetry from './utils/lazyWithRetry';
 import { buildViewUrlForCurrentState, navigateToAppUrl } from './utils/researchContext';
 
 // 懒加载非核心组件，减少初始包大小
 
-const RealTimePanel = lazy(() => import('./components/RealTimePanel'));
-const IndustryDashboard = lazy(() => import('./components/IndustryDashboard'));
-const BacktestDashboard = lazy(() => import('./components/BacktestDashboard'));
-const TodayResearchDashboard = lazy(() => import('./components/TodayResearchDashboard'));
+const RealTimePanel = lazyWithRetry(() => import('./components/RealTimePanel'));
+const IndustryDashboard = lazyWithRetry(() => import('./components/IndustryDashboard'));
+const BacktestDashboard = lazyWithRetry(() => import('./components/BacktestDashboard'));
+const TodayResearchDashboard = lazyWithRetry(() => import('./components/TodayResearchDashboard'));
+const PaperTradingPanel = lazyWithRetry(() => import('./components/PaperTradingPanel'));
 
 // 懒加载占位组件
 const LazyLoadFallback = () => (
@@ -44,8 +59,8 @@ const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
 const VIEW_QUERY_KEY = 'view';
-const VALID_VIEWS = new Set(['today', 'backtest', 'realtime', 'industry']);
-const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry']);
+const VALID_VIEWS = new Set(['today', 'backtest', 'realtime', 'industry', 'paper']);
+const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry', 'paper']);
 const FULL_VIEW_SET = new Set(['realtime']);
 const readViewStateFromLocation = (search = window.location.search, revision = 0) => {
   const params = new URLSearchParams(search);
@@ -149,6 +164,15 @@ function App() {
           content: '回测完成！',
           duration: 3,
         });
+        // Auto-archive to research journal. Best-effort: a journal failure must
+        // never disturb the visible backtest result, which is the primary user
+        // outcome here.
+        const journalEntry = buildBacktestJournalEntry(formData, result.data);
+        if (journalEntry) {
+          createResearchJournalEntry(journalEntry).catch((archiveError) => {
+            console.warn('Auto-archive to research journal failed:', archiveError);
+          });
+        }
       } else {
         message.error({
           content: '回测失败: ' + result.error,
@@ -188,6 +212,11 @@ function App() {
       key: 'industry',
       icon: <FireOutlined />,
       label: '行业热度',
+    },
+    {
+      key: 'paper',
+      icon: <ThunderboltOutlined />,
+      label: '纸面账户',
     }
   ];
 
@@ -203,6 +232,59 @@ function App() {
     }
   }, [isMobile, locationState.pathname, locationState.search]);
 
+  const handleSendBacktestToPaper = useCallback((backtestResult) => {
+    const prefill = buildPrefillFromBacktest(backtestResult);
+    if (!prefill) {
+      message.warning('当前回测结果不足以预填纸面订单（缺少标的或成交记录）');
+      return;
+    }
+    setPaperPrefill(prefill);
+    setCurrentView('paper');
+  }, [message, setCurrentView]);
+
+  const handleAutoExecuteBacktestToPaper = useCallback(async (backtestResult) => {
+    const prefill = buildPrefillFromBacktest(backtestResult);
+    if (!canAutoExecutePrefill(prefill)) {
+      message.warning('当前回测结果缺少有效成交信息，无法直接下单');
+      return;
+    }
+
+    // Best-effort: any failure (quote unavailable, order rejected) falls
+    // back to the F path so the user lands in the paper workspace with a
+    // prefilled form rather than a dead end.
+    try {
+      const quoteResp = await getRealtimeQuote(prefill.symbol);
+      const quotePayload = quoteResp?.data || quoteResp || {};
+      const price = Number(quotePayload.price ?? quotePayload.last_price ?? quotePayload.close);
+      if (!Number.isFinite(price) || price <= 0) {
+        message.warning('行情不可用，已切到手填模式');
+        setPaperPrefill(prefill);
+        setCurrentView('paper');
+        return;
+      }
+      await submitPaperOrder({
+        symbol: prefill.symbol,
+        side: prefill.side,
+        quantity: prefill.quantity,
+        fill_price: price,
+        commission: 0,
+        slippage_bps: 0,
+      });
+      message.success(
+        `已按市价 $${price.toFixed(2)} 下单 ${prefill.side} ${prefill.quantity} ${prefill.symbol}`,
+      );
+      setCurrentView('paper');
+    } catch (error) {
+      const detail = error?.response?.data?.error?.message
+        || error?.response?.data?.detail
+        || error?.message
+        || '下单失败';
+      message.error(`直接下单失败：${detail}（已切到手填模式）`);
+      setPaperPrefill(prefill);
+      setCurrentView('paper');
+    }
+  }, [message, setCurrentView]);
+
   const renderContent = () => {
     switch (currentView) {
       case 'today':
@@ -213,6 +295,9 @@ function App() {
 
       case 'industry':
         return <Suspense fallback={<LazyLoadFallback />}><IndustryDashboard /></Suspense>;
+
+      case 'paper':
+        return <Suspense fallback={<LazyLoadFallback />}><PaperTradingPanel /></Suspense>;
       case 'backtest':
       default:
         return (
@@ -222,6 +307,8 @@ function App() {
               onSubmit={handleBacktest}
               loading={loading}
               results={results}
+              onSendToPaperTrading={handleSendBacktestToPaper}
+              onAutoExecuteToPaperTrading={handleAutoExecuteBacktestToPaper}
             />
           </Suspense>
         );

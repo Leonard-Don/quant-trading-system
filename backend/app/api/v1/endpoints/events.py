@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
-import yfinance as yf
-from datetime import datetime, timedelta
 import logging
+from datetime import datetime, timedelta
+
+import yfinance as yf
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -17,7 +18,7 @@ async def get_events_summary(request: EventRequest):
     """
     try:
         ticker = yf.Ticker(request.symbol)
-        
+
         # 1. 获取财报日历
         calendar = {}
         try:
@@ -31,16 +32,16 @@ async def get_events_summary(request: EventRequest):
                         calendar['next_earnings'] = str(next_earnings[0])
                     else:
                         calendar['next_earnings'] = str(next_earnings)
-                
+
                 cal.get('Earnings High')
                 cal.get('Earnings Low')
                 earnings_avg = cal.get('Earnings Average')
-                
+
                 if earnings_avg is not None:
                     calendar['estimate_avg'] = float(earnings_avg) if hasattr(earnings_avg, '__float__') else str(earnings_avg)
         except Exception as e:
             logger.warning(f"获取财报日历失败: {e}")
-            
+
         # 2. 获取分红信息
         dividends = {}
         try:
@@ -51,7 +52,7 @@ async def get_events_summary(request: EventRequest):
                 last_div_amount = divs.iloc[-1]
                 dividends['last_date'] = last_div_date.strftime('%Y-%m-%d')
                 dividends['last_amount'] = float(last_div_amount)
-                
+
                 # 简单预测下一次分红 (假设季度分红)
                 next_div_date = last_div_date + timedelta(days=90)
                 if next_div_date > datetime.now():

@@ -68,9 +68,9 @@ class WebSocketService {
      * 获取WebSocket URL
      */
     getWebSocketUrl() {
-        const apiUrl = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
         const url = new URL(apiUrl.replace(/^http/, 'ws') + '/ws/quotes');
-        const token = process.env.REACT_APP_REALTIME_WS_TOKEN;
+        const token = import.meta.env.VITE_REALTIME_WS_TOKEN;
         if (token) {
             url.searchParams.set('token', token);
         }

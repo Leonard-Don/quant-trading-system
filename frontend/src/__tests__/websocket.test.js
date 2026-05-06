@@ -11,10 +11,10 @@ describe('webSocketService', () => {
     webSocketService.disconnect({ resetSubscriptions: true });
     webSocketService.listeners = new Map();
     webSocketService.reconnectAttempts = 0;
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
-    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    mathRandomSpy = jest.spyOn(Math, 'random').mockReturnValue(0.5);
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mathRandomSpy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
   });
 
   afterEach(() => {
@@ -22,7 +22,7 @@ describe('webSocketService', () => {
       webSocketService.disconnect({ resetSubscriptions: true });
     }
     global.WebSocket = originalWebSocket;
-    jest.useRealTimers();
+    vi.useRealTimers();
     consoleErrorSpy.mockRestore();
     consoleLogSpy.mockRestore();
     consoleWarnSpy.mockRestore();
@@ -32,11 +32,11 @@ describe('webSocketService', () => {
   test('rejects the connect promise when the initial websocket connection closes before opening', async () => {
     let socketInstance = null;
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = vi.fn().mockImplementation(() => {
       socketInstance = {
         readyState: 0,
-        close: jest.fn(),
-        send: jest.fn(),
+        close: vi.fn(),
+        send: vi.fn(),
       };
       return socketInstance;
     });
@@ -52,13 +52,13 @@ describe('webSocketService', () => {
 
   test('sends heartbeat ping frames while connected and stops after disconnect', async () => {
     let socketInstance = null;
-    jest.useFakeTimers();
+    vi.useFakeTimers();
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = vi.fn().mockImplementation(() => {
       socketInstance = {
         readyState: 0,
-        close: jest.fn(),
-        send: jest.fn(),
+        close: vi.fn(),
+        send: vi.fn(),
       };
       return socketInstance;
     });
@@ -69,12 +69,12 @@ describe('webSocketService', () => {
     socketInstance.onopen?.();
     await connectPromise;
 
-    jest.advanceTimersByTime(webSocketService.heartbeatIntervalMs);
+    vi.advanceTimersByTime(webSocketService.heartbeatIntervalMs);
     expect(socketInstance.send).toHaveBeenCalledWith(JSON.stringify({ action: 'ping' }));
 
     const sendCountAfterHeartbeat = socketInstance.send.mock.calls.length;
     webSocketService.disconnect({ resetSubscriptions: true });
-    jest.advanceTimersByTime(webSocketService.heartbeatIntervalMs * 2);
+    vi.advanceTimersByTime(webSocketService.heartbeatIntervalMs * 2);
 
     expect(socketInstance.send).toHaveBeenCalledTimes(sendCountAfterHeartbeat);
   });
@@ -82,13 +82,13 @@ describe('webSocketService', () => {
   test('emits reconnect metadata after an established connection drops', async () => {
     let socketInstance = null;
     const connectionEvents = [];
-    jest.useFakeTimers();
+    vi.useFakeTimers();
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = vi.fn().mockImplementation(() => {
       socketInstance = {
         readyState: 0,
-        close: jest.fn(),
-        send: jest.fn(),
+        close: vi.fn(),
+        send: vi.fn(),
       };
       return socketInstance;
     });
@@ -133,13 +133,13 @@ describe('webSocketService', () => {
 
   test('swallows reconnect promise rejections from timer-driven retries', async () => {
     let sockets = [];
-    jest.useFakeTimers();
+    vi.useFakeTimers();
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = vi.fn().mockImplementation(() => {
       const socketInstance = {
         readyState: 0,
-        close: jest.fn(),
-        send: jest.fn(),
+        close: vi.fn(),
+        send: vi.fn(),
       };
       sockets.push(socketInstance);
       return socketInstance;
@@ -152,7 +152,7 @@ describe('webSocketService', () => {
     await connectPromise;
 
     sockets[0].onclose?.({ code: 1006, reason: 'network lost' });
-    jest.advanceTimersByTime(webSocketService.getReconnectDelay(1));
+    vi.advanceTimersByTime(webSocketService.getReconnectDelay(1));
 
     expect(sockets).toHaveLength(2);
 
@@ -196,11 +196,11 @@ describe('webSocketService', () => {
   test('requests websocket snapshots for the current symbols when connected', async () => {
     let socketInstance = null;
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = vi.fn().mockImplementation(() => {
       socketInstance = {
         readyState: 0,
-        close: jest.fn(),
-        send: jest.fn(),
+        close: vi.fn(),
+        send: vi.fn(),
       };
       return socketInstance;
     });
@@ -225,11 +225,11 @@ describe('webSocketService', () => {
   test('can force-resend subscriptions after the socket is already connected', async () => {
     let socketInstance = null;
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = vi.fn().mockImplementation(() => {
       socketInstance = {
         readyState: 0,
-        close: jest.fn(),
-        send: jest.fn(),
+        close: vi.fn(),
+        send: vi.fn(),
       };
       return socketInstance;
     });
@@ -253,10 +253,10 @@ describe('webSocketService', () => {
   });
 
   test('appends the realtime websocket token when configured', () => {
-    process.env.REACT_APP_REALTIME_WS_TOKEN = 'secret-token';
+    vi.stubEnv('VITE_REALTIME_WS_TOKEN', 'secret-token');
 
     expect(webSocketService.getWebSocketUrl()).toContain('token=secret-token');
 
-    delete process.env.REACT_APP_REALTIME_WS_TOKEN;
+    vi.unstubAllEnvs();
   });
 });

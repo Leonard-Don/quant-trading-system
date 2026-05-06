@@ -1,12 +1,19 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 
-import BacktestDataHealthPanel, { summarizeBacktestDataHealth } from '../components/BacktestDataHealthPanel';
-import { checkIndustryHealth } from '../services/api';
+import BacktestDataHealthPanel, {
+  buildBacktestDataHealthSnapshot,
+  summarizeBacktestDataHealth,
+  summarizeBacktestDataReadiness,
+  summarizeProviderRuntimeStatus,
+} from '../components/BacktestDataHealthPanel';
+import { checkIndustryHealth, getProviderRuntimeStatus } from '../services/api';
 
-jest.mock('../services/api', () => ({
-  checkIndustryHealth: jest.fn(),
+vi.mock('../services/api', () => ({
+  checkIndustryHealth: vi.fn(),
+  getProviderRuntimeStatus: vi.fn(),
 }));
 
 beforeAll(() => {
@@ -22,8 +29,24 @@ beforeAll(() => {
   }
 });
 
+let writeTextMock;
+
+beforeEach(() => {
+  writeTextMock = vi.fn().mockResolvedValue(undefined);
+  if (!navigator.clipboard) {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {},
+    });
+  }
+  Object.defineProperty(navigator.clipboard, 'writeText', {
+    configurable: true,
+    value: writeTextMock,
+  });
+});
+
 afterEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
 });
 
 describe('BacktestDataHealthPanel', () => {
@@ -46,6 +69,71 @@ describe('BacktestDataHealthPanel', () => {
     expect(summary.activeProvider).toBe('Sina + THS');
   });
 
+  test('summarizes provider circuit breaker runtime status', () => {
+    const summary = summarizeProviderRuntimeStatus({
+      providers: {
+        yahoo: {
+          provider: { name: 'yahoo' },
+          circuit_breakers: {},
+        },
+        sina_ths: {
+          provider: { name: 'sina_ths' },
+          circuit_breakers: {
+            ths_hot_board: {
+              name: 'sina_ths.ths_hot_board',
+              state: 'open',
+              failure_count: 5,
+              failure_threshold: 5,
+            },
+            sina_fallback: {
+              name: 'sina_ths.sina_fallback',
+              state: 'half_open',
+              failure_count: 1,
+              failure_threshold: 5,
+            },
+          },
+        },
+      },
+    });
+
+    expect(summary.providerCount).toBe(2);
+    expect(summary.breakerCount).toBe(2);
+    expect(summary.openBreakerCount).toBe(1);
+    expect(summary.halfOpenBreakerCount).toBe(1);
+    expect(summary.failureCount).toBe(6);
+    expect(summary.status).toBe('degraded');
+  });
+
+  test('summarizes backtest data readiness from health and provider signals', () => {
+    const degraded = summarizeBacktestDataReadiness(
+      { connectedCount: 2, totalSources: 3, warningCount: 0 },
+      { openBreakerCount: 1, halfOpenBreakerCount: 0 }
+    );
+    expect(degraded.status).toBe('degraded');
+    expect(degraded.label).toBe('降级可跑');
+
+    const ready = summarizeBacktestDataReadiness(
+      { connectedCount: 2, totalSources: 2, warningCount: 0 },
+      { openBreakerCount: 0, halfOpenBreakerCount: 0 }
+    );
+    expect(ready.status).toBe('ready');
+    expect(ready.label).toBe('可以回测');
+  });
+
+  test('builds a copyable diagnostic snapshot', () => {
+    const snapshot = buildBacktestDataHealthSnapshot({
+      generatedAt: '2026-05-03T12:00:00.000Z',
+      readiness: { status: 'ready', label: '可以回测', detail: '主要数据源可用' },
+      healthData: { status: 'healthy' },
+      providerRuntimeData: { success: true },
+    });
+
+    expect(snapshot).toContain('"generated_at": "2026-05-03T12:00:00.000Z"');
+    expect(snapshot).toContain('"label": "可以回测"');
+    expect(snapshot).toContain('"data_source_health"');
+    expect(snapshot).toContain('"provider_runtime"');
+  });
+
   test('renders source health status for the backtest workspace', async () => {
     checkIndustryHealth.mockResolvedValue({
       status: 'healthy',
@@ -58,14 +146,140 @@ describe('BacktestDataHealthPanel', () => {
         akshare: { name: 'AKShare', status: 'blocked' },
       },
     });
+    getProviderRuntimeStatus.mockResolvedValue({
+      success: true,
+      timestamp: '2026-05-03T12:00:00',
+      providers: {
+        yahoo: {
+          provider: { name: 'yahoo', description: 'US market fallback' },
+          circuit_breakers: {},
+        },
+        sina_ths: {
+          provider: { name: 'sina_ths' },
+          circuit_breakers: {
+            ths_hot_board: {
+              name: 'sina_ths.ths_hot_board',
+              state: 'open',
+              failure_count: 5,
+              failure_threshold: 5,
+            },
+          },
+        },
+      },
+    });
 
     render(<BacktestDataHealthPanel />);
 
     await waitFor(() => {
       expect(screen.getByText('数据源健康')).toBeInTheDocument();
-      expect(screen.getByText('新浪财经 (Sina Finance)')).toBeInTheDocument();
+      expect(screen.getAllByText(/新浪财经 \(Sina Finance\)/).length).toBeGreaterThan(0);
       expect(screen.getByText('2/3')).toBeInTheDocument();
       expect(screen.getByText(/当前贡献来源：THS \+ SINA/)).toBeInTheDocument();
+      expect(screen.getByText('回测前判断')).toBeInTheDocument();
+      expect(screen.getByText('降级可跑')).toBeInTheDocument();
+      expect(screen.getByText('Provider 熔断状态')).toBeInTheDocument();
+      expect(screen.getByText('1 个熔断')).toBeInTheDocument();
+      expect(screen.getByText(/sina_ths\.ths_hot_board: 熔断/)).toBeInTheDocument();
+    });
+  });
+
+  test('keeps source health visible when provider runtime status fails', async () => {
+    checkIndustryHealth.mockResolvedValue({
+      status: 'healthy',
+      active_provider: { name: '新浪财经 (Sina Finance)', type: 'sina' },
+      data_source_mode: 'sina_primary',
+      data_sources_contributing: ['sina'],
+      data_sources: {
+        sina: { name: '新浪财经 (Sina Finance)', status: 'connected' },
+      },
+    });
+    getProviderRuntimeStatus.mockRejectedValue(new Error('runtime endpoint offline'));
+
+    render(<BacktestDataHealthPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText('数据源健康')).toBeInTheDocument();
+      expect(screen.getByText('1/1')).toBeInTheDocument();
+      expect(screen.getByText('Provider 状态暂不可用')).toBeInTheDocument();
+      expect(screen.getByText('runtime endpoint offline')).toBeInTheDocument();
+      expect(screen.getAllByText('状态待确认').length).toBeGreaterThan(0);
+    });
+  });
+
+  test('collapses healthy provider runtime details until requested', async () => {
+    checkIndustryHealth.mockResolvedValue({
+      status: 'healthy',
+      active_provider: { name: '新浪财经 (Sina Finance)', type: 'sina' },
+      data_source_mode: 'sina_primary',
+      data_sources_contributing: ['sina'],
+      data_sources: {
+        sina: { name: '新浪财经 (Sina Finance)', status: 'connected' },
+      },
+    });
+    getProviderRuntimeStatus.mockResolvedValue({
+      success: true,
+      timestamp: '2026-05-03T12:00:00',
+      providers: {
+        yahoo: {
+          provider: { name: 'yahoo', description: 'US market fallback' },
+          circuit_breakers: {},
+        },
+      },
+    });
+
+    const user = userEvent.setup();
+    render(<BacktestDataHealthPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText('可以回测')).toBeInTheDocument();
+      expect(screen.getByText('1 Provider / 0 熔断器 / 0 累计失败')).toBeInTheDocument();
+      expect(screen.queryByText('US market fallback')).not.toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('查看明细', { selector: 'button, button *' }).closest('button'));
+
+    expect(screen.getByText('US market fallback')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /收起明细/ })).toBeInTheDocument();
+  });
+
+  test('copies the current diagnostic snapshot to clipboard', async () => {
+    checkIndustryHealth.mockResolvedValue({
+      status: 'healthy',
+      active_provider: { name: '新浪财经 (Sina Finance)', type: 'sina' },
+      data_source_mode: 'sina_primary',
+      data_sources_contributing: ['sina'],
+      data_sources: {
+        sina: { name: '新浪财经 (Sina Finance)', status: 'connected' },
+      },
+    });
+    getProviderRuntimeStatus.mockResolvedValue({
+      success: true,
+      timestamp: '2026-05-03T12:00:00',
+      providers: {
+        yahoo: {
+          provider: { name: 'yahoo' },
+          circuit_breakers: {},
+        },
+      },
+    });
+
+    const user = userEvent.setup();
+    render(<BacktestDataHealthPanel />);
+
+    await waitFor(() => {
+      expect(screen.getByText('可以回测')).toBeInTheDocument();
+    });
+
+    await user.click(screen.getByText('复制诊断', { selector: 'button, button *' }).closest('button'));
+
+    expect(writeTextMock).toHaveBeenCalledWith(
+      expect.stringContaining('"readiness"')
+    );
+    expect(writeTextMock).toHaveBeenCalledWith(
+      expect.stringContaining('"provider_runtime"')
+    );
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /已复制/ })).toBeInTheDocument();
     });
   });
 });

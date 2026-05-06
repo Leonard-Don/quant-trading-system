@@ -1,0 +1,41 @@
+# Dependabot configuration — security-only mode.
+#
+# Strategy: open PRs only for known CVEs (Dependabot security updates),
+# suppress all routine version-update PRs by ignoring every update-type.
+# To switch to full version-update mode later, remove the `ignore` blocks.
+#
+# Note: security PRs also require "Dependabot security updates" to be
+# enabled in repo Settings → Code security and analysis. That toggle
+# cannot be set from this file.
+
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "security"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-patch"
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
+
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "security"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-patch"
+          - "version-update:semver-minor"
+          - "version-update:semver-major"

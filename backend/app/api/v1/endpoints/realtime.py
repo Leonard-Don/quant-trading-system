@@ -1,18 +1,17 @@
 from datetime import datetime, timedelta
-from typing import Any, List, Optional
+from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.concurrency import run_in_threadpool
 import numpy as np
 import pandas as pd
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
-from backend.app.services.runtime_state import get_data_manager
 from backend.app.services.realtime_alerts import realtime_alerts_store
 from backend.app.services.realtime_journal import realtime_journal_store
 from backend.app.services.realtime_preferences import realtime_preferences_store
+from backend.app.services.runtime_state import get_data_manager
 from src.data.realtime_manager import realtime_manager
-
 
 router = APIRouter()
 data_manager = get_data_manager()
@@ -26,24 +25,24 @@ class SubscriptionRequest(BaseModel):
     """兼容层订阅请求。"""
 
     symbol: Optional[str] = None
-    symbols: List[str] = Field(default_factory=list)
+    symbols: list[str] = Field(default_factory=list)
 
 
 class RealtimePreferencesRequest(BaseModel):
-    symbols: List[str] = Field(default_factory=list)
+    symbols: list[str] = Field(default_factory=list)
     active_tab: str = "index"
     symbol_categories: dict[str, str] = Field(default_factory=dict)
-    watch_groups: List[dict] = Field(default_factory=list)
+    watch_groups: list[dict] = Field(default_factory=list)
 
 
 class RealtimeAlertsRequest(BaseModel):
-    alerts: List[dict] = Field(default_factory=list)
-    alert_hit_history: List[dict] = Field(default_factory=list)
+    alerts: list[dict] = Field(default_factory=list)
+    alert_hit_history: list[dict] = Field(default_factory=list)
 
 
 class RealtimeAlertHitRequest(BaseModel):
     entry: dict = Field(default_factory=dict)
-    notify_channels: List[str] = Field(default_factory=list)
+    notify_channels: list[str] = Field(default_factory=list)
     create_workbench_task: bool = Field(
         default=False,
         description="兼容旧客户端的保留字段。公开仓会忽略该值，不再创建研究工作台任务。",
@@ -53,18 +52,18 @@ class RealtimeAlertHitRequest(BaseModel):
 
 
 class RealtimeJournalRequest(BaseModel):
-    review_snapshots: List[dict] = Field(default_factory=list)
-    timeline_events: List[dict] = Field(default_factory=list)
+    review_snapshots: list[dict] = Field(default_factory=list)
+    timeline_events: list[dict] = Field(default_factory=list)
 
 
-def _normalize_request_symbols(payload: SubscriptionRequest) -> List[str]:
+def _normalize_request_symbols(payload: SubscriptionRequest) -> list[str]:
     symbols = list(payload.symbols)
     if payload.symbol:
         symbols.append(payload.symbol)
     return realtime_manager._normalize_symbols(symbols)
 
 
-def _compat_subscription_response(action: str, symbols: List[str]) -> dict:
+def _compat_subscription_response(action: str, symbols: list[str]) -> dict:
     return {
         "success": True,
         "action": action,
@@ -197,7 +196,7 @@ def _compute_realtime_anomaly_diagnostics(
     if frame.empty or len(frame) < 30:
         return {
             "status": "insufficient_data",
-            "sample_size": int(len(frame)),
+            "sample_size": len(frame),
             "recent_anomalies": [],
             "pattern_matches": [],
         }
@@ -332,7 +331,7 @@ def _compute_realtime_anomaly_diagnostics(
 
     return {
         "status": "ok",
-        "sample_size": int(len(data)),
+        "sample_size": len(data),
         "window": effective_window,
         "thresholds": {
             "return_zscore": float(return_z_threshold or 2.0),

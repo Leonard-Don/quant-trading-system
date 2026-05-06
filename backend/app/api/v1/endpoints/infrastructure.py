@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
-
 import json
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
 from backend.app.core.auth import (
-    authenticate_local_user,
     auth_status,
+    authenticate_local_user,
     begin_oauth_authorization,
     create_access_token,
     diagnose_oauth_provider,
@@ -26,8 +25,8 @@ from backend.app.core.auth import (
     revoke_refresh_session,
     sync_env_oauth_providers,
     update_auth_policy,
-    upsert_oauth_provider,
     upsert_local_user,
+    upsert_oauth_provider,
 )
 from backend.app.core.persistence import persistence_manager
 from backend.app.core.rate_limit_state import rate_limiter
@@ -63,8 +62,8 @@ class AuthUserRequest(BaseModel):
     role: str = "researcher"
     display_name: str = ""
     enabled: bool = True
-    scopes: List[str] = Field(default_factory=list)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    scopes: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AuthPolicyRequest(BaseModel):
@@ -83,15 +82,15 @@ class OAuthProviderRequest(BaseModel):
     userinfo_url: Optional[str] = None
     redirect_uri: str = ""
     frontend_origin: str = ""
-    scopes: List[str] = Field(default_factory=list)
+    scopes: list[str] = Field(default_factory=list)
     auto_create_user: bool = True
     default_role: str = "researcher"
-    default_scopes: List[str] = Field(default_factory=list)
+    default_scopes: list[str] = Field(default_factory=list)
     subject_field: str = ""
     display_name_field: str = ""
     email_field: str = ""
-    extra_params: Dict[str, Any] = Field(default_factory=dict)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    extra_params: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class OAuthAuthorizationRequest(BaseModel):
@@ -109,14 +108,14 @@ class OAuthExchangeRequest(BaseModel):
 
 class TaskRequest(BaseModel):
     name: str = "manual_task"
-    payload: Dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
     execution_backend: str = "auto"
 
 
 class RecordRequest(BaseModel):
     record_type: str = "research"
     record_key: str = "default"
-    payload: Dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
     record_id: Optional[str] = None
 
 
@@ -125,7 +124,7 @@ class TimeSeriesRequest(BaseModel):
     symbol: str
     timestamp: str
     value: Optional[float] = None
-    payload: Dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class PersistenceBootstrapRequest(BaseModel):
@@ -144,7 +143,7 @@ class PersistenceMigrationRequest(BaseModel):
 
 class NotificationRequest(BaseModel):
     channel: str = "dry_run"
-    payload: Dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 class NotificationChannelRequest(BaseModel):
@@ -152,13 +151,13 @@ class NotificationChannelRequest(BaseModel):
     type: str = "webhook"
     label: str = ""
     enabled: bool = True
-    settings: Dict[str, Any] = Field(default_factory=dict)
+    settings: dict[str, Any] = Field(default_factory=dict)
 
 
 class ConfigVersionRequest(BaseModel):
     config_type: str
     config_key: str
-    payload: Dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, Any] = Field(default_factory=dict)
     owner_id: str = "default"
 
 
@@ -180,21 +179,21 @@ class RateLimitRuleRequest(BaseModel):
 class RateLimitUpdateRequest(BaseModel):
     default_requests_per_minute: int = Field(..., ge=1, le=10_000)
     default_burst_size: int = Field(..., ge=1, le=10_000)
-    rules: List[RateLimitRuleRequest] = Field(default_factory=list)
+    rules: list[RateLimitRuleRequest] = Field(default_factory=list)
 
 
 def _config_record_type(owner_id: str, config_type: str, config_key: str) -> str:
     return f"config:{owner_id}:{config_type}:{config_key}"
 
 
-def _list_config_records(owner_id: str, config_type: str, config_key: str, limit: int = 200) -> List[Dict[str, Any]]:
+def _list_config_records(owner_id: str, config_type: str, config_key: str, limit: int = 200) -> list[dict[str, Any]]:
     return persistence_manager.list_records(
         record_type=_config_record_type(owner_id, config_type, config_key),
         limit=limit,
     )
 
 
-def _find_config_record(owner_id: str, config_type: str, config_key: str, version: int) -> Optional[Dict[str, Any]]:
+def _find_config_record(owner_id: str, config_type: str, config_key: str, version: int) -> Optional[dict[str, Any]]:
     for record in _list_config_records(owner_id, config_type, config_key, limit=200):
         payload = record.get("payload") or {}
         if int(payload.get("version") or 0) == int(version):
@@ -202,9 +201,9 @@ def _find_config_record(owner_id: str, config_type: str, config_key: str, versio
     return None
 
 
-def _diff_payloads(left: Any, right: Any, path: str = "") -> List[Dict[str, Any]]:
+def _diff_payloads(left: Any, right: Any, path: str = "") -> list[dict[str, Any]]:
     if isinstance(left, dict) and isinstance(right, dict):
-        changes: List[Dict[str, Any]] = []
+        changes: list[dict[str, Any]] = []
         keys = sorted(set(left.keys()) | set(right.keys()))
         for key in keys:
             child_path = f"{path}.{key}" if path else str(key)
@@ -233,7 +232,7 @@ def _diff_payloads(left: Any, right: Any, path: str = "") -> List[Dict[str, Any]
     return [{"path": path or "$", "change": "modified", "before": left, "after": right}]
 
 
-def _require_admin_or_bootstrap(user: Dict[str, Any]) -> None:
+def _require_admin_or_bootstrap(user: dict[str, Any]) -> None:
     current_auth = auth_status()
     if current_auth.get("bootstrap_required"):
         return
@@ -242,7 +241,7 @@ def _require_admin_or_bootstrap(user: Dict[str, Any]) -> None:
 
 
 @router.get("/status", summary="基础设施状态")
-async def get_infrastructure_status(user: Dict[str, Any] = Depends(get_current_user_optional)):
+async def get_infrastructure_status(user: dict[str, Any] = Depends(get_current_user_optional)):
     return {
         "user": user,
         "auth": auth_status(),
@@ -329,7 +328,7 @@ async def get_oauth_providers():
 
 
 @router.post("/auth/oauth/providers", summary="创建或更新 OAuth Provider")
-async def save_oauth_provider(request: OAuthProviderRequest, user: Dict[str, Any] = Depends(get_current_user_optional)):
+async def save_oauth_provider(request: OAuthProviderRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
     _require_admin_or_bootstrap(user)
     try:
         provider = upsert_oauth_provider(
@@ -365,7 +364,7 @@ async def save_oauth_provider(request: OAuthProviderRequest, user: Dict[str, Any
 
 
 @router.post("/auth/oauth/providers/sync-env", summary="从环境变量同步 OAuth Provider")
-async def sync_oauth_providers_from_env(user: Dict[str, Any] = Depends(get_current_user_optional)):
+async def sync_oauth_providers_from_env(user: dict[str, Any] = Depends(get_current_user_optional)):
     _require_admin_or_bootstrap(user)
     providers = sync_env_oauth_providers(updated_by=user.get("sub") or "env_sync")
     return {
@@ -417,7 +416,7 @@ async def oauth_provider_callback(
     callback_base = str(request.base_url).rstrip("/")
     callback_uri = f"{callback_base}/infrastructure/auth/oauth/providers/{provider_id}/callback"
     target_origin = request.headers.get("origin") or "*"
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
     if error:
         payload = {"success": False, "provider_id": provider_id, "error": error}
     elif not code or not state:
@@ -466,7 +465,7 @@ async def oauth_provider_callback(
 
 
 @router.post("/auth/sessions/{session_id}/revoke", summary="撤销 refresh session")
-async def revoke_auth_session(session_id: str, user: Dict[str, Any] = Depends(get_current_user_optional)):
+async def revoke_auth_session(session_id: str, user: dict[str, Any] = Depends(get_current_user_optional)):
     _require_admin_or_bootstrap(user)
     session = revoke_refresh_session(session_id, revoked_by=user.get("sub") or "system")
     if not session:
@@ -478,7 +477,7 @@ async def revoke_auth_session(session_id: str, user: Dict[str, Any] = Depends(ge
 
 
 @router.post("/auth/users", summary="创建或更新本地用户")
-async def save_auth_user(request: AuthUserRequest, user: Dict[str, Any] = Depends(get_current_user_optional)):
+async def save_auth_user(request: AuthUserRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
     _require_admin_or_bootstrap(user)
     try:
         saved = upsert_local_user(
@@ -501,7 +500,7 @@ async def save_auth_user(request: AuthUserRequest, user: Dict[str, Any] = Depend
 
 
 @router.post("/auth/policy", summary="更新认证策略")
-async def save_auth_policy(request: AuthPolicyRequest, user: Dict[str, Any] = Depends(get_current_user_optional)):
+async def save_auth_policy(request: AuthPolicyRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
     _require_admin_or_bootstrap(user)
     current_auth = auth_status()
     if request.required and current_auth.get("enabled_users", 0) <= 0:
@@ -515,7 +514,7 @@ async def save_auth_policy(request: AuthPolicyRequest, user: Dict[str, Any] = De
 
 
 @router.post("/tasks", summary="提交异步任务")
-async def create_task(request: TaskRequest, user: Dict[str, Any] = Depends(get_current_user_optional)):
+async def create_task(request: TaskRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
     payload = {**request.payload, "submitted_by": user.get("sub")}
     return task_queue_manager.submit(
         name=request.name,
@@ -538,7 +537,7 @@ async def get_task(task_id: str):
 
 
 @router.post("/tasks/{task_id}/cancel", summary="取消异步任务")
-async def cancel_task(task_id: str, user: Dict[str, Any] = Depends(get_current_user_optional)):
+async def cancel_task(task_id: str, user: dict[str, Any] = Depends(get_current_user_optional)):
     task = task_queue_manager.cancel(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -551,7 +550,7 @@ async def cancel_task(task_id: str, user: Dict[str, Any] = Depends(get_current_u
 @router.post("/rate-limits", summary="更新按用户 / 按端点限流规则")
 async def update_rate_limits(
     request: RateLimitUpdateRequest,
-    user: Dict[str, Any] = Depends(get_current_user_optional),
+    user: dict[str, Any] = Depends(get_current_user_optional),
 ):
     rate_limiter.configure_defaults(
         requests_per_minute=request.default_requests_per_minute,
@@ -570,7 +569,7 @@ async def update_rate_limits(
 
 
 @router.post("/persistence/records", summary="写入持久化记录")
-async def put_record(request: RecordRequest, user: Dict[str, Any] = Depends(get_current_user_optional)):
+async def put_record(request: RecordRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
     payload = {**request.payload, "_meta": {**(request.payload.get("_meta") or {}), "updated_by": user.get("sub")}}
     return persistence_manager.put_record(
         record_type=request.record_type,
@@ -596,7 +595,7 @@ async def get_persistence_diagnostics():
 @router.post("/persistence/bootstrap", summary="初始化 PostgreSQL / TimescaleDB 持久化结构")
 async def bootstrap_persistence(
     request: PersistenceBootstrapRequest,
-    user: Dict[str, Any] = Depends(get_current_user_optional),
+    user: dict[str, Any] = Depends(get_current_user_optional),
 ):
     _require_admin_or_bootstrap(user)
     try:
@@ -617,7 +616,7 @@ async def preview_persistence_migration(sqlite_path: Optional[str] = Query(defau
 @router.post("/persistence/migration/run", summary="执行 SQLite fallback -> PostgreSQL 迁移")
 async def run_persistence_migration(
     request: PersistenceMigrationRequest,
-    user: Dict[str, Any] = Depends(get_current_user_optional),
+    user: dict[str, Any] = Depends(get_current_user_optional),
 ):
     _require_admin_or_bootstrap(user)
     if not request.include_records and not request.include_timeseries:
@@ -664,7 +663,7 @@ async def list_timeseries(
 
 
 @router.post("/config-versions", summary="保存配置版本")
-async def save_config_version(request: ConfigVersionRequest, user: Dict[str, Any] = Depends(get_current_user_optional)):
+async def save_config_version(request: ConfigVersionRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
     existing = _list_config_records(request.owner_id, request.config_type, request.config_key, limit=200)
     next_version = len(existing) + 1
     record_type = _config_record_type(request.owner_id, request.config_type, request.config_key)
@@ -723,7 +722,7 @@ async def diff_config_versions(
 
 
 @router.post("/config-versions/restore", summary="从历史配置恢复为新版本")
-async def restore_config_version(request: ConfigRestoreRequest, user: Dict[str, Any] = Depends(get_current_user_optional)):
+async def restore_config_version(request: ConfigRestoreRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
     source_record = _find_config_record(
         request.owner_id,
         request.config_type,
@@ -755,7 +754,7 @@ async def restore_config_version(request: ConfigRestoreRequest, user: Dict[str, 
 
 
 @router.post("/notifications/test", summary="测试通知通道")
-async def test_notification(request: NotificationRequest, user: Dict[str, Any] = Depends(get_current_user_optional)):
+async def test_notification(request: NotificationRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
     payload = {
         "source": "infrastructure_test",
         "title": request.payload.get("title") or "Quant notification test",

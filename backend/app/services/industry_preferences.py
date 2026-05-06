@@ -7,7 +7,7 @@ import logging
 import threading
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from src.utils.config import PROJECT_ROOT
 
@@ -65,7 +65,7 @@ class IndustryPreferencesStore:
             return f"{num_bytes / 1024:.1f} KB"
         return f"{num_bytes / (1024 * 1024):.2f} MB"
 
-    def _normalize_preferences(self, payload: Dict[str, Any] | None) -> Dict[str, Any]:
+    def _normalize_preferences(self, payload: dict[str, Any] | None) -> dict[str, Any]:
         payload = dict(payload or {})
         raw_watchlist = payload.get("watchlist_industries") or []
         watchlist = []
@@ -105,12 +105,12 @@ class IndustryPreferencesStore:
             "alert_thresholds": thresholds,
         }
 
-    def _load_preferences(self, profile_id: str | None) -> Dict[str, Any]:
+    def _load_preferences(self, profile_id: str | None) -> dict[str, Any]:
         preferences_file = self._get_preferences_file(profile_id)
         try:
             if preferences_file.exists():
                 file_size = preferences_file.stat().st_size
-                with open(preferences_file, "r", encoding="utf-8") as file:
+                with open(preferences_file, encoding="utf-8") as file:
                     normalized = self._normalize_preferences(json.load(file))
                 logger.info(
                     "Loaded industry preferences for %s (%s)",
@@ -122,7 +122,7 @@ class IndustryPreferencesStore:
             logger.warning("Failed to load industry preferences for %s: %s", profile_id, exc)
         return deepcopy(DEFAULT_PREFERENCES)
 
-    def _persist(self, profile_id: str | None, preferences: Dict[str, Any]) -> None:
+    def _persist(self, profile_id: str | None, preferences: dict[str, Any]) -> None:
         preferences_file = self._get_preferences_file(profile_id)
         try:
             normalized = self._normalize_preferences(preferences)
@@ -143,11 +143,11 @@ class IndustryPreferencesStore:
         except Exception as exc:
             logger.error("Failed to persist industry preferences for %s: %s", profile_id, exc)
 
-    def get_preferences(self, profile_id: str | None = None) -> Dict[str, Any]:
+    def get_preferences(self, profile_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             return self._load_preferences(profile_id)
 
-    def update_preferences(self, payload: Dict[str, Any], profile_id: str | None = None) -> Dict[str, Any]:
+    def update_preferences(self, payload: dict[str, Any], profile_id: str | None = None) -> dict[str, Any]:
         with self._lock:
             preferences = self._normalize_preferences(payload)
             self._persist(profile_id, preferences)

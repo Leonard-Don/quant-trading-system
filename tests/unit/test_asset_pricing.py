@@ -445,10 +445,11 @@ class TestPricingGapAnalyzer:
     """测试定价差异分析器"""
 
     @patch("src.analytics.asset_pricing._fetch_ff_factors")
+    @patch("src.analytics.asset_pricing._fetch_ff5_factors")
     @patch("src.data.data_manager.DataManager.get_latest_price")
     @patch("src.data.data_manager.DataManager.get_fundamental_data")
     @patch("src.data.data_manager.DataManager.get_historical_data")
-    def test_gap_analysis_structure(self, mock_hist, mock_fund, mock_price, mock_ff):
+    def test_gap_analysis_structure(self, mock_hist, mock_fund, mock_price, mock_ff5, mock_ff):
         """测试定价差异分析结果结构"""
         from src.analytics.pricing_gap_analyzer import PricingGapAnalyzer
 
@@ -482,6 +483,10 @@ class TestPricingGapAnalyzer:
             "RF": np.full(days, 0.0002)
         }, index=dates)
         mock_ff.return_value = ff_data
+        ff5_data = ff_data.copy()
+        ff5_data["RMW"] = np.random.normal(0.0001, 0.004, days)
+        ff5_data["CMA"] = np.random.normal(0.0001, 0.004, days)
+        mock_ff5.return_value = ff5_data
 
         analyzer = PricingGapAnalyzer()
         result = analyzer.analyze("TEST", "1y")

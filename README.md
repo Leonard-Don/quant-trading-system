@@ -26,19 +26,20 @@
 
 ## 📌 仓库定位
 
-这个仓库是一个独立维护的量化研究项目，围绕今日研究与三块核心工作区展开：
+这个仓库是一个独立维护的量化研究项目，围绕今日研究与四块核心工作区展开：
 
 | 模块 | 说明 |
 |------|------|
 | 🧭 今日研究 | 汇总回测快照、行业观察、实时提醒和复盘记录，形成当天处理队列与研究档案 |
 | 📊 策略回测 | 单资产 / 跨市场 / 批量 / Walk-Forward 回测引擎 |
 | 📈 实时行情 | 多市场实时行情聚合、WebSocket 推送、提醒与复盘 |
-| 🔥 行业热度 | 行业热力图、排行榜、龙头股分析与轮动观察 |
+| 🔥 行业热度 | 行业热力图、排行榜、龙头股分析与轮动观察；附"政策雷达"标签呈现 alt-data 政策事件 |
+| ⚡ 纸面账户 | 市价 / 限价单（含取消）、滑点、止损、止盈，按 profile 持久化持仓与订单，前端基于实时行情计算浮动盈亏；支持回测结果一键预填或按市价直接成交，持仓可一键归档到今日研究 |
 
 这意味着：
 
-- 当前仓的前端主入口是 `today / backtest / realtime / industry`
-- 当前仓的后端接口围绕 `/backtest/*`、`/realtime/*`、`/industry/*`、`/cross-market/*` 等能力展开
+- 当前仓的前端主入口是 `today / backtest / realtime / industry / paper`
+- 当前仓的后端接口围绕 `/backtest/*`、`/realtime/*`、`/industry/*`、`/cross-market/*`、`/paper/*`、`/policy-radar/*`、`/research-journal/*` 等能力展开
 - 项目可以独立 clone、安装、启动和发布，不依赖其他 sibling repo
 
 ### 🎯 这个仓适合谁
@@ -112,9 +113,11 @@ cp .env.example .env
 ### 📊 策略回测
 
 - 支持主回测、历史复盘、策略对比、组合优化和高级实验
+- **高级实验** 工作区（`?tab=advanced`）整合 Walk-Forward、批量参数搜索、贝叶斯优化、市场状态分层、Portfolio 曝险与基准对比，把"过拟合检测 → 参数稳健性 → 组合验证"做成一条线
 - 保留 `cross-market` 跨市场回测作为核心研究能力的一部分
 - 内置 **28** 种策略，覆盖 7 大类别（见下表）
 - 回测结果支持收益、Sharpe、回撤、交易事件、月度收益等维度展示
+- 主回测每跑完一次会**自动归档**到"今日研究"档案，带策略 / 标的 / 期间 / 主要指标，便于多版本对比
 
 <details>
 <summary><b>📋 内置策略一览（28 种）</b></summary>
@@ -220,8 +223,7 @@ quant-trading-system/
 │   ├── e2e/                        # Playwright 浏览器 E2E
 │   └── manual/                     # 手动验证脚本
 ├── docs/                           # 项目文档
-├── scripts/                        # 启停、检查、文档生成、验证等 30+ 运维脚本
-└── docker-compose.quant-infra.yml  # 本地基础设施 (TimescaleDB + Redis)
+└── scripts/                        # 启停、检查、文档生成、验证等运维脚本
 ```
 
 ### 技术栈
@@ -262,7 +264,6 @@ quant-trading-system/
 | Python | `3.9+` | `3.13` |
 | Node.js | `16+` | `22` |
 | npm | `8+` | `10+` |
-| Docker | 可选 | `24+` (用于 TimescaleDB + Redis) |
 
 ### 一键启动
 
@@ -283,16 +284,14 @@ cp .env.example .env
 # 1. 安装后端依赖
 pip install -r requirements-dev.txt
 
-# 2. （可选）启动基础设施 - TimescaleDB + Redis
-./scripts/start_infra_stack.sh
-
-# 3. （可选）启动 Celery Worker
+# 2. （可选）启动 Celery Worker
+# 需要自行配置 CELERY_BROKER_URL
 ./scripts/start_celery_worker.sh
 
-# 4. 启动后端
+# 3. 启动后端
 python scripts/start_backend.py
 
-# 5. 启动前端（新终端）
+# 4. 启动前端（新终端）
 cd frontend
 npm install
 npm start
@@ -309,27 +308,9 @@ npm start
 | 交易配置 | 初始资金、佣金、滑点、风控阈值 |
 | API 配置 | 前后端地址、端口、CORS |
 | 安全配置 | 限流、加密、审计日志 |
-| 基础设施 | TimescaleDB、Redis、Celery |
+| 可选外部服务 | 数据库、Redis、Celery broker |
 | OAuth | GitHub / Google OAuth 集成 |
 | 通知 | 邮件、钉钉、企业微信 |
-
-### Docker 基础设施
-
-本地开发可通过 Docker Compose 一键启动 TimescaleDB 和 Redis：
-
-```bash
-# 启动
-./scripts/start_infra_stack.sh
-
-# 停止
-./scripts/stop_infra_stack.sh
-```
-
-或直接使用 Docker Compose：
-
-```bash
-docker compose -f docker-compose.quant-infra.yml up -d
-```
 
 ### 健康检查
 
@@ -438,8 +419,6 @@ GitHub Actions 会在每次 push 到 `main` 或 PR 时自动运行：
 | `scripts/stop_system.sh` | 一键停止所有服务 |
 | `scripts/start_backend.py` | 单独启动后端 |
 | `scripts/start_frontend.sh` | 单独启动前端 |
-| `scripts/start_infra_stack.sh` | 启动 Docker 基础设施 |
-| `scripts/stop_infra_stack.sh` | 停止 Docker 基础设施 |
 | `scripts/start_celery_worker.sh` | 启动 Celery 异步任务进程 |
 | `scripts/stop_celery_worker.sh` | 停止 Celery 进程 |
 | `scripts/health_check.py` | 全链路健康检查 |

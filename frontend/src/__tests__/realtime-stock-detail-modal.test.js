@@ -4,30 +4,32 @@ import '@testing-library/jest-dom';
 
 import RealtimeStockDetailModal from '../components/RealtimeStockDetailModal';
 
-const mockMarketAnalysisMountSpy = jest.fn();
-const mockMarketAnalysisUnmountSpy = jest.fn();
+const mockMarketAnalysisMountSpy = vi.fn();
+const mockMarketAnalysisUnmountSpy = vi.fn();
 
-jest.mock('../components/MarketAnalysis', () => {
+vi.mock('../components/MarketAnalysis', () => {
   const React = require('react');
 
-  return function MockMarketAnalysis(props) {
-    React.useEffect(() => {
-      mockMarketAnalysisMountSpy(props.symbol);
-      return () => {
-        mockMarketAnalysisUnmountSpy(props.symbol);
-      };
-    }, [props.symbol]);
+  return {
+    default: function MockMarketAnalysis(props) {
+      React.useEffect(() => {
+        mockMarketAnalysisMountSpy(props.symbol);
+        return () => {
+          mockMarketAnalysisUnmountSpy(props.symbol);
+        };
+      }, [props.symbol]);
 
-    return (
-      <div data-testid="market-analysis">
-        analysis:{props.symbol}:{props.embedMode ? 'embed' : 'full'}
-      </div>
-    );
+      return (
+        <div data-testid="market-analysis">
+          analysis:{props.symbol}:{props.embedMode ? 'embed' : 'full'}
+        </div>
+      );
+    },
   };
 });
 
-jest.mock('../services/api', () => ({
-  getKlines: jest.fn(() => Promise.resolve({
+vi.mock('../services/api', () => ({
+  getKlines: vi.fn(() => Promise.resolve({
     klines: [
       { date: '2026-03-27T09:30:00.000Z', close: 181.4 },
       { date: '2026-03-27T10:30:00.000Z', close: 182.1 },
@@ -36,19 +38,8 @@ jest.mock('../services/api', () => ({
   })),
 }));
 
-jest.mock('@ant-design/icons', () => {
-  const React = require('react');
-  const MockIcon = () => <span data-testid="icon" />;
 
-  return {
-    ClockCircleOutlined: MockIcon,
-    DotChartOutlined: MockIcon,
-    FundOutlined: MockIcon,
-    RiseOutlined: MockIcon,
-  };
-});
-
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const Modal = ({ open, title, children }) => (
@@ -112,7 +103,7 @@ describe('RealtimeStockDetailModal', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   test('shows waiting state without quote and still loads embedded market analysis', async () => {
@@ -121,7 +112,7 @@ describe('RealtimeStockDetailModal', () => {
         open
         symbol="^GSPC"
         quote={null}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -136,7 +127,7 @@ describe('RealtimeStockDetailModal', () => {
         open
         symbol="AAPL"
         quote={{ symbol: 'AAPL', price: 180.55, change: 1.22, change_percent: 0.68 }}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -147,7 +138,7 @@ describe('RealtimeStockDetailModal', () => {
         open
         symbol="BTC-USD"
         quote={{ symbol: 'BTC-USD', price: 68000, change: -220, change_percent: -0.32 }}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
     await act(async () => {
@@ -167,7 +158,7 @@ describe('RealtimeStockDetailModal', () => {
         open
         symbol="GC=F"
         quote={{ symbol: 'GC=F', price: 3012.4, change: 18.2, change_percent: 0.61 }}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -188,7 +179,7 @@ describe('RealtimeStockDetailModal', () => {
           bid: 0,
           ask: 0,
         }}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -211,7 +202,7 @@ describe('RealtimeStockDetailModal', () => {
           high: 185,
           previous_close: 179,
         }}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -245,7 +236,7 @@ describe('RealtimeStockDetailModal', () => {
             tone: 'warning',
           },
         ]}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -317,7 +308,7 @@ describe('RealtimeStockDetailModal', () => {
           NVDA: [{ id: 'nvda-event', tone: 'positive' }],
           MSFT: [{ id: 'msft-event', tone: 'negative' }],
         }}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -357,7 +348,7 @@ describe('RealtimeStockDetailModal', () => {
             triggerPrice: 195.6,
           },
         ]}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -366,7 +357,7 @@ describe('RealtimeStockDetailModal', () => {
   });
 
   test('can switch detail focus directly from a compare card', async () => {
-    const onNavigateSymbol = jest.fn();
+    const onNavigateSymbol = vi.fn();
 
     await renderRealtimeDetailModal(
       <RealtimeStockDetailModal
@@ -407,7 +398,7 @@ describe('RealtimeStockDetailModal', () => {
           },
         ]}
         onNavigateSymbol={onNavigateSymbol}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -449,8 +440,8 @@ describe('RealtimeStockDetailModal', () => {
             quote: null,
           },
         ]}
-        onNavigateSymbol={jest.fn()}
-        onCancel={jest.fn()}
+        onNavigateSymbol={vi.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -469,7 +460,7 @@ describe('RealtimeStockDetailModal', () => {
           { symbol: 'NVDA', quote: { symbol: 'NVDA', price: 910.5, change_percent: 1.5 } },
           { symbol: 'MSFT', quote: { symbol: 'MSFT', price: 428.8, change_percent: -0.4 } },
         ]}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
 
@@ -486,7 +477,7 @@ describe('RealtimeStockDetailModal', () => {
           { symbol: 'ETH-USD', quote: { symbol: 'ETH-USD', price: 3600, change_percent: 1.1 } },
           { symbol: 'SOL-USD', quote: { symbol: 'SOL-USD', price: 145, change_percent: 0.8 } },
         ]}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
     await act(async () => {
@@ -504,7 +495,7 @@ describe('RealtimeStockDetailModal', () => {
           { symbol: 'NVDA', quote: { symbol: 'NVDA', price: 910.5, change_percent: 1.5 } },
           { symbol: 'MSFT', quote: { symbol: 'MSFT', price: 428.8, change_percent: -0.4 } },
         ]}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
     await act(async () => {
@@ -517,7 +508,7 @@ describe('RealtimeStockDetailModal', () => {
   });
 
   test('filters stale compare selections when switching detail symbols', async () => {
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     try {
       const { rerender } = await renderRealtimeDetailModal(
@@ -530,7 +521,7 @@ describe('RealtimeStockDetailModal', () => {
             { symbol: 'BTC-USD', quote: { symbol: 'BTC-USD', price: 68000, change_percent: -0.32 } },
             { symbol: 'SOL-USD', quote: { symbol: 'SOL-USD', price: 145, change_percent: 0.8 } },
           ]}
-          onCancel={jest.fn()}
+          onCancel={vi.fn()}
         />
       );
 
@@ -544,7 +535,7 @@ describe('RealtimeStockDetailModal', () => {
             { symbol: 'ETH-USD', quote: { symbol: 'ETH-USD', price: 3600, change_percent: 1.12 } },
             { symbol: 'SOL-USD', quote: { symbol: 'SOL-USD', price: 145, change_percent: 0.8 } },
           ]}
-          onCancel={jest.fn()}
+          onCancel={vi.fn()}
         />
       );
 
@@ -573,20 +564,16 @@ describe('RealtimeStockDetailModal', () => {
           { symbol: '^IXIC', name: '纳斯达克综合', quote: { symbol: '^IXIC', price: 24404.39, change_percent: -0.26 } },
           { symbol: '^GSPC', name: '标普500', quote: { symbol: '^GSPC', price: 7109.14, change_percent: -0.24 } },
         ]}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
 
-    expect(screen.getByTestId('detail-compare-card-^IXIC')).toHaveStyle({
-      background: expect.stringContaining('linear-gradient'),
-    });
-    expect(screen.getByTestId('detail-compare-card-^GSPC')).toHaveStyle({
-      background: expect.stringContaining('linear-gradient'),
-    });
+    expect(screen.getByTestId('detail-compare-card-^IXIC').style.background).toContain('linear-gradient');
+    expect(screen.getByTestId('detail-compare-card-^GSPC').style.background).toContain('linear-gradient');
   });
 
   test('can hand off a quick trade draft from the detail signal summary', async () => {
-    const onQuickTrade = jest.fn();
+    const onQuickTrade = vi.fn();
 
     await renderRealtimeDetailModal(
       <RealtimeStockDetailModal
@@ -603,7 +590,7 @@ describe('RealtimeStockDetailModal', () => {
           previous_close: 179,
         }}
         onQuickTrade={onQuickTrade}
-        onCancel={jest.fn()}
+        onCancel={vi.fn()}
       />
     );
 

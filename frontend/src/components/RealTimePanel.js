@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import {
   Card,
   Tag,
@@ -71,248 +71,40 @@ import {
   formatReviewSummaryMarkdown,
   formatReviewSummaryShareHtml,
 } from '../utils/realtimeShareTemplates';
+import lazyWithRetry from '../utils/lazyWithRetry';
 import { useSafeMessageApi } from '../utils/messageApi';
+import {
+    CATEGORY_OPTIONS,
+    CATEGORY_THEMES,
+    DEFAULT_SUBSCRIBED_SYMBOLS,
+    DETAIL_COMPARE_CANDIDATE_LIMIT,
+    DETAIL_PREFETCH_SYMBOL_LIMIT,
+    EMPTY_NUMERIC_TEXT,
+    QUOTE_SORT_OPTIONS,
+    REALTIME_DIAGNOSTICS_STORAGE_KEY,
+    REALTIME_EXPORT_VERSION,
+    REVIEW_SCOPE_OPTIONS,
+    REVIEW_SNAPSHOT_VERSION,
+} from '../utils/realtimePanelConstants';
+import {
+    buildRealtimeDetailTimeline,
+    filterReviewSnapshots,
+    formatCompactCurrency,
+    getSnapshotOutcomeMeta,
+    loadDiagnosticsEnabled,
+    normalizeGroupWeights,
+} from '../utils/realtimePanelHelpers';
 
 const { Text } = Typography;
-const EMPTY_NUMERIC_TEXT = '--';
-const REALTIME_DIAGNOSTICS_STORAGE_KEY = 'realtime-panel:diagnostics-enabled';
-const REVIEW_SNAPSHOT_VERSION = 2;
-const REALTIME_EXPORT_VERSION = 1;
-const QUOTE_SORT_OPTIONS = [
-  { key: 'change_desc', label: '涨跌幅' },
-  { key: 'range_desc', label: '振幅' },
-  { key: 'volume_desc', label: '成交量' },
-  { key: 'symbol_asc', label: '代码' },
-];
-const REVIEW_SCOPE_OPTIONS = [
-  { key: 'all', label: '全部' },
-  { key: 'recent7d', label: '最近7天' },
-  { key: 'recent20', label: '最近20条' },
-  { key: 'activeTab', label: '当前分组' },
-];
-const DETAIL_COMPARE_CANDIDATE_LIMIT = 6;
-const DETAIL_PREFETCH_SYMBOL_LIMIT = 3;
-const SNAPSHOT_OUTCOME_OPTIONS = {
-  watching: { label: '继续观察', color: 'default' },
-  validated: { label: '验证有效', color: 'success' },
-  invalidated: { label: '观察失效', color: 'error' },
-};
-const DEFAULT_SUBSCRIBED_SYMBOLS = [
-  '^GSPC', '^DJI', '^IXIC', '^RUT', '000001.SS', '^HSI',
-  'AAPL', 'NVDA', 'TSLA', 'MSFT', 'GOOGL', 'AMZN', 'META', 'BABA',
-  '600519.SS', '601398.SS', '300750.SZ', '000858.SZ',
-  'BTC-USD', 'ETH-USD', 'SOL-USD', 'BNB-USD', 'DOGE-USD',
-  '^TNX', '^TYX', 'TLT',
-  'GC=F', 'CL=F', 'SI=F',
-  'SPY', 'QQQ', 'UVXY'
-];
-const CATEGORY_THEMES = {
-  index: { label: '指数', accent: '#0ea5e9', soft: 'rgba(14, 165, 233, 0.12)' },
-  us: { label: '美股', accent: '#22c55e', soft: 'rgba(34, 197, 94, 0.12)' },
-  cn: { label: 'A股', accent: '#f97316', soft: 'rgba(249, 115, 22, 0.12)' },
-  crypto: { label: '加密', accent: '#f59e0b', soft: 'rgba(245, 158, 11, 0.14)' },
-  bond: { label: '债券', accent: '#6366f1', soft: 'rgba(99, 102, 241, 0.12)' },
-  future: { label: '期货', accent: '#ef4444', soft: 'rgba(239, 68, 68, 0.12)' },
-  option: { label: '期权', accent: '#a855f7', soft: 'rgba(168, 85, 247, 0.12)' },
-  other: { label: '其他', accent: '#64748b', soft: 'rgba(100, 116, 139, 0.12)' },
-};
 
-const formatCompactCurrency = (value) => {
-  const numeric = Number(value || 0);
-  if (!Number.isFinite(numeric)) {
-    return '$0';
-  }
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    notation: Math.abs(numeric) >= 10000 ? 'compact' : 'standard',
-    maximumFractionDigits: Math.abs(numeric) >= 10000 ? 1 : 0,
-  }).format(numeric);
-};
+// Constants / pure helpers / loadDiagnosticsEnabled / timeline builders
+// extracted so the host component focuses on hook orchestration. See:
+//   - utils/realtimePanelConstants.js
+//   - utils/realtimePanelHelpers.js
 
-const normalizeGroupWeights = (group) => {
-  const symbols = Array.isArray(group?.symbols) ? group.symbols.filter(Boolean) : [];
-  if (!symbols.length) {
-    return {};
-  }
-
-  const explicitWeights = group?.weights && typeof group.weights === 'object' && !Array.isArray(group.weights)
-    ? Object.entries(group.weights).reduce((result, [symbol, rawWeight]) => {
-        const numericWeight = Number(rawWeight);
-        if (symbols.includes(symbol) && Number.isFinite(numericWeight)) {
-          result[symbol] = numericWeight;
-        }
-        return result;
-      }, {})
-    : {};
-
-  if (Object.keys(explicitWeights).length) {
-    return explicitWeights;
-  }
-
-  const equalWeight = 1 / symbols.length;
-  return symbols.reduce((result, symbol) => {
-    result[symbol] = equalWeight;
-    return result;
-  }, {});
-};
-const CATEGORY_OPTIONS = [
-  { key: 'index', label: '指数' },
-  { key: 'us', label: '美股' },
-  { key: 'cn', label: 'A股' },
-  { key: 'crypto', label: '加密' },
-  { key: 'bond', label: '债券' },
-  { key: 'future', label: '期货' },
-  { key: 'option', label: '期权' },
-  { key: 'other', label: '其他' },
-];
-const TradePanel = lazy(() => import('./TradePanel'));
-const RealtimeStockDetailModal = lazy(() => import('./RealtimeStockDetailModal'));
-const PriceAlerts = lazy(() => import('./PriceAlerts'));
-
-const loadDiagnosticsEnabled = () => {
-  if (typeof window === 'undefined') {
-    return process.env.NODE_ENV !== 'production';
-  }
-
-  const query = new URLSearchParams(window.location.search);
-  const queryValue = query.get('realtimeDiagnostics');
-  if (queryValue === '1') {
-    window.localStorage.setItem(REALTIME_DIAGNOSTICS_STORAGE_KEY, '1');
-    return true;
-  }
-  if (queryValue === '0') {
-    window.localStorage.setItem(REALTIME_DIAGNOSTICS_STORAGE_KEY, '0');
-    return false;
-  }
-
-  const persisted = window.localStorage.getItem(REALTIME_DIAGNOSTICS_STORAGE_KEY);
-  if (persisted === '1') {
-    return true;
-  }
-  if (persisted === '0') {
-    return false;
-  }
-
-  return process.env.NODE_ENV !== 'production';
-};
-
-const getTimelineTone = (kind = '') => {
-  if (['price_up', 'touch_high', 'trade_plan', 'review_validated'].includes(kind)) {
-    return 'positive';
-  }
-
-  if (['price_down', 'touch_low', 'review_invalidated'].includes(kind)) {
-    return 'negative';
-  }
-
-  if (['volume_spike', 'range_expansion', 'alert_plan', 'review_snapshot'].includes(kind)) {
-    return 'warning';
-  }
-
-  return 'neutral';
-};
-
-const buildRealtimeDetailTimeline = ({ symbol, anomalyFeed = [], reviewSnapshots = [], actionEvents = [], alertHistory = [] }) => {
-  if (!symbol) {
-    return [];
-  }
-
-  const liveSignalEvents = anomalyFeed
-    .filter((item) => item?.symbol === symbol)
-    .map((item) => ({
-      id: `live_${symbol}_${item.kind}_${item.timestamp || item.title}`,
-      symbol,
-      kind: item.kind || 'live_signal',
-      source: 'live',
-      sourceLabel: '实时异动',
-      title: item.title,
-      description: item.description,
-      createdAt: item.timestamp || new Date().toISOString(),
-      tone: getTimelineTone(item.kind),
-      priceSnapshot: item.priceSnapshot,
-      changePercentSnapshot: item.changePercentSnapshot,
-      rangePercentSnapshot: item.rangePercentSnapshot,
-      volumeSnapshot: item.volumeSnapshot,
-    }));
-
-  const reviewEvents = reviewSnapshots
-    .filter((snapshot) => snapshot?.spotlightSymbol === symbol || (snapshot?.anomalies || []).some((item) => item?.symbol === symbol))
-    .map((snapshot) => {
-      const outcomeMeta = getSnapshotOutcomeMeta(snapshot.outcome);
-      const relatedAnomaly = (snapshot.anomalies || []).find((item) => item?.symbol === symbol);
-      return {
-        id: `review_${snapshot.id}_${symbol}`,
-        symbol,
-        kind: snapshot.outcome ? `review_${snapshot.outcome}` : 'review_snapshot',
-        source: 'review',
-        sourceLabel: '复盘快照',
-        title: outcomeMeta?.label ? `${outcomeMeta.label} · ${snapshot.activeTabLabel || snapshot.activeTab || '复盘记录'}` : '保存复盘快照',
-        description: snapshot.note
-          || relatedAnomaly?.description
-          || `记录了 ${snapshot.activeTabLabel || snapshot.activeTab || '--'} 视角下的 ${snapshot.anomalyCount ?? 0} 条异动。`,
-        createdAt: snapshot.updatedAt || snapshot.createdAt,
-        tone: getTimelineTone(snapshot.outcome ? `review_${snapshot.outcome}` : 'review_snapshot'),
-      };
-    });
-
-  const manualEvents = actionEvents
-    .filter((event) => event?.symbol === symbol)
-    .map((event) => ({
-      ...event,
-      tone: event.tone || getTimelineTone(event.kind),
-    }));
-
-  const alertEvents = alertHistory
-    .filter((entry) => entry?.symbol === symbol)
-    .map((entry) => ({
-      id: `alert_hit_${entry.id}`,
-      symbol,
-      kind: 'alert_triggered',
-      source: 'alert',
-      sourceLabel: '提醒命中',
-      title: `提醒命中 · ${entry.conditionLabel || '提醒规则'}`,
-      description: entry.message || `${symbol} 的提醒规则已触发。`,
-      createdAt: entry.triggerTime,
-      tone: ['price_above', 'change_pct_above', 'touch_high'].includes(entry.condition) ? 'positive' : 'warning',
-      priceSnapshot: entry.priceSnapshot ?? entry.triggerPrice ?? null,
-      threshold: entry.threshold,
-      condition: entry.condition,
-    }));
-
-  const uniqueEvents = new Map();
-  [...liveSignalEvents, ...manualEvents, ...reviewEvents, ...alertEvents].forEach((event) => {
-    if (!event?.id) {
-      return;
-    }
-    uniqueEvents.set(event.id, event);
-  });
-
-  return Array.from(uniqueEvents.values())
-    .sort((left, right) => new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime())
-    .slice(0, 10);
-};
-
-const getSnapshotOutcomeMeta = (outcome) => SNAPSHOT_OUTCOME_OPTIONS[outcome] || null;
-const filterReviewSnapshots = (snapshots = [], scope = 'all', activeTab = '') => {
-  if (scope === 'recent20') {
-    return snapshots.slice(0, 20);
-  }
-
-  if (scope === 'recent7d') {
-    const now = Date.now();
-    return snapshots.filter((snapshot) => {
-      const createdAt = new Date(snapshot.createdAt).getTime();
-      return Number.isFinite(createdAt) && now - createdAt <= 7 * 24 * 60 * 60 * 1000;
-    });
-  }
-
-  if (scope === 'activeTab') {
-    return snapshots.filter((snapshot) => snapshot.activeTab === activeTab);
-  }
-
-  return snapshots;
-};
+const TradePanel = lazyWithRetry(() => import('./TradePanel'));
+const RealtimeStockDetailModal = lazyWithRetry(() => import('./RealtimeStockDetailModal'));
+const PriceAlerts = lazyWithRetry(() => import('./PriceAlerts'));
 
 const RealTimePanel = ({ openAlertsSignal = null }) => {
   const messageApi = useSafeMessageApi();
@@ -1528,7 +1320,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         <Card
           className="realtime-hero-card realtime-hero-card--compact"
           style={{
-            borderRadius: 28,
+            borderRadius: 8,
             overflow: 'hidden',
             border: '1px solid color-mix(in srgb, var(--accent-primary) 24%, var(--border-color) 76%)',
             boxShadow: '0 24px 60px rgba(15, 23, 42, 0.10)',
@@ -1568,11 +1360,11 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
                 </div>
               </div>
               <div className="realtime-hero__meta">
-                <div className="realtime-hero__chip">当前分组：{getCategoryLabel(activeTab)}</div>
-                <div className="realtime-hero__chip">链路模式：{transportModeLabel}</div>
-                <div className="realtime-hero__chip">自动更新：{isAutoUpdate ? '开启' : '暂停'}</div>
-                <div className="realtime-hero__chip">行情时间：{lastMarketUpdateLabel}</div>
-                {reconnectAttempts > 0 && <div className="realtime-hero__chip">重连 {reconnectAttempts}</div>}
+                <div className="realtime-hero__chip realtime-hero__chip--category">当前分组：{getCategoryLabel(activeTab)}</div>
+                <div className="realtime-hero__chip realtime-hero__chip--transport">链路模式：{transportModeLabel}</div>
+                <div className="realtime-hero__chip realtime-hero__chip--auto">自动更新：{isAutoUpdate ? '开启' : '暂停'}</div>
+                <div className="realtime-hero__chip realtime-hero__chip--time">行情时间：{lastMarketUpdateLabel}</div>
+                {reconnectAttempts > 0 && <div className="realtime-hero__chip realtime-hero__chip--reconnect">重连 {reconnectAttempts}</div>}
               </div>
               <div className="realtime-hero__metric-grid">
                 {heroPrimaryStats.map((item) => (
@@ -1768,7 +1560,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               <div className="realtime-search-panel">
                 <div className="realtime-search-panel__title">添加跟踪</div>
                 <div className="realtime-search-panel__hint">支持代码、英文名和中文名，添加后会自动进入对应分组。</div>
-                <Space.Compact style={{ width: '100%', marginTop: 14 }}>
+                <Space.Compact className="realtime-search-compact" style={{ width: '100%', marginTop: 14 }}>
                   <AutoComplete
                     style={{ flex: 1 }}
                     options={autoCompleteOptions}
@@ -1796,7 +1588,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               <div className="realtime-search-panel">
                 <div className="realtime-search-panel__title">全局跳转</div>
                 <div className="realtime-search-panel__hint">输入已跟踪标的可直接切组并打开详情，未跟踪标的则直接加入工作台。</div>
-                <Space.Compact style={{ width: '100%', marginTop: 14 }}>
+                <Space.Compact className="realtime-search-compact" style={{ width: '100%', marginTop: 14 }}>
                   <AutoComplete
                     style={{ flex: 1 }}
                     options={globalJumpOptions}
@@ -2151,8 +1943,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         .realtime-hero {
           display: grid;
           grid-template-columns: minmax(0, 1.42fr) minmax(420px, 0.9fr);
-          gap: 14px;
-          padding: 14px 18px;
+          gap: 12px;
+          padding: 12px 14px;
           background:
             linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 12%, var(--bg-secondary) 88%) 0%, color-mix(in srgb, var(--accent-secondary) 10%, var(--bg-secondary) 90%) 100%);
         }
@@ -2264,8 +2056,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         }
 
         .realtime-hero__metric {
-          padding: 10px 12px;
-          border-radius: 14px;
+          padding: 9px 10px;
+          border-radius: 8px;
           background: color-mix(in srgb, var(--bg-secondary) 88%, white 12%);
           border: 1px solid color-mix(in srgb, var(--border-color) 78%, white 22%);
         }
@@ -2312,8 +2104,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           display: grid;
           gap: 8px 10px;
           align-content: start;
-          padding: 10px;
-          border-radius: 18px;
+          padding: 8px;
+          border-radius: 8px;
           background: color-mix(in srgb, var(--bg-secondary) 90%, white 10%);
           border: 1px solid color-mix(in srgb, var(--accent-primary) 16%, var(--border-color) 84%);
         }
@@ -2376,8 +2168,8 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         }
 
         .realtime-hero__signal-card {
-          padding: 10px 12px;
-          border-radius: 14px;
+          padding: 9px 10px;
+          border-radius: 8px;
         }
 
         .realtime-hero__signal-card-title {
@@ -2575,6 +2367,16 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           overflow: visible;
         }
 
+        .realtime-search-compact .ant-select-auto-complete {
+          min-width: 0;
+        }
+
+        .realtime-search-compact .ant-btn {
+          flex: 0 0 72px;
+          min-width: 72px;
+          padding-inline: 12px !important;
+        }
+
         .realtime-board-head {
           display: flex;
           align-items: flex-start;
@@ -2769,6 +2571,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           display: inline-flex;
           align-items: center;
           gap: 10px;
+          max-width: 100%;
           margin-top: 10px;
           padding: 8px 10px;
           border-radius: 14px;
@@ -2782,6 +2585,18 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         .realtime-quote-card__sparkline svg {
           display: block;
           flex: none;
+        }
+
+        .realtime-quote-card--grid .realtime-quote-card__sparkline svg {
+          width: 104px;
+          height: 38px;
+        }
+
+        .realtime-quote-card__sparkline span {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
 
         .realtime-quote-card__source {
@@ -3032,12 +2847,26 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           }
 
           .realtime-hero {
-            gap: 12px;
-            padding: 14px;
+            gap: 8px;
+            padding: 10px;
           }
 
           .realtime-hero__main {
-            gap: 10px;
+            gap: 8px;
+          }
+
+          .realtime-hero__statusbar {
+            gap: 6px;
+          }
+
+          .realtime-hero__eyebrow {
+            font-size: 10px;
+            letter-spacing: 0.14em;
+          }
+
+          .realtime-hero__headline .ant-typography {
+            font-size: 21px !important;
+            line-height: 1.16;
           }
 
           .realtime-hero__subtitle {
@@ -3057,13 +2886,15 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           }
 
           .realtime-hero__meta {
-            display: grid;
-            grid-auto-flow: column;
-            grid-auto-columns: max-content;
-            overflow-x: auto;
-            overscroll-behavior-x: contain;
-            padding-bottom: 2px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
             scrollbar-width: none;
+          }
+
+          .realtime-hero__chip--category,
+          .realtime-hero__chip--auto {
+            display: none;
           }
 
           .realtime-hero__meta::-webkit-scrollbar,
@@ -3090,7 +2921,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           }
 
           .realtime-hero__chip {
-            padding: 5px 9px;
+            padding: 4px 8px;
             font-size: 10px;
           }
 
@@ -3102,15 +2933,29 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
           .realtime-hero__metric-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 6px;
           }
 
           .realtime-hero__metric {
-            padding: 10px 11px;
+            min-height: 40px;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            grid-template-areas: "label value";
+            align-items: center;
+            gap: 8px;
+            padding: 7px 8px;
+          }
+
+          .realtime-hero__metric-label {
+            grid-area: label;
+            letter-spacing: 0.08em;
           }
 
           .realtime-hero__metric-value {
-            margin-top: 6px;
-            font-size: 19px;
+            grid-area: value;
+            margin-top: 0;
+            font-size: 18px;
+            text-align: right;
           }
 
           .realtime-hero__metric-detail {
@@ -3119,12 +2964,12 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
 
           .realtime-hero__sidecar {
             gap: 6px;
-            padding: 10px;
+            padding: 8px;
           }
 
           .realtime-hero__utility-row {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            grid-template-columns: 1fr;
             gap: 8px;
             width: 100%;
           }
@@ -3132,24 +2977,41 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           .realtime-hero__toggle-pill {
             width: 100%;
             justify-content: space-between;
-            padding: 8px 10px;
+            gap: 10px;
+            padding: 6px 8px;
+          }
+
+          .realtime-hero__toggle-pill .ant-typography {
+            white-space: nowrap;
           }
 
           .realtime-hero__refresh {
-            min-height: 38px;
+            min-height: 34px;
           }
 
           .realtime-hero__secondary-button,
           .realtime-hero__utility-actions .ant-btn {
-            min-height: 34px;
+            min-height: 32px;
+            min-width: 0;
           }
 
           .realtime-hero__signal-card {
-            padding: 8px 10px;
+            padding: 7px 8px;
+          }
+
+          .realtime-hero__signal-pill {
+            padding: 3px 7px;
+            font-size: 9px;
           }
 
           .realtime-hero__utility-actions .ant-btn {
             justify-content: center;
+          }
+
+          .realtime-hero__utility-actions .ant-btn > span:not(.anticon) {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
           }
 
           .realtime-quote-grid,

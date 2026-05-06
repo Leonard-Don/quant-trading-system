@@ -3,21 +3,31 @@
 支持多种数据源的统一接口
 """
 
-from .base_provider import BaseDataProvider, DataProviderError
-from .commodity_provider import CommodityProvider
-from .yahoo_provider import YahooFinanceProvider
 from .alphavantage_provider import AlphaVantageProvider
+from .base_provider import BaseDataProvider, DataProviderError
+from .circuit_breaker import (
+    CircuitBreaker,
+    CircuitOpenError,
+    CircuitState,
+    with_circuit_breaker,
+)
+from .commodity_provider import CommodityProvider
+from .provider_factory import DataProviderFactory
 from .twelvedata_provider import TwelveDataProvider
 from .us_stock_provider import USStockProvider
-from .provider_factory import DataProviderFactory
+from .yahoo_provider import YahooFinanceProvider
 
 __all__ = [
-    "BaseDataProvider",
-    "DataProviderError",
-    "CommodityProvider",
-    "YahooFinanceProvider",
     "AlphaVantageProvider",
+    "BaseDataProvider",
+    "CircuitBreaker",
+    "CircuitOpenError",
+    "CircuitState",
+    "CommodityProvider",
+    "DataProviderError",
+    "DataProviderFactory",
     "TwelveDataProvider",
     "USStockProvider",
-    "DataProviderFactory",
+    "YahooFinanceProvider",
+    "with_circuit_breaker",
 ]

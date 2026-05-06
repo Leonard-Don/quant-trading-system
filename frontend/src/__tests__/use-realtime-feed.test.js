@@ -4,39 +4,39 @@ import api from '../services/api';
 import webSocketService from '../services/websocket';
 import { normalizeQuotePayload, useRealtimeFeed } from '../hooks/useRealtimeFeed';
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   __esModule: true,
   default: {
-    get: jest.fn(),
+    get: vi.fn(),
   },
 }));
 
-jest.mock('../services/websocket', () => ({
+vi.mock('../services/websocket', () => ({
   __esModule: true,
   default: {
-    addListener: jest.fn(),
-    connect: jest.fn(),
-    subscribe: jest.fn(),
-    unsubscribe: jest.fn(),
-    requestSnapshot: jest.fn(),
-    disconnect: jest.fn(),
+    addListener: vi.fn(),
+    connect: vi.fn(),
+    subscribe: vi.fn(),
+    unsubscribe: vi.fn(),
+    requestSnapshot: vi.fn(),
+    disconnect: vi.fn(),
   },
 }));
 
 describe('useRealtimeFeed', () => {
   const listeners = {};
   const messageApi = {
-    success: jest.fn(),
-    error: jest.fn(),
+    success: vi.fn(),
+    error: vi.fn(),
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    jest.useFakeTimers();
+    vi.clearAllMocks();
+    vi.useFakeTimers();
     Object.keys(listeners).forEach((key) => delete listeners[key]);
     webSocketService.addListener.mockImplementation((event, callback) => {
       listeners[event] = callback;
-      return jest.fn();
+      return vi.fn();
     });
     webSocketService.connect.mockResolvedValue(undefined);
     webSocketService.requestSnapshot.mockReturnValue(true);
@@ -57,11 +57,11 @@ describe('useRealtimeFeed', () => {
 
   afterEach(async () => {
     await act(async () => {
-      jest.runOnlyPendingTimers();
+      vi.runOnlyPendingTimers();
       await Promise.resolve();
     });
     cleanup();
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   test('normalizes quote payload with client and market timestamps', () => {
@@ -83,7 +83,7 @@ describe('useRealtimeFeed', () => {
     }));
 
     await act(async () => {
-      jest.advanceTimersByTime(100);
+      vi.advanceTimersByTime(100);
       await Promise.resolve();
     });
 
@@ -119,7 +119,7 @@ describe('useRealtimeFeed', () => {
     }));
 
     await act(async () => {
-      jest.advanceTimersByTime(100);
+      vi.advanceTimersByTime(100);
       await Promise.resolve();
     });
 
@@ -150,7 +150,7 @@ describe('useRealtimeFeed', () => {
     }));
 
     await act(async () => {
-      jest.advanceTimersByTime(100);
+      vi.advanceTimersByTime(100);
       await Promise.resolve();
     });
 

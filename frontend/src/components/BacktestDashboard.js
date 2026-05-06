@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useMemo } from 'react';
+import React, { Suspense, useMemo } from 'react';
 import { Card, Spin, Space, Tabs, Tag, Typography } from 'antd';
 import { BarChartOutlined, HistoryOutlined, ExperimentOutlined, PieChartOutlined, GlobalOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import StrategyForm from './StrategyForm';
@@ -8,12 +8,13 @@ import BacktestDataHealthPanel from './BacktestDataHealthPanel';
 import { useAppUrlState } from '../hooks/useAppUrlState';
 import { buildAppUrl, navigateToAppUrl, sanitizeParamsForView } from '../utils/researchContext';
 import { saveAdvancedExperimentIntent } from '../utils/backtestWorkspace';
+import lazyWithRetry from '../utils/lazyWithRetry';
 
 // Lazy load history component to keep initial bundle size small
-const BacktestHistory = lazy(() => import('./BacktestHistory'));
-const StrategyComparison = lazy(() => import('./StrategyComparison'));
-const PortfolioOptimizer = lazy(() => import('./PortfolioOptimizer'));
-const AdvancedBacktestLab = lazy(() => import('./AdvancedBacktestLab'));
+const BacktestHistory = lazyWithRetry(() => import('./BacktestHistory'));
+const StrategyComparison = lazyWithRetry(() => import('./StrategyComparison'));
+const PortfolioOptimizer = lazyWithRetry(() => import('./PortfolioOptimizer'));
+const AdvancedBacktestLab = lazyWithRetry(() => import('./AdvancedBacktestLab'));
 
 const LazyLoadFallback = () => (
     <div style={{
@@ -73,7 +74,7 @@ const readBacktestLocationState = (search = window.location.search) => {
     };
 };
 
-const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) => {
+const BacktestDashboard = ({ strategies, height, onSubmit, loading, results, onSendToPaperTrading, onAutoExecuteToPaperTrading }) => {
     const appUrlState = useAppUrlState();
     const { activeTab, highlightRecordId } = useMemo(
         () => readBacktestLocationState(appUrlState.search),
@@ -194,6 +195,8 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results }) =
                             isRefreshing={loading}
                             onOpenHistoryRecord={handleOpenHistoryRecord}
                             onContinueAdvancedExperiment={handleContinueToAdvancedExperiment}
+                            onSendToPaperTrading={onSendToPaperTrading}
+                            onAutoExecuteToPaperTrading={onAutoExecuteToPaperTrading}
                         />
                     ) : (
                         <Card

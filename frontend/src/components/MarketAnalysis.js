@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import {
     Card,
     Input,
@@ -40,7 +40,6 @@ import {
     ReloadOutlined,
 } from '@ant-design/icons';
 import {
-    Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
     ComposedChart, ReferenceArea, ReferenceLine, Scatter,
     ResponsiveContainer,
     Tooltip as RechartsTooltip,
@@ -68,35 +67,34 @@ import {
     getCorrelationAnalysis,
     getEventSummary
 } from '../services/api';
+import lazyWithRetry from '../utils/lazyWithRetry';
 import { MarketAnalysisSkeleton } from './SkeletonLoaders';
+import {
+    RecommendationTag,
+    ScoreGauge,
+    ScoreRadarChart,
+} from './market-analysis/MarketAnalysisScoreVisuals';
+import {
+    buildAnalysisCacheKey,
+    clearAnalysisCache,
+    readAnalysisCacheEntry,
+    writeAnalysisCache,
+} from '../utils/marketAnalysisCache';
+import {
+    DISPLAY_EMPTY,
+    formatDisplayNumber,
+    formatDisplayPercent,
+    formatMetaTime,
+    normalizeVolumeTrend,
+} from '../utils/marketAnalysisFormatters';
 
-import { Tooltip } from 'antd'; // Careful, we have RechartsTooltip imported as well. 
+import { Tooltip } from 'antd'; // Careful, we have RechartsTooltip imported as well.
 
 const { Title, Text } = Typography;
 const { Search } = Input;
-const DEFAULT_VOLUME_TREND = {
-    trend: 'unknown',
-    direction: 'neutral',
-    volume_ratio: 0,
-    avg_volume_5d: 0,
-    avg_volume_20d: 0,
-    current_volume: 0
-};
 
-const normalizeVolumeTrend = (value) => {
-    if (!value) return { ...DEFAULT_VOLUME_TREND };
-    if (typeof value === 'string') {
-        return { ...DEFAULT_VOLUME_TREND, trend: value };
-    }
-    return { ...DEFAULT_VOLUME_TREND, ...value };
-};
-
-const DISPLAY_EMPTY = '--';
-export const ANALYSIS_CACHE_TTL_MS = 2 * 60 * 1000;
-export const ANALYSIS_CACHE_MAX_ENTRIES = 96;
-const analysisResponseCache = new Map();
-const AIPredictionPanel = lazy(() => import('./AIPredictionPanel'));
-const CandlestickChart = lazy(() => import('./CandlestickChart'));
+const AIPredictionPanel = lazyWithRetry(() => import('./AIPredictionPanel'));
+const CandlestickChart = lazyWithRetry(() => import('./CandlestickChart'));
 const TAB_LABELS = {
     overview: '总览',
     trend: '趋势分析',
@@ -110,101 +108,13 @@ const TAB_LABELS = {
     prediction: 'AI 预测',
 };
 
-const buildAnalysisCacheKey = (tab, symbol, interval = '') => `${tab}|${symbol || ''}|${interval || ''}`;
-const clearAnalysisCache = (symbol, interval) => {
-    const keyFragments = [
-        buildAnalysisCacheKey('overview', symbol, interval),
-        buildAnalysisCacheKey('trend', symbol, interval),
-        buildAnalysisCacheKey('volume', symbol, interval),
-        buildAnalysisCacheKey('sentiment', symbol, interval),
-        buildAnalysisCacheKey('pattern', symbol, interval),
-        buildAnalysisCacheKey('fundamental', symbol),
-        buildAnalysisCacheKey('technical', symbol, interval),
-        buildAnalysisCacheKey('events', symbol),
-        buildAnalysisCacheKey('sentimentHistory', symbol),
-        buildAnalysisCacheKey('industry', symbol),
-        buildAnalysisCacheKey('risk', symbol, interval),
-        buildAnalysisCacheKey('correlation', symbol),
-    ];
-    keyFragments.forEach((cacheKey) => analysisResponseCache.delete(cacheKey));
-};
-const trimAnalysisCacheToLimit = () => {
-    while (analysisResponseCache.size > ANALYSIS_CACHE_MAX_ENTRIES) {
-        const oldestCacheKey = analysisResponseCache.keys().next().value;
-        if (oldestCacheKey === undefined) {
-            return;
-        }
-        analysisResponseCache.delete(oldestCacheKey);
-    }
-};
-const sweepExpiredAnalysisCacheEntries = (now = Date.now()) => {
-    analysisResponseCache.forEach((entry, cacheKey) => {
-        if (now - entry.cachedAt > ANALYSIS_CACHE_TTL_MS) {
-            analysisResponseCache.delete(cacheKey);
-        }
-    });
-};
-const touchAnalysisCacheEntry = (cacheKey, cachedEntry) => {
-    analysisResponseCache.delete(cacheKey);
-    analysisResponseCache.set(cacheKey, cachedEntry);
-};
-const readAnalysisCacheEntry = (cacheKey, now = Date.now()) => {
-    const cached = analysisResponseCache.get(cacheKey);
-    if (!cached) {
-        return null;
-    }
-
-    if (now - cached.cachedAt > ANALYSIS_CACHE_TTL_MS) {
-        analysisResponseCache.delete(cacheKey);
-        return null;
-    }
-
-    touchAnalysisCacheEntry(cacheKey, cached);
-    return cached;
-};
-const writeAnalysisCache = (cacheKey, data, cachedAt = Date.now()) => {
-    sweepExpiredAnalysisCacheEntries(cachedAt);
-    analysisResponseCache.delete(cacheKey);
-    analysisResponseCache.set(cacheKey, {
-        data,
-        cachedAt,
-    });
-    trimAnalysisCacheToLimit();
-    return cachedAt;
-};
-export const __TEST_ONLY__ = {
-    clearAnalysisResponseCache: () => analysisResponseCache.clear(),
-    getAnalysisCacheSize: () => analysisResponseCache.size,
-    readAnalysisCacheEntry,
-    writeAnalysisCache,
-};
-
-const formatDisplayNumber = (value, digits = 2, suffix = '') => {
-    if (value === null || value === undefined || Number.isNaN(Number(value))) {
-        return DISPLAY_EMPTY;
-    }
-    return `${Number(value).toFixed(digits)}${suffix}`;
-};
-
-const formatDisplayPercent = (value, digits = 2, valueIsRatio = false) => {
-    if (value === null || value === undefined || Number.isNaN(Number(value))) {
-        return DISPLAY_EMPTY;
-    }
-    const numericValue = valueIsRatio ? Number(value) * 100 : Number(value);
-    return `${numericValue.toFixed(digits)}%`;
-};
-const formatMetaTime = (timestamp) => {
-    if (!timestamp) {
-        return DISPLAY_EMPTY;
-    }
-
-    return new Intl.DateTimeFormat('zh-CN', {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false,
-    }).format(timestamp);
-};
+// Re-exported for backward compatibility with existing tests; new
+// callers should import from utils directly.
+export {
+    ANALYSIS_CACHE_TTL_MS,
+    ANALYSIS_CACHE_MAX_ENTRIES,
+    __TEST_ONLY__,
+} from '../utils/marketAnalysisCache';
 
 const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
     const [symbol, setSymbol] = useState(propSymbol || 'AAPL');
@@ -816,98 +726,8 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
 
     // --- Render Helpers ---
 
-    const renderScoreGauge = useCallback((score) => {
-        let color = '#1890ff';
-        if (score >= 75) color = '#00b578';
-        else if (score >= 50) color = '#1890ff';
-        else if (score >= 30) color = '#faad14';
-        else color = '#ff3030';
-
-        return (
-            <div style={{ textAlign: 'center' }}>
-                <Progress
-                    type="dashboard"
-                    percent={score}
-                    format={(percent) => (
-                        <>
-                            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{percent}</div>
-                            <div style={{ fontSize: '12px', color: '#888' }}>综合评分</div>
-                        </>
-                    )}
-                    strokeColor={color}
-                    size={180}
-                />
-            </div>
-        );
-    }, []);
-
-    const renderRecommendation = useCallback((rec) => {
-        let color = 'default';
-        if (rec.includes('买入')) color = 'success';
-        else if (rec.includes('卖出')) color = 'error';
-        else if (rec.includes('持有')) color = 'warning';
-
-        return (
-            <Tag color={color} style={{ fontSize: '16px', padding: '5px 10px' }}>
-                {rec}
-            </Tag>
-        );
-    }, []);
-
-    const renderRadarChart = useCallback((scores) => {
-        const chartData = [
-            { subject: '趋势', A: scores.trend, fullMark: 100 },
-            { subject: '量价', A: scores.volume, fullMark: 100 },
-            { subject: '情绪', A: scores.sentiment, fullMark: 100 },
-            { subject: '技术', A: scores.technical, fullMark: 100 },
-        ];
-
-        return (
-            <div className="radar-chart-container">
-                <ResponsiveContainer width="100%" height={240}>
-                    <RadarChart cx="50%" cy="50%" outerRadius="70%" data={chartData}>
-                        <defs>
-                            <linearGradient id="radarFill" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#2db7f5" stopOpacity={0.8} />
-                                <stop offset="95%" stopColor="#00b578" stopOpacity={0.4} />
-                            </linearGradient>
-                        </defs>
-                        <PolarGrid gridType="circle" stroke="rgba(148, 163, 184, 0.2)" />
-                        <PolarAngleAxis
-                            dataKey="subject"
-                            tick={{ fill: 'var(--text-secondary)', fontSize: 13, fontWeight: 500 }}
-                        />
-                        <PolarRadiusAxis
-                            angle={30}
-                            domain={[0, 100]}
-                            tick={{ fontSize: 10, fill: '#94a3b8' }}
-                            axisLine={false}
-                            tickCount={6}
-                        />
-                        <Radar
-                            name="综合评分"
-                            dataKey="A"
-                            stroke="#2db7f5"
-                            strokeWidth={2.5}
-                            fill="url(#radarFill)"
-                            fillOpacity={0.8}
-                            activeDot={{ r: 4, stroke: '#fff', strokeWidth: 2 }}
-                        />
-                        <RechartsTooltip
-                            contentStyle={{
-                                backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                                borderRadius: '8px',
-                                border: 'none',
-                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)'
-                            }}
-                            itemStyle={{ color: '#333', fontWeight: 500 }}
-                            formatter={(value) => [`${value}分`, '得分']}
-                        />
-                    </RadarChart>
-                </ResponsiveContainer>
-            </div>
-        );
-    }, []);
+    // renderScoreGauge / renderRecommendation / renderRadarChart 拆到
+    // ./market-analysis/MarketAnalysisScoreVisuals.js（layer 2 子组件）
 
     // --- Tab Contents (Memoized) ---
 
@@ -989,14 +809,14 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                             placement="right"
                         >
                             <div style={{ cursor: 'pointer' }}>
-                                {renderScoreGauge(overviewData.overall_score)}
+                                <ScoreGauge score={overviewData.overall_score} />
                             </div>
                         </Popover>
                         <div style={{ textAlign: 'center', marginTop: 16 }}>
                             <Space direction="vertical">
                                 <Text type="secondary">投资建议</Text>
                                 <Tooltip title={overviewData.recommendation_reasons?.length ? recommendationReasonContent : ''}>
-                                    {renderRecommendation(overviewData.recommendation)}
+                                    <RecommendationTag recommendation={overviewData.recommendation} />
                                 </Tooltip>
                                 <Text type="secondary" style={{ fontSize: '12px' }}>
                                     置信度: {translateConfidence(overviewData.confidence)}
@@ -1008,7 +828,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
 
                 <Col xs={24} md={8}>
                     <Card title="维度评分" variant="borderless">
-                        {renderRadarChart(overviewData.scores)}
+                        <ScoreRadarChart scores={overviewData.scores} />
                     </Card>
                 </Col>
 
@@ -1207,7 +1027,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 </Col>
             </Row>
         );
-    }, [loadingTab.overview, loadingTab.technical, loadingTab.events, errorTab.overview, overviewData, technicalData, eventData, renderScoreGauge, renderRadarChart, renderRecommendation, symbol]);
+    }, [loadingTab.overview, loadingTab.technical, loadingTab.events, errorTab.overview, overviewData, technicalData, eventData, symbol]);
 
     // 2. Trend Content
     const trendContent = useMemo(() => {

@@ -1,0 +1,165 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant-trading-system"
+version = "5.0.0"
+description = "Quantitative research workspace: backtesting, realtime market monitoring, industry heat analysis."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [
+    "tests/manual",
+    "tests/e2e",
+    "frontend/node_modules",
+    "tests/e2e/node_modules",
+]
+filterwarnings = [
+    "ignore:y0 and y1 are \\(almost\\) perfectly colinear.*:statsmodels.tools.sm_exceptions.CollinearityWarning",
+]
+markers = [
+    "perf: performance regression tests (slow, opt-in via -m perf)",
+    "integration: integration tests that may touch external services",
+    "slow: tests that take more than ~1s to run",
+]
+
+# ---------------------------------------------------------------------------
+# Black
+# ---------------------------------------------------------------------------
+[tool.black]
+line-length = 100
+target-version = ["py39", "py310", "py311", "py312", "py313"]
+extend-exclude = '''
+/(
+    \.venv
+  | venv
+  | build
+  | dist
+  | frontend
+  | \.playwright-cli
+  | cache
+  | data
+  | tmp
+  | output
+  | reports
+  | logs
+)/
+'''
+
+# ---------------------------------------------------------------------------
+# Ruff (lint + format) — replaces flake8 + isort + autopep8
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+extend-exclude = [
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    "frontend",
+    ".playwright-cli",
+    "cache",
+    "data",
+    "tmp",
+    "output",
+    "reports",
+    "logs",
+    "scripts/__pycache__",
+]
+
+[tool.ruff.lint]
+# Conservative starter set. Tighten over time.
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "C4",  # flake8-comprehensions
+    "PIE", # flake8-pie
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",  # line length (black handles)
+    "B008",  # function default arg call (FastAPI Depends pattern)
+    "B904",  # raise from (will adopt later)
+    "SIM108", # ternary if-else (sometimes hurts readability)
+    "RUF001", # ambiguous unicode (Chinese strings)
+    "RUF002",
+    "RUF003",
+    "UP007",  # X | Y union (need py3.10 minimum)
+    "UP045",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can use long lines, magic values, asserts
+"tests/**/*.py" = ["E501", "B011", "F401", "F841"]
+# Init files re-export
+"**/__init__.py" = ["F401", "F403"]
+# Scripts often use prints, broad imports
+"scripts/**/*.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src", "backend"]
+combine-as-imports = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ---------------------------------------------------------------------------
+# Mypy (loose for now — tighten module-by-module)
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.9"
+ignore_missing_imports = true
+warn_unused_ignores = false
+warn_redundant_casts = true
+warn_unused_configs = true
+no_implicit_optional = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+exclude = [
+    "frontend/",
+    "build/",
+    "dist/",
+    ".playwright-cli/",
+    "tests/e2e/",
+    "scripts/",
+]
+
+[[tool.mypy.overrides]]
+module = ["akshare.*", "ta.*", "yfinance.*", "twelvedata.*", "alpha_vantage.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# Coverage
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["src", "backend"]
+omit = [
+    "*/__pycache__/*",
+    "*/tests/*",
+    "frontend/*",
+    "scripts/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

@@ -115,6 +115,7 @@ tests/e2e/node_modules/
 .agents/
 verify_result.html
 tests/e2e/verify_result.html
+health_check_report.json
 
 # Data
 data/

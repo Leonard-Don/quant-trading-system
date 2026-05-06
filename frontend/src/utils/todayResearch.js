@@ -55,6 +55,24 @@ const PRIORITY_RANK = {
 };
 
 const safeArray = (value) => (Array.isArray(value) ? value : []);
+const ACTIVE_RESEARCH_STATUSES = new Set(['open', 'watching']);
+
+const normalizeSearchText = (value) => String(value || '').trim().toLowerCase();
+
+const buildEntrySearchText = (entry) => [
+  entry.title,
+  entry.summary,
+  entry.note,
+  entry.symbol,
+  entry.industry,
+  entry.source,
+  entry.source_label,
+  TODAY_RESEARCH_TYPE_LABELS[entry.type],
+  TODAY_RESEARCH_STATUS_LABELS[entry.status],
+  TODAY_RESEARCH_PRIORITY_LABELS[entry.priority],
+  entry.action?.label,
+  ...safeArray(entry.tags),
+].filter(Boolean).join(' ').toLowerCase();
 
 export const safeReadJsonStorage = (key, fallback) => {
   if (typeof window === 'undefined') {
@@ -140,6 +158,32 @@ export const mergeResearchEntries = (entries = []) => {
     const priorityDiff = (PRIORITY_RANK[left.priority] ?? 9) - (PRIORITY_RANK[right.priority] ?? 9);
     if (priorityDiff) return priorityDiff;
     return Date.parse(right.updated_at || 0) - Date.parse(left.updated_at || 0);
+  });
+};
+
+export const filterResearchEntries = (entries = [], filters = {}) => {
+  const status = filters.status || 'all';
+  const priority = filters.priority || 'all';
+  const type = filters.type || 'all';
+  const keyword = normalizeSearchText(filters.keyword);
+
+  return mergeResearchEntries(entries).filter((entry) => {
+    if (status === 'active' && !ACTIVE_RESEARCH_STATUSES.has(entry.status)) {
+      return false;
+    }
+    if (status !== 'all' && status !== 'active' && entry.status !== status) {
+      return false;
+    }
+    if (priority !== 'all' && entry.priority !== priority) {
+      return false;
+    }
+    if (type !== 'all' && entry.type !== type) {
+      return false;
+    }
+    if (keyword && !buildEntrySearchText(entry).includes(keyword)) {
+      return false;
+    }
+    return true;
   });
 };
 

@@ -8,99 +8,77 @@ import webSocketService from '../services/websocket';
 import { buildRealtimeActionPosture } from '../utils/realtimeSignals';
 
 const mockMessageApi = {
-  success: jest.fn(),
-  error: jest.fn(),
-  warning: jest.fn(),
+  success: vi.fn(),
+  error: vi.fn(),
+  warning: vi.fn(),
 };
 const REVIEW_SNAPSHOT_STORAGE_KEY = 'realtime-review-snapshots';
 const ALERT_HIT_HISTORY_STORAGE_KEY = 'realtime-alert-hit-history';
 
-const mockRealtimeStockDetailModalSpy = jest.fn();
-const mockTradePanelSpy = jest.fn();
+const mockRealtimeStockDetailModalSpy = vi.fn();
+const mockTradePanelSpy = vi.fn();
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   __esModule: true,
   default: {
-    get: jest.fn(),
-    put: jest.fn(),
+    get: vi.fn(),
+    put: vi.fn(),
   },
 }));
 
-jest.mock('../services/websocket', () => ({
+vi.mock('../services/websocket', () => ({
   __esModule: true,
   default: {
-    addListener: jest.fn(),
-    connect: jest.fn(),
-    subscribe: jest.fn(),
-    requestSnapshot: jest.fn(),
-    unsubscribe: jest.fn(),
-    disconnect: jest.fn(),
+    addListener: vi.fn(),
+    connect: vi.fn(),
+    subscribe: vi.fn(),
+    requestSnapshot: vi.fn(),
+    unsubscribe: vi.fn(),
+    disconnect: vi.fn(),
   },
 }));
 
-jest.mock('../utils/messageApi', () => ({
+vi.mock('../utils/messageApi', () => ({
   useSafeMessageApi: () => mockMessageApi,
 }));
 
-jest.mock('../components/TradePanel', () => (props) => {
-  mockTradePanelSpy(props);
-  return props.visible ? <div data-testid="trade-panel">{props.defaultSymbol}</div> : null;
-});
+vi.mock('../components/TradePanel', () => ({
+  default: (props) => {
+    mockTradePanelSpy(props);
+    return props.visible ? <div data-testid="trade-panel">{props.defaultSymbol}</div> : null;
+  },
+}));
 
-jest.mock('../components/RealtimeStockDetailModal', () => (props) => {
-  mockRealtimeStockDetailModalSpy(props);
-  if (!props.open) {
-    return null;
-  }
+vi.mock('../components/RealtimeStockDetailModal', () => ({
+  default: (props) => {
+    mockRealtimeStockDetailModalSpy(props);
+    if (!props.open) {
+      return null;
+    }
 
-  return (
-    <div data-testid="realtime-stock-detail-modal">
-      {props.symbol}
-      {(props.compareCandidates || [])
-        .filter((item) => item?.symbol && item.symbol !== props.symbol)
-        .slice(0, 3)
-        .map((item) => (
-          <button
-            key={`detail-switch-${item.symbol}`}
-            type="button"
-            aria-label={`切换到 ${item.symbol}`}
-            onClick={() => props.onNavigateSymbol?.(item.symbol)}
-          >
-            {`切换到 ${item.symbol}`}
-          </button>
-        ))}
-    </div>
-  );
-});
+    return (
+      <div data-testid="realtime-stock-detail-modal">
+        {props.symbol}
+        {(props.compareCandidates || [])
+          .filter((item) => item?.symbol && item.symbol !== props.symbol)
+          .slice(0, 3)
+          .map((item) => (
+            <button
+              key={`detail-switch-${item.symbol}`}
+              type="button"
+              aria-label={`切换到 ${item.symbol}`}
+              onClick={() => props.onNavigateSymbol?.(item.symbol)}
+            >
+              {`切换到 ${item.symbol}`}
+            </button>
+          ))}
+      </div>
+    );
+  },
+}));
 
-jest.mock('@ant-design/icons', () => {
-  const React = require('react');
-  const MockIcon = ({ children }) => <span>{children}</span>;
 
-  return {
-    ArrowUpOutlined: MockIcon,
-    ArrowDownOutlined: MockIcon,
-    SearchOutlined: MockIcon,
-    PlayCircleOutlined: MockIcon,
-    PauseCircleOutlined: MockIcon,
-    SyncOutlined: MockIcon,
-    RiseOutlined: MockIcon,
-    DollarOutlined: MockIcon,
-    StockOutlined: MockIcon,
-    PropertySafetyOutlined: MockIcon,
-    BankOutlined: MockIcon,
-    ThunderboltOutlined: MockIcon,
-    BarChartOutlined: MockIcon,
-    FundOutlined: MockIcon,
-    BellOutlined: MockIcon,
-    DeleteOutlined: MockIcon,
-    FolderOutlined: MockIcon,
-    DownOutlined: MockIcon,
-    RightOutlined: MockIcon,
-  };
-});
-
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const Card = ({ children }) => <section>{children}</section>;
@@ -233,28 +211,28 @@ describe('RealTimePanel', () => {
   });
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     window.localStorage.clear();
     Object.keys(listeners).forEach((key) => delete listeners[key]);
-    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    clipboardWriteText = jest.fn().mockResolvedValue(undefined);
+    consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    clipboardWriteText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(window.navigator, 'clipboard', {
       value: { writeText: clipboardWriteText },
       configurable: true,
     });
     mockShareWindow = {
       document: {
-        write: jest.fn(),
-        close: jest.fn(),
+        write: vi.fn(),
+        close: vi.fn(),
       },
     };
     originalWindowOpen = window.open;
-    window.open = jest.fn(() => mockShareWindow);
+    window.open = vi.fn(() => mockShareWindow);
     originalNotification = global.Notification;
-    mockNotification = jest.fn();
+    mockNotification = vi.fn();
     global.Notification = Object.assign(mockNotification, {
       permission: 'granted',
-      requestPermission: jest.fn().mockResolvedValue('granted'),
+      requestPermission: vi.fn().mockResolvedValue('granted'),
     });
     quote = {
       symbol: '^GSPC',
@@ -268,7 +246,7 @@ describe('RealTimePanel', () => {
     };
     webSocketService.addListener.mockImplementation((event, callback) => {
       listeners[event] = callback;
-      return jest.fn();
+      return vi.fn();
     });
     webSocketService.connect.mockResolvedValue(undefined);
     webSocketService.requestSnapshot.mockReturnValue(false);
@@ -434,7 +412,7 @@ describe('RealTimePanel', () => {
   });
 
   test('requests a websocket snapshot when opening detail for a tracked symbol that is still missing a quote', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     webSocketService.requestSnapshot.mockReturnValue(true);
 
     await renderRealtimePanel();
@@ -462,8 +440,8 @@ describe('RealTimePanel', () => {
       params: expect.objectContaining({ symbols: '^DJI' }),
     });
 
-    jest.clearAllTimers();
-    jest.useRealTimers();
+    vi.clearAllTimers();
+    vi.useRealTimers();
   });
 
   test('falls back to a targeted REST quote fetch when websocket snapshot is unavailable for detail open', async () => {
@@ -555,7 +533,7 @@ describe('RealTimePanel', () => {
   });
 
   test('supports moving selected quotes into another market group and syncing overrides', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
 
     await renderRealtimePanel();
 
@@ -568,7 +546,7 @@ describe('RealTimePanel', () => {
     });
 
     act(() => {
-      jest.advanceTimersByTime(600);
+      vi.advanceTimersByTime(600);
     });
 
     await waitFor(() => {
@@ -583,7 +561,7 @@ describe('RealTimePanel', () => {
       );
     });
 
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   test('passes related review events into the realtime detail timeline', async () => {
@@ -983,7 +961,7 @@ describe('RealTimePanel', () => {
   });
 
   test('syncs review snapshots and timeline events back to the realtime journal backend', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
 
     quote = {
       ...quote,
@@ -1006,7 +984,7 @@ describe('RealTimePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '保存快照' }));
 
     act(() => {
-      jest.advanceTimersByTime(700);
+      vi.advanceTimersByTime(700);
     });
 
     await waitFor(() => {
@@ -1029,7 +1007,7 @@ describe('RealTimePanel', () => {
       );
     });
 
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   test('restores the saved review snapshot tab', async () => {
@@ -1068,7 +1046,7 @@ describe('RealTimePanel', () => {
   });
 
   test('switches to the snapshot market context before opening snapshot focus detail and primes the missing quote', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     webSocketService.requestSnapshot.mockReturnValue(true);
     try {
       window.localStorage.setItem(REVIEW_SNAPSHOT_STORAGE_KEY, JSON.stringify([
@@ -1120,8 +1098,8 @@ describe('RealTimePanel', () => {
       );
       expect(screen.queryByRole('button', { name: '打开焦点详情' })).not.toBeInTheDocument();
     } finally {
-      jest.clearAllTimers();
-      jest.useRealTimers();
+      vi.clearAllTimers();
+      vi.useRealTimers();
     }
   });
 
@@ -1415,7 +1393,7 @@ describe('RealTimePanel', () => {
   });
 
   test('waits briefly for websocket snapshot before falling back to REST for the current tab', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
 
     await renderRealtimePanel();
 
@@ -1438,13 +1416,13 @@ describe('RealTimePanel', () => {
     });
 
     await act(async () => {
-      jest.advanceTimersByTime(220);
+      vi.advanceTimersByTime(220);
       await Promise.resolve();
     });
 
     expect(api.get).not.toHaveBeenCalledWith('/realtime/quotes', expect.anything());
 
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   test('prefers market timestamp over client receive time when judging quote freshness', async () => {
@@ -1496,7 +1474,7 @@ describe('RealTimePanel', () => {
   });
 
   test('warms the current tab with a websocket snapshot after the realtime connection comes up', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
     webSocketService.requestSnapshot.mockReturnValue(true);
 
     await renderRealtimePanel();
@@ -1509,7 +1487,7 @@ describe('RealTimePanel', () => {
 
     await act(async () => {
       listeners.connection?.({ status: 'connected', reconnectAttempts: 0, recovered: false, lastError: null });
-      jest.advanceTimersByTime(50);
+      vi.advanceTimersByTime(50);
       await Promise.resolve();
     });
 
@@ -1520,7 +1498,7 @@ describe('RealTimePanel', () => {
     });
     expect(api.get).not.toHaveBeenCalledWith('/realtime/quotes', expect.anything());
 
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   test('resets websocket subscriptions on unmount', async () => {
@@ -1640,7 +1618,7 @@ describe('RealTimePanel', () => {
 
     api.get.mockClear();
 
-    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    fireEvent.click(screen.getByText('刷新', { selector: 'button, button *' }).closest('button'));
 
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledWith('/realtime/quotes', {
@@ -1668,7 +1646,7 @@ describe('RealTimePanel', () => {
       listeners.connection?.({ status: 'connected', reconnectAttempts: 0, recovered: false, lastError: null });
     });
 
-    fireEvent.click(screen.getByRole('button', { name: '刷新' }));
+    fireEvent.click(screen.getByText('刷新', { selector: 'button, button *' }).closest('button'));
 
     expect(webSocketService.requestSnapshot).toHaveBeenCalledWith([
       '^GSPC', '^DJI', '^IXIC', '^RUT', '000001.SS', '^HSI',
@@ -1776,7 +1754,7 @@ describe('RealTimePanel', () => {
   });
 
   test('syncs updated watchlist preferences back to the backend', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
 
     await renderRealtimePanel();
 
@@ -1787,7 +1765,7 @@ describe('RealTimePanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '添加' }));
 
     act(() => {
-      jest.advanceTimersByTime(600);
+      vi.advanceTimersByTime(600);
     });
 
     await waitFor(() => {
@@ -1808,6 +1786,6 @@ describe('RealTimePanel', () => {
 
     expect(window.localStorage.getItem('realtime-panel:profile-id')).toEqual(expect.any(String));
 
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 });

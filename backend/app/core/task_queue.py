@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import threading
 import time
@@ -9,12 +10,11 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 from backend.app.core.persistence import persistence_manager
 
-
-TaskHandler = Callable[[Dict[str, Any]], Dict[str, Any]]
+TaskHandler = Callable[[dict[str, Any]], dict[str, Any]]
 TASK_RECORD_TYPE = "infra_task"
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 WORKER_PID_FILE = PROJECT_ROOT / "logs" / "celery-worker.pid"
@@ -72,7 +72,7 @@ class TaskQueueManager:
         self.celery_result_backend = os.getenv("CELERY_RESULT_BACKEND") or self.redis_url or self.celery_broker_url
         self.max_workers = max(1, min(int(os.getenv("QUANT_TASK_WORKERS", "2")), 8))
         self._executor = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="quant-task")
-        self._tasks: Dict[str, Dict[str, Any]] = {}
+        self._tasks: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
         self._celery_app = None
         self._celery_import_error = None
@@ -106,7 +106,7 @@ class TaskQueueManager:
         )
 
         @app.task(name=self._celery_task_name, bind=True)
-        def execute_task(celery_task, task_id: str, task_name: str, payload: Dict[str, Any]):  # pragma: no cover - worker path
+        def execute_task(celery_task, task_id: str, task_name: str, payload: dict[str, Any]):  # pragma: no cover - worker path
             manager = task_queue_manager
             manager._attach_runtime_task(
                 task_id,
@@ -121,7 +121,7 @@ class TaskQueueManager:
 
         self._celery_app = app
 
-    def _empty_task_template(self, task_id: str, name: str, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _empty_task_template(self, task_id: str, name: str, payload: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         return {
             "id": task_id,
             "name": str(name or "manual_task"),
@@ -141,7 +141,7 @@ class TaskQueueManager:
             "execution_backend": "local",
         }
 
-    def _persist_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+    def _persist_task(self, task: dict[str, Any]) -> dict[str, Any]:
         payload = dict(task)
         record = persistence_manager.put_record(
             record_type=TASK_RECORD_TYPE,
@@ -155,7 +155,7 @@ class TaskQueueManager:
         saved.setdefault("updated_at", record.get("updated_at"))
         return saved
 
-    def _load_persisted_tasks(self, limit: int = 200) -> List[Dict[str, Any]]:
+    def _load_persisted_tasks(self, limit: int = 200) -> list[dict[str, Any]]:
         records = persistence_manager.list_records(record_type=TASK_RECORD_TYPE, limit=limit)
         tasks = []
         for record in records:
@@ -166,13 +166,13 @@ class TaskQueueManager:
             tasks.append(payload)
         return tasks
 
-    def _load_persisted_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+    def _load_persisted_task(self, task_id: str) -> Optional[dict[str, Any]]:
         for task in self._load_persisted_tasks(limit=500):
             if task.get("id") == task_id:
                 return task
         return None
 
-    def _attach_runtime_task(self, task_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+    def _attach_runtime_task(self, task_id: str, updates: dict[str, Any]) -> dict[str, Any]:
         with self._lock:
             base = dict(self._tasks.get(task_id) or self._load_persisted_task(task_id) or {"id": task_id})
             base.update(updates)
@@ -182,7 +182,7 @@ class TaskQueueManager:
             self._tasks[task_id] = saved
             return dict(saved)
 
-    def _sync_celery_task(self, task: Dict[str, Any]) -> Dict[str, Any]:
+    def _sync_celery_task(self, task: dict[str, Any]) -> dict[str, Any]:
         if not self._celery_app or task.get("execution_backend") != "celery" or not task.get("broker_task_id"):
             return dict(task)
 
@@ -197,7 +197,7 @@ class TaskQueueManager:
             merged["broker_poll_error"] = str(exc)
             return merged
 
-        updates: Dict[str, Any] = {"broker_state": broker_state}
+        updates: dict[str, Any] = {"broker_state": broker_state}
         normalized_info = _normalize_broker_payload(raw_info)
         if isinstance(normalized_info, dict):
             if normalized_info.get("stage"):
@@ -268,7 +268,7 @@ class TaskQueueManager:
             return saved
         return merged
 
-    def _sync_visible_tasks(self, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _sync_visible_tasks(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         synced = [self._sync_celery_task(task) for task in tasks]
         return sorted(
             synced,
@@ -276,7 +276,7 @@ class TaskQueueManager:
             reverse=True,
         )
 
-    def _all_tasks(self, limit: int = 200) -> List[Dict[str, Any]]:
+    def _all_tasks(self, limit: int = 200) -> list[dict[str, Any]]:
         persisted = {task["id"]: task for task in self._load_persisted_tasks(limit=limit)}
         with self._lock:
             for task_id, task in self._tasks.items():
@@ -298,7 +298,7 @@ class TaskQueueManager:
             return "celery" if self._celery_app and handler is None else "local"
         return "celery" if self._celery_app and handler is None else "local"
 
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         tasks = self._sync_visible_tasks(self._all_tasks(limit=500))
         completed_tasks = [
             task for task in tasks
@@ -357,10 +357,10 @@ class TaskQueueManager:
     def submit(
         self,
         name: str,
-        payload: Optional[Dict[str, Any]] = None,
+        payload: Optional[dict[str, Any]] = None,
         handler: Optional[TaskHandler] = None,
         backend: str = "auto",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         task_id = f"task_{uuid.uuid4().hex[:12]}"
         task = self._empty_task_template(task_id=task_id, name=name, payload=payload)
         task["execution_backend"] = self._select_backend(backend, handler)
@@ -386,10 +386,10 @@ class TaskQueueManager:
         self._executor.submit(self._run_task, task_id, handler or self._default_handler)
         return dict(saved)
 
-    def list_tasks(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def list_tasks(self, limit: int = 50) -> list[dict[str, Any]]:
         return [dict(task) for task in self._sync_visible_tasks(self._all_tasks(limit=limit))]
 
-    def get_task(self, task_id: str) -> Optional[Dict[str, Any]]:
+    def get_task(self, task_id: str) -> Optional[dict[str, Any]]:
         with self._lock:
             task = self._tasks.get(task_id)
             if task:
@@ -397,22 +397,20 @@ class TaskQueueManager:
         persisted = self._load_persisted_task(task_id)
         return dict(self._sync_celery_task(persisted)) if persisted else None
 
-    def cancel(self, task_id: str) -> Optional[Dict[str, Any]]:
+    def cancel(self, task_id: str) -> Optional[dict[str, Any]]:
         task = self.get_task(task_id)
         if not task:
             return None
         if task["status"] in {"completed", "failed", "cancelled"}:
             return dict(task)
         now = _utcnow_iso()
-        updates: Dict[str, Any] = {
+        updates: dict[str, Any] = {
             "cancel_requested": True,
             "cancel_requested_at": now,
         }
         if task.get("broker_task_id") and self._celery_app:
-            try:
+            with contextlib.suppress(Exception):
                 self._celery_app.control.revoke(task["broker_task_id"], terminate=False)
-            except Exception:
-                pass
         if task["status"] == "queued":
             updates.update(
                 {
@@ -426,7 +424,7 @@ class TaskQueueManager:
             )
         return self._attach_runtime_task(task_id, updates)
 
-    def _update_task(self, task_id: str, **updates: Any) -> Dict[str, Any]:
+    def _update_task(self, task_id: str, **updates: Any) -> dict[str, Any]:
         return self._attach_runtime_task(task_id, updates)
 
     def _is_cancel_requested(self, task_id: str) -> bool:
@@ -481,7 +479,7 @@ class TaskQueueManager:
                 stage="failed",
             )
 
-    def _task_stages(self, task_name: str) -> List[str]:
+    def _task_stages(self, task_name: str) -> list[str]:
         normalized = task_name.lower()
         if "quant" in normalized and "optimizer" in normalized:
             return ["validating_request", "loading_market_data", "searching_parameters", "publishing_results"]
@@ -540,7 +538,7 @@ class TaskQueueManager:
             run_multi_period_backtest_sync,
         )
 
-        registry: Dict[str, TaskHandler] = {
+        registry: dict[str, TaskHandler] = {
             "backtest_monte_carlo": run_backtest_monte_carlo_sync,
             "backtest_significance": compare_strategy_significance_sync,
             "backtest_multi_period": run_multi_period_backtest_sync,
@@ -548,7 +546,7 @@ class TaskQueueManager:
         }
         return registry.get(normalized)
 
-    def _dispatch_registered_task(self, task_id: str, task_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _dispatch_registered_task(self, task_id: str, task_name: str, payload: dict[str, Any]) -> dict[str, Any]:
         handler = self._resolve_registered_handler(task_name)
         if handler is None:
             return self._run_default_handler(task_id, task_name, payload)
@@ -572,7 +570,7 @@ class TaskQueueManager:
         )
         return result
 
-    def _run_default_handler(self, task_id: str, task_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _run_default_handler(self, task_id: str, task_name: str, payload: dict[str, Any]) -> dict[str, Any]:
         total_sleep = min(float(payload.get("sleep_seconds", 0.8) or 0.8), 8.0)
         configured_steps = int(payload.get("steps") or 0)
         stages = self._task_stages(task_name)
@@ -599,14 +597,14 @@ class TaskQueueManager:
             "stages": stages,
         }
 
-    def _default_handler(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def _default_handler(self, payload: dict[str, Any]) -> dict[str, Any]:
         time.sleep(min(float(payload.get("sleep_seconds", 0.2) or 0.2), 5.0))
         return {
             "message": "Task executed by queue runtime",
             "echo": payload,
         }
 
-    def run_distributed_task(self, task_id: str, task_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    def run_distributed_task(self, task_id: str, task_name: str, payload: dict[str, Any]) -> dict[str, Any]:
         task = self.get_task(task_id)
         if not task:
             self._attach_runtime_task(

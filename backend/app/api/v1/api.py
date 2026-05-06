@@ -1,18 +1,21 @@
 from fastapi import APIRouter
+
 from backend.app.api.v1.endpoints import (
-    market_data,
-    strategies,
-    backtest,
-    system,
-    realtime,
     analysis,
-    optimization,
-    trading,
-    industry,
-    events,
+    backtest,
     cross_market,
+    events,
+    industry,
     infrastructure,
+    market_data,
+    optimization,
+    paper_trading,
+    policy_radar,
+    realtime,
     research_journal,
+    strategies,
+    system,
+    trading,
 )
 
 api_router = APIRouter()
@@ -41,4 +44,10 @@ api_router.include_router(
     research_journal.router,
     prefix="/research-journal",
     tags=["Research Journal"],
+)
+api_router.include_router(
+    policy_radar.router, prefix="/policy-radar", tags=["Policy Radar"]
+)
+api_router.include_router(
+    paper_trading.router, prefix="/paper", tags=["Paper Trading"]
 )
