@@ -9,6 +9,11 @@ const KNOWN_CONSOLE_NOISE_PATTERNS = [
     label: 'rc-field-form circular reference warning',
     pattern: /Warning:\s*Warning:\s*There may be circular references/i,
   },
+  {
+    key: 'industry-heatmap-timeout-fallback',
+    label: 'industry heatmap live timeout recovered by fallback',
+    pattern: /(API Network Error:\s*\/industry\/industries\/heatmap\?days=1 timeout of \d+ms exceeded|Failed to load industry heatmap:\s*AxiosError:\s*timeout of \d+ms exceeded)/i,
+  },
 ];
 
 const classifyConsoleMessage = (message = '') => {
