@@ -23,6 +23,7 @@ norecursedirs = [
 ]
 filterwarnings = [
     "ignore:y0 and y1 are \\(almost\\) perfectly colinear.*:statsmodels.tools.sm_exceptions.CollinearityWarning",
+    "ignore:backend.app.api.v1.endpoints.industry._compat is a temporary test-patch shim:DeprecationWarning",
 ]
 markers = [
     "perf: performance regression tests (slow, opt-in via -m perf)",
