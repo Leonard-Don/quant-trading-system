@@ -10,6 +10,11 @@ const KNOWN_CONSOLE_NOISE_PATTERNS = [
     pattern: /Warning:\s*Warning:\s*There may be circular references/i,
   },
   {
+    key: 'react-find-dom-node-strict-mode',
+    label: 'React StrictMode findDOMNode deprecation warning',
+    pattern: /Warning:\s*findDOMNode is deprecated.*reactjs\.org\/link\/strict-mode-find-node/i,
+  },
+  {
     key: 'industry-heatmap-timeout-fallback',
     label: 'industry heatmap live timeout recovered by fallback',
     pattern: /(API Network Error:\s*\/industry\/industries\/heatmap\?days=1 timeout of \d+ms exceeded|Failed to load industry heatmap:\s*AxiosError:\s*timeout of \d+ms exceeded)/i,
