@@ -12,7 +12,7 @@ import {
   runMarketRegimeBacktest,
 } from '../services/api';
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   getBacktestHistory: jest.fn(),
   getBacktestHistoryStats: jest.fn(),
   getBacktestRecord: jest.fn(),
@@ -21,12 +21,12 @@ jest.mock('../services/api', () => ({
   runMarketRegimeBacktest: jest.fn(),
 }));
 
-jest.mock('../components/PerformanceChart', () => () => <div>PerformanceChart</div>);
-jest.mock('../components/DrawdownChart', () => () => <div>DrawdownChart</div>);
-jest.mock('../components/MonthlyHeatmap', () => () => <div>MonthlyHeatmap</div>);
-jest.mock('../components/RiskRadar', () => () => <div>RiskRadar</div>);
-jest.mock('../components/ReturnHistogram', () => () => <div>ReturnHistogram</div>);
-jest.mock('recharts', () => {
+vi.mock('../components/PerformanceChart', () => () => <div>PerformanceChart</div>);
+vi.mock('../components/DrawdownChart', () => () => <div>DrawdownChart</div>);
+vi.mock('../components/MonthlyHeatmap', () => () => <div>MonthlyHeatmap</div>);
+vi.mock('../components/RiskRadar', () => () => <div>RiskRadar</div>);
+vi.mock('../components/ReturnHistogram', () => () => <div>ReturnHistogram</div>);
+vi.mock('recharts', () => {
   const React = require('react');
   const MockChart = ({ children }) => <div>{children}</div>;
   const MockElement = () => null;

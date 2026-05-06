@@ -20,7 +20,7 @@ class MockResizeObserver {
 
 global.ResizeObserver = MockResizeObserver;
 
-jest.mock('@ant-design/icons', () => {
+vi.mock('@ant-design/icons', () => {
   const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
 
@@ -32,7 +32,7 @@ jest.mock('@ant-design/icons', () => {
   };
 });
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   return {

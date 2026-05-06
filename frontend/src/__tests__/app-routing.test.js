@@ -8,48 +8,48 @@ let mockBreakpoints = { lg: true };
 let mockIsDarkMode = false;
 const mockToggleTheme = jest.fn();
 
-jest.mock('../components/ErrorBoundary', () => ({
+vi.mock('../components/ErrorBoundary', () => ({
   __esModule: true,
   default: ({ children }) => <>{children}</>,
 }));
 
-jest.mock('../components/RealTimePanel', () => ({
+vi.mock('../components/RealTimePanel', () => ({
   __esModule: true,
   default: () => <div>RealTimePanel</div>,
 }));
 
-jest.mock('../components/IndustryDashboard', () => ({
+vi.mock('../components/IndustryDashboard', () => ({
   __esModule: true,
   default: () => <div>IndustryDashboard</div>,
 }));
 
-jest.mock('../components/BacktestDashboard', () => ({
+vi.mock('../components/BacktestDashboard', () => ({
   __esModule: true,
   default: () => <div>BacktestDashboard</div>,
 }));
 
-jest.mock('../components/TodayResearchDashboard', () => ({
+vi.mock('../components/TodayResearchDashboard', () => ({
   __esModule: true,
   default: () => <div>TodayResearchDashboard</div>,
 }));
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   getStrategies: jest.fn(() => Promise.resolve([])),
   runBacktest: jest.fn(),
 }));
 
-jest.mock('../contexts/ThemeContext', () => ({
+vi.mock('../contexts/ThemeContext', () => ({
   useTheme: () => ({
     isDarkMode: mockIsDarkMode,
     toggleTheme: mockToggleTheme,
   }),
 }));
 
-jest.mock('../generated/version', () => ({
+vi.mock('../generated/version', () => ({
   APP_VERSION: 'test-version',
 }));
 
-jest.mock('@ant-design/icons', () => {
+vi.mock('@ant-design/icons', () => {
   const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
 
@@ -67,7 +67,7 @@ jest.mock('@ant-design/icons', () => {
   };
 });
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const AntdApp = ({ children, ...rest }) => <div {...rest}>{children}</div>;

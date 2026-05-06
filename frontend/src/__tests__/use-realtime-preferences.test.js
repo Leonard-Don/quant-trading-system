@@ -3,7 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import api from '../services/api';
 import { useRealtimePreferences } from '../hooks/useRealtimePreferences';
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   __esModule: true,
   default: {
     get: jest.fn(),

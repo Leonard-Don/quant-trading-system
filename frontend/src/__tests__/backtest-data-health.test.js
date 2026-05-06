@@ -11,7 +11,7 @@ import BacktestDataHealthPanel, {
 } from '../components/BacktestDataHealthPanel';
 import { checkIndustryHealth, getProviderRuntimeStatus } from '../services/api';
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   checkIndustryHealth: jest.fn(),
   getProviderRuntimeStatus: jest.fn(),
 }));

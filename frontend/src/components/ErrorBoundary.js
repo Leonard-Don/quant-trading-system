@@ -2,6 +2,8 @@ import React from 'react';
 import { Alert, Card, Button } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 
+import { IS_DEV } from '../env.js';
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -43,7 +45,7 @@ class ErrorBoundary extends React.Component {
               </Button>
             }
           />
-          {process.env.NODE_ENV === 'development' && (
+          {IS_DEV && (
             <details style={{ marginTop: '16px', whiteSpace: 'pre-wrap' }}>
               <summary>错误详情（开发模式）</summary>
               {this.state.error && this.state.error.toString()}

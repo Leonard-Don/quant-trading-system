@@ -8,7 +8,7 @@ import MarketAnalysis, {
 } from '../components/MarketAnalysis';
 import { getAnalysisOverview } from '../services/api';
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   getAnalysisOverview: jest.fn(),
   analyzeTrend: jest.fn(),
   analyzeVolumePrice: jest.fn(),
@@ -24,14 +24,14 @@ jest.mock('../services/api', () => ({
   getEventSummary: jest.fn(),
 }));
 
-jest.mock('../components/SkeletonLoaders', () => ({
+vi.mock('../components/SkeletonLoaders', () => ({
   MarketAnalysisSkeleton: () => <div>loading</div>,
 }));
 
-jest.mock('../components/AIPredictionPanel', () => () => <div>AI</div>);
-jest.mock('../components/CandlestickChart', () => () => <div>Chart</div>);
+vi.mock('../components/AIPredictionPanel', () => () => <div>AI</div>);
+vi.mock('../components/CandlestickChart', () => () => <div>Chart</div>);
 
-jest.mock('recharts', () => {
+vi.mock('recharts', () => {
   const Mock = () => null;
 
   return {
@@ -57,7 +57,7 @@ jest.mock('recharts', () => {
   };
 });
 
-jest.mock('@ant-design/icons', () => {
+vi.mock('@ant-design/icons', () => {
   const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
 
@@ -83,7 +83,7 @@ jest.mock('@ant-design/icons', () => {
   };
 });
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const passthrough = ({ children }) => <div>{children}</div>;

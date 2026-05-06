@@ -9,6 +9,7 @@ import {
     REALTIME_DIAGNOSTICS_STORAGE_KEY,
     SNAPSHOT_OUTCOME_OPTIONS,
 } from './realtimePanelConstants';
+import { IS_DEV } from '../env.js';
 
 export const formatCompactCurrency = (value) => {
     const numeric = Number(value || 0);
@@ -67,7 +68,7 @@ export const normalizeGroupWeights = (group) => {
  */
 export const loadDiagnosticsEnabled = () => {
     if (typeof window === 'undefined') {
-        return process.env.NODE_ENV !== 'production';
+        return IS_DEV;
     }
 
     const query = new URLSearchParams(window.location.search);
@@ -85,7 +86,7 @@ export const loadDiagnosticsEnabled = () => {
     if (persisted === '1') return true;
     if (persisted === '0') return false;
 
-    return process.env.NODE_ENV !== 'production';
+    return IS_DEV;
 };
 
 const POSITIVE_TIMELINE_KINDS = new Set(['price_up', 'touch_high', 'trade_plan', 'review_validated']);
