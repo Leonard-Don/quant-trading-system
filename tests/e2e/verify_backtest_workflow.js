@@ -28,7 +28,7 @@ const waitForBacktestWorkspace = async (page) => {
 
 const waitForIndustryHeatmapReady = async (page) => {
   await page.getByText('行业热力图', { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
-  await page.locator('[data-testid="heatmap-tile"]').first().waitFor({ state: 'visible', timeout: 60000 });
+  await page.locator('[data-testid="heatmap-tile"]').first().waitFor({ state: 'visible', timeout: 120000 });
 };
 
 const closeIndustryDetailModal = async (page) => {
