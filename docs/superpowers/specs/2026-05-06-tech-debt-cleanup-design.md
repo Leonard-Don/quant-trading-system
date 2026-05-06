@@ -51,10 +51,13 @@ The `__init__.py` re-imports symbols from `_compat.py` so `from backend.app.api.
 
 **Decision:** Replace `except Exception as e:` blocks in **all** `backend/app/api/v1/endpoints/*.py` files with the appropriate typed exception from `backend/app/core/error_handler.py`:
 
-- `ValidationError` — request payload / param violations
-- `NotFoundError` — entity lookup failures (symbol, profile, backtest_id)
-- `ExternalServiceError` — provider / Redis / Celery / DB failures
-- `AppException` — fallback for genuinely unknown errors (still re-raised, never silently swallowed)
+- `ValidationError` (400) — request payload / param violations
+- `NotFoundError` (404) — entity lookup failures (symbol, profile, backtest_id)
+- `RateLimitError` (429) — rate limiter trips
+- `ExternalServiceError` (503) — Redis / Celery / DB / generic upstream failures
+- `DataFetchError` (502) — data provider failures (more specific than ExternalServiceError, takes a `symbol` arg)
+- `AuthenticationError` (401) — auth failures
+- `AppException` (500) — genuinely unknown errors (always re-raised with context, never silently swallowed)
 
 **Frontend impact check:** Audit `frontend/src/components/ErrorBoundary.js` and `frontend/src/services/api.js` to confirm they handle the 4xx/5xx structure produced by `error_handler.py`. If the new typed errors return a different JSON shape than what the frontend currently expects, add a thin compat layer in `error_handler.py` to keep the response body backward-compatible (key fields: `error`, `message`, `detail`).
 
@@ -75,18 +78,22 @@ The `__init__.py` re-imports symbols from `_compat.py` so `from backend.app.api.
 
 **Skip for this round:** `backend/app/api/v1/endpoints/*` (will type these after the industry.py split — no point typing code about to be moved).
 
-### D4. Integration tests — four targeted scenarios
+### D4. Integration tests — four targeted scenarios filling actual gaps
 
-**Decision:** Add four new integration test files under `tests/integration/`:
+**Audit finding:** `tests/integration/` already contains 7 files. Two of the originally-proposed tests already have strong coverage:
+- `test_backtest_pipeline.py` — already covers `DataManager → Strategy → Backtester` e2e with synthetic data fixtures
+- `test_provider_failover.py` — already covers `DataProviderFactory` priority/failover/empty-frame behaviors
 
-1. **`test_backtest_pipeline_e2e.py`** — POST `/backtest/run` → wait for completion → fetch results → verify metrics. Uses real strategy + real data fixture (no mocks for backtester / strategy / analytics).
-2. **`test_realtime_provider_fallback.py`** — Force primary provider to fail; verify `RealtimeManager` falls back to next provider and surfaces a degraded-state flag.
-3. **`test_paper_order_lifecycle.py`** — Create profile → place limit order → simulate price hit → verify fill → archive position. Hits `backend/app/services/` + `src/trading/`.
-4. **`test_industry_heatmap_cache.py`** — Cold cache hit (computes), warm cache hit (skips compute), TTL expiry (recomputes). Uses real `CacheManager` with a tmp dir.
+**Decision:** Drop those two and add four tests that fill actual gaps:
 
-**Why these four:** Each exercises a state-machine that unit tests cannot fully cover (multi-step, multi-component, cache/persistence interactions).
+1. **`test_paper_order_lifecycle.py`** — Create profile → place limit order → simulate price hit → verify fill → archive to research journal. Exercises `backend/app/services/paper_trading.py` + `src/trading/`. Currently only unit-level coverage.
+2. **`test_industry_heatmap_cache.py`** — Cold cache miss (computes), warm cache hit (skips compute), TTL expiry (recomputes), disk-snapshot reload after restart. Uses real `CacheManager` with a `tmp_path` fixture.
+3. **`test_realtime_websocket_lifecycle.py`** — Connect → subscribe → receive broadcast → unsubscribe → disconnect, with multiple concurrent clients. Exercises `backend/app/websocket/` + `src/data/realtime_manager.py`. Different layer from `test_provider_failover.py` (which tests data-fetch layer).
+4. **`test_research_journal_persistence.py`** — Backtest snapshot write → list → read → archive → delete. The existing `test_research_journal_contracts.py` only tests response schemas; this tests the actual persistence cycle including disk round-trip.
 
-**No DB-backed tests yet:** Alembic baseline exists but we don't have a test seed harness. Defer to a follow-up; for now, integration tests use in-memory state where possible.
+**Why these four:** Each exercises a state-machine or persistence cycle that unit tests cannot fully cover (multi-step, multi-component, cache/persistence/WebSocket interactions).
+
+**No DB-backed tests yet:** Alembic baseline exists but we don't have a test seed harness. Defer to a follow-up; for now, integration tests use real disk (tmp_path) for persistence and synthetic providers for data.
 
 ### D5. .js → .jsx rename — scope to production source only
 
@@ -149,7 +156,7 @@ Batch 4 (sequential):
 - `industry.py` no longer exists as a single file (replaced by `industry/` package); each sub-router < 700 lines
 - No `except Exception as e:` without `raise` in `backend/app/api/v1/endpoints/`
 - mypy CI blocking list includes the modules in D3
-- 4 new integration test files exist and pass
+- 4 new integration test files exist and pass: `test_paper_order_lifecycle.py`, `test_industry_heatmap_cache.py`, `test_realtime_websocket_lifecycle.py`, `test_research_journal_persistence.py`
 - No JSX in `.js` files under `frontend/src/` (excluding `__tests__/`)
 - `frontend/vite.config.js` no longer needs `esbuild: { loader: "jsx" }`
 - Design + plan + each batch committed; no force-pushes; main untouched until ready
