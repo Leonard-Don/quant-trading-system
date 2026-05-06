@@ -848,7 +848,7 @@ class WalkForwardAnalyzer:
         if not selected_parameter_keys:
             return 0.0
 
-        counts = {}
+        counts: Dict[str, int] = {}
         for key in selected_parameter_keys:
             counts[key] = counts.get(key, 0) + 1
 
