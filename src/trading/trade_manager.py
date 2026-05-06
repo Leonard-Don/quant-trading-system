@@ -62,7 +62,7 @@ class TradeManager:
         """Alias for balance (backward compatibility)"""
         return self.balance
 
-    def get_portfolio_status(self, current_prices: Dict[str, float] = None) -> Dict[str, Any]:
+    def get_portfolio_status(self, current_prices: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
         """Get current portfolio status including positions and total equity"""
         current_prices = current_prices or {}
         

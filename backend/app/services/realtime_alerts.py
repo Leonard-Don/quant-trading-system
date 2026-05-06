@@ -13,7 +13,7 @@ from src.utils.config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_ALERTS_PAYLOAD = {
+DEFAULT_ALERTS_PAYLOAD: dict[str, list[Any]] = {
     "alerts": [],
     "alert_hit_history": [],
 }

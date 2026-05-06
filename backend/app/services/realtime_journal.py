@@ -12,7 +12,7 @@ from src.utils.config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_JOURNAL_PAYLOAD = {
+DEFAULT_JOURNAL_PAYLOAD: dict[str, list[Any]] = {
     "review_snapshots": [],
     "timeline_events": [],
 }
