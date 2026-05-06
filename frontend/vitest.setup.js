@@ -4,7 +4,15 @@
 // unchanged under Vitest.
 
 import "@testing-library/jest-dom";
-import { vi } from "vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach, vi } from "vitest";
+
+// Ensure each Vitest case starts with a clean Testing Library DOM. CRA/Jest
+// setups performed this automatically; without it, long CI shards can retain
+// portals/forms from prior tests and queries start seeing duplicate elements.
+afterEach(() => {
+  cleanup();
+});
 
 // Shim: expose `jest` globally as an alias for vitest's `vi`. Tests that
 // reference `jest.fn()`, `jest.mock()`, `jest.useFakeTimers()`, etc. then
