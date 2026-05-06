@@ -1,8 +1,10 @@
 import axios from 'axios';
 
+import { getEnv, IS_DEV } from '../env.js';
+
 const DEFAULT_LOCAL_API_BASE_URL = 'http://127.0.0.1:8000';
-const API_BASE_URL = process.env.REACT_APP_API_URL || DEFAULT_LOCAL_API_BASE_URL;
-const API_TIMEOUT = parseInt(process.env.REACT_APP_API_TIMEOUT) || 300000;
+const API_BASE_URL = getEnv('API_URL', DEFAULT_LOCAL_API_BASE_URL);
+const API_TIMEOUT = parseInt(getEnv('API_TIMEOUT', '300000'), 10) || 300000;
 const API_AUTH_TOKEN_KEY = 'quant_research_auth_token';
 const API_REFRESH_TOKEN_KEY = 'quant_research_refresh_token';
 const LEGACY_API_AUTH_TOKEN_KEY = 'quant_lab_auth_token';
@@ -72,9 +74,9 @@ const parseTimeout = (value, fallback) => {
 };
 export const API_TIMEOUT_PROFILES = {
   default: API_TIMEOUT,
-  analysis: parseTimeout(process.env.REACT_APP_API_TIMEOUT_ANALYSIS, 120000),
-  standard: parseTimeout(process.env.REACT_APP_API_TIMEOUT_STANDARD, 30000),
-  dashboard: parseTimeout(process.env.REACT_APP_API_TIMEOUT_DASHBOARD, 45000),
+  analysis: parseTimeout(getEnv('API_TIMEOUT_ANALYSIS'), 120000),
+  standard: parseTimeout(getEnv('API_TIMEOUT_STANDARD'), 30000),
+  dashboard: parseTimeout(getEnv('API_TIMEOUT_DASHBOARD'), 45000),
 };
 export const withTimeoutProfile = (profile = 'default', config = {}) => ({
   ...config,
@@ -138,7 +140,7 @@ api.interceptors.request.use(
         Authorization: `Bearer ${authTokenCache}`,
       };
     }
-    if (process.env.NODE_ENV === 'development') {
+    if (IS_DEV) {
       console.log('API Request:', config.method?.toUpperCase(), config.url);
     }
     return config;
@@ -151,7 +153,7 @@ api.interceptors.request.use(
 // 响应拦截器 - 增强错误处理
 api.interceptors.response.use(
   (response) => {
-    if (process.env.NODE_ENV === 'development') {
+    if (IS_DEV) {
       console.log('API Response:', response.status, response.config.url);
     }
     return response;

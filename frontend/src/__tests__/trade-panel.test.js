@@ -24,7 +24,7 @@ const createDeferred = () => {
   return { promise, resolve, reject };
 };
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   getPortfolio: jest.fn(),
   getTradeHistory: jest.fn(),
   getRealtimeQuote: jest.fn(),
@@ -32,7 +32,7 @@ jest.mock('../services/api', () => ({
   resetAccount: jest.fn(),
 }));
 
-jest.mock('../services/tradeWebsocket', () => ({
+vi.mock('../services/tradeWebsocket', () => ({
   __esModule: true,
   default: {
     addListener: jest.fn(),
@@ -42,7 +42,7 @@ jest.mock('../services/tradeWebsocket', () => ({
   },
 }));
 
-jest.mock('@ant-design/icons', () => {
+vi.mock('@ant-design/icons', () => {
   const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
 
@@ -55,7 +55,7 @@ jest.mock('@ant-design/icons', () => {
   };
 });
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const Card = ({ title, children }) => (

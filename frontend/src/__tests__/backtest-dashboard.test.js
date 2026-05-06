@@ -4,15 +4,15 @@ import '@testing-library/jest-dom';
 
 import BacktestDashboard from '../components/BacktestDashboard';
 
-jest.mock('../components/StrategyForm', () => () => <div>StrategyForm</div>);
-jest.mock('../components/ResultsDisplay', () => () => <div>ResultsDisplay</div>);
-jest.mock('../components/LoadingSpinner', () => () => <div>LoadingSpinner</div>);
-jest.mock('../components/CrossMarketBacktestPanel', () => () => <div>CrossMarketBacktestPanel</div>);
-jest.mock('../components/BacktestHistory', () => () => <div>BacktestHistory</div>);
-jest.mock('../components/StrategyComparison', () => () => <div>StrategyComparison</div>);
-jest.mock('../components/PortfolioOptimizer', () => () => <div>PortfolioOptimizer</div>);
-jest.mock('../components/BacktestDataHealthPanel', () => () => <div>BacktestDataHealthPanel</div>);
-jest.mock('../components/AdvancedBacktestLab', () => ({ onImportTemplateToMainBacktest }) => (
+vi.mock('../components/StrategyForm', () => () => <div>StrategyForm</div>);
+vi.mock('../components/ResultsDisplay', () => () => <div>ResultsDisplay</div>);
+vi.mock('../components/LoadingSpinner', () => () => <div>LoadingSpinner</div>);
+vi.mock('../components/CrossMarketBacktestPanel', () => () => <div>CrossMarketBacktestPanel</div>);
+vi.mock('../components/BacktestHistory', () => () => <div>BacktestHistory</div>);
+vi.mock('../components/StrategyComparison', () => () => <div>StrategyComparison</div>);
+vi.mock('../components/PortfolioOptimizer', () => () => <div>PortfolioOptimizer</div>);
+vi.mock('../components/BacktestDataHealthPanel', () => () => <div>BacktestDataHealthPanel</div>);
+vi.mock('../components/AdvancedBacktestLab', () => ({ onImportTemplateToMainBacktest }) => (
   <div>
     <div>AdvancedBacktestLab</div>
     <button type="button" onClick={() => onImportTemplateToMainBacktest?.({ symbol: 'AAPL' })}>
@@ -21,7 +21,7 @@ jest.mock('../components/AdvancedBacktestLab', () => ({ onImportTemplateToMainBa
   </div>
 ));
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
   return {
     Card: ({ children, title, extra }) => (
@@ -56,7 +56,7 @@ jest.mock('antd', () => {
   };
 });
 
-jest.mock('@ant-design/icons', () => ({
+vi.mock('@ant-design/icons', () => ({
   BarChartOutlined: () => null,
   HistoryOutlined: () => null,
   ExperimentOutlined: () => null,

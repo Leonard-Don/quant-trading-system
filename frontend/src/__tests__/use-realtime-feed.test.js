@@ -4,14 +4,14 @@ import api from '../services/api';
 import webSocketService from '../services/websocket';
 import { normalizeQuotePayload, useRealtimeFeed } from '../hooks/useRealtimeFeed';
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   __esModule: true,
   default: {
     get: jest.fn(),
   },
 }));
 
-jest.mock('../services/websocket', () => ({
+vi.mock('../services/websocket', () => ({
   __esModule: true,
   default: {
     addListener: jest.fn(),

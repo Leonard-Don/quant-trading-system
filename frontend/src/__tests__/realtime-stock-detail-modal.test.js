@@ -7,7 +7,7 @@ import RealtimeStockDetailModal from '../components/RealtimeStockDetailModal';
 const mockMarketAnalysisMountSpy = jest.fn();
 const mockMarketAnalysisUnmountSpy = jest.fn();
 
-jest.mock('../components/MarketAnalysis', () => {
+vi.mock('../components/MarketAnalysis', () => {
   const React = require('react');
 
   return function MockMarketAnalysis(props) {
@@ -26,7 +26,7 @@ jest.mock('../components/MarketAnalysis', () => {
   };
 });
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   getKlines: jest.fn(() => Promise.resolve({
     klines: [
       { date: '2026-03-27T09:30:00.000Z', close: 181.4 },
@@ -36,7 +36,7 @@ jest.mock('../services/api', () => ({
   })),
 }));
 
-jest.mock('@ant-design/icons', () => {
+vi.mock('@ant-design/icons', () => {
   const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
 
@@ -48,7 +48,7 @@ jest.mock('@ant-design/icons', () => {
   };
 });
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const Modal = ({ open, title, children }) => (

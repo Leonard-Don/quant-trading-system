@@ -18,7 +18,7 @@ const ALERT_HIT_HISTORY_STORAGE_KEY = 'realtime-alert-hit-history';
 const mockRealtimeStockDetailModalSpy = jest.fn();
 const mockTradePanelSpy = jest.fn();
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   __esModule: true,
   default: {
     get: jest.fn(),
@@ -26,7 +26,7 @@ jest.mock('../services/api', () => ({
   },
 }));
 
-jest.mock('../services/websocket', () => ({
+vi.mock('../services/websocket', () => ({
   __esModule: true,
   default: {
     addListener: jest.fn(),
@@ -38,16 +38,16 @@ jest.mock('../services/websocket', () => ({
   },
 }));
 
-jest.mock('../utils/messageApi', () => ({
+vi.mock('../utils/messageApi', () => ({
   useSafeMessageApi: () => mockMessageApi,
 }));
 
-jest.mock('../components/TradePanel', () => (props) => {
+vi.mock('../components/TradePanel', () => (props) => {
   mockTradePanelSpy(props);
   return props.visible ? <div data-testid="trade-panel">{props.defaultSymbol}</div> : null;
 });
 
-jest.mock('../components/RealtimeStockDetailModal', () => (props) => {
+vi.mock('../components/RealtimeStockDetailModal', () => (props) => {
   mockRealtimeStockDetailModalSpy(props);
   if (!props.open) {
     return null;
@@ -73,7 +73,7 @@ jest.mock('../components/RealtimeStockDetailModal', () => (props) => {
   );
 });
 
-jest.mock('@ant-design/icons', () => {
+vi.mock('@ant-design/icons', () => {
   const React = require('react');
   const MockIcon = ({ children }) => <span>{children}</span>;
 
@@ -100,7 +100,7 @@ jest.mock('@ant-design/icons', () => {
   };
 });
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const Card = ({ children }) => <section>{children}</section>;

@@ -3,9 +3,9 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import CrossMarketBacktestPanel from '../components/CrossMarketBacktestPanel';
 
-jest.mock('antd/lib/grid/hooks/useBreakpoint', () => jest.fn(() => ({})));
-jest.mock('antd/es/grid/hooks/useBreakpoint', () => jest.fn(() => ({})));
-jest.mock('antd/lib/_util/responsiveObserver', () => () => ({
+vi.mock('antd/lib/grid/hooks/useBreakpoint', () => jest.fn(() => ({})));
+vi.mock('antd/es/grid/hooks/useBreakpoint', () => jest.fn(() => ({})));
+vi.mock('antd/lib/_util/responsiveObserver', () => () => ({
   matchHandlers: {},
   dispatch: jest.fn(),
   subscribe: jest.fn(() => Symbol('token')),
@@ -14,7 +14,7 @@ jest.mock('antd/lib/_util/responsiveObserver', () => () => ({
   unregister: jest.fn(),
   responsiveMap: {},
 }));
-jest.mock('antd/es/_util/responsiveObserver', () => () => ({
+vi.mock('antd/es/_util/responsiveObserver', () => () => ({
   matchHandlers: {},
   dispatch: jest.fn(),
   subscribe: jest.fn(() => Symbol('token')),
@@ -24,7 +24,7 @@ jest.mock('antd/es/_util/responsiveObserver', () => () => ({
   responsiveMap: {},
 }));
 
-jest.mock('recharts', () => {
+vi.mock('recharts', () => {
   const React = require('react');
   const passthrough = ({ children }) => <div>{children}</div>;
   return {
@@ -41,8 +41,8 @@ jest.mock('recharts', () => {
   };
 });
 
-jest.mock('antd', () => {
-  const actual = jest.requireActual('antd');
+vi.mock('antd', async () => {
+  const actual = await vi.importActual('antd');
   return {
     ...actual,
     Row: ({ children, ...props }) => <div {...props}>{children}</div>,
@@ -51,7 +51,7 @@ jest.mock('antd', () => {
   };
 });
 
-jest.mock('../components/research-playbook/ResearchPlaybook', () => (props) => (
+vi.mock('../components/research-playbook/ResearchPlaybook', () => (props) => (
   <div>
     <div>{props.playbook?.stageLabel || ''}</div>
     {props.onSaveTask ? (
@@ -67,21 +67,21 @@ jest.mock('../components/research-playbook/ResearchPlaybook', () => (props) => (
   </div>
 ));
 
-jest.mock('../components/cross-market/CrossMarketDiagnosticsSection', () => () => <div>diagnostics</div>);
-jest.mock('../components/cross-market/CrossMarketBasketSummaryCard', () => () => <div>basket-summary</div>);
+vi.mock('../components/cross-market/CrossMarketDiagnosticsSection', () => () => <div>diagnostics</div>);
+vi.mock('../components/cross-market/CrossMarketBasketSummaryCard', () => () => <div>basket-summary</div>);
 
-jest.mock('../components/research-playbook/playbookViewModels', () => ({
+vi.mock('../components/research-playbook/playbookViewModels', () => ({
   buildCrossMarketPlaybook: jest.fn(() => ({
     stageLabel: '待运行',
     steps: [],
   })),
 }));
 
-jest.mock('../utils/snapshotCompare', () => ({
+vi.mock('../utils/snapshotCompare', () => ({
   buildSnapshotComparison: jest.fn(() => null),
 }));
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   getCrossMarketTemplates: jest.fn(),
   runCrossMarketBacktest: jest.fn(),
 }));
@@ -96,11 +96,11 @@ const mockMessageApi = {
   destroy: jest.fn(),
 };
 
-jest.mock('../utils/messageApi', () => ({
+vi.mock('../utils/messageApi', () => ({
   useSafeMessageApi: () => mockMessageApi,
 }));
 
-jest.mock('../utils/crossMarketRecommendations', () => ({
+vi.mock('../utils/crossMarketRecommendations', () => ({
   buildCrossMarketCards: jest.fn(),
   CROSS_MARKET_DIMENSION_LABELS: {
     policy_execution: '政策执行',
@@ -115,7 +115,7 @@ jest.mock('../utils/crossMarketRecommendations', () => ({
 const mockNavigateByResearchAction = jest.fn();
 const mockReadResearchContext = jest.fn();
 
-jest.mock('../utils/researchContext', () => ({
+vi.mock('../utils/researchContext', () => ({
   formatResearchSource: jest.fn(() => '研究工作台'),
   navigateByResearchAction: (...args) => mockNavigateByResearchAction(...args),
   readResearchContext: (...args) => mockReadResearchContext(...args),

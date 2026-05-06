@@ -29,7 +29,7 @@ const mockGetMultipleQuotes = jest.fn();
 const mockCreateJournalEntry = jest.fn();
 const mockCancelPaperOrder = jest.fn();
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
     getPaperAccount: (...args) => mockGetAccount(...args),
     listPaperOrders: (...args) => mockListOrders(...args),
     submitPaperOrder: (...args) => mockSubmitOrder(...args),
@@ -40,7 +40,7 @@ jest.mock('../services/api', () => ({
 }));
 
 const mockExportToCSV = jest.fn();
-jest.mock('../utils/export', () => ({
+vi.mock('../utils/export', () => ({
     exportToCSV: (...args) => mockExportToCSV(...args),
 }));
 

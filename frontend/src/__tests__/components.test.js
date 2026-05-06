@@ -8,7 +8,7 @@ import StrategyForm from '../components/StrategyForm';
 import dayjs from '../utils/dayjs';
 
 // 模拟 API 服务
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
     getStrategies: jest.fn(() => Promise.resolve([
         { id: 'sma_crossover', name: 'SMA Crossover', description: 'Moving average crossover strategy' },
         { id: 'rsi', name: 'RSI', description: 'Relative Strength Index strategy' }
@@ -24,8 +24,8 @@ jest.mock('../services/api', () => ({
 }));
 
 // 模拟 antd 组件
-jest.mock('antd', () => {
-    const antd = jest.requireActual('antd');
+vi.mock('antd', async () => {
+    const antd = await vi.importActual('antd');
     return {
         ...antd,
         message: {
@@ -37,7 +37,7 @@ jest.mock('antd', () => {
     };
 });
 
-jest.mock('../utils/messageApi', () => ({
+vi.mock('../utils/messageApi', () => ({
     useSafeMessageApi: () => ({
         success: jest.fn(),
         error: jest.fn(),

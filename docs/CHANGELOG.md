@@ -1,5 +1,28 @@
 # 更新日志
 
+## Unreleased
+
+### Tooling
+
+- **BREAKING (前端)**：从 CRA (`react-scripts 5.0.1`) 迁移到 **Vite 5 + Vitest 2**。
+  - `npm start` 与 `npm run build` 仍然存在，但底层换成 Vite。构建输出目录保持 `frontend/build/` 不变。
+  - 新增 `npm run dev`（与 `start` 同义）和 `npm run preview`（预览 production bundle）。
+  - 单元测试通过 Vitest 跑：`npm test` 等价 `vitest run --reporter=basic src/__tests__`。
+  - **环境变量**：生产部署应使用 `VITE_API_URL` / `VITE_API_TIMEOUT` / `VITE_API_TIMEOUT_ANALYSIS` / `VITE_API_TIMEOUT_STANDARD` / `VITE_API_TIMEOUT_DASHBOARD` / `VITE_REALTIME_WS_TOKEN`。`REACT_APP_*` 旧变量名通过 `frontend/src/env.js` 兼容层继续可读，但不再是首选。
+  - 漏洞扫描数：从 41 (CRA depchain) 降到 4 (Vite depchain)。
+- 后端 `Alembic` 引入 baseline migration（`backend/alembic/versions/0001_baseline.py`，no-op）；首次部署时执行 `alembic stamp head` 即可。
+- CI 新增 `typecheck` 任务：`mypy` 在迁出来的 `src/analytics/technical_indicators` + `src/analytics/industry/` 干净目标上必过；全 `backend/app/services` 范围作为非阻塞探针。
+
+### Refactoring
+
+- `analysis.py` endpoint 内联的 RSI / MACD / Bollinger Bands 计算抽到 `src/analytics/technical_indicators.py`（80+ 行下沉，加 8 条烟测）。
+- `IndustryAnalyzer`（2152 行）的纯模块级与 @staticmethod 助手抽到 `src/analytics/industry/{computations,heatmap_history}.py`，公开类外形完全不变（2152 → 2004 行，加 9 条隔离测试）。
+
+### Documentation
+
+- `DEPLOYMENT.md` 新增"异步任务队列"章节，明确 Celery + Redis 在生产环境是事实上的必备组件。
+- `DEPLOYMENT.md` 新增"数据库迁移"章节，描述 `alembic stamp head` / `alembic upgrade` 的引导流程。
+
 ## v5.0.0 (2026-04-18)
 - 公开仓正式收敛为 `策略回测 / 实时行情 / 行业热度` 三块能力，`定价研究`、`上帝视角`、`研究工作台` 与 `Quant Lab` 已迁移到私有 companion repo `super-pricing-system`
 - 前端公开入口只保留 `backtest / realtime / industry`，历史系统页旧链接会自动回落到 `backtest`

@@ -36,21 +36,21 @@ const buildLeaderRecord = (overrides = {}) => ({
   ...overrides,
 });
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   getLeaderBoards: jest.fn(),
   getLeaderStocks: jest.fn(),
   getLeaderDetail: jest.fn(),
   getIndustryTrend: jest.fn(),
 }));
 
-jest.mock('../utils/messageApi', () => ({
+vi.mock('../utils/messageApi', () => ({
   useSafeMessageApi: () => mockMessageApi,
 }));
 
-jest.mock('../components/StockDetailModal', () => () => null);
-jest.mock('../components/common/MiniSparkline', () => () => <div data-testid="mini-sparkline" />);
+vi.mock('../components/StockDetailModal', () => () => null);
+vi.mock('../components/common/MiniSparkline', () => () => <div data-testid="mini-sparkline" />);
 
-jest.mock('@ant-design/icons', () => {
+vi.mock('@ant-design/icons', () => {
   const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
   return {
@@ -60,7 +60,7 @@ jest.mock('@ant-design/icons', () => {
   };
 });
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
 
   const Card = ({ title, extra, children }) => (

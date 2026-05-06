@@ -5,18 +5,18 @@ import '@testing-library/jest-dom';
 import StrategyComparison from '../components/StrategyComparison';
 import { compareStrategies } from '../services/api';
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   compareStrategies: jest.fn(),
 }));
 
 const mockOpenStrategyComparisonPrintWindow = jest.fn(() => true);
 
-jest.mock('../utils/strategyComparisonReport', () => ({
+vi.mock('../utils/strategyComparisonReport', () => ({
   buildStrategyComparisonReportHtml: jest.fn(() => '<html><body>report</body></html>'),
   openStrategyComparisonPrintWindow: (...args) => mockOpenStrategyComparisonPrintWindow(...args),
 }));
 
-jest.mock('recharts', () => {
+vi.mock('recharts', () => {
   const React = require('react');
   const MockChart = ({ children }) => <div>{children}</div>;
   return {
@@ -37,7 +37,7 @@ jest.mock('recharts', () => {
   };
 });
 
-jest.mock('antd', () => {
+vi.mock('antd', () => {
   const React = require('react');
   const mockMessage = {
     warning: jest.fn(),

@@ -1,4 +1,4 @@
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   getIndustryStockBuildStatus: jest.fn(),
   getIndustryStocks: jest.fn(),
   getLeaderDetail: jest.fn(),

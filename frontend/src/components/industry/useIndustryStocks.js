@@ -5,10 +5,11 @@ import {
     getIndustryStocks,
     getLeaderDetail,
 } from '../../services/api';
+import { getEnv } from '../../env.js';
 
 const INDUSTRY_STOCK_FULL_POLL_ATTEMPTS = 30;
 const INDUSTRY_STOCK_FULL_POLL_INTERVAL_MS = 900;
-const INDUSTRY_API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000';
+const INDUSTRY_API_BASE_URL = getEnv('API_URL', 'http://127.0.0.1:8000');
 
 const INDUSTRY_STOCK_DISPLAY_ROW_TARGET = 5;
 const INDUSTRY_STOCK_DISPLAY_DETAIL_ROW_TARGET = 2;

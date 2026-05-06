@@ -135,7 +135,7 @@ jobs:
 
       - name: Run frontend regression suite
         run: |
-          CI=1 npm test -- --runInBand --watch=false src/__tests__
+          CI=1 npm test -- --reporter=basic --pool=forks --poolOptions.forks.singleFork=true src/__tests__
 
       - name: Build frontend
         run: npm run build

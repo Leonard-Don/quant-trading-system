@@ -4,7 +4,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import IndustryHeatmap, { buildFallbackHeatmapPayload } from '../components/IndustryHeatmap';
 import { getIndustryHeatmap, getIndustryHeatmapHistory } from '../services/api';
 
-jest.mock('../services/api', () => ({
+vi.mock('../services/api', () => ({
   getIndustryHeatmap: jest.fn(),
   getIndustryHeatmapHistory: jest.fn(),
 }));

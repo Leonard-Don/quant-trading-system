@@ -3,32 +3,33 @@
   "version": "5.0.0",
   "description": "量化交易系统前端",
   "private": true,
+  "type": "module",
   "dependencies": {
     "@ant-design/icons": "^5.1.4",
-    "@testing-library/dom": "^10.4.1",
-    "@testing-library/jest-dom": "^5.16.4",
-    "@testing-library/react": "^16.3.2",
-    "@testing-library/user-event": "^13.5.0",
     "antd": "^5.7.0",
     "axios": "^1.15.1",
     "dayjs": "^1.11.20",
     "lightweight-charts": "^5.1.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1",
     "recharts": "^2.7.2"
   },
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.4.2",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.5.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "jsdom": "^25.0.1",
+    "vite": "^5.4.10",
+    "vitest": "^2.1.4"
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
+  "scripts": {
+    "start": "vite",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --port 3000",
+    "test": "vitest run --reporter=default src/__tests__"
   },
   "browserslist": {
     "production": [
@@ -41,6 +42,5 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  },
-  "proxy": "http://127.0.0.1:8000"
+  }
 }
