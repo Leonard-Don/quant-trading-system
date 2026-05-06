@@ -9,6 +9,7 @@ pandas==2.3.0
 numpy==1.26.4
 scipy==1.16.0
 scikit-learn==1.7.0
+statsmodels==0.14.6
 
 # Financial Data
 yfinance==0.2.65
