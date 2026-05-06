@@ -1,9 +1,11 @@
 import logging
 from datetime import datetime
 
+import psutil
 from fastapi import APIRouter
 
 from backend.app.core.config import config
+from backend.app.core.error_handler import AppException
 from backend.app.services.runtime_state import get_data_manager
 from src.strategy.advanced_strategies import (
     ATRTrailingStop,
@@ -54,8 +56,6 @@ async def get_system_status(detailed: bool = False):
     try:
         if not detailed:
             # 轻量级检查 (原 /status 逻辑)
-            import psutil
-
             memory = psutil.virtual_memory()
             cpu_percent = psutil.cpu_percent(interval=0.1)
 
@@ -89,7 +89,7 @@ async def get_system_status(detailed: bool = False):
                 "version": config["app_version"],
             }
 
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, OSError, RuntimeError, psutil.Error) as e:
         logger.error(f"System status check failed: {e}", exc_info=True)
         return {
             "status": "error",
@@ -110,22 +110,21 @@ async def get_system_performance_overview():
                 "timestamp": datetime.now().isoformat(),
             },
         }
-    except Exception as e:
+    except (AttributeError, OSError, RuntimeError, psutil.Error) as e:
         logger.error(f"Performance metrics error: {e}")
-        return {"success": False, "error": str(e)}
+        raise AppException(
+            message=str(e),
+            error_code="PERFORMANCE_OVERVIEW_FAILED",
+        ) from e
 
 
 @router.get("/health-check", summary="综合健康检查", deprecated=True)
 def comprehensive_health_check():
     """综合健康检查"""
-    try:
-        return {
-            "success": True,
-            "data": {"status": "healthy", "message": "Comprehensive check disabled"},
-        }
-    except Exception as e:
-        logger.error(f"Health check error: {e}")
-        return {"success": False, "error": str(e)}
+    return {
+        "success": True,
+        "data": {"status": "healthy", "message": "Comprehensive check disabled"},
+    }
 
 
 @router.get("/metrics", summary="获取详细性能指标", deprecated=True)
@@ -146,9 +145,12 @@ async def get_performance_metrics():
             "metrics": all_stats,
             "timestamp": datetime.now().isoformat(),
         }
-    except Exception as e:
+    except (AttributeError, KeyError, RuntimeError, TypeError) as e:
         logger.error(f"获取性能指标失败: {e}")
-        return {"success": False, "error": str(e)}
+        raise AppException(
+            message=str(e),
+            error_code="PERFORMANCE_METRICS_FAILED",
+        ) from e
 
 
 @router.get("/providers/status", summary="数据源运行状态")
@@ -176,13 +178,12 @@ async def get_provider_runtime_status():
             "timestamp": datetime.now().isoformat(),
             "providers": providers,
         }
-    except Exception as e:
+    except (AttributeError, ImportError, KeyError, RuntimeError, TypeError) as e:
         logger.error(f"Provider status error: {e}", exc_info=True)
-        return {
-            "success": False,
-            "timestamp": datetime.now().isoformat(),
-            "error": str(e),
-        }
+        raise AppException(
+            message=str(e),
+            error_code="PROVIDER_STATUS_FAILED",
+        ) from e
 
 
 @router.get("/dependencies", summary="依赖项连通性检查", deprecated=True)
@@ -209,7 +210,16 @@ async def check_dependencies():
             "response_time_ms": elapsed,
             "message": "能够获取股票数据" if info else "返回数据为空",
         }
-    except Exception as e:
+    except (
+        AttributeError,
+        ConnectionError,
+        ImportError,
+        KeyError,
+        OSError,
+        RuntimeError,
+        TimeoutError,
+        ValueError,
+    ) as e:
         overall_status = "degraded"
         dependencies["yfinance_api"] = {
             "status": "unhealthy",
@@ -226,7 +236,7 @@ async def check_dependencies():
             "max_size": dm.cache.max_size if hasattr(dm.cache, "max_size") else "unknown",
         }
         dependencies["cache_system"] = cache_info
-    except Exception as e:
+    except (AttributeError, KeyError, RuntimeError, TypeError) as e:
         dependencies["cache_system"] = {"status": "degraded", "error": str(e)}
 
     # 3. 检查 ML 模型状态
@@ -248,13 +258,11 @@ async def check_dependencies():
                 "cached_models": 0,
                 "message": "无缓存模型，将在首次预测时训练",
             }
-    except Exception as e:
+    except (OSError, RuntimeError) as e:
         dependencies["ml_models"] = {"status": "degraded", "error": str(e)}
 
     # 4. 检查磁盘空间
     try:
-        import psutil
-
         disk = psutil.disk_usage("/")
         disk_status = "healthy" if disk.percent < 90 else "warning"
         if disk.percent >= 90:
@@ -264,7 +272,7 @@ async def check_dependencies():
             "used_percent": disk.percent,
             "free_gb": round(disk.free / (1024**3), 2),
         }
-    except Exception as e:
+    except (ImportError, OSError, RuntimeError, psutil.Error) as e:
         dependencies["disk_space"] = {"status": "unknown", "error": str(e)}
 
     return {
