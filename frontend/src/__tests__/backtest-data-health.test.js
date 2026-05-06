@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 
@@ -36,6 +36,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  cleanup();
   jest.clearAllMocks();
   navigator.clipboard.writeText.mockReset();
   navigator.clipboard.writeText.mockResolvedValue(undefined);
@@ -227,9 +228,7 @@ describe('BacktestDataHealthPanel', () => {
       expect(screen.queryByText('US market fallback')).not.toBeInTheDocument();
     });
 
-    await act(async () => {
-      userEvent.click(screen.getByRole('button', { name: /查看明细/ }));
-    });
+    await userEvent.click(screen.getByRole('button', { name: /查看明细/ }));
 
     expect(screen.getByText('US market fallback')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /收起明细/ })).toBeInTheDocument();
@@ -262,9 +261,7 @@ describe('BacktestDataHealthPanel', () => {
       expect(screen.getByText('可以回测')).toBeInTheDocument();
     });
 
-    await act(async () => {
-      userEvent.click(screen.getByRole('button', { name: /复制诊断/ }));
-    });
+    await userEvent.click(screen.getByRole('button', { name: /复制诊断/ }));
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
       expect.stringContaining('"readiness"')

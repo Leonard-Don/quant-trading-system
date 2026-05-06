@@ -28,8 +28,8 @@ vi.mock('../components/SkeletonLoaders', () => ({
   MarketAnalysisSkeleton: () => <div>loading</div>,
 }));
 
-vi.mock('../components/AIPredictionPanel', () => () => <div>AI</div>);
-vi.mock('../components/CandlestickChart', () => () => <div>Chart</div>);
+vi.mock('../components/AIPredictionPanel', () => ({ default: () => <div>AI</div> }));
+vi.mock('../components/CandlestickChart', () => ({ default: () => <div>Chart</div> }));
 
 vi.mock('recharts', () => {
   const Mock = () => null;

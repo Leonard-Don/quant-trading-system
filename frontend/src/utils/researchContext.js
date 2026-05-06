@@ -1,4 +1,4 @@
-import { pushAppUrl } from './appUrlState';
+import { pushAppUrl } from './appUrlState.js';
 
 const VIEW_QUERY_KEY = 'view';
 const TAB_QUERY_KEY = 'tab';

@@ -10,19 +10,21 @@ const mockMarketAnalysisUnmountSpy = jest.fn();
 vi.mock('../components/MarketAnalysis', () => {
   const React = require('react');
 
-  return function MockMarketAnalysis(props) {
-    React.useEffect(() => {
-      mockMarketAnalysisMountSpy(props.symbol);
-      return () => {
-        mockMarketAnalysisUnmountSpy(props.symbol);
-      };
-    }, [props.symbol]);
+  return {
+    default: function MockMarketAnalysis(props) {
+      React.useEffect(() => {
+        mockMarketAnalysisMountSpy(props.symbol);
+        return () => {
+          mockMarketAnalysisUnmountSpy(props.symbol);
+        };
+      }, [props.symbol]);
 
-    return (
-      <div data-testid="market-analysis">
-        analysis:{props.symbol}:{props.embedMode ? 'embed' : 'full'}
-      </div>
-    );
+      return (
+        <div data-testid="market-analysis">
+          analysis:{props.symbol}:{props.embedMode ? 'embed' : 'full'}
+        </div>
+      );
+    },
   };
 });
 
@@ -577,12 +579,8 @@ describe('RealtimeStockDetailModal', () => {
       />
     );
 
-    expect(screen.getByTestId('detail-compare-card-^IXIC')).toHaveStyle({
-      background: expect.stringContaining('linear-gradient'),
-    });
-    expect(screen.getByTestId('detail-compare-card-^GSPC')).toHaveStyle({
-      background: expect.stringContaining('linear-gradient'),
-    });
+    expect(screen.getByTestId('detail-compare-card-^IXIC').style.background).toContain('linear-gradient');
+    expect(screen.getByTestId('detail-compare-card-^GSPC').style.background).toContain('linear-gradient');
   });
 
   test('can hand off a quick trade draft from the detail signal summary', async () => {

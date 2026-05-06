@@ -4,22 +4,24 @@ import '@testing-library/jest-dom';
 
 import BacktestDashboard from '../components/BacktestDashboard';
 
-vi.mock('../components/StrategyForm', () => () => <div>StrategyForm</div>);
-vi.mock('../components/ResultsDisplay', () => () => <div>ResultsDisplay</div>);
-vi.mock('../components/LoadingSpinner', () => () => <div>LoadingSpinner</div>);
-vi.mock('../components/CrossMarketBacktestPanel', () => () => <div>CrossMarketBacktestPanel</div>);
-vi.mock('../components/BacktestHistory', () => () => <div>BacktestHistory</div>);
-vi.mock('../components/StrategyComparison', () => () => <div>StrategyComparison</div>);
-vi.mock('../components/PortfolioOptimizer', () => () => <div>PortfolioOptimizer</div>);
-vi.mock('../components/BacktestDataHealthPanel', () => () => <div>BacktestDataHealthPanel</div>);
-vi.mock('../components/AdvancedBacktestLab', () => ({ onImportTemplateToMainBacktest }) => (
-  <div>
-    <div>AdvancedBacktestLab</div>
-    <button type="button" onClick={() => onImportTemplateToMainBacktest?.({ symbol: 'AAPL' })}>
-      import-template
-    </button>
-  </div>
-));
+vi.mock('../components/StrategyForm', () => ({ default: () => <div>StrategyForm</div> }));
+vi.mock('../components/ResultsDisplay', () => ({ default: () => <div>ResultsDisplay</div> }));
+vi.mock('../components/LoadingSpinner', () => ({ default: () => <div>LoadingSpinner</div> }));
+vi.mock('../components/CrossMarketBacktestPanel', () => ({ default: () => <div>CrossMarketBacktestPanel</div> }));
+vi.mock('../components/BacktestHistory', () => ({ default: () => <div>BacktestHistory</div> }));
+vi.mock('../components/StrategyComparison', () => ({ default: () => <div>StrategyComparison</div> }));
+vi.mock('../components/PortfolioOptimizer', () => ({ default: () => <div>PortfolioOptimizer</div> }));
+vi.mock('../components/BacktestDataHealthPanel', () => ({ default: () => <div>BacktestDataHealthPanel</div> }));
+vi.mock('../components/AdvancedBacktestLab', () => ({
+  default: ({ onImportTemplateToMainBacktest }) => (
+    <div>
+      <div>AdvancedBacktestLab</div>
+      <button type="button" onClick={() => onImportTemplateToMainBacktest?.({ symbol: 'AAPL' })}>
+        import-template
+      </button>
+    </div>
+  ),
+}));
 
 vi.mock('antd', () => {
   const React = require('react');

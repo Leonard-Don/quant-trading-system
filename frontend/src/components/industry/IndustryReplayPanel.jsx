@@ -298,7 +298,9 @@ const IndustryReplayPanel = ({
                                 </Tag>
                             </div>
                             <span style={{ fontSize: 12, color: textSecondary }}>
-                                {formatReplaySnapshotTime(replayComparison.base.updateTime)} -> {formatReplaySnapshotTime(replayComparison.target.updateTime)}
+                                {formatReplaySnapshotTime(replayComparison.base.updateTime)}
+                                {' -> '}
+                                {formatReplaySnapshotTime(replayComparison.target.updateTime)}
                             </span>
                         </div>
                         <Space size={8} wrap>
@@ -326,7 +328,9 @@ const IndustryReplayPanel = ({
                                     {formatReplayDelta(replayIndustryDiffDetail.changeDelta, 2, '%')}
                                 </div>
                                 <div style={{ fontSize: 11, color: panelMuted, marginTop: 4 }}>
-                                    {formatReplayMetricPercent(replayIndustryDiffDetail.base?.value)} -> {formatReplayMetricPercent(replayIndustryDiffDetail.target?.value)}
+                                    {formatReplayMetricPercent(replayIndustryDiffDetail.base?.value)}
+                                    {' -> '}
+                                    {formatReplayMetricPercent(replayIndustryDiffDetail.target?.value)}
                                 </div>
                             </div>
                         </Col>
@@ -350,7 +354,9 @@ const IndustryReplayPanel = ({
                                     {formatReplayMetricMoney(replayIndustryDiffDetail.flowDelta)}
                                 </div>
                                 <div style={{ fontSize: 11, color: panelMuted, marginTop: 4 }}>
-                                    {formatReplayMetricMoney(replayIndustryDiffDetail.base?.moneyFlow)} -> {formatReplayMetricMoney(replayIndustryDiffDetail.target?.moneyFlow)}
+                                    {formatReplayMetricMoney(replayIndustryDiffDetail.base?.moneyFlow)}
+                                    {' -> '}
+                                    {formatReplayMetricMoney(replayIndustryDiffDetail.target?.moneyFlow)}
                                 </div>
                             </div>
                         </Col>
@@ -361,7 +367,9 @@ const IndustryReplayPanel = ({
                                     {formatReplayDelta(replayIndustryDiffDetail.turnoverDelta, 2, '%')}
                                 </div>
                                 <div style={{ fontSize: 11, color: panelMuted, marginTop: 4 }}>
-                                    {formatReplayMetricPercent(replayIndustryDiffDetail.base?.turnoverRate)} -> {formatReplayMetricPercent(replayIndustryDiffDetail.target?.turnoverRate)}
+                                    {formatReplayMetricPercent(replayIndustryDiffDetail.base?.turnoverRate)}
+                                    {' -> '}
+                                    {formatReplayMetricPercent(replayIndustryDiffDetail.target?.turnoverRate)}
                                 </div>
                             </div>
                         </Col>

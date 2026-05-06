@@ -6,18 +6,16 @@ import path from "node:path";
 // Replaces react-scripts (CRA, deprecated). Build output stays at
 // `build/` so existing CI / start_system.sh references keep working.
 export default defineConfig({
-  // CRA-era code lives in .js files but contains JSX. Tell plugin-react
-  // (and esbuild downstream) to apply the JSX transform to .js too.
-  plugins: [react({ include: /\.(js|jsx|ts|tsx|mdx)$/ })],
+  // plugin-react: app code lives in .jsx; tests under src/__tests__ keep
+  // a .js extension by team convention but contain JSX (e.g. vi.mock
+  // factories returning <div>…</div>). Include those in the JSX transform.
+  plugins: [react({ include: /\.(jsx|tsx|mdx)$|\/__tests__\/.*\.js$/ })],
   esbuild: {
+    // Match plugin-react's include so esbuild's transform applies the JSX
+    // loader to the same set. App-level .js files no longer need this.
     loader: "jsx",
-    include: /src\/.*\.(js|jsx|ts|tsx)$/,
+    include: /\.(jsx|tsx)$|\/__tests__\/.*\.js$/,
     exclude: [],
-  },
-  optimizeDeps: {
-    esbuildOptions: {
-      loader: { ".js": "jsx" },
-    },
   },
   // Local dev port matches what start_system.sh / e2e expect.
   server: {

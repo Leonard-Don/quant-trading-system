@@ -47,8 +47,8 @@ vi.mock('../utils/messageApi', () => ({
   useSafeMessageApi: () => mockMessageApi,
 }));
 
-vi.mock('../components/StockDetailModal', () => () => null);
-vi.mock('../components/common/MiniSparkline', () => () => <div data-testid="mini-sparkline" />);
+vi.mock('../components/StockDetailModal', () => ({ default: () => null }));
+vi.mock('../components/common/MiniSparkline', () => ({ default: () => <div data-testid="mini-sparkline" /> }));
 
 vi.mock('@ant-design/icons', () => {
   const React = require('react');

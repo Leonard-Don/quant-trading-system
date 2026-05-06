@@ -21,11 +21,11 @@ vi.mock('../services/api', () => ({
   runMarketRegimeBacktest: jest.fn(),
 }));
 
-vi.mock('../components/PerformanceChart', () => () => <div>PerformanceChart</div>);
-vi.mock('../components/DrawdownChart', () => () => <div>DrawdownChart</div>);
-vi.mock('../components/MonthlyHeatmap', () => () => <div>MonthlyHeatmap</div>);
-vi.mock('../components/RiskRadar', () => () => <div>RiskRadar</div>);
-vi.mock('../components/ReturnHistogram', () => () => <div>ReturnHistogram</div>);
+vi.mock('../components/PerformanceChart', () => ({ default: () => <div>PerformanceChart</div> }));
+vi.mock('../components/DrawdownChart', () => ({ default: () => <div>DrawdownChart</div> }));
+vi.mock('../components/MonthlyHeatmap', () => ({ default: () => <div>MonthlyHeatmap</div> }));
+vi.mock('../components/RiskRadar', () => ({ default: () => <div>RiskRadar</div> }));
+vi.mock('../components/ReturnHistogram', () => ({ default: () => <div>ReturnHistogram</div> }));
 vi.mock('recharts', () => {
   const React = require('react');
   const MockChart = ({ children }) => <div>{children}</div>;
