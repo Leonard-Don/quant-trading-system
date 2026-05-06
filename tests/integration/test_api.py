@@ -3,16 +3,17 @@ API集成测试
 """
 
 import base64
-import time
-import pytest
-import pandas as pd
 
 # import requests  # 暂时未使用
 # import time  # 暂时未使用
 # import subprocess  # 暂时未使用
 # import threading  # 暂时未使用
 import sys
+import time
 from pathlib import Path
+
+import pandas as pd
+import pytest
 
 # import uvicorn  # 暂时未使用
 # import asyncio  # 暂时未使用
@@ -82,6 +83,59 @@ class TestAPIIntegration:
         assert "metrics" in data
         assert "timestamp" in data
 
+    def test_performance_overview_failure_uses_structured_error(self, client, monkeypatch):
+        """性能概览失败时应走统一 AppException 错误 envelope。"""
+        from backend.app.api.v1.endpoints import system as system_endpoint
+
+        def raise_runtime_error():
+            raise RuntimeError("monitor unavailable")
+
+        monkeypatch.setattr(
+            system_endpoint.performance_monitor,
+            "get_system_info",
+            raise_runtime_error,
+        )
+
+        response = client.get("/system/performance")
+
+        assert response.status_code == 500
+        payload = response.json()
+        assert payload["success"] is False
+        assert payload["error"]["code"] == "PERFORMANCE_OVERVIEW_FAILED"
+        assert payload["error"]["message"] == "monitor unavailable"
+
+    def test_performance_metrics_failure_uses_structured_error(self, client, monkeypatch):
+        """性能指标失败时应走统一 AppException 错误 envelope。"""
+        from backend.app.api.v1.endpoints import system as system_endpoint
+
+        def raise_runtime_error(operation):
+            raise RuntimeError(f"metrics unavailable for {operation}")
+
+        monkeypatch.setattr(
+            system_endpoint.performance_metrics,
+            "get_stats",
+            raise_runtime_error,
+        )
+
+        response = client.get("/system/metrics")
+
+        assert response.status_code == 500
+        payload = response.json()
+        assert payload["success"] is False
+        assert payload["error"]["code"] == "PERFORMANCE_METRICS_FAILED"
+        assert payload["error"]["message"] == "metrics unavailable for backtest"
+
+    def test_system_health_check_returns_static_payload(self, client):
+        """已弃用的系统 health-check 端点保持原有静态成功响应。"""
+        response = client.get("/system/health-check")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload == {
+            "success": True,
+            "data": {"status": "healthy", "message": "Comprehensive check disabled"},
+        }
+
     def test_provider_status_endpoint_is_non_invasive(self, client):
         """数据源状态端点应返回断路器快照，不主动探测外部网络。"""
         response = client.get("/system/providers/status")
@@ -92,6 +146,50 @@ class TestAPIIntegration:
         assert "providers" in data
         assert "sina_ths" in data["providers"]
         assert "circuit_breakers" in data["providers"]["sina_ths"]
+
+    def test_provider_status_failure_uses_structured_error(self, client, monkeypatch):
+        """数据源状态端点内部失败时应走统一 AppException 错误 envelope。"""
+        from backend.app.api.v1.endpoints import system as system_endpoint
+
+        def raise_runtime_error():
+            raise RuntimeError("provider registry unavailable")
+
+        monkeypatch.setattr(system_endpoint, "get_data_manager", raise_runtime_error)
+
+        response = client.get("/system/providers/status")
+
+        assert response.status_code == 500
+        payload = response.json()
+        assert payload["success"] is False
+        assert payload["error"]["code"] == "PROVIDER_STATUS_FAILED"
+        assert payload["error"]["message"] == "provider registry unavailable"
+
+    def test_dependencies_keeps_degraded_partial_response_for_yfinance_os_error(
+        self, client, monkeypatch
+    ):
+        """依赖检查中 yfinance 的网络/IO 失败应保留 degraded 部分响应。"""
+
+        class FakeTicker:
+            def __init__(self, symbol):
+                self.symbol = symbol
+
+            @property
+            def info(self):
+                raise OSError("simulated yfinance transport failure")
+
+        fake_yfinance = type("FakeYFinance", (), {"Ticker": FakeTicker})
+        monkeypatch.setitem(sys.modules, "yfinance", fake_yfinance)
+
+        response = client.get("/system/dependencies")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["overall_status"] == "degraded"
+        assert payload["dependencies"]["yfinance_api"]["status"] == "unhealthy"
+        assert (
+            payload["dependencies"]["yfinance_api"]["error"]
+            == "simulated yfinance transport failure"
+        )
 
     def test_backtest_endpoint(self, client, monkeypatch):
         """测试回测端点"""
