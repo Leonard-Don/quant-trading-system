@@ -89,6 +89,32 @@ const isCanceledRequest = (error) => (
   || error?.message === 'canceled'
 );
 
+const hasOwn = (value, key) => (
+  value && typeof value === 'object' && Object.prototype.hasOwnProperty.call(value, key)
+);
+
+const getStatusFallbackMessage = (status) => {
+  switch (status) {
+    case 400:
+      return '请求参数错误';
+    case 401:
+      return '请先登录';
+    case 403:
+      return '没有权限访问';
+    case 404:
+      return '请求的资源不存在';
+    case 429:
+      return '请求过于频繁，请稍后再试';
+    case 500:
+      return '服务器内部错误，请稍后重试';
+    case 502:
+    case 503:
+      return '服务暂时不可用，请稍后重试';
+    default:
+      return '';
+  }
+};
+
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: API_TIMEOUT,
@@ -189,50 +215,41 @@ api.interceptors.response.use(
     }
 
     // 统一错误处理
-    let errorMessage = '请求失败，请稍后重试';
+    let errorMessage = '';
     let errorCode = 'UNKNOWN_ERROR';
+    let errorDetails;
+    let requestId;
+    let serverTimestamp;
 
     if (error.response) {
       // 服务器返回了错误响应
       const { status, data } = error.response;
 
       // 尝试从标准错误格式提取信息
-      if (data?.error) {
-        errorMessage = data.error.message || errorMessage;
-        errorCode = data.error.code || errorCode;
+      if (data?.error && typeof data.error === 'object') {
+        const structuredError = data.error;
+        errorMessage = structuredError.message || errorMessage;
+        errorCode = structuredError.code || errorCode;
+        if (hasOwn(structuredError, 'details')) {
+          errorDetails = structuredError.details;
+        }
+        if (hasOwn(structuredError, 'request_id')) {
+          requestId = structuredError.request_id;
+        } else if (hasOwn(structuredError, 'requestId')) {
+          requestId = structuredError.requestId;
+        }
+        if (hasOwn(structuredError, 'timestamp')) {
+          serverTimestamp = structuredError.timestamp;
+        }
+      } else if (typeof data?.error === 'string') {
+        errorMessage = data.error;
       } else if (data?.detail) {
         errorMessage = data.detail;
       } else if (typeof data === 'string') {
         errorMessage = data;
       }
 
-      // 根据状态码设置通用错误消息
-      switch (status) {
-        case 400:
-          errorMessage = errorMessage || '请求参数错误';
-          break;
-        case 401:
-          errorMessage = '请先登录';
-          break;
-        case 403:
-          errorMessage = '没有权限访问';
-          break;
-        case 404:
-          errorMessage = errorMessage || '请求的资源不存在';
-          break;
-        case 429:
-          errorMessage = '请求过于频繁，请稍后再试';
-          break;
-        case 500:
-          errorMessage = '服务器内部错误，请稍后重试';
-          break;
-        case 502:
-        case 503:
-          errorMessage = '服务暂时不可用，请稍后重试';
-          break;
-        default:
-          break;
-      }
+      errorMessage = errorMessage || getStatusFallbackMessage(status) || '请求失败，请稍后重试';
 
       console.error(`API Error [${status}] ${errorCode}:`, errorMessage);
     } else if (error.request) {
@@ -253,6 +270,15 @@ api.interceptors.response.use(
     // 附加错误信息到 error 对象
     error.userMessage = errorMessage;
     error.errorCode = errorCode;
+    if (errorDetails !== undefined) {
+      error.errorDetails = errorDetails;
+    }
+    if (requestId !== undefined) {
+      error.requestId = requestId;
+    }
+    if (serverTimestamp !== undefined) {
+      error.serverTimestamp = serverTimestamp;
+    }
 
     return Promise.reject(error);
   }
