@@ -2,6 +2,7 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 const { partitionConsoleMessages } = require('./consoleNoise');
+const { assertMainLayoutClearOfSidebar, assertNoHorizontalOverflow } = require('./layoutAssertions');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const ARTIFACT_DIR = path.join(PROJECT_ROOT, 'output', 'playwright');
@@ -189,6 +190,8 @@ const jumpToTrackedSymbol = async (page, symbol, expectedGroupLabel) => {
     timeout: 60000,
   });
   await waitForRealtimeShell(page);
+  await assertMainLayoutClearOfSidebar(page, 'realtime workspace');
+  await assertNoHorizontalOverflow(page, '.realtime-quote-card', 'realtime quote cards');
   await page.getByText('开发诊断', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   const showDiagnosticsButton = page.getByRole('button', { name: '显示诊断' });
   if (await showDiagnosticsButton.isVisible().catch(() => false)) {
