@@ -11,6 +11,100 @@ const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const ARTIFACT_DIR = path.join(PROJECT_ROOT, 'output', 'playwright');
 const SCREENSHOT_PATH = path.join(ARTIFACT_DIR, 'backtest-workflow.png');
 const APP_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const INDUSTRY_FIXTURE_NOW = '2026-05-07T00:00:00.000Z';
+const INDUSTRY_FIXTURE_NAME = '半导体';
+const INDUSTRY_FIXTURE_STOCKS = [
+  {
+    symbol: '688981',
+    name: '中芯国际',
+    rank: 1,
+    total_score: 91.2,
+    scoreStage: 'full',
+    market_cap: 120000000000,
+    pe_ratio: 8.5,
+    change_pct: 1.8,
+    money_flow: 240000000,
+    turnover_rate: 1.2,
+    industry: INDUSTRY_FIXTURE_NAME,
+  },
+  {
+    symbol: '002371',
+    name: '北方华创',
+    rank: 2,
+    total_score: 88.6,
+    scoreStage: 'full',
+    market_cap: 2100000000000,
+    pe_ratio: 24.3,
+    change_pct: 0.9,
+    money_flow: 180000000,
+    turnover_rate: 0.7,
+    industry: INDUSTRY_FIXTURE_NAME,
+  },
+];
+const INDUSTRY_FIXTURE_HEATMAP = {
+  industries: [
+    {
+      name: INDUSTRY_FIXTURE_NAME,
+      value: 2.4,
+      total_score: 92.5,
+      size: 1800000000000,
+      stockCount: INDUSTRY_FIXTURE_STOCKS.length,
+      moneyFlow: 360000000,
+      turnoverRate: 1.8,
+      industryVolatility: 2.1,
+      industryVolatilitySource: 'stock_dispersion',
+      netInflowRatio: 1.6,
+      leadingStock: '中芯国际',
+      leadingStockSymbol: '688981',
+      sizeSource: 'estimated',
+      marketCapSource: 'estimated_e2e_fixture',
+      marketCapSnapshotAgeHours: null,
+      marketCapSnapshotIsStale: false,
+      valuationSource: 'unavailable',
+      valuationQuality: 'unavailable',
+      dataSources: ['e2e_fixture'],
+      industryIndex: 1000,
+      totalInflow: 8.2,
+      totalOutflow: 4.6,
+      leadingStockChange: 1.8,
+      leadingStockPrice: 12.34,
+      pe_ttm: 18.5,
+      pb: 2.1,
+      dividend_yield: 1.2,
+    },
+    {
+      name: '消费电子',
+      value: 1.1,
+      total_score: 80.3,
+      size: 900000000000,
+      stockCount: 1,
+      moneyFlow: 90000000,
+      turnoverRate: 1.1,
+      industryVolatility: 1.5,
+      industryVolatilitySource: 'stock_dispersion',
+      netInflowRatio: 0.9,
+      leadingStock: '测试电子',
+      sizeSource: 'estimated',
+      marketCapSource: 'estimated_e2e_fixture',
+      marketCapSnapshotAgeHours: null,
+      marketCapSnapshotIsStale: false,
+      valuationSource: 'unavailable',
+      valuationQuality: 'unavailable',
+      dataSources: ['e2e_fixture'],
+      industryIndex: 980,
+      totalInflow: 3.2,
+      totalOutflow: 2.1,
+      leadingStockChange: 1.1,
+      leadingStockPrice: 9.87,
+      pe_ttm: 22.4,
+      pb: 2.8,
+      dividend_yield: 0.8,
+    },
+  ],
+  max_value: 2.4,
+  min_value: 1.1,
+  update_time: INDUSTRY_FIXTURE_NOW,
+};
 
 const ensureArtifactDir = () => {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
@@ -33,6 +127,98 @@ const waitForBacktestWorkspace = async (page) => {
 const waitForIndustryHeatmapReady = async (page) => {
   await page.getByText('行业热力图', { exact: false }).waitFor({ state: 'visible', timeout: 60000 });
   await page.locator('[data-testid="heatmap-tile"]').first().waitFor({ state: 'visible', timeout: 120000 });
+};
+
+const fulfillJson = async (route, payload) => route.fulfill({
+  status: 200,
+  contentType: 'application/json; charset=utf-8',
+  body: JSON.stringify(payload),
+});
+
+const buildIndustryTrendFixture = (industryName) => ({
+  industry_name: industryName,
+  stock_count: INDUSTRY_FIXTURE_STOCKS.length,
+  expected_stock_count: INDUSTRY_FIXTURE_STOCKS.length,
+  total_market_cap: 2200000000000,
+  avg_pe: 16.4,
+  industry_volatility: 2.1,
+  industry_volatility_source: 'stock_dispersion',
+  period_days: 30,
+  period_change_pct: 2.4,
+  period_money_flow: 360000000,
+  top_gainers: INDUSTRY_FIXTURE_STOCKS.slice(0, 1),
+  top_losers: INDUSTRY_FIXTURE_STOCKS.slice(1, 2),
+  rise_count: 2,
+  fall_count: 0,
+  flat_count: 0,
+  stock_coverage_ratio: 1,
+  change_coverage_ratio: 1,
+  market_cap_coverage_ratio: 1,
+  pe_coverage_ratio: 1,
+  total_market_cap_fallback: false,
+  avg_pe_fallback: false,
+  market_cap_source: 'estimated_e2e_fixture',
+  valuation_source: 'unavailable',
+  valuation_quality: 'unavailable',
+  trend_series: [
+    { date: '2026-05-05', close: 998, change_pct: 0.4 },
+    { date: '2026-05-06', close: 1005, change_pct: 0.7 },
+    { date: '2026-05-07', close: 1024, change_pct: 1.9 },
+  ],
+  degraded: false,
+  note: 'E2E fixture for deterministic industry-to-backtest handoff.',
+  update_time: INDUSTRY_FIXTURE_NOW,
+});
+
+const installIndustryBacktestFixtureRoutes = async (page) => {
+  const bootstrapPayload = {
+    days: 5,
+    ranking_top_n: 50,
+    ranking_type: 'gainers',
+    ranking_sort_by: 'total_score',
+    ranking_order: 'desc',
+    heatmap: INDUSTRY_FIXTURE_HEATMAP,
+    hot_industries: INDUSTRY_FIXTURE_HEATMAP.industries.map((industry, index) => ({
+      rank: index + 1,
+      industry_name: industry.name,
+      score: industry.total_score,
+      momentum: industry.value,
+      change_pct: industry.value,
+      money_flow: industry.moneyFlow,
+      flow_strength: industry.netInflowRatio,
+      industryVolatility: industry.industryVolatility,
+      industryVolatilitySource: industry.industryVolatilitySource,
+      stock_count: industry.stockCount,
+      total_market_cap: industry.size,
+      marketCapSource: industry.marketCapSource,
+      mini_trend: [0.3, 0.7, industry.value],
+      score_breakdown: [],
+    })),
+    leaders: { core: [], hot: [], errors: {} },
+    errors: {},
+  };
+
+  await page.route('**/industry/bootstrap**', (route) => fulfillJson(route, bootstrapPayload));
+  await page.route('**/industry/industries/heatmap**', (route) => fulfillJson(route, INDUSTRY_FIXTURE_HEATMAP));
+  await page.route(/.*\/industry\/industries\/[^/]+\/stocks\/status.*/, (route) => fulfillJson(route, {
+    industry_name: INDUSTRY_FIXTURE_NAME,
+    top_n: 20,
+    status: 'ready',
+    rows: INDUSTRY_FIXTURE_STOCKS.length,
+    message: 'E2E fixture ready',
+    updated_at: INDUSTRY_FIXTURE_NOW,
+  }));
+  await page.route(/.*\/industry\/industries\/[^/]+\/stocks\/stream.*/, (route) => route.fulfill({
+    status: 200,
+    contentType: 'text/event-stream; charset=utf-8',
+    body: 'data: {"status":"ready"}\n\n',
+  }));
+  await page.route(/.*\/industry\/industries\/[^/]+\/stocks(?:\?.*)?$/, (route) => fulfillJson(route, INDUSTRY_FIXTURE_STOCKS));
+  await page.route(/.*\/industry\/industries\/[^/]+\/trend.*/, (route) => {
+    const match = route.request().url().match(/\/industry\/industries\/([^/]+)\/trend/);
+    const industryName = match ? decodeURIComponent(match[1]) : INDUSTRY_FIXTURE_NAME;
+    return fulfillJson(route, buildIndustryTrendFixture(industryName));
+  });
 };
 
 const closeIndustryDetailModal = async (page) => {
@@ -239,6 +425,7 @@ const readLocalStorageJson = async (page, key, fallback = null) => page.evaluate
   console.log('主回测结果到高级实验台接力已生效: 是');
 
   console.log('验证行业成分股带入主回测...');
+  await installIndustryBacktestFixtureRoutes(page);
   await page.goto(`${APP_URL}/?view=industry`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await waitForIndustryHeatmapReady(page);
   const backtestButton = await openIndustryWithBacktestButton(page);
