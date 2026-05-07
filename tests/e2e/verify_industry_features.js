@@ -440,7 +440,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   const currentUrl = page.url();
   console.log(`当前 URL: ${currentUrl}`);
   await page.reload({ waitUntil: 'domcontentloaded', timeout: 60000 });
-  await waitForIndustryHeatmapReady(page);
+  await waitForIndustryHeatmapReady(page, { allowEmpty: true });
   const reloadedUrl = page.url();
   const persistedBodyText = await page.locator('body').innerText();
   const persistedHintVisible = persistedBodyText.includes('来源: 估算市值');
@@ -460,7 +460,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   }, focusTargetSelector);
   console.log(`热力图状态标签定位控件是否生效: ${heatmapTagFocusWorks ? '是' : '否'}`);
   await page.locator('.heatmap-state-tag-market_cap_filter .ant-tag-close-icon').click();
-  await page.waitForTimeout(1000);
+  await waitForIndustryHeatmapReady(page);
   const heatmapUrlAfterSingleClear = page.url();
   const heatmapTextAfterSingleClear = await page.locator('body').innerText();
   console.log(`热力图单项标签清除是否生效: ${!heatmapTextAfterSingleClear.includes('来源: 估算市值') ? '是' : '否'}`);
