@@ -47,9 +47,9 @@ The `__init__.py` re-imports symbols from `_compat.py` so `from backend.app.api.
 
 **Why not full break:** Tests use the shim heavily. Rewriting tests is out of scope for this cleanup; deprecating the shim signals the future direction without breaking the present.
 
-### D2. Exception typing — full sweep across all endpoints
+### D2. Exception typing — typed sweep plus explicit policy boundaries
 
-**Decision:** Replace `except Exception as e:` blocks in **all** `backend/app/api/v1/endpoints/*.py` files with the appropriate typed exception from `backend/app/core/error_handler.py`:
+**Initial decision:** Replace broad `except Exception as e:` blocks in ordinary `backend/app/api/v1/endpoints/*.py` error paths with the appropriate typed exception from `backend/app/core/error_handler.py`:
 
 - `ValidationError` (400) — request payload / param violations
 - `NotFoundError` (404) — entity lookup failures (symbol, profile, backtest_id)
@@ -57,11 +57,20 @@ The `__init__.py` re-imports symbols from `_compat.py` so `from backend.app.api.
 - `ExternalServiceError` (503) — Redis / Celery / DB / generic upstream failures
 - `DataFetchError` (502) — data provider failures (more specific than ExternalServiceError, takes a `symbol` arg)
 - `AuthenticationError` (401) — auth failures
-- `AppException` (500) — genuinely unknown errors (always re-raised with context, never silently swallowed)
+- `AppException` (500) — genuinely unknown errors when the endpoint is already on the centralized error-handler path
 
-**Frontend impact check:** Audit `frontend/src/components/ErrorBoundary.js` and `frontend/src/services/api.js` to confirm they handle the 4xx/5xx structure produced by `error_handler.py`. If the new typed errors return a different JSON shape than what the frontend currently expects, add a thin compat layer in `error_handler.py` to keep the response body backward-compatible (key fields: `error`, `message`, `detail`).
+**2026-05-07 amendment:** The cleanup discovered that the remaining broad catches are not all equivalent. Some are intentional response-contract or degradation boundaries and should not be mechanically converted. The follow-up policy is documented in `docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md`.
 
-**Why one sweep instead of incremental:** Mixed old/new patterns are the worst state — both readers and callers have to handle two shapes. One pass keeps the codebase coherent.
+Accepted policy boundaries:
+
+- Legacy backtest execution envelopes that intentionally return HTTP 200 with `{success:false,error:...}`.
+- Stale-cache, empty-payload, best-effort enrichment, or other local-first degradation paths that keep the UI available when optional data is unavailable.
+- Provider health probes that must continue probing after one provider fails.
+- OAuth popup bridge callbacks that must render a postMessage HTML result instead of raising.
+
+**Frontend impact check:** Audit `frontend/src/components/ErrorBoundary.js` and `frontend/src/services/api.js` to confirm they handle the 4xx/5xx structure produced by `error_handler.py`. If the new typed errors return a different JSON shape than what the frontend currently expects, add a thin compat layer in `api.js`/`error_handler.py` to keep the response body backward-compatible (key fields: `error`, `message`, `detail`).
+
+**Why not force a final mechanical sweep:** Mixed old/new patterns are bad when they are accidental, but response-contract boundaries are different. For the remaining catches, changing exception shape without contract tests would risk breaking callers more than it improves maintainability.
 
 ### D3. mypy expansion — add three module groups to blocking
 
@@ -154,7 +163,8 @@ Batch 4 (sequential):
 - `cd frontend && npm test` all green
 - CI pipeline (backend + frontend + e2e + mypy) all green on the cleanup branch
 - `industry.py` no longer exists as a single file (replaced by `industry/` package); each sub-router < 700 lines
-- No `except Exception as e:` without `raise` in `backend/app/api/v1/endpoints/`
+- Ordinary endpoint runtime failures use typed exceptions when a response-contract test proves the response shape is safe to preserve
+- Remaining broad catches are classified in `docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md` as legacy envelope, degradation, health-probe, or OAuth popup bridge boundaries
 - mypy CI blocking list includes the modules in D3
 - 4 new integration test files exist and pass: `test_paper_order_lifecycle.py`, `test_industry_heatmap_cache.py`, `test_realtime_websocket_lifecycle.py`, `test_research_journal_persistence.py`
 - No JSX in `.js` files under `frontend/src/` (excluding `__tests__/`)
