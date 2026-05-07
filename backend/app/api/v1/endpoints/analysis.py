@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
+from backend.app.core.error_handler import AppException
 from backend.app.schemas.analysis import TrendAnalysisRequest, TrendAnalysisResponse
 from backend.app.services.runtime_state import get_data_manager
 from src.analytics.comprehensive_scorer import ComprehensiveScorer
@@ -43,6 +44,31 @@ ANALYSIS_CACHE_TTLS = {
     "klines": 180,
     "prediction_compare": 300,
 }
+HISTORY_FETCH_EXCEPTIONS = (
+    AttributeError,
+    ConnectionError,
+    KeyError,
+    OSError,
+    RuntimeError,
+    TimeoutError,
+    TypeError,
+    ValueError,
+)
+ANALYSIS_RUNTIME_EXCEPTIONS = (
+    AttributeError,
+    KeyError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    ZeroDivisionError,
+)
+KLINE_ROW_EXCEPTIONS = (
+    AttributeError,
+    KeyError,
+    OverflowError,
+    TypeError,
+    ValueError,
+)
 
 
 async def _run_blocking(func, /, *args, **kwargs):
@@ -71,6 +97,49 @@ def _load_requested_history(
         end_date=resolved_end,
         interval=resolved_interval,
     )
+
+
+async def _load_requested_history_for_endpoint(
+    request: TrendAnalysisRequest,
+    *,
+    data_fetch_error_code: str,
+) -> pd.DataFrame:
+    try:
+        return await _run_blocking(_load_requested_history, request)
+    except HTTPException:
+        raise
+    except AppException:
+        raise
+    except HISTORY_FETCH_EXCEPTIONS as e:
+        logger.error("Error fetching analysis history for %s: %s", request.symbol, e, exc_info=True)
+        raise AppException(
+            message=str(e),
+            error_code=data_fetch_error_code,
+            status_code=502,
+            details={"symbol": request.symbol},
+        ) from e
+
+
+def _raise_analysis_data_not_found(request: TrendAnalysisRequest, error_code: str) -> None:
+    raise AppException(
+        message=f"No data found for symbol {request.symbol}",
+        error_code=error_code,
+        status_code=404,
+        details={"symbol": request.symbol},
+    )
+
+
+def _raise_analysis_runtime_error(
+    request: TrendAnalysisRequest,
+    error: Exception,
+    *,
+    error_code: str,
+) -> None:
+    raise AppException(
+        message=str(error),
+        error_code=error_code,
+        details={"symbol": request.symbol},
+    ) from error
 
 
 def _analysis_cache_key(name: str, request: TrendAnalysisRequest, **extra) -> str:
@@ -113,7 +182,7 @@ def _build_klines(data: pd.DataFrame, limit: int = 150):
                 "close": float(row["close"]),
                 "volume": int(row["volume"])
             })
-        except Exception as e:
+        except KLINE_ROW_EXCEPTIONS as e:
             logger.error(f"Error processing row {index}: {e}")
             continue
     return klines
@@ -165,12 +234,13 @@ async def analyze_trend(request: TrendAnalysisRequest):
     分析股票趋势，返回趋势方向、支撑阻力位和技术评分
     """
     try:
-        data = await _run_blocking(_load_requested_history, request)
+        data = await _load_requested_history_for_endpoint(
+            request,
+            data_fetch_error_code="TREND_ANALYSIS_DATA_FETCH_FAILED",
+        )
 
         if data.empty:
-            raise HTTPException(
-                status_code=404, detail=f"No data found for symbol {request.symbol}"
-            )
+            _raise_analysis_data_not_found(request, "TREND_ANALYSIS_DATA_NOT_FOUND")
 
         analysis_result = await _run_blocking(trend_analyzer.analyze_trend, data)
 
@@ -182,9 +252,15 @@ async def analyze_trend(request: TrendAnalysisRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except AppException:
+        raise
+    except ANALYSIS_RUNTIME_EXCEPTIONS as e:
         logger.error(f"Error analyzing trend: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_analysis_runtime_error(
+            request,
+            e,
+            error_code="TREND_ANALYSIS_FAILED",
+        )
 
 
 @router.post("/comprehensive", summary="综合分析")
@@ -194,11 +270,15 @@ async def comprehensive_analysis(request: TrendAnalysisRequest):
     返回综合评分和投资建议
     """
     try:
-        data = await _run_blocking(_load_requested_history, request)
+        data = await _load_requested_history_for_endpoint(
+            request,
+            data_fetch_error_code="COMPREHENSIVE_ANALYSIS_DATA_FETCH_FAILED",
+        )
 
         if data.empty:
-            raise HTTPException(
-                status_code=404, detail=f"No data found for symbol {request.symbol}"
+            _raise_analysis_data_not_found(
+                request,
+                "COMPREHENSIVE_ANALYSIS_DATA_NOT_FOUND",
             )
 
         result = await _run_blocking(
@@ -219,9 +299,15 @@ async def comprehensive_analysis(request: TrendAnalysisRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except AppException:
+        raise
+    except ANALYSIS_RUNTIME_EXCEPTIONS as e:
         logger.error(f"Error in comprehensive analysis: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_analysis_runtime_error(
+            request,
+            e,
+            error_code="COMPREHENSIVE_ANALYSIS_FAILED",
+        )
 
 
 @router.post("/overview", summary="分析总览")
@@ -335,12 +421,13 @@ async def get_klines(request: TrendAnalysisRequest, limit: int = 150):
         if cached is not None:
             return cached
 
-        data = await _run_blocking(_load_requested_history, request)
+        data = await _load_requested_history_for_endpoint(
+            request,
+            data_fetch_error_code="KLINES_DATA_FETCH_FAILED",
+        )
 
         if data.empty:
-            raise HTTPException(
-                status_code=404, detail=f"No data found for symbol {request.symbol}"
-            )
+            _raise_analysis_data_not_found(request, "KLINES_DATA_NOT_FOUND")
 
         response = {
             "symbol": request.symbol,
@@ -352,9 +439,15 @@ async def get_klines(request: TrendAnalysisRequest, limit: int = 150):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except AppException:
+        raise
+    except ANALYSIS_RUNTIME_EXCEPTIONS as e:
         logger.error(f"Error in klines: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_analysis_runtime_error(
+            request,
+            e,
+            error_code="KLINES_BUILD_FAILED",
+        )
 
 
 @router.post("/volume-price", summary="量价分析")
@@ -363,12 +456,13 @@ async def analyze_volume_price(request: TrendAnalysisRequest):
     分析成交量与价格的关系
     """
     try:
-        data = await _run_blocking(_load_requested_history, request)
+        data = await _load_requested_history_for_endpoint(
+            request,
+            data_fetch_error_code="VOLUME_PRICE_DATA_FETCH_FAILED",
+        )
 
         if data.empty:
-            raise HTTPException(
-                status_code=404, detail=f"No data found for symbol {request.symbol}"
-            )
+            _raise_analysis_data_not_found(request, "VOLUME_PRICE_DATA_NOT_FOUND")
 
         result = await _run_blocking(volume_analyzer.analyze, data)
 
@@ -380,9 +474,15 @@ async def analyze_volume_price(request: TrendAnalysisRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except AppException:
+        raise
+    except ANALYSIS_RUNTIME_EXCEPTIONS as e:
         logger.error(f"Error in volume-price analysis: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_analysis_runtime_error(
+            request,
+            e,
+            error_code="VOLUME_PRICE_ANALYSIS_FAILED",
+        )
 
 
 @router.post("/sentiment", summary="市场情绪分析")
@@ -391,11 +491,15 @@ async def analyze_sentiment(request: TrendAnalysisRequest):
     分析市场情绪和恐慌程度
     """
     try:
-        data = await _run_blocking(_load_requested_history, request)
+        data = await _load_requested_history_for_endpoint(
+            request,
+            data_fetch_error_code="SENTIMENT_ANALYSIS_DATA_FETCH_FAILED",
+        )
 
         if data.empty:
-            raise HTTPException(
-                status_code=404, detail=f"No data found for symbol {request.symbol}"
+            _raise_analysis_data_not_found(
+                request,
+                "SENTIMENT_ANALYSIS_DATA_NOT_FOUND",
             )
 
         result = await _run_blocking(sentiment_analyzer.analyze, data, request.symbol)
@@ -408,9 +512,15 @@ async def analyze_sentiment(request: TrendAnalysisRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except AppException:
+        raise
+    except ANALYSIS_RUNTIME_EXCEPTIONS as e:
         logger.error(f"Error in sentiment analysis: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_analysis_runtime_error(
+            request,
+            e,
+            error_code="SENTIMENT_ANALYSIS_FAILED",
+        )
 
 
 @router.post("/patterns", summary="形态识别")
@@ -444,12 +554,13 @@ async def predict_prices(request: TrendAnalysisRequest):
     使用AI模型预测未来价格
     """
     try:
-        data = await _run_blocking(_load_requested_history, request)
+        data = await _load_requested_history_for_endpoint(
+            request,
+            data_fetch_error_code="PRICE_PREDICTION_DATA_FETCH_FAILED",
+        )
 
         if data.empty:
-            raise HTTPException(
-                status_code=404, detail=f"No data found for symbol {request.symbol}"
-            )
+            _raise_analysis_data_not_found(request, "PRICE_PREDICTION_DATA_NOT_FOUND")
 
         # 默认预测未来5天，传递symbol确保每只股票使用独立模型
         result = await _run_blocking(
@@ -467,9 +578,15 @@ async def predict_prices(request: TrendAnalysisRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except AppException:
+        raise
+    except ANALYSIS_RUNTIME_EXCEPTIONS as e:
         logger.error(f"Error in price prediction: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        _raise_analysis_runtime_error(
+            request,
+            e,
+            error_code="PRICE_PREDICTION_FAILED",
+        )
 
 
 class CorrelationRequest(BaseModel):
