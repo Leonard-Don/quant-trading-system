@@ -36,6 +36,7 @@ from backend.app.api.v1.endpoints.industry._compat import (
     _should_align_trend_with_stock_rows,
     get_industry_analyzer,
 )
+from backend.app.core.error_handler import AppException
 from backend.app.schemas.industry import (
     ClusterResponse,
     IndustryPreferencesResponse,
@@ -51,6 +52,13 @@ from backend.app.services.industry_preferences import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+_INDUSTRY_ENDPOINT_OPERATIONAL_ERRORS = (
+    AppException,
+    OSError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+)
 
 
 @router.get("/industries/hot", response_model=list[IndustryRankResponse])
@@ -90,7 +98,7 @@ def get_hot_industries(
         return result
     except HTTPException:
         raise
-    except Exception as e:
+    except _INDUSTRY_ENDPOINT_OPERATIONAL_ERRORS as e:
         logger.error(f"Error getting hot industries: {e}")
         stale = _get_stale_endpoint_cache(cache_key)
         if stale is not None:
@@ -135,7 +143,7 @@ def get_industry_stocks(
                     )
                 except TypeError:
                     cached_provider_rows = cached_stock_loader(industry_name)
-            except Exception as e:
+            except _INDUSTRY_ENDPOINT_OPERATIONAL_ERRORS as e:
                 logger.warning(f"Failed to load cached industry stocks for {industry_name}: {e}")
 
         if cached_provider_rows:
@@ -171,7 +179,7 @@ def get_industry_stocks(
         return full_result
     except HTTPException:
         raise
-    except Exception as e:
+    except _INDUSTRY_ENDPOINT_OPERATIONAL_ERRORS as e:
         logger.error(f"Error getting industry stocks: {e}")
         stale = _get_stale_endpoint_cache(full_cache_key)
         if stale is None:
@@ -346,7 +354,7 @@ def get_industry_trend(
 
     except HTTPException:
         raise
-    except Exception as e:
+    except _INDUSTRY_ENDPOINT_OPERATIONAL_ERRORS as e:
         logger.error(f"Error getting industry trend: {e}")
         stale = _get_stale_endpoint_cache(cache_key)
         if stale is not None:
@@ -379,7 +387,7 @@ def get_industry_clusters(
         )
     except HTTPException:
         raise
-    except Exception as e:
+    except _INDUSTRY_ENDPOINT_OPERATIONAL_ERRORS as e:
         logger.error(f"Error getting industry clusters: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
