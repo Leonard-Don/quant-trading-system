@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
+from backend.app.core.error_handler import AppException
 from backend.app.schemas.backtest import (
     AdvancedHistorySaveRequest,
     BacktestRequest,
@@ -50,6 +51,14 @@ logger = logging.getLogger(__name__)
 data_manager = backtest_runtime.data_manager
 BatchBacktester = _BatchBacktester
 _ORIGINAL_RUN_BACKTEST_PIPELINE = backtest_runtime.run_backtest_pipeline
+_ASYNC_BACKTEST_QUEUE_ERRORS = (
+    AppException,
+    ConnectionError,
+    OSError,
+    RuntimeError,
+    TimeoutError,
+    ValueError,
+)
 
 
 def _sync_backtest_runtime_state() -> None:
@@ -768,7 +777,7 @@ async def run_backtest_monte_carlo(request: MonteCarloBacktestRequest):
 async def queue_backtest_monte_carlo(request: MonteCarloBacktestRequest):
     try:
         return _submit_async_backtest_task("backtest_monte_carlo", request.model_dump())
-    except Exception as e:
+    except _ASYNC_BACKTEST_QUEUE_ERRORS as e:
         logger.error(f"Error queueing Monte Carlo backtest: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
@@ -788,7 +797,7 @@ async def compare_strategy_significance(request: SignificanceCompareRequest):
 async def queue_strategy_significance(request: SignificanceCompareRequest):
     try:
         return _submit_async_backtest_task("backtest_significance", request.model_dump())
-    except Exception as e:
+    except _ASYNC_BACKTEST_QUEUE_ERRORS as e:
         logger.error(f"Error queueing strategy significance: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
@@ -808,7 +817,7 @@ async def run_multi_period_backtest(request: MultiPeriodBacktestRequest):
 async def queue_multi_period_backtest(request: MultiPeriodBacktestRequest):
     try:
         return _submit_async_backtest_task("backtest_multi_period", request.model_dump())
-    except Exception as e:
+    except _ASYNC_BACKTEST_QUEUE_ERRORS as e:
         logger.error(f"Error queueing multi-period backtest: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
@@ -828,7 +837,7 @@ async def run_market_impact_analysis(request: MarketImpactAnalysisRequest):
 async def queue_market_impact_analysis(request: MarketImpactAnalysisRequest):
     try:
         return _submit_async_backtest_task("backtest_impact_analysis", request.model_dump())
-    except Exception as e:
+    except _ASYNC_BACKTEST_QUEUE_ERRORS as e:
         logger.error(f"Error queueing market impact analysis: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
