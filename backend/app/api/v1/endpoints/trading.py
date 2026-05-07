@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from backend.app.core.error_handler import AppException
 from backend.app.services.runtime_state import get_data_manager
 from backend.app.services.trade_stream import build_trade_stream_payload, resolve_trade_portfolio
 from backend.app.websocket.trade_connection_manager import trade_ws_manager
@@ -12,11 +13,24 @@ from src.trading.trade_manager import trade_manager
 router = APIRouter()
 data_manager = get_data_manager()
 
+
+TRADING_OPERATION_EXCEPTIONS = (
+    AttributeError,
+    ConnectionError,
+    KeyError,
+    OSError,
+    RuntimeError,
+    TimeoutError,
+    TypeError,
+)
+
+
 class TradeRequest(BaseModel):
     symbol: str
     action: str  # BUY or SELL
     quantity: int
     price: Optional[float] = None  # If None, use current market price
+
 
 @router.get("/portfolio", summary="获取投资组合状态")
 async def get_portfolio():
@@ -26,8 +40,11 @@ async def get_portfolio():
             "success": True,
             "data": resolve_trade_portfolio()
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except TRADING_OPERATION_EXCEPTIONS as e:
+        raise AppException(
+            message=str(e),
+            error_code="TRADE_PORTFOLIO_FAILED",
+        ) from e
 
 @router.post("/execute", summary="执行交易")
 async def execute_trade(trade_request: TradeRequest):
@@ -65,10 +82,15 @@ async def execute_trade(trade_request: TradeRequest):
         })
 
         return {"success": True, "data": trade_result}
+    except HTTPException:
+        raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except TRADING_OPERATION_EXCEPTIONS as e:
+        raise AppException(
+            message=str(e),
+            error_code="TRADE_EXECUTION_FAILED",
+        ) from e
 
 @router.get("/history", summary="获取交易历史")
 async def get_trade_history(limit: int = 50):
@@ -78,8 +100,11 @@ async def get_trade_history(limit: int = 50):
             "success": True,
             "data": trade_manager.get_history(limit)
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except (ValueError, *TRADING_OPERATION_EXCEPTIONS) as e:
+        raise AppException(
+            message=str(e),
+            error_code="TRADE_HISTORY_FAILED",
+        ) from e
 
 @router.post("/reset", summary="重置账户")
 async def reset_account():
@@ -94,5 +119,8 @@ async def reset_account():
             },
         })
         return {"success": True, "message": "账户已重置"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except (ValueError, *TRADING_OPERATION_EXCEPTIONS) as e:
+        raise AppException(
+            message=str(e),
+            error_code="TRADE_RESET_FAILED",
+        ) from e
