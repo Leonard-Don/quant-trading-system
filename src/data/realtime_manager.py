@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
-from ..core.base import BaseComponent
+from ..core.base import BaseComponent, ComponentConfig
 from ..utils.cache import cache_manager
 from .data_manager import DataManager, get_shared_data_manager
 from .providers.base_provider import BaseDataProvider
@@ -91,7 +91,7 @@ class RealTimeDataManager(BaseComponent):
         max_global_history: int = 100_000,
         data_manager: Optional[DataManager] = None,
     ):
-        super().__init__({})
+        super().__init__(ComponentConfig(name="real_time_data_manager"))
         self.update_interval = update_interval
         self.max_history = max_history
         self.max_global_history = max_global_history
@@ -310,8 +310,8 @@ class RealTimeDataManager(BaseComponent):
         change_percent = self._to_float(
             payload.get("change_percent", payload.get("percent_change"))
         )
-        if change_percent is None:
-            change_percent = (change / previous_close * 100) if change is not None and previous_close not in (None, 0) else None
+        if change_percent is None and change is not None and previous_close is not None and previous_close != 0:
+            change_percent = change / previous_close * 100
 
         return RealTimeQuote(
             symbol=symbol,
@@ -451,7 +451,7 @@ class RealTimeDataManager(BaseComponent):
 
         change = None
         change_percent = None
-        if previous_close not in (None, 0):
+        if previous_close is not None and previous_close != 0:
             change = latest_close - previous_close
             change_percent = (change / previous_close) * 100
 
@@ -510,8 +510,10 @@ class RealTimeDataManager(BaseComponent):
                 logger.warning("Historical fallback failed for %s: %s", symbol, exc)
                 return symbol, None
 
+        fetch_executor = self.fetch_executor
+        assert fetch_executor is not None
         futures = {
-            self.fetch_executor.submit(fetch_single_symbol, symbol): symbol
+            fetch_executor.submit(fetch_single_symbol, symbol): symbol
             for symbol in normalized_symbols
         }
         done, not_done = wait(
@@ -688,8 +690,10 @@ class RealTimeDataManager(BaseComponent):
         self._ensure_executors()
         timeout_seconds = self._get_provider_fetch_timeout_seconds(symbols)
         uses_batch_api = type(provider).get_multiple_quotes is not BaseDataProvider.get_multiple_quotes
+        fetch_executor = self.fetch_executor
+        assert fetch_executor is not None
         if uses_batch_api:
-            future = self.fetch_executor.submit(provider.get_multiple_quotes, symbols)
+            future = fetch_executor.submit(provider.get_multiple_quotes, symbols)
             try:
                 return future.result(timeout=timeout_seconds)
             except FutureTimeoutError as exc:
@@ -700,7 +704,7 @@ class RealTimeDataManager(BaseComponent):
 
         results: Dict[str, Dict[str, Any]] = {}
         futures = {
-            self.fetch_executor.submit(provider.get_latest_quote, symbol): symbol for symbol in symbols
+            fetch_executor.submit(provider.get_latest_quote, symbol): symbol for symbol in symbols
         }
         done, not_done = wait(futures, timeout=timeout_seconds)
 
@@ -841,7 +845,13 @@ class RealTimeDataManager(BaseComponent):
             provider_payloads = self._fetch_provider_quotes(symbols_to_fetch)
             for symbol in symbols_to_fetch:
                 payload = provider_payloads.get(symbol)
-                quote = self._build_quote(symbol, payload, default_source=payload.get("source") if payload else None)
+                if payload is None:
+                    continue
+                quote = self._build_quote(
+                    symbol,
+                    payload,
+                    default_source=payload.get("source"),
+                )
                 if quote:
                     quotes[symbol] = quote
                     self._store_quote(quote)
@@ -1002,7 +1012,9 @@ class RealTimeDataManager(BaseComponent):
             try:
                 start_time = time.time()
                 loop = asyncio.get_running_loop()
-                await loop.run_in_executor(self.update_executor, self._update_quotes)
+                update_executor = self.update_executor
+                assert update_executor is not None
+                await loop.run_in_executor(update_executor, self._update_quotes)
                 update_time = time.time() - start_time
                 self.logger.debug("Realtime update duration_ms=%s", round(update_time * 1000, 2))
                 await asyncio.sleep(self.update_interval)
@@ -1021,7 +1033,7 @@ class RealTimeDataManager(BaseComponent):
             latest_quotes: List[RealTimeQuote] = []
             tracked_symbols = sorted(set(self.subscribed_symbols) | set(self.quote_history.keys()))
             total_quotes = sum(len(history) for history in self.quote_history.values())
-            summary = {
+            summary: Dict[str, Any] = {
                 "subscribed_symbols": len(self.subscribed_symbols),
                 "total_quotes": total_quotes,
                 "max_global_history": self.max_global_history,
@@ -1063,8 +1075,8 @@ class RealTimeDataManager(BaseComponent):
                 )
 
             total_active = len(latest_quotes)
-            field_coverage = []
-            missing_by_symbol = []
+            field_coverage: List[Dict[str, Any]] = []
+            missing_by_symbol: List[Dict[str, Any]] = []
             for field_name in QUOTE_QUALITY_FIELDS:
                 present_count = sum(
                     1

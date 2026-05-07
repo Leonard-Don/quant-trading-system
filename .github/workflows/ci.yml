@@ -79,6 +79,7 @@ jobs:
             src/backtest/position_sizer.py \
             src/backtest/risk_manager.py \
             src/backtest/signal_adapter.py \
+            src/data/realtime_manager.py \
             src/trading/__init__.py \
             src/trading/trade_manager.py \
             src/trading/cross_market/__init__.py \
