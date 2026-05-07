@@ -46,7 +46,7 @@ class DataProviderFactory:
         "us_stock": USStockProvider,
     }
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None):
         """
         初始化数据提供器工厂
 
@@ -110,7 +110,7 @@ class DataProviderFactory:
             else:
                 logger.warning(f"Unknown provider: {name}")
 
-    def get_provider(self, name: str = None) -> BaseDataProvider:
+    def get_provider(self, name: Optional[str] = None) -> BaseDataProvider:
         """
         获取指定的数据提供器
 
@@ -138,7 +138,7 @@ class DataProviderFactory:
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         interval: str = "1d",
-        provider: str = None,
+        provider: Optional[str] = None,
     ) -> pd.DataFrame:
         """
         获取历史数据（带故障转移）
@@ -203,7 +203,7 @@ class DataProviderFactory:
         logger.error(f"All cross-market providers failed for {symbol} ({asset_class}): {errors}")
         return pd.DataFrame(), ""
 
-    def get_latest_quote(self, symbol: str, provider: str = None) -> Dict[str, Any]:
+    def get_latest_quote(self, symbol: str, provider: Optional[str] = None) -> Dict[str, Any]:
         """
         获取最新报价（带故障转移）
         """
@@ -223,7 +223,7 @@ class DataProviderFactory:
 
         return {"symbol": symbol, "error": "All providers failed"}
 
-    def get_fundamental_data(self, symbol: str, provider: str = None) -> Dict[str, Any]:
+    def get_fundamental_data(self, symbol: str, provider: Optional[str] = None) -> Dict[str, Any]:
         """
         获取基本面数据（带故障转移）
         """
@@ -284,7 +284,7 @@ class DataProviderFactory:
 _default_factory: Optional[DataProviderFactory] = None
 
 
-def get_data_factory(config: Dict[str, Any] = None) -> DataProviderFactory:
+def get_data_factory(config: Optional[Dict[str, Any]] = None) -> DataProviderFactory:
     """
     获取数据提供器工厂（单例模式）
 
