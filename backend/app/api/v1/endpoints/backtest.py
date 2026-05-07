@@ -59,6 +59,8 @@ _ASYNC_BACKTEST_QUEUE_ERRORS = (
     TimeoutError,
     ValueError,
 )
+_BACKTEST_HISTORY_ERRORS = (AppException, OSError, RuntimeError, TypeError, ValueError)
+_BACKTEST_REPORT_ERRORS = _BACKTEST_HISTORY_ERRORS
 
 
 def _sync_backtest_runtime_state() -> None:
@@ -883,7 +885,7 @@ async def get_backtest_history(
                 "offset": offset,
             }
         )
-    except Exception as e:
+    except _BACKTEST_HISTORY_ERRORS as e:
         logger.error(f"Error fetching backtest history: {e}")
         return {"success": False, "error": str(e)}
 
@@ -898,7 +900,7 @@ async def get_backtest_stats(
             symbol=symbol, strategy=strategy, record_type=record_type
         )
         return ensure_json_serializable({"success": True, "data": stats})
-    except Exception as e:
+    except _BACKTEST_HISTORY_ERRORS as e:
         logger.error(f"Error fetching backtest stats: {e}")
         return {"success": False, "error": str(e)}
 
@@ -945,7 +947,7 @@ async def save_advanced_history_record(request: AdvancedHistorySaveRequest):
                 },
             }
         )
-    except Exception as e:
+    except _BACKTEST_HISTORY_ERRORS as e:
         logger.error(f"Error saving advanced history record: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
 
@@ -1016,7 +1018,7 @@ async def generate_report(request: ReportRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except _BACKTEST_REPORT_ERRORS as e:
         logger.error(f"Error generating report: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1042,6 +1044,6 @@ async def generate_report_base64(request: ReportRequest):
 
     except HTTPException:
         raise
-    except Exception as e:
+    except _BACKTEST_REPORT_ERRORS as e:
         logger.error(f"Error generating report: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
