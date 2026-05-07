@@ -239,6 +239,8 @@ async def run_batch_backtest(request: BatchBacktestRequest):
         )
     except asyncio.TimeoutError as exc:
         raise HTTPException(status_code=504, detail="Batch backtest timed out") from exc
+    except HTTPException:
+        raise
     # Policy P2 (legacy envelope) — see docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md
     except Exception as e:
         logger.error(f"Error running batch backtest: {e}", exc_info=True)

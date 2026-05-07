@@ -100,6 +100,25 @@ def test_async_backtest_queue_endpoints_do_not_swallow_programmer_errors(
         asyncio.run(endpoint(_request_for(endpoint_name)))
 
 
+def _batch_request():
+    return backtest.BatchBacktestRequest(
+        tasks=[{"symbol": "AAPL", "strategy": "buy_and_hold"}]
+    )
+
+
+def test_run_batch_backtest_reraises_http_exception(monkeypatch):
+    def raise_http_exception(*args, **kwargs):
+        raise HTTPException(status_code=418, detail="batch backtester unavailable")
+
+    monkeypatch.setattr(backtest, "_build_batch_backtester", raise_http_exception)
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(backtest.run_batch_backtest(_batch_request()))
+
+    assert exc_info.value.status_code == 418
+    assert exc_info.value.detail == "batch backtester unavailable"
+
+
 def _advanced_history_request():
     return backtest.AdvancedHistorySaveRequest(
         record_type="batch_backtest",
