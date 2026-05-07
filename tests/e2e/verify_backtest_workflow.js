@@ -2,6 +2,10 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 const { partitionConsoleMessages } = require('./consoleNoise');
+const {
+  assertMainLayoutClearOfSidebar,
+  assertOverlayLayoutUsesFullViewport,
+} = require('./layoutAssertions');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 const ARTIFACT_DIR = path.join(PROJECT_ROOT, 'output', 'playwright');
@@ -196,6 +200,8 @@ const readLocalStorageJson = async (page, key, fallback = null) => page.evaluate
   console.log('正在访问主回测工作台...');
   await page.goto(`${APP_URL}/?view=backtest`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await waitForBacktestWorkspace(page);
+  await assertMainLayoutClearOfSidebar(page, 'backtest workspace');
+  await assertOverlayLayoutUsesFullViewport(page, 'backtest workspace');
   await page.getByText('信号执行延迟 (K线)', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('市场冲击 (bp)', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('市场冲击模型', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });

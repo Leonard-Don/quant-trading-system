@@ -4922,12 +4922,130 @@ a {
 /* 内容区域留出侧边栏空间 */
 .app-main-shell>.app-main-body {
   margin-left: var(--app-sider-width);
+  width: calc(100% - var(--app-sider-width));
+  min-width: 0;
   transition: margin-left 0.2s;
 }
 
 /* 侧边栏折叠时调整 */
 .app-main-shell>.app-main-sider.ant-layout-sider-collapsed~.app-main-body {
   margin-left: 0;
+  width: 100%;
+}
+
+/* 实时行情卡片：防止 Source/标签/指标在窄列中横向溢出。 */
+.realtime-quote-card__surface {
+  min-width: 0;
+}
+
+.realtime-quote-card__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(96px, auto);
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+}
+
+.realtime-quote-card__tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.realtime-quote-card__source {
+  justify-self: end;
+  max-width: 150px;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.realtime-quote-card__source-label {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.realtime-quote-card__source-value {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.realtime-quote-card__source-detail {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.realtime-quote-card__price-row,
+.realtime-quote-card__footer {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.realtime-quote-card__footer {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.realtime-quote-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.realtime-quote-card__metric {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.realtime-quote-card__metric span {
+  display: block;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.realtime-quote-card__metric strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.realtime-quote-card__sparkline {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+@media (max-width: 1180px) {
+  .realtime-quote-card__header {
+    grid-template-columns: 1fr;
+  }
+
+  .realtime-quote-card__source {
+    justify-self: start;
+    max-width: 100%;
+    text-align: left;
+  }
+
+  .realtime-quote-card__metrics {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ===== 4. 统计卡片内边距增强 ===== */
@@ -5437,6 +5555,7 @@ a {
 
   .app-main-shell>.app-main-body {
     margin-left: 0;
+    width: 100%;
   }
 
   /* 统计数值缩小 */
