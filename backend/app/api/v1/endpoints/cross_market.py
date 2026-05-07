@@ -7,6 +7,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
 
+from backend.app.core.error_handler import AppException
 from backend.app.schemas.cross_market import (
     CrossMarketBacktestRequest,
     CrossMarketBacktestResponse,
@@ -281,9 +282,23 @@ async def run_cross_market_backtest(request: CrossMarketBacktestRequest):
         return {"success": True, "data": results, "error": None}
     except HTTPException:
         raise
+    except AppException:
+        raise
     except ValueError as exc:
         logger.warning("Cross-market validation failed: %s", exc)
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
+    except (
+        AttributeError,
+        ConnectionError,
+        ImportError,
+        KeyError,
+        OSError,
+        RuntimeError,
+        TimeoutError,
+        TypeError,
+    ) as exc:
         logger.error("Cross-market backtest failed: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise AppException(
+            message=str(exc),
+            error_code="CROSS_MARKET_BACKTEST_FAILED",
+        ) from exc

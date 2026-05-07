@@ -2,8 +2,9 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
+from backend.app.core.error_handler import AppException
 from backend.app.schemas.base import MarketDataRequest
 from backend.app.services.runtime_state import get_data_manager
 from src.utils.json_utils import clean_data_for_json
@@ -12,6 +13,7 @@ from src.utils.performance import timing_decorator
 router = APIRouter()
 logger = logging.getLogger(__name__)
 data_manager = get_data_manager()
+
 
 @router.post("/", summary="获取市场数据")
 @timing_decorator
@@ -28,19 +30,29 @@ async def get_market_data(request: MarketDataRequest):
             )
         if request.end_date:
             end_date = datetime.fromisoformat(request.end_date.replace("Z", "+00:00"))
+    except ValueError as e:
+        logger.warning("Invalid market data date parameter: %s", e)
+        raise AppException(
+            message=str(e),
+            error_code="MARKET_DATA_INVALID_REQUEST",
+            status_code=400,
+        ) from e
 
+    try:
         # 获取数据
         data = data_manager.get_historical_data(
             symbol=request.symbol,
             start_date=start_date,
             end_date=end_date,
             interval=request.interval,
-            period=request.period
+            period=request.period,
         )
 
         if data.empty:
-            raise HTTPException(
-                status_code=404, detail=f"No data found for symbol {request.symbol}"
+            raise AppException(
+                message=f"No data found for symbol {request.symbol}",
+                error_code="MARKET_DATA_NOT_FOUND",
+                status_code=404,
             )
 
         # 处理NaN值并转换为JSON格式
@@ -52,6 +64,20 @@ async def get_market_data(request: MarketDataRequest):
 
         return {"success": True, "data": data_dict}
 
-    except Exception as e:
+    except AppException:
+        raise
+    except (
+        AttributeError,
+        ConnectionError,
+        KeyError,
+        OSError,
+        RuntimeError,
+        TimeoutError,
+        TypeError,
+        ValueError,
+    ) as e:
         logger.error(f"Error fetching market data: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise AppException(
+            message=str(e),
+            error_code="MARKET_DATA_FETCH_FAILED",
+        ) from e
