@@ -292,6 +292,7 @@ TOC_BLUEPRINT = [
     ("toc 1", "结 论"),
     ("toc 1", "参考文献"),
     ("toc 1", "致 谢"),
+    ("toc 1", "附录材料（另册）"),
 ]
 
 
@@ -2691,7 +2692,8 @@ def write_toc_entry(paragraph, style_name: str, title: str, page: str) -> None:
     paragraph.paragraph_format.space_before = Pt(0)
     paragraph.paragraph_format.space_after = Pt(0)
     paragraph.paragraph_format.line_spacing = ABSTRACT_LINE_SPACING
-    run = paragraph.add_run(f"{title}\t{page}")
+    entry_text = f"{title}\t{page}" if page else title
+    run = paragraph.add_run(entry_text)
     set_run_text_font(run, "宋体", Pt(12), bold=False)
 
 
