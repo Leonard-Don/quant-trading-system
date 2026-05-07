@@ -1,12 +1,22 @@
-from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
-import pytest
 import threading
 from unittest.mock import MagicMock
 
-from backend.app.api.v1.endpoints import industry as industry_endpoint
-from backend.app.schemas.industry import IndustryBootstrapResponse, LeaderBoardsResponse, LeaderStockResponse
 import pandas as pd
+import pytest
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+
+from backend.app.api.v1.endpoints import industry as industry_endpoint
+from backend.app.api.v1.endpoints.industry import (
+    heatmap as heatmap_endpoint,
+    leaders as leaders_endpoint,
+)
+from backend.app.core.error_handler import register_exception_handlers
+from backend.app.schemas.industry import (
+    IndustryBootstrapResponse,
+    LeaderBoardsResponse,
+    LeaderStockResponse,
+)
 
 
 class _FakeProvider:
@@ -126,6 +136,13 @@ class _CountingAnalyzer(_FakeAnalyzer):
 class _CountingStockAnalyzer(_FakeAnalyzer):
     def __init__(self):
         self.provider = _CountingStockProvider()
+
+
+def _client_for_industry_with_error_handlers() -> TestClient:
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.include_router(industry_endpoint.router, prefix="/industry")
+    return TestClient(app)
 
 
 class _SnapshotWarmupAkshareProvider(_FakeProvider):
@@ -572,7 +589,7 @@ def test_compute_hot_leader_stocks_backfills_from_provider_before_full_scorer(mo
             raise AssertionError("full scorer fallback should not run when provider backfill is available")
 
     monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _NoHeavyFallbackScorer())
-    monkeypatch.setattr(industry_endpoint, "_build_leading_stock_symbol_lookup", lambda: {})
+    monkeypatch.setattr(industry_endpoint, "_build_leading_stock_symbol_lookup", dict)
     monkeypatch.setattr(industry_endpoint, "_resolve_symbol_with_provider", lambda symbol: symbol)
 
     leaders = industry_endpoint._compute_hot_leader_stocks(
@@ -611,7 +628,7 @@ def test_compute_hot_leader_stocks_prefers_lightweight_money_flow_loader(monkeyp
     )
 
     monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _FakeScorer())
-    monkeypatch.setattr(industry_endpoint, "_build_leading_stock_symbol_lookup", lambda: {})
+    monkeypatch.setattr(industry_endpoint, "_build_leading_stock_symbol_lookup", dict)
     monkeypatch.setattr(industry_endpoint, "_resolve_symbol_with_provider", lambda symbol: symbol)
 
     leaders = industry_endpoint._compute_hot_leader_stocks(
@@ -739,6 +756,140 @@ def test_heatmap_endpoint_returns_history_snapshot_before_live_fetch(monkeypatch
     payload = response.json()
     assert payload["industries"][0]["name"] == "测试行业"
     assert scheduled == [1]
+
+
+def test_heatmap_live_failure_uses_history_fallback_when_available(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+
+    heatmap_payload = _FakeAnalyzer().get_industry_heatmap_data(days=1)
+    fallback = industry_endpoint.HeatmapResponse(
+        industries=heatmap_payload["industries"],
+        max_value=heatmap_payload["max_value"],
+        min_value=heatmap_payload["min_value"],
+        update_time=heatmap_payload["update_time"],
+    )
+    history_attempts = []
+    scheduled = []
+
+    def _history_after_live_failure(days):
+        history_attempts.append(days)
+        return fallback if len(history_attempts) > 1 else None
+
+    monkeypatch.setattr(
+        heatmap_endpoint,
+        "_build_heatmap_response_from_history",
+        _history_after_live_failure,
+    )
+    monkeypatch.setattr(
+        heatmap_endpoint,
+        "_load_live_heatmap_response",
+        lambda days: (_ for _ in ()).throw(RuntimeError("live provider unavailable")),
+    )
+    monkeypatch.setattr(
+        heatmap_endpoint,
+        "_schedule_heatmap_refresh",
+        lambda days: scheduled.append(days),
+    )
+
+    app = FastAPI()
+    app.include_router(industry_endpoint.router, prefix="/industry")
+    client = TestClient(app)
+
+    response = client.get("/industry/industries/heatmap", params={"days": 1})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["industries"][0]["name"] == "测试行业"
+    assert history_attempts == [1, 1]
+    assert scheduled == [1]
+
+
+def test_heatmap_live_failure_uses_stale_cache_before_history(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+
+    heatmap_payload = _FakeAnalyzer().get_industry_heatmap_data(days=1)
+    stale = industry_endpoint.HeatmapResponse(
+        industries=heatmap_payload["industries"],
+        max_value=heatmap_payload["max_value"],
+        min_value=heatmap_payload["min_value"],
+        update_time=heatmap_payload["update_time"],
+    )
+    industry_endpoint._endpoint_cache["heatmap:v2:1"] = {"data": stale, "ts": 0}
+    history_attempts = []
+
+    monkeypatch.setattr(
+        heatmap_endpoint,
+        "_build_heatmap_response_from_history",
+        lambda days: history_attempts.append(days) or None,
+    )
+    monkeypatch.setattr(
+        heatmap_endpoint,
+        "_load_live_heatmap_response",
+        lambda days: (_ for _ in ()).throw(RuntimeError("live provider unavailable")),
+    )
+
+    app = FastAPI()
+    app.include_router(industry_endpoint.router, prefix="/industry")
+    client = TestClient(app)
+
+    response = client.get("/industry/industries/heatmap", params={"days": 1})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["industries"][0]["name"] == "测试行业"
+    assert history_attempts == [1]
+
+
+def test_heatmap_true_failure_uses_structured_app_exception(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+
+    monkeypatch.setattr(
+        heatmap_endpoint,
+        "_build_heatmap_response_from_history",
+        lambda days: None,
+    )
+    monkeypatch.setattr(
+        heatmap_endpoint,
+        "_load_live_heatmap_response",
+        lambda days: (_ for _ in ()).throw(RuntimeError("live provider unavailable")),
+    )
+
+    client = _client_for_industry_with_error_handlers()
+
+    response = client.get("/industry/industries/heatmap", params={"days": 1})
+
+    assert response.status_code == 500
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["error"]["code"] == "INDUSTRY_HEATMAP_FAILED"
+    assert payload["error"]["message"] == "live provider unavailable"
+
+
+def test_industry_bootstrap_true_failure_uses_structured_app_exception(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+
+    class _FailingHeatmapAnalyzer(_FakeAnalyzer):
+        def get_industry_heatmap_data(self, days=5):
+            raise RuntimeError("bootstrap heatmap unavailable")
+
+    monkeypatch.setattr(
+        heatmap_endpoint,
+        "get_industry_analyzer",
+        lambda: _FailingHeatmapAnalyzer(),
+    )
+
+    client = _client_for_industry_with_error_handlers()
+
+    response = client.get(
+        "/industry/bootstrap",
+        params={"days": 5, "ranking_top_n": 20, "leader_top_n": 3, "top_industries": 1, "per_industry": 3},
+    )
+
+    assert response.status_code == 500
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["error"]["code"] == "INDUSTRY_BOOTSTRAP_FAILED"
+    assert payload["error"]["message"] == "bootstrap heatmap unavailable"
 
 
 def test_industry_bootstrap_schedules_leader_warmup_when_overview_missing(monkeypatch):
@@ -952,8 +1103,8 @@ def test_leader_detail_uses_parity_name_match_as_degraded_fallback(monkeypatch):
     industry_endpoint._endpoint_cache.clear()
     industry_endpoint._parity_cache.clear()
 
-    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _TransientLeaderDetailScorer())
-    monkeypatch.setattr(industry_endpoint, "_resolve_symbol_with_provider", lambda symbol: symbol)
+    monkeypatch.setattr(leaders_endpoint, "get_leader_scorer", lambda: _TransientLeaderDetailScorer())
+    monkeypatch.setattr(leaders_endpoint, "_resolve_symbol_with_provider", lambda symbol: symbol)
 
     industry_endpoint._set_parity_cache(
         "601963",
@@ -1041,13 +1192,52 @@ def test_leader_detail_returns_502_for_transient_upstream_error_without_parity(m
     industry_endpoint._endpoint_cache.clear()
     industry_endpoint._parity_cache.clear()
 
-    monkeypatch.setattr(industry_endpoint, "get_leader_scorer", lambda: _TransientLeaderDetailScorer())
-    monkeypatch.setattr(industry_endpoint, "_resolve_symbol_with_provider", lambda symbol: symbol)
+    monkeypatch.setattr(leaders_endpoint, "get_leader_scorer", lambda: _TransientLeaderDetailScorer())
+    monkeypatch.setattr(leaders_endpoint, "_resolve_symbol_with_provider", lambda symbol: symbol)
 
     with pytest.raises(HTTPException) as excinfo:
         industry_endpoint.get_leader_detail("重庆银行", score_type="hot")
 
     assert excinfo.value.status_code == 502
+
+
+def test_leader_detail_http_exception_detail_path_remains_unchanged(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    monkeypatch.setattr(leaders_endpoint, "get_leader_scorer", lambda: _TransientLeaderDetailScorer())
+    monkeypatch.setattr(leaders_endpoint, "_resolve_symbol_with_provider", lambda symbol: symbol)
+
+    with pytest.raises(HTTPException) as excinfo:
+        industry_endpoint.get_leader_detail("重庆银行", score_type="hot")
+
+    assert excinfo.value.status_code == 502
+    assert excinfo.value.detail == "Remote end closed connection without response"
+
+
+def test_leader_detail_true_failure_uses_structured_app_exception(monkeypatch):
+    industry_endpoint._endpoint_cache.clear()
+    industry_endpoint._parity_cache.clear()
+
+    class _FailingLeaderScorer:
+        def get_leader_detail(self, symbol, score_type="core"):
+            raise RuntimeError("leader scorer unavailable")
+
+    monkeypatch.setattr(
+        leaders_endpoint,
+        "get_leader_scorer",
+        lambda: _FailingLeaderScorer(),
+    )
+
+    client = _client_for_industry_with_error_handlers()
+
+    response = client.get("/industry/leaders/000001/detail", params={"score_type": "hot"})
+
+    assert response.status_code == 500
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["error"]["code"] == "INDUSTRY_LEADER_DETAIL_FAILED"
+    assert payload["error"]["message"] == "leader scorer unavailable"
 
 
 class _SparseIndustryScorer:

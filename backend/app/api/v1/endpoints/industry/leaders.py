@@ -7,6 +7,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import ValidationError as PydanticValidationError
 
 from backend.app.api.v1.endpoints.industry._compat import (
     SIX_DIGIT_SYMBOL_PATTERN,
@@ -24,6 +25,7 @@ from backend.app.api.v1.endpoints.industry._compat import (
     _set_endpoint_cache,
     get_leader_scorer,
 )
+from backend.app.core.error_handler import AppException
 from backend.app.schemas.industry import (
     LeaderBoardsResponse,
     LeaderDetailResponse,
@@ -36,6 +38,17 @@ from src.analytics.industry_stock_details import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_INDUSTRY_ENDPOINT_ERRORS = (
+    ConnectionError,
+    KeyError,
+    OSError,
+    PydanticValidationError,
+    RuntimeError,
+    TimeoutError,
+    TypeError,
+    ValueError,
+)
 
 
 @router.get("/leaders", response_model=list[LeaderStockResponse])
@@ -210,6 +223,12 @@ def get_leader_detail(
         return result
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error getting leader detail: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    except AppException:
+        raise
+    except _INDUSTRY_ENDPOINT_ERRORS as exc:
+        logger.error("Error getting leader detail: %s", exc)
+        raise AppException(
+            message=str(exc),
+            error_code="INDUSTRY_LEADER_DETAIL_FAILED",
+            status_code=500,
+        ) from exc
