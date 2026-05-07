@@ -2,14 +2,31 @@ import logging
 from datetime import datetime, timedelta
 
 import yfinance as yf
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import BaseModel
+
+from backend.app.core.error_handler import AppException
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
+YFINANCE_DATA_EXCEPTIONS = (
+    AttributeError,
+    ConnectionError,
+    IndexError,
+    KeyError,
+    OSError,
+    RuntimeError,
+    TimeoutError,
+    TypeError,
+    ValueError,
+)
+
+
 class EventRequest(BaseModel):
     symbol: str
+
 
 @router.post("/summary", summary="获取股票相关事件")
 async def get_events_summary(request: EventRequest):
@@ -39,7 +56,7 @@ async def get_events_summary(request: EventRequest):
 
                 if earnings_avg is not None:
                     calendar['estimate_avg'] = float(earnings_avg) if hasattr(earnings_avg, '__float__') else str(earnings_avg)
-        except Exception as e:
+        except YFINANCE_DATA_EXCEPTIONS as e:
             logger.warning(f"获取财报日历失败: {e}")
 
         # 2. 获取分红信息
@@ -57,7 +74,7 @@ async def get_events_summary(request: EventRequest):
                 next_div_date = last_div_date + timedelta(days=90)
                 if next_div_date > datetime.now():
                     dividends['next_date_estimated'] = next_div_date.strftime('%Y-%m-%d')
-        except Exception as e:
+        except YFINANCE_DATA_EXCEPTIONS as e:
              logger.warning(f"获取分红信息失败: {e}")
 
         # 3. 获取新闻
@@ -74,7 +91,7 @@ async def get_events_summary(request: EventRequest):
                         "providerPublishTime": n.get('providerPublishTime'),
                         "type": n.get('type')
                     })
-        except Exception as e:
+        except YFINANCE_DATA_EXCEPTIONS as e:
              logger.warning(f"获取新闻失败: {e}")
 
         return {
@@ -84,6 +101,9 @@ async def get_events_summary(request: EventRequest):
             "news": news
         }
 
-    except Exception as e:
+    except YFINANCE_DATA_EXCEPTIONS as e:
         logger.error(f"Error getting events summary: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise AppException(
+            message=str(e),
+            error_code="EVENTS_SUMMARY_FAILED",
+        ) from e
