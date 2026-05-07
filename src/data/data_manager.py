@@ -36,10 +36,10 @@ class DataManager:
     """
 
     def __init__(
-        self, 
+        self,
         cache_size: int = 100,
-        data_source_config: Dict[str, Any] = None,
-        use_provider_factory: bool = True
+        data_source_config: Optional[Dict[str, Any]] = None,
+        use_provider_factory: bool = True,
     ):
         # 使用统一的CacheManager，仅内存模式 (因为DataFrame不适合JSON序列化)
         self.cache = CacheManager(
@@ -55,8 +55,9 @@ class DataManager:
         
         # 多数据源支持
         self.use_provider_factory = use_provider_factory
+        self.provider_factory: Optional[DataProviderFactory]
         if use_provider_factory:
-            self.provider_factory = DataProviderFactory(data_source_config)
+            self.provider_factory = DataProviderFactory(data_source_config or {})
             logger.info(f"DataManager initialized with providers: {list(self.provider_factory.providers.keys())}")
         else:
             self.provider_factory = None
