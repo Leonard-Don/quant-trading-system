@@ -8,6 +8,7 @@ import logging
 from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import ValidationError as PydanticValidationError
 
 from backend.app.api.v1.endpoints.industry._compat import (
     _append_heatmap_history,
@@ -26,6 +27,7 @@ from backend.app.api.v1.endpoints.industry._compat import (
     _set_endpoint_cache,
     get_industry_analyzer,
 )
+from backend.app.core.error_handler import AppException
 from backend.app.schemas.industry import (
     HeatmapDataItem,
     HeatmapHistoryItem,
@@ -39,6 +41,31 @@ from backend.app.schemas.industry import (
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+_INDUSTRY_ENDPOINT_ERRORS = (
+    ConnectionError,
+    KeyError,
+    OSError,
+    PydanticValidationError,
+    RuntimeError,
+    TimeoutError,
+    TypeError,
+    ValueError,
+)
+_INDUSTRY_WARMUP_ERRORS = (AppException, *_INDUSTRY_ENDPOINT_ERRORS)
+
+
+def _get_heatmap_fallback_response(cache_key: str, days: int) -> Optional[HeatmapResponse]:
+    stale = _get_stale_endpoint_cache(cache_key)
+    if stale is not None:
+        logger.warning("Using stale cache for heatmap: %s", cache_key)
+        return stale
+    history_result = _build_heatmap_response_from_history(days)
+    if history_result is not None:
+        logger.warning("Using heatmap history snapshot for %s", cache_key)
+        _schedule_heatmap_refresh(days)
+        return history_result
+    return None
+
 
 @router.get("/industries/heatmap", response_model=HeatmapResponse)
 def get_industry_heatmap(
@@ -49,9 +76,9 @@ def get_industry_heatmap(
 
     返回所有行业的涨跌幅和市值数据，用于渲染热力图可视化。
     """
+    cache_key = f"heatmap:v2:{days}"
     try:
         # 端点级缓存
-        cache_key = f"heatmap:v2:{days}"
         cached = _get_endpoint_cache(cache_key)
         if cached is not None:
             return cached
@@ -64,18 +91,21 @@ def get_industry_heatmap(
         return _load_live_heatmap_response(days)
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"Error getting industry heatmap: {e}")
-        stale = _get_stale_endpoint_cache(cache_key)
-        if stale is not None:
-            logger.warning(f"Using stale cache for heatmap: {cache_key}")
-            return stale
-        history_result = _build_heatmap_response_from_history(days)
-        if history_result is not None:
-            logger.warning(f"Using heatmap history snapshot for {cache_key}")
-            _schedule_heatmap_refresh(days)
-            return history_result
-        raise HTTPException(status_code=500, detail=str(e))
+    except AppException:
+        fallback = _get_heatmap_fallback_response(cache_key, days)
+        if fallback is not None:
+            return fallback
+        raise
+    except _INDUSTRY_ENDPOINT_ERRORS as exc:
+        logger.error("Error getting industry heatmap: %s", exc)
+        fallback = _get_heatmap_fallback_response(cache_key, days)
+        if fallback is not None:
+            return fallback
+        raise AppException(
+            message=str(exc),
+            error_code="INDUSTRY_HEATMAP_FAILED",
+            status_code=500,
+        ) from exc
 
 
 @router.get("/industries/heatmap/history", response_model=HeatmapHistoryResponse)
@@ -152,7 +182,7 @@ def get_industry_bootstrap(
             hot_industries = _build_hot_industry_rank_responses(
                 analyzer, ranking_rows[:ranking_top_n]
             )
-        except Exception as exc:
+        except _INDUSTRY_WARMUP_ERRORS as exc:
             logger.warning("Industry bootstrap ranking warmup failed: %s", exc)
             errors["ranking"] = "行业排行榜预热失败"
 
@@ -178,7 +208,7 @@ def get_industry_bootstrap(
                 errors.update(
                     {f"leaders_{key}": value for key, value in leader_payload.errors.items()}
                 )
-        except Exception as exc:
+        except _INDUSTRY_WARMUP_ERRORS as exc:
             logger.warning("Industry bootstrap leader warmup failed: %s", exc)
             errors["leaders"] = "龙头股榜单预热失败"
 
@@ -204,10 +234,20 @@ def get_industry_bootstrap(
         )
     except HTTPException:
         raise
-    except Exception as exc:
+    except AppException:
+        stale = _get_stale_endpoint_cache(cache_key)
+        if stale is not None:
+            logger.warning("Using stale cache for industry bootstrap: %s", cache_key)
+            return stale
+        raise
+    except _INDUSTRY_ENDPOINT_ERRORS as exc:
         logger.error("Error building industry bootstrap payload: %s", exc)
         stale = _get_stale_endpoint_cache(cache_key)
         if stale is not None:
             logger.warning("Using stale cache for industry bootstrap: %s", cache_key)
             return stale
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise AppException(
+            message=str(exc),
+            error_code="INDUSTRY_BOOTSTRAP_FAILED",
+            status_code=500,
+        ) from exc
