@@ -196,6 +196,7 @@ class PaperTradingStore:
         profile_id: str | None = None,
     ) -> dict[str, Any]:
         order_type = str(order_request.get("order_type") or "MARKET").upper()
+        canceled_orders: list[dict[str, Any]] = []
         with self._lock:
             account = self._load(profile_id)
             if order_type == "LIMIT":
@@ -205,6 +206,7 @@ class PaperTradingStore:
                 return {
                     "order": order,
                     "account": self._public_view(profile_id, account),
+                    "canceled": canceled_orders,
                 }
             # MARKET — default behavior, fills immediately
             order = self._apply_order(account, order_request)
@@ -212,8 +214,30 @@ class PaperTradingStore:
                 order["side"] == "SELL"
                 and order["symbol"] not in (account.get("positions") or {})
             ):
+                prior_pending = list(account.get("pending_orders") or [])
+                # Record each pruned stale SELL exit so the manual close is
+                # observable to audit consumers, mirroring the SL/TP audit
+                # shape — the manual SELL closed the position, the pending
+                # exits could no longer be backed by shares, and a silent
+                # drop would hide that causal link.
+                canceled_at = _utc_now()
+                for pending_order in prior_pending:
+                    if (
+                        _normalize_symbol(pending_order.get("symbol", ""))
+                        == order["symbol"]
+                        and str(pending_order.get("side") or "").upper() == "SELL"
+                    ):
+                        canceled_orders.append(
+                            {
+                                "pending_order_id": pending_order.get("id"),
+                                "symbol": order["symbol"],
+                                "side": "SELL",
+                                "reason": "manual_sell",
+                                "canceled_at": canceled_at,
+                            }
+                        )
                 account["pending_orders"] = _without_pending_sell_exits(
-                    list(account.get("pending_orders") or []), order["symbol"]
+                    prior_pending, order["symbol"]
                 )
             account["updated_at"] = _utc_now()
             account["orders"] = (account.get("orders") or [])[-MAX_PAPER_ORDERS + 1 :]
@@ -222,6 +246,7 @@ class PaperTradingStore:
             return {
                 "order": order,
                 "account": self._public_view(profile_id, account),
+                "canceled": canceled_orders,
             }
 
     def run_matching(
@@ -256,13 +281,30 @@ class PaperTradingStore:
             history: list[dict[str, Any]] = account.setdefault("orders", [])
             pending: list[dict[str, Any]] = list(account.get("pending_orders") or [])
             remaining_pending: list[dict[str, Any]] = []
-            closed_exit_symbols: set[str] = set()
+            # symbol -> canceled_at iso of the LIMIT cross that closed it.
+            # Stored per-symbol so subsequent stale-exit audits in the same
+            # iteration share the closing event's timestamp.
+            closed_exit_symbols: dict[str, str] = {}
 
             # Step 1: LIMIT auto-fill — process pending orders against quotes.
             for pending_order in pending:
                 symbol = _normalize_symbol(pending_order.get("symbol", ""))
                 side = str(pending_order.get("side") or "").upper()
                 if side == "SELL" and symbol in closed_exit_symbols:
+                    # Stale SELL exit ordered AFTER the closing fill in
+                    # `pending`; the position no longer backs it. Audit
+                    # the implicit cancel under the same shape as Step 2
+                    # SL/TP pruning so the close → cancel chain stays
+                    # observable to consumers.
+                    canceled_orders.append(
+                        {
+                            "pending_order_id": pending_order.get("id"),
+                            "symbol": symbol,
+                            "side": "SELL",
+                            "reason": "limit_cross",
+                            "canceled_at": closed_exit_symbols[symbol],
+                        }
+                    )
                     continue
                 try:
                     limit_price = float(pending_order.get("limit_price") or 0)
@@ -309,7 +351,27 @@ class PaperTradingStore:
                 history.append(order)
                 filled_orders.append(order)
                 if side == "SELL" and symbol not in (account.get("positions") or {}):
-                    closed_exit_symbols.add(symbol)
+                    # Audit any stale pending SELL exits we're about to prune
+                    # under the same shape as the SL/TP path: the LIMIT cross
+                    # closed the position, the remaining pending SELLs can no
+                    # longer be backed by shares, and a silent drop would hide
+                    # that causal link.
+                    canceled_at = _utc_now()
+                    closed_exit_symbols[symbol] = canceled_at
+                    for stale in remaining_pending:
+                        if (
+                            _normalize_symbol(stale.get("symbol", "")) == symbol
+                            and str(stale.get("side") or "").upper() == "SELL"
+                        ):
+                            canceled_orders.append(
+                                {
+                                    "pending_order_id": stale.get("id"),
+                                    "symbol": symbol,
+                                    "side": "SELL",
+                                    "reason": "limit_cross",
+                                    "canceled_at": canceled_at,
+                                }
+                            )
                     remaining_pending = _without_pending_sell_exits(remaining_pending, symbol)
             account["pending_orders"] = remaining_pending
 

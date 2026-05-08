@@ -128,6 +128,76 @@ def test_market_sell_closing_position_prunes_stale_sell_limits(store):
     assert account["pending_orders"] == []
 
 
+def test_market_sell_closing_position_records_canceled_stale_sell_limits(store):
+    """A manual MARKET SELL that fully closes a position must surface the
+    pruned pending SELL LIMITs in a `canceled` audit on the result envelope.
+    Same invariant as the run_matching SL/TP audit (commit 89a2732) — a
+    stale-exit dropped without trace is the bug, regardless of which closing
+    path triggered the prune."""
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 10, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    queued = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    pending_id = queued["account"]["pending_orders"][0]["id"]
+
+    result = store.submit_order(
+        {"symbol": "AAPL", "side": "SELL", "quantity": 10, "fill_price": 102.0},
+        profile_id="alice",
+    )
+    assert result["account"]["positions"] == []
+    assert result["account"]["pending_orders"] == []
+    canceled = result.get("canceled") or []
+    assert (
+        len(canceled) == 1
+    ), f"expected 1 canceled audit entry, got {len(canceled)}; result keys: {sorted(result.keys())}"
+    entry = canceled[0]
+    assert entry["pending_order_id"] == pending_id
+    assert entry["symbol"] == "AAPL"
+    assert entry["side"] == "SELL"
+    # `manual_sell` ties the cancel to the manual MARKET SELL that closed
+    # the position, distinguishing it from `stop_loss` / `take_profit` /
+    # `limit_cross` audits in the same shape.
+    assert entry["reason"] == "manual_sell"
+    assert entry.get("canceled_at"), "canceled entry must record a timestamp"
+
+
+def test_market_sell_partial_close_emits_no_canceled_audit(store):
+    """Baseline shape: a partial sell that doesn't close the position must
+    not spuriously emit canceled entries — pending exits are still backed by
+    remaining shares. Asserts the empty-list shape is stable."""
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 10, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    result = store.submit_order(
+        {"symbol": "AAPL", "side": "SELL", "quantity": 3, "fill_price": 105.0},
+        profile_id="alice",
+    )
+    assert result["account"]["positions"][0]["quantity"] == 7
+    assert len(result["account"]["pending_orders"]) == 1
+    assert result.get("canceled") == []
+
+
 def test_market_sell_partial_close_keeps_pending_sell_limits(store):
     """A SELL that does not fully close the position must NOT prune pending
     SELL LIMITs — remaining shares can still back them."""
@@ -1066,6 +1136,62 @@ def test_run_matching_take_profit_records_canceled_stale_sell_limits(store):
     entry = canceled[0]
     assert entry["pending_order_id"] == pending_id
     assert entry["reason"] == "take_profit"
+
+
+def test_run_matching_sell_limit_close_records_canceled_stale_sell_limits(store):
+    """A SELL LIMIT cross that fully closes a position must record the other
+    stale pending SELL LIMITs (for the same symbol) in `canceled` — same
+    audit shape as the SL/TP path. Without this, the SELL LIMIT close path
+    silently drops stale exits, exactly the bug 89a2732 fixed for triggers."""
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 105,
+        },
+        profile_id="alice",
+    )
+    second = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    stale_id = next(
+        order["id"]
+        for order in second["account"]["pending_orders"]
+        if float(order.get("limit_price", 0)) == 110.0
+    )
+
+    result = store.run_matching({"AAPL": 105.0}, profile_id="alice")
+
+    assert len(result["filled"]) == 1
+    assert result["filled"][0]["fill_price"] == pytest.approx(105.0)
+    assert result["account"]["positions"] == []
+    assert result["account"]["pending_orders"] == []
+    canceled = result.get("canceled") or []
+    assert (
+        len(canceled) == 1
+    ), f"expected 1 canceled audit entry, got {len(canceled)}: {canceled}"
+    entry = canceled[0]
+    assert entry["pending_order_id"] == stale_id
+    assert entry["symbol"] == "AAPL"
+    assert entry["side"] == "SELL"
+    # `limit_cross` mirrors the trigger_reason already attached to the
+    # filling SELL LIMIT order, letting an audit consumer correlate the
+    # closing fill with the cancellation it caused.
+    assert entry["reason"] == "limit_cross"
+    assert entry.get("canceled_at"), "canceled entry must record a timestamp"
 
 
 def test_run_matching_canceled_collection_empty_when_no_pruning_happens(store):
