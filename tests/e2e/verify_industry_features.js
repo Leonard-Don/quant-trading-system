@@ -2,6 +2,13 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 
 const API_BASE_URL = process.env.API_URL || process.env.BACKEND_URL || 'http://127.0.0.1:8000';
+const INDUSTRY_FIXTURE_NOW = '2026-05-07T00:00:00.000Z';
+
+const fulfillJson = (route, payload) => route.fulfill({
+  status: 200,
+  contentType: 'application/json; charset=utf-8',
+  body: JSON.stringify(payload),
+});
 
 const normalizeUrl = (value) => {
   const url = new URL(value);
@@ -88,6 +95,106 @@ const readIndustryPreferences = async (page) => page.evaluate(async (apiBaseUrl)
   }
   return response.json();
 }, API_BASE_URL);
+
+const INDUSTRY_HEATMAP_FIXTURE = {
+  industries: [
+    {
+      name: '半导体',
+      value: 2.4,
+      total_score: 92.5,
+      size: 1_800_000_000_000,
+      stockCount: 3,
+      moneyFlow: 360_000_000,
+      turnoverRate: 1.8,
+      industryVolatility: 2.1,
+      industryVolatilitySource: 'stock_dispersion',
+      netInflowRatio: 1.6,
+      leadingStock: '中芯国际',
+      leadingStockSymbol: '688981',
+      sizeSource: 'estimated',
+      marketCapSource: 'estimated_e2e_fixture',
+      marketCapSnapshotAgeHours: null,
+      marketCapSnapshotIsStale: false,
+      valuationSource: 'unavailable',
+      valuationQuality: 'unavailable',
+      dataSources: ['e2e_fixture'],
+      industryIndex: 1000,
+      totalInflow: 8.2,
+      totalOutflow: 4.6,
+      leadingStockChange: 1.8,
+      leadingStockPrice: 12.34,
+      pe_ttm: 18.5,
+      pb: 2.1,
+      dividend_yield: 1.2,
+    },
+    {
+      name: '消费电子',
+      value: 1.1,
+      total_score: 80.3,
+      size: 900_000_000_000,
+      stockCount: 2,
+      moneyFlow: 90_000_000,
+      turnoverRate: 1.1,
+      industryVolatility: 1.5,
+      industryVolatilitySource: 'stock_dispersion',
+      netInflowRatio: 0.9,
+      leadingStock: '测试电子',
+      sizeSource: 'estimated',
+      marketCapSource: 'estimated_e2e_fixture',
+      marketCapSnapshotAgeHours: null,
+      marketCapSnapshotIsStale: false,
+      valuationSource: 'unavailable',
+      valuationQuality: 'unavailable',
+      dataSources: ['e2e_fixture'],
+      industryIndex: 980,
+      totalInflow: 3.2,
+      totalOutflow: 2.1,
+      leadingStockChange: 1.1,
+      leadingStockPrice: 9.87,
+      pe_ttm: 22.4,
+      pb: 2.8,
+      dividend_yield: 0.8,
+    },
+  ],
+  max_value: 2.4,
+  min_value: 1.1,
+  update_time: INDUSTRY_FIXTURE_NOW,
+};
+
+const installIndustryHeatmapFixture = async (page) => {
+  const bootstrapPayload = {
+    days: 5,
+    ranking_top_n: 50,
+    ranking_type: 'gainers',
+    ranking_sort_by: 'total_score',
+    ranking_order: 'desc',
+    heatmap: INDUSTRY_HEATMAP_FIXTURE,
+    hot_industries: INDUSTRY_HEATMAP_FIXTURE.industries.map((industry, index) => ({
+      rank: index + 1,
+      industry_name: industry.name,
+      score: industry.total_score,
+      momentum: industry.value,
+      change_pct: industry.value,
+      money_flow: industry.moneyFlow,
+      flow_strength: industry.netInflowRatio,
+      industryVolatility: industry.industryVolatility,
+      industryVolatilitySource: industry.industryVolatilitySource,
+      stock_count: industry.stockCount,
+      total_market_cap: industry.size,
+      marketCapSource: industry.marketCapSource,
+      mini_trend: [0.3, 0.7, industry.value],
+      score_breakdown: [],
+    })),
+    leaders: { core: [], hot: [], errors: {} },
+    errors: {},
+  };
+
+  await page.route('**/industry/bootstrap**', (route) => fulfillJson(route, bootstrapPayload));
+  await page.route('**/industry/industries/heatmap**', (route) => fulfillJson(route, INDUSTRY_HEATMAP_FIXTURE));
+  await page.route('**/industry/industries/heatmap/history**', (route) => fulfillJson(route, { items: [
+    { days: 1, captured_at: INDUSTRY_FIXTURE_NOW, ...INDUSTRY_HEATMAP_FIXTURE },
+  ] }));
+};
 
 const buildIndustryStockFixture = (industryName) => ([
   {
@@ -436,6 +543,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
 
   try {
     console.log('正在访问行业热度页面...');
+    await installIndustryHeatmapFixture(page);
     await page.goto('http://localhost:3000?view=industry', { waitUntil: 'domcontentloaded', timeout: 60000 });
     await waitForIndustryHeatmapReady(page);
     originalIndustryPreferences = await readIndustryPreferences(page).catch(() => null);
