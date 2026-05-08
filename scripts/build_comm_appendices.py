@@ -26,7 +26,6 @@ TMP_DOC_DIR = PROJECT_ROOT / "tmp" / "docs"
 OUTPUT_DOCX = DOC_OUTPUT_DIR / "上海大学本科毕业论文_基于大数据的热门行业识别与龙头股遴选研究_通信学院附录材料.docx"
 OUTPUT_PDF = OUTPUT_DOCX.with_suffix(".pdf")
 THESIS_TITLE = "基于大数据的热门行业识别与龙头股遴选研究"
-APPENDIX_TITLE = f"{THESIS_TITLE} 通信学院附录材料"
 
 TMP_RENDER_DIR = TMP_DOC_DIR / "comm_appendices_render"
 SOURCE_CACHE_DIR = TMP_DOC_DIR / "appendix_source"
@@ -582,7 +581,7 @@ def build_searchable_title_overlay(page_width: float, page_height: float):
     pdf_canvas.setFont(font_name, 10.5)
     pdf_canvas.setFillColorRGB(0, 0, 0)
     # The appendix is submitted as a separate PDF, so expose the thesis title as normal text.
-    pdf_canvas.drawString(134, 742, f"论文题目：{THESIS_TITLE}")
+    pdf_canvas.drawString(134, 742, f"题目：{THESIS_TITLE}")
     pdf_canvas.save()
     packet.seek(0)
     return PdfReader(packet).pages[0]
@@ -600,7 +599,7 @@ def add_searchable_title_layer(pdf_path: Path) -> None:
 
     writer.add_metadata({
         "/Title": THESIS_TITLE,
-        "/Subject": APPENDIX_TITLE,
+        "/Subject": THESIS_TITLE,
         "/Author": STUDENT_NAME,
         "/Keywords": "金融大数据, 热门行业识别, 龙头股遴选, 通信学院附录材料",
     })
