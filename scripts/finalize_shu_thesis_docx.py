@@ -7,6 +7,7 @@ import subprocess
 import xml.etree.ElementTree as ET
 from copy import deepcopy
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -19,6 +20,9 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Emu, Pt
 from docxcompose.composer import Composer
 from pypdf import PdfReader, PdfWriter
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
 
 
 def resolve_existing_path(description: str, *candidates: Path) -> Path:
@@ -119,6 +123,7 @@ SIMSUN_FONT_DIR_CANDIDATES = (
     Path("/Library/Fonts"),
     Path("/System/Library/Fonts"),
 )
+SEARCHABLE_TITLE_FONT_NAME = "SimSunSearchableTitle"
 BODY_PDF_ABSTRACT_PAGE_INDEX = 4
 BODY_FIRST_LINE_INDENT = Emu(266700)
 BODY_LINE_SPACING = Pt(23)
@@ -2227,6 +2232,26 @@ def get_simsun_font_dir() -> Path | None:
     return None
 
 
+def get_simsun_font_path() -> Path | None:
+    for font_dir in SIMSUN_FONT_DIR_CANDIDATES:
+        for font_name in ("simsun.ttc", "SimSun.ttf"):
+            font_path = font_dir / font_name
+            if font_path.exists():
+                return font_path
+    return None
+
+
+def register_searchable_title_font() -> str:
+    if SEARCHABLE_TITLE_FONT_NAME in pdfmetrics.getRegisteredFontNames():
+        return SEARCHABLE_TITLE_FONT_NAME
+
+    font_path = get_simsun_font_path()
+    if font_path is None:
+        raise RuntimeError("No SimSun font found for searchable PDF title layer.")
+    pdfmetrics.registerFont(TTFont(SEARCHABLE_TITLE_FONT_NAME, str(font_path)))
+    return SEARCHABLE_TITLE_FONT_NAME
+
+
 def build_pdf_fontconfig() -> Path | None:
     simsun_font_dir = get_simsun_font_dir()
     if simsun_font_dir is None:
@@ -2693,16 +2718,46 @@ def export_docx_pdf(doc_path: Path, output_dir: Path) -> Path:
     return pdf_path
 
 
+def build_searchable_title_overlay(page_width: float, page_height: float, lines: list[str]):
+    packet = BytesIO()
+    font_name = register_searchable_title_font()
+    pdf_canvas = canvas.Canvas(packet, pagesize=(page_width, page_height))
+    text = pdf_canvas.beginText(36, page_height - 36)
+    text.setFont(font_name, 1)
+    text.setTextRenderMode(3)
+    for line in lines:
+        text.textLine(line)
+    pdf_canvas.drawText(text)
+    pdf_canvas.save()
+    packet.seek(0)
+    return PdfReader(packet).pages[0]
+
+
 def merge_submission_pdf(front_pdf: Path, body_pdf: Path, output_pdf: Path) -> None:
     front_reader = PdfReader(str(front_pdf))
     body_reader = PdfReader(str(body_pdf))
     writer = PdfWriter()
 
-    for page in front_reader.pages:
+    title_lines = [
+        THESIS_TITLE,
+        f"题目：{THESIS_TITLE}",
+        f"论文题目：{THESIS_TITLE}",
+    ]
+    for index, page in enumerate(front_reader.pages):
+        if index == 0:
+            width = float(page.mediabox.width)
+            height = float(page.mediabox.height)
+            page.merge_page(build_searchable_title_overlay(width, height, title_lines))
         writer.add_page(page)
     for page in body_reader.pages[BODY_PDF_ABSTRACT_PAGE_INDEX:]:
         writer.add_page(page)
 
+    writer.add_metadata({
+        "/Title": THESIS_TITLE,
+        "/Subject": THESIS_TITLE,
+        "/Author": STUDENT_INFO["student_name"],
+        "/Keywords": "金融大数据, 热门行业识别, 龙头股遴选, 多源数据, 行业热度分析系统",
+    })
     with output_pdf.open("wb") as fp:
         writer.write(fp)
 

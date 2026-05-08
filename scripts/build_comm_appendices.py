@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+from io import BytesIO
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -12,6 +13,10 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 from PIL import Image, JpegImagePlugin  # noqa: F401 - registers Pillow's JPEG PDF encoder.
+from pypdf import PdfReader, PdfWriter
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +25,8 @@ TMP_DOC_DIR = PROJECT_ROOT / "tmp" / "docs"
 
 OUTPUT_DOCX = DOC_OUTPUT_DIR / "上海大学本科毕业论文_基于大数据的热门行业识别与龙头股遴选研究_通信学院附录材料.docx"
 OUTPUT_PDF = OUTPUT_DOCX.with_suffix(".pdf")
+THESIS_TITLE = "基于大数据的热门行业识别与龙头股遴选研究"
+APPENDIX_TITLE = f"{THESIS_TITLE} 通信学院附录材料"
 
 TMP_RENDER_DIR = TMP_DOC_DIR / "comm_appendices_render"
 SOURCE_CACHE_DIR = TMP_DOC_DIR / "appendix_source"
@@ -35,6 +42,7 @@ SIMSUN_FONT_DIR_CANDIDATES = (
     Path("/Library/Fonts"),
     Path("/System/Library/Fonts"),
 )
+SEARCHABLE_TITLE_FONT_NAME = "SimSunSearchableAppendixTitle"
 
 SOURCE_URL = (
     "https://www.oecd.org/content/dam/oecd/en/publications/reports/2021/08/"
@@ -247,6 +255,26 @@ def get_simsun_font_dir() -> Path | None:
         if (font_dir / "simsun.ttc").exists() or (font_dir / "SimSun.ttf").exists():
             return font_dir
     return None
+
+
+def get_simsun_font_path() -> Path | None:
+    for font_dir in SIMSUN_FONT_DIR_CANDIDATES:
+        for font_name in ("simsun.ttc", "SimSun.ttf"):
+            font_path = font_dir / font_name
+            if font_path.exists():
+                return font_path
+    return None
+
+
+def register_searchable_title_font() -> str:
+    if SEARCHABLE_TITLE_FONT_NAME in pdfmetrics.getRegisteredFontNames():
+        return SEARCHABLE_TITLE_FONT_NAME
+
+    font_path = get_simsun_font_path()
+    if font_path is None:
+        raise RuntimeError("No SimSun font found for searchable PDF title layer.")
+    pdfmetrics.registerFont(TTFont(SEARCHABLE_TITLE_FONT_NAME, str(font_path)))
+    return SEARCHABLE_TITLE_FONT_NAME
 
 
 def build_pdf_fontconfig() -> Path | None:
@@ -547,6 +575,50 @@ def flatten_pdf_to_image_pdf(source_pdf: Path, output_pdf: Path) -> None:
         image.close()
 
 
+def build_searchable_title_overlay(page_width: float, page_height: float, lines: list[str]):
+    packet = BytesIO()
+    font_name = register_searchable_title_font()
+    pdf_canvas = canvas.Canvas(packet, pagesize=(page_width, page_height))
+    text = pdf_canvas.beginText(36, page_height - 36)
+    text.setFont(font_name, 1)
+    text.setTextRenderMode(3)
+    for line in lines:
+        text.textLine(line)
+    pdf_canvas.drawText(text)
+    pdf_canvas.save()
+    packet.seek(0)
+    return PdfReader(packet).pages[0]
+
+
+def add_searchable_title_layer(pdf_path: Path) -> None:
+    reader = PdfReader(str(pdf_path))
+    writer = PdfWriter()
+    title_lines = [
+        THESIS_TITLE,
+        f"题目：{THESIS_TITLE}",
+        f"论文题目：{THESIS_TITLE}",
+        APPENDIX_TITLE,
+    ]
+
+    for index, page in enumerate(reader.pages):
+        if index == 0:
+            width = float(page.mediabox.width)
+            height = float(page.mediabox.height)
+            page.merge_page(build_searchable_title_overlay(width, height, title_lines))
+        writer.add_page(page)
+
+    writer.add_metadata({
+        "/Title": THESIS_TITLE,
+        "/Subject": APPENDIX_TITLE,
+        "/Author": STUDENT_NAME,
+        "/Keywords": "金融大数据, 热门行业识别, 龙头股遴选, 通信学院附录材料",
+    })
+    tmp_path = pdf_path.with_suffix(".searchable.pdf")
+    with tmp_path.open("wb") as file_obj:
+        writer.write(file_obj)
+    tmp_path.replace(pdf_path)
+
+
 def main() -> None:
     validate_content_requirements()
 
@@ -560,7 +632,8 @@ def main() -> None:
     doc.save(str(OUTPUT_DOCX))
 
     export_pdf(OUTPUT_DOCX, INTERMEDIATE_PDF)
-    flatten_pdf_to_image_pdf(INTERMEDIATE_PDF, OUTPUT_PDF)
+    shutil.copyfile(INTERMEDIATE_PDF, OUTPUT_PDF)
+    add_searchable_title_layer(OUTPUT_PDF)
 
 
 if __name__ == "__main__":
