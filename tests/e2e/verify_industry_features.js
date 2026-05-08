@@ -201,6 +201,18 @@ const installIndustryHeatmapFixture = async (page) => {
   await page.route('**/industry/industries/heatmap/history**', (route) => fulfillJson(route, { items: [
     { days: 1, captured_at: INDUSTRY_FIXTURE_NOW, ...INDUSTRY_HEATMAP_FIXTURE },
   ] }));
+  await page.route('**/industry/leaders/overview**', (route) => fulfillJson(route, buildLeaderOverviewFixture()));
+  await page.route(/.*\/industry\/leaders(?:\?.*)?$/, async (route) => {
+    const url = new URL(route.request().url());
+    const listType = url.searchParams.get('list_type') === 'core' ? 'core' : 'hot';
+    await fulfillJson(route, buildLeaderOverviewFixture()[listType]);
+  });
+  await page.route(/.*\/industry\/leaders\/[^/]+\/detail(?:\?.*)?$/, async (route) => {
+    const url = new URL(route.request().url());
+    const symbol = decodeURIComponent(url.pathname.split('/').at(-2) || '688981');
+    const scoreType = url.searchParams.get('score_type') === 'hot' ? 'hot' : 'core';
+    await fulfillJson(route, buildLeaderDetailFixture(symbol, scoreType));
+  });
 };
 
 const buildIndustryStockFixture = (industryName) => ([
@@ -244,6 +256,63 @@ const buildIndustryStockFixture = (industryName) => ([
     industry: industryName,
   },
 ]);
+
+const toLeaderRecord = (stock, index, scoreType) => ({
+  symbol: stock.symbol,
+  name: stock.name,
+  industry: stock.industry,
+  total_score: scoreType === 'hot' ? stock.total_score - 4 + index : stock.total_score,
+  global_rank: index + 1,
+  industry_rank: stock.rank,
+  market_cap: stock.market_cap,
+  pe_ratio: stock.pe_ratio,
+  change_pct: stock.change_pct,
+  score_type: scoreType,
+  mini_trend: [100, 100.8 + index, 101.3 + index, 102.1 + index, 101.8 + index, 103.2 + index],
+  dimension_scores: {
+    score_type: scoreType,
+    market_cap: 0.88 - index * 0.04,
+    valuation: 0.62 + index * 0.03,
+    profitability: 0.76 - index * 0.02,
+    growth: 0.72,
+    momentum: 0.68 + index * 0.04,
+    activity: 0.66,
+    money_flow: 0.7 - index * 0.03,
+  },
+});
+
+const buildLeaderOverviewFixture = () => {
+  const semiconductorLeaders = buildIndustryStockFixture('半导体');
+  return {
+    core: semiconductorLeaders.map((stock, index) => toLeaderRecord(stock, index, 'core')),
+    hot: semiconductorLeaders.map((stock, index) => toLeaderRecord(stock, index, 'hot')),
+    errors: {},
+  };
+};
+
+const buildLeaderDetailFixture = (symbol, scoreType) => {
+  const overview = buildLeaderOverviewFixture();
+  const record = [...overview.core, ...overview.hot].find((item) => item.symbol === symbol)
+    || overview[scoreType][0]
+    || overview.core[0];
+  return {
+    ...record,
+    score_type: scoreType,
+    raw_data: {
+      symbol: record.symbol,
+      name: record.name,
+      industry: record.industry,
+      market_cap: record.market_cap,
+      pe_ttm: record.pe_ratio,
+      change_pct: record.change_pct,
+      money_flow: 128_000_000,
+      turnover_rate: 2.4,
+    },
+    recommendation: scoreType === 'hot' ? '短线强势观察' : '核心资产观察',
+    reasons: ['E2E fixture leader detail remains deterministic'],
+    risks: ['E2E fixture risk placeholder'],
+  };
+};
 
 const installIndustryStockDetailFixture = async (page, industryName) => {
   const stocksFixture = buildIndustryStockFixture(industryName);
