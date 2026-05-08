@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -10,7 +11,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK, WD_LINE_SPACING
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
-from PIL import Image
+from PIL import Image, JpegImagePlugin  # noqa: F401 - registers Pillow's JPEG PDF encoder.
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -25,8 +26,15 @@ SOURCE_CACHE_DIR = TMP_DOC_DIR / "appendix_source"
 SOURCE_PDF = SOURCE_CACHE_DIR / "oecd_ai_ml_big_data_finance.pdf"
 SOURCE_PAGE_DIR = TMP_RENDER_DIR / "source_pages"
 FLATTEN_PAGE_DIR = TMP_RENDER_DIR / "flatten_pages"
+FONTCONFIG_DIR = TMP_RENDER_DIR / "fontconfig"
 
 INTERMEDIATE_PDF = TMP_RENDER_DIR / OUTPUT_PDF.name
+SIMSUN_FONT_DIR_CANDIDATES = (
+    Path.home() / "Library/Fonts",
+    Path.home() / "Library/Caches/camoufox/Camoufox.app/Contents/Resources/fonts",
+    Path("/Library/Fonts"),
+    Path("/System/Library/Fonts"),
+)
 
 SOURCE_URL = (
     "https://www.oecd.org/content/dam/oecd/en/publications/reports/2021/08/"
@@ -232,6 +240,48 @@ def validate_content_requirements() -> None:
         raise ValueError(f"附录A中文译文不足2500字，当前仅 {appendix_a_count} 字。")
     if appendix_b_count < 1000:
         raise ValueError(f"附录B课题调研报告不足1000字，当前仅 {appendix_b_count} 字。")
+
+
+def get_simsun_font_dir() -> Path | None:
+    for font_dir in SIMSUN_FONT_DIR_CANDIDATES:
+        if (font_dir / "simsun.ttc").exists() or (font_dir / "SimSun.ttf").exists():
+            return font_dir
+    return None
+
+
+def build_pdf_fontconfig() -> Path | None:
+    simsun_font_dir = get_simsun_font_dir()
+    if simsun_font_dir is None:
+        return None
+
+    FONTCONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    fonts_conf = FONTCONFIG_DIR / "fonts.conf"
+    fonts_conf.write_text(
+        f"""<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>{simsun_font_dir}</dir>
+  <dir>/System/Library/Fonts</dir>
+  <dir>/System/Library/Fonts/Supplemental</dir>
+  <dir>/Library/Fonts</dir>
+  <dir>~/Library/Fonts</dir>
+  <match target="pattern">
+    <test name="family" qual="any"><string>宋体</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>SimSun</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family" qual="any"><string>SimSun</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>SimSun</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family" qual="any"><string>NSimSun</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>NSimSun</string></edit>
+  </match>
+</fontconfig>
+""",
+        encoding="utf-8",
+    )
+    return fonts_conf
 
 
 def add_page_number(paragraph) -> None:
@@ -448,9 +498,14 @@ def build_appendix_doc(rendered_source_pages: list[tuple[int, Path]]) -> Documen
 
 def export_pdf(docx_path: Path, pdf_path: Path) -> None:
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    fontconfig = build_pdf_fontconfig()
+    if fontconfig is not None:
+        env["FONTCONFIG_FILE"] = str(fontconfig)
     subprocess.run(
         [
             "soffice",
+            "-env:UserInstallation=file:///tmp/lo_profile_shu_appendices",
             "--headless",
             "--convert-to",
             "pdf",
@@ -459,6 +514,7 @@ def export_pdf(docx_path: Path, pdf_path: Path) -> None:
             str(docx_path),
         ],
         check=True,
+        env=env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
