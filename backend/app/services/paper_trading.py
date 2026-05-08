@@ -48,6 +48,21 @@ def _normalize_side(side: str) -> str:
     return side_norm
 
 
+def _parse_optional_pct(
+    request: dict[str, Any], field_name: str, upper: float
+) -> float | None:
+    raw = request.get(field_name)
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise PaperTradingError(f"{field_name} must be a number") from exc
+    if value < 0 or value > upper:
+        raise PaperTradingError(f"{field_name} must be in [0, {upper}]")
+    return value
+
+
 def _without_pending_sell_exits(
     orders: list[dict[str, Any]], target_symbol: str
 ) -> list[dict[str, Any]]:
@@ -263,17 +278,21 @@ class PaperTradingStore:
                 if not crosses:
                     remaining_pending.append(pending_order)
                     continue
+                fill_request: dict[str, Any] = {
+                    "symbol": symbol,
+                    "side": side,
+                    "quantity": pending_order.get("quantity"),
+                    "fill_price": limit_price,
+                    "note": pending_order.get("note") or "",
+                }
+                # Bracket SL/TP captured at queue time must follow the order
+                # into the position; _apply_order only honors them on BUY.
+                if "stop_loss_pct" in pending_order:
+                    fill_request["stop_loss_pct"] = pending_order["stop_loss_pct"]
+                if "take_profit_pct" in pending_order:
+                    fill_request["take_profit_pct"] = pending_order["take_profit_pct"]
                 try:
-                    order = self._apply_order(
-                        account,
-                        {
-                            "symbol": symbol,
-                            "side": side,
-                            "quantity": pending_order.get("quantity"),
-                            "fill_price": limit_price,
-                            "note": pending_order.get("note") or "",
-                        },
-                    )
+                    order = self._apply_order(account, fill_request)
                 except PaperTradingError as exc:
                     rejected.append(
                         {
@@ -402,20 +421,8 @@ class PaperTradingStore:
             raise PaperTradingError("slippage_bps must be non-negative")
         # stop_loss_pct / take_profit_pct only apply to BUY. SELL silently
         # ignores them so a generic client can always send the same shape.
-        def _parse_optional_pct(field_name: str, upper: float) -> float | None:
-            raw = request.get(field_name)
-            if raw is None:
-                return None
-            try:
-                value = float(raw)
-            except (TypeError, ValueError) as exc:
-                raise PaperTradingError(f"{field_name} must be a number") from exc
-            if value < 0 or value > upper:
-                raise PaperTradingError(f"{field_name} must be in [0, {upper}]")
-            return value
-
-        stop_loss_pct = _parse_optional_pct("stop_loss_pct", 0.5)
-        take_profit_pct = _parse_optional_pct("take_profit_pct", 5.0)
+        stop_loss_pct = _parse_optional_pct(request, "stop_loss_pct", 0.5)
+        take_profit_pct = _parse_optional_pct(request, "take_profit_pct", 5.0)
         note = str(request.get("note") or "")[:200]
 
         # BUY pays *more* when slippage moves the market against the trader;
@@ -528,6 +535,10 @@ class PaperTradingStore:
         if limit_price <= 0:
             raise PaperTradingError("limit_price must be positive")
         note = str(request.get("note") or "")[:200]
+        # Validate brackets at queue time even for SELL — same caps as MARKET —
+        # so a malformed value is rejected eagerly rather than at fill time.
+        stop_loss_pct = _parse_optional_pct(request, "stop_loss_pct", 0.5)
+        take_profit_pct = _parse_optional_pct(request, "take_profit_pct", 5.0)
 
         pending = account.setdefault("pending_orders", [])
         order = {
@@ -540,6 +551,10 @@ class PaperTradingStore:
             "submitted_at": _utc_now(),
             "note": note,
         }
+        if stop_loss_pct is not None:
+            order["stop_loss_pct"] = stop_loss_pct
+        if take_profit_pct is not None:
+            order["take_profit_pct"] = take_profit_pct
         pending.append(order)
         return order
 
