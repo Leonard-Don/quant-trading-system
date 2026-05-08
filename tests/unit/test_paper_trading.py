@@ -720,6 +720,41 @@ def test_run_matching_fills_sell_limit_when_quote_at_or_above_limit(store):
     assert account["cash"] == pytest.approx(10000.0 - 500.0 + 5 * 110.0)
 
 
+def test_run_matching_full_sell_limit_prunes_stale_sell_limits(store):
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 105,
+        },
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+
+    result = store.run_matching({"AAPL": 105.0}, profile_id="alice")
+
+    assert len(result["filled"]) == 1
+    assert result["triggered"] == []
+    assert result["account"]["positions"] == []
+    assert result["account"]["pending_orders"] == []
+    assert result["account"]["cash"] == pytest.approx(10000.0 - 500.0 + 5 * 105.0)
+
+
 def test_run_matching_does_not_fill_sell_limit_when_quote_below_limit(store):
     store.submit_order(
         {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
@@ -825,6 +860,38 @@ def test_run_matching_triggers_stop_loss_when_quote_crosses(store):
     account = result["account"]
     assert account["positions"] == []
     assert account["cash"] == pytest.approx(10000.0 - 500.0 + 5 * 95.0)
+
+
+def test_run_matching_stop_loss_prunes_stale_sell_limits(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+
+    result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+
+    assert result["filled"] == []
+    assert len(result["triggered"]) == 1
+    assert result["triggered"][0]["trigger_reason"] == "stop_loss"
+    assert result["account"]["positions"] == []
+    assert result["account"]["pending_orders"] == []
+    assert result["account"]["cash"] == pytest.approx(10000.0 - 500.0 + 5 * 95.0)
 
 
 def test_run_matching_does_not_trigger_stop_loss_above_threshold(store):

@@ -218,11 +218,26 @@ class PaperTradingStore:
             history: list[dict[str, Any]] = account.setdefault("orders", [])
             pending: list[dict[str, Any]] = list(account.get("pending_orders") or [])
             remaining_pending: list[dict[str, Any]] = []
+            closed_exit_symbols: set[str] = set()
+
+            def _without_pending_sell_exits(
+                orders: list[dict[str, Any]], target_symbol: str
+            ) -> list[dict[str, Any]]:
+                return [
+                    order
+                    for order in orders
+                    if not (
+                        _normalize_symbol(order.get("symbol", "")) == target_symbol
+                        and str(order.get("side") or "").upper() == "SELL"
+                    )
+                ]
 
             # Step 1: LIMIT auto-fill — process pending orders against quotes.
             for pending_order in pending:
                 symbol = _normalize_symbol(pending_order.get("symbol", ""))
                 side = str(pending_order.get("side") or "").upper()
+                if side == "SELL" and symbol in closed_exit_symbols:
+                    continue
                 try:
                     limit_price = float(pending_order.get("limit_price") or 0)
                 except (TypeError, ValueError):
@@ -263,6 +278,9 @@ class PaperTradingStore:
                 order["trigger_reason"] = "limit_cross"
                 history.append(order)
                 filled_orders.append(order)
+                if side == "SELL" and symbol not in (account.get("positions") or {}):
+                    closed_exit_symbols.add(symbol)
+                    remaining_pending = _without_pending_sell_exits(remaining_pending, symbol)
             account["pending_orders"] = remaining_pending
 
             # Step 2: SL/TP triggers — close positions whose threshold crossed.
@@ -314,6 +332,9 @@ class PaperTradingStore:
                 order["trigger_reason"] = trigger_reason
                 history.append(order)
                 triggered_orders.append(order)
+                account["pending_orders"] = _without_pending_sell_exits(
+                    list(account.get("pending_orders") or []), symbol
+                )
 
             account["orders"] = history[-MAX_PAPER_ORDERS:]
 
