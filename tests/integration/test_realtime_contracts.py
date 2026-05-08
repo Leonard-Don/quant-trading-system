@@ -2,6 +2,7 @@
 实时行情 REST / WS 契约测试
 """
 
+import json
 from datetime import datetime
 from unittest.mock import patch
 
@@ -285,6 +286,63 @@ def test_websocket_batch_subscription_ack_returns_symbols_and_results(client):
 
             assert snapshot["type"] == "snapshot"
             assert snapshot["symbols"] == ["AAPL", "MSFT"]
+
+
+def test_websocket_snapshot_keeps_provider_numeric_gaps_strict_json(client):
+    timestamp = datetime.now().isoformat()
+    provider_payloads = {
+        "AAPL": {
+            "symbol": "AAPL",
+            "price": float("nan"),
+            "change": float("inf"),
+            "change_percent": "-inf",
+            "high": "NaN",
+            "low": "Infinity",
+            "open": "-Infinity",
+            "previous_close": float("nan"),
+            "bid": float("inf"),
+            "ask": float("-inf"),
+            "volume": "Infinity",
+            "timestamp": timestamp,
+            "source": "test",
+        },
+        "MSFT": {
+            "symbol": "MSFT",
+            "timestamp": timestamp,
+            "source": "test",
+        },
+    }
+
+    with patch.object(realtime_manager, "_fetch_provider_quotes", return_value=provider_payloads) as fetch_provider, \
+         patch.object(realtime_manager, "subscribe_symbol", return_value=True), \
+         patch.object(realtime_manager, "unsubscribe_symbol", return_value=True):
+        with client.websocket_connect("/ws/quotes") as websocket:
+            websocket.send_json({"action": "subscribe", "symbols": ["AAPL", "MSFT"]})
+            websocket.receive_json()  # subscription ack
+            snapshot = websocket.receive_json()
+
+    assert snapshot["type"] == "snapshot"
+    assert snapshot["stage"] == "full"
+    assert snapshot["symbols"] == ["AAPL", "MSFT"]
+    assert fetch_provider.call_args.args[0] == ["AAPL", "MSFT"]
+
+    for symbol in ("AAPL", "MSFT"):
+        quote = snapshot["data"][symbol]
+        for field in (
+            "price",
+            "change",
+            "change_percent",
+            "high",
+            "low",
+            "open",
+            "previous_close",
+            "bid",
+            "ask",
+            "volume",
+        ):
+            assert quote[field] is None
+
+    json.dumps(snapshot, allow_nan=False)
 
 
 def test_websocket_ping_returns_iso_timestamp(client):
