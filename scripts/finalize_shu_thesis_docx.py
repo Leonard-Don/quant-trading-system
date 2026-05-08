@@ -2636,6 +2636,80 @@ def render_cover_page(template_page: Path, output_path: Path) -> dict[str, objec
     }
 
 
+def fit_pdf_font_size(text: str, font_name: str, max_width: float, initial_size: float) -> float:
+    size = initial_size
+    while size > 6 and pdfmetrics.stringWidth(text, font_name, size) > max_width:
+        size -= 0.5
+    return size
+
+
+def build_cover_pdf_from_template(template_page: Path, output_pdf: Path) -> dict[str, object]:
+    line_boxes = detect_cover_lines(template_page)
+    with Image.open(template_page) as image:
+        image_width, image_height = image.size
+
+    template_reader = PdfReader(str(TEMPLATE_PDF_PATH))
+    template_cover = template_reader.pages[0]
+    page_width = float(template_cover.mediabox.width)
+    page_height = float(template_cover.mediabox.height)
+    scale_x = page_width / image_width
+    scale_y = page_height / image_height
+    font_name = register_searchable_title_font()
+
+    packet = BytesIO()
+    pdf_canvas = canvas.Canvas(packet, pagesize=(page_width, page_height))
+    placements = {}
+
+    for key in COVER_FIELD_ORDER:
+        spec = COVER_FIELD_SPECS[key]
+        text = str(spec["text"])
+        line_box = line_boxes[key]
+        x_start = line_box["x_start"] * scale_x
+        x_end = line_box["x_end"] * scale_x
+        y_line = page_height - line_box["y_line"] * scale_y
+        line_width = x_end - x_start
+        padding = float(spec["padding_x"]) * scale_x
+        max_width = min(float(spec["max_width"]) * scale_x, line_width - 2 * padding)
+        font_size = fit_pdf_font_size(
+            text,
+            font_name,
+            max_width,
+            float(spec["font_size"]) * scale_y,
+        )
+        text_width = pdfmetrics.stringWidth(text, font_name, font_size)
+        if spec["align"] == "center":
+            draw_x = x_start + (line_width - text_width) / 2
+        else:
+            draw_x = x_start + padding
+        baseline_y = y_line + float(spec["gap_above_line"]) * scale_y + 1.2
+        pdf_canvas.setFont(font_name, font_size)
+        pdf_canvas.setFillColorRGB(0, 0, 0)
+        pdf_canvas.drawString(draw_x, baseline_y, text)
+        placements[key] = make_box(
+            draw_x / scale_x,
+            (page_height - (baseline_y + font_size)) / scale_y,
+            (draw_x + text_width) / scale_x,
+            (page_height - baseline_y) / scale_y,
+        )
+
+    pdf_canvas.save()
+    packet.seek(0)
+    overlay = PdfReader(packet).pages[0]
+    template_cover.merge_page(overlay)
+
+    writer = PdfWriter()
+    writer.add_page(template_cover)
+    output_pdf.parent.mkdir(parents=True, exist_ok=True)
+    with output_pdf.open("wb") as file_obj:
+        writer.write(file_obj)
+
+    return {
+        "placements": placements,
+        "anchors": line_boxes,
+        "image_size": (image_width, image_height),
+    }
+
+
 def render_declaration_page(template_page: Path, output_path: Path) -> dict[str, object]:
     font_sources = get_available_cjk_font_sources()
     template_xml = ensure_template_pdf_xml()
@@ -2689,11 +2763,22 @@ def prepare_declaration_page_asset(template_page: Path, output_path: Path) -> tu
     return signed_page, None
 
 
-def build_front_pdf(front_cover_png: Path, declaration_png: Path, output_pdf: Path) -> None:
-    first = Image.open(front_cover_png).convert("RGB")
+def build_front_pdf(front_cover_pdf: Path, declaration_png: Path, output_pdf: Path) -> None:
+    cover_reader = PdfReader(str(front_cover_pdf))
+    writer = PdfWriter()
+    writer.add_page(cover_reader.pages[0])
+
     second = Image.open(declaration_png).convert("RGB")
+    packet = BytesIO()
+    second.save(packet, "PDF", resolution=150.0)
+    second.close()
+    packet.seek(0)
+    declaration_reader = PdfReader(packet)
+    writer.add_page(declaration_reader.pages[0])
+
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
-    first.save(output_pdf, "PDF", save_all=True, append_images=[second], resolution=150.0)
+    with output_pdf.open("wb") as file_obj:
+        writer.write(file_obj)
 
 
 def export_docx_pdf(doc_path: Path, output_dir: Path) -> Path:
@@ -2718,30 +2803,12 @@ def export_docx_pdf(doc_path: Path, output_dir: Path) -> Path:
     return pdf_path
 
 
-def build_searchable_title_overlay(page_width: float, page_height: float):
-    packet = BytesIO()
-    font_name = register_searchable_title_font()
-    pdf_canvas = canvas.Canvas(packet, pagesize=(page_width, page_height))
-    pdf_canvas.setFillColorRGB(0, 0, 0)
-    pdf_canvas.setFont(font_name, 8)
-    # Add a small normal text layer in the blank cover area. It is intentionally
-    # visible so strict submission systems will not discard it as hidden text.
-    pdf_canvas.drawString(265, 785, f"题目：{THESIS_TITLE}")
-    pdf_canvas.save()
-    packet.seek(0)
-    return PdfReader(packet).pages[0]
-
-
 def merge_submission_pdf(front_pdf: Path, body_pdf: Path, output_pdf: Path) -> None:
     front_reader = PdfReader(str(front_pdf))
     body_reader = PdfReader(str(body_pdf))
     writer = PdfWriter()
 
-    for index, page in enumerate(front_reader.pages):
-        if index == 0:
-            width = float(page.mediabox.width)
-            height = float(page.mediabox.height)
-            page.merge_page(build_searchable_title_overlay(width, height))
+    for page in front_reader.pages:
         writer.add_page(page)
     for page in body_reader.pages[BODY_PDF_ABSTRACT_PAGE_INDEX:]:
         writer.add_page(page)
@@ -4718,13 +4785,13 @@ def compose_official_template(source_doc: Document, source_layout_doc: Document)
 
 def export_submission_artifacts(doc_path: Path) -> Path:
     template_page_1, template_page_2 = ensure_template_pdf_pages()
-    front_cover_png = TMP_FRONT_ASSET_DIR / "front_cover.png"
+    front_cover_pdf = TMP_FRONT_ASSET_DIR / "front_cover.pdf"
     declaration_png = TMP_FRONT_ASSET_DIR / "front_declaration.png"
     front_pdf = TMP_FRONT_ASSET_DIR / "front_pages.pdf"
 
-    cover_render = render_cover_page(template_page_1, front_cover_png)
+    cover_render = build_cover_pdf_from_template(template_page_1, front_cover_pdf)
     declaration_asset, declaration_render = prepare_declaration_page_asset(template_page_2, declaration_png)
-    build_front_pdf(front_cover_png, declaration_asset, front_pdf)
+    build_front_pdf(front_cover_pdf, declaration_asset, front_pdf)
 
     body_pdf = export_docx_pdf(doc_path, TMP_DOCX_RENDER_DIR)
     merge_submission_pdf(front_pdf, body_pdf, OUTPUT_PDF_PATH)
