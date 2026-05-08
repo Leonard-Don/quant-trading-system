@@ -575,16 +575,14 @@ def flatten_pdf_to_image_pdf(source_pdf: Path, output_pdf: Path) -> None:
         image.close()
 
 
-def build_searchable_title_overlay(page_width: float, page_height: float, lines: list[str]):
+def build_searchable_title_overlay(page_width: float, page_height: float):
     packet = BytesIO()
     font_name = register_searchable_title_font()
     pdf_canvas = canvas.Canvas(packet, pagesize=(page_width, page_height))
-    text = pdf_canvas.beginText(36, page_height - 36)
-    text.setFont(font_name, 1)
-    text.setTextRenderMode(3)
-    for line in lines:
-        text.textLine(line)
-    pdf_canvas.drawText(text)
+    pdf_canvas.setFont(font_name, 10.5)
+    pdf_canvas.setFillColorRGB(0, 0, 0)
+    # The appendix is submitted as a separate PDF, so expose the thesis title as normal text.
+    pdf_canvas.drawString(134, 742, f"论文题目：{THESIS_TITLE}")
     pdf_canvas.save()
     packet.seek(0)
     return PdfReader(packet).pages[0]
@@ -593,18 +591,11 @@ def build_searchable_title_overlay(page_width: float, page_height: float, lines:
 def add_searchable_title_layer(pdf_path: Path) -> None:
     reader = PdfReader(str(pdf_path))
     writer = PdfWriter()
-    title_lines = [
-        THESIS_TITLE,
-        f"题目：{THESIS_TITLE}",
-        f"论文题目：{THESIS_TITLE}",
-        APPENDIX_TITLE,
-    ]
-
     for index, page in enumerate(reader.pages):
         if index == 0:
             width = float(page.mediabox.width)
             height = float(page.mediabox.height)
-            page.merge_page(build_searchable_title_overlay(width, height, title_lines))
+            page.merge_page(build_searchable_title_overlay(width, height))
         writer.add_page(page)
 
     writer.add_metadata({
