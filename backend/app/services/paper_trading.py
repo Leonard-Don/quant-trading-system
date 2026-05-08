@@ -566,6 +566,12 @@ class PaperTradingStore:
         positions: dict[str, dict[str, Any]] = account.setdefault("positions", {})
         cash = float(account.get("cash", 0.0))
         now = _utc_now()
+        # Generate the fill id up front so a new BUY can stamp it into the
+        # position as `opening_order_id` — that record is what links a later
+        # closing SELL back to the entry fill via `entry_order_id`. Add-on
+        # BUYs leave the existing link untouched (parallels `opened_at`).
+        order_id = f"ord-{uuid.uuid4().hex[:12]}"
+        entry_order_id: str | None = None
 
         if side == "BUY":
             cost = quantity * effective_fill_price + commission
@@ -607,6 +613,7 @@ class PaperTradingStore:
                     "avg_cost": effective_fill_price,
                     "opened_at": now,
                     "updated_at": now,
+                    "opening_order_id": order_id,
                 }
                 if stop_loss_pct is not None:
                     position_payload["stop_loss_pct"] = stop_loss_pct
@@ -623,6 +630,10 @@ class PaperTradingStore:
                 raise PaperTradingError(
                     f"insufficient position for {symbol}: need {quantity}, have {have}"
                 )
+            # Capture the entry link *before* a full close pops the position,
+            # so the resulting fill carries the originating BUY id even when
+            # nothing else of the position survives.
+            entry_order_id = existing.get("opening_order_id")
             proceeds = quantity * effective_fill_price - commission
             new_qty = float(existing.get("quantity", 0)) - quantity
             if new_qty <= 1e-9:
@@ -632,8 +643,8 @@ class PaperTradingStore:
                 existing["updated_at"] = now
             account["cash"] = cash + proceeds
 
-        return {
-            "id": f"ord-{uuid.uuid4().hex[:12]}",
+        order: dict[str, Any] = {
+            "id": order_id,
             "symbol": symbol,
             "side": side,
             "quantity": quantity,
@@ -644,6 +655,13 @@ class PaperTradingStore:
             "submitted_at": now,
             "note": note,
         }
+        # Only stamp `entry_order_id` when there's a real link — legacy
+        # positions persisted before this change have no opening_order_id,
+        # and a SELL closing them must degrade to absent rather than crash
+        # or fabricate a value.
+        if side == "SELL" and entry_order_id:
+            order["entry_order_id"] = entry_order_id
+        return order
 
     def _queue_limit_order(self, account: dict[str, Any], request: dict[str, Any]) -> dict[str, Any]:
         """Add a LIMIT order to the pending list without touching cash or positions."""
