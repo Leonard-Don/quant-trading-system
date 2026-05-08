@@ -224,15 +224,17 @@ class PaperTradingStore:
                 # so a journal reader can resolve cause -> effect from the
                 # persisted history alone.
                 canceled_at = _utc_now()
+                canceled_pending_ids: list[str] = []
                 for pending_order in prior_pending:
                     if (
                         _normalize_symbol(pending_order.get("symbol", ""))
                         == order["symbol"]
                         and str(pending_order.get("side") or "").upper() == "SELL"
                     ):
+                        pending_id = pending_order.get("id")
                         canceled_orders.append(
                             {
-                                "pending_order_id": pending_order.get("id"),
+                                "pending_order_id": pending_id,
                                 "symbol": order["symbol"],
                                 "side": "SELL",
                                 "reason": "manual_sell",
@@ -240,6 +242,14 @@ class PaperTradingStore:
                                 "closing_order_id": order["id"],
                             }
                         )
+                        canceled_pending_ids.append(pending_id)
+                if canceled_pending_ids:
+                    # Symmetric link to `closing_order_id` on the canceled
+                    # audit: the closing fill itself records the pending ids
+                    # it pruned, so a journal reader walking persisted
+                    # `orders` history alone can resolve closing fill →
+                    # canceled pending ids without the response envelope.
+                    order["canceled_pending_order_ids"] = canceled_pending_ids
                 account["pending_orders"] = _without_pending_sell_exits(
                     prior_pending, order["symbol"]
                 )
@@ -285,11 +295,14 @@ class PaperTradingStore:
             history: list[dict[str, Any]] = account.setdefault("orders", [])
             pending: list[dict[str, Any]] = list(account.get("pending_orders") or [])
             remaining_pending: list[dict[str, Any]] = []
-            # symbol -> {"at": canceled_at iso, "id": closing fill id} of the
-            # LIMIT cross that closed it. Stored per-symbol so subsequent
-            # stale-exit audits in the same iteration share the closing
-            # event's timestamp and link back to the closing order.
-            closed_exit_symbols: dict[str, dict[str, str]] = {}
+            # symbol -> {"at": canceled_at iso, "id": closing fill id, "fill":
+            # closing fill order ref} of the LIMIT cross that closed it.
+            # Stored per-symbol so subsequent stale-exit audits in the same
+            # iteration share the closing event's timestamp, link back to the
+            # closing order id, and append onto the SAME closing fill's
+            # `canceled_pending_order_ids` list (durable reverse-direction
+            # walk: closing fill -> canceled pending ids).
+            closed_exit_symbols: dict[str, dict[str, Any]] = {}
 
             # Step 1: LIMIT auto-fill — process pending orders against quotes.
             for pending_order in pending:
@@ -302,9 +315,10 @@ class PaperTradingStore:
                     # SL/TP pruning so the close → cancel chain stays
                     # observable to consumers.
                     closing = closed_exit_symbols[symbol]
+                    pending_id = pending_order.get("id")
                     canceled_orders.append(
                         {
-                            "pending_order_id": pending_order.get("id"),
+                            "pending_order_id": pending_id,
                             "symbol": symbol,
                             "side": "SELL",
                             "reason": "limit_cross",
@@ -312,6 +326,9 @@ class PaperTradingStore:
                             "closing_order_id": closing["id"],
                         }
                     )
+                    closing["fill"].setdefault(
+                        "canceled_pending_order_ids", []
+                    ).append(pending_id)
                     continue
                 try:
                     limit_price = float(pending_order.get("limit_price") or 0)
@@ -367,15 +384,17 @@ class PaperTradingStore:
                     closed_exit_symbols[symbol] = {
                         "at": canceled_at,
                         "id": order["id"],
+                        "fill": order,
                     }
                     for stale in remaining_pending:
                         if (
                             _normalize_symbol(stale.get("symbol", "")) == symbol
                             and str(stale.get("side") or "").upper() == "SELL"
                         ):
+                            stale_id = stale.get("id")
                             canceled_orders.append(
                                 {
-                                    "pending_order_id": stale.get("id"),
+                                    "pending_order_id": stale_id,
                                     "symbol": symbol,
                                     "side": "SELL",
                                     "reason": "limit_cross",
@@ -383,6 +402,9 @@ class PaperTradingStore:
                                     "closing_order_id": order["id"],
                                 }
                             )
+                            order.setdefault(
+                                "canceled_pending_order_ids", []
+                            ).append(stale_id)
                     remaining_pending = _without_pending_sell_exits(remaining_pending, symbol)
             account["pending_orders"] = remaining_pending
 
@@ -446,14 +468,16 @@ class PaperTradingStore:
                 # `closing_order_id` ties each cancel back to the specific
                 # bracket-triggered fill that did the closing.
                 canceled_at = _utc_now()
+                trigger_canceled_ids: list[str] = []
                 for pending_order in prior_pending:
                     if (
                         _normalize_symbol(pending_order.get("symbol", "")) == symbol
                         and str(pending_order.get("side") or "").upper() == "SELL"
                     ):
+                        pending_id = pending_order.get("id")
                         canceled_orders.append(
                             {
-                                "pending_order_id": pending_order.get("id"),
+                                "pending_order_id": pending_id,
                                 "symbol": symbol,
                                 "side": "SELL",
                                 "reason": trigger_reason,
@@ -461,6 +485,13 @@ class PaperTradingStore:
                                 "closing_order_id": order["id"],
                             }
                         )
+                        trigger_canceled_ids.append(pending_id)
+                if trigger_canceled_ids:
+                    # Symmetric link to `closing_order_id` on each canceled
+                    # audit entry: the SL/TP fill itself records what it
+                    # pruned, so persisted `orders` history alone supports
+                    # closing fill -> canceled pending ids reconstruction.
+                    order["canceled_pending_order_ids"] = trigger_canceled_ids
 
             account["orders"] = history[-MAX_PAPER_ORDERS:]
 

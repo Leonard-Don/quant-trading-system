@@ -1631,3 +1631,253 @@ def test_run_matching_canceled_entries_persisted_to_history_have_closing_link(
         "closing_order_id must reference an order present in persisted history "
         f"so audit consumers can resolve it; got {closing_id!r} not in {history_ids!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Closing fill → canceled pending ids (durable journal walk in reverse)
+# ---------------------------------------------------------------------------
+#
+# `closing_order_id` lets a canceled audit entry point AT the closing fill.
+# But the canceled audit collection itself only lives on the response
+# envelope — the persisted history (`orders`) does not retain it. So a
+# journal reader who reconstructs from the on-disk JSON alone can find a
+# closing fill but cannot answer "which pending exits were canceled because
+# of it?". The fix: each closing fill carries `canceled_pending_order_ids`,
+# the symmetric link, so cause↔effect is resolvable from persistent state
+# in either direction.
+
+
+def test_run_matching_stop_loss_closing_fill_records_canceled_pending_ids(store):
+    """An SL-triggered SELL fill that prunes a stale pending SELL LIMIT must
+    list that pending order's id under `canceled_pending_order_ids` on the
+    fill itself, so the closing fill is the durable anchor of the prune."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    queued = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    pending_id = queued["account"]["pending_orders"][0]["id"]
+
+    result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+
+    assert len(result["triggered"]) == 1
+    triggered = result["triggered"][0]
+    assert triggered["trigger_reason"] == "stop_loss"
+    assert triggered.get("canceled_pending_order_ids") == [pending_id], (
+        "SL-triggered fill must record the pruned pending id(s) it canceled; "
+        f"got {triggered.get('canceled_pending_order_ids')!r}"
+    )
+
+
+def test_run_matching_take_profit_closing_fill_records_canceled_pending_ids(store):
+    """TP-triggered fill must mirror the SL shape: pruned pending ids attach
+    to the closing fill so persisted history alone supports the walk."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "take_profit_pct": 0.10,
+        },
+        profile_id="alice",
+    )
+    queued = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 120,
+        },
+        profile_id="alice",
+    )
+    pending_id = queued["account"]["pending_orders"][0]["id"]
+
+    result = store.run_matching({"AAPL": 110.0}, profile_id="alice")
+
+    assert len(result["triggered"]) == 1
+    triggered = result["triggered"][0]
+    assert triggered["trigger_reason"] == "take_profit"
+    assert triggered.get("canceled_pending_order_ids") == [pending_id]
+
+
+def test_run_matching_sell_limit_close_fill_records_canceled_pending_ids(store):
+    """A SELL LIMIT cross that fully closes a position must record the OTHER
+    stale pending SELL LIMITs' ids on the FILLING SELL LIMIT order itself —
+    not on the canceled audit envelope only. Two stale exits → two ids."""
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 105,
+        },
+        profile_id="alice",
+    )
+    second = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    third = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 115,
+        },
+        profile_id="alice",
+    )
+    stale_ids = {
+        order["id"]
+        for order in third["account"]["pending_orders"]
+        if float(order.get("limit_price", 0)) in {110.0, 115.0}
+    }
+    assert len(stale_ids) == 2
+
+    result = store.run_matching({"AAPL": 105.0}, profile_id="alice")
+
+    assert len(result["filled"]) == 1
+    filling = result["filled"][0]
+    canceled_ids = filling.get("canceled_pending_order_ids") or []
+    assert set(canceled_ids) == stale_ids, (
+        "SELL LIMIT close fill must list every pruned stale exit id; "
+        f"got {canceled_ids!r}, expected {stale_ids!r}"
+    )
+
+
+def test_market_sell_close_fill_records_canceled_pending_ids(store):
+    """The submit_order MARKET-close path must mirror run_matching: the
+    manual SELL fill record carries the pruned pending ids."""
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 10, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    queued_a = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    queued_b = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 120,
+        },
+        profile_id="alice",
+    )
+    pending_ids = {
+        order["id"] for order in queued_b["account"]["pending_orders"]
+    }
+    assert len(pending_ids) == 2
+
+    result = store.submit_order(
+        {"symbol": "AAPL", "side": "SELL", "quantity": 10, "fill_price": 102.0},
+        profile_id="alice",
+    )
+
+    closing_fill = result["order"]
+    canceled_ids = closing_fill.get("canceled_pending_order_ids") or []
+    assert set(canceled_ids) == pending_ids
+    # Sanity: queued_a is one of them
+    assert queued_a["account"]["pending_orders"][0]["id"] in canceled_ids
+
+
+def test_run_matching_closing_fill_canceled_pending_ids_persist_across_instances(
+    store, tmp_path
+):
+    """Persistence walk: a fresh store reading only the JSON file must see
+    the closing fill in `list_orders()` AND find `canceled_pending_order_ids`
+    on it pointing at the pruned pending id. This proves the link is durable,
+    not just a response-envelope decoration."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    queued = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    pending_id = queued["account"]["pending_orders"][0]["id"]
+    store.run_matching({"AAPL": 95.0}, profile_id="alice")
+
+    fresh = PaperTradingStore(storage_path=tmp_path)
+    persisted = fresh.list_orders(profile_id="alice")
+    sl_fills = [
+        order for order in persisted if order.get("trigger_reason") == "stop_loss"
+    ]
+    assert len(sl_fills) == 1
+    assert sl_fills[0].get("canceled_pending_order_ids") == [pending_id], (
+        "closing fill's canceled_pending_order_ids must survive persistence; "
+        f"got {sl_fills[0].get('canceled_pending_order_ids')!r}"
+    )
+
+
+def test_closing_fill_without_prune_omits_or_empties_canceled_pending_ids(store):
+    """A closing SELL fill that did NOT prune any stale pending exits must
+    not falsely advertise pruning — the field is omitted (or empty) so audit
+    readers don't see a meaningless empty link on routine fills."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    # No pending SELL LIMITs queued — the SL trigger has nothing to prune.
+    result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+    triggered = result["triggered"][0]
+    canceled = triggered.get("canceled_pending_order_ids")
+    assert not canceled, (
+        "fill without a prune must not advertise canceled_pending_order_ids; "
+        f"got {canceled!r}"
+    )
