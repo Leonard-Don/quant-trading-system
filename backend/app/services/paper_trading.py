@@ -219,7 +219,10 @@ class PaperTradingStore:
                 # observable to audit consumers, mirroring the SL/TP audit
                 # shape — the manual SELL closed the position, the pending
                 # exits could no longer be backed by shares, and a silent
-                # drop would hide that causal link.
+                # drop would hide that causal link. `closing_order_id` ties
+                # the cancel back to the specific fill that did the closing,
+                # so a journal reader can resolve cause -> effect from the
+                # persisted history alone.
                 canceled_at = _utc_now()
                 for pending_order in prior_pending:
                     if (
@@ -234,6 +237,7 @@ class PaperTradingStore:
                                 "side": "SELL",
                                 "reason": "manual_sell",
                                 "canceled_at": canceled_at,
+                                "closing_order_id": order["id"],
                             }
                         )
                 account["pending_orders"] = _without_pending_sell_exits(
@@ -281,10 +285,11 @@ class PaperTradingStore:
             history: list[dict[str, Any]] = account.setdefault("orders", [])
             pending: list[dict[str, Any]] = list(account.get("pending_orders") or [])
             remaining_pending: list[dict[str, Any]] = []
-            # symbol -> canceled_at iso of the LIMIT cross that closed it.
-            # Stored per-symbol so subsequent stale-exit audits in the same
-            # iteration share the closing event's timestamp.
-            closed_exit_symbols: dict[str, str] = {}
+            # symbol -> {"at": canceled_at iso, "id": closing fill id} of the
+            # LIMIT cross that closed it. Stored per-symbol so subsequent
+            # stale-exit audits in the same iteration share the closing
+            # event's timestamp and link back to the closing order.
+            closed_exit_symbols: dict[str, dict[str, str]] = {}
 
             # Step 1: LIMIT auto-fill — process pending orders against quotes.
             for pending_order in pending:
@@ -296,13 +301,15 @@ class PaperTradingStore:
                     # the implicit cancel under the same shape as Step 2
                     # SL/TP pruning so the close → cancel chain stays
                     # observable to consumers.
+                    closing = closed_exit_symbols[symbol]
                     canceled_orders.append(
                         {
                             "pending_order_id": pending_order.get("id"),
                             "symbol": symbol,
                             "side": "SELL",
                             "reason": "limit_cross",
-                            "canceled_at": closed_exit_symbols[symbol],
+                            "canceled_at": closing["at"],
+                            "closing_order_id": closing["id"],
                         }
                     )
                     continue
@@ -357,7 +364,10 @@ class PaperTradingStore:
                     # longer be backed by shares, and a silent drop would hide
                     # that causal link.
                     canceled_at = _utc_now()
-                    closed_exit_symbols[symbol] = canceled_at
+                    closed_exit_symbols[symbol] = {
+                        "at": canceled_at,
+                        "id": order["id"],
+                    }
                     for stale in remaining_pending:
                         if (
                             _normalize_symbol(stale.get("symbol", "")) == symbol
@@ -370,6 +380,7 @@ class PaperTradingStore:
                                     "side": "SELL",
                                     "reason": "limit_cross",
                                     "canceled_at": canceled_at,
+                                    "closing_order_id": order["id"],
                                 }
                             )
                     remaining_pending = _without_pending_sell_exits(remaining_pending, symbol)
@@ -432,6 +443,8 @@ class PaperTradingStore:
                 # observable to audit consumers — the bracket exit closed the
                 # position, the pending exit could no longer be backed by
                 # shares, and a silent drop would hide that causal link.
+                # `closing_order_id` ties each cancel back to the specific
+                # bracket-triggered fill that did the closing.
                 canceled_at = _utc_now()
                 for pending_order in prior_pending:
                     if (
@@ -445,6 +458,7 @@ class PaperTradingStore:
                                 "side": "SELL",
                                 "reason": trigger_reason,
                                 "canceled_at": canceled_at,
+                                "closing_order_id": order["id"],
                             }
                         )
 

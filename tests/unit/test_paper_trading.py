@@ -1440,3 +1440,194 @@ def test_run_matching_empty_account_returns_clean_shape(store):
     assert result["triggered"] == []
     assert result["rejected"] == []
     assert result["account"]["cash"] == pytest.approx(10000.0)
+
+
+# ---------------------------------------------------------------------------
+# Cancellation -> closing-fill linkage (read-model context)
+# ---------------------------------------------------------------------------
+#
+# The `canceled` audit envelope already records WHICH stale exit was pruned
+# (`pending_order_id`), WHY (`reason`), and WHEN (`canceled_at`). What it
+# does not record is which closing fill caused the prune — so a downstream
+# audit reader cannot tie a canceled entry back to the specific SELL order
+# that closed the position. Adding `closing_order_id` lets a reconstruction
+# walk: closing fill id ← canceled entry → original pending_order_id.
+
+
+def test_run_matching_stop_loss_canceled_entry_links_to_closing_fill(store):
+    """SL-triggered cancellation must record the triggered SELL fill's id as
+    `closing_order_id`, so a journal reader can correlate the cancel with the
+    exact fill that closed the position (not just the reason)."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+
+    result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+
+    assert len(result["triggered"]) == 1
+    triggered_order_id = result["triggered"][0]["id"]
+    canceled = result.get("canceled") or []
+    assert len(canceled) == 1
+    entry = canceled[0]
+    assert entry["reason"] == "stop_loss"
+    assert entry.get("closing_order_id") == triggered_order_id
+
+
+def test_run_matching_take_profit_canceled_entry_links_to_closing_fill(store):
+    """TP-triggered cancellation must mirror the SL shape: the closing fill's
+    id appears as `closing_order_id`."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "take_profit_pct": 0.10,
+        },
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 120,
+        },
+        profile_id="alice",
+    )
+
+    result = store.run_matching({"AAPL": 110.0}, profile_id="alice")
+
+    assert len(result["triggered"]) == 1
+    triggered_order_id = result["triggered"][0]["id"]
+    canceled = result.get("canceled") or []
+    assert len(canceled) == 1
+    entry = canceled[0]
+    assert entry["reason"] == "take_profit"
+    assert entry.get("closing_order_id") == triggered_order_id
+
+
+def test_run_matching_limit_cross_canceled_entry_links_to_closing_fill(store):
+    """A SELL LIMIT cross that closes a position must surface the FILLING
+    SELL LIMIT order's id as `closing_order_id` on the canceled audit for
+    each pruned stale exit. This is the symmetric link to the SL/TP path."""
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 105,
+        },
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+
+    result = store.run_matching({"AAPL": 105.0}, profile_id="alice")
+
+    assert len(result["filled"]) == 1
+    filling_order_id = result["filled"][0]["id"]
+    canceled = result.get("canceled") or []
+    assert len(canceled) == 1
+    entry = canceled[0]
+    assert entry["reason"] == "limit_cross"
+    assert entry.get("closing_order_id") == filling_order_id
+
+
+def test_market_sell_close_canceled_entry_links_to_closing_fill(store):
+    """The submit_order MARKET-close path must record the manual SELL's id
+    on each canceled stale exit, mirroring the run_matching paths."""
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 10, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+
+    result = store.submit_order(
+        {"symbol": "AAPL", "side": "SELL", "quantity": 10, "fill_price": 102.0},
+        profile_id="alice",
+    )
+
+    closing_order_id = result["order"]["id"]
+    canceled = result.get("canceled") or []
+    assert len(canceled) == 1
+    entry = canceled[0]
+    assert entry["reason"] == "manual_sell"
+    assert entry.get("closing_order_id") == closing_order_id
+
+
+def test_run_matching_canceled_entries_persisted_to_history_have_closing_link(
+    store, tmp_path
+):
+    """The `closing_order_id` on each canceled audit must point at an order
+    that survives in `list_orders()` — i.e., the link is reconstructable
+    from a fresh store instance reading only persisted history."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+    closing_id = (result["canceled"] or [])[0]["closing_order_id"]
+
+    fresh = PaperTradingStore(storage_path=tmp_path)
+    history_ids = {order["id"] for order in fresh.list_orders(profile_id="alice")}
+    assert closing_id in history_ids, (
+        "closing_order_id must reference an order present in persisted history "
+        f"so audit consumers can resolve it; got {closing_id!r} not in {history_ids!r}"
+    )
