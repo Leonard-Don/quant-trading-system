@@ -4344,7 +4344,7 @@ def format_paragraphs(doc: Document) -> None:
             set_run_text_font(spacer_run, "Times New Roman", Pt(12), bold=False)
             set_run_text_font(value_run, "Times New Roman", Pt(12), bold=False)
             continue
-        if re.match(r"^图\s*\d+\.\d+\s+[^，。；:：]+$", text):
+        if re.match(r"^图\s*\d+\.\d+\s+[^，。；：:、]+$", text):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             paragraph.paragraph_format.first_line_indent = Pt(0)
             paragraph.paragraph_format.space_before = Pt(6)
@@ -4362,7 +4362,7 @@ def format_paragraphs(doc: Document) -> None:
             for run in paragraph.runs:
                 set_run_text_font(run, "宋体", Pt(10.5), bold=False)
             continue
-        if re.match(r"^表\s*\d+\.\d+\s+[^，。；:：]+$", text):
+        if re.match(r"^表\s*\d+\.\d+\s+[^，。；：:、]+$", text):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
             paragraph.paragraph_format.first_line_indent = Pt(0)
             paragraph.paragraph_format.space_before = Pt(6)
