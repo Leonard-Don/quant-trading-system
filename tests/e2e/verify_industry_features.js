@@ -89,6 +89,86 @@ const readIndustryPreferences = async (page) => page.evaluate(async (apiBaseUrl)
   return response.json();
 }, API_BASE_URL);
 
+const buildIndustryStockFixture = (industryName) => ([
+  {
+    symbol: '688981',
+    name: '中芯国际',
+    rank: 1,
+    total_score: 91,
+    scoreStage: 'full',
+    market_cap: 615_000_000_000,
+    pe_ratio: 42.6,
+    change_pct: 1.8,
+    money_flow: 128_000_000,
+    turnover_rate: 2.4,
+    industry: industryName,
+  },
+  {
+    symbol: '603501',
+    name: '韦尔股份',
+    rank: 2,
+    total_score: 88,
+    scoreStage: 'full',
+    market_cap: 138_000_000_000,
+    pe_ratio: 35.2,
+    change_pct: 0.9,
+    money_flow: 76_000_000,
+    turnover_rate: 1.7,
+    industry: industryName,
+  },
+  {
+    symbol: '688012',
+    name: '中微公司',
+    rank: 3,
+    total_score: 84,
+    scoreStage: 'full',
+    market_cap: 121_000_000_000,
+    pe_ratio: 58.4,
+    change_pct: 0.5,
+    money_flow: 51_000_000,
+    turnover_rate: 1.4,
+    industry: industryName,
+  },
+]);
+
+const installIndustryStockDetailFixture = async (page, industryName) => {
+  const stocksFixture = buildIndustryStockFixture(industryName);
+  const fulfillJson = (route, payload) => route.fulfill({
+    status: 200,
+    contentType: 'application/json; charset=utf-8',
+    body: JSON.stringify(payload),
+  });
+
+  await page.route(/.*\/industry\/industries\/[^/]+\/stocks(?:\?.*)?$/, async (route) => {
+    const url = new URL(route.request().url());
+    const pathParts = url.pathname.split('/');
+    const encodedIndustry = pathParts[pathParts.indexOf('industries') + 1] || '';
+    const requestedIndustry = decodeURIComponent(encodedIndustry);
+    if (requestedIndustry !== industryName) {
+      await route.fallback();
+      return;
+    }
+    await fulfillJson(route, stocksFixture);
+  });
+
+  await page.route(/.*\/industry\/industries\/[^/]+\/stocks\/status(?:\?.*)?$/, async (route) => {
+    const url = new URL(route.request().url());
+    const pathParts = url.pathname.split('/');
+    const encodedIndustry = pathParts[pathParts.indexOf('industries') + 1] || '';
+    const requestedIndustry = decodeURIComponent(encodedIndustry);
+    if (requestedIndustry !== industryName) {
+      await route.fallback();
+      return;
+    }
+    await fulfillJson(route, {
+      industry: industryName,
+      top_n: stocksFixture.length,
+      status: 'ready',
+      scoreStage: 'full',
+    });
+  });
+};
+
 const writeIndustryPreferences = async (page, payload) => {
   await page.evaluate(async ({ apiBaseUrl, nextPayload }) => {
     const response = await fetch(`${apiBaseUrl}/industry/preferences`, {
@@ -559,8 +639,9 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
       break;
     }
   }
-  const industryText = (await firstHeatmapTile.getAttribute('data-industry-name')) || await firstHeatmapTile.innerText();
+  const industryText = ((await firstHeatmapTile.getAttribute('data-industry-name')) || await firstHeatmapTile.innerText()).trim();
   console.log(`点击行业: ${industryText}`);
+  await installIndustryStockDetailFixture(page, industryText);
   const detailModal = await openIndustryDetailFromTile(page, firstHeatmapTile);
   const modalVisible = await detailModal.isVisible();
   console.log(`详情弹窗是否打开: ${modalVisible ? '是' : '否'}`);
