@@ -3469,7 +3469,7 @@ def replace_formula_block(doc: Document, keyword: str, equation_text: str, equat
     equation_para.paragraph_format.line_spacing = BODY_LINE_SPACING
     equation_run = equation_para.add_run(equation_text)
     equation_run.font.name = "Times New Roman"
-    equation_run.font.size = Pt(10.5)
+    equation_run.font.size = Pt(12)
     set_east_asia_font(equation_run, "Times New Roman")
 
     number_para = insert_paragraph_after(equation_para)
@@ -3481,7 +3481,7 @@ def replace_formula_block(doc: Document, keyword: str, equation_text: str, equat
     number_para.paragraph_format.line_spacing = BODY_LINE_SPACING
     number_run = number_para.add_run(equation_number)
     number_run.font.name = "Times New Roman"
-    number_run.font.size = Pt(10.5)
+    number_run.font.size = Pt(12)
     set_east_asia_font(number_run, "Times New Roman")
 
     anchor_element.getparent().remove(anchor_element)
@@ -4382,7 +4382,7 @@ def format_paragraphs(doc: Document) -> None:
             paragraph.paragraph_format.space_after = Pt(0)
             paragraph.paragraph_format.line_spacing = BODY_LINE_SPACING
             run = paragraph.add_run(equation_text)
-            set_run_text_font(run, "Times New Roman", Pt(10.5), bold=False)
+            set_run_text_font(run, "Times New Roman", Pt(12), bold=False)
             continue
         if text in {"（4.2.1）", "（4.4.1）"}:
             clear_paragraph(paragraph)
@@ -4392,7 +4392,7 @@ def format_paragraphs(doc: Document) -> None:
             paragraph.paragraph_format.space_before = Pt(0)
             paragraph.paragraph_format.space_after = Pt(6)
             paragraph.paragraph_format.line_spacing = BODY_LINE_SPACING
-            set_run_text_font(run, "Times New Roman", Pt(10.5), bold=False)
+            set_run_text_font(run, "Times New Roman", Pt(12), bold=False)
             continue
         if re.match(r"^\[\d+\]", text):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
