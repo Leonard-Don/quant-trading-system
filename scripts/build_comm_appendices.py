@@ -395,6 +395,19 @@ def add_center_title(doc: Document, text: str, english: bool = False) -> None:
     fmt.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
 
 
+def add_appendix_title_line(doc: Document) -> None:
+    paragraph = doc.add_paragraph()
+    run = paragraph.add_run(f"题目：{THESIS_TITLE}")
+    set_east_asia_font(run, "宋体")
+    run.font.size = Pt(12)
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    fmt = paragraph.paragraph_format
+    fmt.space_before = Pt(0)
+    fmt.space_after = Pt(10)
+    fmt.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+    fmt.first_line_indent = Pt(0)
+
+
 def add_caption(doc: Document, text: str) -> None:
     paragraph = doc.add_paragraph()
     run = paragraph.add_run(text)
@@ -486,6 +499,7 @@ def build_appendix_doc(rendered_source_pages: list[tuple[int, Path]]) -> Documen
     configure_document(doc)
 
     add_heading(doc, "附  录", level=1)
+    add_appendix_title_line(doc)
     add_body_paragraph(
         doc,
         "以下材料依据上海大学通信学院本科毕业设计撰写模板整理，包含附录A“英译汉”和附录B“课题调研报告”两部分内容。",
@@ -590,11 +604,7 @@ def build_searchable_title_overlay(page_width: float, page_height: float):
 def add_searchable_title_layer(pdf_path: Path) -> None:
     reader = PdfReader(str(pdf_path))
     writer = PdfWriter()
-    for index, page in enumerate(reader.pages):
-        if index == 0:
-            width = float(page.mediabox.width)
-            height = float(page.mediabox.height)
-            page.merge_page(build_searchable_title_overlay(width, height))
+    for page in reader.pages:
         writer.add_page(page)
 
     writer.add_metadata({
