@@ -3,6 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const { partitionConsoleMessages } = require('./consoleNoise');
 const {
+  assertBacktestHealthShape,
+  assertProviderRuntimeShape,
+  assertIndustryHeatmapShape,
+  assertIndustryStocksShape,
+  assertIndustryStocksStatusShape,
+} = require('./fixtureContract');
+const {
   assertMainLayoutClearOfSidebar,
   assertOverlayLayoutUsesFullViewport,
 } = require('./layoutAssertions');
@@ -174,6 +181,11 @@ const PROVIDER_RUNTIME_FIXTURE = {
   },
 };
 
+assertBacktestHealthShape(BACKTEST_HEALTH_FIXTURE);
+assertProviderRuntimeShape(PROVIDER_RUNTIME_FIXTURE);
+assertIndustryHeatmapShape(INDUSTRY_FIXTURE_HEATMAP);
+assertIndustryStocksShape(INDUSTRY_FIXTURE_STOCKS);
+
 const installBacktestHealthFixtureRoutes = async (page) => {
   await page.route('**/industry/health**', (route) => fulfillJson(route, BACKTEST_HEALTH_FIXTURE));
   await page.route('**/system/providers/status**', (route) => fulfillJson(route, PROVIDER_RUNTIME_FIXTURE));
@@ -244,14 +256,18 @@ const installIndustryBacktestFixtureRoutes = async (page) => {
 
   await page.route('**/industry/bootstrap**', (route) => fulfillJson(route, bootstrapPayload));
   await page.route('**/industry/industries/heatmap**', (route) => fulfillJson(route, INDUSTRY_FIXTURE_HEATMAP));
-  await page.route(/.*\/industry\/industries\/[^/]+\/stocks\/status.*/, (route) => fulfillJson(route, {
-    industry_name: INDUSTRY_FIXTURE_NAME,
-    top_n: 20,
-    status: 'ready',
-    rows: INDUSTRY_FIXTURE_STOCKS.length,
-    message: 'E2E fixture ready',
-    updated_at: INDUSTRY_FIXTURE_NOW,
-  }));
+  await page.route(/.*\/industry\/industries\/[^/]+\/stocks\/status.*/, (route) => {
+    const stocksStatusFixture = {
+      industry_name: INDUSTRY_FIXTURE_NAME,
+      top_n: 20,
+      status: 'ready',
+      rows: INDUSTRY_FIXTURE_STOCKS.length,
+      message: 'E2E fixture ready',
+      updated_at: INDUSTRY_FIXTURE_NOW,
+    };
+    assertIndustryStocksStatusShape(stocksStatusFixture);
+    return fulfillJson(route, stocksStatusFixture);
+  });
   await page.route(/.*\/industry\/industries\/[^/]+\/stocks\/stream.*/, (route) => route.fulfill({
     status: 200,
     contentType: 'text/event-stream; charset=utf-8',

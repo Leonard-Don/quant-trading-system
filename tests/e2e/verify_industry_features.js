@@ -1,5 +1,10 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
+const {
+  assertIndustryHeatmapShape,
+  assertIndustryStocksShape,
+  assertIndustryStocksStatusShape,
+} = require('./fixtureContract');
 
 const API_BASE_URL = process.env.API_URL || process.env.BACKEND_URL || 'http://127.0.0.1:8000';
 const INDUSTRY_FIXTURE_NOW = '2026-05-07T00:00:00.000Z';
@@ -161,6 +166,8 @@ const INDUSTRY_HEATMAP_FIXTURE = {
   update_time: INDUSTRY_FIXTURE_NOW,
 };
 
+assertIndustryHeatmapShape(INDUSTRY_HEATMAP_FIXTURE);
+
 const installIndustryHeatmapFixture = async (page) => {
   const bootstrapPayload = {
     days: 5,
@@ -240,6 +247,7 @@ const buildIndustryStockFixture = (industryName) => ([
 
 const installIndustryStockDetailFixture = async (page, industryName) => {
   const stocksFixture = buildIndustryStockFixture(industryName);
+  assertIndustryStocksShape(stocksFixture, `industry stocks fixture for ${industryName}`);
   const fulfillJson = (route, payload) => route.fulfill({
     status: 200,
     contentType: 'application/json; charset=utf-8',
@@ -267,12 +275,14 @@ const installIndustryStockDetailFixture = async (page, industryName) => {
       await route.fallback();
       return;
     }
-    await fulfillJson(route, {
+    const stocksStatusFixture = {
       industry: industryName,
       top_n: stocksFixture.length,
       status: 'ready',
       scoreStage: 'full',
-    });
+    };
+    assertIndustryStocksStatusShape(stocksStatusFixture, `industry stocks status fixture for ${industryName}`);
+    await fulfillJson(route, stocksStatusFixture);
   });
 };
 
