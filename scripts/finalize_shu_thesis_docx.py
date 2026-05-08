@@ -113,6 +113,7 @@ BODY_PDF_ABSTRACT_PAGE_INDEX = 4
 BODY_FIRST_LINE_INDENT = Emu(266700)
 BODY_LINE_SPACING = Pt(23)
 ABSTRACT_LINE_SPACING = Pt(20)
+FORMULA_FONT_SIZE = Pt(11)
 SOURCE_NOTE = "图片来源：系统运行截图（作者自制）"
 ARCHITECTURE_SOURCE_NOTE = "图片来源：作者根据系统实现绘制"
 HEADER_TEXT = "上海大学本科毕业论文（设计）"
@@ -292,7 +293,6 @@ TOC_BLUEPRINT = [
     ("toc 1", "结 论"),
     ("toc 1", "参考文献"),
     ("toc 1", "致 谢"),
-    ("toc 1", "附录材料（另册）"),
 ]
 
 
@@ -498,6 +498,49 @@ def insert_paragraph_after(paragraph, text: str = ""):
     if text:
         new_para.add_run(text)
     return new_para
+
+
+def normalize_citation_punctuation_text(text: str) -> str:
+    citation_group = r"(?:\[[0-9][0-9,\-，、]*\])+"
+    # Keep citations inside sentence-ending punctuation, e.g. "观点[1]。".
+    normalized = re.sub(rf"([。！？；])\s*({citation_group})", r"\2\1", text)
+    normalized = re.sub(rf"([.;!?])\s*({citation_group})", r"\2\1", normalized)
+    return normalized
+
+
+def normalize_citation_punctuation(doc: Document) -> None:
+    for paragraph in doc.paragraphs:
+        text = paragraph.text
+        if not text or "[" not in text or text.strip().startswith("["):
+            continue
+        normalized = normalize_citation_punctuation_text(text)
+        if normalized != text:
+            replace_paragraph_text(paragraph, normalized)
+
+
+def set_formula_tab_stops(doc: Document, paragraph) -> None:
+    body_width = doc.sections[-1].page_width - doc.sections[-1].left_margin - doc.sections[-1].right_margin
+    tab_stops = paragraph.paragraph_format.tab_stops
+    tab_stops.clear_all()
+    tab_stops.add_tab_stop(Emu(int(body_width * 0.47)), WD_TAB_ALIGNMENT.CENTER)
+    tab_stops.add_tab_stop(Emu(body_width), WD_TAB_ALIGNMENT.RIGHT)
+
+
+def format_formula_line(doc: Document, paragraph, equation_text: str, equation_number: str) -> None:
+    clear_paragraph(paragraph)
+    paragraph.style = "Normal"
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    paragraph.paragraph_format.first_line_indent = Pt(0)
+    paragraph.paragraph_format.space_before = Pt(6)
+    paragraph.paragraph_format.space_after = Pt(6)
+    paragraph.paragraph_format.line_spacing = BODY_LINE_SPACING
+    set_formula_tab_stops(doc, paragraph)
+    paragraph.add_run("\t")
+    equation_run = paragraph.add_run(equation_text)
+    set_run_text_font(equation_run, "Times New Roman", FORMULA_FONT_SIZE, bold=False)
+    paragraph.add_run("\t")
+    number_run = paragraph.add_run(equation_number)
+    set_run_text_font(number_run, "Times New Roman", FORMULA_FONT_SIZE, bold=False)
 
 
 def insert_paragraph_before_element(element, parent):
@@ -3461,31 +3504,10 @@ def replace_formula_block(doc: Document, keyword: str, equation_text: str, equat
         return
 
     equation_para = insert_paragraph_before_element(anchor_element, anchor_parent)
-    equation_para.style = "Normal"
-    equation_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    equation_para.paragraph_format.first_line_indent = Pt(0)
-    equation_para.paragraph_format.space_before = Pt(6)
-    equation_para.paragraph_format.space_after = Pt(0)
-    equation_para.paragraph_format.line_spacing = BODY_LINE_SPACING
-    equation_run = equation_para.add_run(equation_text)
-    equation_run.font.name = "Times New Roman"
-    equation_run.font.size = Pt(12)
-    set_east_asia_font(equation_run, "Times New Roman")
-
-    number_para = insert_paragraph_after(equation_para)
-    number_para.style = "Normal"
-    number_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    number_para.paragraph_format.first_line_indent = Pt(0)
-    number_para.paragraph_format.space_before = Pt(0)
-    number_para.paragraph_format.space_after = Pt(6)
-    number_para.paragraph_format.line_spacing = BODY_LINE_SPACING
-    number_run = number_para.add_run(equation_number)
-    number_run.font.name = "Times New Roman"
-    number_run.font.size = Pt(12)
-    set_east_asia_font(number_run, "Times New Roman")
+    format_formula_line(doc, equation_para, equation_text, equation_number)
 
     anchor_element.getparent().remove(anchor_element)
-    keep_elements = {equation_para._element, number_para._element}
+    keep_elements = {equation_para._element}
     for paragraph in list(doc.paragraphs):
         stripped = paragraph.text.strip()
         if paragraph._element in keep_elements:
@@ -4193,7 +4215,7 @@ def apply_minor_layout_overrides(doc: Document) -> None:
         None,
     )
     if completion_heading is not None:
-        completion_heading.paragraph_format.page_break_before = False
+        completion_heading.paragraph_format.page_break_before = True
         completion_heading.paragraph_format.keep_with_next = True
         next_element = completion_heading._element.getnext()
         if next_element is not None and next_element.tag == qn("w:p"):
@@ -4201,6 +4223,11 @@ def apply_minor_layout_overrides(doc: Document) -> None:
 
             intro_para = Paragraph(next_element, completion_heading._parent)
             intro_para.paragraph_format.keep_with_next = True
+            second_element = next_element.getnext()
+            if second_element is not None and second_element.tag == qn("w:p"):
+                caption_para = Paragraph(second_element, completion_heading._parent)
+                if caption_para.text.strip().startswith("表 6.4"):
+                    caption_para.paragraph_format.keep_with_next = True
 
 
 def apply_superscript_citations(paragraph) -> None:
@@ -4373,26 +4400,14 @@ def format_paragraphs(doc: Document) -> None:
             continue
         if text.startswith("Sindustry") or text.startswith("Sleader"):
             equation_text = "Sindustry=0.35×Zm+0.35×Zf+0.15×Zv-0.15×Zr"
+            equation_number = "（4.2.1）"
             if text.startswith("Sleader"):
                 equation_text = "Sleader=100×(0.20×s1+0.15×s2+0.25×s3+0.20×s4+0.10×s5+0.10×s6)"
-            clear_paragraph(paragraph)
-            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            paragraph.paragraph_format.first_line_indent = Pt(0)
-            paragraph.paragraph_format.space_before = Pt(6)
-            paragraph.paragraph_format.space_after = Pt(0)
-            paragraph.paragraph_format.line_spacing = BODY_LINE_SPACING
-            run = paragraph.add_run(equation_text)
-            set_run_text_font(run, "Times New Roman", Pt(12), bold=False)
+                equation_number = "（4.4.1）"
+            format_formula_line(doc, paragraph, equation_text, equation_number)
             continue
         if text in {"（4.2.1）", "（4.4.1）"}:
-            clear_paragraph(paragraph)
-            run = paragraph.add_run(text)
-            paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            paragraph.paragraph_format.first_line_indent = Pt(0)
-            paragraph.paragraph_format.space_before = Pt(0)
-            paragraph.paragraph_format.space_after = Pt(6)
-            paragraph.paragraph_format.line_spacing = BODY_LINE_SPACING
-            set_run_text_font(run, "Times New Roman", Pt(12), bold=False)
+            delete_paragraph(paragraph)
             continue
         if re.match(r"^\[\d+\]", text):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -4634,16 +4649,19 @@ def main() -> None:
     normalize_standalone_project_scope(source_layout_doc)
     polish_final_submission_copy(source_layout_doc)
     remove_repeated_long_body_paragraphs(source_layout_doc)
+    normalize_citation_punctuation(source_layout_doc)
     replace_formula_tables(source_layout_doc)
     relayout_figures(source_layout_doc)
     polish_final_submission_copy(source_layout_doc)
     remove_repeated_long_body_paragraphs(source_layout_doc)
+    normalize_citation_punctuation(source_layout_doc)
     normalize_major_breaks(source_layout_doc)
 
     composed_doc = compose_official_template(source_layout_doc, Document(str(DOC_PATH)))
     normalize_reference_entries(composed_doc)
     polish_final_submission_copy(composed_doc)
     remove_repeated_long_body_paragraphs(composed_doc)
+    normalize_citation_punctuation(composed_doc)
     format_data_tables(composed_doc)
     configure_headers_and_footers(composed_doc)
     format_paragraphs(composed_doc)
@@ -4655,6 +4673,7 @@ def main() -> None:
     rebuild_toc(composed_doc, toc_pages)
     polish_final_submission_copy(composed_doc)
     remove_repeated_long_body_paragraphs(composed_doc)
+    normalize_citation_punctuation(composed_doc)
     format_paragraphs(composed_doc)
     apply_minor_layout_overrides(composed_doc)
     composed_doc.save(str(DOC_PATH))
@@ -4665,6 +4684,7 @@ def main() -> None:
         rebuild_toc(composed_doc, verified_toc_pages)
         polish_final_submission_copy(composed_doc)
         remove_repeated_long_body_paragraphs(composed_doc)
+        normalize_citation_punctuation(composed_doc)
         format_paragraphs(composed_doc)
         apply_minor_layout_overrides(composed_doc)
         composed_doc.save(str(DOC_PATH))
