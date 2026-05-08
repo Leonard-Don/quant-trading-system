@@ -1147,6 +1147,46 @@ def test_run_matching_processes_limit_then_triggers_in_one_call(store):
     assert result["account"]["positions"] == []
 
 
+def test_buy_limit_carries_bracket_sl_tp_through_fill(store):
+    """A BUY LIMIT queued with stop_loss_pct / take_profit_pct must carry the
+    brackets all the way to the position when it fills. Otherwise the resulting
+    position has no SL/TP, the user thinks they're protected, and run_matching
+    silently lets the price drift past the threshold (PaperOrderRequest accepts
+    the fields but _queue_limit_order used to drop them)."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "fill_price": 100,  # ignored for LIMIT
+            "limit_price": 95,
+            "stop_loss_pct": 0.05,
+            "take_profit_pct": 0.10,
+        },
+        profile_id="alice",
+    )
+    queued = store.get_account(profile_id="alice")
+    assert queued["pending_orders"][0]["stop_loss_pct"] == pytest.approx(0.05)
+    assert queued["pending_orders"][0]["take_profit_pct"] == pytest.approx(0.10)
+
+    fill_result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+    assert len(fill_result["filled"]) == 1
+    position = fill_result["account"]["positions"][0]
+    # Brackets rebase against the actual fill price (95), not the original 100.
+    assert position["stop_loss_pct"] == pytest.approx(0.05)
+    assert position["stop_loss_price"] == pytest.approx(95.0 * 0.95)
+    assert position["take_profit_pct"] == pytest.approx(0.10)
+    assert position["take_profit_price"] == pytest.approx(95.0 * 1.10)
+
+    # And the bracketed exits actually fire on the next tick — proves the
+    # invariant end-to-end, not just the data-shape claim above.
+    triggered = store.run_matching({"AAPL": 95.0 * 0.95}, profile_id="alice")
+    assert len(triggered["triggered"]) == 1
+    assert triggered["triggered"][0]["trigger_reason"] == "stop_loss"
+    assert triggered["account"]["positions"] == []
+
+
 def test_run_matching_persists_changes_across_store_instances(store, tmp_path):
     store.submit_order(
         {
