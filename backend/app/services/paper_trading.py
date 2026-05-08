@@ -187,6 +187,147 @@ class PaperTradingStore:
                 "account": self._public_view(profile_id, account),
             }
 
+    def run_matching(
+        self,
+        quotes: dict[str, float] | None,
+        profile_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Apply quote-driven matching: fill pending LIMITs that have crossed
+        and trigger SL/TP exits on positions whose threshold has been hit.
+
+        ``quotes`` maps symbol → current price. Symbol lookup is case-insensitive.
+        Returns ``{filled, triggered, rejected, account}``. When no quote is
+        supplied for a symbol, anything tied to that symbol is left alone.
+        """
+        normalized_quotes: dict[str, float] = {}
+        for symbol, price in (quotes or {}).items():
+            symbol_norm = _normalize_symbol(symbol)
+            if not symbol_norm:
+                continue
+            try:
+                normalized_quotes[symbol_norm] = float(price)
+            except (TypeError, ValueError):
+                continue
+
+        filled_orders: list[dict[str, Any]] = []
+        triggered_orders: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = []
+
+        with self._lock:
+            account = self._load(profile_id)
+            history: list[dict[str, Any]] = account.setdefault("orders", [])
+            pending: list[dict[str, Any]] = list(account.get("pending_orders") or [])
+            remaining_pending: list[dict[str, Any]] = []
+
+            # Step 1: LIMIT auto-fill — process pending orders against quotes.
+            for pending_order in pending:
+                symbol = _normalize_symbol(pending_order.get("symbol", ""))
+                side = str(pending_order.get("side") or "").upper()
+                try:
+                    limit_price = float(pending_order.get("limit_price") or 0)
+                except (TypeError, ValueError):
+                    limit_price = 0.0
+                quote = normalized_quotes.get(symbol)
+                if quote is None or limit_price <= 0:
+                    remaining_pending.append(pending_order)
+                    continue
+                crosses = (
+                    (side == "BUY" and quote <= limit_price)
+                    or (side == "SELL" and quote >= limit_price)
+                )
+                if not crosses:
+                    remaining_pending.append(pending_order)
+                    continue
+                try:
+                    order = self._apply_order(
+                        account,
+                        {
+                            "symbol": symbol,
+                            "side": side,
+                            "quantity": pending_order.get("quantity"),
+                            "fill_price": limit_price,
+                            "note": pending_order.get("note") or "",
+                        },
+                    )
+                except PaperTradingError as exc:
+                    rejected.append(
+                        {
+                            "pending_order_id": pending_order.get("id"),
+                            "symbol": symbol,
+                            "reason": str(exc),
+                        }
+                    )
+                    remaining_pending.append(pending_order)
+                    continue
+                order["pending_order_id"] = pending_order.get("id")
+                order["trigger_reason"] = "limit_cross"
+                history.append(order)
+                filled_orders.append(order)
+            account["pending_orders"] = remaining_pending
+
+            # Step 2: SL/TP triggers — close positions whose threshold crossed.
+            positions = account.get("positions") or {}
+            for symbol in list(positions.keys()):
+                position = positions.get(symbol)
+                if not position:
+                    continue
+                quote = normalized_quotes.get(symbol)
+                if quote is None:
+                    continue
+                try:
+                    quantity = float(position.get("quantity") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if quantity <= 0:
+                    continue
+                tp_price = position.get("take_profit_price")
+                sl_price = position.get("stop_loss_price")
+                trigger_reason: str | None = None
+                trigger_price: float | None = None
+                if tp_price is not None and quote >= float(tp_price) - 1e-9:
+                    trigger_reason = "take_profit"
+                    trigger_price = float(tp_price)
+                elif sl_price is not None and quote <= float(sl_price) + 1e-9:
+                    trigger_reason = "stop_loss"
+                    trigger_price = float(sl_price)
+                if trigger_reason is None or trigger_price is None:
+                    continue
+                try:
+                    order = self._apply_order(
+                        account,
+                        {
+                            "symbol": symbol,
+                            "side": "SELL",
+                            "quantity": quantity,
+                            "fill_price": trigger_price,
+                        },
+                    )
+                except PaperTradingError as exc:
+                    rejected.append(
+                        {
+                            "symbol": symbol,
+                            "trigger_reason": trigger_reason,
+                            "reason": str(exc),
+                        }
+                    )
+                    continue
+                order["trigger_reason"] = trigger_reason
+                history.append(order)
+                triggered_orders.append(order)
+
+            account["orders"] = history[-MAX_PAPER_ORDERS:]
+
+            if filled_orders or triggered_orders or rejected:
+                account["updated_at"] = _utc_now()
+                self._persist(profile_id, account)
+
+            return {
+                "filled": filled_orders,
+                "triggered": triggered_orders,
+                "rejected": rejected,
+                "account": self._public_view(profile_id, account),
+            }
+
     def cancel_order(self, order_id: str, profile_id: str | None = None) -> dict[str, Any]:
         """Cancel a pending LIMIT order. Filled orders cannot be cancelled."""
         with self._lock:
