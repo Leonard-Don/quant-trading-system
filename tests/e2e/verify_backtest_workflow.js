@@ -135,6 +135,50 @@ const fulfillJson = async (route, payload) => route.fulfill({
   body: JSON.stringify(payload),
 });
 
+const BACKTEST_HEALTH_FIXTURE = {
+  status: 'healthy',
+  active_provider: { name: 'E2E fixture provider', type: 'fixture' },
+  data_sources: {
+    fixture: {
+      name: 'E2E deterministic data source',
+      installed: true,
+      has_market_cap: true,
+      has_multi_day: true,
+      has_real_money_flow: true,
+      day_options: ['1日', '5日', '10日'],
+      status: 'connected',
+      status_detail: 'E2E fixture ready',
+    },
+  },
+  data_sources_contributing: ['fixture'],
+  data_source_mode: 'e2e_fixture',
+  message: 'E2E fixture data source ready',
+};
+
+const PROVIDER_RUNTIME_FIXTURE = {
+  success: true,
+  timestamp: INDUSTRY_FIXTURE_NOW,
+  providers: {
+    fixture: {
+      provider: { name: 'fixture', description: 'Deterministic E2E provider' },
+      circuit_breakers: {
+        fixture_quotes: {
+          name: 'fixture.quotes',
+          state: 'closed',
+          failure_count: 0,
+          failure_threshold: 5,
+          next_attempt_at: null,
+        },
+      },
+    },
+  },
+};
+
+const installBacktestHealthFixtureRoutes = async (page) => {
+  await page.route('**/industry/health**', (route) => fulfillJson(route, BACKTEST_HEALTH_FIXTURE));
+  await page.route('**/system/providers/status**', (route) => fulfillJson(route, PROVIDER_RUNTIME_FIXTURE));
+};
+
 const buildIndustryTrendFixture = (industryName) => ({
   industry_name: industryName,
   stock_count: INDUSTRY_FIXTURE_STOCKS.length,
@@ -384,6 +428,7 @@ const readLocalStorageJson = async (page, key, fallback = null) => page.evaluate
   });
 
   console.log('正在访问主回测工作台...');
+  await installBacktestHealthFixtureRoutes(page);
   await page.goto(`${APP_URL}/?view=backtest`, { waitUntil: 'domcontentloaded', timeout: 60000 });
   await waitForBacktestWorkspace(page);
   await assertMainLayoutClearOfSidebar(page, 'backtest workspace');
