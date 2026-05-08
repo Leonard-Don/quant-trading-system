@@ -48,6 +48,21 @@ def _normalize_side(side: str) -> str:
     return side_norm
 
 
+def _without_pending_sell_exits(
+    orders: list[dict[str, Any]], target_symbol: str
+) -> list[dict[str, Any]]:
+    """Drop pending SELL orders for ``target_symbol`` — used after a position
+    fully closes to prevent stale exits from remaining armed."""
+    return [
+        order
+        for order in orders
+        if not (
+            _normalize_symbol(order.get("symbol", "")) == target_symbol
+            and str(order.get("side") or "").upper() == "SELL"
+        )
+    ]
+
+
 def _default_account(initial_capital: float | None = None) -> dict[str, Any]:
     capital = float(initial_capital or DEFAULT_INITIAL_CAPITAL)
     now = _utc_now()
@@ -178,6 +193,13 @@ class PaperTradingStore:
                 }
             # MARKET — default behavior, fills immediately
             order = self._apply_order(account, order_request)
+            if (
+                order["side"] == "SELL"
+                and order["symbol"] not in (account.get("positions") or {})
+            ):
+                account["pending_orders"] = _without_pending_sell_exits(
+                    list(account.get("pending_orders") or []), order["symbol"]
+                )
             account["updated_at"] = _utc_now()
             account["orders"] = (account.get("orders") or [])[-MAX_PAPER_ORDERS + 1 :]
             account["orders"].append(order)
@@ -219,18 +241,6 @@ class PaperTradingStore:
             pending: list[dict[str, Any]] = list(account.get("pending_orders") or [])
             remaining_pending: list[dict[str, Any]] = []
             closed_exit_symbols: set[str] = set()
-
-            def _without_pending_sell_exits(
-                orders: list[dict[str, Any]], target_symbol: str
-            ) -> list[dict[str, Any]]:
-                return [
-                    order
-                    for order in orders
-                    if not (
-                        _normalize_symbol(order.get("symbol", "")) == target_symbol
-                        and str(order.get("side") or "").upper() == "SELL"
-                    )
-                ]
 
             # Step 1: LIMIT auto-fill — process pending orders against quotes.
             for pending_order in pending:

@@ -91,6 +91,97 @@ def test_full_sell_removes_position_key(store):
     assert account["positions"] == []
 
 
+def test_market_sell_closing_position_prunes_stale_sell_limits(store):
+    """Manual MARKET SELL fully closing a position must prune any pending SELL
+    LIMITs for the same symbol — they would never be backed by shares again
+    and must not remain armed (mirrors run_matching pruning, commit f1aec71)."""
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 10, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 105,
+        },
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    result = store.submit_order(
+        {"symbol": "AAPL", "side": "SELL", "quantity": 10, "fill_price": 102.0},
+        profile_id="alice",
+    )
+    account = result["account"]
+    assert account["positions"] == []
+    assert account["pending_orders"] == []
+
+
+def test_market_sell_partial_close_keeps_pending_sell_limits(store):
+    """A SELL that does not fully close the position must NOT prune pending
+    SELL LIMITs — remaining shares can still back them."""
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 10, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    store.submit_order(
+        {"symbol": "AAPL", "side": "SELL", "quantity": 3, "fill_price": 105.0},
+        profile_id="alice",
+    )
+    account = store.get_account(profile_id="alice")
+    assert account["positions"][0]["quantity"] == 7
+    assert len(account["pending_orders"]) == 1
+    assert account["pending_orders"][0]["side"] == "SELL"
+
+
+def test_market_sell_closing_position_does_not_prune_buy_limits(store):
+    """Pending BUY LIMITs for the same symbol represent intent to re-enter,
+    not stale exits — they must survive a position close."""
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 3,
+            "order_type": "LIMIT",
+            "limit_price": 90,
+        },
+        profile_id="alice",
+    )
+    store.submit_order(
+        {"symbol": "AAPL", "side": "SELL", "quantity": 5, "fill_price": 102.0},
+        profile_id="alice",
+    )
+    account = store.get_account(profile_id="alice")
+    assert account["positions"] == []
+    assert len(account["pending_orders"]) == 1
+    assert account["pending_orders"][0]["side"] == "BUY"
+
+
 def test_buy_rejects_when_cash_insufficient(store):
     with pytest.raises(PaperTradingError, match="insufficient cash"):
         store.submit_order(
