@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import datetime
 import time
@@ -35,6 +36,49 @@ def test_build_quote_preserves_missing_numeric_fields():
     assert quote.change_percent is None
     assert quote.volume is None
     assert quote.source == "test"
+
+
+def test_build_quote_drops_nonfinite_numeric_values_for_json_contract():
+    manager = RealTimeDataManager()
+    try:
+        quote = manager._build_quote(
+            "TEST",
+            {
+                "symbol": "TEST",
+                "price": float("nan"),
+                "change": float("inf"),
+                "change_percent": "-inf",
+                "high": "NaN",
+                "low": "Infinity",
+                "open": "-Infinity",
+                "previous_close": float("nan"),
+                "bid": float("inf"),
+                "ask": float("-inf"),
+                "volume": "Infinity",
+                "timestamp": datetime.now().isoformat(),
+            },
+            default_source="test",
+        )
+    finally:
+        manager.cleanup()
+
+    assert quote is not None
+    payload = quote.to_dict()
+    for field in (
+        "price",
+        "change",
+        "change_percent",
+        "high",
+        "low",
+        "open",
+        "previous_close",
+        "bid",
+        "ask",
+        "volume",
+    ):
+        assert payload[field] is None
+
+    json.dumps(payload, allow_nan=False)
 
 
 def test_build_quote_derives_previous_close_and_percent_when_possible():

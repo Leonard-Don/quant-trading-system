@@ -4,6 +4,7 @@
 
 import asyncio
 import logging
+import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError, wait
@@ -165,18 +166,20 @@ class RealTimeDataManager(BaseComponent):
         if value in (None, ""):
             return default
         try:
-            return float(value)
+            parsed = float(value)
         except (TypeError, ValueError):
             return default
+        return parsed if math.isfinite(parsed) else default
 
     @staticmethod
     def _to_int(value: Any, default: Optional[int] = None) -> Optional[int]:
         if value in (None, ""):
             return default
         try:
-            return int(float(value))
+            parsed = float(value)
         except (TypeError, ValueError):
             return default
+        return int(parsed) if math.isfinite(parsed) else default
 
     @staticmethod
     def _to_datetime(value: Any) -> datetime:
