@@ -1881,3 +1881,173 @@ def test_closing_fill_without_prune_omits_or_empties_canceled_pending_ids(store)
         "fill without a prune must not advertise canceled_pending_order_ids; "
         f"got {canceled!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Bracket exit trigger → originating BUY fill (entry-side audit link)
+# ---------------------------------------------------------------------------
+#
+# `closing_order_id` and `canceled_pending_order_ids` close the loop between
+# a closing fill and the sibling pending exits it pruned. They do NOT link a
+# closing fill back to the BUY fill that opened the bracketed position. So a
+# journal reader who finds an SL/TP triggered SELL in persisted history can't
+# answer "which BUY fill armed this bracket?" without scanning the full
+# history for the most recent matching-symbol BUY — fragile under add-on
+# buys, multi-symbol churn, or partial reloads. Adding `entry_order_id` to
+# closing SELL fills makes the link deterministic from persisted state alone.
+
+
+def test_run_matching_stop_loss_triggered_fill_records_entry_order_id(store):
+    """SL-triggered SELL fill must carry `entry_order_id` pointing at the
+    BUY fill that opened the position — so a journal reader can resolve
+    SL exit → originating entry from persisted state alone."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 95,
+            "stop_loss_pct": 0.05,
+            "take_profit_pct": 0.10,
+        },
+        profile_id="alice",
+    )
+    fill_result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+    assert len(fill_result["filled"]) == 1
+    buy_fill_id = fill_result["filled"][0]["id"]
+
+    # SL price = 95 * 0.95 = 90.25 → quote crosses
+    trigger_result = store.run_matching({"AAPL": 90.0}, profile_id="alice")
+    assert len(trigger_result["triggered"]) == 1
+    triggered = trigger_result["triggered"][0]
+    assert triggered["trigger_reason"] == "stop_loss"
+    assert triggered.get("entry_order_id") == buy_fill_id, (
+        "SL trigger fill must link back to the originating BUY fill id; "
+        f"got {triggered.get('entry_order_id')!r}, expected {buy_fill_id!r}"
+    )
+
+
+def test_run_matching_take_profit_triggered_fill_records_entry_order_id(store):
+    """TP-triggered SELL fill must mirror the SL shape: the originating
+    BUY fill id appears as `entry_order_id`."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 100,
+            "stop_loss_pct": 0.05,
+            "take_profit_pct": 0.10,
+        },
+        profile_id="alice",
+    )
+    fill_result = store.run_matching({"AAPL": 100.0}, profile_id="alice")
+    assert len(fill_result["filled"]) == 1
+    buy_fill_id = fill_result["filled"][0]["id"]
+
+    # TP price = 100 * 1.10 = 110 → quote crosses
+    trigger_result = store.run_matching({"AAPL": 110.0}, profile_id="alice")
+    assert len(trigger_result["triggered"]) == 1
+    triggered = trigger_result["triggered"][0]
+    assert triggered["trigger_reason"] == "take_profit"
+    assert triggered.get("entry_order_id") == buy_fill_id
+
+
+def test_run_matching_entry_order_id_link_persists_across_store_instances(
+    store, tmp_path
+):
+    """A fresh store reading only the JSON file must see the SL-triggered
+    fill in `list_orders()` AND find `entry_order_id` on it pointing at the
+    BUY fill that opened the position. Proves the entry-side link is durable,
+    not a response-envelope decoration."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 95,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    fill_result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+    buy_fill_id = fill_result["filled"][0]["id"]
+    store.run_matching({"AAPL": 90.0}, profile_id="alice")
+
+    fresh = PaperTradingStore(storage_path=tmp_path)
+    persisted = fresh.list_orders(profile_id="alice")
+    sl_fills = [
+        order for order in persisted if order.get("trigger_reason") == "stop_loss"
+    ]
+    assert len(sl_fills) == 1
+    assert sl_fills[0].get("entry_order_id") == buy_fill_id, (
+        "SL fill's entry_order_id must survive persistence; "
+        f"got {sl_fills[0].get('entry_order_id')!r}, expected {buy_fill_id!r}"
+    )
+    # And the referenced entry id is itself present in persisted history,
+    # so the link is reconstructable from JSON alone.
+    history_ids = {order["id"] for order in persisted}
+    assert buy_fill_id in history_ids
+
+
+def test_market_buy_then_sell_records_entry_order_id_on_sell(store):
+    """Market BUY → SELL path must mirror the bracket case: the SELL fill
+    carries `entry_order_id` linking back to the BUY fill, since the same
+    'closing fill ← entry fill' question applies regardless of close path."""
+    buy_result = store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    buy_fill_id = buy_result["order"]["id"]
+
+    sell_result = store.submit_order(
+        {"symbol": "AAPL", "side": "SELL", "quantity": 5, "fill_price": 110.0},
+        profile_id="alice",
+    )
+    assert sell_result["order"].get("entry_order_id") == buy_fill_id
+
+
+def test_legacy_position_without_opening_order_id_does_not_break_sell(
+    store, tmp_path
+):
+    """Existing accounts persisted before this change have no
+    `opening_order_id` on positions. A SELL closing such a position must
+    not crash and must omit `entry_order_id` (degrade to absent, not None
+    or fabricated value), preserving backward compatibility on disk."""
+    legacy_payload = {
+        "initial_capital": 10000.0,
+        "cash": 9500.0,
+        "positions": {
+            "AAPL": {
+                "symbol": "AAPL",
+                "quantity": 5,
+                "avg_cost": 100.0,
+                "opened_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+                # no opening_order_id — legacy shape
+            }
+        },
+        "orders": [],
+        "pending_orders": [],
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+    profile_path = tmp_path / "alice.json"
+    with open(profile_path, "w", encoding="utf-8") as file:
+        json.dump(legacy_payload, file)
+
+    fresh = PaperTradingStore(storage_path=tmp_path)
+    result = fresh.submit_order(
+        {"symbol": "AAPL", "side": "SELL", "quantity": 5, "fill_price": 110.0},
+        profile_id="alice",
+    )
+    sell_fill = result["order"]
+    assert sell_fill["side"] == "SELL"
+    # Field must be absent (not None, not empty string) — degrades cleanly.
+    assert "entry_order_id" not in sell_fill, (
+        "legacy position without opening_order_id must not surface a fake "
+        f"entry_order_id; got {sell_fill.get('entry_order_id')!r}"
+    )
