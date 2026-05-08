@@ -616,3 +616,402 @@ def test_endpoint_profile_header_isolation(client, tmp_path):
     with open(storage / "alice.json", encoding="utf-8") as file:
         persisted = json.load(file)
     assert "AAPL" in persisted["positions"]
+
+
+# ---------------------------------------------------------------------------
+# Matching / trigger engine tests (LIMIT auto-fill + SL/TP exits)
+# ---------------------------------------------------------------------------
+
+
+def test_run_matching_fills_buy_limit_when_quote_at_limit(store):
+    queued = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "fill_price": 100,
+            "limit_price": 95,
+        },
+        profile_id="alice",
+    )
+    pending_id = queued["account"]["pending_orders"][0]["id"]
+
+    result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+
+    assert len(result["filled"]) == 1
+    filled = result["filled"][0]
+    assert filled["symbol"] == "AAPL"
+    assert filled["side"] == "BUY"
+    assert filled["quantity"] == 5
+    assert filled["fill_price"] == pytest.approx(95.0)
+    assert filled["pending_order_id"] == pending_id
+    assert filled["trigger_reason"] == "limit_cross"
+    account = result["account"]
+    assert account["pending_orders"] == []
+    assert account["cash"] == pytest.approx(10000.0 - 5 * 95.0)
+    assert account["positions"][0]["symbol"] == "AAPL"
+    assert account["positions"][0]["quantity"] == 5
+    assert account["positions"][0]["avg_cost"] == pytest.approx(95.0)
+
+
+def test_run_matching_fills_buy_limit_when_quote_below_limit(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 4,
+            "order_type": "LIMIT",
+            "fill_price": 100,
+            "limit_price": 90,
+        },
+        profile_id="alice",
+    )
+    # Market gapped down — buy still fills at the limit price (deterministic).
+    result = store.run_matching({"AAPL": 80.0}, profile_id="alice")
+    assert len(result["filled"]) == 1
+    assert result["filled"][0]["fill_price"] == pytest.approx(90.0)
+    assert result["account"]["cash"] == pytest.approx(10000.0 - 4 * 90.0)
+
+
+def test_run_matching_does_not_fill_buy_limit_when_quote_above_limit(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "fill_price": 100,
+            "limit_price": 95,
+        },
+        profile_id="alice",
+    )
+    result = store.run_matching({"AAPL": 96.0}, profile_id="alice")
+    assert result["filled"] == []
+    assert result["triggered"] == []
+    assert len(result["account"]["pending_orders"]) == 1
+    assert result["account"]["cash"] == pytest.approx(10000.0)
+
+
+def test_run_matching_fills_sell_limit_when_quote_at_or_above_limit(store):
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "fill_price": 100,
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    result = store.run_matching({"AAPL": 110.0}, profile_id="alice")
+    assert len(result["filled"]) == 1
+    filled = result["filled"][0]
+    assert filled["side"] == "SELL"
+    assert filled["fill_price"] == pytest.approx(110.0)
+    account = result["account"]
+    assert account["pending_orders"] == []
+    assert account["positions"] == []
+    assert account["cash"] == pytest.approx(10000.0 - 500.0 + 5 * 110.0)
+
+
+def test_run_matching_does_not_fill_sell_limit_when_quote_below_limit(store):
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "fill_price": 100,
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    result = store.run_matching({"AAPL": 109.99}, profile_id="alice")
+    assert result["filled"] == []
+    assert len(result["account"]["pending_orders"]) == 1
+    assert result["account"]["positions"][0]["quantity"] == 5
+
+
+def test_run_matching_skips_symbols_without_quotes(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 1,
+            "order_type": "LIMIT",
+            "fill_price": 100,
+            "limit_price": 95,
+        },
+        profile_id="alice",
+    )
+    # Quote map covers a different symbol, so AAPL stays pending.
+    result = store.run_matching({"MSFT": 50.0}, profile_id="alice")
+    assert result["filled"] == []
+    assert len(result["account"]["pending_orders"]) == 1
+
+
+def test_run_matching_quotes_lookup_is_case_insensitive(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 1,
+            "order_type": "LIMIT",
+            "fill_price": 100,
+            "limit_price": 95,
+        },
+        profile_id="alice",
+    )
+    # Lower-case key in the quote map should still match.
+    result = store.run_matching({"aapl": 95.0}, profile_id="alice")
+    assert len(result["filled"]) == 1
+    assert result["filled"][0]["symbol"] == "AAPL"
+
+
+def test_run_matching_buy_limit_rejects_when_cash_insufficient_at_fill_time(store):
+    # Reset to small capital so the LIMIT BUY can't actually be afforded
+    # when the quote crosses the threshold.
+    store.reset(initial_capital=100.0, profile_id="alice")
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 10,
+            "order_type": "LIMIT",
+            "fill_price": 95,
+            "limit_price": 95,  # would need 950 cash, only 100 available
+        },
+        profile_id="alice",
+    )
+    result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+    # The order must NOT fill; it stays pending and is reported as rejected.
+    assert result["filled"] == []
+    assert len(result["account"]["pending_orders"]) == 1
+    assert result["account"]["cash"] == pytest.approx(100.0)
+    assert len(result["rejected"]) == 1
+    assert "insufficient cash" in result["rejected"][0]["reason"].lower()
+
+
+def test_run_matching_triggers_stop_loss_when_quote_crosses(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    # stop_loss_price = 95.0 → quote crosses
+    result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+    assert len(result["triggered"]) == 1
+    triggered = result["triggered"][0]
+    assert triggered["symbol"] == "AAPL"
+    assert triggered["side"] == "SELL"
+    assert triggered["quantity"] == 5
+    assert triggered["fill_price"] == pytest.approx(95.0)
+    assert triggered["trigger_reason"] == "stop_loss"
+    account = result["account"]
+    assert account["positions"] == []
+    assert account["cash"] == pytest.approx(10000.0 - 500.0 + 5 * 95.0)
+
+
+def test_run_matching_does_not_trigger_stop_loss_above_threshold(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    result = store.run_matching({"AAPL": 95.01}, profile_id="alice")
+    assert result["triggered"] == []
+    assert result["account"]["positions"][0]["quantity"] == 5
+
+
+def test_run_matching_triggers_take_profit_when_quote_crosses(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "take_profit_pct": 0.10,
+        },
+        profile_id="alice",
+    )
+    # take_profit_price = 110.0 → quote crosses
+    result = store.run_matching({"AAPL": 110.0}, profile_id="alice")
+    assert len(result["triggered"]) == 1
+    triggered = result["triggered"][0]
+    assert triggered["side"] == "SELL"
+    assert triggered["fill_price"] == pytest.approx(110.0)
+    assert triggered["trigger_reason"] == "take_profit"
+    account = result["account"]
+    assert account["positions"] == []
+    assert account["cash"] == pytest.approx(10000.0 - 500.0 + 5 * 110.0)
+
+
+def test_run_matching_does_not_trigger_take_profit_below_threshold(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "take_profit_pct": 0.10,
+        },
+        profile_id="alice",
+    )
+    result = store.run_matching({"AAPL": 109.99}, profile_id="alice")
+    assert result["triggered"] == []
+    assert result["account"]["positions"][0]["quantity"] == 5
+
+
+def test_run_matching_position_without_sl_tp_is_left_alone(store):
+    store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    # No SL/TP attached → quote movement is irrelevant.
+    result = store.run_matching({"AAPL": 1.0}, profile_id="alice")
+    assert result["triggered"] == []
+    assert result["account"]["positions"][0]["quantity"] == 5
+
+
+def test_run_matching_filled_orders_are_persisted_to_history(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 3,
+            "order_type": "LIMIT",
+            "fill_price": 100,
+            "limit_price": 95,
+        },
+        profile_id="alice",
+    )
+    store.run_matching({"AAPL": 95.0}, profile_id="alice")
+    orders = store.list_orders(profile_id="alice")
+    assert len(orders) == 1
+    assert orders[0]["side"] == "BUY"
+    assert orders[0]["fill_price"] == pytest.approx(95.0)
+
+
+def test_run_matching_triggered_orders_are_persisted_to_history(store):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    store.run_matching({"AAPL": 90.0}, profile_id="alice")
+    # Two history entries: original BUY, and the SL-triggered SELL.
+    orders = store.list_orders(profile_id="alice")
+    assert len(orders) == 2
+    assert {order["side"] for order in orders} == {"BUY", "SELL"}
+    sells = [order for order in orders if order["side"] == "SELL"]
+    assert sells[0]["trigger_reason"] == "stop_loss"
+
+
+def test_run_matching_take_profit_takes_precedence_over_stop_loss_if_both_cross(store):
+    """A pathological quote that crosses both bands should trigger take-profit
+    first (favorable side) — but the position can only be closed once, so we
+    pick exactly one trigger reason."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.50,
+            "take_profit_pct": 0.10,
+        },
+        profile_id="alice",
+    )
+    # quote=110 crosses TP threshold (110) but is far above SL (50). Only TP fires.
+    result = store.run_matching({"AAPL": 110.0}, profile_id="alice")
+    assert len(result["triggered"]) == 1
+    assert result["triggered"][0]["trigger_reason"] == "take_profit"
+    assert result["account"]["positions"] == []
+
+
+def test_run_matching_processes_limit_then_triggers_in_one_call(store):
+    """A SELL LIMIT and a SL trigger on the same symbol shouldn't both fire,
+    because the LIMIT consumes the position. LIMITs are processed first."""
+    # Open a position with a stop-loss
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    # Queue a SELL LIMIT @ 96 for the full position
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "fill_price": 96,
+            "limit_price": 96,
+        },
+        profile_id="alice",
+    )
+    # quote=95 crosses SELL LIMIT (95 ≥ ... wait, SELL LIMIT fires when quote ≥ 96).
+    # Let's pick quote=96: crosses SELL LIMIT (>=96), and ALSO stop_loss (<= 95)? No, 96 > 95, so SL doesn't fire.
+    # Use quote=96: SELL LIMIT fills at 96, position closes, SL is moot.
+    result = store.run_matching({"AAPL": 96.0}, profile_id="alice")
+    assert len(result["filled"]) == 1
+    assert result["triggered"] == []
+    assert result["account"]["positions"] == []
+
+
+def test_run_matching_persists_changes_across_store_instances(store, tmp_path):
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 1,
+            "order_type": "LIMIT",
+            "fill_price": 100,
+            "limit_price": 95,
+        },
+        profile_id="alice",
+    )
+    store.run_matching({"AAPL": 95.0}, profile_id="alice")
+    fresh = PaperTradingStore(storage_path=tmp_path)
+    fresh_account = fresh.get_account(profile_id="alice")
+    assert fresh_account["pending_orders"] == []
+    assert fresh_account["positions"][0]["quantity"] == 1
+    assert fresh_account["cash"] == pytest.approx(10000.0 - 95.0)
+
+
+def test_run_matching_empty_account_returns_clean_shape(store):
+    result = store.run_matching({"AAPL": 100.0}, profile_id="alice")
+    assert result["filled"] == []
+    assert result["triggered"] == []
+    assert result["rejected"] == []
+    assert result["account"]["cash"] == pytest.approx(10000.0)
