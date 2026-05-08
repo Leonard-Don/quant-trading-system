@@ -2718,16 +2718,15 @@ def export_docx_pdf(doc_path: Path, output_dir: Path) -> Path:
     return pdf_path
 
 
-def build_searchable_title_overlay(page_width: float, page_height: float, lines: list[str]):
+def build_searchable_title_overlay(page_width: float, page_height: float):
     packet = BytesIO()
     font_name = register_searchable_title_font()
     pdf_canvas = canvas.Canvas(packet, pagesize=(page_width, page_height))
-    text = pdf_canvas.beginText(36, page_height - 36)
-    text.setFont(font_name, 1)
-    text.setTextRenderMode(3)
-    for line in lines:
-        text.textLine(line)
-    pdf_canvas.drawText(text)
+    pdf_canvas.setFont(font_name, 10)
+    pdf_canvas.setFillAlpha(0.01)
+    pdf_canvas.setFillColorRGB(0, 0, 0)
+    # Keep a normal visible text layer on the raster cover so submission systems can extract the title.
+    pdf_canvas.drawString(205, 438, THESIS_TITLE)
     pdf_canvas.save()
     packet.seek(0)
     return PdfReader(packet).pages[0]
@@ -2738,16 +2737,11 @@ def merge_submission_pdf(front_pdf: Path, body_pdf: Path, output_pdf: Path) -> N
     body_reader = PdfReader(str(body_pdf))
     writer = PdfWriter()
 
-    title_lines = [
-        THESIS_TITLE,
-        f"题目：{THESIS_TITLE}",
-        f"论文题目：{THESIS_TITLE}",
-    ]
     for index, page in enumerate(front_reader.pages):
         if index == 0:
             width = float(page.mediabox.width)
             height = float(page.mediabox.height)
-            page.merge_page(build_searchable_title_overlay(width, height, title_lines))
+            page.merge_page(build_searchable_title_overlay(width, height))
         writer.add_page(page)
     for page in body_reader.pages[BODY_PDF_ABSTRACT_PAGE_INDEX:]:
         writer.add_page(page)
