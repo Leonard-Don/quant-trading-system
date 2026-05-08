@@ -249,6 +249,7 @@ class PaperTradingStore:
         filled_orders: list[dict[str, Any]] = []
         triggered_orders: list[dict[str, Any]] = []
         rejected: list[dict[str, Any]] = []
+        canceled_orders: list[dict[str, Any]] = []
 
         with self._lock:
             account = self._load(profile_id)
@@ -361,13 +362,33 @@ class PaperTradingStore:
                 order["trigger_reason"] = trigger_reason
                 history.append(order)
                 triggered_orders.append(order)
+                prior_pending = list(account.get("pending_orders") or [])
                 account["pending_orders"] = _without_pending_sell_exits(
-                    list(account.get("pending_orders") or []), symbol
+                    prior_pending, symbol
                 )
+                # Record each pruned stale SELL exit so the cancellation is
+                # observable to audit consumers — the bracket exit closed the
+                # position, the pending exit could no longer be backed by
+                # shares, and a silent drop would hide that causal link.
+                canceled_at = _utc_now()
+                for pending_order in prior_pending:
+                    if (
+                        _normalize_symbol(pending_order.get("symbol", "")) == symbol
+                        and str(pending_order.get("side") or "").upper() == "SELL"
+                    ):
+                        canceled_orders.append(
+                            {
+                                "pending_order_id": pending_order.get("id"),
+                                "symbol": symbol,
+                                "side": "SELL",
+                                "reason": trigger_reason,
+                                "canceled_at": canceled_at,
+                            }
+                        )
 
             account["orders"] = history[-MAX_PAPER_ORDERS:]
 
-            if filled_orders or triggered_orders or rejected:
+            if filled_orders or triggered_orders or rejected or canceled_orders:
                 account["updated_at"] = _utc_now()
                 self._persist(profile_id, account)
 
@@ -375,6 +396,7 @@ class PaperTradingStore:
                 "filled": filled_orders,
                 "triggered": triggered_orders,
                 "rejected": rejected,
+                "canceled": canceled_orders,
                 "account": self._public_view(profile_id, account),
             }
 
