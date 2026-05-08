@@ -2726,7 +2726,7 @@ def build_searchable_title_overlay(page_width: float, page_height: float):
     pdf_canvas.setFont(font_name, 8)
     # Add a small normal text layer in the blank cover area. It is intentionally
     # visible so strict submission systems will not discard it as hidden text.
-    pdf_canvas.drawString(265, 785, f"论文题目：{THESIS_TITLE}")
+    pdf_canvas.drawString(265, 785, f"题目：{THESIS_TITLE}")
     pdf_canvas.save()
     packet.seek(0)
     return PdfReader(packet).pages[0]
