@@ -985,6 +985,107 @@ def test_run_matching_stop_loss_prunes_stale_sell_limits(store):
     assert result["account"]["cash"] == pytest.approx(10000.0 - 500.0 + 5 * 95.0)
 
 
+def test_run_matching_stop_loss_records_canceled_stale_sell_limits(store):
+    """When an SL trigger liquidates a position, any stale pending SELL LIMITs
+    for the same symbol must be pruned AND surfaced in the run_matching
+    `canceled` audit — so the cancellation is observable to the caller (UI,
+    log shipper, audit consumer), not silent. Pre-slice the prune happened but
+    nothing referenced it; a stale-exit dropped without trace is the bug."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    queued = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+    pending_id = queued["account"]["pending_orders"][0]["id"]
+
+    result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+
+    assert len(result["triggered"]) == 1
+    assert result["triggered"][0]["trigger_reason"] == "stop_loss"
+    assert result["account"]["pending_orders"] == []
+    canceled = result.get("canceled")
+    assert canceled, "run_matching must expose a canceled audit collection"
+    assert len(canceled) == 1
+    entry = canceled[0]
+    assert entry["pending_order_id"] == pending_id
+    assert entry["symbol"] == "AAPL"
+    assert entry["side"] == "SELL"
+    # Reason ties the cancel back to the bracket trigger that closed the
+    # position, so an audit consumer can correlate cause and effect.
+    assert entry["reason"] == "stop_loss"
+    assert entry.get("canceled_at"), "canceled entry must record a timestamp"
+
+
+def test_run_matching_take_profit_records_canceled_stale_sell_limits(store):
+    """TP trigger must record the same audit shape as SL — both bracket exits
+    are equally responsible for pruning stale exits, both must be observable."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "take_profit_pct": 0.10,
+        },
+        profile_id="alice",
+    )
+    queued = store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 120,
+        },
+        profile_id="alice",
+    )
+    pending_id = queued["account"]["pending_orders"][0]["id"]
+
+    result = store.run_matching({"AAPL": 110.0}, profile_id="alice")
+
+    assert len(result["triggered"]) == 1
+    assert result["triggered"][0]["trigger_reason"] == "take_profit"
+    assert result["account"]["pending_orders"] == []
+    canceled = result.get("canceled") or []
+    assert len(canceled) == 1
+    entry = canceled[0]
+    assert entry["pending_order_id"] == pending_id
+    assert entry["reason"] == "take_profit"
+
+
+def test_run_matching_canceled_collection_empty_when_no_pruning_happens(store):
+    """Baseline: a triggered SL with no stale pending exits leaves `canceled`
+    empty (not missing, not None) — the audit shape is stable across calls."""
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "BUY",
+            "quantity": 5,
+            "fill_price": 100.0,
+            "stop_loss_pct": 0.05,
+        },
+        profile_id="alice",
+    )
+    result = store.run_matching({"AAPL": 95.0}, profile_id="alice")
+    assert len(result["triggered"]) == 1
+    assert result["canceled"] == []
+
+
 def test_run_matching_does_not_trigger_stop_loss_above_threshold(store):
     store.submit_order(
         {
