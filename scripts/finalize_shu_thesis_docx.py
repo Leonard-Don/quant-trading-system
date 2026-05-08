@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import xml.etree.ElementTree as ET
@@ -62,6 +63,7 @@ TMP_TEMPLATE_PDF_DIR = TMP_DOC_DIR / "template_pdf_pages"
 TMP_DOCX_RENDER_DIR = TMP_DOC_DIR / "current_docx_render"
 TMP_SUBMISSION_RENDER_DIR = TMP_DOC_DIR / "submission_pdf_pages"
 TMP_FRONT_ASSET_DIR = TMP_DOC_DIR / "pdf_front_assets"
+TMP_FONTCONFIG_DIR = TMP_DOC_DIR / "fontconfig"
 TEMPLATE_XML_PREFIX = TMP_TEMPLATE_PDF_DIR / "template_layout"
 
 THESIS_TITLE = "基于大数据的热门行业识别与龙头股遴选研究"
@@ -103,11 +105,19 @@ FIGURE_INTRO_PARAGRAPHS = {
 TMP_ASSET_DIR = TMP_DOC_DIR / "figure_assets"
 ARCHITECTURE_FIGURE_PATH = TMP_ASSET_DIR / "figure_3_1_system_architecture.png"
 CJK_FONT_SOURCES = (
+    (Path.home() / "Library/Fonts/simsun.ttc", 0),
+    (Path.home() / "Library/Fonts/simsunb.ttf", 0),
     (Path("/Library/Fonts/SimSun.ttf"), 0),
     (Path("/System/Library/Fonts/SimSun.ttf"), 0),
     (Path("/System/Library/Fonts/Supplemental/Songti.ttc"), 6),
     (Path("/System/Library/Fonts/Supplemental/Songti.ttc"), 1),
     (Path("/System/Library/Fonts/Supplemental/Songti.ttc"), 4),
+)
+SIMSUN_FONT_DIR_CANDIDATES = (
+    Path.home() / "Library/Fonts",
+    Path.home() / "Library/Caches/camoufox/Camoufox.app/Contents/Resources/fonts",
+    Path("/Library/Fonts"),
+    Path("/System/Library/Fonts"),
 )
 BODY_PDF_ABSTRACT_PAGE_INDEX = 4
 BODY_FIRST_LINE_INDENT = Emu(266700)
@@ -2206,8 +2216,50 @@ def set_core_properties(doc: Document) -> None:
     doc.core_properties.keywords = "金融大数据, 热门行业识别, 龙头股遴选, 多源数据, 行业热度分析系统"
 
 
-def run_checked(command: list[str]) -> None:
-    subprocess.run(command, check=True)
+def run_checked(command: list[str], env: dict[str, str] | None = None) -> None:
+    subprocess.run(command, check=True, env=env)
+
+
+def get_simsun_font_dir() -> Path | None:
+    for font_dir in SIMSUN_FONT_DIR_CANDIDATES:
+        if (font_dir / "simsun.ttc").exists() or (font_dir / "SimSun.ttf").exists():
+            return font_dir
+    return None
+
+
+def build_pdf_fontconfig() -> Path | None:
+    simsun_font_dir = get_simsun_font_dir()
+    if simsun_font_dir is None:
+        return None
+
+    TMP_FONTCONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    fonts_conf = TMP_FONTCONFIG_DIR / "fonts.conf"
+    fonts_conf.write_text(
+        f"""<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>{simsun_font_dir}</dir>
+  <dir>/System/Library/Fonts</dir>
+  <dir>/System/Library/Fonts/Supplemental</dir>
+  <dir>/Library/Fonts</dir>
+  <dir>~/Library/Fonts</dir>
+  <match target="pattern">
+    <test name="family" qual="any"><string>宋体</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>SimSun</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family" qual="any"><string>SimSun</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>SimSun</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family" qual="any"><string>NSimSun</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>NSimSun</string></edit>
+  </match>
+</fontconfig>
+""",
+        encoding="utf-8",
+    )
+    return fonts_conf
 
 
 def get_available_cjk_font_sources() -> list[tuple[Path, int]]:
@@ -2621,6 +2673,10 @@ def build_front_pdf(front_cover_png: Path, declaration_png: Path, output_pdf: Pa
 
 def export_docx_pdf(doc_path: Path, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    fontconfig = build_pdf_fontconfig()
+    if fontconfig is not None:
+        env["FONTCONFIG_FILE"] = str(fontconfig)
     run_checked([
         "soffice",
         "-env:UserInstallation=file:///tmp/lo_profile_shu_thesis",
@@ -2630,7 +2686,7 @@ def export_docx_pdf(doc_path: Path, output_dir: Path) -> Path:
         "--outdir",
         str(output_dir),
         str(doc_path),
-    ])
+    ], env=env)
     pdf_path = output_dir / f"{doc_path.stem}.pdf"
     if not pdf_path.exists():
         raise RuntimeError(f"Failed to export PDF from DOCX: {pdf_path}")
