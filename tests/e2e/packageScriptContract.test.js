@@ -34,9 +34,23 @@ if (typeof verifyAll !== 'string') {
       failures.push(`verify:all step ${index + 1}: expected ${JSON.stringify(expectedStep)}, got ${JSON.stringify(steps[index])}`);
     }
   });
-  for (const required of ['npm run verify:backtest', 'npm run verify:industry', 'npm run verify:new']) {
+  for (const required of [
+    'npm run verify:backtest',
+    'npm run verify:today',
+    'npm run verify:industry',
+    'npm run verify:realtime',
+    'npm run verify:new',
+  ]) {
     if (!steps.includes(required)) {
       failures.push(`verify:all must still include ${required}`);
+    }
+  }
+  // Catch newly added verify:* lanes that forget to wire into verify:all.
+  for (const lane of Object.keys(scripts)) {
+    if (!lane.startsWith('verify:') || lane === 'verify:all') continue;
+    const required = `npm run ${lane}`;
+    if (!steps.includes(required)) {
+      failures.push(`verify:all must include ${required} (every verify:* lane in package.json must run from verify:all)`);
     }
   }
 }
