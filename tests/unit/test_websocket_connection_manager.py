@@ -90,6 +90,75 @@ async def test_connection_manager_keeps_control_messages_ahead_of_coalesced_quot
 
 
 @pytest.mark.asyncio
+async def test_connection_manager_enqueue_overflow_disconnects_socket(monkeypatch):
+    manager = ConnectionManager()
+    websocket = DummyWebSocket()
+    manager.subscriptions[websocket] = {"AAPL"}
+    manager.active_connections["AAPL"] = {websocket}
+    manager._send_queues[websocket] = asyncio.Queue(maxsize=1)
+    unsubscribed_symbols = []
+
+    monkeypatch.setattr(
+        "backend.app.websocket.connection_manager.realtime_manager.unsubscribe_symbol",
+        lambda symbol, callback: unsubscribed_symbols.append(symbol),
+    )
+
+    assert manager._enqueue_message(websocket, {"type": "snapshot"}) is True
+    assert manager._enqueue_message(websocket, {"type": "subscription_status"}) is False
+
+    assert websocket not in manager.subscriptions
+    assert websocket not in manager._send_queues
+    assert "AAPL" not in manager.active_connections
+    assert unsubscribed_symbols == ["AAPL"]
+
+
+@pytest.mark.asyncio
+async def test_connection_manager_quotes_for_different_symbols_do_not_coalesce():
+    manager = ConnectionManager()
+    websocket = DummyWebSocket()
+    manager.subscriptions[websocket] = {"AAPL", "TSLA"}
+    manager.active_connections["AAPL"] = {websocket}
+    manager.active_connections["TSLA"] = {websocket}
+    manager._send_queues[websocket] = asyncio.Queue(maxsize=4)
+
+    await manager.broadcast_quote("AAPL", {"price": 101})
+    await manager.broadcast_quote("TSLA", {"price": 200})
+    await manager.broadcast_quote("AAPL", {"price": 102})
+
+    queued_messages = [message for message, _ in manager._send_queues[websocket]._queue]
+    assert len(queued_messages) == 2
+    aapl_messages = [m for m in queued_messages if m["symbol"] == "AAPL"]
+    tsla_messages = [m for m in queued_messages if m["symbol"] == "TSLA"]
+    assert len(aapl_messages) == 1
+    assert aapl_messages[0]["data"]["price"] == 102
+    assert len(tsla_messages) == 1
+    assert tsla_messages[0]["data"]["price"] == 200
+
+
+@pytest.mark.asyncio
+async def test_connection_manager_unsubscribe_keeps_other_symbols_subscribed(monkeypatch):
+    manager = ConnectionManager()
+    websocket = DummyWebSocket()
+    manager.subscriptions[websocket] = {"AAPL", "TSLA"}
+    manager.active_connections["AAPL"] = {websocket}
+    manager.active_connections["TSLA"] = {websocket}
+    unsubscribed_symbols = []
+
+    monkeypatch.setattr(
+        "backend.app.websocket.connection_manager.realtime_manager.unsubscribe_symbol",
+        lambda symbol, callback: unsubscribed_symbols.append(symbol),
+    )
+
+    result = await manager.unsubscribe(websocket, "aapl")
+
+    assert result == {"symbol": "AAPL", "removed": True}
+    assert "AAPL" not in manager.active_connections
+    assert "TSLA" in manager.active_connections
+    assert manager.subscriptions[websocket] == {"TSLA"}
+    assert unsubscribed_symbols == ["AAPL"]
+
+
+@pytest.mark.asyncio
 async def test_trade_connection_manager_send_personal_message_disconnects_failed_socket():
     manager = TradeConnectionManager()
     websocket = DummyWebSocket(
