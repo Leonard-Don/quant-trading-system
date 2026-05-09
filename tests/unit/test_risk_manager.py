@@ -96,3 +96,94 @@ def test_risk_manager_summary_includes_time_stop_rule():
     summary = manager.summary()
 
     assert summary["rules"]["max_holding_days"] == 7
+
+
+def test_risk_manager_skips_position_rules_when_flat():
+    manager = RiskManager(stop_loss_pct=0.05, take_profit_pct=0.08, max_holding_days=1)
+    decision = manager.evaluate(
+        make_context(
+            position_size=0.0,
+            current_price=50.0,
+            current_date=pd.Timestamp("2024-12-31"),
+            entry_date=pd.Timestamp("2024-01-01"),
+        )
+    )
+
+    assert decision.action is RiskAction.NONE
+    assert decision.triggered_rules == []
+
+
+def test_risk_manager_skips_drawdown_check_when_peak_equity_is_zero():
+    manager = RiskManager(max_drawdown_limit=0.10)
+    decision = manager.evaluate(
+        make_context(position_size=0.0, current_equity=0.0, peak_equity=0.0)
+    )
+
+    assert decision.action is RiskAction.NONE
+    assert "max_drawdown_limit" not in decision.triggered_rules
+
+
+def test_risk_manager_returns_none_when_no_rules_configured():
+    decision = RiskManager().evaluate(make_context(current_price=1.0))
+
+    assert decision.action is RiskAction.NONE
+    assert decision.triggered_rules == []
+    assert decision.scale_factor == 1.0
+
+
+def test_risk_manager_volatility_scaling_silent_before_lookback_filled():
+    manager = RiskManager(volatility_scaling=True, volatility_target=0.10, volatility_lookback=5)
+    decisions = [
+        manager.evaluate(make_context(daily_return=r))
+        for r in [0.06, -0.05, 0.07, -0.06]
+    ]
+
+    assert all(d.action is RiskAction.NONE for d in decisions)
+    assert manager.get_position_scale() == 1.0
+
+
+def test_risk_manager_volatility_scaling_silent_when_realized_vol_low():
+    manager = RiskManager(volatility_scaling=True, volatility_target=0.50, volatility_lookback=4)
+    decision = None
+    for daily_return in [0.0001, -0.0001, 0.0001, -0.0001]:
+        decision = manager.evaluate(make_context(daily_return=daily_return))
+
+    assert decision.action is RiskAction.NONE
+    assert manager.get_position_scale() >= 1.0
+
+
+def test_risk_manager_reset_clears_volatility_history():
+    manager = RiskManager(volatility_scaling=True, volatility_target=0.10, volatility_lookback=4)
+    for daily_return in [0.06, -0.05, 0.07, -0.06]:
+        manager.evaluate(make_context(daily_return=daily_return))
+
+    manager.reset()
+    decision = manager.evaluate(make_context(daily_return=0.05))
+
+    assert decision.action is RiskAction.NONE
+    assert manager.get_position_scale() == 1.0
+
+
+def test_risk_manager_trailing_stop_silent_before_peak_established():
+    manager = RiskManager(trailing_stop_pct=0.02)
+    decision = manager.evaluate(make_context(current_price=95.0))
+
+    assert decision.action is RiskAction.NONE
+    assert "trailing_stop" not in decision.triggered_rules
+
+
+def test_risk_manager_summary_reports_empty_rules_when_unconfigured():
+    summary = RiskManager().summary()
+
+    assert summary["active_rule_count"] == 0
+    assert summary["rules"] == {}
+
+
+def test_risk_manager_summary_includes_volatility_scaling_fields():
+    manager = RiskManager(volatility_scaling=True, volatility_target=0.12, volatility_lookback=15)
+    summary = manager.summary()
+
+    assert summary["rules"]["volatility_scaling"] is True
+    assert summary["rules"]["volatility_target"] == 0.12
+    assert summary["rules"]["volatility_lookback"] == 15
+    assert summary["active_rule_count"] == 3
