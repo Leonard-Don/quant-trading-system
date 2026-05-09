@@ -2053,6 +2053,65 @@ def test_addon_buy_preserves_opening_order_id_so_sell_links_to_first_buy(store):
     )
 
 
+def test_partial_close_of_multitranche_position_preserves_entry_link(store):
+    """Multi-tranche BUY + PARTIAL SELL must preserve the entry-side audit
+    chain: the partial SELL fill carries `entry_order_id` pointing at the
+    FIRST BUY, the surviving position retains its `opening_order_id` from
+    the FIRST BUY, and a later final-close SELL ALSO links back to the
+    FIRST BUY. Without this test, a refactor that re-stamped
+    `opening_order_id` on the position update inside the partial-close
+    branch — or one that captured `entry_order_id` after the position
+    mutation — would silently corrupt the entry link for the remaining
+    shares and the eventual final close, while every existing entry-link
+    test (single-fill open, single full close) would still pass."""
+    first_buy = store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    first_buy_id = first_buy["order"]["id"]
+    addon_buy = store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 110.0},
+        profile_id="alice",
+    )
+    addon_buy_id = addon_buy["order"]["id"]
+    assert addon_buy_id != first_buy_id
+
+    partial_sell = store.submit_order(
+        {"symbol": "AAPL", "side": "SELL", "quantity": 3, "fill_price": 120.0},
+        profile_id="alice",
+    )
+    assert partial_sell["order"].get("entry_order_id") == first_buy_id, (
+        "partial-close SELL must link back to the FIRST BUY, not the "
+        "add-on or the most recent fill; got "
+        f"{partial_sell['order'].get('entry_order_id')!r}, "
+        f"expected {first_buy_id!r}"
+    )
+
+    account_after_partial = store.get_account(profile_id="alice")
+    assert len(account_after_partial["positions"]) == 1
+    surviving = account_after_partial["positions"][0]
+    assert surviving["quantity"] == 7
+    assert surviving["opening_order_id"] == first_buy_id, (
+        "partial close must NOT mutate the surviving position's "
+        "opening_order_id; got "
+        f"{surviving['opening_order_id']!r}, expected {first_buy_id!r}"
+    )
+
+    final_sell = store.submit_order(
+        {"symbol": "AAPL", "side": "SELL", "quantity": 7, "fill_price": 125.0},
+        profile_id="alice",
+    )
+    assert final_sell["order"].get("entry_order_id") == first_buy_id, (
+        "final-close SELL after a partial close must STILL link back to "
+        "the FIRST BUY — the partial close must not have wiped the "
+        "entry-side anchor on the surviving shares; got "
+        f"{final_sell['order'].get('entry_order_id')!r}, "
+        f"expected {first_buy_id!r}"
+    )
+    account_after_final = store.get_account(profile_id="alice")
+    assert account_after_final["positions"] == []
+
+
 def test_run_matching_sell_limit_close_records_entry_order_id(store):
     """A SELL LIMIT cross that fully closes a position must emit
     `entry_order_id` on the filling fill, mirroring the SL-trigger,
