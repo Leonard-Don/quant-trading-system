@@ -48,6 +48,41 @@ def _ok(response) -> Any:
     return body["data"]
 
 
+def test_rejected_market_sell_without_position_has_no_lifecycle_side_effects(
+    integration_setup,
+):
+    """A rejected close must stay purely rejected: no fill, position, pending
+    mutation, or account file should appear from the failed order."""
+    client, _store, storage_root = integration_setup
+    profile_file = storage_root / f"{PROFILE}.json"
+    assert not profile_file.exists()
+
+    response = client.post(
+        "/paper/orders",
+        json={"symbol": "AAPL", "side": "SELL", "quantity": 1, "fill_price": 100.0},
+        headers=HEADERS,
+    )
+    assert response.status_code == 422
+    assert "insufficient position" in response.text.lower()
+    assert not profile_file.exists()
+
+    account = _ok(client.get("/paper/account", headers=HEADERS))
+    assert account["cash"] == 10000.0
+    assert account["positions"] == []
+    assert account["pending_orders"] == []
+    assert account["orders_count"] == 0
+
+    orders_payload = _ok(client.get("/paper/orders", headers=HEADERS))
+    assert orders_payload["orders"] == []
+
+    reload_store = PaperTradingStore(storage_path=storage_root)
+    assert reload_store.list_orders(profile_id=PROFILE) == []
+    reload_account = reload_store.get_account(profile_id=PROFILE)
+    assert reload_account["cash"] == 10000.0
+    assert reload_account["positions"] == []
+    assert reload_account["pending_orders"] == []
+
+
 def test_limit_buy_then_limit_sell_full_lifecycle_through_http_and_matching(
     integration_setup,
 ):
