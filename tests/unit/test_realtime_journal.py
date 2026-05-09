@@ -94,3 +94,27 @@ def test_realtime_journal_store_sanitizes_unsafe_profile_ids(tmp_path):
     journal = store.get_journal(profile_id="../escape/../profile")
     assert journal["review_snapshots"] == [{"id": "guarded"}]
     assert journal["timeline_events"] == [{"id": "guarded-event"}]
+
+
+def test_realtime_journal_store_keeps_absolute_profile_ids_inside_storage(tmp_path):
+    store = RealtimeJournalStore(storage_path=tmp_path)
+    profile_id = "/tmp/escape"
+
+    store.update_journal(
+        {
+            "review_snapshots": [{"id": "abs-snap"}],
+            "timeline_events": [{"id": "abs-event"}],
+        },
+        profile_id=profile_id,
+    )
+
+    written = list(tmp_path.glob("*.json"))
+    assert len(written) == 1
+    journal_file = written[0]
+    assert journal_file.parent == tmp_path
+    assert "/" not in journal_file.name
+    assert "\\" not in journal_file.name
+
+    journal = store.get_journal(profile_id=profile_id)
+    assert journal["review_snapshots"] == [{"id": "abs-snap"}]
+    assert journal["timeline_events"] == [{"id": "abs-event"}]
