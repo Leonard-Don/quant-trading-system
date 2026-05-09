@@ -211,12 +211,14 @@ def test_research_journal_store_strips_unserializable_nested_source_state_values
     })
 
     json.dumps(snapshot["source_state"])
+    assert set(snapshot["source_state"]) == {"audit_set", "raw_bytes"}
 
     written = list(tmp_path.glob("*.json"))
     assert len(written) == 1
     with open(written[0], encoding="utf-8") as fh:
         reloaded = json.load(fh)
     json.dumps(reloaded["source_state"])
+    assert reloaded["source_state"] == snapshot["source_state"]
 
 
 def test_research_journal_store_update_entry_status_rejects_invalid_status(tmp_path):
