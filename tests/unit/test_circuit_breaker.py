@@ -42,6 +42,10 @@ class _FailingService:
         return "ok"
 
 
+def _raise(exc: Exception) -> None:
+    raise exc
+
+
 # ---------------------------------------------------------------------------
 # Direct CircuitBreaker API
 # ---------------------------------------------------------------------------
@@ -168,7 +172,7 @@ def test_half_open_blocks_concurrent_trials():
 def test_manual_reset():
     cb = CircuitBreaker(failure_threshold=1, recovery_timeout=10.0)
     with pytest.raises(RuntimeError):
-        cb.call(lambda: (_ for _ in ()).throw(RuntimeError("x")))
+        cb.call(_raise, RuntimeError("x"))
 
     assert cb.state is CircuitState.OPEN
     cb.reset()
@@ -276,3 +280,160 @@ def test_status_summary_reports_state():
     assert summary["failure_count"] == 0
     assert "last_failure_at" in summary
     assert "next_attempt_at" in summary
+
+
+# ---------------------------------------------------------------------------
+# Edge / boundary coverage
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", [0, -1, -42])
+def test_constructor_rejects_failure_threshold_below_one(bad):
+    with pytest.raises(ValueError, match="failure_threshold"):
+        CircuitBreaker(failure_threshold=bad, recovery_timeout=1.0)
+
+
+@pytest.mark.parametrize("bad", [0, -0.001, -10.0])
+def test_constructor_rejects_non_positive_recovery_timeout(bad):
+    with pytest.raises(ValueError, match="recovery_timeout"):
+        CircuitBreaker(failure_threshold=1, recovery_timeout=bad)
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_constructor_rejects_half_open_max_calls_below_one(bad):
+    with pytest.raises(ValueError, match="half_open_max_calls"):
+        CircuitBreaker(
+            failure_threshold=1, recovery_timeout=1.0, half_open_max_calls=bad
+        )
+
+
+def test_call_forwards_positional_and_keyword_arguments():
+    cb = CircuitBreaker(failure_threshold=2, recovery_timeout=1.0)
+
+    def add(a: int, b: int, *, scale: int = 1) -> int:
+        return (a + b) * scale
+
+    assert cb.call(add, 3, 4, scale=2) == 14
+    assert cb.call(add, 1, 2) == 3
+
+
+def test_open_does_not_transition_before_recovery_timeout_elapses():
+    cb = CircuitBreaker(failure_threshold=1, recovery_timeout=10.0)
+    svc = _FailingService(failures=10)
+
+    with pytest.raises(RuntimeError):
+        cb.call(svc.fetch)
+    assert cb.state is CircuitState.OPEN
+
+    pre_calls = svc.calls
+    # Repeated state checks within the timeout window must not flip to HALF_OPEN.
+    for _ in range(5):
+        assert cb.state is CircuitState.OPEN
+    with pytest.raises(CircuitOpenError):
+        cb.call(svc.fetch)
+    assert svc.calls == pre_calls  # wrapped fn never invoked
+
+
+def test_status_during_open_reports_next_attempt_at_and_last_failure():
+    recovery = 7.5
+    cb = CircuitBreaker(failure_threshold=1, recovery_timeout=recovery, name="p")
+    started = time.time()
+
+    with pytest.raises(RuntimeError):
+        cb.call(_raise, RuntimeError("x"))
+
+    summary = cb.status()
+    assert summary["state"] == "open"
+    assert summary["failure_count"] == 1
+    assert summary["recovery_timeout"] == recovery
+    assert summary["last_failure_at"] is not None
+    assert summary["last_failure_at"] >= started
+    assert summary["next_attempt_at"] is not None
+    # next_attempt_at = _opened_at + recovery_timeout, where _opened_at >= started
+    assert summary["next_attempt_at"] >= started + recovery
+
+
+def test_excluded_exception_in_half_open_keeps_state_and_releases_slot():
+    cb = CircuitBreaker(
+        failure_threshold=2,
+        recovery_timeout=0.1,
+        excluded_exceptions=(ValueError,),
+    )
+
+    def infra_boom() -> None:
+        raise RuntimeError("infra")
+
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            cb.call(infra_boom)
+    assert cb.state is CircuitState.OPEN
+
+    time.sleep(0.15)
+
+    # Trial call raises an EXCLUDED exception. It must not count as failure
+    # (would re-open) nor as success (would close); state remains HALF_OPEN
+    # and the in-flight slot must be released so the next trial may proceed.
+    with pytest.raises(ValueError):
+        cb.call(_raise, ValueError("user"))
+
+    assert cb.state is CircuitState.HALF_OPEN
+
+    # Slot released → a follow-up trial is permitted and can close the breaker.
+    assert cb.call(lambda: "ok") == "ok"
+    assert cb.state is CircuitState.CLOSED
+    assert cb.failure_count == 0
+
+
+def test_half_open_max_calls_greater_than_one_allows_multiple_concurrent_trials():
+    cb = CircuitBreaker(
+        failure_threshold=1, recovery_timeout=0.1, half_open_max_calls=3
+    )
+    with pytest.raises(RuntimeError):
+        cb.call(_raise, RuntimeError("x"))
+    time.sleep(0.15)
+    assert cb.state is CircuitState.HALF_OPEN
+
+    in_fn = threading.Semaphore(0)
+    release = threading.Event()
+
+    def slow_ok() -> str:
+        in_fn.release()
+        release.wait(timeout=2.0)
+        return "ok"
+
+    threads = [
+        threading.Thread(target=lambda: cb.call(slow_ok)) for _ in range(3)
+    ]
+    for t in threads:
+        t.start()
+
+    # All three trials must reach the wrapped fn concurrently — proves
+    # half_open_max_calls=3 grants three slots simultaneously.
+    for _ in range(3):
+        assert in_fn.acquire(timeout=2.0)
+
+    release.set()
+    for t in threads:
+        t.join(timeout=3.0)
+        assert not t.is_alive()
+
+    # Three successes wipe the slate.
+    assert cb.state is CircuitState.CLOSED
+    assert cb.failure_count == 0
+
+
+def test_decorator_uses_custom_name_when_provided():
+    @with_circuit_breaker(failure_threshold=1, recovery_timeout=1.0, name="alpha_vantage")
+    def fetch():
+        return "ok"
+
+    assert fetch.circuit_breaker.name == "alpha_vantage"
+    assert fetch.circuit_breaker.status()["name"] == "alpha_vantage"
+
+
+def test_decorator_falls_back_to_function_qualname():
+    @with_circuit_breaker(failure_threshold=1, recovery_timeout=1.0)
+    def my_fragile_fetcher():
+        return "ok"
+
+    assert my_fragile_fetcher.circuit_breaker.name == my_fragile_fetcher.__qualname__
