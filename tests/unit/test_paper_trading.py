@@ -2010,6 +2010,41 @@ def test_market_buy_then_sell_records_entry_order_id_on_sell(store):
     assert sell_result["order"].get("entry_order_id") == buy_fill_id
 
 
+def test_run_matching_sell_limit_close_records_entry_order_id(store):
+    """A SELL LIMIT cross that fully closes a position must emit
+    `entry_order_id` on the filling fill, mirroring the SL-trigger,
+    TP-trigger, and market-sell close paths. Without this, the LIMIT
+    close path silently drops the entry-side audit link the other close
+    paths emit, so a journal reader walking persisted history would
+    answer 'which BUY armed this exit?' for SL/TP/market closes but get
+    nothing for LIMIT closes — a coverage hole the audit chain shouldn't
+    have."""
+    buy_result = store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    buy_fill_id = buy_result["order"]["id"]
+    store.submit_order(
+        {
+            "symbol": "AAPL",
+            "side": "SELL",
+            "quantity": 5,
+            "order_type": "LIMIT",
+            "limit_price": 110,
+        },
+        profile_id="alice",
+    )
+
+    result = store.run_matching({"AAPL": 110.0}, profile_id="alice")
+    assert len(result["filled"]) == 1
+    filling = result["filled"][0]
+    assert filling["trigger_reason"] == "limit_cross"
+    assert filling.get("entry_order_id") == buy_fill_id, (
+        "SELL LIMIT close fill must link back to the originating BUY id; "
+        f"got {filling.get('entry_order_id')!r}, expected {buy_fill_id!r}"
+    )
+
+
 def test_legacy_position_without_opening_order_id_does_not_break_sell(
     store, tmp_path
 ):
