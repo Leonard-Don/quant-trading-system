@@ -244,6 +244,28 @@ def test_research_journal_store_coerces_tuple_source_state_values_to_lists(tmp_p
     assert reloaded["source_state"] == snapshot["source_state"]
 
 
+def test_research_journal_store_stringifies_non_string_source_state_keys(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [{"id": "x", "type": "manual", "title": "p"}],
+        "source_state": {
+            1: "top_level_int",
+            "nested": {2: "nested_int", 3: {4: "deep_int"}},
+        },
+    })
+
+    assert all(isinstance(key, str) for key in snapshot["source_state"])
+    assert all(isinstance(key, str) for key in snapshot["source_state"]["nested"])
+    assert all(isinstance(key, str) for key in snapshot["source_state"]["nested"]["3"])
+    assert snapshot["source_state"]["1"] == "top_level_int"
+    assert snapshot["source_state"]["nested"]["2"] == "nested_int"
+    assert snapshot["source_state"]["nested"]["3"]["4"] == "deep_int"
+
+    reloaded = store.get_snapshot()
+    assert reloaded["source_state"] == snapshot["source_state"]
+
+
 def test_research_journal_store_update_entry_status_rejects_invalid_status(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
     store.add_entry({"id": "valid", "type": "manual", "title": "valid"})
