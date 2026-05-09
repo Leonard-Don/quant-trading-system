@@ -92,3 +92,53 @@ def test_realtime_alerts_store_limits_alert_hit_history(tmp_path):
 
     assert len(updated["alert_hit_history"]) == 80
     assert updated["alert_hit_history"][0]["id"] == "hit-0"
+
+
+def test_realtime_alerts_store_coerces_invalid_numeric_fields_to_defaults(tmp_path):
+    store = RealtimeAlertsStore(storage_path=tmp_path)
+
+    updated = store.update_alerts({
+        "alerts": [
+            {
+                "symbol": "AAPL",
+                "condition": "price_above",
+                "threshold": "not-a-number",
+                "tolerancePercent": "bad",
+                "cooldownMinutes": "garbage",
+            },
+        ],
+    })
+
+    alert = updated["alerts"][0]
+    assert alert["threshold"] is None
+    assert alert["tolerancePercent"] == 0.1
+    assert alert["cooldownMinutes"] == 15
+
+
+def test_realtime_alerts_store_sanitizes_profile_id_path_traversal(tmp_path):
+    store = RealtimeAlertsStore(storage_path=tmp_path)
+    dangerous_profile = "../../etc/passwd"
+
+    store.update_alerts(
+        {"alerts": [{"symbol": "AAPL", "condition": "price_above", "threshold": 1}]},
+        profile_id=dangerous_profile,
+    )
+
+    written = list(tmp_path.iterdir())
+    assert len(written) == 1
+    assert written[0].parent == tmp_path
+    assert "/" not in written[0].name and ".." not in written[0].name
+
+    round_tripped = store.get_alerts(profile_id=dangerous_profile)["alerts"]
+    assert round_tripped and round_tripped[0]["symbol"] == "AAPL"
+
+
+def test_realtime_alerts_store_returns_empty_default_for_missing_or_corrupt_file(tmp_path):
+    store = RealtimeAlertsStore(storage_path=tmp_path)
+
+    missing = store.get_alerts(profile_id="never-saved")
+    assert missing == {"alerts": [], "alert_hit_history": []}
+
+    (tmp_path / "corrupt.json").write_text("{not valid json", encoding="utf-8")
+    corrupt = store.get_alerts(profile_id="corrupt")
+    assert corrupt == {"alerts": [], "alert_hit_history": []}
