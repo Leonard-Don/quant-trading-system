@@ -200,13 +200,13 @@ class ResearchJournalStore:
                 "message": "source_state could not be serialized; compacted by research journal store",
             }
         encoded = serialized.encode("utf-8")
-        if len(encoded) <= MAX_RESEARCH_JOURNAL_SOURCE_BYTES:
-            return normalized
-        return {
-            "truncated": True,
-            "original_size_bytes": len(encoded),
-            "message": "source_state too large; compacted by research journal store",
-        }
+        if len(encoded) > MAX_RESEARCH_JOURNAL_SOURCE_BYTES:
+            return {
+                "truncated": True,
+                "original_size_bytes": len(encoded),
+                "message": "source_state too large; compacted by research journal store",
+            }
+        return json.loads(serialized)
 
     def _normalize_payload(self, payload: dict[str, Any] | None) -> dict[str, Any]:
         payload = dict(payload or {})
