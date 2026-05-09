@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 import pytest
@@ -199,6 +200,23 @@ def test_research_journal_store_handles_cyclic_source_state(tmp_path):
     assert snapshot["source_state"].get("truncated") is True
     assert "secret_blob" not in snapshot["source_state"]
     assert "self" not in snapshot["source_state"]
+
+
+def test_research_journal_store_strips_unserializable_nested_source_state_values(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [{"id": "x", "type": "manual", "title": "p"}],
+        "source_state": {"audit_set": {1, 2, 3}, "raw_bytes": b"\x00\xff"},
+    })
+
+    json.dumps(snapshot["source_state"])
+
+    written = list(tmp_path.glob("*.json"))
+    assert len(written) == 1
+    with open(written[0], encoding="utf-8") as fh:
+        reloaded = json.load(fh)
+    json.dumps(reloaded["source_state"])
 
 
 def test_research_journal_store_update_entry_status_rejects_invalid_status(tmp_path):
