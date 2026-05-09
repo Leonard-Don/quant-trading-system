@@ -191,7 +191,14 @@ class ResearchJournalStore:
         if not isinstance(source_state, dict):
             return {}
         normalized = deepcopy(source_state)
-        serialized = json.dumps(normalized, ensure_ascii=False, default=str)
+        try:
+            serialized = json.dumps(normalized, ensure_ascii=False, default=str)
+        except (ValueError, TypeError) as exc:
+            logger.warning("source_state could not be serialized: %s", exc)
+            return {
+                "truncated": True,
+                "message": "source_state could not be serialized; compacted by research journal store",
+            }
         encoded = serialized.encode("utf-8")
         if len(encoded) <= MAX_RESEARCH_JOURNAL_SOURCE_BYTES:
             return normalized
