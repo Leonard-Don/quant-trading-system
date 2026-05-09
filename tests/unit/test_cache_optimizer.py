@@ -2,6 +2,7 @@
 缓存优化器模块单元测试
 """
 
+import json
 import time
 from unittest.mock import Mock
 import tempfile
@@ -98,6 +99,66 @@ class TestAccessTracker:
             tracker2 = AccessTracker(persistence_file=persistence_file)
             assert tracker2.access_counts["persist_key"] == 1
 
+    def test_get_hot_keys_when_empty(self):
+        """空追踪器返回空热门键列表"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tracker = AccessTracker(
+                persistence_file=Path(tmpdir) / "stats.json"
+            )
+            assert tracker.get_hot_keys(top_n=5) == []
+
+    def test_load_corrupted_persistence_file(self):
+        """损坏的持久化文件不抛出异常，初始化为空"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            persistence_file = Path(tmpdir) / "stats.json"
+            persistence_file.write_text("{not valid json", encoding="utf-8")
+
+            tracker = AccessTracker(persistence_file=persistence_file)
+
+            assert len(tracker.access_counts) == 0
+            assert len(tracker.last_access_times) == 0
+
+    def test_load_skips_invalid_timestamp(self):
+        """加载持久化数据时跳过无效的时间戳"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            persistence_file = Path(tmpdir) / "stats.json"
+            persistence_file.write_text(
+                json.dumps(
+                    {
+                        "access_counts": {"k": 1},
+                        "last_access_times": {"k": "not-a-timestamp"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            tracker = AccessTracker(persistence_file=persistence_file)
+
+            assert tracker.access_counts["k"] == 1
+            # 无效时间戳被跳过而不是抛出异常
+            assert "k" not in tracker.last_access_times
+
+    def test_persist_creates_nested_parent_dir(self):
+        """持久化时自动创建嵌套的父目录"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            persistence_file = Path(tmpdir) / "nested" / "dir" / "stats.json"
+            tracker = AccessTracker(persistence_file=persistence_file)
+            tracker.record_access("nested_key")
+
+            tracker.persist()
+
+            assert persistence_file.exists()
+
+    def test_get_access_frequency_with_single_access(self):
+        """单次访问尚未产生间隔，频率为0"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tracker = AccessTracker(
+                persistence_file=Path(tmpdir) / "stats.json"
+            )
+            tracker.record_access("solo_key")
+
+            assert tracker.get_access_frequency("solo_key") == 0.0
+
 
 class TestCacheOptimizer:
     """缓存优化器测试"""
@@ -192,6 +253,99 @@ class TestCacheOptimizer:
         assert "access_tracker" in stats
         assert "cache_stats" in stats
 
+    def test_preheat_with_empty_keys_short_circuits(self):
+        """空键列表直接返回零结果，不调用fetcher"""
+        cm = CacheManager(use_disk=False)
+        optimizer = CacheOptimizer(cache_manager=cm)
+        fetcher = Mock()
+
+        result = optimizer.preheat(
+            data_fetcher=fetcher, keys=[], parallel=False
+        )
+
+        assert result == {"preheated": 0, "failed": 0, "skipped": 0}
+        fetcher.assert_not_called()
+
+    def test_preheat_fetcher_returning_none_counts_as_failed(self):
+        """fetcher返回None时计为失败并标记fetch_failed"""
+        cm = CacheManager(use_disk=False)
+        optimizer = CacheOptimizer(cache_manager=cm)
+
+        result = optimizer.preheat(
+            data_fetcher=lambda k: None,
+            keys=["nope_key"],
+            parallel=False,
+        )
+
+        assert result["failed"] == 1
+        assert result["preheated"] == 0
+        assert result["details"][0]["reason"] == "fetch_failed"
+
+    def test_preheat_fetcher_exception_is_caught(self):
+        """fetcher抛出异常被捕获并计为失败，不向上传播"""
+        cm = CacheManager(use_disk=False)
+        optimizer = CacheOptimizer(cache_manager=cm)
+
+        def raising_fetcher(key):
+            raise RuntimeError("boom")
+
+        result = optimizer.preheat(
+            data_fetcher=raising_fetcher,
+            keys=["x"],
+            parallel=False,
+        )
+
+        assert result["failed"] == 1
+        assert "boom" in result["details"][0]["reason"]
+
+    def test_preheat_without_fetcher_or_handler_fails(self):
+        """无fetcher且无注册处理器时计为失败 (no_handler)"""
+        cm = CacheManager(use_disk=False)
+        optimizer = CacheOptimizer(cache_manager=cm)
+
+        result = optimizer.preheat(keys=["unhandled_key"], parallel=False)
+
+        assert result["failed"] == 1
+        assert result["details"][0]["reason"] == "no_handler"
+
+    def test_preheat_dispatches_to_registered_handler(self):
+        """无显式fetcher时使用模式匹配的注册处理器"""
+        cm = CacheManager(use_disk=False)
+        optimizer = CacheOptimizer(cache_manager=cm)
+
+        handler = Mock(return_value={"data": "from_handler"})
+        optimizer.register_preheat_handler("stock_*", handler)
+
+        result = optimizer.preheat(keys=["stock_AAPL"], parallel=False)
+
+        assert result["preheated"] == 1
+        handler.assert_called_once_with("stock_AAPL")
+        assert cm.get("stock_AAPL") == {"data": "from_handler"}
+
+    def test_match_pattern_variants(self):
+        """模式匹配涵盖通配、前缀、后缀和精确匹配"""
+        cm = CacheManager(use_disk=False)
+        optimizer = CacheOptimizer(cache_manager=cm)
+
+        # 全通配
+        assert optimizer._match_pattern("anything", "*") is True
+        # 前缀通配
+        assert optimizer._match_pattern("stock_AAPL", "stock_*") is True
+        assert optimizer._match_pattern("nope", "stock_*") is False
+        # 后缀通配
+        assert optimizer._match_pattern("AAPL_data", "*_data") is True
+        assert optimizer._match_pattern("AAPL_meta", "*_data") is False
+        # 精确匹配
+        assert optimizer._match_pattern("exact", "exact") is True
+        assert optimizer._match_pattern("stock_AAPL", "exact") is False
+
+    def test_calculate_priority_for_unknown_key(self):
+        """从未访问的键优先级为0"""
+        cm = CacheManager(use_disk=False)
+        optimizer = CacheOptimizer(cache_manager=cm)
+
+        assert optimizer.calculate_preheat_priority("never_seen") == 0.0
+
 
 class TestIncrementalDataUpdater:
     """增量数据更新器测试"""
@@ -253,6 +407,72 @@ class TestIncrementalDataUpdater:
         
         assert result["new_data"] == [3, 4]
         assert updater.get_data_version("incr_key") == "v1"
+
+    def test_update_incremental_uses_existing_when_fetcher_returns_none(self):
+        """fetcher返回None但已有缓存时返回已有数据并升版本"""
+        cm = CacheManager(use_disk=False)
+        updater = IncrementalDataUpdater(cache_manager=cm)
+        cm.set("present_key", {"old": True})
+
+        result = updater.update_incremental(
+            key="present_key",
+            data_fetcher=lambda k, e: None,
+            merge_func=lambda e, n: {**e, **n},
+            version="v2",
+        )
+
+        assert result == {"old": True}
+        assert updater.get_data_version("present_key") == "v2"
+
+    def test_update_incremental_fetcher_exception_returns_existing(self):
+        """fetcher异常时返回已有缓存数据，且不更新版本"""
+        cm = CacheManager(use_disk=False)
+        updater = IncrementalDataUpdater(cache_manager=cm)
+        cm.set("error_key", {"existing": "data"})
+        updater.set_data_version("error_key", "v1")
+
+        def raising_fetcher(k, e):
+            raise RuntimeError("fetch failed")
+
+        result = updater.update_incremental(
+            key="error_key",
+            data_fetcher=raising_fetcher,
+            merge_func=lambda e, n: n,
+            version="v2",
+        )
+
+        assert result == {"existing": "data"}
+        # 异常路径不应升级版本
+        assert updater.get_data_version("error_key") == "v1"
+
+    def test_check_needs_update_with_failing_version_fetcher(self):
+        """版本获取器异常时保守返回需要更新"""
+        cm = CacheManager(use_disk=False)
+        updater = IncrementalDataUpdater(cache_manager=cm)
+        updater.set_data_version("k", "v1")
+
+        def raising_version_fetcher(key):
+            raise RuntimeError("network down")
+
+        assert (
+            updater.check_needs_update(
+                "k", "v1", version_fetcher=raising_version_fetcher
+            )
+            is True
+        )
+
+    def test_check_needs_update_with_matching_version_fetcher(self):
+        """版本获取器返回相同版本时无需更新"""
+        cm = CacheManager(use_disk=False)
+        updater = IncrementalDataUpdater(cache_manager=cm)
+        updater.set_data_version("k", "v3")
+
+        assert (
+            updater.check_needs_update(
+                "k", "ignored", version_fetcher=lambda key: "v3"
+            )
+            is False
+        )
 
 
 class TestGlobalInstances:
