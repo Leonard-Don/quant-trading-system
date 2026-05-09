@@ -71,3 +71,26 @@ def test_update_journal_omits_warnings_when_within_limits(tmp_path):
     })
 
     assert "_warnings" not in result
+
+
+def test_realtime_journal_store_sanitizes_unsafe_profile_ids(tmp_path):
+    store = RealtimeJournalStore(storage_path=tmp_path)
+
+    store.update_journal(
+        {
+            "review_snapshots": [{"id": "guarded"}],
+            "timeline_events": [{"id": "guarded-event"}],
+        },
+        profile_id="../escape/../profile",
+    )
+
+    written = list(tmp_path.glob("*.json"))
+    assert len(written) == 1
+    filename = written[0].name
+    assert ".." not in filename
+    assert "/" not in filename
+    assert "\\" not in filename
+
+    journal = store.get_journal(profile_id="../escape/../profile")
+    assert journal["review_snapshots"] == [{"id": "guarded"}]
+    assert journal["timeline_events"] == [{"id": "guarded-event"}]
