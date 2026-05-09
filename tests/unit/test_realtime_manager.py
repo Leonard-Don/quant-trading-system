@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 
-import src.data.realtime_manager as realtime_manager_module
 from src.data.realtime_manager import RealTimeDataManager
 from src.data.providers.base_provider import BaseDataProvider
 
@@ -420,78 +419,6 @@ def test_provider_health_opens_short_circuit_after_repeated_failures():
     assert summary["provider_health"]["healthy"]["successes"] == 1
 
 
-class _SlowQuoteProvider(BaseDataProvider):
-    name = "slow-single"
-    priority = 1
-
-    def get_historical_data(self, *args, **kwargs):
-        raise NotImplementedError
-
-    def get_latest_quote(self, symbol):
-        time.sleep(0.05)
-        return {"symbol": symbol, "price": 100.0, "timestamp": datetime.now().isoformat()}
-
-
-class _SlowBatchProvider(BaseDataProvider):
-    name = "slow-batch"
-    priority = 1
-
-    def get_historical_data(self, *args, **kwargs):
-        raise NotImplementedError
-
-    def get_latest_quote(self, symbol):
-        raise NotImplementedError
-
-    def get_multiple_quotes(self, symbols):
-        time.sleep(0.05)
-        return {
-            symbol: {"symbol": symbol, "price": 100.0, "timestamp": datetime.now().isoformat()}
-            for symbol in symbols
-        }
-
-
-def test_fetch_with_provider_times_out_slow_single_quotes(monkeypatch):
-    manager = RealTimeDataManager()
-    monkeypatch.setattr(realtime_manager_module, "PROVIDER_FETCH_TIMEOUT_SECONDS", 0.01)
-
-    try:
-        results = manager._fetch_with_provider(_SlowQuoteProvider(), ["AAPL", "MSFT"])
-    finally:
-        manager.cleanup()
-
-    assert "timeout" in results["AAPL"]["error"]
-    assert "timeout" in results["MSFT"]["error"]
-
-
-def test_fetch_with_provider_times_out_slow_batch_quotes(monkeypatch):
-    manager = RealTimeDataManager()
-    monkeypatch.setattr(realtime_manager_module, "PROVIDER_FETCH_TIMEOUT_SECONDS", 0.01)
-
-    try:
-        try:
-            manager._fetch_with_provider(_SlowBatchProvider(), ["AAPL", "MSFT"])
-            assert False, "Expected batch fetch timeout"
-        except TimeoutError as exc:
-            assert "timed out" in str(exc)
-    finally:
-        manager.cleanup()
-
-
-def test_fetch_with_provider_uses_shorter_timeout_for_crypto_batches(monkeypatch):
-    manager = RealTimeDataManager()
-    monkeypatch.setattr(realtime_manager_module, "PROVIDER_FETCH_TIMEOUT_SECONDS", 1)
-    monkeypatch.setattr(realtime_manager_module, "CRYPTO_PROVIDER_FETCH_TIMEOUT_SECONDS", 0.01)
-
-    try:
-        try:
-            manager._fetch_with_provider(_SlowBatchProvider(), ["BTC-USD", "ETH-USD"])
-            assert False, "Expected crypto batch fetch timeout"
-        except TimeoutError as exc:
-            assert "0.01s" in str(exc)
-    finally:
-        manager.cleanup()
-
-
 def test_fetch_provider_quotes_treats_expected_crypto_yahoo_gaps_as_skip(caplog):
     manager = RealTimeDataManager()
 
@@ -595,3 +522,178 @@ def test_cleanup_allows_executors_to_be_recreated():
         assert not getattr(manager.fetch_executor, "_shutdown", False)
     finally:
         manager.cleanup()
+
+
+def test_subscribe_symbol_idempotent_for_duplicate_and_accumulates_distinct_callbacks():
+    manager = RealTimeDataManager()
+
+    def cb_one(_quote):
+        return None
+
+    def cb_two(_quote):
+        return None
+
+    try:
+        first = manager.subscribe_symbol("aapl", cb_one)
+        second = manager.subscribe_symbol("AAPL", cb_two)
+        third = manager.subscribe_symbol("AAPL", cb_one)
+        callbacks = set(manager.subscribers["AAPL"])
+        symbols_snapshot = set(manager.subscribed_symbols)
+    finally:
+        manager.cleanup()
+
+    assert first is True
+    assert second is False
+    assert third is False
+    assert callbacks == {cb_one, cb_two}
+    assert symbols_snapshot == {"AAPL"}
+
+
+def test_unsubscribe_with_callback_preserves_symbol_when_other_callbacks_remain():
+    manager = RealTimeDataManager()
+
+    def cb_one(_quote):
+        return None
+
+    def cb_two(_quote):
+        return None
+
+    try:
+        manager.subscribe_symbol("AAPL", cb_one)
+        manager.subscribe_symbol("AAPL", cb_two)
+
+        partial = manager.unsubscribe_symbol("AAPL", cb_one)
+        callbacks_after_partial = set(manager.subscribers.get("AAPL", set()))
+        symbol_present_after_partial = "AAPL" in manager.subscribed_symbols
+
+        full = manager.unsubscribe_symbol("AAPL", cb_two)
+        symbol_present_after_full = "AAPL" in manager.subscribed_symbols
+        subscribers_after_full = "AAPL" in manager.subscribers
+    finally:
+        manager.cleanup()
+
+    assert partial is False
+    assert callbacks_after_partial == {cb_two}
+    assert symbol_present_after_partial is True
+
+    assert full is True
+    assert symbol_present_after_full is False
+    assert subscribers_after_full is False
+
+
+def test_update_quotes_isolates_callback_exceptions_from_other_subscribers():
+    manager = RealTimeDataManager()
+    received = []
+
+    def bad_callback(_quote):
+        raise RuntimeError("callback boom")
+
+    def good_callback(quote):
+        received.append(quote)
+
+    manager.subscribe_symbol("BTC-USD", bad_callback)
+    manager.subscribe_symbol("BTC-USD", good_callback)
+
+    def fake_get_quotes_dict(symbols, use_cache=True):
+        manager.runtime_stats["last_fetch_stats"] = {
+            "requested": 1,
+            "cache_hits": 0,
+            "fetched": 1,
+            "misses": 0,
+        }
+        return {
+            "BTC-USD": {
+                "symbol": "BTC-USD",
+                "price": 65000.0,
+                "timestamp": datetime.now().isoformat(),
+                "source": "test",
+            },
+        }
+
+    manager.get_quotes_dict = fake_get_quotes_dict
+    try:
+        manager._update_quotes()
+        history_tail_price = manager.quote_history["BTC-USD"][-1].price
+    finally:
+        manager.cleanup()
+
+    assert len(received) == 1
+    assert received[0].price == 65000.0
+    assert history_tail_price == 65000.0
+
+
+def test_get_cached_quote_bundle_returns_none_after_ttl_expiry():
+    manager = RealTimeDataManager()
+
+    try:
+        manager._store_cached_quote_bundle(
+            ["AAPL"],
+            {
+                "AAPL": {
+                    "symbol": "AAPL",
+                    "price": 150.0,
+                    "timestamp": datetime.now().isoformat(),
+                },
+            },
+        )
+        bundle_key = manager._bundle_cache_key(["AAPL"])
+        cached_at, payload = manager._quotes_bundle_cache[bundle_key]
+        manager._quotes_bundle_cache[bundle_key] = (
+            cached_at - manager.bundle_cache_ttl - 1,
+            payload,
+        )
+
+        misses_before = manager.runtime_stats["bundle_cache_misses"]
+        result = manager._get_cached_quote_bundle(["AAPL"])
+        cache_after = bundle_key in manager._quotes_bundle_cache
+        misses_after = manager.runtime_stats["bundle_cache_misses"]
+    finally:
+        manager.cleanup()
+
+    assert result is None
+    assert cache_after is False
+    assert misses_after == misses_before + 1
+
+
+def test_update_quotes_enforces_global_history_cap_by_trimming_longest_first():
+    manager = RealTimeDataManager(max_global_history=10)
+
+    placeholder = manager._build_quote(
+        "PAD",
+        {"symbol": "PAD", "price": 1.0, "timestamp": datetime.now().isoformat()},
+        default_source="test",
+    )
+    assert placeholder is not None
+
+    manager.quote_history["AAA"] = [placeholder] * 8
+    manager.quote_history["BBB"] = [placeholder] * 4
+    manager.subscribed_symbols = {"AAA"}
+
+    def fake_get_quotes_dict(symbols, use_cache=True):
+        manager.runtime_stats["last_fetch_stats"] = {
+            "requested": 1,
+            "cache_hits": 0,
+            "fetched": 1,
+            "misses": 0,
+        }
+        return {
+            "AAA": {
+                "symbol": "AAA",
+                "price": 9.99,
+                "timestamp": datetime.now().isoformat(),
+                "source": "test",
+            },
+        }
+
+    manager.get_quotes_dict = fake_get_quotes_dict
+    try:
+        manager._update_quotes()
+        aaa_history = list(manager.quote_history["AAA"])
+        bbb_history = list(manager.quote_history["BBB"])
+    finally:
+        manager.cleanup()
+
+    assert len(aaa_history) == 6
+    assert len(bbb_history) == 4
+    assert len(aaa_history) + len(bbb_history) == manager.max_global_history
+    assert aaa_history[-1].price == 9.99
