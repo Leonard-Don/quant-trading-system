@@ -221,6 +221,29 @@ def test_research_journal_store_strips_unserializable_nested_source_state_values
     assert reloaded["source_state"] == snapshot["source_state"]
 
 
+def test_research_journal_store_coerces_tuple_source_state_values_to_lists(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [{"id": "x", "type": "manual", "title": "p"}],
+        "source_state": {
+            "pair": (1, 2),
+            "nested": {"trio": (3, 4, 5)},
+            "mixed": [0, (6, 7), 8],
+        },
+    })
+
+    assert snapshot["source_state"]["pair"] == [1, 2]
+    assert isinstance(snapshot["source_state"]["pair"], list)
+    assert snapshot["source_state"]["nested"]["trio"] == [3, 4, 5]
+    assert isinstance(snapshot["source_state"]["nested"]["trio"], list)
+    assert snapshot["source_state"]["mixed"] == [0, [6, 7], 8]
+    assert isinstance(snapshot["source_state"]["mixed"][1], list)
+
+    reloaded = store.get_snapshot()
+    assert reloaded["source_state"] == snapshot["source_state"]
+
+
 def test_research_journal_store_update_entry_status_rejects_invalid_status(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
     store.add_entry({"id": "valid", "type": "manual", "title": "valid"})
