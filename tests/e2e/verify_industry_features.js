@@ -603,6 +603,68 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
   }
 };
 
+// Sets a ranking control (sort/volatility/market-cap) and verifies the
+// selection-item text actually reflects the choice. AntD selects in the ranking
+// panel are URL-driven, so a click can occasionally lose a race with the URL
+// sync effect and leave the previous value in place silently. This wrapper
+// retries the open-click cycle until the postcondition holds, and dumps the
+// observed select state on final failure for CI diagnostics.
+const setRankingSelect = async (page, controlName, optionText, options = {}) => {
+  const { attempts = 3, perAttemptVerifyMs = 4000 } = options;
+  const selectionItemSelector = `.ant-tabs-tabpane-active [data-testid="${controlName}"] .ant-select-selection-item`;
+  const readCurrent = () => page.evaluate(
+    (selector) => document.querySelector(selector)?.textContent?.trim() || '',
+    selectionItemSelector,
+  );
+
+  if ((await readCurrent().catch(() => '')) === optionText) {
+    return;
+  }
+
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    // Defensively dismiss any stray dropdown/overlay from a prior interaction
+    // so the click below opens the dropdown for the targeted select.
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForFunction(
+      () => Array.from(document.querySelectorAll('.ant-select-dropdown'))
+        .every((node) => node.classList.contains('ant-select-dropdown-hidden')),
+      null,
+      { timeout: 1500 },
+    ).catch(() => {});
+
+    const selectLocator = page.locator(`.ant-tabs-tabpane-active .${controlName}`).first();
+    try {
+      await chooseSelectOption(page, selectLocator, optionText);
+    } catch (clickErr) {
+      lastError = clickErr;
+      await page.waitForTimeout(400);
+      continue;
+    }
+
+    try {
+      await page.waitForFunction(
+        ({ selector, expected }) => document.querySelector(selector)?.textContent?.trim() === expected,
+        { selector: selectionItemSelector, expected: optionText },
+        { timeout: perAttemptVerifyMs },
+      );
+      return;
+    } catch (verifyErr) {
+      lastError = verifyErr;
+      const observed = await readCurrent().catch(() => '<unreadable>');
+      console.log(`[setRankingSelect] verify miss ${attempt + 1}/${attempts} for ${controlName}: expected="${optionText}" observed="${observed}"`);
+      await page.waitForTimeout(400);
+    }
+  }
+
+  const finalSelectValues = await readRankingSelectValues(page).catch(() => null);
+  const finalUrl = page.url();
+  console.log(`[setRankingSelect] failure context url=${finalUrl} values=${JSON.stringify(finalSelectValues)}`);
+  throw new Error(
+    `setRankingSelect failed to set ${controlName} -> "${optionText}" after ${attempts} attempts: ${lastError?.message || 'unknown'}`,
+  );
+};
+
 (async () => {
   const browser = await chromium.launch();
   const page = await browser.newPage();
@@ -1145,26 +1207,11 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
     null,
     { timeout: 10000 }
   );
-  await chooseSelectOption(page, page.locator('.ant-tabs-tabpane-active .ranking-control-sort-by'), '按波动率');
-  await page.waitForFunction(
-    () => document.querySelector('[data-testid="ranking-control-sort-by"] .ant-select-selection-item')?.textContent?.trim() === '按波动率',
-    null,
-    { timeout: 10000 }
-  );
+  await setRankingSelect(page, 'ranking-control-sort-by', '按波动率');
   await waitForRankingReady(page);
-  await chooseSelectOption(page, page.locator('.ant-tabs-tabpane-active .ranking-control-volatility'), '低波动');
-  await page.waitForFunction(
-    () => document.querySelector('[data-testid="ranking-control-volatility"] .ant-select-selection-item')?.textContent?.trim() === '低波动',
-    null,
-    { timeout: 10000 }
-  );
+  await setRankingSelect(page, 'ranking-control-volatility', '低波动');
   await waitForRankingReady(page);
-  await chooseSelectOption(page, page.locator('.ant-tabs-tabpane-active .ranking-control-market-cap'), '实时市值');
-  await page.waitForFunction(
-    () => document.querySelector('[data-testid="ranking-control-market-cap"] .ant-select-selection-item')?.textContent?.trim() === '实时市值',
-    null,
-    { timeout: 10000 }
-  );
+  await setRankingSelect(page, 'ranking-control-market-cap', '实时市值');
   await waitForRankingReady(page);
   const rankingTableBody = page.locator('.ant-tabs-tabpane-active .ant-table-tbody');
   const rankingBodyRows = await rankingTableBody.locator('tr').evaluateAll(
