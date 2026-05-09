@@ -185,6 +185,22 @@ def test_research_journal_store_truncates_oversized_source_state(tmp_path):
     assert "blob" not in snapshot["source_state"]
 
 
+def test_research_journal_store_handles_cyclic_source_state(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    cyclic: dict[str, object] = {"secret_blob": "a" * 4096}
+    cyclic["self"] = cyclic
+
+    snapshot = store.update_snapshot({
+        "entries": [{"id": "x", "type": "manual", "title": "p"}],
+        "source_state": cyclic,
+    })
+
+    assert snapshot["source_state"].get("truncated") is True
+    assert "secret_blob" not in snapshot["source_state"]
+    assert "self" not in snapshot["source_state"]
+
+
 def test_research_journal_store_update_entry_status_rejects_invalid_status(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
     store.add_entry({"id": "valid", "type": "manual", "title": "valid"})
