@@ -1,5 +1,6 @@
 
 import logging
+import math
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
@@ -106,6 +107,11 @@ class TradeManager:
 
     def execute_trade(self, symbol: str, action: str, quantity: int, price: float) -> Dict[str, Any]:
         """Execute a trade (Buy or Sell)"""
+        if not math.isfinite(quantity) or quantity <= 0:
+            raise ValueError(f"Invalid quantity: {quantity} (must be finite and positive)")
+        if not math.isfinite(price) or price <= 0:
+            raise ValueError(f"Invalid price: {price} (must be finite and positive)")
+
         symbol = symbol.upper()
         action = action.upper()
         total_amount = quantity * price

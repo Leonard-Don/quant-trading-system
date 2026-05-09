@@ -62,13 +62,14 @@ describe('today research aggregation utilities', () => {
       },
     ]));
     window.localStorage.setItem(INDUSTRY_WATCHLIST_STORAGE_KEY, JSON.stringify(['半导体']));
+    const freshIndustrySeenAt = Date.now() - 10 * 60 * 1000;
     window.localStorage.setItem(INDUSTRY_ALERT_HISTORY_STORAGE_KEY, JSON.stringify({
       semiconductor: {
         industry_name: '半导体',
         hitCount: 2,
         priority: 120,
-        firstSeenAt: Date.parse('2026-05-02T13:00:00.000Z'),
-        lastSeenAt: Date.parse('2026-05-02T13:10:00.000Z'),
+        firstSeenAt: freshIndustrySeenAt - 10 * 60 * 1000,
+        lastSeenAt: freshIndustrySeenAt,
       },
     }));
 
