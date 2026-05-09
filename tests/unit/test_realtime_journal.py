@@ -1,4 +1,8 @@
-from backend.app.services.realtime_journal import RealtimeJournalStore
+from backend.app.services.realtime_journal import (
+    MAX_REVIEW_SNAPSHOTS,
+    MAX_TIMELINE_EVENTS,
+    RealtimeJournalStore,
+)
 
 
 def test_realtime_journal_store_limits_snapshot_and_timeline_counts(tmp_path):
@@ -35,3 +39,35 @@ def test_realtime_journal_store_isolated_by_profile_id(tmp_path):
         "review_snapshots": [{"id": "snapshot-b"}],
         "timeline_events": [{"id": "event-b"}],
     }
+
+
+def test_update_journal_emits_truncation_warnings_when_limits_exceeded(tmp_path):
+    store = RealtimeJournalStore(storage_path=tmp_path)
+
+    snapshot_overflow = MAX_REVIEW_SNAPSHOTS + 5
+    event_overflow = MAX_TIMELINE_EVENTS + 7
+    result = store.update_journal({
+        "review_snapshots": [{"id": f"s-{i}"} for i in range(snapshot_overflow)],
+        "timeline_events": [{"id": f"e-{i}"} for i in range(event_overflow)],
+    })
+
+    warnings = result["_warnings"]
+    assert any(
+        f"review_snapshots truncated from {snapshot_overflow} to {MAX_REVIEW_SNAPSHOTS}" in warning
+        for warning in warnings
+    )
+    assert any(
+        f"timeline_events truncated from {event_overflow} to {MAX_TIMELINE_EVENTS}" in warning
+        for warning in warnings
+    )
+
+
+def test_update_journal_omits_warnings_when_within_limits(tmp_path):
+    store = RealtimeJournalStore(storage_path=tmp_path)
+
+    result = store.update_journal({
+        "review_snapshots": [{"id": "s-only"}],
+        "timeline_events": [{"id": "e-only"}],
+    })
+
+    assert "_warnings" not in result
