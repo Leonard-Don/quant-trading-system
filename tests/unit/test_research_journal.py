@@ -196,6 +196,20 @@ def test_research_journal_store_update_entry_status_rejects_invalid_status(tmp_p
         store.update_entry_status("missing", "done")
 
 
+@pytest.mark.parametrize(
+    "invalid_entry",
+    [None, [], "not-a-dict", 42, ("id", "manual"), {"id", "manual"}],
+)
+def test_research_journal_store_add_entry_rejects_non_dict_input(tmp_path, invalid_entry):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    with pytest.raises(ValueError, match="entry must be an object"):
+        store.add_entry(invalid_entry)
+
+    assert list(tmp_path.glob("*.json")) == []
+    assert store.get_snapshot()["entries"] == []
+
+
 def test_research_journal_store_preserves_z_suffix_and_falls_back_on_invalid_iso(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
 
