@@ -83,7 +83,12 @@ def _stable_entry_id(entry: dict[str, Any], index: int = 0) -> str:
 
 
 def _coerce_mapping(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, dict) else {}
+    if not isinstance(value, dict):
+        return {}
+    try:
+        return json.loads(json.dumps(dict(value), ensure_ascii=False, default=str))
+    except (ValueError, TypeError):
+        return {}
 
 
 def _coerce_tags(value: Any) -> list[str]:

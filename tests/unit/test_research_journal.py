@@ -266,6 +266,40 @@ def test_research_journal_store_stringifies_non_string_source_state_keys(tmp_pat
     assert reloaded["source_state"] == snapshot["source_state"]
 
 
+def test_research_journal_store_coerces_tuple_entry_mapping_values_to_lists(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "json-entry",
+                "type": "manual",
+                "title": "json-ready",
+                "metrics": {"history": (1, 2, 3), "nested": {"pair": (4, 5)}},
+                "action": {"steps": (10, 20)},
+                "raw": {"tuple_field": (7, 8)},
+            },
+        ],
+    })
+
+    entry = next(e for e in snapshot["entries"] if e["id"] == "json-entry")
+    json.dumps(entry["metrics"])
+    json.dumps(entry["action"])
+    json.dumps(entry["raw"])
+    assert entry["metrics"]["history"] == [1, 2, 3]
+    assert isinstance(entry["metrics"]["history"], list)
+    assert entry["metrics"]["nested"]["pair"] == [4, 5]
+    assert isinstance(entry["metrics"]["nested"]["pair"], list)
+    assert entry["action"]["steps"] == [10, 20]
+    assert entry["raw"]["tuple_field"] == [7, 8]
+
+    reloaded = store.get_snapshot()
+    reloaded_entry = next(e for e in reloaded["entries"] if e["id"] == "json-entry")
+    assert reloaded_entry["metrics"] == entry["metrics"]
+    assert reloaded_entry["action"] == entry["action"]
+    assert reloaded_entry["raw"] == entry["raw"]
+
+
 def test_research_journal_store_update_entry_status_rejects_invalid_status(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
     store.add_entry({"id": "valid", "type": "manual", "title": "valid"})
