@@ -2010,6 +2010,49 @@ def test_market_buy_then_sell_records_entry_order_id_on_sell(store):
     assert sell_result["order"].get("entry_order_id") == buy_fill_id
 
 
+def test_addon_buy_preserves_opening_order_id_so_sell_links_to_first_buy(store):
+    """Add-on BUYs must NOT overwrite the position's `opening_order_id` —
+    the position records the entry that *opened* it, and a closing SELL's
+    `entry_order_id` must therefore point to the FIRST BUY, not the most
+    recent add-on. The section header above the entry-side tests calls
+    out add-on buys as the exact case where a "scan history for the
+    latest matching-symbol BUY" lookup would be fragile, but no test
+    exercises a multi-tranche position. Without this test, a refactor
+    that re-stamped `opening_order_id` on every BUY would silently break
+    the entry-side audit link, surfacing only as a wrong id in journals."""
+    first_buy = store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 100.0},
+        profile_id="alice",
+    )
+    first_buy_id = first_buy["order"]["id"]
+
+    addon_buy = store.submit_order(
+        {"symbol": "AAPL", "side": "BUY", "quantity": 5, "fill_price": 110.0},
+        profile_id="alice",
+    )
+    addon_buy_id = addon_buy["order"]["id"]
+    assert addon_buy_id != first_buy_id
+
+    account_after_addon = store.get_account(profile_id="alice")
+    position = account_after_addon["positions"][0]
+    assert position["quantity"] == 10
+    assert position["opening_order_id"] == first_buy_id, (
+        "add-on BUY must preserve opening_order_id from the FIRST BUY; "
+        f"got {position['opening_order_id']!r}, expected {first_buy_id!r}"
+    )
+
+    sell_result = store.submit_order(
+        {"symbol": "AAPL", "side": "SELL", "quantity": 10, "fill_price": 120.0},
+        profile_id="alice",
+    )
+    assert sell_result["order"].get("entry_order_id") == first_buy_id, (
+        "closing SELL's entry_order_id must point to the FIRST BUY, not "
+        "the most recent add-on; got "
+        f"{sell_result['order'].get('entry_order_id')!r}, "
+        f"expected {first_buy_id!r}"
+    )
+
+
 def test_run_matching_sell_limit_close_records_entry_order_id(store):
     """A SELL LIMIT cross that fully closes a position must emit
     `entry_order_id` on the filling fill, mirroring the SL-trigger,
