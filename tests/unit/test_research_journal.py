@@ -1,4 +1,12 @@
-from backend.app.services.research_journal import ResearchJournalStore
+from datetime import datetime
+
+import pytest
+
+from backend.app.services.research_journal import (
+    MAX_RESEARCH_JOURNAL_SOURCE_BYTES,
+    MAX_RESEARCH_JOURNAL_TAGS,
+    ResearchJournalStore,
+)
 
 
 def test_research_journal_store_normalizes_entries_and_builds_summary(tmp_path):
@@ -71,3 +79,149 @@ def test_research_journal_store_adds_entry_and_updates_status(tmp_path):
 
     updated = store.update_entry_status("manual-1", "done")
     assert updated["entries"][0]["status"] == "done"
+
+
+def test_research_journal_store_normalizes_tags_with_dedup_trim_and_cap(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "tagged",
+                "type": "manual",
+                "title": "标签整理",
+                "tags": ["a", " a ", "   ", "b", "c", "d", "e", "f", "g", "h", "i"],
+            },
+            {
+                "id": "wrong-shape",
+                "type": "manual",
+                "title": "tags shape",
+                "tags": "not-a-list",
+            },
+        ],
+    })
+
+    by_id = {entry["id"]: entry for entry in snapshot["entries"]}
+    expected_tags = list("abcdefgh")[:MAX_RESEARCH_JOURNAL_TAGS]
+    assert by_id["tagged"]["tags"] == expected_tags
+    assert len(by_id["tagged"]["tags"]) == MAX_RESEARCH_JOURNAL_TAGS
+    assert by_id["wrong-shape"]["tags"] == []
+
+
+def test_research_journal_store_dedupes_entries_keeping_newest_updated_at(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "duplicate",
+                "type": "manual",
+                "title": "older",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+            },
+            {
+                "id": "duplicate",
+                "type": "manual",
+                "title": "newer",
+                "updated_at": "2026-05-01T00:00:00+00:00",
+            },
+        ],
+    })
+
+    assert len(snapshot["entries"]) == 1
+    assert snapshot["entries"][0]["title"] == "newer"
+
+
+def test_research_journal_store_sorts_entries_by_status_then_priority(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {"id": "archived-high", "type": "manual", "title": "archived",
+             "status": "archived", "priority": "high"},
+            {"id": "open-low", "type": "manual", "title": "open low",
+             "status": "open", "priority": "low"},
+            {"id": "open-high", "type": "manual", "title": "open high",
+             "status": "open", "priority": "high"},
+            {"id": "done-medium", "type": "manual", "title": "done",
+             "status": "done", "priority": "medium"},
+        ],
+    })
+
+    ordered_ids = [entry["id"] for entry in snapshot["entries"]]
+    assert ordered_ids == ["open-high", "open-low", "done-medium", "archived-high"]
+
+
+def test_research_journal_store_sanitizes_unsafe_profile_ids(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    store.update_snapshot(
+        {"entries": [{"id": "x", "type": "manual", "title": "p"}]},
+        profile_id="../escape/../profile",
+    )
+
+    written = list(tmp_path.glob("*.json"))
+    assert len(written) == 1
+    filename = written[0].name
+    assert ".." not in filename
+    assert "/" not in filename
+    assert "\\" not in filename
+
+    snapshot = store.get_snapshot(profile_id="../escape/../profile")
+    assert snapshot["entries"][0]["id"] == "x"
+
+
+def test_research_journal_store_truncates_oversized_source_state(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    huge_blob = "a" * (MAX_RESEARCH_JOURNAL_SOURCE_BYTES + 32 * 1024)
+    snapshot = store.update_snapshot({
+        "entries": [{"id": "x", "type": "manual", "title": "p"}],
+        "source_state": {"blob": huge_blob},
+    })
+
+    assert snapshot["source_state"]["truncated"] is True
+    assert snapshot["source_state"]["original_size_bytes"] >= len(huge_blob)
+    assert "blob" not in snapshot["source_state"]
+
+
+def test_research_journal_store_update_entry_status_rejects_invalid_status(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+    store.add_entry({"id": "valid", "type": "manual", "title": "valid"})
+
+    with pytest.raises(ValueError):
+        store.update_entry_status("valid", "frozen")
+
+    with pytest.raises(KeyError):
+        store.update_entry_status("missing", "done")
+
+
+def test_research_journal_store_preserves_z_suffix_and_falls_back_on_invalid_iso(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "z-date",
+                "type": "manual",
+                "title": "z-suffix",
+                "created_at": "2026-05-02T00:00:00Z",
+                "updated_at": "2026-05-03T00:00:00Z",
+            },
+            {
+                "id": "bad-date",
+                "type": "manual",
+                "title": "bad",
+                "created_at": "not-a-date",
+                "updated_at": "also-bad",
+            },
+        ],
+    })
+
+    by_id = {entry["id"]: entry for entry in snapshot["entries"]}
+    assert by_id["z-date"]["created_at"] == "2026-05-02T00:00:00Z"
+    assert by_id["z-date"]["updated_at"] == "2026-05-03T00:00:00Z"
+
+    bad_entry = by_id["bad-date"]
+    datetime.fromisoformat(bad_entry["created_at"].replace("Z", "+00:00"))
+    assert bad_entry["created_at"] == bad_entry["updated_at"]

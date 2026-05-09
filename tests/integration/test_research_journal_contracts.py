@@ -49,3 +49,35 @@ def test_research_journal_entry_status_endpoint_maps_missing_entry_to_404():
 
     assert response.status_code == 404
     assert response.json()["error"]["message"] == "entry not found"
+
+
+def test_research_journal_add_entry_endpoint_maps_value_error_to_400():
+    client = TestClient(app)
+
+    with patch(
+        "backend.app.api.v1.endpoints.research_journal.research_journal_store.add_entry",
+        side_effect=ValueError("entry must be an object"),
+    ):
+        response = client.post(
+            "/research-journal/entries",
+            json={"entry": {}},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["message"] == "entry must be an object"
+
+
+def test_research_journal_entry_status_endpoint_maps_invalid_status_to_400():
+    client = TestClient(app)
+
+    with patch(
+        "backend.app.api.v1.endpoints.research_journal.research_journal_store.update_entry_status",
+        side_effect=ValueError("invalid status 'frozen'"),
+    ):
+        response = client.patch(
+            "/research-journal/entries/manual-1/status?profile_id=browser-a",
+            json={"status": "frozen"},
+        )
+
+    assert response.status_code == 400
+    assert "invalid status" in response.json()["error"]["message"]
