@@ -421,12 +421,13 @@ class ResearchJournalStore:
         normalized_status = _safe_text(status, 40)
         if normalized_status not in ENTRY_STATUSES:
             raise ValueError(f"invalid status '{status}'")
+        lookup_id = _safe_text(entry_id, 180)
         with self._lock:
             current = self._load_journal(profile_id)
             matched = False
             updated_entries = []
             for entry in current.get("entries") or []:
-                if entry.get("id") == entry_id:
+                if entry.get("id") == lookup_id:
                     entry = {**entry, "status": normalized_status, "updated_at": _utc_now()}
                     matched = True
                 updated_entries.append(entry)
