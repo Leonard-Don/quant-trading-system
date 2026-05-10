@@ -175,7 +175,11 @@ class ResearchJournalStore:
             "symbol": symbol,
             "industry": industry,
             "source": _safe_text(raw_entry.get("source"), 80) or entry_type,
-            "source_label": _safe_text(raw_entry.get("source_label") or raw_entry.get("sourceLabel"), 80),
+            "source_label": (
+                _coerce_text(raw_entry.get("sourceLabel"), 80)
+                if raw_entry.get("source_label") is None or raw_entry.get("source_label") == ""
+                else _coerce_text(raw_entry.get("source_label"), 80)
+            ),
             "created_at": created_at,
             "updated_at": updated_at,
             "tags": _coerce_tags(raw_entry.get("tags")),
