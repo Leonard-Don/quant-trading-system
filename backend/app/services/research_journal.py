@@ -332,7 +332,7 @@ class ResearchJournalStore:
                 {"industry": industry, "count": count}
                 for industry, count in sorted(industry_counts.items(), key=lambda item: (-item[1], item[0]))[:8]
             ],
-            "action_queue": actionable[:12],
+            "action_queue": [deepcopy(entry) for entry in actionable[:12]],
             "symbol_timeline": symbol_timeline,
             "next_actions": next_actions[:4],
         }
