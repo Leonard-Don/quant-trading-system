@@ -82,6 +82,24 @@ def test_research_journal_store_adds_entry_and_updates_status(tmp_path):
     assert updated["entries"][0]["status"] == "done"
 
 
+def test_research_journal_store_coerces_falsy_non_none_tag_values_to_strings(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "numeric-tags",
+                "type": "manual",
+                "title": "numeric",
+                "tags": [0, False, 1, True, "real"],
+            },
+        ],
+    })
+
+    entry = next(e for e in snapshot["entries"] if e["id"] == "numeric-tags")
+    assert entry["tags"] == ["0", "False", "1", "True", "real"]
+
+
 def test_research_journal_store_normalizes_tags_with_dedup_trim_and_cap(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
 
