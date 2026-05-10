@@ -100,6 +100,45 @@ def test_research_journal_store_coerces_falsy_non_none_tag_values_to_strings(tmp
     assert entry["tags"] == ["0", "False", "1", "True", "real"]
 
 
+def test_research_journal_store_preserves_falsy_non_none_summary_values(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "zero-summary",
+                "type": "manual",
+                "title": "zero",
+                "summary": 0,
+            },
+            {
+                "id": "false-summary",
+                "type": "manual",
+                "title": "false-bool",
+                "summary": False,
+            },
+            {
+                "id": "none-summary",
+                "type": "manual",
+                "title": "none",
+                "summary": None,
+            },
+            {
+                "id": "blank-summary",
+                "type": "manual",
+                "title": "blank",
+                "summary": "   ",
+            },
+        ],
+    })
+
+    by_id = {e["id"]: e for e in snapshot["entries"]}
+    assert by_id["zero-summary"]["summary"] == "0"
+    assert by_id["false-summary"]["summary"] == "False"
+    assert by_id["none-summary"]["summary"] == ""
+    assert by_id["blank-summary"]["summary"] == ""
+
+
 def test_research_journal_store_normalizes_tags_with_dedup_trim_and_cap(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
 
