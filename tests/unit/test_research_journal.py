@@ -298,6 +298,113 @@ def test_stable_entry_id_preserves_falsy_non_none_created_at_values():
     assert _stable_entry_id({**base, "created_at": False, "createdAt": fallback_camel}) != canonical_id
 
 
+def test_research_journal_store_falls_back_to_camelcase_dates_only_for_none_or_empty(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+    camel_created = "2026-01-01T00:00:00Z"
+    camel_updated = "2026-01-02T00:00:00Z"
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "none-dates",
+                "type": "manual",
+                "title": "none",
+                "created_at": None,
+                "createdAt": camel_created,
+                "updated_at": None,
+                "updatedAt": camel_updated,
+            },
+            {
+                "id": "empty-dates",
+                "type": "manual",
+                "title": "empty",
+                "created_at": "",
+                "createdAt": camel_created,
+                "updated_at": "",
+                "updatedAt": camel_updated,
+            },
+            {
+                "id": "missing-dates",
+                "type": "manual",
+                "title": "missing",
+                "createdAt": camel_created,
+                "updatedAt": camel_updated,
+            },
+        ],
+    })
+
+    by_id = {e["id"]: e for e in snapshot["entries"]}
+    for entry_id in ("none-dates", "empty-dates", "missing-dates"):
+        assert by_id[entry_id]["created_at"] == camel_created
+        assert by_id[entry_id]["updated_at"] == camel_updated
+
+
+def test_research_journal_store_preserves_falsy_non_none_created_at_values(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+    camel_created = "2026-01-01T00:00:00Z"
+    camel_updated = "2026-01-02T00:00:00Z"
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "zero-created-at",
+                "type": "manual",
+                "title": "zero",
+                "created_at": 0,
+                "createdAt": camel_created,
+                "updated_at": camel_updated,
+            },
+            {
+                "id": "false-created-at",
+                "type": "manual",
+                "title": "false",
+                "created_at": False,
+                "createdAt": camel_created,
+                "updated_at": camel_updated,
+            },
+        ],
+    })
+
+    by_id = {e["id"]: e for e in snapshot["entries"]}
+    assert by_id["zero-created-at"]["created_at"] != camel_created
+    assert by_id["false-created-at"]["created_at"] != camel_created
+    datetime.fromisoformat(by_id["zero-created-at"]["created_at"].replace("Z", "+00:00"))
+    datetime.fromisoformat(by_id["false-created-at"]["created_at"].replace("Z", "+00:00"))
+
+
+def test_research_journal_store_preserves_falsy_non_none_updated_at_values(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+    camel_created = "2026-01-01T00:00:00Z"
+    camel_updated = "2026-01-02T00:00:00Z"
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "zero-updated-at",
+                "type": "manual",
+                "title": "zero",
+                "created_at": camel_created,
+                "updated_at": 0,
+                "updatedAt": camel_updated,
+            },
+            {
+                "id": "false-updated-at",
+                "type": "manual",
+                "title": "false",
+                "created_at": camel_created,
+                "updated_at": False,
+                "updatedAt": camel_updated,
+            },
+        ],
+    })
+
+    by_id = {e["id"]: e for e in snapshot["entries"]}
+    assert by_id["zero-updated-at"]["updated_at"] != camel_updated
+    assert by_id["false-updated-at"]["updated_at"] != camel_updated
+    assert by_id["zero-updated-at"]["updated_at"] == camel_created
+    assert by_id["false-updated-at"]["updated_at"] == camel_created
+
+
 def test_research_journal_store_normalizes_tags_with_dedup_trim_and_cap(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
 
