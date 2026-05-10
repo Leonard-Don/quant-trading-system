@@ -52,6 +52,12 @@ def _safe_text(value: Any, max_chars: int = 240) -> str:
     return text[:max_chars]
 
 
+def _coerce_text(value: Any, max_chars: int = 240) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()[:max_chars]
+
+
 def _safe_iso(value: Any, fallback: str) -> str:
     text = _safe_text(value, 80)
     if not text:
@@ -159,7 +165,7 @@ class ResearchJournalStore:
             "status": status,
             "priority": priority,
             "title": title,
-            "summary": _safe_text(raw_entry.get("summary"), 360),
+            "summary": _coerce_text(raw_entry.get("summary"), 360),
             "note": _safe_text(raw_entry.get("note"), MAX_RESEARCH_JOURNAL_NOTE_CHARS),
             "symbol": symbol,
             "industry": industry,
