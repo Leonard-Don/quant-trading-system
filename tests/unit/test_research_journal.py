@@ -242,6 +242,107 @@ def test_research_journal_store_preserves_falsy_non_none_source_label_values(tmp
     assert by_id["blank-source-label"]["source_label"] == ""
 
 
+def test_research_journal_store_preserves_falsy_non_none_source_values(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "zero-source",
+                "type": "manual",
+                "title": "zero",
+                "source": 0,
+            },
+            {
+                "id": "false-source",
+                "type": "manual",
+                "title": "false-bool",
+                "source": False,
+            },
+            {
+                "id": "none-source",
+                "type": "manual",
+                "title": "none",
+                "source": None,
+            },
+            {
+                "id": "blank-source",
+                "type": "manual",
+                "title": "blank",
+                "source": "   ",
+            },
+        ],
+    })
+
+    by_id = {e["id"]: e for e in snapshot["entries"]}
+    assert by_id["zero-source"]["source"] == "0"
+    assert by_id["false-source"]["source"] == "False"
+    assert by_id["none-source"]["source"] == "manual"
+    assert by_id["blank-source"]["source"] == "manual"
+
+
+def test_research_journal_store_preserves_falsy_non_none_note_values(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "zero-note",
+                "type": "manual",
+                "title": "zero",
+                "note": 0,
+            },
+            {
+                "id": "false-note",
+                "type": "manual",
+                "title": "false-bool",
+                "note": False,
+            },
+            {
+                "id": "none-note",
+                "type": "manual",
+                "title": "none",
+                "note": None,
+            },
+            {
+                "id": "blank-note",
+                "type": "manual",
+                "title": "blank",
+                "note": "   ",
+            },
+        ],
+    })
+
+    by_id = {e["id"]: e for e in snapshot["entries"]}
+    assert by_id["zero-note"]["note"] == "0"
+    assert by_id["false-note"]["note"] == "False"
+    assert by_id["none-note"]["note"] == ""
+    assert by_id["blank-note"]["note"] == ""
+
+
+def test_research_journal_store_preserves_falsy_non_none_id_values(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": 0,
+                "type": "manual",
+                "title": "zero-id",
+            },
+            {
+                "id": False,
+                "type": "manual",
+                "title": "false-id",
+            },
+        ],
+    })
+
+    ids = {entry["id"] for entry in snapshot["entries"]}
+    assert "0" in ids
+    assert "False" in ids
+
+
 def test_research_journal_store_preserves_falsy_non_none_title_values(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
 
