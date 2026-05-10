@@ -922,6 +922,58 @@ def test_research_journal_store_update_entry_status_rejects_invalid_status(tmp_p
         store.update_entry_status("missing", "done")
 
 
+def test_research_journal_store_update_entry_status_matches_numeric_zero_id(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+    store.add_entry({"id": 0, "type": "manual", "title": "zero"})
+
+    updated = store.update_entry_status(0, "done")
+
+    by_id = {entry["id"]: entry for entry in updated["entries"]}
+    assert by_id["0"]["status"] == "done"
+
+
+def test_research_journal_store_update_entry_status_matches_boolean_false_id(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+    store.add_entry({"id": False, "type": "manual", "title": "false-id"})
+
+    updated = store.update_entry_status(False, "done")
+
+    by_id = {entry["id"]: entry for entry in updated["entries"]}
+    assert by_id["False"]["status"] == "done"
+
+
+def test_research_journal_store_update_entry_status_does_not_match_none_or_blank_ids(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+    store.add_entry({"type": "manual", "title": "no-id"})
+    store.add_entry({"id": "real-id", "type": "manual", "title": "real"})
+
+    snapshot = store.get_snapshot()
+    stored_ids = {entry["id"] for entry in snapshot["entries"]}
+    assert "real-id" in stored_ids
+    assert any(eid.startswith("research_") for eid in stored_ids)
+
+    with pytest.raises(KeyError):
+        store.update_entry_status(None, "done")
+    with pytest.raises(KeyError):
+        store.update_entry_status("", "done")
+    with pytest.raises(KeyError):
+        store.update_entry_status("   ", "done")
+
+    snapshot = store.get_snapshot()
+    for entry in snapshot["entries"]:
+        assert entry["status"] == "open"
+
+
+def test_research_journal_store_update_entry_status_strips_whitespace_consistently(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+    store.add_entry({"id": "manual-1", "type": "manual", "title": "stripped"})
+
+    updated = store.update_entry_status("  manual-1  ", "done")
+
+    by_id = {entry["id"]: entry for entry in updated["entries"]}
+    assert by_id["manual-1"]["status"] == "done"
+
+
 @pytest.mark.parametrize(
     "invalid_entry",
     [None, [], "not-a-dict", 42, ("id", "manual"), {"id", "manual"}],
