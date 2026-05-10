@@ -139,6 +139,41 @@ def test_research_journal_store_preserves_falsy_non_none_summary_values(tmp_path
     assert by_id["blank-summary"]["summary"] == ""
 
 
+def test_research_journal_store_preserves_falsy_non_none_title_values(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "zero-title",
+                "type": "manual",
+                "title": 0,
+            },
+            {
+                "id": "false-title",
+                "type": "manual",
+                "title": False,
+            },
+            {
+                "id": "none-title",
+                "type": "manual",
+                "title": None,
+            },
+            {
+                "id": "blank-title",
+                "type": "manual",
+                "title": "   ",
+            },
+        ],
+    })
+
+    by_id = {e["id"]: e for e in snapshot["entries"]}
+    assert by_id["zero-title"]["title"] == "0"
+    assert by_id["false-title"]["title"] == "False"
+    assert by_id["none-title"]["title"] == "研究记录"
+    assert by_id["blank-title"]["title"] == "研究记录"
+
+
 def test_research_journal_store_normalizes_tags_with_dedup_trim_and_cap(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
 
