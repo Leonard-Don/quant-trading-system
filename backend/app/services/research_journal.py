@@ -97,7 +97,9 @@ def _coerce_tags(value: Any) -> list[str]:
     if not isinstance(value, list):
         return tags
     for item in value:
-        tag = _safe_text(item, 40)
+        if item is None:
+            continue
+        tag = str(item).strip()[:40]
         if not tag or tag in seen:
             continue
         tags.append(tag)
