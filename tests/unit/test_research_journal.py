@@ -139,6 +139,57 @@ def test_research_journal_store_preserves_falsy_non_none_summary_values(tmp_path
     assert by_id["blank-summary"]["summary"] == ""
 
 
+def test_research_journal_store_preserves_falsy_non_none_industry_values(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "zero-industry",
+                "type": "industry_watch",
+                "title": "zero",
+                "industry": 0,
+                "industry_name": "fallback",
+            },
+            {
+                "id": "false-industry",
+                "type": "industry_watch",
+                "title": "false-bool",
+                "industry": False,
+                "industry_name": "fallback",
+            },
+            {
+                "id": "none-industry",
+                "type": "industry_watch",
+                "title": "none",
+                "industry": None,
+                "industry_name": "from-name",
+            },
+            {
+                "id": "empty-string-industry",
+                "type": "industry_watch",
+                "title": "empty-string",
+                "industry": "",
+                "industry_name": "from-name",
+            },
+            {
+                "id": "blank-industry",
+                "type": "industry_watch",
+                "title": "blank",
+                "industry": "   ",
+                "industry_name": "from-name",
+            },
+        ],
+    })
+
+    by_id = {e["id"]: e for e in snapshot["entries"]}
+    assert by_id["zero-industry"]["industry"] == "0"
+    assert by_id["false-industry"]["industry"] == "False"
+    assert by_id["none-industry"]["industry"] == "from-name"
+    assert by_id["empty-string-industry"]["industry"] == "from-name"
+    assert by_id["blank-industry"]["industry"] == ""
+
+
 def test_research_journal_store_preserves_falsy_non_none_title_values(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
 

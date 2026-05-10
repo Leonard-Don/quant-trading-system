@@ -151,7 +151,12 @@ class ResearchJournalStore:
             priority = "medium"
 
         symbol = _safe_text(raw_entry.get("symbol"), 40).upper()
-        industry = _safe_text(raw_entry.get("industry") or raw_entry.get("industry_name"), 120)
+        raw_industry = raw_entry.get("industry")
+        industry = (
+            _coerce_text(raw_entry.get("industry_name"), 120)
+            if raw_industry is None or raw_industry == ""
+            else _coerce_text(raw_industry, 120)
+        )
         title = _coerce_text(raw_entry.get("title"), 180)
         if not title:
             title = symbol or industry or "研究记录"
