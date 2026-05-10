@@ -324,6 +324,35 @@ def test_research_journal_store_summary_action_queue_entries_are_independent_cop
     assert main_entry["metrics"] == {"score": 0.5}
 
 
+def test_research_journal_store_summary_symbol_timeline_entries_are_independent_copies(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "alert-1",
+                "type": "realtime_alert",
+                "title": "alert",
+                "symbol": "AAPL",
+                "status": "open",
+                "priority": "high",
+                "metrics": {"score": 0.5},
+            },
+        ],
+    })
+
+    timeline_view = snapshot["summary"]["symbol_timeline"][0]
+    assert timeline_view["symbol"] == "AAPL"
+    timeline_entry = timeline_view["entries"][0]
+    timeline_entry["metrics"]["score"] = 999
+    timeline_entry["metrics"]["leaked"] = True
+    timeline_entry["status"] = "archived"
+
+    main_entry = next(e for e in snapshot["entries"] if e["id"] == "alert-1")
+    assert main_entry["metrics"] == {"score": 0.5}
+    assert main_entry["status"] == "open"
+
+
 def test_research_journal_store_update_entry_status_rejects_invalid_status(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
     store.add_entry({"id": "valid", "type": "manual", "title": "valid"})
