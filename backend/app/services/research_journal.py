@@ -165,8 +165,20 @@ class ResearchJournalStore:
         if not title:
             title = symbol or industry or "研究记录"
 
-        created_at = _safe_iso(raw_entry.get("created_at") or raw_entry.get("createdAt"), now)
-        updated_at = _safe_iso(raw_entry.get("updated_at") or raw_entry.get("updatedAt"), created_at)
+        raw_created_at = raw_entry.get("created_at")
+        created_at = _safe_iso(
+            raw_entry.get("createdAt")
+            if raw_created_at is None or raw_created_at == ""
+            else raw_created_at,
+            now,
+        )
+        raw_updated_at = raw_entry.get("updated_at")
+        updated_at = _safe_iso(
+            raw_entry.get("updatedAt")
+            if raw_updated_at is None or raw_updated_at == ""
+            else raw_updated_at,
+            created_at,
+        )
 
         entry = {
             "id": _stable_entry_id(raw_entry, index),
