@@ -300,6 +300,30 @@ def test_research_journal_store_coerces_tuple_entry_mapping_values_to_lists(tmp_
     assert reloaded_entry["raw"] == entry["raw"]
 
 
+def test_research_journal_store_summary_action_queue_entries_are_independent_copies(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "alert-1",
+                "type": "realtime_alert",
+                "title": "alert",
+                "status": "open",
+                "priority": "high",
+                "metrics": {"score": 0.5},
+            },
+        ],
+    })
+
+    queue_entry = snapshot["summary"]["action_queue"][0]
+    queue_entry["metrics"]["score"] = 999
+    queue_entry["metrics"]["leaked"] = True
+
+    main_entry = next(e for e in snapshot["entries"] if e["id"] == "alert-1")
+    assert main_entry["metrics"] == {"score": 0.5}
+
+
 def test_research_journal_store_update_entry_status_rejects_invalid_status(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
     store.add_entry({"id": "valid", "type": "manual", "title": "valid"})
