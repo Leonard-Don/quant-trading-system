@@ -109,7 +109,7 @@ def _coerce_tags(value: Any) -> list[str]:
     if not isinstance(value, list):
         return tags
     for item in value:
-        if item is None:
+        if item is None or isinstance(item, bool):
             continue
         tag = str(item).strip()[:40]
         if not tag or tag in seen:

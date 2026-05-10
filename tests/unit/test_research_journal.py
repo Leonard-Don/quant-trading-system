@@ -92,13 +92,59 @@ def test_research_journal_store_coerces_falsy_non_none_tag_values_to_strings(tmp
                 "id": "numeric-tags",
                 "type": "manual",
                 "title": "numeric",
-                "tags": [0, False, 1, True, "real"],
+                "tags": [0, 1, "real"],
             },
         ],
     })
 
     entry = next(e for e in snapshot["entries"] if e["id"] == "numeric-tags")
-    assert entry["tags"] == ["0", "False", "1", "True", "real"]
+    assert entry["tags"] == ["0", "1", "real"]
+
+
+def test_research_journal_store_ignores_boolean_tag_values(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "bool-tags",
+                "type": "manual",
+                "title": "bool tags",
+                "tags": [True, False, "real", 0],
+            },
+        ],
+    })
+
+    entry = next(e for e in snapshot["entries"] if e["id"] == "bool-tags")
+    assert "True" not in entry["tags"]
+    assert "False" not in entry["tags"]
+    assert entry["tags"] == ["real", "0"]
+
+
+def test_research_journal_store_boolean_tags_do_not_consume_dedupe_or_cap(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "bool-mixed",
+                "type": "manual",
+                "title": "dedupe-with-bools",
+                "tags": [True, "a", False, "a", " a ", "b", True, "c"],
+            },
+            {
+                "id": "bool-cap",
+                "type": "manual",
+                "title": "cap-with-bools",
+                "tags": [True, "a", False, "b", True, "c", "d", "e", "f", "g", "h", "i"],
+            },
+        ],
+    })
+
+    by_id = {entry["id"]: entry for entry in snapshot["entries"]}
+    assert by_id["bool-mixed"]["tags"] == ["a", "b", "c"]
+    assert by_id["bool-cap"]["tags"] == list("abcdefgh")[:MAX_RESEARCH_JOURNAL_TAGS]
+    assert len(by_id["bool-cap"]["tags"]) == MAX_RESEARCH_JOURNAL_TAGS
 
 
 def test_research_journal_store_preserves_falsy_non_none_summary_values(tmp_path):
