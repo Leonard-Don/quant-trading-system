@@ -249,7 +249,13 @@ class ResearchJournalStore:
     def _normalize_payload(self, payload: dict[str, Any] | None) -> dict[str, Any]:
         payload = dict(payload or {})
         updated_at = _utc_now()
-        generated_at = _safe_iso(payload.get("generated_at") or payload.get("generatedAt"), updated_at)
+        raw_generated_at = payload.get("generated_at")
+        generated_at = _safe_iso(
+            payload.get("generatedAt")
+            if raw_generated_at is None or raw_generated_at == ""
+            else raw_generated_at,
+            updated_at,
+        )
         return {
             "entries": self._normalize_entries(payload.get("entries")),
             "source_state": self._normalize_source_state(payload.get("source_state")),
