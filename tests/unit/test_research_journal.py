@@ -190,6 +190,57 @@ def test_research_journal_store_preserves_falsy_non_none_industry_values(tmp_pat
     assert by_id["blank-industry"]["industry"] == ""
 
 
+def test_research_journal_store_preserves_falsy_non_none_source_label_values(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "zero-source-label",
+                "type": "manual",
+                "title": "zero",
+                "source_label": 0,
+                "sourceLabel": "from-camel",
+            },
+            {
+                "id": "false-source-label",
+                "type": "manual",
+                "title": "false-bool",
+                "source_label": False,
+                "sourceLabel": "from-camel",
+            },
+            {
+                "id": "none-source-label",
+                "type": "manual",
+                "title": "none",
+                "source_label": None,
+                "sourceLabel": "from-camel",
+            },
+            {
+                "id": "empty-string-source-label",
+                "type": "manual",
+                "title": "empty-string",
+                "source_label": "",
+                "sourceLabel": "from-camel",
+            },
+            {
+                "id": "blank-source-label",
+                "type": "manual",
+                "title": "blank",
+                "source_label": "   ",
+                "sourceLabel": "from-camel",
+            },
+        ],
+    })
+
+    by_id = {e["id"]: e for e in snapshot["entries"]}
+    assert by_id["zero-source-label"]["source_label"] == "0"
+    assert by_id["false-source-label"]["source_label"] == "False"
+    assert by_id["none-source-label"]["source_label"] == "from-camel"
+    assert by_id["empty-string-source-label"]["source_label"] == "from-camel"
+    assert by_id["blank-source-label"]["source_label"] == ""
+
+
 def test_research_journal_store_preserves_falsy_non_none_title_values(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
 
