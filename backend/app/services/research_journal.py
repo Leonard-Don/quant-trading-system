@@ -272,7 +272,7 @@ class ResearchJournalStore:
         symbol_timeline = []
         for symbol, count in sorted(symbol_counts.items(), key=lambda item: (-item[1], item[0]))[:8]:
             symbol_entries = [
-                entry for entry in entries if entry.get("symbol") == symbol
+                deepcopy(entry) for entry in entries if entry.get("symbol") == symbol
             ][:6]
             symbol_timeline.append({
                 "symbol": symbol,
