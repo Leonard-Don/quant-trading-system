@@ -382,10 +382,12 @@ class ResearchJournalStore:
         }
 
     def _with_summary(self, payload: dict[str, Any]) -> dict[str, Any]:
-        entries = list(payload.get("entries") or [])
+        raw_entries = payload.get("entries")
+        entries = self._normalize_entries(raw_entries) if isinstance(raw_entries, list) else []
+        source_state = self._normalize_source_state(payload.get("source_state"))
         result = {
             "entries": entries,
-            "source_state": deepcopy(payload.get("source_state") or {}),
+            "source_state": source_state,
             "generated_at": payload.get("generated_at"),
             "updated_at": payload.get("updated_at"),
             "summary": self._build_summary(entries),
