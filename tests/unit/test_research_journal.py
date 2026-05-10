@@ -623,6 +623,48 @@ def test_research_journal_store_sorts_entries_by_status_then_priority(tmp_path):
     assert ordered_ids == ["open-high", "open-low", "done-medium", "archived-high"]
 
 
+def test_research_journal_store_treats_none_and_blank_profile_ids_as_default(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    store.update_snapshot(
+        {"entries": [{"id": "default-entry", "type": "manual", "title": "default"}]},
+        profile_id=None,
+    )
+
+    assert store.get_snapshot(profile_id=None)["entries"][0]["id"] == "default-entry"
+    assert store.get_snapshot(profile_id="")["entries"][0]["id"] == "default-entry"
+    assert store.get_snapshot(profile_id="   ")["entries"][0]["id"] == "default-entry"
+
+    written = {p.name for p in tmp_path.glob("*.json")}
+    assert written == {"default.json"}
+
+
+def test_research_journal_store_preserves_falsy_non_none_profile_ids(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    store.update_snapshot(
+        {"entries": [{"id": "default-entry", "type": "manual", "title": "default"}]},
+        profile_id=None,
+    )
+    store.update_snapshot(
+        {"entries": [{"id": "zero-entry", "type": "manual", "title": "zero"}]},
+        profile_id=0,
+    )
+    store.update_snapshot(
+        {"entries": [{"id": "false-entry", "type": "manual", "title": "false"}]},
+        profile_id=False,
+    )
+
+    assert store.get_snapshot(profile_id=None)["entries"][0]["id"] == "default-entry"
+    assert store.get_snapshot(profile_id=0)["entries"][0]["id"] == "zero-entry"
+    assert store.get_snapshot(profile_id=False)["entries"][0]["id"] == "false-entry"
+
+    written = {p.name for p in tmp_path.glob("*.json")}
+    assert "default.json" in written
+    assert "0.json" in written
+    assert "false.json" in written
+
+
 def test_research_journal_store_sanitizes_unsafe_profile_ids(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
 
