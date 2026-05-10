@@ -48,7 +48,9 @@ def _utc_now() -> str:
 
 
 def _safe_text(value: Any, max_chars: int = 240) -> str:
-    text = str(value or "").strip()
+    if value is None:
+        return ""
+    text = str(value).strip()
     return text[:max_chars]
 
 
