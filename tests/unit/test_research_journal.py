@@ -1017,3 +1017,113 @@ def test_research_journal_store_preserves_z_suffix_and_falls_back_on_invalid_iso
     bad_entry = by_id["bad-date"]
     datetime.fromisoformat(bad_entry["created_at"].replace("Z", "+00:00"))
     assert bad_entry["created_at"] == bad_entry["updated_at"]
+
+
+def test_research_journal_store_get_snapshot_normalizes_persisted_entries_dict(tmp_path):
+    corrupt_payload = {
+        "entries": {"id": "rogue", "type": "manual", "title": "rogue"},
+        "source_state": {},
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+    (tmp_path / "default.json").write_text(json.dumps(corrupt_payload), encoding="utf-8")
+
+    store = ResearchJournalStore(storage_path=tmp_path)
+    snapshot = store.get_snapshot()
+
+    assert snapshot["entries"] == []
+    assert snapshot["summary"]["total_entries"] == 0
+    assert snapshot["summary"]["open_entries"] == 0
+    assert snapshot["summary"]["type_counts"] == {}
+    assert snapshot["summary"]["status_counts"] == {}
+
+
+def test_research_journal_store_get_snapshot_normalizes_persisted_entries_string(tmp_path):
+    corrupt_payload = {
+        "entries": "garbage-entries",
+        "source_state": {},
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+    (tmp_path / "default.json").write_text(json.dumps(corrupt_payload), encoding="utf-8")
+
+    store = ResearchJournalStore(storage_path=tmp_path)
+    snapshot = store.get_snapshot()
+
+    assert snapshot["entries"] == []
+    assert snapshot["summary"]["total_entries"] == 0
+    assert snapshot["summary"]["open_entries"] == 0
+    assert snapshot["summary"]["type_counts"] == {}
+    assert snapshot["summary"]["status_counts"] == {}
+
+
+def test_research_journal_store_get_snapshot_normalizes_persisted_source_state_non_dict(tmp_path):
+    corrupt_payload = {
+        "entries": [],
+        "source_state": "definitely-not-a-dict",
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+    (tmp_path / "default.json").write_text(json.dumps(corrupt_payload), encoding="utf-8")
+
+    store = ResearchJournalStore(storage_path=tmp_path)
+    snapshot = store.get_snapshot()
+
+    assert snapshot["source_state"] == {}
+
+
+def test_research_journal_store_get_snapshot_passes_through_valid_persisted_payload(tmp_path):
+    valid_payload = {
+        "entries": [
+            {
+                "id": "valid-1",
+                "type": "manual",
+                "status": "open",
+                "priority": "medium",
+                "title": "valid entry",
+                "summary": "",
+                "note": "",
+                "symbol": "",
+                "industry": "",
+                "source": "manual",
+                "source_label": "",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "updated_at": "2026-01-01T00:00:00+00:00",
+                "tags": [],
+                "metrics": {},
+                "action": {},
+                "raw": {},
+            },
+        ],
+        "source_state": {"workflow": "active"},
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    }
+    (tmp_path / "default.json").write_text(json.dumps(valid_payload), encoding="utf-8")
+
+    store = ResearchJournalStore(storage_path=tmp_path)
+    snapshot = store.get_snapshot()
+
+    assert len(snapshot["entries"]) == 1
+    assert snapshot["entries"][0]["id"] == "valid-1"
+    assert snapshot["entries"][0]["title"] == "valid entry"
+    assert snapshot["source_state"] == {"workflow": "active"}
+    assert snapshot["summary"]["total_entries"] == 1
+    assert snapshot["summary"]["status_counts"] == {"open": 1}
+
+
+def test_research_journal_store_with_summary_normalizes_malformed_payload_directly(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    result = store._with_summary({
+        "entries": {"id": "rogue", "type": "manual", "title": "rogue"},
+        "source_state": "not-a-dict",
+        "generated_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-01-01T00:00:00+00:00",
+    })
+
+    assert result["entries"] == []
+    assert result["source_state"] == {}
+    assert result["summary"]["total_entries"] == 0
+    assert result["summary"]["status_counts"] == {}
+    assert result["summary"]["type_counts"] == {}
