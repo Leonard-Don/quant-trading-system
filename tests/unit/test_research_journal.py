@@ -7,6 +7,7 @@ from backend.app.services.research_journal import (
     MAX_RESEARCH_JOURNAL_SOURCE_BYTES,
     MAX_RESEARCH_JOURNAL_TAGS,
     ResearchJournalStore,
+    _stable_entry_id,
 )
 
 
@@ -274,6 +275,27 @@ def test_research_journal_store_preserves_falsy_non_none_title_values(tmp_path):
     assert by_id["false-title"]["title"] == "False"
     assert by_id["none-title"]["title"] == "研究记录"
     assert by_id["blank-title"]["title"] == "研究记录"
+
+
+def test_stable_entry_id_falls_back_to_createdAt_only_for_none_or_empty_created_at():
+    base = {"type": "manual", "title": "stable-id"}
+    fallback_camel = "2026-01-01T00:00:00Z"
+
+    canonical_id = _stable_entry_id({**base, "created_at": fallback_camel})
+
+    assert _stable_entry_id({**base, "created_at": None, "createdAt": fallback_camel}) == canonical_id
+    assert _stable_entry_id({**base, "created_at": "", "createdAt": fallback_camel}) == canonical_id
+    assert _stable_entry_id({**base, "createdAt": fallback_camel}) == canonical_id
+
+
+def test_stable_entry_id_preserves_falsy_non_none_created_at_values():
+    base = {"type": "manual", "title": "stable-id"}
+    fallback_camel = "2026-01-01T00:00:00Z"
+
+    canonical_id = _stable_entry_id({**base, "created_at": fallback_camel})
+
+    assert _stable_entry_id({**base, "created_at": 0, "createdAt": fallback_camel}) != canonical_id
+    assert _stable_entry_id({**base, "created_at": False, "createdAt": fallback_camel}) != canonical_id
 
 
 def test_research_journal_store_normalizes_tags_with_dedup_trim_and_cap(tmp_path):
