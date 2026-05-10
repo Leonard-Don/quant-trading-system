@@ -80,7 +80,11 @@ def _stable_entry_id(entry: dict[str, Any], index: int = 0) -> str:
             _safe_text(entry.get("symbol"), 40),
             _safe_text(entry.get("industry"), 80),
             _safe_text(entry.get("title"), 120),
-            _safe_text(entry.get("created_at") or entry.get("createdAt"), 80),
+            (
+                _safe_text(entry.get("createdAt"), 80)
+                if entry.get("created_at") is None or entry.get("created_at") == ""
+                else _safe_text(entry.get("created_at"), 80)
+            ),
             str(index),
         ]
     )
