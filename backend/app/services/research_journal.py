@@ -132,7 +132,10 @@ class ResearchJournalStore:
         self._lock = threading.RLock()
 
     def _normalize_profile_id(self, profile_id: str | None) -> str:
-        raw_value = str(profile_id or "default").strip().lower()
+        if profile_id is None:
+            raw_value = "default"
+        else:
+            raw_value = str(profile_id).strip().lower()
         sanitized = "".join(
             character if character.isalnum() or character in {"-", "_"} else "-"
             for character in raw_value
