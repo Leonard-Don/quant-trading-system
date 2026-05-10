@@ -405,6 +405,52 @@ def test_research_journal_store_preserves_falsy_non_none_updated_at_values(tmp_p
     assert by_id["false-updated-at"]["updated_at"] == camel_created
 
 
+def test_research_journal_store_falls_back_to_camelcase_generated_at_only_for_none_or_empty(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+    camel_generated = "2026-01-01T00:00:00Z"
+
+    snapshot_none = store.update_snapshot({
+        "entries": [],
+        "generated_at": None,
+        "generatedAt": camel_generated,
+    })
+    assert snapshot_none["generated_at"] == camel_generated
+
+    snapshot_empty = store.update_snapshot({
+        "entries": [],
+        "generated_at": "",
+        "generatedAt": camel_generated,
+    })
+    assert snapshot_empty["generated_at"] == camel_generated
+
+    snapshot_missing = store.update_snapshot({
+        "entries": [],
+        "generatedAt": camel_generated,
+    })
+    assert snapshot_missing["generated_at"] == camel_generated
+
+
+def test_research_journal_store_preserves_falsy_non_none_generated_at_values(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+    camel_generated = "2026-01-01T00:00:00Z"
+
+    snapshot_zero = store.update_snapshot({
+        "entries": [],
+        "generated_at": 0,
+        "generatedAt": camel_generated,
+    })
+    assert snapshot_zero["generated_at"] != camel_generated
+    datetime.fromisoformat(snapshot_zero["generated_at"].replace("Z", "+00:00"))
+
+    snapshot_false = store.update_snapshot({
+        "entries": [],
+        "generated_at": False,
+        "generatedAt": camel_generated,
+    })
+    assert snapshot_false["generated_at"] != camel_generated
+    datetime.fromisoformat(snapshot_false["generated_at"].replace("Z", "+00:00"))
+
+
 def test_research_journal_store_normalizes_tags_with_dedup_trim_and_cap(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
 
