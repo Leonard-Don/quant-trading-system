@@ -53,7 +53,7 @@ describe('TodayResearchDashboard research inbox', () => {
     window.localStorage.clear();
   });
 
-  it('renders a small inbox section with prioritized actionable entries and safe tags', async () => {
+  it('renders inbox and research actions sections with prioritized safe labels', async () => {
     const entries = [
       {
         id: 'fresh-alert',
@@ -96,5 +96,12 @@ describe('TodayResearchDashboard research inbox', () => {
     expect(within(inbox).getAllByText('继续观察').length).toBeGreaterThan(0);
     expect(within(inbox).getByText('7')).toBeInTheDocument();
     expect(within(inbox).queryByText('false')).not.toBeInTheDocument();
+
+    const actions = await screen.findByTestId('today-research-actions');
+    expect(within(actions).getByText('研究行动')).toBeInTheDocument();
+    expect(within(actions).getByText('复核提醒')).toBeInTheDocument();
+    expect(within(actions).getByText('跟进行业观察')).toBeInTheDocument();
+    expect(actions.textContent.indexOf('BTC 提醒命中')).toBeLessThan(actions.textContent.indexOf('半导体观察'));
+    expect(within(actions).queryByText('false')).not.toBeInTheDocument();
   });
 });

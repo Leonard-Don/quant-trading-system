@@ -911,6 +911,85 @@ def test_research_journal_store_summary_symbol_timeline_entries_are_independent_
     assert main_entry["status"] == "open"
 
 
+def test_research_journal_store_summary_research_actions_are_deterministic_and_safe(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "watch-industry",
+                "type": "industry_watch",
+                "title": "半导体观察",
+                "status": "watching",
+                "priority": "medium",
+                "updated_at": "2026-05-12T08:00:00+00:00",
+                "tags": ["观察"],
+                "action": {"view": "industry", "label": "打开行业热度"},
+            },
+            {
+                "id": "fresh-alert",
+                "type": "realtime_alert",
+                "title": "BTC 提醒命中",
+                "status": "watching",
+                "priority": "medium",
+                "updated_at": "2026-05-12T09:30:00+00:00",
+                "tags": [False, None, 0, "alert"],
+                "action": {"view": "realtime", "label": False},
+            },
+            {
+                "id": 0,
+                "type": "trade_plan",
+                "title": 0,
+                "status": "open",
+                "priority": "high",
+                "symbol": 0,
+                "updated_at": "2026-05-12T09:00:00+00:00",
+                "tags": [False, 0],
+            },
+            {
+                "id": "done-note",
+                "type": "manual",
+                "title": "完成记录",
+                "status": "done",
+                "priority": "high",
+            },
+            {
+                "id": "archived-note",
+                "type": "manual",
+                "title": "已归档",
+                "status": "archived",
+                "priority": "high",
+            },
+        ],
+    })
+
+    actions = snapshot["summary"]["research_actions"]
+
+    assert [action["entry_id"] for action in actions] == [
+        "fresh-alert",
+        "0",
+        "watch-industry",
+    ]
+    assert actions[0]["key"] == "research_action:fresh-alert"
+    assert actions[0]["kind"] == "review_alert"
+    assert actions[0]["label"] == "复核提醒"
+    assert actions[0]["priority"] == "high"
+    assert actions[0]["tags"] == ["0", "alert"]
+    assert actions[1]["kind"] == "confirm_trade_plan"
+    assert actions[1]["entry_title"] == "0"
+    assert actions[1]["symbol"] == "0"
+    assert actions[2]["kind"] == "follow_watchlist"
+    assert snapshot["summary"]["research_action_counts"] == {
+        "total": 3,
+        "actionable": 2,
+        "watch": 1,
+        "read_later": 0,
+        "high": 2,
+    }
+    assert "False" not in json.dumps(actions, ensure_ascii=False)
+    assert "None" not in json.dumps(actions, ensure_ascii=False)
+
+
 def test_research_journal_store_update_entry_status_rejects_invalid_status(tmp_path):
     store = ResearchJournalStore(storage_path=tmp_path)
     store.add_entry({"id": "valid", "type": "manual", "title": "valid"})
