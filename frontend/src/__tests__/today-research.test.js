@@ -5,6 +5,7 @@ import {
   collectLocalResearchState,
   filterResearchEntries,
   mergeResearchEntries,
+  normalizeResearchEntry,
   summarizeResearchEntries,
 } from '../utils/todayResearch';
 import { BACKTEST_RESEARCH_SNAPSHOTS_KEY } from '../utils/backtestWorkspace';
@@ -111,6 +112,33 @@ describe('today research aggregation utilities', () => {
     expect(merged).toHaveLength(1);
     expect(merged[0].status).toBe('done');
     expect(merged[0].title).toBe('新记录');
+  });
+
+  test('preserves falsy non-null legacy research entry values before fallbacks', () => {
+    const normalized = normalizeResearchEntry({
+      id: 0,
+      type: 'manual',
+      title: 0,
+      summary: 0,
+      note: false,
+      symbol: 0,
+      industry: 0,
+      industry_name: 'fallback-industry',
+      source: 0,
+      source_label: 0,
+      sourceLabel: 'fallback-label',
+      tags: [0, false, ' focus ', 'focus', null, ''],
+    }, 7);
+
+    expect(normalized.id).toBe('0');
+    expect(normalized.title).toBe('0');
+    expect(normalized.summary).toBe('0');
+    expect(normalized.note).toBe('false');
+    expect(normalized.symbol).toBe('0');
+    expect(normalized.industry).toBe('0');
+    expect(normalized.source).toBe('0');
+    expect(normalized.source_label).toBe('0');
+    expect(normalized.tags).toEqual(['0', 'focus']);
   });
 
   test('filters entries by status, priority, type and keyword', () => {
