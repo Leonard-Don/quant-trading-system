@@ -41,6 +41,15 @@ export const TODAY_RESEARCH_PRIORITY_LABELS = {
   low: '低',
 };
 
+export const RESEARCH_INBOX_BUCKET_LABELS = {
+  actionable: '需处理',
+  watch: '继续观察',
+  read_later: '稍后阅读',
+  archived: '已归档',
+};
+
+export const RESEARCH_INBOX_BUCKET_ORDER = ['actionable', 'watch', 'read_later', 'archived'];
+
 const STATUS_RANK = {
   open: 0,
   watching: 1,
@@ -53,6 +62,17 @@ const PRIORITY_RANK = {
   medium: 1,
   low: 2,
 };
+
+const INBOX_BUCKET_RANK = RESEARCH_INBOX_BUCKET_ORDER.reduce((result, bucket, index) => ({
+  ...result,
+  [bucket]: index,
+}), {});
+
+const INBOX_ACTIVE_STATUSES = new Set(['open', 'watching']);
+const INBOX_ACTION_TYPES = new Set(['realtime_alert', 'industry_alert', 'trade_plan']);
+const INBOX_HIGH_SIGNAL_RE = /(alert|hit|trigger|breakout|signal|urgent|risk|anomaly|buy|sell|提醒|命中|触发|突破|信号|异动|异常|风险|买入|卖出|交易计划|计划)/i;
+const INBOX_WATCH_SIGNAL_RE = /(watch|monitor|pending|review|observe|观察|跟踪|复盘|待确认|继续看|列表)/i;
+const DEFAULT_INBOX_RECENT_WINDOW_HOURS = 72;
 
 const safeArray = (value) => (Array.isArray(value) ? value : []);
 const ACTIVE_RESEARCH_STATUSES = new Set(['open', 'watching']);
@@ -208,6 +228,160 @@ export const filterResearchEntries = (entries = [], filters = {}) => {
       return false;
     }
     if (keyword && !buildEntrySearchText(entry).includes(keyword)) {
+      return false;
+    }
+    return true;
+  });
+};
+
+const flattenInboxText = (value) => {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (Array.isArray(value)) {
+    return value.map(flattenInboxText).filter(Boolean).join(' ');
+  }
+  if (typeof value === 'object') {
+    return Object.values(value).map(flattenInboxText).filter(Boolean).join(' ');
+  }
+  return stringifyText(value);
+};
+
+const buildInboxSignalText = (entry) => [
+  entry.type,
+  entry.title,
+  entry.summary,
+  entry.source,
+  entry.source_label,
+  entry.action?.label,
+  entry.action?.view,
+  entry.action?.kind,
+  entry.tone,
+  entry.signal,
+  entry.raw?.tone,
+  entry.raw?.signal,
+  entry.raw?.sentiment,
+  ...safeArray(entry.tags),
+].map(flattenInboxText).filter(Boolean).join(' ');
+
+const resolveInboxReferenceTime = (options = {}) => {
+  const timestamp = Date.parse(options.now || options.generated_at || options.referenceTime || '');
+  if (!Number.isNaN(timestamp)) {
+    return timestamp;
+  }
+  return Date.now();
+};
+
+const isInboxEntryRecent = (entry, options = {}) => {
+  const timestamp = Date.parse(entry.updated_at || entry.created_at || '');
+  if (Number.isNaN(timestamp)) {
+    return true;
+  }
+  const referenceTime = resolveInboxReferenceTime(options);
+  const recentWindowMs = Number(options.recentWindowHours || DEFAULT_INBOX_RECENT_WINDOW_HOURS) * 60 * 60 * 1000;
+  return timestamp >= referenceTime - recentWindowMs;
+};
+
+const deriveInboxBucket = (entry, options = {}) => {
+  if (entry.status === 'archived') {
+    return 'archived';
+  }
+  if (entry.status === 'done') {
+    return 'read_later';
+  }
+
+  const signalText = buildInboxSignalText(entry);
+  const hasActionSignal = INBOX_ACTION_TYPES.has(entry.type) || INBOX_HIGH_SIGNAL_RE.test(signalText);
+  const hasWatchSignal = entry.status === 'watching' || INBOX_WATCH_SIGNAL_RE.test(signalText);
+  const isRecent = isInboxEntryRecent(entry, options);
+
+  if (!isRecent && !hasActionSignal && entry.priority !== 'high') {
+    return 'read_later';
+  }
+  if (INBOX_ACTIVE_STATUSES.has(entry.status) && (entry.status === 'open' || hasActionSignal || entry.priority === 'high')) {
+    return 'actionable';
+  }
+  if (hasWatchSignal) {
+    return 'watch';
+  }
+  return isRecent ? 'watch' : 'read_later';
+};
+
+const deriveInboxPriority = (entry, bucket, options = {}) => {
+  if (bucket === 'archived' || bucket === 'read_later') {
+    return 'low';
+  }
+  const signalText = buildInboxSignalText(entry);
+  if (bucket === 'actionable' && (
+    entry.priority === 'high'
+    || INBOX_ACTION_TYPES.has(entry.type)
+    || INBOX_HIGH_SIGNAL_RE.test(signalText)
+  )) {
+    return 'high';
+  }
+  if (!isInboxEntryRecent(entry, options)) {
+    return entry.priority === 'high' ? 'medium' : 'low';
+  }
+  return TODAY_RESEARCH_PRIORITY_LABELS[entry.priority] ? entry.priority : 'medium';
+};
+
+const buildInboxReason = (entry, bucket, options = {}) => {
+  if (bucket === 'archived') {
+    return '已从今日处理流移出';
+  }
+  if (entry.status === 'done') {
+    return '已完成，适合稍后回看';
+  }
+  if (!isInboxEntryRecent(entry, options) && bucket === 'read_later') {
+    return '更新较久，先放入稍后阅读';
+  }
+  if (bucket === 'actionable') {
+    return entry.action?.label || '需要打开上下文处理';
+  }
+  return '继续观察后续变化';
+};
+
+export const deriveResearchInboxEntries = (entries = [], options = {}) => mergeResearchEntries(entries).map((entry) => {
+  const inboxBucket = deriveInboxBucket(entry, options);
+  const inboxPriority = deriveInboxPriority(entry, inboxBucket, options);
+  return {
+    ...entry,
+    inbox_bucket: inboxBucket,
+    inbox_status: inboxBucket,
+    inbox_priority: inboxPriority,
+    inbox_reason: buildInboxReason(entry, inboxBucket, options),
+    inbox_tags: safeArray(entry.tags).slice(0, 4),
+  };
+}).sort((left, right) => {
+  const bucketDiff = (INBOX_BUCKET_RANK[left.inbox_bucket] ?? 9) - (INBOX_BUCKET_RANK[right.inbox_bucket] ?? 9);
+  if (bucketDiff) return bucketDiff;
+  const statusDiff = (STATUS_RANK[left.status] ?? 9) - (STATUS_RANK[right.status] ?? 9);
+  if (statusDiff) return statusDiff;
+  const priorityDiff = (PRIORITY_RANK[left.inbox_priority] ?? 9) - (PRIORITY_RANK[right.inbox_priority] ?? 9);
+  if (priorityDiff) return priorityDiff;
+  return Date.parse(right.updated_at || 0) - Date.parse(left.updated_at || 0);
+});
+
+export const groupResearchInboxEntries = (entries = [], options = {}) => {
+  const groups = RESEARCH_INBOX_BUCKET_ORDER.reduce((result, bucket) => ({
+    ...result,
+    [bucket]: [],
+  }), {});
+  deriveResearchInboxEntries(entries, options).forEach((entry) => {
+    const bucket = RESEARCH_INBOX_BUCKET_LABELS[entry.inbox_bucket] ? entry.inbox_bucket : 'read_later';
+    groups[bucket].push(entry);
+  });
+  return groups;
+};
+
+export const filterResearchInboxEntries = (entries = [], filters = {}, options = {}) => {
+  const bucket = filters.bucket || 'all';
+  const priority = filters.priority || 'all';
+  return deriveResearchInboxEntries(entries, options).filter((entry) => {
+    if (bucket !== 'all' && entry.inbox_bucket !== bucket) {
+      return false;
+    }
+    if (priority !== 'all' && entry.inbox_priority !== priority) {
       return false;
     }
     return true;
