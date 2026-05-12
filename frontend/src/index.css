@@ -3673,6 +3673,72 @@ a {
   line-height: 1.45;
 }
 
+.today-research-actions-card.ant-card {
+  border-color: color-mix(in srgb, var(--warning-color) 30%, var(--border-color));
+}
+
+.today-research-action-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.today-research-action-summary span {
+  flex: 1 1 160px;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--bg-secondary) 92%, white 8%);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.today-research-action-summary strong {
+  color: var(--text-primary);
+  font-size: 16px;
+}
+
+.today-research-action-list {
+  display: grid;
+  gap: 8px;
+}
+
+.today-research-action-item {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 76%, transparent);
+  background: color-mix(in srgb, var(--bg-secondary) 94%, white 6%);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.today-research-action-item:hover {
+  border-color: var(--warning-color);
+  background: color-mix(in srgb, var(--warning-color) 12%, transparent);
+}
+
+.today-research-action-item__top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.today-research-action-item strong {
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+
+.today-research-action-item span:last-child {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .today-research-symbol-list {
   display: grid;
   gap: 12px;

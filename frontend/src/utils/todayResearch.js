@@ -50,6 +50,15 @@ export const RESEARCH_INBOX_BUCKET_LABELS = {
 
 export const RESEARCH_INBOX_BUCKET_ORDER = ['actionable', 'watch', 'read_later', 'archived'];
 
+export const RESEARCH_ACTION_KIND_LABELS = {
+  review_alert: '复核提醒',
+  confirm_trade_plan: '确认交易计划',
+  review_backtest: '复核回测',
+  continue_realtime_review: '继续实时复盘',
+  follow_watchlist: '跟进行业观察',
+  open_context: '打开上下文',
+};
+
 const STATUS_RANK = {
   open: 0,
   watching: 1,
@@ -73,6 +82,27 @@ const INBOX_ACTION_TYPES = new Set(['realtime_alert', 'industry_alert', 'trade_p
 const INBOX_HIGH_SIGNAL_RE = /(alert|hit|trigger|breakout|signal|urgent|risk|anomaly|buy|sell|提醒|命中|触发|突破|信号|异动|异常|风险|买入|卖出|交易计划|计划)/i;
 const INBOX_WATCH_SIGNAL_RE = /(watch|monitor|pending|review|observe|观察|跟踪|复盘|待确认|继续看|列表)/i;
 const DEFAULT_INBOX_RECENT_WINDOW_HOURS = 72;
+const DEFAULT_RESEARCH_ACTION_LIMIT = 12;
+const RESEARCH_ACTION_BUCKET_RANK = {
+  actionable: 0,
+  watch: 1,
+  read_later: 2,
+};
+const RESEARCH_ACTION_KIND_RANK = {
+  review_alert: 0,
+  confirm_trade_plan: 1,
+  review_backtest: 2,
+  continue_realtime_review: 3,
+  follow_watchlist: 4,
+  open_context: 5,
+};
+const EMPTY_RESEARCH_ACTION_COUNTS = {
+  total: 0,
+  actionable: 0,
+  watch: 0,
+  read_later: 0,
+  high: 0,
+};
 
 const safeArray = (value) => (Array.isArray(value) ? value : []);
 const ACTIVE_RESEARCH_STATUSES = new Set(['open', 'watching']);
@@ -123,6 +153,13 @@ const normalizeIso = (value, fallback = new Date().toISOString()) => {
 const normalizeSymbol = (value) => stringifyText(value).trim().toUpperCase();
 
 const compactText = (value, max = 240) => stringifyText(value).trim().slice(0, max);
+
+const compactLabelText = (value, max = 120) => {
+  if (value === null || value === undefined || typeof value === 'boolean') {
+    return '';
+  }
+  return compactText(value, max);
+};
 
 const normalizeTags = (value) => {
   const tags = [];
@@ -388,6 +425,129 @@ export const filterResearchInboxEntries = (entries = [], filters = {}, options =
   });
 };
 
+const deriveResearchActionKind = (entry) => {
+  if (entry.type === 'realtime_alert' || entry.type === 'industry_alert') {
+    return 'review_alert';
+  }
+  if (entry.type === 'trade_plan') {
+    return 'confirm_trade_plan';
+  }
+  if (entry.type === 'backtest') {
+    return 'review_backtest';
+  }
+  if (entry.type === 'realtime_review') {
+    return 'continue_realtime_review';
+  }
+  if (entry.type === 'industry_watch') {
+    return 'follow_watchlist';
+  }
+  return 'open_context';
+};
+
+const deriveResearchActionPriority = (entry, kind) => {
+  if (
+    entry.inbox_priority === 'high'
+    || entry.priority === 'high'
+    || kind === 'review_alert'
+    || kind === 'confirm_trade_plan'
+  ) {
+    return 'high';
+  }
+  return TODAY_RESEARCH_PRIORITY_LABELS[entry.inbox_priority]
+    ? entry.inbox_priority
+    : (TODAY_RESEARCH_PRIORITY_LABELS[entry.priority] ? entry.priority : 'medium');
+};
+
+const buildResearchActionDescription = (entry, kind) => {
+  const target = compactLabelText(entry.symbol || entry.industry || entry.title, 120) || '当前线索';
+  if (kind === 'review_alert') {
+    return `确认 ${target} 的提醒是否需要升级为回测、复盘或交易计划。`;
+  }
+  if (kind === 'confirm_trade_plan') {
+    return `复核 ${target} 的入场条件、风险边界和后续执行状态。`;
+  }
+  if (kind === 'review_backtest') {
+    return `检查 ${target} 的收益、回撤和样本条件是否支持继续跟踪。`;
+  }
+  if (kind === 'continue_realtime_review') {
+    return `回到 ${target} 的实时复盘，确认最新行情是否改变判断。`;
+  }
+  if (kind === 'follow_watchlist') {
+    return `跟进 ${target} 的热度、排行榜和龙头股变化。`;
+  }
+  return `打开 ${target} 的研究上下文，决定下一步处理方式。`;
+};
+
+const sanitizeResearchActionPayload = (action) => {
+  if (!action || typeof action !== 'object') {
+    return {};
+  }
+  return Object.entries(action).reduce((result, [key, value]) => {
+    if (value === null || value === undefined || typeof value === 'boolean') {
+      return result;
+    }
+    result[key] = value;
+    return result;
+  }, {});
+};
+
+export const summarizeResearchActionQueue = (actions = []) => safeArray(actions).reduce((result, action) => {
+  const bucket = RESEARCH_ACTION_BUCKET_RANK[action.inbox_bucket] !== undefined
+    ? action.inbox_bucket
+    : 'read_later';
+  result.total += 1;
+  result[bucket] += 1;
+  if (action.priority === 'high') {
+    result.high += 1;
+  }
+  return result;
+}, { ...EMPTY_RESEARCH_ACTION_COUNTS });
+
+export const deriveResearchActionQueue = (entries = [], options = {}) => {
+  const limit = Number.isFinite(Number(options.limit))
+    ? Math.max(0, Number(options.limit))
+    : DEFAULT_RESEARCH_ACTION_LIMIT;
+
+  return deriveResearchInboxEntries(entries, options)
+    .filter((entry) => entry.inbox_bucket === 'actionable' || entry.inbox_bucket === 'watch')
+    .map((entry) => {
+      const kind = deriveResearchActionKind(entry);
+      const priority = deriveResearchActionPriority(entry, kind);
+      const label = RESEARCH_ACTION_KIND_LABELS[kind] || RESEARCH_ACTION_KIND_LABELS.open_context;
+      const sourceLabel = compactLabelText(entry.source_label || entry.source, 80);
+      return {
+        key: `research_action:${entry.id}`,
+        kind,
+        label,
+        description: buildResearchActionDescription(entry, kind),
+        entry_id: entry.id,
+        entry_title: entry.title,
+        entry_type: entry.type,
+        inbox_bucket: entry.inbox_bucket,
+        priority,
+        symbol: entry.symbol,
+        industry: entry.industry,
+        source: entry.source,
+        source_label: sourceLabel || entry.source,
+        updated_at: entry.updated_at,
+        tags: safeArray(entry.inbox_tags || entry.tags).slice(0, 4),
+        action: sanitizeResearchActionPayload(entry.action),
+      };
+    })
+    .sort((left, right) => {
+      const bucketDiff = (RESEARCH_ACTION_BUCKET_RANK[left.inbox_bucket] ?? 9) - (RESEARCH_ACTION_BUCKET_RANK[right.inbox_bucket] ?? 9);
+      if (bucketDiff) return bucketDiff;
+      const priorityDiff = (PRIORITY_RANK[left.priority] ?? 9) - (PRIORITY_RANK[right.priority] ?? 9);
+      if (priorityDiff) return priorityDiff;
+      const kindDiff = (RESEARCH_ACTION_KIND_RANK[left.kind] ?? 9) - (RESEARCH_ACTION_KIND_RANK[right.kind] ?? 9);
+      if (kindDiff) return kindDiff;
+      const updatedDiff = Date.parse(right.updated_at || 0) - Date.parse(left.updated_at || 0);
+      if (updatedDiff) return updatedDiff;
+      return String(left.entry_id).localeCompare(String(right.entry_id));
+    })
+    .slice(0, limit);
+};
+
 const buildBacktestEntries = (snapshots = []) => safeArray(snapshots).map((snapshot, index) => {
   const symbol = normalizeSymbol(snapshot.symbol);
   const totalReturn = snapshot.metrics?.total_return;
@@ -618,7 +778,7 @@ export const buildTodayResearchSnapshot = (localState = collectLocalResearchStat
   };
 };
 
-export const summarizeResearchEntries = (entries = []) => {
+export const summarizeResearchEntries = (entries = [], options = {}) => {
   const normalizedEntries = mergeResearchEntries(entries);
   const counts = normalizedEntries.reduce((result, entry) => {
     result.byType[entry.type] = (result.byType[entry.type] || 0) + 1;
@@ -636,6 +796,7 @@ export const summarizeResearchEntries = (entries = []) => {
   const actionQueue = normalizedEntries
     .filter((entry) => ['open', 'watching'].includes(entry.status))
     .slice(0, 12);
+  const researchActions = deriveResearchActionQueue(normalizedEntries, options);
 
   return {
     total_entries: normalizedEntries.length,
@@ -645,5 +806,7 @@ export const summarizeResearchEntries = (entries = []) => {
     symbol_count: counts.symbols.size,
     industry_count: counts.industries.size,
     action_queue: actionQueue,
+    research_actions: researchActions,
+    research_action_counts: summarizeResearchActionQueue(researchActions),
   };
 };

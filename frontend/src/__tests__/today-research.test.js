@@ -3,6 +3,7 @@ import {
   REALTIME_TIMELINE_STORAGE_KEY,
   buildTodayResearchSnapshot,
   collectLocalResearchState,
+  deriveResearchActionQueue,
   deriveResearchInboxEntries,
   filterResearchEntries,
   filterResearchInboxEntries,
@@ -317,5 +318,130 @@ describe('today research aggregation utilities', () => {
     expect(groups.archived.map((entry) => entry.id)).toEqual(['archive']);
     expect(filterResearchInboxEntries(entries, { bucket: 'actionable' }, { now: '2026-05-12T10:00:00.000Z' }).map((entry) => entry.id)).toEqual(['plan']);
     expect(filterResearchInboxEntries(entries, { bucket: 'watch', priority: 'medium' }, { now: '2026-05-12T10:00:00.000Z' }).map((entry) => entry.id)).toEqual(['watch']);
+  });
+
+  test('derives deterministic research actions from inbox entries without leaking boolean tags', () => {
+    const actions = deriveResearchActionQueue([
+      {
+        id: 'watch-industry',
+        type: 'industry_watch',
+        title: '半导体观察',
+        status: 'watching',
+        priority: 'medium',
+        source: 'industry_watchlist',
+        updated_at: '2026-05-12T08:00:00.000Z',
+        tags: ['观察'],
+        action: { view: 'industry', label: '打开行业热度' },
+      },
+      {
+        id: 'fresh-alert',
+        type: 'realtime_alert',
+        title: 'BTC 提醒命中',
+        status: 'watching',
+        priority: 'medium',
+        source: 'realtime_alert_hit_history',
+        updated_at: '2026-05-12T09:30:00.000Z',
+        tags: [false, null, 0, 'alert'],
+        action: { view: 'realtime', label: false },
+      },
+      {
+        id: 0,
+        type: 'trade_plan',
+        title: 0,
+        status: 'open',
+        priority: 'high',
+        symbol: 0,
+        updated_at: '2026-05-12T09:00:00.000Z',
+        tags: [false, 0],
+      },
+      {
+        id: 'done-note',
+        type: 'manual',
+        title: '已完成记录',
+        status: 'done',
+        priority: 'high',
+        updated_at: '2026-05-12T07:00:00.000Z',
+      },
+      {
+        id: 'archived-note',
+        type: 'manual',
+        title: '已归档',
+        status: 'archived',
+        priority: 'high',
+        updated_at: '2026-05-12T06:00:00.000Z',
+      },
+    ], { now: '2026-05-12T10:00:00.000Z' });
+
+    expect(actions.map((action) => action.entry_id)).toEqual([
+      'fresh-alert',
+      '0',
+      'watch-industry',
+    ]);
+    expect(actions[0]).toMatchObject({
+      key: 'research_action:fresh-alert',
+      kind: 'review_alert',
+      label: '复核提醒',
+      inbox_bucket: 'actionable',
+      priority: 'high',
+      entry_title: 'BTC 提醒命中',
+      source_label: '实时提醒',
+    });
+    expect(actions[0].tags).toEqual(['0', 'alert']);
+    expect(actions[1]).toMatchObject({
+      key: 'research_action:0',
+      kind: 'confirm_trade_plan',
+      label: '确认交易计划',
+      entry_title: '0',
+      symbol: '0',
+    });
+    expect(actions[2]).toMatchObject({
+      kind: 'follow_watchlist',
+      label: '跟进行业观察',
+      inbox_bucket: 'watch',
+    });
+    expect(JSON.stringify(actions)).not.toContain('false');
+    expect(JSON.stringify(actions)).not.toContain('null');
+  });
+
+  test('summarizes research actions alongside legacy summary fields', () => {
+    const entries = [
+      {
+        id: 'alert',
+        type: 'realtime_alert',
+        title: 'BTC 提醒命中',
+        status: 'watching',
+        priority: 'medium',
+        updated_at: '2026-05-12T09:00:00.000Z',
+        tags: [false, 'alert'],
+      },
+      {
+        id: 'watch',
+        type: 'industry_watch',
+        title: '半导体观察',
+        status: 'watching',
+        priority: 'medium',
+        updated_at: '2026-05-12T08:00:00.000Z',
+      },
+      {
+        id: 'done',
+        type: 'manual',
+        title: '完成记录',
+        status: 'done',
+        priority: 'high',
+        updated_at: '2026-05-12T07:00:00.000Z',
+      },
+    ];
+
+    const summary = summarizeResearchEntries(entries, { now: '2026-05-12T10:00:00.000Z' });
+
+    expect(summary.action_queue.map((entry) => entry.id)).toEqual(['alert', 'watch']);
+    expect(summary.research_actions.map((action) => action.entry_id)).toEqual(['alert', 'watch']);
+    expect(summary.research_action_counts).toEqual({
+      total: 2,
+      actionable: 1,
+      watch: 1,
+      read_later: 0,
+      high: 1,
+    });
   });
 });

@@ -50,11 +50,13 @@ import {
   TODAY_RESEARCH_TYPE_LABELS,
   buildTodayResearchSnapshot,
   collectLocalResearchState,
+  deriveResearchActionQueue,
   deriveResearchInboxEntries,
   filterResearchEntries,
   groupResearchInboxEntries,
   mergeResearchEntries,
   normalizeResearchEntry,
+  summarizeResearchActionQueue,
   summarizeResearchEntries,
 } from '../utils/todayResearch';
 
@@ -210,6 +212,20 @@ const TodayResearchDashboard = () => {
   const inboxPreviewEntries = useMemo(
     () => inboxEntries.filter((entry) => entry.inbox_bucket !== 'archived').slice(0, 6),
     [inboxEntries]
+  );
+  const researchActions = useMemo(() => (
+    Array.isArray(summary.research_actions)
+      ? summary.research_actions
+      : deriveResearchActionQueue(entries, inboxOptions)
+  ), [entries, inboxOptions, summary.research_actions]);
+  const researchActionCounts = useMemo(() => (
+    summary.research_action_counts && typeof summary.research_action_counts === 'object'
+      ? { ...summarizeResearchActionQueue([]), ...summary.research_action_counts }
+      : summarizeResearchActionQueue(researchActions)
+  ), [researchActions, summary.research_action_counts]);
+  const visibleResearchActions = useMemo(
+    () => researchActions.slice(0, 5),
+    [researchActions]
   );
   const activeEntries = useMemo(
     () => entries.filter((entry) => entry.status === 'open' || entry.status === 'watching'),
@@ -485,6 +501,33 @@ const TodayResearchDashboard = () => {
     </button>
   );
 
+  const renderResearchAction = (action) => {
+    const entry = entries.find((item) => String(item.id) === String(action.entry_id));
+    const priorityLabel = TODAY_RESEARCH_PRIORITY_LABELS[action.priority] || TODAY_RESEARCH_PRIORITY_LABELS.medium;
+    return (
+      <button
+        type="button"
+        className="today-research-action-item"
+        key={action.key || action.entry_id}
+        onClick={() => handleOpenEntry(entry || { action: action.action || {}, symbol: action.symbol })}
+      >
+        <div className="today-research-action-item__top">
+          <Tag color={action.inbox_bucket === 'actionable' ? 'volcano' : 'processing'}>
+            {action.label || '打开上下文'}
+          </Tag>
+          <Tag color={PRIORITY_COLOR[action.priority]}>优先级 {priorityLabel}</Tag>
+          {action.symbol ? <Tag>{action.symbol}</Tag> : null}
+          {action.industry ? <Tag>{action.industry}</Tag> : null}
+          {(action.tags || []).map((tag) => (
+            <Tag key={`${action.key || action.entry_id}:${tag}`}>{tag}</Tag>
+          ))}
+        </div>
+        <strong>{action.entry_title || '研究行动'}</strong>
+        <span>{action.description}</span>
+      </button>
+    );
+  };
+
   const renderManualEntryCard = () => (
     <Card className="today-research-panel">
       <div className="today-research-panel__head">
@@ -609,6 +652,28 @@ const TodayResearchDashboard = () => {
     </Card>
   );
 
+  const renderResearchActionsCard = () => (
+    <Card className="today-research-panel today-research-actions-card" data-testid="today-research-actions">
+      <div className="today-research-panel__head">
+        <div>
+          <div className="today-research-panel__title">研究行动</div>
+          <div className="today-research-panel__desc">提醒、计划和观察名单的下一步处理清单。</div>
+        </div>
+        <Tag color="volcano">{researchActionCounts.total || 0} 条</Tag>
+      </div>
+      <div className="today-research-action-summary">
+        <span>需处理 <strong>{researchActionCounts.actionable || 0}</strong></span>
+        <span>继续观察 <strong>{researchActionCounts.watch || 0}</strong></span>
+        <span>高优先级 <strong>{researchActionCounts.high || 0}</strong></span>
+      </div>
+      <div className="today-research-action-list">
+        {visibleResearchActions.length ? visibleResearchActions.map(renderResearchAction) : (
+          <Empty description="暂无下一步研究行动" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        )}
+      </div>
+    </Card>
+  );
+
   if (loading) {
     return (
       <div className="today-research-loading">
@@ -675,6 +740,7 @@ const TodayResearchDashboard = () => {
       ) : (
         <>
           {renderResearchInboxCard()}
+          {renderResearchActionsCard()}
 
           <div className="today-research-grid">
             <Card className="today-research-panel today-research-panel--queue">
