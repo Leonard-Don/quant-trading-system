@@ -57,7 +57,11 @@ const PRIORITY_RANK = {
 const safeArray = (value) => (Array.isArray(value) ? value : []);
 const ACTIVE_RESEARCH_STATUSES = new Set(['open', 'watching']);
 
-const normalizeSearchText = (value) => String(value || '').trim().toLowerCase();
+const stringifyText = (value) => (value === null || value === undefined ? '' : String(value));
+const hasLegacyFallbackValue = (value) => value !== null && value !== undefined && value !== '';
+const pickLegacyValue = (value, fallback) => (hasLegacyFallbackValue(value) ? value : fallback);
+
+const normalizeSearchText = (value) => stringifyText(value).trim().toLowerCase();
 
 const buildEntrySearchText = (entry) => [
   entry.title,
@@ -96,9 +100,29 @@ const normalizeIso = (value, fallback = new Date().toISOString()) => {
   return Number.isNaN(timestamp) ? fallback : new Date(timestamp).toISOString();
 };
 
-const normalizeSymbol = (value) => String(value || '').trim().toUpperCase();
+const normalizeSymbol = (value) => stringifyText(value).trim().toUpperCase();
 
-const compactText = (value, max = 240) => String(value || '').trim().slice(0, max);
+const compactText = (value, max = 240) => stringifyText(value).trim().slice(0, max);
+
+const normalizeTags = (value) => {
+  const tags = [];
+  const seen = new Set();
+  for (const item of safeArray(value)) {
+    if (item === null || item === undefined || typeof item === 'boolean') {
+      continue;
+    }
+    const tag = compactText(item, 40);
+    if (!tag || seen.has(tag)) {
+      continue;
+    }
+    tags.push(tag);
+    seen.add(tag);
+    if (tags.length >= 8) {
+      break;
+    }
+  }
+  return tags;
+};
 
 const compactNumber = (value, fallback = null) => {
   const numericValue = Number(value);
@@ -118,7 +142,7 @@ export const normalizeResearchEntry = (entry = {}, fallbackIndex = 0) => {
   const createdAt = normalizeIso(entry.created_at || entry.createdAt);
   const updatedAt = normalizeIso(entry.updated_at || entry.updatedAt || createdAt, createdAt);
   const symbol = normalizeSymbol(entry.symbol);
-  const industry = compactText(entry.industry || entry.industry_name, 120);
+  const industry = compactText(pickLegacyValue(entry.industry, entry.industry_name), 120);
   const title = compactText(entry.title, 180) || symbol || industry || '研究记录';
 
   return {
@@ -132,10 +156,13 @@ export const normalizeResearchEntry = (entry = {}, fallbackIndex = 0) => {
     symbol,
     industry,
     source: compactText(entry.source, 80) || type,
-    source_label: compactText(entry.source_label || entry.sourceLabel, 80) || TODAY_RESEARCH_TYPE_LABELS[type],
+    source_label: (
+      compactText(pickLegacyValue(entry.source_label, entry.sourceLabel), 80)
+      || TODAY_RESEARCH_TYPE_LABELS[type]
+    ),
     created_at: createdAt,
     updated_at: updatedAt,
-    tags: safeArray(entry.tags).filter((item) => typeof item === 'string' && item.trim()).slice(0, 8),
+    tags: normalizeTags(entry.tags),
     metrics: entry.metrics && typeof entry.metrics === 'object' ? entry.metrics : {},
     action: entry.action && typeof entry.action === 'object' ? entry.action : {},
     raw: entry.raw && typeof entry.raw === 'object' ? entry.raw : {},
