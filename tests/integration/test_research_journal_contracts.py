@@ -81,3 +81,39 @@ def test_research_journal_entry_status_endpoint_maps_invalid_status_to_400():
 
     assert response.status_code == 400
     assert "invalid status" in response.json()["error"]["message"]
+
+
+def test_research_journal_entry_status_endpoint_forwards_optional_note():
+    client = TestClient(app)
+
+    with patch(
+        "backend.app.api.v1.endpoints.research_journal.research_journal_store.update_entry_status",
+        return_value={
+            "entries": [
+                {
+                    "id": "manual-1",
+                    "type": "manual",
+                    "title": "Manual",
+                    "status": "snoozed",
+                    "lifecycle": {"status": "snoozed", "note": "等收盘后复核"},
+                }
+            ],
+            "source_state": {},
+            "generated_at": "2026-05-12T10:00:00+00:00",
+            "updated_at": "2026-05-12T10:00:00+00:00",
+            "summary": {"research_action_counts": {"snoozed": 1}},
+        },
+    ) as update_status:
+        response = client.patch(
+            "/research-journal/entries/manual-1/status?profile_id=browser-a",
+            json={"status": "snoozed", "note": "等收盘后复核"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["entries"][0]["lifecycle"]["note"] == "等收盘后复核"
+    update_status.assert_called_once_with(
+        "manual-1",
+        "snoozed",
+        profile_id="browser-a",
+        note="等收盘后复核",
+    )

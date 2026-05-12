@@ -24,6 +24,7 @@ class ResearchJournalEntryRequest(BaseModel):
 
 class ResearchJournalStatusRequest(BaseModel):
     status: str
+    note: Any = None
 
 
 def _resolve_research_profile(request: Request) -> str:
@@ -76,7 +77,12 @@ async def update_research_journal_entry_status(
 ):
     profile_id = _resolve_research_profile(request)
     try:
-        data = research_journal_store.update_entry_status(entry_id, payload.status, profile_id=profile_id)
+        data = research_journal_store.update_entry_status(
+            entry_id,
+            payload.status,
+            profile_id=profile_id,
+            note=payload.note,
+        )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="entry not found") from exc
     except ValueError as exc:

@@ -3714,12 +3714,30 @@ a {
   background: color-mix(in srgb, var(--bg-secondary) 94%, white 6%);
   color: var(--text-primary);
   text-align: left;
-  cursor: pointer;
 }
 
 .today-research-action-item:hover {
   border-color: var(--warning-color);
   background: color-mix(in srgb, var(--warning-color) 12%, transparent);
+}
+
+.today-research-action-item__open {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.today-research-action-item__open:focus-visible {
+  outline: 2px solid var(--warning-color);
+  outline-offset: 3px;
+  border-radius: 6px;
 }
 
 .today-research-action-item__top {
@@ -3737,6 +3755,10 @@ a {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.today-research-action-item__controls {
+  padding-top: 2px;
 }
 
 .today-research-symbol-list {

@@ -877,10 +877,14 @@ export const createResearchJournalEntry = async (entry, profileId) => {
   return response.data;
 };
 
-export const updateResearchJournalEntryStatus = async (entryId, status, profileId) => {
+export const updateResearchJournalEntryStatus = async (entryId, status, profileId, note) => {
+  const payload = { status };
+  if (note !== undefined) {
+    payload.note = note;
+  }
   const response = await api.patch(
     `/research-journal/entries/${encodeURIComponent(entryId)}/status`,
-    { status },
+    payload,
     {
       headers: profileId
         ? {

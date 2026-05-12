@@ -24,6 +24,29 @@ describe('today research aggregation utilities', () => {
     window.localStorage.clear();
   });
 
+  test('normalizes lifecycle metadata without dropping notes or timestamps', () => {
+    const entry = normalizeResearchEntry({
+      id: 0,
+      type: 'realtime_alert',
+      status: 'snoozed',
+      title: 'BTC 提醒命中',
+      status_updated_at: '2026-05-12T10:30:00.000Z',
+      lifecycle: {
+        status: 'snoozed',
+        note: 0,
+        updated_at: '2026-05-12T10:31:00.000Z',
+      },
+    });
+
+    expect(entry.id).toBe('0');
+    expect(entry.status_updated_at).toBe('2026-05-12T10:30:00.000Z');
+    expect(entry.lifecycle).toEqual({
+      status: 'snoozed',
+      note: '0',
+      updated_at: '2026-05-12T10:31:00.000Z',
+    });
+  });
+
   test('builds a unified snapshot from backtest, realtime and industry local state', () => {
     window.localStorage.setItem(BACKTEST_RESEARCH_SNAPSHOTS_KEY, JSON.stringify([
       {
@@ -403,6 +426,46 @@ describe('today research aggregation utilities', () => {
     expect(JSON.stringify(actions)).not.toContain('null');
   });
 
+  test('keeps snoozed actions in an explicit non-actionable bucket and excludes dismissed actions', () => {
+    const actions = deriveResearchActionQueue([
+      {
+        id: 'open-alert',
+        type: 'realtime_alert',
+        title: 'BTC 提醒命中',
+        status: 'open',
+        priority: 'high',
+        updated_at: '2026-05-12T09:30:00.000Z',
+      },
+      {
+        id: 'snoozed-plan',
+        type: 'trade_plan',
+        title: 'NVDA 买入计划',
+        status: 'snoozed',
+        priority: 'high',
+        updated_at: '2026-05-12T09:20:00.000Z',
+      },
+      {
+        id: 'dismissed-alert',
+        type: 'industry_alert',
+        title: '已忽略提醒',
+        status: 'dismissed',
+        priority: 'high',
+        updated_at: '2026-05-12T09:10:00.000Z',
+      },
+      {
+        id: 'done-backtest',
+        type: 'backtest',
+        title: '已完成回测',
+        status: 'done',
+        priority: 'high',
+        updated_at: '2026-05-12T09:00:00.000Z',
+      },
+    ], { now: '2026-05-12T10:00:00.000Z' });
+
+    expect(actions.map((action) => action.entry_id)).toEqual(['open-alert', 'snoozed-plan']);
+    expect(actions.map((action) => action.inbox_bucket)).toEqual(['actionable', 'snoozed']);
+  });
+
   test('summarizes research actions alongside legacy summary fields', () => {
     const entries = [
       {
@@ -440,6 +503,7 @@ describe('today research aggregation utilities', () => {
       total: 2,
       actionable: 1,
       watch: 1,
+      snoozed: 0,
       read_later: 0,
       high: 1,
     });

@@ -31,7 +31,9 @@ export const TODAY_RESEARCH_TYPE_LABELS = {
 export const TODAY_RESEARCH_STATUS_LABELS = {
   open: '待处理',
   watching: '跟踪中',
+  snoozed: '已稍后',
   done: '已完成',
+  dismissed: '已忽略',
   archived: '已归档',
 };
 
@@ -44,11 +46,12 @@ export const TODAY_RESEARCH_PRIORITY_LABELS = {
 export const RESEARCH_INBOX_BUCKET_LABELS = {
   actionable: '需处理',
   watch: '继续观察',
+  snoozed: '稍后',
   read_later: '稍后阅读',
   archived: '已归档',
 };
 
-export const RESEARCH_INBOX_BUCKET_ORDER = ['actionable', 'watch', 'read_later', 'archived'];
+export const RESEARCH_INBOX_BUCKET_ORDER = ['actionable', 'watch', 'snoozed', 'read_later', 'archived'];
 
 export const RESEARCH_ACTION_KIND_LABELS = {
   review_alert: '复核提醒',
@@ -62,8 +65,10 @@ export const RESEARCH_ACTION_KIND_LABELS = {
 const STATUS_RANK = {
   open: 0,
   watching: 1,
-  done: 2,
-  archived: 3,
+  snoozed: 2,
+  done: 3,
+  dismissed: 4,
+  archived: 5,
 };
 
 const PRIORITY_RANK = {
@@ -86,7 +91,8 @@ const DEFAULT_RESEARCH_ACTION_LIMIT = 12;
 const RESEARCH_ACTION_BUCKET_RANK = {
   actionable: 0,
   watch: 1,
-  read_later: 2,
+  snoozed: 2,
+  read_later: 3,
 };
 const RESEARCH_ACTION_KIND_RANK = {
   review_alert: 0,
@@ -100,6 +106,7 @@ const EMPTY_RESEARCH_ACTION_COUNTS = {
   total: 0,
   actionable: 0,
   watch: 0,
+  snoozed: 0,
   read_later: 0,
   high: 0,
 };
@@ -181,6 +188,19 @@ const normalizeTags = (value) => {
   return tags;
 };
 
+const normalizeLifecycle = (value = {}, fallbackStatus = 'open') => {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+  const status = TODAY_RESEARCH_STATUS_LABELS[value.status] ? value.status : fallbackStatus;
+  return {
+    ...value,
+    status,
+    note: compactText(value.note, 1200),
+    updated_at: value.updated_at ? normalizeIso(value.updated_at) : undefined,
+  };
+};
+
 const compactNumber = (value, fallback = null) => {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : fallback;
@@ -222,6 +242,8 @@ export const normalizeResearchEntry = (entry = {}, fallbackIndex = 0) => {
     tags: normalizeTags(entry.tags),
     metrics: entry.metrics && typeof entry.metrics === 'object' ? entry.metrics : {},
     action: entry.action && typeof entry.action === 'object' ? entry.action : {},
+    lifecycle: normalizeLifecycle(entry.lifecycle, status),
+    status_updated_at: entry.status_updated_at ? normalizeIso(entry.status_updated_at, updatedAt) : undefined,
     raw: entry.raw && typeof entry.raw === 'object' ? entry.raw : {},
   };
 };
@@ -320,8 +342,11 @@ const isInboxEntryRecent = (entry, options = {}) => {
 };
 
 const deriveInboxBucket = (entry, options = {}) => {
-  if (entry.status === 'archived') {
+  if (entry.status === 'archived' || entry.status === 'dismissed') {
     return 'archived';
+  }
+  if (entry.status === 'snoozed') {
+    return 'snoozed';
   }
   if (entry.status === 'done') {
     return 'read_later';
@@ -348,6 +373,9 @@ const deriveInboxPriority = (entry, bucket, options = {}) => {
   if (bucket === 'archived' || bucket === 'read_later') {
     return 'low';
   }
+  if (bucket === 'snoozed') {
+    return TODAY_RESEARCH_PRIORITY_LABELS[entry.priority] ? entry.priority : 'medium';
+  }
   const signalText = buildInboxSignalText(entry);
   if (bucket === 'actionable' && (
     entry.priority === 'high'
@@ -365,6 +393,9 @@ const deriveInboxPriority = (entry, bucket, options = {}) => {
 const buildInboxReason = (entry, bucket, options = {}) => {
   if (bucket === 'archived') {
     return '已从今日处理流移出';
+  }
+  if (bucket === 'snoozed') {
+    return '已稍后，暂不作为当前处理项';
   }
   if (entry.status === 'done') {
     return '已完成，适合稍后回看';
@@ -509,7 +540,11 @@ export const deriveResearchActionQueue = (entries = [], options = {}) => {
     : DEFAULT_RESEARCH_ACTION_LIMIT;
 
   return deriveResearchInboxEntries(entries, options)
-    .filter((entry) => entry.inbox_bucket === 'actionable' || entry.inbox_bucket === 'watch')
+    .filter((entry) => (
+      entry.inbox_bucket === 'actionable'
+        || entry.inbox_bucket === 'watch'
+        || entry.inbox_bucket === 'snoozed'
+    ))
     .map((entry) => {
       const kind = deriveResearchActionKind(entry);
       const priority = deriveResearchActionPriority(entry, kind);
