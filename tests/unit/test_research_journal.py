@@ -983,6 +983,7 @@ def test_research_journal_store_summary_research_actions_are_deterministic_and_s
         "total": 3,
         "actionable": 2,
         "watch": 1,
+        "snoozed": 0,
         "read_later": 0,
         "high": 2,
     }
@@ -1051,6 +1052,92 @@ def test_research_journal_store_update_entry_status_strips_whitespace_consistent
 
     by_id = {entry["id"]: entry for entry in updated["entries"]}
     assert by_id["manual-1"]["status"] == "done"
+
+
+def test_research_journal_store_supports_action_lifecycle_statuses_and_counts(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+
+    snapshot = store.update_snapshot({
+        "entries": [
+            {
+                "id": "open-alert",
+                "type": "realtime_alert",
+                "title": "BTC 提醒命中",
+                "status": "open",
+                "priority": "high",
+                "updated_at": "2026-05-12T09:30:00+00:00",
+            },
+            {
+                "id": "snoozed-plan",
+                "type": "trade_plan",
+                "title": "NVDA 买入计划",
+                "status": "snoozed",
+                "priority": "high",
+                "updated_at": "2026-05-12T09:20:00+00:00",
+            },
+            {
+                "id": "dismissed-alert",
+                "type": "industry_alert",
+                "title": "已忽略行业提醒",
+                "status": "dismissed",
+                "priority": "high",
+                "updated_at": "2026-05-12T09:10:00+00:00",
+            },
+            {
+                "id": "done-backtest",
+                "type": "backtest",
+                "title": "已完成回测",
+                "status": "done",
+                "priority": "high",
+                "updated_at": "2026-05-12T09:00:00+00:00",
+            },
+        ],
+    })
+
+    actions = snapshot["summary"]["research_actions"]
+
+    assert [action["entry_id"] for action in actions] == ["open-alert", "snoozed-plan"]
+    assert actions[0]["inbox_bucket"] == "actionable"
+    assert actions[1]["inbox_bucket"] == "snoozed"
+    assert snapshot["summary"]["research_action_counts"] == {
+        "total": 2,
+        "actionable": 1,
+        "watch": 0,
+        "snoozed": 1,
+        "read_later": 0,
+        "high": 2,
+    }
+    assert [entry["id"] for entry in snapshot["summary"]["action_queue"]] == ["open-alert"]
+    assert snapshot["summary"]["open_entries"] == 1
+    assert snapshot["summary"]["status_counts"]["snoozed"] == 1
+    assert snapshot["summary"]["status_counts"]["dismissed"] == 1
+
+
+def test_research_journal_store_update_entry_status_persists_lifecycle_note(tmp_path):
+    store = ResearchJournalStore(storage_path=tmp_path)
+    store.add_entry({
+        "id": "alert-1",
+        "type": "realtime_alert",
+        "title": "BTC 提醒命中",
+        "status": "open",
+        "priority": "high",
+    })
+
+    snoozed = store.update_entry_status("alert-1", "snoozed", note=0)
+    snoozed_entry = next(entry for entry in snoozed["entries"] if entry["id"] == "alert-1")
+
+    assert snoozed_entry["status"] == "snoozed"
+    assert snoozed_entry["lifecycle"]["status"] == "snoozed"
+    assert snoozed_entry["lifecycle"]["note"] == "0"
+    assert snoozed["summary"]["research_action_counts"]["snoozed"] == 1
+
+    dismissed = store.update_entry_status("alert-1", "dismissed", note="not relevant")
+    dismissed_entry = next(entry for entry in dismissed["entries"] if entry["id"] == "alert-1")
+
+    assert dismissed_entry["status"] == "dismissed"
+    assert dismissed_entry["lifecycle"]["status"] == "dismissed"
+    assert dismissed_entry["lifecycle"]["note"] == "not relevant"
+    assert dismissed["summary"]["research_actions"] == []
 
 
 @pytest.mark.parametrize(

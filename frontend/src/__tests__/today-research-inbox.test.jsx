@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 if (typeof window.matchMedia !== 'function') {
@@ -103,5 +103,61 @@ describe('TodayResearchDashboard research inbox', () => {
     expect(within(actions).getByText('跟进行业观察')).toBeInTheDocument();
     expect(actions.textContent.indexOf('BTC 提醒命中')).toBeLessThan(actions.textContent.indexOf('半导体观察'));
     expect(within(actions).queryByText('false')).not.toBeInTheDocument();
+  });
+
+  it('updates research action lifecycle from the action queue controls', async () => {
+    const entries = [
+      {
+        id: 'fresh-alert',
+        type: 'realtime_alert',
+        title: 'BTC 提醒命中',
+        summary: '价格提醒刚触发',
+        status: 'open',
+        priority: 'high',
+        source: 'realtime_alert_hit_history',
+        source_label: '实时提醒',
+        updated_at: '2026-05-12T09:30:00.000Z',
+        tags: ['alert'],
+        action: { view: 'realtime', label: '打开实时看盘' },
+      },
+    ];
+    mockGetSnapshot.mockResolvedValue(buildSnapshot(entries));
+    mockUpdateSnapshot.mockResolvedValue(buildSnapshot(entries));
+    mockUpdateStatus.mockResolvedValue(buildSnapshot(entries));
+
+    renderWithApp(<TodayResearchDashboard />);
+
+    const actions = await screen.findByTestId('today-research-actions');
+    await waitFor(() => expect(within(actions).getByText('BTC 提醒命中')).toBeInTheDocument());
+
+    fireEvent.click(within(actions).getByRole('button', { name: /稍后/ }));
+    await waitFor(() => {
+      expect(mockUpdateStatus).toHaveBeenLastCalledWith(
+        'fresh-alert',
+        'snoozed',
+        expect.any(String),
+        '稍后复核',
+      );
+    });
+
+    fireEvent.click(within(actions).getByRole('button', { name: /忽略/ }));
+    await waitFor(() => {
+      expect(mockUpdateStatus).toHaveBeenLastCalledWith(
+        'fresh-alert',
+        'dismissed',
+        expect.any(String),
+        '从今日行动队列忽略',
+      );
+    });
+
+    fireEvent.click(within(actions).getByRole('button', { name: /完成/ }));
+    await waitFor(() => {
+      expect(mockUpdateStatus).toHaveBeenLastCalledWith(
+        'fresh-alert',
+        'done',
+        expect.any(String),
+        '已从研究行动完成',
+      );
+    });
   });
 });

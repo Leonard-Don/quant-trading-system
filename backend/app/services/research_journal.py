@@ -30,10 +30,10 @@ ENTRY_TYPES = {
     "manual",
     "trade_plan",
 }
-ENTRY_STATUSES = {"open", "watching", "done", "archived"}
+ENTRY_STATUSES = {"open", "watching", "snoozed", "done", "dismissed", "archived"}
 ENTRY_PRIORITIES = {"high", "medium", "low"}
 PRIORITY_SCORE = {"high": 0, "medium": 1, "low": 2}
-STATUS_SCORE = {"open": 0, "watching": 1, "done": 2, "archived": 3}
+STATUS_SCORE = {"open": 0, "watching": 1, "snoozed": 2, "done": 3, "dismissed": 4, "archived": 5}
 RESEARCH_ACTION_LABELS = {
     "review_alert": "复核提醒",
     "confirm_trade_plan": "确认交易计划",
@@ -50,7 +50,7 @@ RESEARCH_ACTION_KIND_SCORE = {
     "follow_watchlist": 4,
     "open_context": 5,
 }
-RESEARCH_ACTION_BUCKET_SCORE = {"actionable": 0, "watch": 1, "read_later": 2}
+RESEARCH_ACTION_BUCKET_SCORE = {"actionable": 0, "watch": 1, "snoozed": 2, "read_later": 3}
 
 DEFAULT_RESEARCH_JOURNAL = {
     "entries": [],
@@ -233,6 +233,7 @@ class ResearchJournalStore:
             "tags": _coerce_tags(raw_entry.get("tags")),
             "metrics": _coerce_mapping(raw_entry.get("metrics")),
             "action": _coerce_mapping(raw_entry.get("action")),
+            "lifecycle": _coerce_mapping(raw_entry.get("lifecycle")),
             "raw": _coerce_mapping(raw_entry.get("raw")),
         }
         return entry
@@ -279,8 +280,10 @@ class ResearchJournalStore:
         return json.loads(serialized)
 
     def _derive_research_action_bucket(self, entry: dict[str, Any]) -> str | None:
-        if entry.get("status") in {"done", "archived"}:
+        if entry.get("status") in {"done", "dismissed", "archived"}:
             return None
+        if entry.get("status") == "snoozed":
+            return "snoozed"
         if (
             entry.get("status") == "open"
             or entry.get("priority") == "high"
@@ -341,7 +344,7 @@ class ResearchJournalStore:
         actions = []
         for entry in entries:
             bucket = self._derive_research_action_bucket(entry)
-            if bucket not in {"actionable", "watch"}:
+            if bucket not in {"actionable", "watch", "snoozed"}:
                 continue
             kind = self._derive_research_action_kind(entry)
             priority = self._derive_research_action_priority(entry, kind)
@@ -380,6 +383,7 @@ class ResearchJournalStore:
             "total": 0,
             "actionable": 0,
             "watch": 0,
+            "snoozed": 0,
             "read_later": 0,
             "high": 0,
         }
@@ -564,7 +568,13 @@ class ResearchJournalStore:
             self._persist(profile_id, updated)
             return self._with_summary(updated)
 
-    def update_entry_status(self, entry_id: str, status: str, profile_id: str | None = None) -> dict[str, Any]:
+    def update_entry_status(
+        self,
+        entry_id: str,
+        status: str,
+        profile_id: str | None = None,
+        note: Any = None,
+    ) -> dict[str, Any]:
         normalized_status = _safe_text(status, 40)
         if normalized_status not in ENTRY_STATUSES:
             raise ValueError(f"invalid status '{status}'")
@@ -575,7 +585,20 @@ class ResearchJournalStore:
             updated_entries = []
             for entry in current.get("entries") or []:
                 if entry.get("id") == lookup_id:
-                    entry = {**entry, "status": normalized_status, "updated_at": _utc_now()}
+                    updated_at = _utc_now()
+                    lifecycle = _coerce_mapping(entry.get("lifecycle"))
+                    lifecycle.update({
+                        "status": normalized_status,
+                        "status_updated_at": updated_at,
+                    })
+                    if note is not None:
+                        lifecycle["note"] = _safe_text(note, MAX_RESEARCH_JOURNAL_NOTE_CHARS)
+                    entry = {
+                        **entry,
+                        "status": normalized_status,
+                        "updated_at": updated_at,
+                        "lifecycle": lifecycle,
+                    }
                     matched = True
                 updated_entries.append(entry)
             if not matched:
