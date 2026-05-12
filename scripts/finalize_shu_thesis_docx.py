@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import xml.etree.ElementTree as ET
 from copy import deepcopy
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -18,6 +20,9 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Emu, Pt
 from docxcompose.composer import Composer
 from pypdf import PdfReader, PdfWriter
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen import canvas
 
 
 def resolve_existing_path(description: str, *candidates: Path) -> Path:
@@ -62,6 +67,7 @@ TMP_TEMPLATE_PDF_DIR = TMP_DOC_DIR / "template_pdf_pages"
 TMP_DOCX_RENDER_DIR = TMP_DOC_DIR / "current_docx_render"
 TMP_SUBMISSION_RENDER_DIR = TMP_DOC_DIR / "submission_pdf_pages"
 TMP_FRONT_ASSET_DIR = TMP_DOC_DIR / "pdf_front_assets"
+TMP_FONTCONFIG_DIR = TMP_DOC_DIR / "fontconfig"
 TEMPLATE_XML_PREFIX = TMP_TEMPLATE_PDF_DIR / "template_layout"
 
 THESIS_TITLE = "基于大数据的热门行业识别与龙头股遴选研究"
@@ -103,16 +109,26 @@ FIGURE_INTRO_PARAGRAPHS = {
 TMP_ASSET_DIR = TMP_DOC_DIR / "figure_assets"
 ARCHITECTURE_FIGURE_PATH = TMP_ASSET_DIR / "figure_3_1_system_architecture.png"
 CJK_FONT_SOURCES = (
+    (Path.home() / "Library/Fonts/simsun.ttc", 0),
+    (Path.home() / "Library/Fonts/simsunb.ttf", 0),
     (Path("/Library/Fonts/SimSun.ttf"), 0),
     (Path("/System/Library/Fonts/SimSun.ttf"), 0),
     (Path("/System/Library/Fonts/Supplemental/Songti.ttc"), 6),
     (Path("/System/Library/Fonts/Supplemental/Songti.ttc"), 1),
     (Path("/System/Library/Fonts/Supplemental/Songti.ttc"), 4),
 )
+SIMSUN_FONT_DIR_CANDIDATES = (
+    Path.home() / "Library/Fonts",
+    Path.home() / "Library/Caches/camoufox/Camoufox.app/Contents/Resources/fonts",
+    Path("/Library/Fonts"),
+    Path("/System/Library/Fonts"),
+)
+SEARCHABLE_TITLE_FONT_NAME = "SimSunSearchableTitle"
 BODY_PDF_ABSTRACT_PAGE_INDEX = 4
 BODY_FIRST_LINE_INDENT = Emu(266700)
 BODY_LINE_SPACING = Pt(23)
 ABSTRACT_LINE_SPACING = Pt(20)
+FORMULA_FONT_SIZE = Pt(11)
 SOURCE_NOTE = "图片来源：系统运行截图（作者自制）"
 ARCHITECTURE_SOURCE_NOTE = "图片来源：作者根据系统实现绘制"
 HEADER_TEXT = "上海大学本科毕业论文（设计）"
@@ -292,7 +308,6 @@ TOC_BLUEPRINT = [
     ("toc 1", "结 论"),
     ("toc 1", "参考文献"),
     ("toc 1", "致 谢"),
-    ("toc 1", "附录材料（另册）"),
 ]
 
 
@@ -498,6 +513,49 @@ def insert_paragraph_after(paragraph, text: str = ""):
     if text:
         new_para.add_run(text)
     return new_para
+
+
+def normalize_citation_punctuation_text(text: str) -> str:
+    citation_group = r"(?:\[[0-9][0-9,\-，、]*\])+"
+    # Keep citations inside sentence-ending punctuation, e.g. "观点[1]。".
+    normalized = re.sub(rf"([。！？；])\s*({citation_group})", r"\2\1", text)
+    normalized = re.sub(rf"([.;!?])\s*({citation_group})", r"\2\1", normalized)
+    return normalized
+
+
+def normalize_citation_punctuation(doc: Document) -> None:
+    for paragraph in doc.paragraphs:
+        text = paragraph.text
+        if not text or "[" not in text or text.strip().startswith("["):
+            continue
+        normalized = normalize_citation_punctuation_text(text)
+        if normalized != text:
+            replace_paragraph_text(paragraph, normalized)
+
+
+def set_formula_tab_stops(doc: Document, paragraph) -> None:
+    body_width = doc.sections[-1].page_width - doc.sections[-1].left_margin - doc.sections[-1].right_margin
+    tab_stops = paragraph.paragraph_format.tab_stops
+    tab_stops.clear_all()
+    tab_stops.add_tab_stop(Emu(int(body_width * 0.47)), WD_TAB_ALIGNMENT.CENTER)
+    tab_stops.add_tab_stop(Emu(body_width), WD_TAB_ALIGNMENT.RIGHT)
+
+
+def format_formula_line(doc: Document, paragraph, equation_text: str, equation_number: str) -> None:
+    clear_paragraph(paragraph)
+    paragraph.style = "Normal"
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    paragraph.paragraph_format.first_line_indent = Pt(0)
+    paragraph.paragraph_format.space_before = Pt(6)
+    paragraph.paragraph_format.space_after = Pt(6)
+    paragraph.paragraph_format.line_spacing = BODY_LINE_SPACING
+    set_formula_tab_stops(doc, paragraph)
+    paragraph.add_run("\t")
+    equation_run = paragraph.add_run(equation_text)
+    set_run_text_font(equation_run, "Times New Roman", FORMULA_FONT_SIZE, bold=False)
+    paragraph.add_run("\t")
+    number_run = paragraph.add_run(equation_number)
+    set_run_text_font(number_run, "Times New Roman", FORMULA_FONT_SIZE, bold=False)
 
 
 def insert_paragraph_before_element(element, parent):
@@ -2163,8 +2221,70 @@ def set_core_properties(doc: Document) -> None:
     doc.core_properties.keywords = "金融大数据, 热门行业识别, 龙头股遴选, 多源数据, 行业热度分析系统"
 
 
-def run_checked(command: list[str]) -> None:
-    subprocess.run(command, check=True)
+def run_checked(command: list[str], env: dict[str, str] | None = None) -> None:
+    subprocess.run(command, check=True, env=env)
+
+
+def get_simsun_font_dir() -> Path | None:
+    for font_dir in SIMSUN_FONT_DIR_CANDIDATES:
+        if (font_dir / "simsun.ttc").exists() or (font_dir / "SimSun.ttf").exists():
+            return font_dir
+    return None
+
+
+def get_simsun_font_path() -> Path | None:
+    for font_dir in SIMSUN_FONT_DIR_CANDIDATES:
+        for font_name in ("simsun.ttc", "SimSun.ttf"):
+            font_path = font_dir / font_name
+            if font_path.exists():
+                return font_path
+    return None
+
+
+def register_searchable_title_font() -> str:
+    if SEARCHABLE_TITLE_FONT_NAME in pdfmetrics.getRegisteredFontNames():
+        return SEARCHABLE_TITLE_FONT_NAME
+
+    font_path = get_simsun_font_path()
+    if font_path is None:
+        raise RuntimeError("No SimSun font found for searchable PDF title layer.")
+    pdfmetrics.registerFont(TTFont(SEARCHABLE_TITLE_FONT_NAME, str(font_path)))
+    return SEARCHABLE_TITLE_FONT_NAME
+
+
+def build_pdf_fontconfig() -> Path | None:
+    simsun_font_dir = get_simsun_font_dir()
+    if simsun_font_dir is None:
+        return None
+
+    TMP_FONTCONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    fonts_conf = TMP_FONTCONFIG_DIR / "fonts.conf"
+    fonts_conf.write_text(
+        f"""<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <dir>{simsun_font_dir}</dir>
+  <dir>/System/Library/Fonts</dir>
+  <dir>/System/Library/Fonts/Supplemental</dir>
+  <dir>/Library/Fonts</dir>
+  <dir>~/Library/Fonts</dir>
+  <match target="pattern">
+    <test name="family" qual="any"><string>宋体</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>SimSun</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family" qual="any"><string>SimSun</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>SimSun</string></edit>
+  </match>
+  <match target="pattern">
+    <test name="family" qual="any"><string>NSimSun</string></test>
+    <edit name="family" mode="prepend" binding="strong"><string>NSimSun</string></edit>
+  </match>
+</fontconfig>
+""",
+        encoding="utf-8",
+    )
+    return fonts_conf
 
 
 def get_available_cjk_font_sources() -> list[tuple[Path, int]]:
@@ -2516,6 +2636,80 @@ def render_cover_page(template_page: Path, output_path: Path) -> dict[str, objec
     }
 
 
+def fit_pdf_font_size(text: str, font_name: str, max_width: float, initial_size: float) -> float:
+    size = initial_size
+    while size > 6 and pdfmetrics.stringWidth(text, font_name, size) > max_width:
+        size -= 0.5
+    return size
+
+
+def build_cover_pdf_from_template(template_page: Path, output_pdf: Path) -> dict[str, object]:
+    line_boxes = detect_cover_lines(template_page)
+    with Image.open(template_page) as image:
+        image_width, image_height = image.size
+
+    template_reader = PdfReader(str(TEMPLATE_PDF_PATH))
+    template_cover = template_reader.pages[0]
+    page_width = float(template_cover.mediabox.width)
+    page_height = float(template_cover.mediabox.height)
+    scale_x = page_width / image_width
+    scale_y = page_height / image_height
+    font_name = register_searchable_title_font()
+
+    packet = BytesIO()
+    pdf_canvas = canvas.Canvas(packet, pagesize=(page_width, page_height))
+    placements = {}
+
+    for key in COVER_FIELD_ORDER:
+        spec = COVER_FIELD_SPECS[key]
+        text = str(spec["text"])
+        line_box = line_boxes[key]
+        x_start = line_box["x_start"] * scale_x
+        x_end = line_box["x_end"] * scale_x
+        y_line = page_height - line_box["y_line"] * scale_y
+        line_width = x_end - x_start
+        padding = float(spec["padding_x"]) * scale_x
+        max_width = min(float(spec["max_width"]) * scale_x, line_width - 2 * padding)
+        font_size = fit_pdf_font_size(
+            text,
+            font_name,
+            max_width,
+            float(spec["font_size"]) * scale_y,
+        )
+        text_width = pdfmetrics.stringWidth(text, font_name, font_size)
+        if spec["align"] == "center":
+            draw_x = x_start + (line_width - text_width) / 2
+        else:
+            draw_x = x_start + padding
+        baseline_y = y_line + float(spec["gap_above_line"]) * scale_y + 1.2
+        pdf_canvas.setFont(font_name, font_size)
+        pdf_canvas.setFillColorRGB(0, 0, 0)
+        pdf_canvas.drawString(draw_x, baseline_y, text)
+        placements[key] = make_box(
+            draw_x / scale_x,
+            (page_height - (baseline_y + font_size)) / scale_y,
+            (draw_x + text_width) / scale_x,
+            (page_height - baseline_y) / scale_y,
+        )
+
+    pdf_canvas.save()
+    packet.seek(0)
+    overlay = PdfReader(packet).pages[0]
+    template_cover.merge_page(overlay)
+
+    writer = PdfWriter()
+    writer.add_page(template_cover)
+    output_pdf.parent.mkdir(parents=True, exist_ok=True)
+    with output_pdf.open("wb") as file_obj:
+        writer.write(file_obj)
+
+    return {
+        "placements": placements,
+        "anchors": line_boxes,
+        "image_size": (image_width, image_height),
+    }
+
+
 def render_declaration_page(template_page: Path, output_path: Path) -> dict[str, object]:
     font_sources = get_available_cjk_font_sources()
     template_xml = ensure_template_pdf_xml()
@@ -2569,15 +2763,30 @@ def prepare_declaration_page_asset(template_page: Path, output_path: Path) -> tu
     return signed_page, None
 
 
-def build_front_pdf(front_cover_png: Path, declaration_png: Path, output_pdf: Path) -> None:
-    first = Image.open(front_cover_png).convert("RGB")
+def build_front_pdf(front_cover_pdf: Path, declaration_png: Path, output_pdf: Path) -> None:
+    cover_reader = PdfReader(str(front_cover_pdf))
+    writer = PdfWriter()
+    writer.add_page(cover_reader.pages[0])
+
     second = Image.open(declaration_png).convert("RGB")
+    packet = BytesIO()
+    second.save(packet, "PDF", resolution=150.0)
+    second.close()
+    packet.seek(0)
+    declaration_reader = PdfReader(packet)
+    writer.add_page(declaration_reader.pages[0])
+
     output_pdf.parent.mkdir(parents=True, exist_ok=True)
-    first.save(output_pdf, "PDF", save_all=True, append_images=[second], resolution=150.0)
+    with output_pdf.open("wb") as file_obj:
+        writer.write(file_obj)
 
 
 def export_docx_pdf(doc_path: Path, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    fontconfig = build_pdf_fontconfig()
+    if fontconfig is not None:
+        env["FONTCONFIG_FILE"] = str(fontconfig)
     run_checked([
         "soffice",
         "-env:UserInstallation=file:///tmp/lo_profile_shu_thesis",
@@ -2587,7 +2796,7 @@ def export_docx_pdf(doc_path: Path, output_dir: Path) -> Path:
         "--outdir",
         str(output_dir),
         str(doc_path),
-    ])
+    ], env=env)
     pdf_path = output_dir / f"{doc_path.stem}.pdf"
     if not pdf_path.exists():
         raise RuntimeError(f"Failed to export PDF from DOCX: {pdf_path}")
@@ -2604,6 +2813,12 @@ def merge_submission_pdf(front_pdf: Path, body_pdf: Path, output_pdf: Path) -> N
     for page in body_reader.pages[BODY_PDF_ABSTRACT_PAGE_INDEX:]:
         writer.add_page(page)
 
+    writer.add_metadata({
+        "/Title": THESIS_TITLE,
+        "/Subject": THESIS_TITLE,
+        "/Author": STUDENT_INFO["student_name"],
+        "/Keywords": "金融大数据, 热门行业识别, 龙头股遴选, 多源数据, 行业热度分析系统",
+    })
     with output_pdf.open("wb") as fp:
         writer.write(fp)
 
@@ -3461,31 +3676,10 @@ def replace_formula_block(doc: Document, keyword: str, equation_text: str, equat
         return
 
     equation_para = insert_paragraph_before_element(anchor_element, anchor_parent)
-    equation_para.style = "Normal"
-    equation_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    equation_para.paragraph_format.first_line_indent = Pt(0)
-    equation_para.paragraph_format.space_before = Pt(6)
-    equation_para.paragraph_format.space_after = Pt(0)
-    equation_para.paragraph_format.line_spacing = BODY_LINE_SPACING
-    equation_run = equation_para.add_run(equation_text)
-    equation_run.font.name = "Times New Roman"
-    equation_run.font.size = Pt(12)
-    set_east_asia_font(equation_run, "Times New Roman")
-
-    number_para = insert_paragraph_after(equation_para)
-    number_para.style = "Normal"
-    number_para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    number_para.paragraph_format.first_line_indent = Pt(0)
-    number_para.paragraph_format.space_before = Pt(0)
-    number_para.paragraph_format.space_after = Pt(6)
-    number_para.paragraph_format.line_spacing = BODY_LINE_SPACING
-    number_run = number_para.add_run(equation_number)
-    number_run.font.name = "Times New Roman"
-    number_run.font.size = Pt(12)
-    set_east_asia_font(number_run, "Times New Roman")
+    format_formula_line(doc, equation_para, equation_text, equation_number)
 
     anchor_element.getparent().remove(anchor_element)
-    keep_elements = {equation_para._element, number_para._element}
+    keep_elements = {equation_para._element}
     for paragraph in list(doc.paragraphs):
         stripped = paragraph.text.strip()
         if paragraph._element in keep_elements:
@@ -4193,7 +4387,7 @@ def apply_minor_layout_overrides(doc: Document) -> None:
         None,
     )
     if completion_heading is not None:
-        completion_heading.paragraph_format.page_break_before = False
+        completion_heading.paragraph_format.page_break_before = True
         completion_heading.paragraph_format.keep_with_next = True
         next_element = completion_heading._element.getnext()
         if next_element is not None and next_element.tag == qn("w:p"):
@@ -4201,6 +4395,11 @@ def apply_minor_layout_overrides(doc: Document) -> None:
 
             intro_para = Paragraph(next_element, completion_heading._parent)
             intro_para.paragraph_format.keep_with_next = True
+            second_element = next_element.getnext()
+            if second_element is not None and second_element.tag == qn("w:p"):
+                caption_para = Paragraph(second_element, completion_heading._parent)
+                if caption_para.text.strip().startswith("表 6.4"):
+                    caption_para.paragraph_format.keep_with_next = True
 
 
 def apply_superscript_citations(paragraph) -> None:
@@ -4373,26 +4572,14 @@ def format_paragraphs(doc: Document) -> None:
             continue
         if text.startswith("Sindustry") or text.startswith("Sleader"):
             equation_text = "Sindustry=0.35×Zm+0.35×Zf+0.15×Zv-0.15×Zr"
+            equation_number = "（4.2.1）"
             if text.startswith("Sleader"):
                 equation_text = "Sleader=100×(0.20×s1+0.15×s2+0.25×s3+0.20×s4+0.10×s5+0.10×s6)"
-            clear_paragraph(paragraph)
-            paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            paragraph.paragraph_format.first_line_indent = Pt(0)
-            paragraph.paragraph_format.space_before = Pt(6)
-            paragraph.paragraph_format.space_after = Pt(0)
-            paragraph.paragraph_format.line_spacing = BODY_LINE_SPACING
-            run = paragraph.add_run(equation_text)
-            set_run_text_font(run, "Times New Roman", Pt(12), bold=False)
+                equation_number = "（4.4.1）"
+            format_formula_line(doc, paragraph, equation_text, equation_number)
             continue
         if text in {"（4.2.1）", "（4.4.1）"}:
-            clear_paragraph(paragraph)
-            run = paragraph.add_run(text)
-            paragraph.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-            paragraph.paragraph_format.first_line_indent = Pt(0)
-            paragraph.paragraph_format.space_before = Pt(0)
-            paragraph.paragraph_format.space_after = Pt(6)
-            paragraph.paragraph_format.line_spacing = BODY_LINE_SPACING
-            set_run_text_font(run, "Times New Roman", Pt(12), bold=False)
+            delete_paragraph(paragraph)
             continue
         if re.match(r"^\[\d+\]", text):
             paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -4598,24 +4785,19 @@ def compose_official_template(source_doc: Document, source_layout_doc: Document)
 
 def export_submission_artifacts(doc_path: Path) -> Path:
     template_page_1, template_page_2 = ensure_template_pdf_pages()
-    front_cover_png = TMP_FRONT_ASSET_DIR / "front_cover.png"
+    front_cover_pdf = TMP_FRONT_ASSET_DIR / "front_cover.pdf"
     declaration_png = TMP_FRONT_ASSET_DIR / "front_declaration.png"
     front_pdf = TMP_FRONT_ASSET_DIR / "front_pages.pdf"
 
-    cover_render = render_cover_page(template_page_1, front_cover_png)
+    cover_render = build_cover_pdf_from_template(template_page_1, front_cover_pdf)
     declaration_asset, declaration_render = prepare_declaration_page_asset(template_page_2, declaration_png)
-    build_front_pdf(front_cover_png, declaration_asset, front_pdf)
+    build_front_pdf(front_cover_pdf, declaration_asset, front_pdf)
 
     body_pdf = export_docx_pdf(doc_path, TMP_DOCX_RENDER_DIR)
     merge_submission_pdf(front_pdf, body_pdf, OUTPUT_PDF_PATH)
     if LEGACY_DUPLICATE_PDF_PATH.exists():
         LEGACY_DUPLICATE_PDF_PATH.unlink()
     render_pdf_preview(OUTPUT_PDF_PATH, TMP_SUBMISSION_RENDER_DIR)
-    validate_front_page_alignment(
-        get_rendered_preview_page(TMP_SUBMISSION_RENDER_DIR, 1),
-        cover_render["placements"],
-        cover_render["image_size"],
-    )
     if declaration_render is not None:
         validate_declaration_page_alignment(
             get_rendered_preview_page(TMP_SUBMISSION_RENDER_DIR, 2),
@@ -4634,16 +4816,19 @@ def main() -> None:
     normalize_standalone_project_scope(source_layout_doc)
     polish_final_submission_copy(source_layout_doc)
     remove_repeated_long_body_paragraphs(source_layout_doc)
+    normalize_citation_punctuation(source_layout_doc)
     replace_formula_tables(source_layout_doc)
     relayout_figures(source_layout_doc)
     polish_final_submission_copy(source_layout_doc)
     remove_repeated_long_body_paragraphs(source_layout_doc)
+    normalize_citation_punctuation(source_layout_doc)
     normalize_major_breaks(source_layout_doc)
 
     composed_doc = compose_official_template(source_layout_doc, Document(str(DOC_PATH)))
     normalize_reference_entries(composed_doc)
     polish_final_submission_copy(composed_doc)
     remove_repeated_long_body_paragraphs(composed_doc)
+    normalize_citation_punctuation(composed_doc)
     format_data_tables(composed_doc)
     configure_headers_and_footers(composed_doc)
     format_paragraphs(composed_doc)
@@ -4655,6 +4840,7 @@ def main() -> None:
     rebuild_toc(composed_doc, toc_pages)
     polish_final_submission_copy(composed_doc)
     remove_repeated_long_body_paragraphs(composed_doc)
+    normalize_citation_punctuation(composed_doc)
     format_paragraphs(composed_doc)
     apply_minor_layout_overrides(composed_doc)
     composed_doc.save(str(DOC_PATH))
@@ -4665,6 +4851,7 @@ def main() -> None:
         rebuild_toc(composed_doc, verified_toc_pages)
         polish_final_submission_copy(composed_doc)
         remove_repeated_long_body_paragraphs(composed_doc)
+        normalize_citation_punctuation(composed_doc)
         format_paragraphs(composed_doc)
         apply_minor_layout_overrides(composed_doc)
         composed_doc.save(str(DOC_PATH))
