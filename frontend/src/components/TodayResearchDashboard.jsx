@@ -19,6 +19,7 @@ import {
   BellOutlined,
   BarChartOutlined,
   CheckCircleOutlined,
+  ClockCircleOutlined,
   CloudSyncOutlined,
   ExportOutlined,
   FileTextOutlined,
@@ -27,6 +28,7 @@ import {
   LineChartOutlined,
   PlusOutlined,
   ReloadOutlined,
+  StopOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
 
@@ -94,13 +96,16 @@ const PRIORITY_COLOR = {
 const STATUS_COLOR = {
   open: 'orange',
   watching: 'processing',
+  snoozed: 'gold',
   done: 'green',
+  dismissed: 'default',
   archived: 'default',
 };
 
 const INBOX_BUCKET_COLOR = {
   actionable: 'volcano',
   watch: 'processing',
+  snoozed: 'gold',
   read_later: 'default',
   archived: 'default',
 };
@@ -170,6 +175,10 @@ const mergeLocalWithBackend = (localSnapshot, backendEntries = []) => {
       priority: backendEntry.priority || entry.priority,
       note: entry.note || backendEntry.note,
       updated_at: backendEntry.updated_at || entry.updated_at,
+      status_updated_at: backendEntry.status_updated_at || entry.status_updated_at,
+      lifecycle: Object.keys(backendEntry.lifecycle || {}).length
+        ? backendEntry.lifecycle
+        : entry.lifecycle,
     };
   });
   const backendOnly = Array.from(backendById.values()).filter((entry) => !localIds.has(entry.id));
@@ -331,16 +340,36 @@ const TodayResearchDashboard = () => {
     navigateToAppUrl(buildAppUrl({ view: 'paper' }));
   }, [messageApi]);
 
-  const handleMarkDone = useCallback(async (entry) => {
+  const handleUpdateEntryStatus = useCallback(async (entry, status, options = {}) => {
     try {
-      const response = await updateResearchJournalEntryStatus(entry.id, 'done', profileId);
+      const response = await updateResearchJournalEntryStatus(
+        entry.id,
+        status,
+        profileId,
+        options.note
+      );
       setJournal(response?.data || journal);
-      messageApi.success('已标记为完成');
+      messageApi.success(options.successMessage || '状态已更新');
     } catch (error) {
       console.error('Failed to update research journal status:', error);
       messageApi.error('状态更新失败');
     }
   }, [journal, messageApi, profileId]);
+
+  const handleMarkDone = useCallback((entry, note = undefined) => {
+    handleUpdateEntryStatus(entry, 'done', {
+      note,
+      successMessage: '已标记为完成',
+    });
+  }, [handleUpdateEntryStatus]);
+
+  const handleResearchActionLifecycle = useCallback((action, status, note, successMessage) => {
+    const entry = entries.find((item) => String(item.id) === String(action.entry_id));
+    handleUpdateEntryStatus(entry || { id: action.entry_id }, status, {
+      note,
+      successMessage,
+    });
+  }, [entries, handleUpdateEntryStatus]);
 
   const handleCreateManualEntry = useCallback(async (values) => {
     const createdAt = new Date().toISOString();
@@ -504,27 +533,69 @@ const TodayResearchDashboard = () => {
   const renderResearchAction = (action) => {
     const entry = entries.find((item) => String(item.id) === String(action.entry_id));
     const priorityLabel = TODAY_RESEARCH_PRIORITY_LABELS[action.priority] || TODAY_RESEARCH_PRIORITY_LABELS.medium;
+    const bucketColor = action.inbox_bucket === 'actionable'
+      ? 'volcano'
+      : INBOX_BUCKET_COLOR[action.inbox_bucket] || 'processing';
     return (
-      <button
-        type="button"
-        className="today-research-action-item"
-        key={action.key || action.entry_id}
-        onClick={() => handleOpenEntry(entry || { action: action.action || {}, symbol: action.symbol })}
-      >
-        <div className="today-research-action-item__top">
-          <Tag color={action.inbox_bucket === 'actionable' ? 'volcano' : 'processing'}>
-            {action.label || '打开上下文'}
-          </Tag>
-          <Tag color={PRIORITY_COLOR[action.priority]}>优先级 {priorityLabel}</Tag>
-          {action.symbol ? <Tag>{action.symbol}</Tag> : null}
-          {action.industry ? <Tag>{action.industry}</Tag> : null}
-          {(action.tags || []).map((tag) => (
-            <Tag key={`${action.key || action.entry_id}:${tag}`}>{tag}</Tag>
-          ))}
-        </div>
-        <strong>{action.entry_title || '研究行动'}</strong>
-        <span>{action.description}</span>
-      </button>
+      <div className="today-research-action-item" key={action.key || action.entry_id}>
+        <button
+          type="button"
+          className="today-research-action-item__open"
+          onClick={() => handleOpenEntry(entry || { action: action.action || {}, symbol: action.symbol })}
+        >
+          <div className="today-research-action-item__top">
+            <Tag color={bucketColor}>
+              {action.label || '打开上下文'}
+            </Tag>
+            <Tag color={PRIORITY_COLOR[action.priority]}>优先级 {priorityLabel}</Tag>
+            {action.symbol ? <Tag>{action.symbol}</Tag> : null}
+            {action.industry ? <Tag>{action.industry}</Tag> : null}
+            {(action.tags || []).map((tag) => (
+              <Tag key={`${action.key || action.entry_id}:${tag}`}>{tag}</Tag>
+            ))}
+          </div>
+          <strong>{action.entry_title || '研究行动'}</strong>
+          <span>{action.description}</span>
+        </button>
+        <Space className="today-research-action-item__controls" wrap size={6}>
+          <Button
+            size="small"
+            icon={<CheckCircleOutlined />}
+            onClick={() => handleResearchActionLifecycle(
+              action,
+              'done',
+              '已从研究行动完成',
+              '已标记为完成'
+            )}
+          >
+            完成
+          </Button>
+          <Button
+            size="small"
+            icon={<ClockCircleOutlined />}
+            onClick={() => handleResearchActionLifecycle(
+              action,
+              'snoozed',
+              '稍后复核',
+              '已稍后处理'
+            )}
+          >
+            稍后
+          </Button>
+          <Button
+            size="small"
+            icon={<StopOutlined />}
+            onClick={() => handleResearchActionLifecycle(
+              action,
+              'dismissed',
+              '从今日行动队列忽略',
+              '已从行动队列忽略'
+            )}
+          >
+            忽略
+          </Button>
+        </Space>
+      </div>
     );
   };
 
@@ -664,6 +735,7 @@ const TodayResearchDashboard = () => {
       <div className="today-research-action-summary">
         <span>需处理 <strong>{researchActionCounts.actionable || 0}</strong></span>
         <span>继续观察 <strong>{researchActionCounts.watch || 0}</strong></span>
+        <span>稍后 <strong>{researchActionCounts.snoozed || 0}</strong></span>
         <span>高优先级 <strong>{researchActionCounts.high || 0}</strong></span>
       </div>
       <div className="today-research-action-list">
