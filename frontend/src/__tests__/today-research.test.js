@@ -3,7 +3,10 @@ import {
   REALTIME_TIMELINE_STORAGE_KEY,
   buildTodayResearchSnapshot,
   collectLocalResearchState,
+  deriveResearchInboxEntries,
   filterResearchEntries,
+  filterResearchInboxEntries,
+  groupResearchInboxEntries,
   mergeResearchEntries,
   normalizeResearchEntry,
   summarizeResearchEntries,
@@ -189,5 +192,130 @@ describe('today research aggregation utilities', () => {
     expect(filterResearchEntries(entries, { keyword: '回测快照' }).map((entry) => entry.id)).toEqual([
       'entry-open',
     ]);
+  });
+
+  test('derives deterministic inbox buckets and priorities from existing research fields', () => {
+    const inboxEntries = deriveResearchInboxEntries([
+      {
+        id: 'fresh-alert',
+        type: 'realtime_alert',
+        title: 'BTC 提醒命中',
+        status: 'watching',
+        priority: 'medium',
+        source: 'realtime_alert_hit_history',
+        updated_at: '2026-05-12T09:30:00.000Z',
+        tags: ['alert', false, 7, null],
+        action: { view: 'realtime', label: '打开实时看盘' },
+      },
+      {
+        id: 'watch-industry',
+        type: 'industry_watch',
+        title: '半导体观察',
+        status: 'watching',
+        priority: 'medium',
+        source: 'industry_watchlist',
+        updated_at: '2026-05-12T08:00:00.000Z',
+        tags: ['观察'],
+        action: { view: 'industry', label: '打开行业热度' },
+      },
+      {
+        id: 'finished-note',
+        type: 'manual',
+        title: '复核完成',
+        status: 'done',
+        priority: 'high',
+        source: 'manual_entry',
+        updated_at: '2026-05-12T07:00:00.000Z',
+      },
+      {
+        id: 'old-open',
+        type: 'manual',
+        title: '旧线索',
+        status: 'open',
+        priority: 'medium',
+        source: 'manual_entry',
+        updated_at: '2026-04-20T07:00:00.000Z',
+        action: { view: 'today', label: '打开' },
+      },
+      {
+        id: 'archived-note',
+        type: 'manual',
+        title: '已归档',
+        status: 'archived',
+        priority: 'high',
+        source: 'manual_entry',
+        updated_at: '2026-05-12T06:00:00.000Z',
+      },
+    ], { now: '2026-05-12T10:00:00.000Z' });
+
+    expect(inboxEntries.map((entry) => entry.id)).toEqual([
+      'fresh-alert',
+      'watch-industry',
+      'old-open',
+      'finished-note',
+      'archived-note',
+    ]);
+    expect(inboxEntries.find((entry) => entry.id === 'fresh-alert')).toMatchObject({
+      inbox_bucket: 'actionable',
+      inbox_status: 'actionable',
+      inbox_priority: 'high',
+    });
+    expect(inboxEntries.find((entry) => entry.id === 'fresh-alert').inbox_tags).toEqual(['alert', '7']);
+    expect(inboxEntries.find((entry) => entry.id === 'watch-industry')).toMatchObject({
+      inbox_bucket: 'watch',
+      inbox_priority: 'medium',
+    });
+    expect(inboxEntries.find((entry) => entry.id === 'old-open')).toMatchObject({
+      inbox_bucket: 'read_later',
+      inbox_priority: 'low',
+    });
+    expect(inboxEntries.find((entry) => entry.id === 'finished-note')).toMatchObject({
+      inbox_bucket: 'read_later',
+      inbox_priority: 'low',
+    });
+    expect(inboxEntries.find((entry) => entry.id === 'archived-note')).toMatchObject({
+      inbox_bucket: 'archived',
+      inbox_priority: 'low',
+    });
+  });
+
+  test('groups and filters research inbox entries by deterministic buckets', () => {
+    const entries = [
+      {
+        id: 'plan',
+        type: 'trade_plan',
+        title: 'NVDA 买入计划',
+        status: 'open',
+        priority: 'medium',
+        updated_at: '2026-05-12T09:00:00.000Z',
+        tags: ['交易计划'],
+        action: { view: 'realtime', label: '打开计划' },
+      },
+      {
+        id: 'watch',
+        type: 'industry_watch',
+        title: '半导体观察',
+        status: 'watching',
+        priority: 'medium',
+        updated_at: '2026-05-12T08:00:00.000Z',
+      },
+      {
+        id: 'archive',
+        type: 'manual',
+        title: '旧归档',
+        status: 'archived',
+        priority: 'high',
+        updated_at: '2026-05-12T07:00:00.000Z',
+      },
+    ];
+
+    const groups = groupResearchInboxEntries(entries, { now: '2026-05-12T10:00:00.000Z' });
+
+    expect(groups.actionable.map((entry) => entry.id)).toEqual(['plan']);
+    expect(groups.watch.map((entry) => entry.id)).toEqual(['watch']);
+    expect(groups.read_later).toEqual([]);
+    expect(groups.archived.map((entry) => entry.id)).toEqual(['archive']);
+    expect(filterResearchInboxEntries(entries, { bucket: 'actionable' }, { now: '2026-05-12T10:00:00.000Z' }).map((entry) => entry.id)).toEqual(['plan']);
+    expect(filterResearchInboxEntries(entries, { bucket: 'watch', priority: 'medium' }, { now: '2026-05-12T10:00:00.000Z' }).map((entry) => entry.id)).toEqual(['watch']);
   });
 });
