@@ -132,7 +132,7 @@ describe('TodayResearchDashboard send-to-paper', () => {
 
         // Wait for the entry itself to be in the DOM
         await waitFor(() => {
-            expect(screen.getByText('半导体跟踪')).toBeInTheDocument();
+            expect(screen.getAllByText('半导体跟踪').length).toBeGreaterThan(0);
         });
         expect(screen.queryByTestId('today-entry-send-to-paper')).not.toBeInTheDocument();
     });
@@ -145,7 +145,7 @@ describe('TodayResearchDashboard send-to-paper', () => {
         renderWithApp(<TodayResearchDashboard />);
 
         await waitFor(() => {
-            expect(screen.getByText('AAPL · MovingAverageCrossover')).toBeInTheDocument();
+            expect(screen.getAllByText('AAPL · MovingAverageCrossover').length).toBeGreaterThan(0);
         });
         expect(screen.queryByTestId('today-entry-send-to-paper')).not.toBeInTheDocument();
     });

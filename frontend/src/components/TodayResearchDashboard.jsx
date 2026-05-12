@@ -43,12 +43,16 @@ import {
   setPaperPrefill,
 } from '../utils/paperTradingPrefill';
 import {
+  RESEARCH_INBOX_BUCKET_LABELS,
+  RESEARCH_INBOX_BUCKET_ORDER,
   TODAY_RESEARCH_PRIORITY_LABELS,
   TODAY_RESEARCH_STATUS_LABELS,
   TODAY_RESEARCH_TYPE_LABELS,
   buildTodayResearchSnapshot,
   collectLocalResearchState,
+  deriveResearchInboxEntries,
   filterResearchEntries,
+  groupResearchInboxEntries,
   mergeResearchEntries,
   normalizeResearchEntry,
   summarizeResearchEntries,
@@ -89,6 +93,13 @@ const STATUS_COLOR = {
   open: 'orange',
   watching: 'processing',
   done: 'green',
+  archived: 'default',
+};
+
+const INBOX_BUCKET_COLOR = {
+  actionable: 'volcano',
+  watch: 'processing',
+  read_later: 'default',
   archived: 'default',
 };
 
@@ -185,6 +196,21 @@ const TodayResearchDashboard = () => {
   const nextActions = summary.next_actions || [];
   const symbolTimeline = summary.symbol_timeline || [];
   const entries = journal.entries || EMPTY_ENTRIES;
+  const inboxOptions = useMemo(() => ({
+    now: journal.updated_at || journal.generated_at,
+  }), [journal.generated_at, journal.updated_at]);
+  const inboxEntries = useMemo(
+    () => deriveResearchInboxEntries(entries, inboxOptions),
+    [entries, inboxOptions]
+  );
+  const inboxGroups = useMemo(
+    () => groupResearchInboxEntries(entries, inboxOptions),
+    [entries, inboxOptions]
+  );
+  const inboxPreviewEntries = useMemo(
+    () => inboxEntries.filter((entry) => entry.inbox_bucket !== 'archived').slice(0, 6),
+    [inboxEntries]
+  );
   const activeEntries = useMemo(
     () => entries.filter((entry) => entry.status === 'open' || entry.status === 'watching'),
     [entries]
@@ -436,6 +462,29 @@ const TodayResearchDashboard = () => {
     );
   };
 
+  const renderInboxEntry = (entry) => (
+    <button
+      type="button"
+      className="today-research-inbox-item"
+      key={entry.id}
+      onClick={() => handleOpenEntry(entry)}
+    >
+      <div className="today-research-inbox-item__top">
+        <Tag color={INBOX_BUCKET_COLOR[entry.inbox_bucket]}>
+          {RESEARCH_INBOX_BUCKET_LABELS[entry.inbox_bucket]}
+        </Tag>
+        <Tag color={PRIORITY_COLOR[entry.inbox_priority]}>
+          优先级 {TODAY_RESEARCH_PRIORITY_LABELS[entry.inbox_priority]}
+        </Tag>
+        {entry.inbox_tags.map((tag) => (
+          <Tag key={`${entry.id}:${tag}`}>{tag}</Tag>
+        ))}
+      </div>
+      <strong>{entry.title}</strong>
+      <span>{entry.inbox_reason} · {entry.source_label || entry.source} · {formatTime(entry.updated_at)}</span>
+    </button>
+  );
+
   const renderManualEntryCard = () => (
     <Card className="today-research-panel">
       <div className="today-research-panel__head">
@@ -535,6 +584,31 @@ const TodayResearchDashboard = () => {
     );
   };
 
+  const renderResearchInboxCard = () => (
+    <Card className="today-research-panel today-research-inbox-card" data-testid="today-research-inbox">
+      <div className="today-research-panel__head">
+        <div>
+          <div className="today-research-panel__title">研究收件箱</div>
+          <div className="today-research-panel__desc">把今天的线索先分成可处理、继续观察和稍后回看。</div>
+        </div>
+        <Tag color="blue">{inboxEntries.length} 条</Tag>
+      </div>
+      <div className="today-research-inbox-buckets">
+        {RESEARCH_INBOX_BUCKET_ORDER.map((bucket) => (
+          <div className="today-research-inbox-bucket" key={bucket}>
+            <span>{RESEARCH_INBOX_BUCKET_LABELS[bucket]}</span>
+            <strong>{inboxGroups[bucket]?.length || 0}</strong>
+          </div>
+        ))}
+      </div>
+      <div className="today-research-inbox-list">
+        {inboxPreviewEntries.length ? inboxPreviewEntries.map(renderInboxEntry) : (
+          <Empty description="收件箱暂无可展示线索" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        )}
+      </div>
+    </Card>
+  );
+
   if (loading) {
     return (
       <div className="today-research-loading">
@@ -600,6 +674,8 @@ const TodayResearchDashboard = () => {
         </div>
       ) : (
         <>
+          {renderResearchInboxCard()}
+
           <div className="today-research-grid">
             <Card className="today-research-panel today-research-panel--queue">
               <div className="today-research-panel__head">
