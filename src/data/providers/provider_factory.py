@@ -318,7 +318,7 @@ class DataProviderFactory:
                 symbol, start_date, end_date, interval
             )
             ok = not data.empty
-            attempts = [
+            provider_attempts = [
                 {
                     "id": provider,
                     "ok": ok,
@@ -334,7 +334,7 @@ class DataProviderFactory:
                 interval=interval,
                 status="success" if ok else "empty",
                 selected_source=provider if ok else None,
-                attempts=attempts,
+                attempts=provider_attempts,
             )
             return self._attach_source_health(data, report)
 
