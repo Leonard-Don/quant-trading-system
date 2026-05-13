@@ -14,6 +14,11 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 data_manager = get_data_manager()
 
+@router.get("/sources/health", summary="获取数据源健康状态")
+async def get_market_data_source_health():
+    """Return normalized provider/source health without probing upstream APIs."""
+    return {"success": True, "data": data_manager.get_source_health_report()}
+
 
 @router.post("/", summary="获取市场数据")
 @timing_decorator
@@ -55,11 +60,14 @@ async def get_market_data(request: MarketDataRequest):
                 status_code=404,
             )
 
+        source_health = getattr(data, "attrs", {}).get("source_health") or {}
+
         # 处理NaN值并转换为JSON格式
         data_dict = {
             "symbol": request.symbol,
             "data": clean_data_for_json(data.reset_index()),
             "count": len(data),
+            "source_health": source_health,
         }
 
         return {"success": True, "data": data_dict}

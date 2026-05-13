@@ -5,7 +5,7 @@ Data module for fetching and managing market data
 
 import pandas as pd
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 import logging
 import asyncio
@@ -90,6 +90,82 @@ class DataManager:
         if self.provider_factory:
             return self.provider_factory.check_all_providers()
         return {"yahoo": True}
+
+    def get_source_health_report(self) -> Dict[str, Any]:
+        """Return normalized source health/freshness metadata for APIs and dashboards."""
+        if self.provider_factory:
+            return self.provider_factory.get_source_health_report()
+        checked_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        return {
+            "checked_at": checked_at,
+            "default_source": "yahoo_legacy",
+            "fallback_enabled": False,
+            "configured_sources": ["yahoo_legacy"],
+            "active_provider_count": 1,
+            "configured_provider_count": 1,
+            "sources": [
+                {
+                    "id": "yahoo_legacy",
+                    "name": "yahoo_legacy",
+                    "label": "Yahoo Finance legacy",
+                    "ok": True,
+                    "status": "ready",
+                    "reason": None,
+                    "required": True,
+                    "fallback": False,
+                    "requires_api_key": False,
+                    "priority": None,
+                    "rate_limit": None,
+                    "capabilities": {"historical_data": True, "latest_quote": True},
+                    "checked_at": checked_at,
+                }
+            ],
+            "last_fetch": None,
+        }
+
+    def get_last_fetch_source_health(self) -> Dict[str, Any]:
+        """Return source/fallback attempts from the most recent historical fetch."""
+        if self.provider_factory:
+            return self.provider_factory.get_last_fetch_source_health()
+        return {}
+
+    def _attach_legacy_source_health(
+        self,
+        data: pd.DataFrame,
+        *,
+        symbol: str,
+        interval: str,
+        upstream_health: Optional[Dict[str, Any]] = None,
+        fallback_allowed: bool = True,
+    ) -> pd.DataFrame:
+        """Attach request-scoped metadata for the direct yfinance fallback path."""
+        if data is None:
+            return data
+        upstream_attempts = list((upstream_health or {}).get("attempts") or [])
+        fallback_used = bool(upstream_attempts and fallback_allowed)
+        is_success = not data.empty
+        attempts = list(upstream_attempts)
+        attempts.append(
+            {
+                "id": "yahoo_legacy",
+                "ok": is_success,
+                "status": "success" if is_success else "empty",
+                "reason": None if is_success else "empty_frame",
+                "row_count": len(data),
+                "fallback": fallback_used,
+                "checked_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            }
+        )
+        data.attrs["source_health"] = {
+            "checked_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+            "symbol": symbol,
+            "interval": interval,
+            "status": "success" if is_success else "empty",
+            "selected_source": "yahoo_legacy" if is_success else None,
+            "fallback_used": fallback_used,
+            "attempts": attempts,
+        }
+        return data
 
     def _resolve_period_date_range(
         self, period: Optional[str]
@@ -246,6 +322,7 @@ class DataManager:
                 else:
                     provider_start_date, provider_end_date = resolved_period_range
 
+            provider_source_health: Optional[Dict[str, Any]] = None
             if self.provider_factory and provider_path_available:
                 data = self.provider_factory.get_historical_data(
                     symbol=symbol,
@@ -253,11 +330,43 @@ class DataManager:
                     end_date=provider_end_date,
                     interval=interval,
                 )
+                provider_source_health = data.attrs.get("source_health")
                 data = self._normalize_historical_frame(data)
+                if provider_source_health:
+                    data.attrs["source_health"] = provider_source_health
                 if not data.empty:
                     source_name = "provider_factory"
 
             if data.empty:
+                fallback_allowed = self.provider_factory is None or getattr(
+                    self.provider_factory, "fallback_enabled", True
+                )
+                if not fallback_allowed:
+                    if not data.attrs.get("source_health"):
+                        checked_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                        data.attrs["source_health"] = {
+                            "checked_at": checked_at,
+                            "symbol": symbol,
+                            "interval": interval,
+                            "status": "unavailable",
+                            "selected_source": None,
+                            "fallback_used": False,
+                            "attempts": [
+                                {
+                                    "id": "provider_factory",
+                                    "ok": False,
+                                    "status": "unavailable",
+                                    "reason": "period_not_supported_by_provider_path"
+                                    if period and not provider_path_available
+                                    else "empty_frame",
+                                    "row_count": 0,
+                                    "fallback": False,
+                                    "checked_at": checked_at,
+                                }
+                            ],
+                        }
+                    return data
+
                 data = self._fetch_yahoo_historical_data(
                     symbol,
                     start_date=start_date,
@@ -265,9 +374,16 @@ class DataManager:
                     interval=interval,
                     period=period,
                 )
+                data = self._attach_legacy_source_health(
+                    data,
+                    symbol=symbol,
+                    interval=interval,
+                    upstream_health=provider_source_health,
+                    fallback_allowed=fallback_allowed,
+                )
 
             if data.empty:
-                return pd.DataFrame()
+                return data
 
             # Cache the data
             self.cache.set(cache_key, data)
