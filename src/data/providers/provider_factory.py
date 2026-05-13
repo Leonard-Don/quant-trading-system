@@ -4,10 +4,11 @@
 """
 
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List, Type
 import logging
 import os
+import re
 
 from .base_provider import BaseDataProvider, DataProviderError
 from .commodity_provider import CommodityProvider
@@ -60,6 +61,8 @@ class DataProviderFactory:
         self.config = config or self._get_default_config()
         self.providers: Dict[str, BaseDataProvider] = {}
         self.fallback_enabled = self.config.get("fallback_enabled", True)
+        self.provider_events: List[Dict[str, Any]] = []
+        self._last_fetch_source_health: Dict[str, Any] = {}
 
         # 初始化所有配置的提供器
         self._initialize_providers()
@@ -86,6 +89,159 @@ class DataProviderFactory:
         preferred = mapping.get(asset_class, [self.config.get("default", "yahoo"), "yahoo"])
         return [name for name in preferred if name in self.providers]
 
+    def _utc_checked_at(self) -> str:
+        """Return a stable UTC timestamp for source-health contracts."""
+        return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    def _public_reason(self, reason: Any) -> Optional[str]:
+        """Return a client-safe provider failure reason with credentials redacted."""
+        if reason is None:
+            return None
+        text = str(reason)
+        text = re.sub(
+            r"(?i)(api[_-]?key|apikey|access[_-]?token|token|secret|authorization|bearer)=([^&\s]+)",
+            r"\1=[REDACTED]",
+            text,
+        )
+        text = re.sub(r"(?i)(authorization|bearer)\s+[^\s,;]+", r"\1 [REDACTED]", text)
+        return text[:240] + "…" if len(text) > 240 else text
+
+    def _provider_capabilities(self, provider: BaseDataProvider) -> Dict[str, bool]:
+        """Describe declared provider capabilities without probing upstream APIs."""
+        return {
+            "historical_data": True,
+            "latest_quote": True,
+            "fundamental_data": callable(getattr(provider, "get_fundamental_data", None)),
+            "order_book": provider.supports_capability("order_book"),
+        }
+
+    def _provider_health_entry(
+        self,
+        name: str,
+        *,
+        status: str,
+        ok: bool,
+        reason: Optional[str] = None,
+        provider: Optional[BaseDataProvider] = None,
+    ) -> Dict[str, Any]:
+        provider_class = self.PROVIDER_CLASSES.get(name)
+        requires_api_key = bool(
+            getattr(provider or provider_class, "requires_api_key", False)
+        )
+        return {
+            "id": name,
+            "name": name,
+            "label": getattr(provider or provider_class, "name", name),
+            "ok": ok,
+            "status": status,
+            "reason": self._public_reason(reason),
+            "required": name == self.config.get("default", "yahoo"),
+            "fallback": (not ok) and self.fallback_enabled,
+            "requires_api_key": requires_api_key,
+            "priority": getattr(provider or provider_class, "priority", None),
+            "rate_limit": getattr(provider or provider_class, "rate_limit", None),
+            "capabilities": self._provider_capabilities(provider) if provider else {},
+            "checked_at": self._utc_checked_at(),
+        }
+
+    def _record_provider_event(
+        self, name: str, status: str, *, reason: Optional[str] = None
+    ) -> None:
+        self.provider_events.append({
+            "provider": name,
+            "status": status,
+            "reason": self._public_reason(reason),
+            "checked_at": self._utc_checked_at(),
+        })
+
+    def get_source_health_report(self) -> Dict[str, Any]:
+        """Return a normalized, non-invasive source health/freshness report.
+
+        The report is designed for dashboards and API responses: it explains which
+        sources are configured, which were initialized, whether fallback is enabled,
+        and the last fetch attempt chain. It deliberately avoids live API probing so
+        health panels do not create rate-limit or latency side effects.
+        """
+        configured = list(self.config.get("providers", []))
+        event_by_provider = {event["provider"]: event for event in self.provider_events}
+        sources: List[Dict[str, Any]] = []
+
+        for name in configured:
+            provider = self.providers.get(name)
+            if provider is not None:
+                sources.append(self._provider_health_entry(name, status="ready", ok=True, provider=provider))
+                continue
+            event = event_by_provider.get(name, {})
+            sources.append(
+                self._provider_health_entry(
+                    name,
+                    status=str(event.get("status") or "unavailable"),
+                    ok=False,
+                    reason=event.get("reason"),
+                )
+            )
+
+        for name, provider in self.providers.items():
+            if name not in configured:
+                sources.append(self._provider_health_entry(name, status="ready", ok=True, provider=provider))
+
+        return {
+            "checked_at": self._utc_checked_at(),
+            "default_source": self.config.get("default", "yahoo"),
+            "fallback_enabled": self.fallback_enabled,
+            "configured_sources": configured,
+            "active_provider_count": len(self.providers),
+            "configured_provider_count": len(configured),
+            "sources": sources,
+            "last_fetch": self._last_fetch_source_health or None,
+        }
+
+    def get_last_fetch_source_health(self) -> Dict[str, Any]:
+        """Return the most recent fetch attempt chain, if any."""
+        return self._last_fetch_source_health.copy() if self._last_fetch_source_health else {}
+
+    def _record_fetch_health(
+        self,
+        *,
+        symbol: str,
+        interval: str,
+        status: str,
+        attempts: List[Dict[str, Any]],
+        selected_source: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        selected_index = next(
+            (
+                index
+                for index, attempt in enumerate(attempts)
+                if attempt.get("id") == selected_source and attempt.get("ok")
+            ),
+            None,
+        )
+        fallback_used = bool(
+            self.fallback_enabled
+            and selected_index is not None
+            and any(not attempt.get("ok") for attempt in attempts[:selected_index])
+        )
+        report = {
+            "checked_at": self._utc_checked_at(),
+            "symbol": symbol,
+            "interval": interval,
+            "status": status,
+            "selected_source": selected_source,
+            "fallback_used": fallback_used,
+            "attempts": attempts,
+        }
+        self._last_fetch_source_health = report
+        return report.copy()
+
+    def _attach_source_health(
+        self, data: pd.DataFrame, report: Dict[str, Any]
+    ) -> pd.DataFrame:
+        """Attach request-scoped source health to a returned DataFrame."""
+        if isinstance(data, pd.DataFrame):
+            data.attrs["source_health"] = report.copy()
+        return data
+
     def _initialize_providers(self):
         """初始化所有配置的数据提供器"""
         enabled_providers = self.config.get("providers", ["yahoo"])
@@ -99,15 +255,19 @@ class DataProviderFactory:
 
                     # 跳过需要 API 密钥但未提供的提供器
                     if provider_class.requires_api_key and not api_key:
+                        self._record_provider_event(name, "skipped", reason="missing_api_key")
                         logger.info(f"Skipping {name}: API key not provided")
                         continue
 
                     self.providers[name] = provider_class(api_key=api_key)
+                    self._record_provider_event(name, "ready")
                     logger.info(f"Initialized provider: {name}")
 
                 except Exception as e:
+                    self._record_provider_event(name, "error", reason=str(e))
                     logger.error(f"Failed to initialize provider {name}: {e}")
             else:
+                self._record_provider_event(name, "unknown", reason="unknown_provider")
                 logger.warning(f"Unknown provider: {name}")
 
     def get_provider(self, name: Optional[str] = None) -> BaseDataProvider:
@@ -154,29 +314,102 @@ class DataProviderFactory:
             OHLCV 数据 DataFrame
         """
         if provider:
-            # 使用指定的提供器
-            return self.get_provider(provider).get_historical_data(
+            data = self.get_provider(provider).get_historical_data(
                 symbol, start_date, end_date, interval
             )
+            ok = not data.empty
+            attempts = [
+                {
+                    "id": provider,
+                    "ok": ok,
+                    "status": "success" if ok else "empty",
+                    "reason": None if ok else "empty_frame",
+                    "row_count": len(data) if hasattr(data, "__len__") else None,
+                    "fallback": False,
+                    "checked_at": self._utc_checked_at(),
+                }
+            ]
+            report = self._record_fetch_health(
+                symbol=symbol,
+                interval=interval,
+                status="success" if ok else "empty",
+                selected_source=provider if ok else None,
+                attempts=attempts,
+            )
+            return self._attach_source_health(data, report)
 
-        # 使用故障转移机制
         errors = []
+        attempts: List[Dict[str, Any]] = []
         for p in self.get_sorted_providers():
             try:
                 logger.debug(f"Trying provider: {p.name}")
                 data = p.get_historical_data(symbol, start_date, end_date, interval)
+                row_count = len(data) if hasattr(data, "__len__") else None
                 if not data.empty:
-                    return data
-            except Exception as e:
-                errors.append(f"{p.name}: {e}")
+                    attempts.append({
+                        "id": p.name,
+                        "ok": True,
+                        "status": "success",
+                        "reason": None,
+                        "row_count": row_count,
+                        "fallback": False,
+                        "checked_at": self._utc_checked_at(),
+                    })
+                    report = self._record_fetch_health(
+                        symbol=symbol,
+                        interval=interval,
+                        status="success",
+                        selected_source=p.name,
+                        attempts=attempts,
+                    )
+                    return self._attach_source_health(data, report)
+                attempts.append({
+                    "id": p.name,
+                    "ok": False,
+                    "status": "empty",
+                    "reason": "empty_frame",
+                    "row_count": row_count,
+                    "fallback": self.fallback_enabled,
+                    "checked_at": self._utc_checked_at(),
+                })
                 if not self.fallback_enabled:
+                    report = self._record_fetch_health(
+                        symbol=symbol,
+                        interval=interval,
+                        status="empty",
+                        attempts=attempts,
+                    )
+                    return self._attach_source_health(pd.DataFrame(), report)
+            except Exception as e:
+                errors.append(f"{p.name}: {self._public_reason(e)}")
+                attempts.append({
+                    "id": p.name,
+                    "ok": False,
+                    "status": "error",
+                    "reason": self._public_reason(e),
+                    "row_count": None,
+                    "fallback": self.fallback_enabled,
+                    "checked_at": self._utc_checked_at(),
+                })
+                if not self.fallback_enabled:
+                    self._record_fetch_health(
+                        symbol=symbol,
+                        interval=interval,
+                        status="error",
+                        attempts=attempts,
+                    )
                     raise
                 logger.warning(f"Provider {p.name} failed: {e}")
                 continue
 
-        # 所有提供器都失败
         logger.error(f"All providers failed for {symbol}: {errors}")
-        return pd.DataFrame()
+        report = self._record_fetch_health(
+            symbol=symbol,
+            interval=interval,
+            status="failed",
+            attempts=attempts,
+        )
+        return self._attach_source_health(pd.DataFrame(), report)
 
     def get_cross_market_historical_data(
         self,
