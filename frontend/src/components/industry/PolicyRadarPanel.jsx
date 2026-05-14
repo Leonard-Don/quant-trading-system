@@ -86,7 +86,15 @@ const renderSourceHealth = (sourceHealth = {}) => {
     );
 };
 
-const renderRecord = (record) => {
+const buildRecordKey = (record, index) => [
+    record?.record_id,
+    record?.source,
+    record?.timestamp,
+    record?.raw_value?.title,
+    index,
+].filter((part) => part !== undefined && part !== null && part !== '').join(':');
+
+const renderRecord = (record, index) => {
     const raw = record?.raw_value || {};
     const meta = record?.metadata || {};
     const link = meta.detail_url || meta.link || null;
@@ -94,7 +102,7 @@ const renderRecord = (record) => {
     const score = record?.normalized_score;
     return (
         <li
-            key={record?.record_id || `${record?.source}-${record?.timestamp}`}
+            key={buildRecordKey(record, index)}
             className="policy-radar-record"
             style={{ paddingBottom: 8, borderBottom: '1px solid var(--border-color)' }}
         >
@@ -112,8 +120,8 @@ const renderRecord = (record) => {
             <Space size={[4, 4]} wrap style={{ marginTop: 6 }}>
                 <Tag>{record?.source || 'policy_radar'}</Tag>
                 <Tag>得分 {formatScore(score)}</Tag>
-                {tags.slice(0, 4).map((tag) => (
-                    <Tag key={tag}>{tag}</Tag>
+                {tags.slice(0, 4).map((tag, tagIndex) => (
+                    <Tag key={`${tag}-${tagIndex}`}>{tag}</Tag>
                 ))}
                 {link ? (
                     <Link href={link} target="_blank" rel="noreferrer noopener">
