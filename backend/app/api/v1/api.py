@@ -4,6 +4,7 @@ from backend.app.api.v1.endpoints import (
     analysis,
     backtest,
     cross_market,
+    etf_rotation,
     events,
     industry,
     infrastructure,
@@ -50,4 +51,7 @@ api_router.include_router(
 )
 api_router.include_router(
     paper_trading.router, prefix="/paper", tags=["Paper Trading"]
+)
+api_router.include_router(
+    etf_rotation.router, prefix="/etf-rotation", tags=["ETF Rotation"]
 )
