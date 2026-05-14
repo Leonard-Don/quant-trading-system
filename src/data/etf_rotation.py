@@ -67,6 +67,8 @@ class EtfQuote:
     time: Optional[str] = None
     estimated_nav: Optional[float] = None
     prev_nav: Optional[float] = None
+    source: Optional[str] = None
+    timestamp: Optional[str] = None
 
     @property
     def change_pct(self) -> Optional[float]:
