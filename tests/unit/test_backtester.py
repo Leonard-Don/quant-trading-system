@@ -325,3 +325,59 @@ class TestBacktester:
         assert diagnostics["allow_fractional_shares"] is True
         assert diagnostics["position_sizer"] == "FixedFractionSizer"
         assert diagnostics["execution_lag"] == 1
+
+    def test_prepare_market_data_missing_close_retains_canonical_columns(self):
+        """缺失close列时应返回带OHLCV标头的空DataFrame，避免下游因无标头而无法判断schema。"""
+        dates = pd.date_range("2024-01-01", periods=3, freq="D")
+        data = pd.DataFrame(
+            {
+                "open": [100, 101, 102],
+                "high": [101, 102, 103],
+                "low": [99, 100, 101],
+                "volume": [1000, 2000, 3000],
+            },
+            index=dates,
+        )
+
+        prepared = Backtester(initial_capital=1000)._prepare_market_data(data)
+
+        assert prepared.empty
+        canonical = {"open", "high", "low", "close", "volume"}
+        assert canonical.issubset(set(prepared.columns)), (
+            f"Expected canonical OHLCV columns in empty result; got {list(prepared.columns)}"
+        )
+
+    def test_prepare_market_data_preserves_zero_volume_bars(self):
+        """显式零成交量的bar应被保留——仅close非法时才丢弃。"""
+        dates = pd.date_range("2024-01-01", periods=3, freq="D")
+        data = pd.DataFrame(
+            {
+                "open": [100, 101, 102],
+                "high": [101, 102, 103],
+                "low": [99, 100, 101],
+                "close": [100, 101, 102],
+                "volume": [1000, 0, 3000],
+            },
+            index=dates,
+        )
+
+        prepared = Backtester(initial_capital=1000)._prepare_market_data(data)
+
+        assert len(prepared) == 3
+        assert prepared.loc[dates[1], "volume"] == 0
+
+    def test_prepare_market_data_drops_non_positive_close_bars(self):
+        """close<=0 的bar应被丢弃，避免后续除零或负价格污染组合估值。"""
+        dates = pd.date_range("2024-01-01", periods=4, freq="D")
+        data = pd.DataFrame(
+            {
+                "close": [100.0, 0.0, -5.0, 110.0],
+                "volume": [1000, 2000, 3000, 4000],
+            },
+            index=dates,
+        )
+
+        prepared = Backtester(initial_capital=1000)._prepare_market_data(data)
+
+        assert len(prepared) == 2
+        assert list(prepared["close"]) == [100.0, 110.0]
