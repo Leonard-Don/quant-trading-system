@@ -8,6 +8,7 @@ LOG_DIR="$PROJECT_ROOT/logs"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 BACKEND_PID_FILE="$LOG_DIR/backend.pid"
 FRONTEND_PID_FILE="$LOG_DIR/frontend.pid"
+TMUX_SESSION="${QUANT_SYSTEM_TMUX_SESSION:-quant-trading-system}"
 WITH_WORKER=0
 
 usage() {
@@ -105,6 +106,29 @@ stop_project_listeners_on_port() {
     done <<< "$pids"
 }
 
+stop_tmux_session() {
+    if ! command -v tmux >/dev/null 2>&1; then
+        return 0
+    fi
+    if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+        return 0
+    fi
+
+    echo "🧵 正在停止后台会话: $TMUX_SESSION"
+    tmux send-keys -t "$TMUX_SESSION" C-c >/dev/null 2>&1 || true
+    for _ in $(seq 1 10); do
+        if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+            echo "✅ 后台会话已停止: $TMUX_SESSION"
+            return 0
+        fi
+        sleep 1
+    done
+
+    echo "⚠️  后台会话未及时退出，执行强制停止..."
+    tmux kill-session -t "$TMUX_SESSION" >/dev/null 2>&1 || true
+    echo "✅ 后台会话已强制停止: $TMUX_SESSION"
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --with-worker)
@@ -126,6 +150,7 @@ done
 echo "🛑 正在停止量化交易系统..."
 
 mkdir -p "$LOG_DIR"
+stop_tmux_session
 stop_from_pid_file "$BACKEND_PID_FILE" "后端服务"
 stop_from_pid_file "$FRONTEND_PID_FILE" "前端服务"
 stop_project_listeners_on_port 8000 "后端服务"
