@@ -8,6 +8,7 @@ LOG_DIR="$PROJECT_ROOT/logs"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 BACKEND_PID_FILE="$LOG_DIR/backend.pid"
 FRONTEND_PID_FILE="$LOG_DIR/frontend.pid"
+TMUX_SESSION="${QUANT_SYSTEM_TMUX_SESSION:-quant-trading-system}"
 
 BACKEND_HOST="${BACKEND_HOST:-localhost}"
 BACKEND_PORT="${BACKEND_PORT:-8000}"
@@ -18,6 +19,7 @@ WORKER_PID_FILE="$LOG_DIR/celery-worker.pid"
 INSTALL_DEPS=0
 FORCE_PORT_CLEANUP=0
 WITH_WORKER=0
+DAEMON_MODE=0
 
 BACKEND_PID=""
 FRONTEND_PID=""
@@ -30,12 +32,13 @@ BACKEND_HEALTH_FAILURE_THRESHOLD=3
 
 usage() {
     cat <<'EOF'
-用法: ./scripts/start_system.sh [--install] [--force-port-cleanup] [--with-worker] [--help]
+用法: ./scripts/start_system.sh [--install] [--force-port-cleanup] [--with-worker] [--daemon] [--help]
 
 选项:
   --install             启动前安装/校验依赖（Python requirements + 前端依赖）
   --force-port-cleanup  如果 3000/8000 被占用，强制结束占用进程
   --with-worker         启动本地 Celery worker（需要已配置 broker）
+  --daemon              使用 tmux 在后台托管前后端，适合本地日常打开后继续使用
   --help                显示帮助
 EOF
 }
@@ -143,6 +146,76 @@ wait_for_url() {
 
     log_error "❌ $label 在 ${timeout_seconds}s 内未就绪: $url"
     return 1
+}
+
+capture_tmux_logs() {
+    if command -v tmux >/dev/null 2>&1 && tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+        tmux capture-pane -pt "$TMUX_SESSION:0" -S -120 || true
+    fi
+}
+
+start_daemon() {
+    require_command tmux "请先安装 tmux，或不加 --daemon 使用前台模式"
+
+    mkdir -p "$LOG_DIR"
+
+    if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+        if curl -fsS "http://${BACKEND_HOST}:${BACKEND_PORT}/health" >/dev/null 2>&1 \
+            && curl -fsS "http://${FRONTEND_HOST}:${FRONTEND_PORT}" >/dev/null 2>&1; then
+            log_info "✅ 系统已经在后台运行 (tmux: $TMUX_SESSION)"
+            log_info "   - 前端地址: http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+            log_info "   - 后端地址: http://${BACKEND_HOST}:${BACKEND_PORT}"
+            log_info "   - 停止系统: ./scripts/stop_system.sh"
+            exit 0
+        fi
+
+        if [[ "$FORCE_PORT_CLEANUP" -eq 1 ]]; then
+            log_info "⚠️  发现未就绪的后台会话 $TMUX_SESSION，正在清理后重启..."
+            tmux kill-session -t "$TMUX_SESSION" >/dev/null 2>&1 || true
+            sleep 1
+        else
+            log_error "❌ 后台会话 $TMUX_SESSION 已存在但服务未就绪。请先运行 ./scripts/stop_system.sh，或加 --force-port-cleanup 重启。"
+            exit 1
+        fi
+    fi
+
+    local foreground_args=()
+    if [[ "$INSTALL_DEPS" -eq 1 ]]; then
+        foreground_args+=(--install)
+    fi
+    if [[ "$FORCE_PORT_CLEANUP" -eq 1 ]]; then
+        foreground_args+=(--force-port-cleanup)
+    fi
+    if [[ "$WITH_WORKER" -eq 1 ]]; then
+        foreground_args+=(--with-worker)
+    fi
+
+    local start_command
+    printf -v start_command '%q ' "$PROJECT_ROOT/scripts/start_system.sh" "${foreground_args[@]}"
+    start_command="${start_command% }"
+
+    log_info "🚀 正在后台启动量化交易系统..."
+    log_info "   - tmux 会话: $TMUX_SESSION"
+    tmux new-session -d -s "$TMUX_SESSION" -c "$PROJECT_ROOT" "$start_command"
+
+    log_info "⏳ 等待后端服务启动..."
+    if ! wait_for_url "http://${BACKEND_HOST}:${BACKEND_PORT}/health" "后端服务" 60; then
+        capture_tmux_logs
+        exit 1
+    fi
+
+    log_info "⏳ 等待前端服务启动..."
+    if ! wait_for_url "http://${FRONTEND_HOST}:${FRONTEND_PORT}" "前端服务" 120; then
+        capture_tmux_logs
+        exit 1
+    fi
+
+    log_info "✅ 系统已在后台启动"
+    log_info "   - 前端地址: http://${FRONTEND_HOST}:${FRONTEND_PORT}"
+    log_info "   - 后端地址: http://${BACKEND_HOST}:${BACKEND_PORT}"
+    log_info "   - API文档:  http://${BACKEND_HOST}:${BACKEND_PORT}/docs"
+    log_info "   - 日志窗口: tmux attach -t $TMUX_SESSION"
+    log_info "   - 停止系统: ./scripts/stop_system.sh"
 }
 
 ensure_port_available() {
@@ -275,6 +348,9 @@ while [[ $# -gt 0 ]]; do
         --with-worker)
             WITH_WORKER=1
             ;;
+        --daemon)
+            DAEMON_MODE=1
+            ;;
         --help|-h)
             usage
             exit 0
@@ -290,6 +366,11 @@ done
 
 cd "$PROJECT_ROOT"
 mkdir -p "$LOG_DIR"
+
+if [[ "$DAEMON_MODE" -eq 1 ]]; then
+    start_daemon
+    exit 0
+fi
 
 trap cleanup EXIT INT TERM
 

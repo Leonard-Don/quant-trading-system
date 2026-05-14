@@ -276,6 +276,9 @@ cp .env.example .env
 
 # 一键启动前后端
 ./scripts/start_system.sh
+
+# 后台托管启动（本地日常使用）
+./scripts/start_system.sh --daemon --force-port-cleanup
 ```
 
 ### 分步启动
