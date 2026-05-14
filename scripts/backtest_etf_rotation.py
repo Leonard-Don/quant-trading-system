@@ -25,7 +25,14 @@ def load_price_matrix(prices_csv: str | Path) -> pd.DataFrame:
 
     frame = pd.read_csv(prices_csv, index_col=0)
     frame.index = pd.to_datetime(frame.index)
-    return frame.apply(pd.to_numeric, errors="coerce").ffill().dropna(how="all")
+    # Sort by date before ffill so missing prices inherit from earlier dates,
+    # never from later ones — protects against descending-date CSV exports.
+    return (
+        frame.apply(pd.to_numeric, errors="coerce")
+        .sort_index()
+        .ffill()
+        .dropna(how="all")
+    )
 
 
 def run_backtest(

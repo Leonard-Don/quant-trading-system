@@ -292,6 +292,49 @@ def test_backtest_main_returns_zero_on_valid_csv(
     json.loads(captured.out)
 
 
+def test_load_price_matrix_sorts_chronologically_before_ffill(tmp_path) -> None:
+    """A descending-date CSV must come back chronologically sorted.
+
+    `load_price_matrix` runs `ffill` on raw row order. If the CSV is in
+    descending date order, ffill propagates a later price backward into an
+    earlier NaN row — silent data leakage that downstream sorts cannot undo.
+    Lock in the invariant: sort by date first, then ffill.
+    """
+    dates_ascending = pd.bdate_range("2025-01-01", periods=8)
+    # Assign a strictly increasing price by chronological date so we can
+    # detect both the wrong ffill direction and the wrong row order.
+    chronological_prices = {
+        date: 5.00 + i * 0.10 for i, date in enumerate(dates_ascending)
+    }
+    # Punch a NaN at the second chronological row (2025-01-02) — when the
+    # CSV is in descending order, that row sits between two later-date rows
+    # whose prices are higher.
+    chronological_prices[dates_ascending[1]] = float("nan")
+
+    descending_index = list(dates_ascending[::-1])
+    frame = pd.DataFrame(
+        {"510300": [chronological_prices[d] for d in descending_index]},
+        index=descending_index,
+    )
+    csv_path = tmp_path / "descending_prices.csv"
+    frame.to_csv(csv_path)
+
+    loaded = backtest_etf_rotation.load_price_matrix(str(csv_path))
+
+    assert loaded.index.is_monotonic_increasing, (
+        "load_price_matrix must return chronologically sorted prices; "
+        "got index order " f"{list(loaded.index)}"
+    )
+    # The NaN at 2025-01-02 should be ffilled from 2025-01-01 (5.00), not
+    # from a later date. If ffill ran before sort it would carry the next
+    # row down — which in descending order is 2025-01-03 (5.20).
+    filled_value = float(loaded.loc[dates_ascending[1], "510300"])
+    assert filled_value == pytest.approx(5.00), (
+        "ffill must run after chronological sort so missing prices inherit "
+        f"from earlier dates, not later ones; got {filled_value}"
+    )
+
+
 def test_main_cli_help_uses_chinese_user_facing_copy(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         daily_etf_signal.main(["--help"])
