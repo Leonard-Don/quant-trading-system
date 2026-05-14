@@ -132,6 +132,7 @@ src/data/alternative/**/__pycache__/
 
 # Output / Reports / Metrics (runtime generated)
 output/
+outputs/
 tmp/
 reports/
 metrics/
