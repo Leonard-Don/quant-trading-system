@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 
@@ -38,6 +39,7 @@ from src.data.etf_rotation import (  # noqa: E402
     build_trade_suggestions,
     calculate_current_weights,
 )
+from src.data.source_health import build_source_registry  # noqa: E402
 from src.risk.etf_portfolio_rules import (  # noqa: E402
     EtfRiskRuleConfig,
     apply_etf_portfolio_risk_rules,
@@ -211,8 +213,12 @@ def generate_plan(
 ) -> Dict[str, Any]:
     """Produce a full manual trade plan for the supplied holdings."""
 
-    holdings = list(holdings) if holdings is not None else load_default_holdings()
-    quote_map = dict(quotes) if quotes is not None else load_default_quotes(holdings)
+    holdings_supplied = holdings is not None
+    quotes_supplied = quotes is not None
+    price_matrix_supplied = price_matrix is not None
+
+    holdings = list(holdings) if holdings_supplied else load_default_holdings()
+    quote_map = dict(quotes) if quotes_supplied else load_default_quotes(holdings)
 
     total_asset = sum(h.market_value for h in holdings)
     current_weights = calculate_current_weights(holdings, total_asset)
@@ -256,6 +262,12 @@ def generate_plan(
         threshold_weight=threshold_weight,
     )
 
+    source_health = _build_source_health_payload(
+        holdings_supplied=holdings_supplied,
+        quotes_supplied=quotes_supplied,
+        price_matrix_supplied=price_matrix_supplied,
+    )
+
     return {
         "manual_only": True,
         "auto_ordering": False,
@@ -278,7 +290,64 @@ def generate_plan(
             for s in suggestions
         ],
         "risk_reasons": list(decision.reasons),
+        "source_health": source_health,
     }
+
+
+def _build_source_health_payload(
+    *,
+    holdings_supplied: bool,
+    quotes_supplied: bool,
+    price_matrix_supplied: bool,
+) -> List[Dict[str, Any]]:
+    """Describe where the ETF rotation inputs came from.
+
+    The plan's three inputs (holdings, quotes, price matrix) can each be
+    supplied externally or filled by the deterministic screenshot seed. The
+    registry exposes that provenance so dashboards / API consumers can show
+    whether they're looking at live data or the fallback synthetic frame.
+    """
+    now = datetime.now(timezone.utc)
+    now_iso = now.replace(microsecond=0).isoformat()
+    specs = [
+        {
+            "source_id": "etf_holdings",
+            "display_name": "ETF 持仓快照",
+            "status": "ready" if holdings_supplied else "synthetic",
+            "ok": True,
+            "as_of": now_iso if holdings_supplied else None,
+            "reason": None if holdings_supplied else "screenshot_seed",
+            "capabilities": ("holdings",),
+        },
+        {
+            "source_id": "etf_quotes",
+            "display_name": "ETF 实时行情",
+            "status": "ready" if quotes_supplied else "synthetic",
+            "ok": True,
+            "as_of": now_iso if quotes_supplied else None,
+            "reason": None if quotes_supplied else "derived_from_holdings",
+            "capabilities": ("latest_quote",),
+            "fallback": not quotes_supplied,
+        },
+        {
+            "source_id": "price_matrix",
+            "display_name": "ETF 价格历史",
+            "status": "ready" if price_matrix_supplied else "synthetic",
+            "ok": True,
+            "as_of": now_iso if price_matrix_supplied else None,
+            "reason": None if price_matrix_supplied else "deterministic_random_walk",
+            "capabilities": ("historical_data",),
+            "fallback": not price_matrix_supplied,
+        },
+    ]
+    return [
+        entry.to_dict()
+        for entry in build_source_registry(
+            specs,
+            default_required="etf_holdings",
+            now=now,
+        )
+    ]
 
 
 # ---------------------------------------------------------------------------
