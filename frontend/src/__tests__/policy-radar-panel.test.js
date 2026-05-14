@@ -125,4 +125,52 @@ describe('PolicyRadarPanel', () => {
 
         await waitFor(() => expect(mockGetSignal).toHaveBeenCalledTimes(2));
     });
+
+    it('renders without duplicate-key warnings when records share ids or tags repeat', async () => {
+        // Upstream policy dedup can occasionally surface two records with the
+        // same record_id (same content hashed from multiple sources) and a
+        // single record can also carry duplicate tag strings. The list keys
+        // must stay unique deterministically so React doesn't fire the
+        // "Encountered two children with the same key" warning that the E2E
+        // suite treats as a failure.
+        const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        mockGetSignal.mockResolvedValue({ success: true, data: SIGNAL_DATA });
+        mockGetRecords.mockResolvedValue({
+            success: true,
+            data: {
+                ...RECORDS_DATA,
+                records: [
+                    {
+                        record_id: 'f156d9afd43c',
+                        timestamp: '2026-05-02T09:30:00',
+                        source: 'policy_radar:ndrc',
+                        raw_value: { title: '通知一', summary: '摘要一' },
+                        normalized_score: 0.42,
+                        tags: ['新能源', '新能源', '储能'],
+                    },
+                    {
+                        record_id: 'f156d9afd43c',
+                        timestamp: '2026-05-02T09:30:00',
+                        source: 'policy_radar:miit',
+                        raw_value: { title: '通知二', summary: '摘要二' },
+                        normalized_score: 0.31,
+                        tags: ['半导体'],
+                    },
+                ],
+            },
+        });
+
+        render(<PolicyRadarPanel />);
+
+        await waitFor(() => {
+            expect(screen.getByText('通知一')).toBeInTheDocument();
+            expect(screen.getByText('通知二')).toBeInTheDocument();
+        });
+
+        const duplicateKeyWarnings = errorSpy.mock.calls.filter((call) =>
+            call.some((arg) => typeof arg === 'string' && /two children with the same key/i.test(arg)),
+        );
+        expect(duplicateKeyWarnings).toEqual([]);
+        errorSpy.mockRestore();
+    });
 });
