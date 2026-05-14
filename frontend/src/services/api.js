@@ -716,6 +716,14 @@ export const getPortfolio = async () => {
   return response.data;
 };
 
+export const getEtfRotationDailySignal = async (params = {}) => {
+  const response = await api.get('/etf-rotation/daily-signal', {
+    params,
+    ...withTimeoutProfile('standard'),
+  });
+  return response.data;
+};
+
 export const getRealtimeQuote = async (symbol) => {
   const response = await api.get(`/realtime/quote/${encodeURIComponent(symbol)}`);
   return response.data;
