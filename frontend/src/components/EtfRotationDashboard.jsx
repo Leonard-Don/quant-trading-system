@@ -33,20 +33,33 @@ const formatCurrency = (value) => {
   return `¥${number.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}`;
 };
 
+const formatPrice = (value) => {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '—';
+  return number.toLocaleString('zh-CN', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+};
+
 const buildWeightRows = (plan) => {
   const current = plan?.current_weights || {};
   const target = plan?.target_weights || {};
   const adjusted = plan?.adjusted_weights || {};
-  const codes = Array.from(new Set([...Object.keys(current), ...Object.keys(target), ...Object.keys(adjusted)]));
+  const quotes = plan?.quote_snapshot || {};
+  const codes = Array.from(new Set([...Object.keys(current), ...Object.keys(target), ...Object.keys(adjusted), ...Object.keys(quotes)]));
   const orderedCodes = [...codes.filter((code) => code !== 'CASH').sort(), ...codes.filter((code) => code === 'CASH')];
-  return orderedCodes.map((code) => ({
-    key: code,
-    code,
-    name: ETF_NAMES[code] || code,
-    current: current[code],
-    target: target[code],
-    adjusted: adjusted[code],
-  }));
+  return orderedCodes.map((code) => {
+    const quote = quotes[code] || {};
+    return {
+      key: code,
+      code,
+      name: ETF_NAMES[code] || quote.name || code,
+      current: current[code],
+      target: target[code],
+      adjusted: adjusted[code],
+      currentPrice: quote.current_price,
+      quoteSource: quote.source,
+      quoteTimestamp: quote.timestamp || quote.date,
+    };
+  });
 };
 
 const EtfRotationDashboard = () => {
@@ -61,7 +74,7 @@ const EtfRotationDashboard = () => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    getEtfRotationDailySignal()
+    getEtfRotationDailySignal({ quote_source: 'live', use_cache: refreshKey === 0 })
       .then((response) => {
         if (cancelled) return;
         const data = response?.data || response || null;
@@ -80,10 +93,18 @@ const EtfRotationDashboard = () => {
   const weightRows = useMemo(() => buildWeightRows(plan), [plan]);
   const suggestions = Array.isArray(plan?.suggestions) ? plan.suggestions : [];
   const riskReasons = Array.isArray(plan?.risk_reasons) ? plan.risk_reasons : [];
+  const liveStatus = plan?.live_quote_status || {};
+  const quoteModeLabel = plan?.quote_source === 'live'
+    ? `实时行情 ${liveStatus.resolved ?? 0}/${liveStatus.requested ?? 0}`
+    : plan?.quote_source === 'fallback_synthetic'
+      ? '实时行情不可用 / 已回退截图种子'
+      : '截图种子行情';
 
   const weightColumns = [
     { title: '代码', dataIndex: 'code', key: 'code', width: 110 },
     { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: '实时价', dataIndex: 'currentPrice', key: 'currentPrice', render: formatPrice },
+    { title: '行情源', dataIndex: 'quoteSource', key: 'quoteSource', render: (value) => value ? <Tag color="blue">{value}</Tag> : <Text type="secondary">—</Text> },
     { title: '当前权重', dataIndex: 'current', key: 'current', render: formatPercent },
     { title: '策略目标', dataIndex: 'target', key: 'target', render: formatPercent },
     { title: '风控后目标', dataIndex: 'adjusted', key: 'adjusted', render: formatPercent },
@@ -122,7 +143,7 @@ const EtfRotationDashboard = () => {
               type="info"
               showIcon
               message={plan?.banner || 'Manual trade plan — review and execute manually. No broker API is called and no auto-ordering occurs.'}
-              description="本页只展示目标权重和手动买卖建议，不连接券商、不自动下单。"
+              description={`本页使用实时行情刷新当前持仓市值和权重；只展示目标权重和手动买卖建议，不连接券商、不自动下单。${liveStatus.error ? ` 行情错误：${liveStatus.error}` : ''}`}
               data-testid="etf-manual-only-banner"
             />
           </Space>
@@ -144,7 +165,7 @@ const EtfRotationDashboard = () => {
               </Col>
               <Col xs={24} md={8}>
                 <Card>
-                  <Statistic title="建议条数" value={suggestions.length} suffix="条" />
+                  <Statistic title="行情模式" value={quoteModeLabel} />
                 </Card>
               </Col>
               <Col xs={24} md={8}>

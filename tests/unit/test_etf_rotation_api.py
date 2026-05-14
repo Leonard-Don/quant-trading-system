@@ -13,7 +13,6 @@ from fastapi.testclient import TestClient
 
 from backend.main import app
 
-
 PLAN_KEYS = {
     "manual_only",
     "auto_ordering",
@@ -29,9 +28,14 @@ PLAN_KEYS = {
 DEFAULT_SEED_CODES = {"159985", "512400", "510300", "518680", "513130"}
 
 
+def _synthetic_path(query: str = "") -> str:
+    suffix = f"&{query}" if query else ""
+    return f"/etf-rotation/daily-signal?quote_source=synthetic{suffix}"
+
+
 def test_daily_signal_returns_full_plan_envelope() -> None:
     client = TestClient(app)
-    response = client.get("/etf-rotation/daily-signal")
+    response = client.get(_synthetic_path())
 
     assert response.status_code == 200
     payload = response.json()
@@ -43,7 +47,7 @@ def test_daily_signal_returns_full_plan_envelope() -> None:
 
 def test_daily_signal_is_manual_only_and_no_auto_ordering() -> None:
     client = TestClient(app)
-    response = client.get("/etf-rotation/daily-signal")
+    response = client.get(_synthetic_path())
 
     assert response.status_code == 200
     data = response.json()["data"]
@@ -56,7 +60,7 @@ def test_daily_signal_is_manual_only_and_no_auto_ordering() -> None:
 
 def test_daily_signal_covers_seed_codes() -> None:
     client = TestClient(app)
-    response = client.get("/etf-rotation/daily-signal")
+    response = client.get(_synthetic_path())
 
     data = response.json()["data"]
     assert set(data["current_weights"]) >= DEFAULT_SEED_CODES
@@ -66,7 +70,7 @@ def test_daily_signal_covers_seed_codes() -> None:
 
 def test_daily_signal_suggestions_have_no_broker_or_order_fields() -> None:
     client = TestClient(app)
-    response = client.get("/etf-rotation/daily-signal")
+    response = client.get(_synthetic_path())
 
     data = response.json()["data"]
     forbidden = {"broker", "order_id", "venue", "submitted", "account"}
@@ -78,8 +82,8 @@ def test_daily_signal_suggestions_have_no_broker_or_order_fields() -> None:
 
 def test_daily_signal_is_deterministic_across_calls() -> None:
     client = TestClient(app)
-    first = client.get("/etf-rotation/daily-signal").json()["data"]
-    second = client.get("/etf-rotation/daily-signal").json()["data"]
+    first = client.get(_synthetic_path()).json()["data"]
+    second = client.get(_synthetic_path()).json()["data"]
 
     assert first["current_weights"] == second["current_weights"]
     assert first["target_weights"] == second["target_weights"]
@@ -93,10 +97,8 @@ def test_daily_signal_threshold_weight_filters_smaller_suggestions() -> None:
     """A very high threshold should suppress all sell/buy suggestions."""
 
     client = TestClient(app)
-    baseline = client.get("/etf-rotation/daily-signal").json()["data"]
-    filtered = client.get(
-        "/etf-rotation/daily-signal?threshold_weight=0.99"
-    ).json()["data"]
+    baseline = client.get(_synthetic_path()).json()["data"]
+    filtered = client.get(_synthetic_path("threshold_weight=0.99")).json()["data"]
 
     baseline_actions = {s["action"] for s in baseline["suggestions"]}
     filtered_actions = {s["action"] for s in filtered["suggestions"]}
@@ -110,5 +112,66 @@ def test_daily_signal_threshold_weight_filters_smaller_suggestions() -> None:
 
 def test_daily_signal_rejects_invalid_threshold_weight() -> None:
     client = TestClient(app)
-    response = client.get("/etf-rotation/daily-signal?threshold_weight=2.0")
+    response = client.get(_synthetic_path("threshold_weight=2.0"))
     assert response.status_code == 422
+
+
+def test_daily_signal_default_uses_live_quotes_to_reprice_holdings(monkeypatch) -> None:
+    from backend.app.api.v1.endpoints import etf_rotation
+
+    captured = {}
+
+    def fake_get_quotes_dict(symbols, use_cache=True):
+        captured["symbols"] = symbols
+        captured["use_cache"] = use_cache
+        return {
+            "510300.SS": {
+                "symbol": "510300.SS",
+                "price": 6.0,
+                "previous_close": 5.5,
+                "open": 5.6,
+                "high": 6.1,
+                "low": 5.4,
+                "volume": 123456,
+                "timestamp": "2026-05-14T11:00:00+00:00",
+                "source": "fake-live",
+            }
+        }
+
+    monkeypatch.setattr(etf_rotation.realtime_manager, "get_quotes_dict", fake_get_quotes_dict)
+
+    client = TestClient(app)
+    data = client.get("/etf-rotation/daily-signal").json()["data"]
+
+    assert "510300.SS" in captured["symbols"]
+    assert captured["use_cache"] is True
+    assert data["quote_source"] == "live"
+    assert data["live_quote_status"]["resolved"] == 1
+    assert data["quote_snapshot"]["510300"]["current_price"] == 6.0
+    assert data["quote_snapshot"]["510300"]["source"] == "fake-live"
+    # 510300 default seed: 1400 shares at 5.017. The live endpoint should
+    # reprice the holding to 6.0 before computing total asset/current weights.
+    assert data["total_asset"] > 32000
+    assert data["current_weights"]["510300"] > 0.25
+
+
+def test_daily_signal_use_cache_false_forces_fresh_live_quote_fetch(monkeypatch) -> None:
+    from backend.app.api.v1.endpoints import etf_rotation
+
+    observed = []
+
+    def fake_get_quotes_dict(symbols, use_cache=True):
+        observed.append(use_cache)
+        return {}
+
+    monkeypatch.setattr(etf_rotation.realtime_manager, "get_quotes_dict", fake_get_quotes_dict)
+
+    client = TestClient(app)
+    response = client.get("/etf-rotation/daily-signal?use_cache=false")
+
+    assert response.status_code == 200
+    assert observed == [False]
+    data = response.json()["data"]
+    assert data["quote_source"] == "fallback_synthetic"
+    assert data["live_quote_status"]["requested"] == 5
+    assert data["live_quote_status"]["resolved"] == 0
