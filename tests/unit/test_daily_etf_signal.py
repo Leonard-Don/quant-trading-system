@@ -15,7 +15,6 @@ import pytest
 
 from scripts import backtest_etf_rotation, daily_etf_signal
 
-
 # ---------------------------------------------------------------------------
 # Default seed wiring
 # ---------------------------------------------------------------------------
@@ -138,10 +137,15 @@ def test_format_output_json_round_trips() -> None:
 def test_format_output_text_states_manual_only_and_no_auto_ordering() -> None:
     plan = _make_plan()
     text = daily_etf_signal.format_output(plan, output="text")
-    lowered = text.lower()
-    assert "manual" in lowered
-    assert "no auto" in lowered or "no automatic" in lowered or "no broker" in lowered
-    assert "auto-order" not in lowered or "no auto-order" in lowered
+    assert "手动" in text
+    assert "自动下单" in text
+    assert "券商" in text
+    assert "auto-order" not in text.lower()
+    assert "Total asset value" not in text
+    assert "Current weights" not in text
+    assert "Manual trade suggestions" not in text
+    assert "Risk reasons" not in text
+    assert "delta_" not in text
 
 
 def test_format_output_rejects_unknown_format() -> None:
@@ -160,9 +164,12 @@ def test_main_cli_default_args_prints_text(capsys: pytest.CaptureFixture[str]) -
     assert rc == 0
     captured = capsys.readouterr()
     assert captured.out.strip()
-    lowered = captured.out.lower()
-    assert "manual" in lowered
-    assert "no auto" in lowered or "no broker" in lowered
+    assert "手动" in captured.out
+    assert "自动下单" in captured.out
+    assert "券商" in captured.out
+    assert "Total asset value" not in captured.out
+    assert "Manual trade suggestions" not in captured.out
+    assert "delta_" not in captured.out
 
 
 def test_main_cli_json_output(capsys: pytest.CaptureFixture[str]) -> None:
@@ -283,3 +290,23 @@ def test_backtest_main_returns_zero_on_valid_csv(
     captured = capsys.readouterr()
     # The CLI prints a JSON summary.
     json.loads(captured.out)
+
+
+def test_main_cli_help_uses_chinese_user_facing_copy(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        daily_etf_signal.main(["--help"])
+
+    assert exc_info.value.code == 0
+    captured = capsys.readouterr()
+    assert "生成每日 ETF 轮动手动调仓计划" in captured.out
+    assert "不连接券商接口" in captured.out
+    assert "可选：当前持仓 JSON 文件" in captured.out
+    assert "Output format" not in captured.out
+    assert "No broker API" not in captured.out
+    assert "usage:" not in captured.out
+    assert "options:" not in captured.out
+    assert "optional arguments:" not in captured.out
+    assert "show this help message and exit" not in captured.out
+    assert "用法：" in captured.out
+    assert "选项：" in captured.out
+    assert "显示此帮助信息并退出" in captured.out

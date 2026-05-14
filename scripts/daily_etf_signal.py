@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,10 +51,7 @@ from src.strategy.etf_rotation_strategy import (  # noqa: E402
     EtfRotationStrategy,
 )
 
-MANUAL_BANNER = (
-    "Manual trade plan — review and execute manually. "
-    "No broker API is called and no auto-ordering occurs."
-)
+MANUAL_BANNER = "手动调仓计划：请人工复核后执行；不连接券商接口，也不会自动下单。"
 
 
 # ---------------------------------------------------------------------------
@@ -493,51 +491,119 @@ def format_output(plan: Mapping[str, Any], *, output: str = "text") -> str:
     raise ValueError(f"Unsupported output format: {output!r}")
 
 
+def _format_trade_reason_zh(reason: Any) -> str:
+    text = str(reason or "").strip()
+    if not text:
+        return "—"
+    labels = {
+        "within_threshold": "无需调仓（偏离低于阈值）",
+        "missing_quote": "缺少可用行情，暂不操作",
+        "below_lot_size": "调整量不足一手，暂不操作",
+    }
+    if text in labels:
+        return labels[text]
+    delta_match = re.match(r"^delta_([+-]?\d+(?:\.\d+)?)$", text)
+    if delta_match:
+        return f"目标偏离 {float(delta_match.group(1)) * 100:.2f}%"
+    return text
+
+
+def _format_risk_reason_zh(reason: Any) -> str:
+    text = str(reason or "").strip()
+    if not text:
+        return "—"
+    labels = {
+        "Cash floor target maintained": "现金底线已保留",
+        "Manual-only ETF rotation signal": "手动 ETF 轮动信号",
+    }
+    if text in labels:
+        return labels[text]
+
+    patterns = [
+        (
+            r"^Cash floor: raised cash from ([\d.]+%) to ([\d.]+%)\.$",
+            lambda m: f"现金底线：现金仓位从 {m.group(1)} 提高到 {m.group(2)}。",
+        ),
+        (
+            r"^Commodity/resource bucket cap: reduced combined bucket "
+            r"from ([\d.]+%) to ([\d.]+%)\.$",
+            lambda m: f"商品/资源类仓位上限：合计仓位从 {m.group(1)} 降至 {m.group(2)}。",
+        ),
+        (
+            r"^Single ETF cap for ([^:]+): reduced from ([\d.]+%) to ([\d.]+%)\.$",
+            lambda m: f"单只 ETF 上限：{m.group(1)} 从 {m.group(2)} 降至 {m.group(3)}。",
+        ),
+        (
+            r"^Premium veto for ([^:]+): premium ([\d.]+%) "
+            r"exceeds ([\d.]+%); target increase capped at current weight\.$",
+            lambda m: (
+                f"溢价风控：{m.group(1)} 溢价 {m.group(2)} 超过 {m.group(3)}，"
+                "目标增仓限制在当前权重。"
+            ),
+        ),
+        (
+            r"^Drawdown cut: portfolio drawdown ([\d.]+%) exceeds ([\d.]+%); "
+            r"gross ETF exposure reduced from ([\d.]+%) to ([\d.]+%)\.$",
+            lambda m: (
+                f"回撤风控：组合回撤 {m.group(1)} 超过 {m.group(2)}，"
+                f"ETF 总敞口从 {m.group(3)} 降至 {m.group(4)}。"
+            ),
+        ),
+    ]
+    for pattern, formatter in patterns:
+        match = re.match(pattern, text)
+        if match:
+            return formatter(match)
+    return text
+
+
 def _render_text(plan: Mapping[str, Any]) -> str:
     lines: List[str] = []
     lines.append(MANUAL_BANNER)
-    lines.append("(No auto-ordering. No broker API calls.)")
+    lines.append("（无自动下单；不调用券商 API。）")
     lines.append("")
-    lines.append(f"Total asset value: ¥{plan.get('total_asset', 0.0):,.2f}")
+    lines.append(f"组合资产：¥{plan.get('total_asset', 0.0):,.2f}")
     lines.append("")
 
-    lines.append("Current weights:")
+    lines.append("当前权重：")
     for code, weight in sorted(plan.get("current_weights", {}).items()):
         lines.append(f"  {code:>6}: {weight * 100:6.2f}%")
 
     lines.append("")
-    lines.append("Strategy target weights (before risk rules):")
+    lines.append("策略目标权重（风控前）：")
     for code, weight in sorted(plan.get("target_weights", {}).items()):
         lines.append(f"  {code:>6}: {weight * 100:6.2f}%")
 
     lines.append("")
-    lines.append("Adjusted weights (after risk rules):")
+    lines.append("风控后目标权重：")
     for code, weight in sorted(plan.get("adjusted_weights", {}).items()):
         lines.append(f"  {code:>6}: {weight * 100:6.2f}%")
 
     lines.append("")
-    lines.append("Manual trade suggestions:")
+    lines.append("手动交易建议：")
     suggestions = plan.get("suggestions") or []
     if not suggestions:
-        lines.append("  (none)")
+        lines.append("  （暂无）")
+    action_labels = {"buy": "买入", "sell": "卖出", "hold": "持有"}
     for suggestion in suggestions:
-        action = suggestion["action"].upper()
+        action = action_labels.get(str(suggestion["action"]).lower(), str(suggestion["action"]))
+        reason = _format_trade_reason_zh(suggestion["reason"])
         lines.append(
             f"  {suggestion['code']:>6} {suggestion['name']:<18} "
             f"{action:<4} {suggestion['shares']:>7} 股  "
             f"≈¥{suggestion['estimated_amount']:>10,.2f}  "
             f"({suggestion['current_weight'] * 100:5.2f}% → "
             f"{suggestion['target_weight'] * 100:5.2f}%)  "
-            f"[{suggestion['reason']}]"
+            f"[{reason}]"
         )
 
     lines.append("")
-    lines.append("Risk reasons:")
+    lines.append("风控原因：")
     reasons = plan.get("risk_reasons") or []
     if not reasons:
-        lines.append("  (no portfolio-level adjustments triggered)")
+        lines.append("  （未触发组合级风控调整）")
     for reason in reasons:
-        lines.append(f"  - {reason}")
+        lines.append(f"  - {_format_risk_reason_zh(reason)}")
 
     return "\n".join(lines)
 
@@ -610,33 +676,46 @@ def _maybe_float(value: Any) -> Optional[float]:
 # ---------------------------------------------------------------------------
 
 
+class ChineseArgumentParser(argparse.ArgumentParser):
+    """Argparse with localized default help chrome for user-facing CLI output."""
+
+    def format_help(self) -> str:
+        text = super().format_help()
+        replacements = {
+            "usage: ": "用法：",
+            "options:": "选项：",
+            "optional arguments:": "选项：",
+            "show this help message and exit": "显示此帮助信息并退出",
+        }
+        for source, target in replacements.items():
+            text = text.replace(source, target)
+        return text
+
+    def format_usage(self) -> str:
+        return super().format_usage().replace("usage: ", "用法：")
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description=(
-            "Generate a daily manual ETF rotation trade plan. "
-            "No broker API is contacted; this script only suggests trades."
-        )
+    parser = ChineseArgumentParser(
+        description="生成每日 ETF 轮动手动调仓计划；不连接券商接口，只给出人工复核建议。"
     )
     parser.add_argument(
         "--holdings-json",
         type=Path,
         default=None,
-        help="Optional JSON file with current holdings. Defaults to the "
-             "screenshot seed when omitted.",
+        help="可选：当前持仓 JSON 文件；未提供时使用截图种子。",
     )
     parser.add_argument(
         "--quotes-json",
         type=Path,
         default=None,
-        help="Optional JSON file with current quotes keyed by code. Defaults "
-             "to synthetic quotes derived from holdings.",
+        help="可选：按代码索引的当前行情 JSON 文件；未提供时使用持仓推导的模拟行情。",
     )
     parser.add_argument(
         "--output",
         choices=["text", "json"],
         default="text",
-        help="Output format. 'text' prints a human readable plan; 'json' "
-             "emits a machine-readable payload.",
+        help="输出格式：text 打印易读计划；json 输出机器可读载荷。",
     )
     return parser
 
