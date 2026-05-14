@@ -21,6 +21,71 @@ const ACTION_META = {
   hold: { color: 'default', label: '持有' },
 };
 
+const MANUAL_BANNER_ZH = '手动调仓计划：请人工复核后执行；不连接券商接口，也不会自动下单。';
+
+const STATIC_REASON_LABELS = {
+  within_threshold: '无需调仓（偏离低于阈值）',
+  missing_quote: '缺少可用行情，暂不操作',
+  below_lot_size: '调整量不足一手，暂不操作',
+  'Cash floor target maintained': '现金底线已保留',
+  'Manual-only ETF rotation signal': '手动 ETF 轮动信号',
+};
+
+const formatBackendBanner = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return MANUAL_BANNER_ZH;
+  if (/Manual trade plan|No broker API|auto-ordering/i.test(text)) return MANUAL_BANNER_ZH;
+  return text;
+};
+
+const formatTradeReason = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return '—';
+  if (STATIC_REASON_LABELS[text]) return STATIC_REASON_LABELS[text];
+  const deltaMatch = text.match(/^delta_([+-]?\d+(?:\.\d+)?)$/);
+  if (deltaMatch) {
+    const delta = Number(deltaMatch[1]);
+    if (Number.isFinite(delta)) return `目标偏离 ${(delta * 100).toFixed(2)}%`;
+  }
+  return text;
+};
+
+const formatRiskReason = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return '—';
+  if (STATIC_REASON_LABELS[text]) return STATIC_REASON_LABELS[text];
+
+  let match = text.match(/^Cash floor: raised cash from ([\d.]+%) to ([\d.]+%)\.$/);
+  if (match) return `现金底线：现金仓位从 ${match[1]} 提高到 ${match[2]}。`;
+
+  match = text.match(/^Commodity\/resource bucket cap: reduced combined bucket from ([\d.]+%) to ([\d.]+%)\.$/);
+  if (match) return `商品/资源类仓位上限：合计仓位从 ${match[1]} 降至 ${match[2]}。`;
+
+  match = text.match(/^Single ETF cap for ([^:]+): reduced from ([\d.]+%) to ([\d.]+%)\.$/);
+  if (match) return `单只 ETF 上限：${match[1]} 从 ${match[2]} 降至 ${match[3]}。`;
+
+  match = text.match(/^Premium veto for ([^:]+): premium ([\d.]+%) exceeds ([\d.]+%); target increase capped at current weight\.$/);
+  if (match) return `溢价风控：${match[1]} 溢价 ${match[2]} 超过 ${match[3]}，目标增仓限制在当前权重。`;
+
+  match = text.match(/^Drawdown cut: portfolio drawdown ([\d.]+%) exceeds ([\d.]+%); gross ETF exposure reduced from ([\d.]+%) to ([\d.]+%)\.$/);
+  if (match) return `回撤风控：组合回撤 ${match[1]} 超过 ${match[2]}，ETF 总敞口从 ${match[3]} 降至 ${match[4]}。`;
+
+  return text;
+};
+
+const formatQuoteSource = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  if (text === 'fake-live') return '测试实时行情';
+  if (/^historical_fallback/i.test(text)) return '历史行情回退';
+  if (/^synthetic/i.test(text)) return '模拟行情';
+  if (/^realtime_manager$/i.test(text)) return '实时行情服务';
+  if (/^yahoo$/i.test(text)) return '雅虎行情';
+  if (/^commodity$/i.test(text)) return '商品行情源';
+  if (/^us_stock$/i.test(text)) return '美股行情源';
+  return text;
+};
+
 const formatPercent = (value) => {
   const number = Number(value);
   if (!Number.isFinite(number)) return '—';
@@ -56,7 +121,7 @@ const buildWeightRows = (plan) => {
       target: target[code],
       adjusted: adjusted[code],
       currentPrice: quote.current_price,
-      quoteSource: quote.source,
+      quoteSource: formatQuoteSource(quote.source),
       quoteTimestamp: quote.timestamp || quote.date,
     };
   });
@@ -124,7 +189,7 @@ const EtfRotationDashboard = () => {
     },
     { title: '股数', dataIndex: 'shares', key: 'shares', render: (value) => Number(value || 0).toLocaleString('zh-CN') },
     { title: '估算金额', dataIndex: 'estimated_amount', key: 'estimated_amount', render: formatCurrency },
-    { title: '原因', dataIndex: 'reason', key: 'reason' },
+    { title: '原因', dataIndex: 'reason', key: 'reason', render: formatTradeReason },
   ];
 
   return (
@@ -142,7 +207,7 @@ const EtfRotationDashboard = () => {
             <Alert
               type="info"
               showIcon
-              message={plan?.banner || 'Manual trade plan — review and execute manually. No broker API is called and no auto-ordering occurs.'}
+              message={formatBackendBanner(plan?.banner)}
               description={`本页使用实时行情刷新当前持仓市值和权重；只展示目标权重和手动买卖建议，不连接券商、不自动下单。${liveStatus.error ? ` 行情错误：${liveStatus.error}` : ''}`}
               data-testid="etf-manual-only-banner"
             />
@@ -196,7 +261,7 @@ const EtfRotationDashboard = () => {
                 <Text type="secondary">暂无风控调整。</Text>
               ) : (
                 <Space size={[8, 8]} wrap>
-                  {riskReasons.map((reason, index) => <Tag key={`${reason}-${index}`}>{reason}</Tag>)}
+                  {riskReasons.map((reason, index) => <Tag key={`${reason}-${index}`}>{formatRiskReason(reason)}</Tag>)}
                 </Space>
               )}
             </Card>

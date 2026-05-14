@@ -54,8 +54,8 @@ def test_daily_signal_is_manual_only_and_no_auto_ordering() -> None:
     assert data["manual_only"] is True
     assert data["auto_ordering"] is False
     assert isinstance(data["banner"], str) and data["banner"]
-    lowered = data["banner"].lower()
-    assert "manual" in lowered
+    assert "手动" in data["banner"]
+    assert "自动下单" in data["banner"]
 
 
 def test_daily_signal_covers_seed_codes() -> None:

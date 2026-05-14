@@ -24,7 +24,7 @@ const ETF_SIGNAL_FIXTURE = {
     data: {
         manual_only: true,
         auto_ordering: false,
-        banner: 'Manual trade plan — review and execute manually. No broker API is called and no auto-ordering occurs.',
+        banner: '手动调仓计划：请人工复核后执行；不连接券商接口，也不会自动下单。',
         total_asset: 32000,
         current_weights: { '159985': 0.074, '512400': 0.324, '510300': 0.219, '518680': 0.320, '513130': 0.062 },
         target_weights: { '159985': 0.05, '512400': 0.22, '510300': 0.28, '518680': 0.20, '513130': 0.07 },
@@ -83,8 +83,13 @@ const collectConsoleErrors = (page, label) => {
         else fail('ETF 轮动工作区未渲染', 'data-testid="etf-rotation-dashboard" 不存在');
 
         const bodyText = await page.locator('body').innerText().catch(() => '');
-        if (/Manual trade plan|No broker API|无自动下单|手动执行/.test(bodyText)) ok('ETF 手动执行/无自动下单提示已显示');
+        if (/无自动下单|手动执行|手动调仓计划/.test(bodyText)) ok('ETF 手动执行/无自动下单提示已显示');
         else fail('ETF manual-only 提示', '页面没有显示手动执行/无自动下单提示');
+        const rawEnglishEtfCopy = new RegExp(
+            'Manual trade plan|No broker API|delta_|Cash floor target maintained|Manual-only ETF rotation signal',
+        ).test(bodyText);
+        if (!rawEnglishEtfCopy) ok('ETF 页面未泄露英文/内部原因码');
+        else fail('ETF 中文文案一致性', '页面仍出现英文提示或内部原因码');
         if (/512400/.test(bodyText) && /510300/.test(bodyText)) ok('ETF 权重和建议表包含核心标的');
         else fail('ETF 标的展示', '未找到 512400/510300');
         if (/卖出|买入/.test(bodyText)) ok('ETF 买卖建议已渲染');
