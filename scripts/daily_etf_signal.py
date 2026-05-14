@@ -50,7 +50,6 @@ from src.strategy.etf_rotation_strategy import (  # noqa: E402
     EtfRotationStrategy,
 )
 
-
 MANUAL_BANNER = (
     "Manual trade plan — review and execute manually. "
     "No broker API is called and no auto-ordering occurs."
@@ -101,6 +100,63 @@ def load_default_quotes(holdings: Sequence[EtfHolding]) -> Dict[str, EtfQuote]:
         )
         for h in holdings
     }
+
+
+def apply_quotes_to_holdings(
+    holdings: Sequence[EtfHolding],
+    quotes: Mapping[str, EtfQuote],
+) -> List[EtfHolding]:
+    """Return holdings repriced with any positive live quote prices.
+
+    Share counts and cost basis remain unchanged; only ``current_price`` is
+    refreshed so current weights / total asset / trade sizing reflect the
+    latest quote snapshot.
+    """
+
+    updated: List[EtfHolding] = []
+    for holding in holdings:
+        quote = quotes.get(holding.code)
+        live_price = quote.current_price if quote else None
+        current_price = (
+            float(live_price)
+            if live_price is not None and live_price > 0
+            else holding.current_price
+        )
+        updated.append(
+            EtfHolding(
+                code=holding.code,
+                name=holding.name,
+                shares=holding.shares,
+                cost_price=holding.cost_price,
+                current_price=current_price,
+            )
+        )
+    return updated
+
+
+def _quotes_to_snapshot(quotes: Mapping[str, EtfQuote]) -> Dict[str, Dict[str, Any]]:
+    """Expose quote fields used by dashboards without broker/order data."""
+
+    snapshot: Dict[str, Dict[str, Any]] = {}
+    for code, quote in sorted(quotes.items()):
+        snapshot[code] = {
+            "code": quote.code,
+            "name": quote.name,
+            "current_price": quote.current_price,
+            "prev_close": quote.prev_close,
+            "change_pct": quote.change_pct,
+            "premium": quote.premium,
+            "open_price": quote.open_price,
+            "high": quote.high,
+            "low": quote.low,
+            "volume": quote.volume,
+            "amount": quote.amount,
+            "date": quote.date,
+            "time": quote.time,
+            "timestamp": quote.timestamp,
+            "source": quote.source,
+        }
+    return snapshot
 
 
 # Per-asset configuration: caps mirror the plan's default ceilings, base
@@ -309,6 +365,7 @@ def generate_plan(
         ],
         "risk_reasons": list(decision.reasons),
         "source_health": source_health,
+        "quote_snapshot": _quotes_to_snapshot(quote_map),
     }
 
 
@@ -533,6 +590,8 @@ def load_quotes_from_json(path: Path) -> Dict[str, EtfQuote]:
             amount=_maybe_float(item.get("amount")),
             estimated_nav=_maybe_float(item.get("estimated_nav")),
             prev_nav=_maybe_float(item.get("prev_nav")),
+            source=str(item.get("source")) if item.get("source") else None,
+            timestamp=str(item.get("timestamp")) if item.get("timestamp") else None,
         )
     return quotes
 
