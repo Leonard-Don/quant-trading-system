@@ -758,15 +758,20 @@ class Backtester(BaseBacktester):
             max_holding_days=self.max_holding_days,
         )
 
+    _CANONICAL_OHLCV_COLUMNS = ("open", "high", "low", "close", "volume")
+
     def _prepare_market_data(self, data: pd.DataFrame) -> pd.DataFrame:
         """Drop incomplete bars so NaN market data cannot zero out the portfolio."""
         cleaned = data.copy()
 
         if "close" not in cleaned.columns:
             logger.error("Backtest data is missing required 'close' column")
-            return pd.DataFrame()
+            # Preserve canonical OHLCV schema (and any input columns) so callers
+            # can introspect column expectations instead of seeing a headerless frame.
+            schema = list(dict.fromkeys([*cleaned.columns.tolist(), *self._CANONICAL_OHLCV_COLUMNS]))
+            return pd.DataFrame(columns=schema, index=cleaned.index[:0])
 
-        numeric_cols = [col for col in ["open", "high", "low", "close", "volume"] if col in cleaned.columns]
+        numeric_cols = [col for col in self._CANONICAL_OHLCV_COLUMNS if col in cleaned.columns]
         for col in numeric_cols:
             cleaned[col] = pd.to_numeric(cleaned[col], errors="coerce")
 
