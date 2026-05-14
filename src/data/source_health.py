@@ -108,19 +108,31 @@ class SourceHealthEntry:
     * ``display_name`` — human-readable label for UIs.
     * ``status`` — short token: ``ready`` / ``synthetic`` / ``stale`` /
       ``skipped`` / ``error`` / ``empty`` / ``unavailable`` / ``unknown``.
+      ``synthetic`` means the value was usable (``ok=True``) but was produced
+      by a deterministic substitute (seed / random walk / derivation), not by
+      a real upstream sample — pair with ``fallback=True`` and a ``reason``
+      so consumers can distinguish synthetic frames from live data.
     * ``ok`` — whether the source contributed usable data this round.
     * ``required`` — failing this source breaks the consumer.
     * ``fallback`` — eligible as a substitute when a higher-priority source
       fails. ``ok=True`` entries default to ``False``; failing entries
       default to ``True``.
-    * ``as_of`` — ISO-8601 UTC string ("…Z") of the data's latest sample,
-      or ``None`` when no timestamp was supplied / parseable.
+    * ``as_of`` — ISO-8601 UTC string ("…Z") of the data's **sample** time,
+      or ``None`` when no sample timestamp was supplied / parseable. Callers
+      must not set this to "now" just because the data was used recently —
+      that conflates data freshness with plan-build time.
     * ``age_seconds`` — distance from ``as_of`` to ``now`` at build time.
     * ``freshness`` — label derived from ``age_seconds`` (see
       :func:`freshness_label`).
-    * ``reason`` — short, redacted human string when ``ok`` is ``False``.
+    * ``reason`` — short, redacted human string explaining a non-default
+      state: why the source failed, why the data is synthetic, or why a
+      sample timestamp is unavailable.
     * ``capabilities`` — tuple of capability tags (e.g. ``historical_data``,
       ``latest_quote``, ``order_book``).
+    * ``observed_at`` — ISO-8601 UTC string ("…Z") of when the registry
+      snapshot was assembled. Distinct from ``as_of`` (the data's sample
+      time) — consumers use it to compute "how long ago was this plan
+      built". Always present.
     """
 
     source_id: str
@@ -134,6 +146,7 @@ class SourceHealthEntry:
     freshness: str
     reason: Optional[str]
     capabilities: Tuple[str, ...] = field(default_factory=tuple)
+    observed_at: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Project to a JSON-safe dict (tuples → lists)."""
@@ -149,6 +162,7 @@ class SourceHealthEntry:
             "freshness": self.freshness,
             "reason": self.reason,
             "capabilities": list(self.capabilities),
+            "observed_at": self.observed_at,
         }
 
 
@@ -256,6 +270,7 @@ def build_source_registry(
     reference_now = (now or datetime.now(timezone.utc))
     if reference_now.tzinfo is None:
         reference_now = reference_now.replace(tzinfo=timezone.utc)
+    observed_at = _format_as_of(reference_now)
 
     entries: List[SourceHealthEntry] = []
     for spec in specs:
@@ -307,6 +322,7 @@ def build_source_registry(
                 freshness=freshness,
                 reason=_coerce_reason(spec.get("reason")),
                 capabilities=_coerce_capabilities(spec.get("capabilities")),
+                observed_at=observed_at,
             )
         )
 

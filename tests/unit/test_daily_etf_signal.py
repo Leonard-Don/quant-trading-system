@@ -173,6 +173,21 @@ def test_main_cli_json_output(capsys: pytest.CaptureFixture[str]) -> None:
     assert "risk_reasons" in payload
 
 
+def test_main_cli_default_reports_synthetic_provenance(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Default invocation (no --holdings-json / --quotes-json) must surface
+    the screenshot seed as ``synthetic`` so dashboards do not mistake the
+    seed for live broker data."""
+    rc = daily_etf_signal.main(["--output", "json"])
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    by_id = {entry["source_id"]: entry for entry in payload["source_health"]}
+    assert by_id["etf_holdings"]["status"] == "synthetic"
+    assert by_id["etf_holdings"]["reason"] == "screenshot_seed"
+    assert by_id["etf_quotes"]["status"] == "synthetic"
+
+
 def test_main_cli_reads_holdings_json(
     tmp_path, capsys: pytest.CaptureFixture[str]
 ) -> None:

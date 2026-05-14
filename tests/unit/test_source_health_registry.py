@@ -403,9 +403,36 @@ def test_generate_plan_includes_synthetic_source_health_by_default() -> None:
     assert by_id["etf_holdings"]["status"] == "synthetic"
     assert by_id["etf_holdings"]["reason"] == "screenshot_seed"
     assert by_id["etf_holdings"]["ok"] is True
+    # Synthetic data must not claim a sample timestamp (plan-build time
+    # is not the same as data sample time).
+    assert by_id["etf_holdings"]["as_of"] is None
+    assert by_id["etf_holdings"]["freshness"] == "missing"
 
 
-def test_generate_plan_marks_supplied_holdings_as_ready() -> None:
+def test_generate_plan_marks_supplied_holdings_as_ready_with_asof() -> None:
+    from scripts.daily_etf_signal import generate_plan, load_default_holdings
+
+    holdings = load_default_holdings()
+    sample = datetime(2026, 5, 14, 11, 55, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
+    plan = generate_plan(holdings=holdings, holdings_as_of=sample, now=now)
+    by_id = {entry["source_id"]: entry for entry in plan["source_health"]}
+    assert by_id["etf_holdings"]["status"] == "ready"
+    assert by_id["etf_holdings"]["ok"] is True
+    # Supplied sample timestamp survives the round trip.
+    assert by_id["etf_holdings"]["as_of"] == "2026-05-14T11:55:00Z"
+    assert by_id["etf_holdings"]["freshness"] == "fresh"
+    # Reason is empty when there is nothing to disclose.
+    assert by_id["etf_holdings"]["reason"] is None
+
+
+def test_generate_plan_supplied_without_asof_does_not_overclaim_freshness() -> None:
+    """Supplied data without a sample timestamp must not be stamped 'fresh'.
+
+    Prior to the fix, ``_build_source_health_payload`` stamped ``as_of=now`` for
+    any supplied data, which collapsed plan-build time and data-sample time
+    into one value — overclaiming freshness for stale snapshots.
+    """
     from scripts.daily_etf_signal import generate_plan, load_default_holdings
 
     holdings = load_default_holdings()
@@ -413,9 +440,54 @@ def test_generate_plan_marks_supplied_holdings_as_ready() -> None:
     by_id = {entry["source_id"]: entry for entry in plan["source_health"]}
     assert by_id["etf_holdings"]["status"] == "ready"
     assert by_id["etf_holdings"]["ok"] is True
-    # When supplied, an as_of must be present and parseable as fresh.
-    assert by_id["etf_holdings"]["as_of"] is not None
-    assert by_id["etf_holdings"]["freshness"] in {"fresh", "recent"}
+    # No supplied sample timestamp → don't claim freshness.
+    assert by_id["etf_holdings"]["as_of"] is None
+    assert by_id["etf_holdings"]["freshness"] == "missing"
+    # The reason should make it discoverable why freshness is missing.
+    reason = (by_id["etf_holdings"]["reason"] or "").lower()
+    assert "sample_timestamp" in reason
+
+
+def test_generate_plan_synthetic_quotes_marked_as_fallback() -> None:
+    """Synthetic quotes must be distinguishable from real ones via fallback."""
+    from scripts.daily_etf_signal import generate_plan
+
+    plan = generate_plan()  # all synthetic
+    by_id = {entry["source_id"]: entry for entry in plan["source_health"]}
+    assert by_id["etf_quotes"]["status"] == "synthetic"
+    assert by_id["etf_quotes"]["ok"] is True
+    assert by_id["etf_quotes"]["fallback"] is True
+    assert by_id["etf_quotes"]["as_of"] is None
+    assert by_id["etf_quotes"]["reason"] == "derived_from_holdings"
+
+
+def test_generate_plan_synthetic_price_matrix_marked_as_fallback() -> None:
+    """Synthetic price history must be distinguishable from real history."""
+    from scripts.daily_etf_signal import generate_plan
+
+    plan = generate_plan()  # all synthetic
+    by_id = {entry["source_id"]: entry for entry in plan["source_health"]}
+    assert by_id["price_matrix"]["status"] == "synthetic"
+    assert by_id["price_matrix"]["ok"] is True
+    assert by_id["price_matrix"]["fallback"] is True
+    assert by_id["price_matrix"]["as_of"] is None
+    assert by_id["price_matrix"]["reason"] == "deterministic_random_walk"
+
+
+def test_generate_plan_records_observed_at_for_every_source() -> None:
+    """Every source entry should carry an observed_at (registry build time).
+
+    ``observed_at`` is distinct from ``as_of``: it is the moment the registry
+    snapshot was assembled, not the moment the underlying data was sampled.
+    Consumers use it to compute "how long ago was this plan built".
+    """
+    from scripts.daily_etf_signal import generate_plan
+
+    plan = generate_plan()
+    for entry in plan["source_health"]:
+        assert "observed_at" in entry
+        observed = entry["observed_at"]
+        assert isinstance(observed, str) and observed.endswith("Z")
 
 
 def test_generate_plan_source_health_orders_required_first() -> None:
@@ -425,3 +497,32 @@ def test_generate_plan_source_health_orders_required_first() -> None:
     ids = [entry["source_id"] for entry in plan["source_health"]]
     # etf_holdings is required → must come first.
     assert ids[0] == "etf_holdings"
+
+
+def test_to_dict_as_of_uses_strict_z_suffix() -> None:
+    """to_dict() must always render as_of with a ``Z`` UTC suffix (no ``+00:00``)."""
+    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
+    entries = build_source_registry(
+        [
+            {
+                "source_id": "yahoo",
+                "ok": True,
+                "as_of": (now - timedelta(minutes=5)).isoformat(),
+            }
+        ],
+        now=now,
+    )
+    payload = entries[0].to_dict()
+    assert payload["as_of"] == "2026-05-14T11:55:00Z"
+    assert "+00:00" not in payload["as_of"]
+
+
+def test_to_dict_observed_at_uses_strict_z_suffix() -> None:
+    """to_dict() must also render observed_at with a ``Z`` UTC suffix."""
+    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
+    entries = build_source_registry(
+        [{"source_id": "yahoo", "ok": True}],
+        now=now,
+    )
+    payload = entries[0].to_dict()
+    assert payload["observed_at"] == "2026-05-14T12:00:00Z"
