@@ -435,6 +435,48 @@ describe('crossMarketRecommendations', () => {
     expect(longSum).toBeCloseTo(1, 5);
   });
 
+  it('sanitizes signal contributions so non-finite values never enter attribution metadata', () => {
+    const payload = {
+      templates: [
+        {
+          id: 'energy_vs_ai_apps',
+          name: 'Energy vs AI',
+          linked_factors: ['baseload_mismatch'],
+          linked_dimensions: [],
+          assets: [
+            { symbol: 'XLE', side: 'long', weight: 0.5, asset_class: 'ETF' },
+            { symbol: 'XLU', side: 'long', weight: 0.5, asset_class: 'ETF' },
+            { symbol: 'IGV', side: 'short', weight: 1, asset_class: 'ETF' },
+          ],
+          preferred_signal: 'positive',
+        },
+      ],
+    };
+    const overview = {
+      factors: [{ name: 'baseload_mismatch', z_score: Infinity, value: Infinity, signal: 1 }],
+    };
+
+    const card = buildCrossMarketCards(payload, overview, {})[0];
+
+    card.signalAttribution.forEach((entry) => {
+      entry.breakdown.forEach((item) => {
+        expect(Number.isFinite(item.value)).toBe(true);
+      });
+    });
+    card.driverSummary.forEach((driver) => {
+      expect(Number.isFinite(driver.value)).toBe(true);
+    });
+    card.dominantDrivers.forEach((driver) => {
+      expect(Number.isFinite(driver.value)).toBe(true);
+    });
+    card.adjustedAssets.forEach((asset) => {
+      (asset.bias_breakdown || []).forEach((item) => {
+        expect(Number.isFinite(item.value)).toBe(true);
+      });
+      expect(Number.isFinite(asset.weight)).toBe(true);
+    });
+  });
+
   it('carries policy-execution and source-mode governance into template construction metadata', () => {
     const payload = {
       templates: [
