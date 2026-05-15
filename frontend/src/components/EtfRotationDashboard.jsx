@@ -1,8 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Card, Col, Empty, Row, Space, Spin, Statistic, Table, Tag, Typography } from 'antd';
-import { ReloadOutlined, SafetyCertificateOutlined, SwapOutlined } from '@ant-design/icons';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Alert, Button, Card, Col, Empty, Row, Space, Spin, Statistic, Table, Tag, Tooltip, Typography,
+} from 'antd';
+import {
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  ExperimentOutlined,
+  PauseCircleOutlined,
+  ReloadOutlined,
+  SafetyCertificateOutlined,
+  SwapOutlined,
+  WarningOutlined,
+} from '@ant-design/icons';
 
-import { getEtfRotationDailySignal } from '../services/api';
+import {
+  getEtfRotationDailySignal,
+  getEtfRotationLiveTarget,
+  postEtfRotationRefresh,
+} from '../services/api';
 
 const { Text, Title } = Typography;
 
@@ -21,7 +36,25 @@ const ACTION_META = {
   hold: { color: 'default', label: '持有' },
 };
 
+const SOURCE_STATUS_META = {
+  ready: { color: 'success', label: '实盘', icon: <CheckCircleOutlined /> },
+  synthetic: { color: 'warning', label: '示例/合成', icon: <ExperimentOutlined /> },
+  stale: { color: 'warning', label: '过期', icon: <ClockCircleOutlined /> },
+  missing: { color: 'error', label: '缺失', icon: <WarningOutlined /> },
+  error: { color: 'error', label: '错误', icon: <WarningOutlined /> },
+};
+
+const QUOTE_SOURCE_LABELS = {
+  live: '实时报价+实盘历史',
+  live_quotes_synthetic_history: '实时报价 / 合成历史',
+  live_history_synthetic_quotes: '实盘历史 / 合成报价',
+  synthetic: '全合成',
+  fallback_synthetic: '回退合成',
+};
+
 const MANUAL_BANNER_ZH = '手动调仓计划：请人工复核后执行；不连接券商接口，也不会自动下单。';
+
+const POLL_INTERVAL_MS = 30_000;
 
 const STATIC_REASON_LABELS = {
   within_threshold: '无需调仓（偏离低于阈值）',
@@ -29,6 +62,7 @@ const STATIC_REASON_LABELS = {
   below_lot_size: '调整量不足一手，暂不操作',
   'Cash floor target maintained': '现金底线已保留',
   'Manual-only ETF rotation signal': '手动 ETF 轮动信号',
+  rebalance_debounce_active: '权重变化低于阈值，沿用上次建议',
 };
 
 const formatBackendBanner = (value) => {
@@ -77,7 +111,7 @@ const formatQuoteSource = (value) => {
   const text = String(value || '').trim();
   if (!text) return null;
   if (text === 'fake-live') return '测试实时行情';
-  if (/^historical_fallback/i.test(text)) return '历史行情回退';
+  if (/^historical?_fallback/i.test(text)) return '历史行情回退';
   if (/^synthetic/i.test(text)) return '模拟行情';
   if (/^realtime_manager$/i.test(text)) return '实时行情服务';
   if (/^yahoo$/i.test(text)) return '雅虎行情';
@@ -104,6 +138,13 @@ const formatPrice = (value) => {
   return number.toLocaleString('zh-CN', { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 };
 
+const formatIsoToLocal = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('zh-CN', { hour12: false });
+};
+
 const buildWeightRows = (plan) => {
   const current = plan?.current_weights || {};
   const target = plan?.target_weights || {};
@@ -127,43 +168,185 @@ const buildWeightRows = (plan) => {
   });
 };
 
+/**
+ * Resolves the rendering shape regardless of which endpoint produced the
+ * response — /live-target wraps the plan inside `data.plan`, /daily-signal
+ * returns the plan directly under `data`.
+ */
+const unwrapPlanEnvelope = (response, { endpoint }) => {
+  const data = response?.data || response || null;
+  if (!data) return { plan: null, meta: null };
+  if (endpoint === 'live-target') {
+    return {
+      plan: data.plan || null,
+      meta: {
+        refreshedAt: data.refreshed_at || null,
+        quoteSource: data.quote_source || data.plan?.quote_source || null,
+        debounced: Boolean(data.debounced),
+        debounceMaxDelta: data.debounce_max_delta ?? null,
+        reasons: Array.isArray(data.reasons) ? data.reasons : [],
+      },
+    };
+  }
+  return {
+    plan: data,
+    meta: {
+      refreshedAt: null,
+      quoteSource: data.quote_source || null,
+      debounced: false,
+      debounceMaxDelta: null,
+      reasons: [],
+    },
+  };
+};
+
+const SourceHealthBadges = ({ entries }) => {
+  if (!Array.isArray(entries) || entries.length === 0) return null;
+  return (
+    <Space size={[8, 8]} wrap data-testid="etf-source-health-row">
+      {entries.map((entry) => {
+        const status = entry?.status || 'missing';
+        const meta = SOURCE_STATUS_META[status] || SOURCE_STATUS_META.missing;
+        const asOf = formatIsoToLocal(entry?.as_of);
+        return (
+          <Tooltip
+            key={entry?.source_id || entry?.display_name}
+            title={
+              <>
+                <div>状态：{meta.label}</div>
+                {asOf ? <div>采样时间：{asOf}</div> : null}
+                {entry?.reason ? <div>原因：{entry.reason}</div> : null}
+              </>
+            }
+          >
+            <Tag color={meta.color} icon={meta.icon}>
+              {entry?.display_name || entry?.source_id || '数据源'}：{meta.label}
+            </Tag>
+          </Tooltip>
+        );
+      })}
+    </Space>
+  );
+};
+
 const EtfRotationDashboard = () => {
   const [loading, setLoading] = useState(true);
+  const [forceLoading, setForceLoading] = useState(false);
   const [plan, setPlan] = useState(null);
+  const [meta, setMeta] = useState(null);
   const [error, setError] = useState(null);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [endpoint, setEndpoint] = useState('live-target'); // 'live-target' | 'daily-signal'
+  const [lastFetchedAt, setLastFetchedAt] = useState(null);
+  const pollTimerRef = useRef(null);
 
-  const refresh = useCallback(() => setRefreshKey((value) => value + 1), []);
+  const applyResponse = useCallback((response, endpointUsed) => {
+    const { plan: nextPlan, meta: nextMeta } = unwrapPlanEnvelope(response, { endpoint: endpointUsed });
+    if (nextPlan) {
+      setPlan(nextPlan);
+      setMeta(nextMeta);
+      setError(null);
+    }
+    setLastFetchedAt(new Date().toISOString());
+  }, []);
 
+  const fetchLiveTarget = useCallback(async ({ trigger = false } = {}) => {
+    try {
+      const response = await getEtfRotationLiveTarget({ triggerRefresh: trigger });
+      applyResponse(response, 'live-target');
+      setEndpoint('live-target');
+      return true;
+    } catch (err) {
+      // 503 is normal when the service hasn't built a plan yet — bootstrap one.
+      const status = err?.response?.status || err?.status;
+      if (status === 503) {
+        try {
+          const triggered = await getEtfRotationLiveTarget({ triggerRefresh: true });
+          applyResponse(triggered, 'live-target');
+          setEndpoint('live-target');
+          return true;
+        } catch (innerErr) {
+          // fall through to legacy endpoint
+          // eslint-disable-next-line no-console
+          console.warn('live-target bootstrap failed, falling back to daily-signal', innerErr);
+        }
+      } else {
+        // eslint-disable-next-line no-console
+        console.warn('live-target unavailable, falling back to daily-signal', err);
+      }
+      return false;
+    }
+  }, [applyResponse]);
+
+  const fetchDailySignalFallback = useCallback(async () => {
+    const response = await getEtfRotationDailySignal({ quote_source: 'live', use_cache: true });
+    applyResponse(response, 'daily-signal');
+    setEndpoint('daily-signal');
+  }, [applyResponse]);
+
+  const refreshNow = useCallback(async () => {
+    setForceLoading(true);
+    setError(null);
+    try {
+      if (endpoint === 'live-target') {
+        const response = await postEtfRotationRefresh({ useCache: false });
+        applyResponse(response, 'live-target');
+      } else {
+        const response = await getEtfRotationDailySignal({ quote_source: 'live', use_cache: false });
+        applyResponse(response, 'daily-signal');
+      }
+    } catch (err) {
+      setError(err?.userMessage || err?.message || '刷新失败');
+    } finally {
+      setForceLoading(false);
+    }
+  }, [endpoint, applyResponse]);
+
+  // Initial load + polling
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    getEtfRotationDailySignal({ quote_source: 'live', use_cache: refreshKey === 0 })
-      .then((response) => {
-        if (cancelled) return;
-        const data = response?.data || response || null;
-        setPlan(data);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err?.userMessage || err?.message || 'ETF轮动信号加载失败');
-      })
-      .finally(() => {
+    const load = async () => {
+      if (!cancelled) setLoading(true);
+      try {
+        const ok = await fetchLiveTarget({ trigger: false });
+        if (!ok && !cancelled) await fetchDailySignalFallback();
+      } catch (err) {
+        if (!cancelled) setError(err?.userMessage || err?.message || 'ETF轮动信号加载失败');
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    };
+    load();
     return () => { cancelled = true; };
-  }, [refreshKey]);
+  }, [fetchLiveTarget, fetchDailySignalFallback]);
+
+  useEffect(() => {
+    if (endpoint !== 'live-target') return undefined;
+    if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    pollTimerRef.current = setInterval(() => {
+      fetchLiveTarget({ trigger: false }).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn('live-target poll failed', err);
+      });
+    }, POLL_INTERVAL_MS);
+    return () => {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+    };
+  }, [endpoint, fetchLiveTarget]);
 
   const weightRows = useMemo(() => buildWeightRows(plan), [plan]);
   const suggestions = Array.isArray(plan?.suggestions) ? plan.suggestions : [];
   const riskReasons = Array.isArray(plan?.risk_reasons) ? plan.risk_reasons : [];
   const liveStatus = plan?.live_quote_status || {};
-  const quoteModeLabel = plan?.quote_source === 'live'
-    ? `实时行情 ${liveStatus.resolved ?? 0}/${liveStatus.requested ?? 0}`
-    : plan?.quote_source === 'fallback_synthetic'
-      ? '实时行情不可用 / 已回退截图种子'
-      : '截图种子行情';
+  const sourceHealth = Array.isArray(plan?.source_health) ? plan.source_health : [];
+  const quoteSourceCode = meta?.quoteSource || plan?.quote_source;
+  const quoteModeLabel = QUOTE_SOURCE_LABELS[quoteSourceCode] || (
+    plan?.quote_source === 'live'
+      ? `实时行情 ${liveStatus.resolved ?? 0}/${liveStatus.requested ?? 0}`
+      : plan?.quote_source === 'fallback_synthetic'
+        ? '实时行情不可用 / 已回退截图种子'
+        : '截图种子行情'
+  );
+  const refreshedAt = formatIsoToLocal(meta?.refreshedAt) || formatIsoToLocal(lastFetchedAt);
 
   const weightColumns = [
     { title: '代码', dataIndex: 'code', key: 'code', width: 110 },
@@ -183,8 +366,8 @@ const EtfRotationDashboard = () => {
       dataIndex: 'action',
       key: 'action',
       render: (action) => {
-        const meta = ACTION_META[action] || ACTION_META.hold;
-        return <Tag color={meta.color}>{meta.label}</Tag>;
+        const metaAction = ACTION_META[action] || ACTION_META.hold;
+        return <Tag color={metaAction.color}>{metaAction.label}</Tag>;
       },
     },
     { title: '股数', dataIndex: 'shares', key: 'shares', render: (value) => Number(value || 0).toLocaleString('zh-CN') },
@@ -201,8 +384,25 @@ const EtfRotationDashboard = () => {
               <Space>
                 <SwapOutlined style={{ color: 'var(--accent-primary)' }} />
                 <Title level={3} style={{ margin: 0 }}>ETF轮动调仓</Title>
+                <Tag color={endpoint === 'live-target' ? 'green' : 'orange'} data-testid="etf-endpoint-tag">
+                  {endpoint === 'live-target' ? '实时刷新模式' : '兼容模式（旧端点）'}
+                </Tag>
               </Space>
-              <Button icon={<ReloadOutlined />} onClick={refresh} loading={loading}>刷新信号</Button>
+              <Space>
+                {meta?.debounced ? (
+                  <Tooltip title={`权重变化低于阈值，沿用上次建议。max_delta=${meta.debounceMaxDelta}`}>
+                    <Tag icon={<PauseCircleOutlined />} color="default">已防抖</Tag>
+                  </Tooltip>
+                ) : null}
+                <Button
+                  icon={<ReloadOutlined />}
+                  onClick={refreshNow}
+                  loading={forceLoading || loading}
+                  data-testid="etf-force-refresh-button"
+                >
+                  强制刷新
+                </Button>
+              </Space>
             </Space>
             <Alert
               type="info"
@@ -211,6 +411,12 @@ const EtfRotationDashboard = () => {
               description={`本页使用实时行情刷新当前持仓市值和权重；只展示目标权重和手动买卖建议，不连接券商、不自动下单。${liveStatus.error ? ` 行情错误：${liveStatus.error}` : ''}`}
               data-testid="etf-manual-only-banner"
             />
+            {sourceHealth.length > 0 ? (
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <Text type="secondary">数据源健康度（鼠标悬停看采样时间）</Text>
+                <SourceHealthBadges entries={sourceHealth} />
+              </Space>
+            ) : null}
           </Space>
         </Card>
 
@@ -223,17 +429,25 @@ const EtfRotationDashboard = () => {
         ) : (
           <>
             <Row gutter={[16, 16]}>
-              <Col xs={24} md={8}>
+              <Col xs={24} md={6}>
                 <Card>
                   <Statistic title="组合资产" value={plan.total_asset || 0} precision={2} prefix="¥" />
                 </Card>
               </Col>
-              <Col xs={24} md={8}>
+              <Col xs={24} md={6}>
                 <Card>
                   <Statistic title="行情模式" value={quoteModeLabel} />
                 </Card>
               </Col>
-              <Col xs={24} md={8}>
+              <Col xs={24} md={6}>
+                <Card>
+                  <Space direction="vertical" size={0}>
+                    <Text type="secondary">最近刷新</Text>
+                    <Text strong data-testid="etf-refreshed-at">{refreshedAt || '—'}</Text>
+                  </Space>
+                </Card>
+              </Col>
+              <Col xs={24} md={6}>
                 <Card>
                   <Space>
                     <SafetyCertificateOutlined style={{ color: 'var(--accent-success)' }} />

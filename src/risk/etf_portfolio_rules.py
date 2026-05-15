@@ -2,10 +2,20 @@
 
 The rules here are intentionally deterministic and dependency-free so they can
 be reused by backtests, rotation signals, and paper-trading handoff code.
+
+Unit convention
+---------------
+All weight/premium/drawdown inputs are treated as **fractions** (``0.10`` =
+10%). To stay forgiving with operators who paste in percentage forms, the
+module also accepts whole-number percentages in the range ``(1, 100]`` —
+e.g. ``25`` is normalised to ``0.25``. Anything outside that band (or with
+``abs() > 100``) raises ``ValueError`` rather than silently rescaling, so a
+"50% drawdown" cannot be misread as 0.5%.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -15,6 +25,8 @@ WeightMap = Mapping[str, float]
 MetadataMap = Mapping[str, Mapping[str, Any]]
 
 EPSILON = 1e-12
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -110,6 +122,8 @@ def apply_etf_portfolio_risk_rules(
         if value is not None
     }
     weights = _prepare_target_weights(proposed_weights, metadata, cfg)
+
+    _warn_missing_metadata(weights, metadata, cfg)
 
     reasons: List[str] = []
     adjustments: List[EtfRiskAdjustment] = []
@@ -351,6 +365,34 @@ def _apply_drawdown_cut(
     reasons.append(reason)
 
 
+def _warn_missing_metadata(
+    weights: Mapping[str, float],
+    asset_metadata: MetadataMap,
+    config: EtfRiskRuleConfig,
+) -> None:
+    """Log a warning for held symbols that have no risk metadata entry.
+
+    Without metadata the bucket / QDII / cash classifiers all return false,
+    so commodity-bucket caps and premium vetoes silently skip the symbol —
+    a dangerous failure mode for a real-money rotation portfolio.
+    """
+
+    missing = [
+        symbol
+        for symbol, weight in weights.items()
+        if weight > EPSILON
+        and not _is_cash(symbol, asset_metadata, config)
+        and not asset_metadata.get(symbol)
+    ]
+    if missing:
+        logger.warning(
+            "ETF rotation: %d symbol(s) have no risk metadata and will bypass "
+            "bucket/premium checks: %s",
+            len(missing),
+            ", ".join(sorted(missing)),
+        )
+
+
 def _normalize_weight_map(weights: WeightMap) -> Dict[str, float]:
     normalized: Dict[str, float] = {}
     for symbol, raw_weight in weights.items():
@@ -432,10 +474,27 @@ def _as_optional_fraction(value: Optional[float]) -> Optional[float]:
 
 
 def _as_fraction(value: float) -> float:
+    """Coerce a fraction or whole-percent value to a fraction.
+
+    Accepts values in ``[-1.0, 1.0]`` as fractions and values in
+    ``(1, 100]`` (or ``[-100, -1)``) as whole percents. Anything outside
+    that union raises ``ValueError`` so a mis-units bug fails loudly
+    instead of being silently rescaled.
+    """
+
     number = float(value)
-    if abs(number) > 1.0:
+    if number != number:  # NaN guard
+        raise ValueError(f"Risk-rule weight/percent input is NaN: {value!r}")
+
+    magnitude = abs(number)
+    if magnitude <= 1.0 + EPSILON:
+        return number
+    if magnitude <= 100.0 + EPSILON:
         return number / 100.0
-    return number
+    raise ValueError(
+        f"Risk-rule input {value!r} is ambiguous: fractions must be in "
+        "[-1, 1] and whole percents in (1, 100]."
+    )
 
 
 def _drop_dust(weights: Dict[str, float]) -> None:

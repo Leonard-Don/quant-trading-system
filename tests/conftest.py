@@ -5,6 +5,7 @@ pytest配置文件
 import pytest
 import sys
 import os
+from pathlib import Path
 import pandas as pd
 import numpy as np
 
@@ -15,6 +16,59 @@ sys.path.insert(0, project_root)
 from src.data.data_manager import DataManager  # noqa: E402
 from src.strategy.strategies import MovingAverageCrossover, RSIStrategy  # noqa: E402
 from src.backtest.backtester import Backtester  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolate_etf_rotation_external_state(monkeypatch):
+    """Keep ETF rotation tests independent of the developer's local config.
+
+    The CLI/API auto-load ``~/.config/etf-rotation/holdings.json`` and call
+    ``realtime_manager`` for live quotes by default. Both must be neutralised
+    in unit tests so the same suite passes on a fresh checkout and a fully
+    configured workstation. Individual tests can monkeypatch the helpers
+    back to a real implementation when they want to exercise that path.
+    """
+
+    monkeypatch.delenv("ETF_HOLDINGS_PATH", raising=False)
+    monkeypatch.delenv("ETF_AUDIT_LOG_PATH", raising=False)
+
+    try:
+        from scripts import daily_etf_signal
+    except ImportError:
+        # Skip the isolation when daily_etf_signal isn't on the path —
+        # tests that don't touch it shouldn't care.
+        return
+
+    monkeypatch.setattr(
+        daily_etf_signal,
+        "DEFAULT_HOLDINGS_PATH",
+        Path("/nonexistent/etf-rotation/holdings.json"),
+    )
+    monkeypatch.setattr(
+        daily_etf_signal,
+        "DEFAULT_AUDIT_LOG_PATH",
+        Path("/nonexistent/etf-rotation/audit.jsonl"),
+    )
+
+    def _empty_quote_fetch(codes, *, use_cache=True):
+        return {}, {
+            "requested": len(codes) if codes else 0,
+            "resolved": 0,
+            "missing": len(codes) if codes else 0,
+            "use_cache": use_cache,
+            "offline": True,
+        }
+
+    monkeypatch.setattr(daily_etf_signal, "fetch_live_quotes", _empty_quote_fetch)
+
+    # Reset the EtfRotationService singleton between tests so each test
+    # starts with no cached plan (the FastAPI lifespan hook installs one
+    # in production, but in unit tests we want isolation).
+    try:
+        from backend.app.api.v1.endpoints import etf_rotation as etf_endpoint
+    except ImportError:
+        return
+    etf_endpoint.reset_service_for_tests()
 
 
 @pytest.fixture

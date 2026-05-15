@@ -12,18 +12,26 @@ It is intentionally **broker-agnostic and non-trading**. The output is a
 plan a human reviews and executes manually — no order is submitted, no
 broker API is touched.
 
-Default invocation seeds the plan from the screenshot portfolio
-(豆粕/有色/沪深300/黄金/恒生科技) so the script is hermetic and produces
-deterministic output without any external data file.
+Holdings provenance
+-------------------
+``load_default_holdings()`` returns a **fully anonymised five-ETF example
+seed** — round share counts, public market prices, ``cost_price ==
+current_price`` so no P&L is encoded. Real positions belong outside the
+repo: set ``ETF_HOLDINGS_PATH`` (or drop a file at
+``~/.config/etf-rotation/holdings.json``) and ``load_configured_holdings``
+will pick them up. The CLI and the API endpoint both go through that
+helper, so the example seed only fires when nothing else is configured.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
@@ -34,9 +42,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.data.etf_price_history import fetch_etf_history  # noqa: E402
 from src.data.etf_rotation import (  # noqa: E402
+    DEFAULT_UNIVERSE,
     EtfHolding,
     EtfQuote,
+    EtfUniverseItem,
     build_trade_suggestions,
     calculate_current_weights,
 )
@@ -45,45 +56,111 @@ from src.risk.etf_portfolio_rules import (  # noqa: E402
     EtfRiskRuleConfig,
     apply_etf_portfolio_risk_rules,
 )
+from src.strategy.etf_rotation_config_loader import (  # noqa: E402
+    StrategyConfig,
+    load_strategy_config,
+)
 from src.strategy.etf_rotation_strategy import (  # noqa: E402
+    DEFAULT_REBALANCE_THRESHOLD,
     EtfAssetConfig,
     EtfRotationConfig,
     EtfRotationStrategy,
+    EtfScoringConfig,
 )
+
+logger = logging.getLogger(__name__)
 
 MANUAL_BANNER = "手动调仓计划：请人工复核后执行；不连接券商接口，也不会自动下单。"
 
+HOLDINGS_PATH_ENV = "ETF_HOLDINGS_PATH"
+DEFAULT_HOLDINGS_PATH = Path.home() / ".config" / "etf-rotation" / "holdings.json"
+
+AUDIT_LOG_PATH_ENV = "ETF_AUDIT_LOG_PATH"
+DEFAULT_AUDIT_LOG_PATH = Path.home() / ".config" / "etf-rotation" / "audit.jsonl"
+
 
 # ---------------------------------------------------------------------------
-# Default seed (Leonard's current ETF portfolio screenshot)
+# Example seed + configured-holdings loader
 # ---------------------------------------------------------------------------
 
 
 def load_default_holdings() -> List[EtfHolding]:
-    """Return the five-ETF screenshot seed used for examples and tests."""
+    """Return the example five-ETF seed used for tests and documentation.
+
+    Values are intentionally generic (round share counts, ``cost_price ==
+    current_price`` so no P&L is encoded). Real positions should be loaded
+    via :func:`load_configured_holdings` from a private JSON file.
+    """
 
     return [
         EtfHolding(
-            code="159985", name="豆粕ETF华夏", shares=1100,
-            cost_price=2.118, current_price=2.161,
+            code="159985", name="豆粕ETF华夏", shares=1000,
+            cost_price=2.16, current_price=2.16,
         ),
         EtfHolding(
-            code="512400", name="有色金属ETF南方", shares=4700,
-            cost_price=2.227, current_price=2.209,
+            code="512400", name="有色金属ETF南方", shares=1000,
+            cost_price=2.21, current_price=2.21,
         ),
         EtfHolding(
-            code="510300", name="沪深300ETF华泰柏瑞", shares=1400,
-            cost_price=4.674, current_price=5.017,
+            code="510300", name="沪深300ETF华泰柏瑞", shares=1000,
+            cost_price=5.02, current_price=5.02,
         ),
         EtfHolding(
             code="518680", name="金ETF富国", shares=1000,
-            cost_price=11.007, current_price=10.259,
+            cost_price=10.26, current_price=10.26,
         ),
         EtfHolding(
-            code="513130", name="恒生科技ETF华泰柏瑞", shares=3100,
-            cost_price=0.731, current_price=0.636,
+            code="513130", name="恒生科技ETF华泰柏瑞", shares=1000,
+            cost_price=0.64, current_price=0.64,
         ),
     ]
+
+
+def _resolve_holdings_path() -> Optional[Path]:
+    """Return the active holdings JSON path or None if no configured file exists.
+
+    Resolution order:
+    1. ``ETF_HOLDINGS_PATH`` environment variable, if set.
+    2. ``~/.config/etf-rotation/holdings.json`` if present.
+    """
+
+    env_path = os.environ.get(HOLDINGS_PATH_ENV)
+    if env_path:
+        candidate = Path(env_path).expanduser()
+        if candidate.is_file():
+            return candidate
+        logger.warning(
+            "ETF_HOLDINGS_PATH=%s is set but the file does not exist; "
+            "falling back to the example seed.",
+            env_path,
+        )
+
+    if DEFAULT_HOLDINGS_PATH.is_file():
+        return DEFAULT_HOLDINGS_PATH
+    return None
+
+
+def load_configured_holdings() -> Tuple[List[EtfHolding], bool]:
+    """Load holdings from a private config file, falling back to the example.
+
+    Returns a tuple of ``(holdings, is_configured)``. ``is_configured`` is
+    True when the holdings came from a real JSON file (the source-health
+    registry should then mark them as ``ready`` rather than ``synthetic``).
+    """
+
+    path = _resolve_holdings_path()
+    if path is None:
+        return load_default_holdings(), False
+    try:
+        return load_holdings_from_json(path), True
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.error(
+            "Failed to load configured holdings from %s (%s); "
+            "falling back to the example seed.",
+            path,
+            exc,
+        )
+        return load_default_holdings(), False
 
 
 def load_default_quotes(holdings: Sequence[EtfHolding]) -> Dict[str, EtfQuote]:
@@ -157,36 +234,152 @@ def _quotes_to_snapshot(quotes: Mapping[str, EtfQuote]) -> Dict[str, Dict[str, A
     return snapshot
 
 
-# Per-asset configuration: caps mirror the plan's default ceilings, base
-# weights mirror the planned long-run targets. The strategy still scales
-# these by the price-momentum score, so a weak asset never gets its base.
-DEFAULT_ASSET_CONFIG: Dict[str, Dict[str, Any]] = {
-    "159985": {"name": "豆粕ETF华夏", "category": "commodity_event",
-               "max_weight": 0.08, "base_weight": 0.05},
-    "512400": {"name": "有色金属ETF南方", "category": "nonferrous",
-               "max_weight": 0.25, "base_weight": 0.22},
-    "510300": {"name": "沪深300ETF华泰柏瑞", "category": "a_share_core",
-               "max_weight": 0.35, "base_weight": 0.28},
-    "518680": {"name": "金ETF富国", "category": "gold_hedge",
-               "max_weight": 0.25, "base_weight": 0.20},
-    "513130": {"name": "恒生科技ETF华泰柏瑞", "category": "hk_tech_satellite",
-               "max_weight": 0.12, "base_weight": 0.07},
-}
+def _asset_config_from_strategy_config(strategy_config: StrategyConfig) -> Dict[str, Dict[str, Any]]:
+    """Project the universe into the legacy ``{code: spec}`` shape."""
+
+    return {
+        asset["code"]: {
+            "name": asset.get("name", ""),
+            "category": asset.get("category", ""),
+            "max_weight": float(asset.get("max_weight", 0.30)),
+            "base_weight": float(asset.get("base_weight", 0.0)),
+        }
+        for asset in strategy_config.universe
+        if asset.get("code")
+    }
 
 
-# Metadata for the portfolio-level risk rules. The bucket/tag values are
-# what the rule engine inspects when applying commodity / QDII vetoes.
-DEFAULT_RISK_METADATA: Dict[str, Dict[str, Any]] = {
-    "159985": {"category": "commodity", "bucket": "commodity",
-               "tags": ("commodity", "agri")},
-    "512400": {"category": "metals", "bucket": "commodity",
-               "tags": ("metals", "commodity")},
-    "510300": {"category": "broad_equity", "bucket": "domestic_equity"},
-    "518680": {"category": "gold", "bucket": "commodity",
-               "tags": ("gold", "commodity")},
-    "513130": {"category": "overseas", "bucket": "qdii", "is_qdii": True},
-    "CASH": {"category": "cash"},
-}
+# ---------------------------------------------------------------------------
+# Live quote helpers (shared by CLI + API endpoint)
+# ---------------------------------------------------------------------------
+
+
+_UNIVERSE_BY_CODE = {item.code: item for item in DEFAULT_UNIVERSE}
+
+
+def _realtime_symbol_for_code(code: str) -> str:
+    """Map a 6-digit code to the realtime_manager's symbol format.
+
+    Uses the DEFAULT_UNIVERSE metadata when available; falls back to the
+    standard convention (5/6/11* → SS, otherwise SZ) for unknown codes.
+    """
+
+    item = _UNIVERSE_BY_CODE.get(code)
+    if item is not None:
+        suffix = "SS" if item.exchange == "sh" else "SZ"
+        return f"{code}.{suffix}"
+    suffix = "SS" if code[:1] in {"5", "6"} or code.startswith("11") else "SZ"
+    return f"{code}.{suffix}"
+
+
+def _float_or_none(value: Any) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed == parsed else None
+
+
+def _iso_timestamp(value: Any) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return str(value)
+
+
+def _quote_from_realtime_payload(code: str, payload: Mapping[str, Any]) -> Optional[EtfQuote]:
+    """Convert a ``realtime_manager.get_quotes_dict`` payload to an ``EtfQuote``.
+
+    Returns ``None`` when the payload lacks a positive price (the trade
+    sizing path treats missing prices as "hold").
+    """
+
+    price = _float_or_none(payload.get("price"))
+    if price is None or price <= 0:
+        return None
+    item = _UNIVERSE_BY_CODE.get(code)
+    name = (
+        payload.get("short_name")
+        or payload.get("long_name")
+        or payload.get("display_name")
+        or payload.get("name")
+        or (item.name if item else code)
+    )
+    return EtfQuote(
+        code=code,
+        name=str(name),
+        current_price=price,
+        prev_close=_float_or_none(payload.get("previous_close", payload.get("prev_close"))),
+        open_price=_float_or_none(payload.get("open")),
+        high=_float_or_none(payload.get("high")),
+        low=_float_or_none(payload.get("low")),
+        volume=_float_or_none(payload.get("volume")),
+        amount=_float_or_none(payload.get("amount")),
+        timestamp=_iso_timestamp(payload.get("timestamp")),
+        source=str(payload.get("source") or "realtime_manager"),
+    )
+
+
+def fetch_live_quotes(
+    codes: Sequence[str],
+    *,
+    use_cache: bool = True,
+) -> Tuple[Dict[str, EtfQuote], Dict[str, Any]]:
+    """Fetch realtime ETF quotes via the project's ``realtime_manager``.
+
+    Returns ``({code: EtfQuote}, status_dict)``. The status carries
+    request/resolved counts, the symbols asked for, and an ``error`` key
+    when the underlying provider raises. The CLI and the API endpoint
+    both go through this helper so they share quote semantics.
+    """
+
+    if not codes:
+        return {}, {"requested": 0, "resolved": 0, "missing": 0, "use_cache": use_cache}
+
+    try:
+        from src.data.realtime_manager import realtime_manager  # local import: heavy
+    except ImportError as exc:
+        logger.warning("realtime_manager unavailable: %s", exc)
+        return {}, {
+            "requested": len(codes),
+            "resolved": 0,
+            "missing": len(codes),
+            "use_cache": use_cache,
+            "error": f"realtime_manager_import_failed: {exc}",
+        }
+
+    symbol_to_code = {_realtime_symbol_for_code(code): code for code in codes}
+    symbols = list(symbol_to_code)
+
+    try:
+        payloads = realtime_manager.get_quotes_dict(symbols, use_cache=use_cache)
+    except (TimeoutError, ConnectionError, OSError, ValueError, KeyError) as exc:
+        logger.warning("ETF live quote fetch failed: %s", exc)
+        return {}, {
+            "requested": len(symbols),
+            "resolved": 0,
+            "missing": len(symbols),
+            "use_cache": use_cache,
+            "error": str(exc),
+        }
+
+    quotes: Dict[str, EtfQuote] = {}
+    for symbol, code in symbol_to_code.items():
+        payload = payloads.get(symbol) or payloads.get(symbol.upper()) or {}
+        quote = _quote_from_realtime_payload(code, payload)
+        if quote is not None:
+            quotes[code] = quote
+
+    return quotes, {
+        "requested": len(symbols),
+        "resolved": len(quotes),
+        "missing": max(len(symbols) - len(quotes), 0),
+        "use_cache": use_cache,
+        "symbols": symbols,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -194,12 +387,31 @@ DEFAULT_RISK_METADATA: Dict[str, Dict[str, Any]] = {
 # ---------------------------------------------------------------------------
 
 
-def build_strategy_config(holdings: Sequence[EtfHolding]) -> EtfRotationConfig:
-    """Build an ``EtfRotationConfig`` covering every holding's symbol."""
+def build_strategy_config(
+    holdings: Sequence[EtfHolding],
+    strategy_config: Optional[StrategyConfig] = None,
+) -> EtfRotationConfig:
+    """Build an ``EtfRotationConfig`` from the loader-resolved configuration.
+
+    ``strategy_config`` is loaded lazily when not supplied, so most callers
+    can stay one-arg. Pass an explicit ``StrategyConfig`` to override
+    the universe / scoring / strategy params for a single run (tests do
+    this).
+    """
+
+    cfg = strategy_config if strategy_config is not None else load_strategy_config()
+    asset_specs = _asset_config_from_strategy_config(cfg)
 
     assets: List[EtfAssetConfig] = []
     for holding in holdings:
-        spec = DEFAULT_ASSET_CONFIG.get(holding.code, {})
+        spec = asset_specs.get(holding.code, {})
+        if not spec:
+            logger.warning(
+                "ETF rotation: holding %s has no entry in the strategy "
+                "universe; using fallback caps (max=0.30, base=0.10). "
+                "Add it to %s to fix.",
+                holding.code, cfg.source_path or "your strategy.json",
+            )
         assets.append(
             EtfAssetConfig(
                 symbol=holding.code,
@@ -210,7 +422,43 @@ def build_strategy_config(holdings: Sequence[EtfHolding]) -> EtfRotationConfig:
                 base_weight=float(spec.get("base_weight", 0.10)),
             )
         )
-    return EtfRotationConfig(assets=assets, gross_cap=0.90)
+
+    scoring_fields = EtfScoringConfig.__dataclass_fields__  # type: ignore[attr-defined]
+    scoring = EtfScoringConfig(
+        **{k: v for k, v in cfg.scoring.items() if k in scoring_fields}
+    )
+
+    strategy_params = cfg.strategy
+    return EtfRotationConfig(
+        assets=assets,
+        gross_cap=float(strategy_params.get("gross_cap", 0.90)),
+        warmup_days=int(strategy_params.get("warmup_days", 60)),
+        annualized_vol_target=strategy_params.get("annualized_vol_target"),
+        min_score_to_hold=float(strategy_params.get("min_score_to_hold", 25.0)),
+        min_score_full_hold=float(strategy_params.get("min_score_full_hold", 35.0)),
+        enable_vol_targeting=bool(strategy_params.get("enable_vol_targeting", False)),
+        scoring=scoring,
+        scoring_mode=str(strategy_params.get("scoring_mode", "absolute")),
+    )
+
+
+def build_risk_config(strategy_config: Optional[StrategyConfig] = None) -> EtfRiskRuleConfig:
+    """Build an ``EtfRiskRuleConfig`` from the loader-resolved configuration."""
+
+    cfg = strategy_config if strategy_config is not None else load_strategy_config()
+    rr = cfg.risk_rules
+    return EtfRiskRuleConfig(
+        max_single_weight=float(rr.get("max_single_weight", 0.30)),
+        commodity_resource_bucket_cap=float(rr.get("commodity_resource_bucket_cap", 0.55)),
+        min_cash_weight=float(rr.get("min_cash_weight", 0.10)),
+        qdii_premium_veto=float(rr.get("qdii_premium_veto", 0.02)),
+        hard_premium_veto=float(rr.get("hard_premium_veto", 0.05)),
+        drawdown_cut_threshold=float(rr.get("drawdown_cut_threshold", 0.08)),
+        drawdown_gross_exposure_multiplier=float(
+            rr.get("drawdown_gross_exposure_multiplier", 0.75)
+        ),
+        cash_symbol=str(rr.get("cash_symbol", "CASH")),
+    )
 
 
 def synthesize_price_matrix(
@@ -218,19 +466,24 @@ def synthesize_price_matrix(
     *,
     days: int = 120,
     seed: int = 20260513,
+    end_date: Optional[pd.Timestamp] = None,
 ) -> pd.DataFrame:
     """Build a deterministic price history when no live history is supplied.
 
     Each ETF receives a gentle uptrend from ``current_price * 0.90`` to
     ``current_price`` plus a low-amplitude noise component seeded per code.
-    This is enough to make the strategy emit a sensible non-zero target
-    weight on the last day while keeping the script's output deterministic.
+    Results stay deterministic for a given ``(seed, end_date)`` pair —
+    pass an explicit ``end_date`` in tests for byte-identical output, and
+    leave it ``None`` in production so the synthetic history advances with
+    the calendar instead of getting stuck at a hardcoded date.
     """
 
     if days < 60:
         raise ValueError("days must be >= 60 so the 60-day warmup fires")
 
-    dates = pd.bdate_range(end=pd.Timestamp("2026-05-13"), periods=days)
+    if end_date is None:
+        end_date = pd.Timestamp.today().normalize()
+    dates = pd.bdate_range(end=end_date, periods=days)
     matrix: Dict[str, pd.Series] = {}
 
     for offset, (code, quote) in enumerate(quotes.items()):
@@ -265,7 +518,8 @@ def generate_plan(
     *,
     price_matrix: Optional[pd.DataFrame] = None,
     risk_config: Optional[EtfRiskRuleConfig] = None,
-    threshold_weight: float = 0.03,
+    strategy_config: Optional[StrategyConfig] = None,
+    threshold_weight: float = DEFAULT_REBALANCE_THRESHOLD,
     lot_size: int = 100,
     holdings_as_of: _AsOf = None,
     quotes_as_of: _AsOf = None,
@@ -279,6 +533,10 @@ def generate_plan(
     snapshot timestamp (broker query time, quote feed tick time, history end
     date) so the source-health registry can report accurate freshness instead
     of stamping every supplied frame with ``datetime.now()``.
+
+    ``strategy_config`` lets callers inject a pre-loaded ``StrategyConfig``
+    (avoiding repeated JSON parsing in service / refresh contexts). When
+    omitted, the loader resolves the active config from env / default path.
     """
 
     holdings_supplied = holdings is not None
@@ -291,7 +549,8 @@ def generate_plan(
     total_asset = sum(h.market_value for h in holdings)
     current_weights = calculate_current_weights(holdings, total_asset)
 
-    strategy = EtfRotationStrategy(build_strategy_config(holdings))
+    active_config = strategy_config if strategy_config is not None else load_strategy_config()
+    strategy = EtfRotationStrategy(build_strategy_config(holdings, active_config))
     if price_matrix is None:
         price_matrix = synthesize_price_matrix(quote_map)
 
@@ -305,12 +564,13 @@ def generate_plan(
     for holding in holdings:
         target_weights.setdefault(holding.code, 0.0)
 
+    effective_risk_config = risk_config if risk_config is not None else build_risk_config(active_config)
     decision = apply_etf_portfolio_risk_rules(
         proposed_weights=target_weights,
         current_weights=current_weights,
-        asset_metadata=DEFAULT_RISK_METADATA,
+        asset_metadata=active_config.asset_metadata(),
         premium_percentages=_quotes_to_premium_map(quote_map),
-        config=risk_config,
+        config=effective_risk_config,
     )
 
     # ``adjusted_weights`` may contain a synthesised CASH entry — exclude
@@ -557,11 +817,45 @@ def _format_risk_reason_zh(reason: Any) -> str:
     return text
 
 
+_SOURCE_STATUS_LABELS = {
+    "ready": "实盘",
+    "synthetic": "示例/合成",
+    "stale": "过期",
+    "missing": "缺失",
+    "error": "错误",
+}
+
+
+def _render_source_health_lines(plan: Mapping[str, Any]) -> List[str]:
+    entries = plan.get("source_health") or []
+    if not entries:
+        return []
+    lines = ["数据源："]
+    for entry in entries:
+        name = entry.get("display_name") or entry.get("source_id", "?")
+        status = entry.get("status", "?")
+        label = _SOURCE_STATUS_LABELS.get(status, status)
+        as_of = entry.get("as_of")
+        reason = entry.get("reason")
+        details: List[str] = []
+        if as_of:
+            details.append(f"采样时间 {as_of}")
+        if reason:
+            details.append(reason)
+        suffix = f"（{'，'.join(details)}）" if details else ""
+        lines.append(f"  {name}：{label}{suffix}")
+    return lines
+
+
 def _render_text(plan: Mapping[str, Any]) -> str:
     lines: List[str] = []
     lines.append(MANUAL_BANNER)
     lines.append("（无自动下单；不调用券商 API。）")
     lines.append("")
+    source_lines = _render_source_health_lines(plan)
+    if source_lines:
+        lines.extend(source_lines)
+        lines.append("")
     lines.append(f"组合资产：¥{plan.get('total_asset', 0.0):,.2f}")
     lines.append("")
 
@@ -606,6 +900,131 @@ def _render_text(plan: Mapping[str, Any]) -> str:
         lines.append(f"  - {_format_risk_reason_zh(reason)}")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Audit log
+# ---------------------------------------------------------------------------
+
+
+def _resolve_audit_log_path(explicit: Optional[Path] = None) -> Optional[Path]:
+    """Return the active audit log path, or None when auditing is disabled.
+
+    Resolution order:
+    1. ``explicit`` argument when provided.
+    2. ``ETF_AUDIT_LOG_PATH`` env var.
+    3. Default location ``~/.config/etf-rotation/audit.jsonl`` if its
+       parent directory already exists (we never create the directory
+       ourselves — opt-in via env or arg).
+    """
+
+    if explicit is not None:
+        return Path(explicit).expanduser()
+    env_value = os.environ.get(AUDIT_LOG_PATH_ENV)
+    if env_value:
+        return Path(env_value).expanduser()
+    if DEFAULT_AUDIT_LOG_PATH.parent.is_dir():
+        return DEFAULT_AUDIT_LOG_PATH
+    return None
+
+
+def _audit_entry_from_plan(
+    plan: Mapping[str, Any], *, run_at: datetime, quote_source: Optional[str]
+) -> Dict[str, Any]:
+    """Slim a plan dict into a stable audit row."""
+
+    suggestions = [
+        {
+            "code": s["code"],
+            "action": s["action"],
+            "shares": int(s.get("shares", 0)),
+            "current_weight": float(s.get("current_weight", 0.0)),
+            "target_weight": float(s.get("target_weight", 0.0)),
+            "reason": s.get("reason", ""),
+        }
+        for s in plan.get("suggestions") or []
+    ]
+    source_health = [
+        {
+            "source_id": entry.get("source_id"),
+            "status": entry.get("status"),
+            "as_of": entry.get("as_of"),
+            "reason": entry.get("reason"),
+        }
+        for entry in plan.get("source_health") or []
+    ]
+    return {
+        "run_at": run_at.isoformat(),
+        "quote_source": quote_source,
+        "total_asset": float(plan.get("total_asset", 0.0)),
+        "current_weights": {k: float(v) for k, v in (plan.get("current_weights") or {}).items()},
+        "target_weights": {k: float(v) for k, v in (plan.get("target_weights") or {}).items()},
+        "adjusted_weights": {
+            k: float(v) for k, v in (plan.get("adjusted_weights") or {}).items()
+        },
+        "suggestions": suggestions,
+        "risk_reasons": list(plan.get("risk_reasons") or []),
+        "source_health": source_health,
+    }
+
+
+def append_audit_entry(
+    plan: Mapping[str, Any],
+    *,
+    path: Optional[Path] = None,
+    run_at: Optional[datetime] = None,
+    quote_source: Optional[str] = None,
+) -> Optional[Path]:
+    """Append one JSON-Lines row describing ``plan`` to the audit log.
+
+    Returns the path written, or ``None`` when auditing is disabled (no
+    explicit path, no env var, and no pre-existing config directory).
+    Failures (IO errors) are logged and swallowed — auditing must never
+    abort a manual trade plan.
+    """
+
+    target = _resolve_audit_log_path(path)
+    if target is None:
+        return None
+    target.parent.mkdir(parents=True, exist_ok=True)
+    entry = _audit_entry_from_plan(
+        plan,
+        run_at=run_at or datetime.now(timezone.utc),
+        quote_source=quote_source,
+    )
+    try:
+        with target.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False, sort_keys=True))
+            fh.write("\n")
+    except OSError as exc:
+        logger.warning("Failed to append ETF audit entry to %s: %s", target, exc)
+        return None
+    return target
+
+
+def read_audit_log(path: Optional[Path] = None) -> List[Dict[str, Any]]:
+    """Return the audit log as a list of dicts (chronological order).
+
+    Returns an empty list when the file does not exist. Bad lines are
+    logged and skipped so an old half-written entry can't break a
+    reconciliation run.
+    """
+
+    target = path or _resolve_audit_log_path()
+    if target is None or not Path(target).is_file():
+        return []
+    entries: List[Dict[str, Any]] = []
+    for line_no, line in enumerate(
+        Path(target).read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError as exc:
+            logger.warning("Skipping malformed audit line %d in %s: %s", line_no, target, exc)
+    return entries
 
 
 # ---------------------------------------------------------------------------
@@ -717,29 +1136,230 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default="text",
         help="输出格式：text 打印易读计划；json 输出机器可读载荷。",
     )
+    parser.add_argument(
+        "--audit-log",
+        type=Path,
+        default=None,
+        help=(
+            "可选：审计日志路径 (JSON Lines)。优先级高于 ETF_AUDIT_LOG_PATH 环境变量。"
+            "传 --audit-log /dev/null 可显式禁用本次写入。"
+        ),
+    )
+    parser.add_argument(
+        "--use-live-history",
+        action="store_true",
+        help=(
+            "通过 akshare 拉取 ETF 真实历史价格（默认关闭，使用确定性合成历史）。"
+            "拉取失败时自动回退到合成数据并在 source_health 中标记。"
+        ),
+    )
+    parser.add_argument(
+        "--history-days",
+        type=int,
+        default=540,
+        help="--use-live-history 时获取多少天历史（默认 540，含 60 日 warmup 余量）。",
+    )
+    quote_group = parser.add_mutually_exclusive_group()
+    quote_group.add_argument(
+        "--use-live-quotes",
+        dest="use_live_quotes",
+        action="store_true",
+        default=True,
+        help="使用 realtime_manager 拉取实时行情刷新现价（默认开启）。",
+    )
+    quote_group.add_argument(
+        "--no-live-quotes",
+        dest="use_live_quotes",
+        action="store_false",
+        help="禁用实时行情；用 holdings.json 里的 current_price 作为现价（脱机/测试用）。",
+    )
+    parser.add_argument(
+        "--quote-cache",
+        choices=("on", "off"),
+        default="on",
+        help="--use-live-quotes 时是否允许实时行情缓存（默认 on；手动强刷传 off）。",
+    )
+    parser.add_argument(
+        "--position-cut",
+        type=float,
+        default=1.0,
+        help=(
+            "对策略想要减仓的标的，按 [0, 1] 区间打折执行：1.0 全额按策略目标"
+            "（默认）；0.5 只走一半（current + (target - current) * 0.5）。"
+            "用于规避策略一刀切清仓时的执行风险，可手动谨慎减仓。"
+        ),
+    )
     return parser
+
+
+def _apply_position_cut(
+    current_weights: Mapping[str, float],
+    target_weights: Mapping[str, float],
+    cut: float,
+) -> Dict[str, float]:
+    """Soften reductions: target' = current + (target - current) * cut.
+
+    ``cut=1.0`` (default) leaves targets unchanged. ``cut=0.5`` only
+    moves half-way from the current weight toward the strategy target,
+    so a "clear out" signal becomes a "halve the position" suggestion.
+    Buy-side moves are softened too — the helper is symmetric and
+    deliberately treats execution risk uniformly across both directions.
+    """
+
+    cut = float(np.clip(cut, 0.0, 1.0))
+    if cut >= 1.0 - 1e-9:
+        return dict(target_weights)
+    softened: Dict[str, float] = {}
+    keys = set(target_weights) | set(current_weights)
+    for code in keys:
+        cw = float(current_weights.get(code, 0.0))
+        tw = float(target_weights.get(code, 0.0))
+        softened[code] = cw + (tw - cw) * cut
+    return softened
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _build_arg_parser().parse_args(argv)
 
-    # Pass ``None`` when the user didn't supply a file so ``generate_plan``
-    # can record the source-health provenance as ``synthetic`` instead of
-    # ``ready`` (loading the screenshot seed here would hide that fact).
-    holdings = (
-        load_holdings_from_json(args.holdings_json)
-        if args.holdings_json is not None
-        else None
-    )
-    quotes = (
-        load_quotes_from_json(args.quotes_json)
-        if args.quotes_json is not None
-        else None
+    # Holdings resolution: explicit --holdings-json wins, then the configured
+    # private file ($ETF_HOLDINGS_PATH / ~/.config/etf-rotation/holdings.json),
+    # then ``None`` so ``generate_plan`` records the source-health entry as
+    # ``synthetic`` and the dashboard surfaces the seed-fallback state.
+    holdings: Optional[List[EtfHolding]]
+    holdings_as_of: _AsOf
+    if args.holdings_json is not None:
+        holdings = load_holdings_from_json(args.holdings_json)
+        holdings_as_of = datetime.fromtimestamp(
+            args.holdings_json.stat().st_mtime, tz=timezone.utc
+        ).isoformat()
+    else:
+        configured, is_configured = load_configured_holdings()
+        if is_configured:
+            holdings = configured
+            path = _resolve_holdings_path()
+            holdings_as_of = (
+                datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()
+                if path is not None
+                else None
+            )
+        else:
+            holdings = None
+            holdings_as_of = None
+
+    # Quotes: explicit --quotes-json wins, then realtime_manager via
+    # fetch_live_quotes (default), then ``None`` so generate_plan derives
+    # quotes from holdings (offline mode).
+    quotes: Optional[Dict[str, EtfQuote]] = None
+    quotes_as_of: _AsOf = None
+    if args.quotes_json is not None:
+        quotes = load_quotes_from_json(args.quotes_json)
+        quotes_as_of = datetime.fromtimestamp(
+            args.quotes_json.stat().st_mtime, tz=timezone.utc
+        ).isoformat()
+    elif args.use_live_quotes:
+        codes = [h.code for h in (holdings or load_default_holdings())]
+        live_quotes, _status = fetch_live_quotes(
+            codes, use_cache=(args.quote_cache == "on")
+        )
+        if live_quotes:
+            quotes = live_quotes
+            quotes_as_of = max(
+                (q.timestamp for q in live_quotes.values() if q.timestamp),
+                default=None,
+            )
+            # Reprice holdings with live quotes so total_asset reflects today.
+            if holdings is not None:
+                holdings = apply_quotes_to_holdings(holdings, live_quotes)
+
+    price_matrix: Optional[pd.DataFrame] = None
+    price_matrix_as_of: _AsOf = None
+    if args.use_live_history:
+        codes = [h.code for h in (holdings or load_default_holdings())]
+        fetched = fetch_etf_history(
+            codes,
+            start_date=datetime.now() - timedelta(days=args.history_days),
+        )
+        if fetched.empty:
+            logger.warning(
+                "Live ETF history fetch returned empty; falling back to "
+                "synthetic price matrix for this run."
+            )
+        else:
+            price_matrix = fetched
+            last_dt = fetched.index.max()
+            price_matrix_as_of = (
+                last_dt.isoformat() if isinstance(last_dt, pd.Timestamp) else str(last_dt)
+            )
+
+    plan = generate_plan(
+        holdings=holdings,
+        quotes=quotes,
+        price_matrix=price_matrix,
+        holdings_as_of=holdings_as_of,
+        quotes_as_of=quotes_as_of,
+        price_matrix_as_of=price_matrix_as_of,
     )
 
-    plan = generate_plan(holdings=holdings, quotes=quotes)
+    if args.position_cut < 1.0:
+        plan = _apply_position_cut_to_plan(plan, holdings, quotes, args.position_cut)
+
+    append_audit_entry(plan, path=args.audit_log, quote_source="cli")
     print(format_output(plan, output=args.output))
     return 0
+
+
+def _apply_position_cut_to_plan(
+    plan: Dict[str, Any],
+    holdings: Optional[Sequence[EtfHolding]],
+    quotes: Optional[Mapping[str, EtfQuote]],
+    cut: float,
+) -> Dict[str, Any]:
+    """Re-emit suggestions from softened target weights without re-running risk rules."""
+
+    if holdings is None or quotes is None:
+        # Without concrete holdings/quotes we can't resize orders; tag and skip.
+        plan = dict(plan)
+        plan["position_cut"] = cut
+        plan["position_cut_warning"] = (
+            "position_cut requested but holdings or quotes were unavailable; "
+            "suggestions reflect the full strategy target."
+        )
+        return plan
+
+    softened = _apply_position_cut(
+        plan.get("current_weights", {}),
+        plan.get("adjusted_weights", {}),
+        cut,
+    )
+    # Keep CASH out of the suggestion sizing pass (same convention as generate_plan).
+    softened_for_trades = {k: v for k, v in softened.items() if k != "CASH"}
+    total_asset = float(plan.get("total_asset", 0.0))
+    suggestions = build_trade_suggestions(
+        current_holdings=holdings,
+        target_weights=softened_for_trades,
+        quotes=quotes,
+        total_asset=total_asset,
+        lot_size=100,
+        threshold_weight=DEFAULT_REBALANCE_THRESHOLD,
+    )
+
+    updated = dict(plan)
+    updated["adjusted_weights"] = {k: float(v) for k, v in softened.items()}
+    updated["suggestions"] = [
+        {
+            "code": s.code,
+            "name": s.name,
+            "action": s.action,
+            "shares": int(s.shares),
+            "estimated_amount": float(s.estimated_amount),
+            "current_weight": float(s.current_weight),
+            "target_weight": float(s.target_weight),
+            "reason": s.reason,
+        }
+        for s in suggestions
+    ]
+    updated["position_cut"] = cut
+    return updated
 
 
 if __name__ == "__main__":

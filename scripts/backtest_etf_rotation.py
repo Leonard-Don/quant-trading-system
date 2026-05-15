@@ -17,7 +17,10 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from scripts.daily_etf_signal import build_strategy_config, load_default_holdings  # noqa: E402
 from src.backtest.portfolio_backtester import PortfolioBacktester  # noqa: E402
-from src.strategy.etf_rotation_strategy import EtfRotationStrategy  # noqa: E402
+from src.strategy.etf_rotation_strategy import (  # noqa: E402
+    DEFAULT_REBALANCE_THRESHOLD,
+    EtfRotationStrategy,
+)
 
 
 def load_price_matrix(prices_csv: str | Path) -> pd.DataFrame:
@@ -41,8 +44,15 @@ def run_backtest(
     initial_capital: float = 100_000.0,
     commission: float = 0.001,
     slippage: float = 0.001,
+    min_rebalance_weight_delta: float = DEFAULT_REBALANCE_THRESHOLD,
 ) -> Dict[str, Any]:
-    """Run PortfolioBacktester with EtfRotationStrategy on a local price CSV."""
+    """Run PortfolioBacktester with EtfRotationStrategy on a local price CSV.
+
+    The default ``min_rebalance_weight_delta`` matches the live CLI's
+    ``threshold_weight`` so backtest turnover roughly tracks production —
+    a 1% backtest threshold against a 3% live threshold systematically
+    overstates trading costs in the report.
+    """
 
     price_matrix = load_price_matrix(prices_csv)
     holdings = [holding for holding in load_default_holdings() if holding.code in price_matrix.columns]
@@ -56,7 +66,7 @@ def run_backtest(
         slippage=slippage,
         allow_fractional_shares=False,
         max_gross_exposure=0.90,
-        min_rebalance_weight_delta=0.01,
+        min_rebalance_weight_delta=min_rebalance_weight_delta,
     )
     return backtester.run(strategy, price_matrix)
 

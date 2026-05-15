@@ -724,6 +724,26 @@ export const getEtfRotationDailySignal = async (params = {}) => {
   return response.data;
 };
 
+export const getEtfRotationLiveTarget = async ({ triggerRefresh = false } = {}) => {
+  const response = await api.get('/etf-rotation/live-target', {
+    params: { trigger_refresh: triggerRefresh ? 'true' : 'false' },
+    ...withTimeoutProfile('standard'),
+  });
+  return response.data;
+};
+
+export const postEtfRotationRefresh = async ({ useCache = true } = {}) => {
+  const response = await api.post(
+    '/etf-rotation/refresh',
+    null,
+    {
+      params: { use_cache: useCache ? 'true' : 'false' },
+      ...withTimeoutProfile('standard'),
+    },
+  );
+  return response.data;
+};
+
 export const getRealtimeQuote = async (symbol) => {
   const response = await api.get(`/realtime/quote/${encodeURIComponent(symbol)}`);
   return response.data;
