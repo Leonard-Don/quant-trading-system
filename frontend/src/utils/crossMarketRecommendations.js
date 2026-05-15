@@ -34,8 +34,8 @@ const clampMin = (value, minimum = 0.05) => {
   return Math.max(minimum, Number.isFinite(numeric) ? numeric : 0);
 };
 const pushContribution = (list, key, label, value) => {
-  const numeric = Number(value || 0);
-  if (numeric <= 0.005) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0.005) {
     return;
   }
   list.push({
