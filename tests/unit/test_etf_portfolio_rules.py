@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 from src.risk.etf_portfolio_rules import EtfRiskRuleConfig, apply_etf_portfolio_risk_rules
@@ -72,6 +74,41 @@ def test_premium_veto_prevents_increasing_qdii_and_commodity_etfs():
     assert decision.adjusted_weights["159985"] == pytest.approx(0.05)
     assert any("Premium veto for 513130" in reason for reason in decision.reasons)
     assert any("Premium veto for 159985" in reason for reason in decision.reasons)
+
+
+def test_strict_unit_coercion_rejects_ambiguous_values():
+    """A 150 value cannot be silently rescaled to 1.5% — that's mis-units."""
+    with pytest.raises(ValueError):
+        apply_etf_portfolio_risk_rules(
+            proposed_weights={"510300": 0.5, "CASH": 0.5},
+            asset_metadata=ETF_METADATA,
+            portfolio_drawdown=150.0,
+        )
+
+
+def test_strict_unit_coercion_accepts_whole_percent_drawdown():
+    decision = apply_etf_portfolio_risk_rules(
+        proposed_weights={"510300": 0.9, "CASH": 0.1},
+        asset_metadata=ETF_METADATA,
+        portfolio_drawdown=9.0,  # 9% as whole-percent, equivalent to 0.09
+    )
+    # 9% drawdown exceeds the 8% threshold → drawdown cut should fire.
+    assert any("Drawdown cut" in reason for reason in decision.reasons)
+
+
+def test_warns_when_held_symbol_missing_risk_metadata(caplog):
+    caplog.set_level(logging.WARNING, logger="src.risk.etf_portfolio_rules")
+    apply_etf_portfolio_risk_rules(
+        proposed_weights={"588000": 0.25, "510300": 0.65, "CASH": 0.10},
+        asset_metadata={
+            "510300": {"category": "broad_equity"},
+            "CASH": {"category": "cash"},
+        },
+    )
+    assert any(
+        "no risk metadata" in record.getMessage() and "588000" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_drawdown_above_eight_percent_reduces_gross_exposure():

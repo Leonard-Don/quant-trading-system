@@ -1,0 +1,76 @@
+{
+  "_comment": "ETF rotation strategy config template. Copy to ~/.config/etf-rotation/strategy.json and customise. Any field omitted falls back to the built-in default. universe is override-by-code: adding 511260 here adds a new sleeve; specifying only {code, max_weight} for 510300 just changes that one cap.",
+  "_load_order": "1) ETF_STRATEGY_CONFIG_PATH env  2) ~/.config/etf-rotation/strategy.json  3) module defaults",
+
+  "universe": [
+    {
+      "code": "159985", "name": "豆粕ETF华夏", "exchange": "sz",
+      "category": "commodity_event",
+      "max_weight": 0.08, "base_weight": 0.05,
+      "risk_metadata": {"bucket": "commodity", "tags": ["commodity", "agri"]}
+    },
+    {
+      "code": "512400", "name": "有色金属ETF南方", "exchange": "sh",
+      "category": "nonferrous",
+      "max_weight": 0.25, "base_weight": 0.22,
+      "risk_metadata": {"bucket": "commodity", "tags": ["metals", "commodity"]}
+    },
+    {
+      "code": "510300", "name": "沪深300ETF华泰柏瑞", "exchange": "sh",
+      "category": "a_share_core",
+      "max_weight": 0.35, "base_weight": 0.28,
+      "risk_metadata": {"bucket": "domestic_equity"}
+    },
+    {
+      "code": "518680", "name": "金ETF富国", "exchange": "sh",
+      "category": "gold_hedge",
+      "max_weight": 0.25, "base_weight": 0.20,
+      "risk_metadata": {"bucket": "commodity", "tags": ["gold", "commodity"]}
+    },
+    {
+      "code": "513130", "name": "恒生科技ETF华泰柏瑞", "exchange": "sh",
+      "category": "hk_tech_satellite",
+      "max_weight": 0.12, "base_weight": 0.07,
+      "risk_metadata": {"bucket": "qdii", "is_qdii": true}
+    }
+  ],
+
+  "risk_rules": {
+    "_comment": "Portfolio-level guardrails. min_cash_weight is the floor after all other adjustments.",
+    "max_single_weight": 0.30,
+    "commodity_resource_bucket_cap": 0.55,
+    "min_cash_weight": 0.10,
+    "qdii_premium_veto": 0.02,
+    "hard_premium_veto": 0.05,
+    "drawdown_cut_threshold": 0.08,
+    "drawdown_gross_exposure_multiplier": 0.75,
+    "cash_symbol": "CASH"
+  },
+
+  "strategy": {
+    "_comment": "scoring_mode: 'absolute' uses hand-tuned thresholds (legacy); 'cross_sectional' Z-scores each feature across the universe daily (self-calibrating across regimes).",
+    "gross_cap": 0.90,
+    "warmup_days": 60,
+    "annualized_vol_target": 0.20,
+    "enable_vol_targeting": false,
+    "min_score_to_hold": 25.0,
+    "min_score_full_hold": 35.0,
+    "scoring_mode": "absolute"
+  },
+
+  "scoring": {
+    "_comment": "Override only the constants you want to change; everything else falls back to EtfScoringConfig defaults.",
+    "momentum_return20_multiplier": 250.0,
+    "premium_hard_threshold": 0.05,
+    "risk_volatility_multiplier": 35.0
+  },
+
+  "refresh": {
+    "_comment": "Background refresh cadence. Set enabled=true to opt in.",
+    "enabled": false,
+    "interval_seconds": 300,
+    "trading_hours": [["09:30", "11:30"], ["13:00", "15:00"]],
+    "timezone": "Asia/Shanghai",
+    "rebalance_debounce_weight": 0.005
+  }
+}

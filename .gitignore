@@ -167,3 +167,6 @@ secrets/
 # OS generated files
 .directory
 .Trash-*
+
+# Claude Code local editor config
+.claude/

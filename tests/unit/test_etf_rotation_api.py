@@ -12,6 +12,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from backend.main import app
+from scripts import daily_etf_signal
 
 PLAN_KEYS = {
     "manual_only",
@@ -117,54 +118,108 @@ def test_daily_signal_rejects_invalid_threshold_weight() -> None:
 
 
 def test_daily_signal_default_uses_live_quotes_to_reprice_holdings(monkeypatch) -> None:
-    from backend.app.api.v1.endpoints import etf_rotation
-
     captured = {}
 
-    def fake_get_quotes_dict(symbols, use_cache=True):
-        captured["symbols"] = symbols
+    def fake_fetch(codes, *, use_cache=True):
+        from src.data.etf_rotation import EtfQuote
+
+        captured["codes"] = list(codes)
         captured["use_cache"] = use_cache
-        return {
-            "510300.SS": {
-                "symbol": "510300.SS",
-                "price": 6.0,
-                "previous_close": 5.5,
-                "open": 5.6,
-                "high": 6.1,
-                "low": 5.4,
-                "volume": 123456,
-                "timestamp": "2026-05-14T11:00:00+00:00",
-                "source": "fake-live",
-            }
+        quote = EtfQuote(
+            code="510300",
+            name="沪深300ETF",
+            current_price=6.0,
+            prev_close=5.5,
+            open_price=5.6,
+            high=6.1,
+            low=5.4,
+            volume=123456,
+            timestamp="2026-05-14T11:00:00+00:00",
+            source="fake-live",
+        )
+        return {"510300": quote}, {
+            "requested": len(codes),
+            "resolved": 1,
+            "missing": max(len(codes) - 1, 0),
+            "use_cache": use_cache,
+            "symbols": [f"{c}.SS" for c in codes],
         }
 
-    monkeypatch.setattr(etf_rotation.realtime_manager, "get_quotes_dict", fake_get_quotes_dict)
+    monkeypatch.setattr(daily_etf_signal, "fetch_live_quotes", fake_fetch)
 
     client = TestClient(app)
     data = client.get("/etf-rotation/daily-signal").json()["data"]
 
-    assert "510300.SS" in captured["symbols"]
+    assert "510300" in captured["codes"]
     assert captured["use_cache"] is True
     assert data["quote_source"] == "live"
     assert data["live_quote_status"]["resolved"] == 1
     assert data["quote_snapshot"]["510300"]["current_price"] == 6.0
     assert data["quote_snapshot"]["510300"]["source"] == "fake-live"
-    # 510300 default seed: 1400 shares at 5.017. The live endpoint should
-    # reprice the holding to 6.0 before computing total asset/current weights.
-    assert data["total_asset"] > 32000
+    # 510300 example seed: 1000 shares at 5.02. The live endpoint must
+    # reprice the holding to 6.0 before computing total asset / weights —
+    # we just check the repricing visibly moved the 510300 weight up
+    # (the example portfolio's exact total is intentionally generic).
+    example_seed = daily_etf_signal.load_default_holdings()
+    example_total = sum(h.market_value for h in example_seed)
+    assert data["total_asset"] > example_total  # 510300 was repriced upward
     assert data["current_weights"]["510300"] > 0.25
 
 
-def test_daily_signal_use_cache_false_forces_fresh_live_quote_fetch(monkeypatch) -> None:
-    from backend.app.api.v1.endpoints import etf_rotation
+def test_live_target_returns_503_when_no_cached_plan() -> None:
+    client = TestClient(app)
+    response = client.get("/etf-rotation/live-target")
+    assert response.status_code == 503
+    # The global error handler may wrap detail into an envelope; just
+    # confirm the message surfaces somewhere.
+    body = response.text
+    assert "plan" in body.lower()
 
+
+def test_live_target_trigger_refresh_builds_initial_plan() -> None:
+    client = TestClient(app)
+    response = client.get("/etf-rotation/live-target?trigger_refresh=true")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert "plan" in payload["data"]
+    assert "adjusted_weights" in payload["data"]["plan"]
+    assert payload["refresh"]["refreshed"] is True
+
+
+def test_live_target_returns_cached_plan_after_initial_refresh() -> None:
+    client = TestClient(app)
+    client.get("/etf-rotation/live-target?trigger_refresh=true")
+
+    response = client.get("/etf-rotation/live-target")
+    assert response.status_code == 200
+    payload = response.json()
+    assert "refreshed_at" in payload["data"]
+    assert "is_trading_hours" in payload["refresh"]
+
+
+def test_post_refresh_force_refreshes_even_outside_trading_hours() -> None:
+    client = TestClient(app)
+    response = client.post("/etf-rotation/refresh")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["refresh"]["refreshed"] is True
+
+
+def test_daily_signal_use_cache_false_forces_fresh_live_quote_fetch(monkeypatch) -> None:
     observed = []
 
-    def fake_get_quotes_dict(symbols, use_cache=True):
+    def fake_fetch(codes, *, use_cache=True):
         observed.append(use_cache)
-        return {}
+        return {}, {
+            "requested": len(codes),
+            "resolved": 0,
+            "missing": len(codes),
+            "use_cache": use_cache,
+        }
 
-    monkeypatch.setattr(etf_rotation.realtime_manager, "get_quotes_dict", fake_get_quotes_dict)
+    monkeypatch.setattr(daily_etf_signal, "fetch_live_quotes", fake_fetch)
 
     client = TestClient(app)
     response = client.get("/etf-rotation/daily-signal?use_cache=false")

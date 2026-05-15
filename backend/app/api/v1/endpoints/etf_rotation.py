@@ -4,115 +4,60 @@ This wraps :func:`scripts.daily_etf_signal.generate_plan` so the frontend can
 render the same manual-only suggestions the CLI prints. The endpoint remains
 broker-agnostic: it may read market quotes, but it never contacts a broker and
 never submits orders.
+
+Quote and history fetching live in :mod:`scripts.daily_etf_signal` so the CLI
+and this endpoint share identical semantics — no duplicated realtime logic.
+
+Endpoints
+---------
+* ``GET /daily-signal`` — one-shot computation against live quotes (for the
+  legacy dashboard tile).
+* ``GET /live-target`` — returns the latest cached plan from the
+  ``EtfRotationService`` background refresh loop, with explicit freshness
+  metadata. Use this when the dashboard polls every few seconds.
+* ``POST /refresh`` — force a refresh outside trading hours.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
-from datetime import datetime
-from typing import Any
+from typing import Any, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from scripts import daily_etf_signal
-from src.data.etf_rotation import DEFAULT_UNIVERSE, EtfQuote, EtfUniverseItem
-from src.data.realtime_manager import realtime_manager
+from src.strategy.etf_rotation_service import EtfRotationService
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-_UNIVERSE_BY_CODE = {item.code: item for item in DEFAULT_UNIVERSE}
+# Singleton service shared by all requests. Built lazily so test setups
+# (and the conftest isolation fixture) can monkeypatch the constructor or
+# inject a fake before the first call.
+_service: Optional[EtfRotationService] = None
+_service_lock_module_init = False
 
 
-def _realtime_symbol_for(item: EtfUniverseItem) -> str:
-    suffix = "SS" if item.exchange == "sh" else "SZ"
-    return f"{item.code}.{suffix}"
+def _get_service() -> EtfRotationService:
+    global _service
+    if _service is None:
+        _service = EtfRotationService()
+    return _service
 
 
-def _float_or_none(value: Any) -> float | None:
-    if value in (None, ""):
-        return None
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return None
-    return parsed if parsed == parsed else None
+def reset_service_for_tests() -> None:
+    """Drop the cached service singleton — used by the test fixture."""
+
+    global _service
+    _service = None
 
 
-def _iso_timestamp(value: Any) -> str | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, datetime):
-        return value.isoformat()
-    return str(value)
+def install_service(service: EtfRotationService) -> None:
+    """Replace the module-level service (used by the FastAPI lifespan hook)."""
 
-
-def _quote_from_realtime_payload(
-    code: str,
-    payload: Mapping[str, Any],
-) -> EtfQuote | None:
-    price = _float_or_none(payload.get("price"))
-    if price is None or price <= 0:
-        return None
-
-    item = _UNIVERSE_BY_CODE.get(code)
-    name = (
-        payload.get("short_name")
-        or payload.get("long_name")
-        or payload.get("display_name")
-        or payload.get("name")
-        or (item.name if item else code)
-    )
-    timestamp = _iso_timestamp(payload.get("timestamp"))
-    return EtfQuote(
-        code=code,
-        name=str(name),
-        current_price=price,
-        prev_close=_float_or_none(payload.get("previous_close", payload.get("prev_close"))),
-        open_price=_float_or_none(payload.get("open")),
-        high=_float_or_none(payload.get("high")),
-        low=_float_or_none(payload.get("low")),
-        volume=_float_or_none(payload.get("volume")),
-        amount=_float_or_none(payload.get("amount")),
-        timestamp=timestamp,
-        source=str(payload.get("source") or "realtime_manager"),
-    )
-
-
-def _load_live_quotes(*, use_cache: bool = True) -> tuple[dict[str, EtfQuote], dict[str, Any]]:
-    symbol_to_code = {
-        _realtime_symbol_for(item): item.code
-        for item in DEFAULT_UNIVERSE
-    }
-    symbols = list(symbol_to_code)
-    try:
-        payloads = realtime_manager.get_quotes_dict(symbols, use_cache=use_cache)
-    except Exception as exc:  # pragma: no cover - defensive; covered by status contract
-        logger.warning("ETF live quote fetch failed: %s", exc)
-        return {}, {
-            "requested": len(symbols),
-            "resolved": 0,
-            "missing": len(symbols),
-            "use_cache": use_cache,
-            "error": str(exc),
-        }
-
-    quotes: dict[str, EtfQuote] = {}
-    for symbol, code in symbol_to_code.items():
-        payload = payloads.get(symbol) or payloads.get(symbol.upper()) or {}
-        quote = _quote_from_realtime_payload(code, payload)
-        if quote is not None:
-            quotes[code] = quote
-
-    return quotes, {
-        "requested": len(symbols),
-        "resolved": len(quotes),
-        "missing": max(len(symbols) - len(quotes), 0),
-        "use_cache": use_cache,
-        "symbols": symbols,
-    }
+    global _service
+    _service = service
 
 
 @router.get(
@@ -141,8 +86,13 @@ def get_daily_signal(
         description="live 模式下是否允许使用实时行情缓存；手动刷新可传 false。",
     ),
 ) -> dict[str, Any]:
+    base_holdings, holdings_is_configured = daily_etf_signal.load_configured_holdings()
+
     if quote_source == "synthetic":
-        plan = daily_etf_signal.generate_plan(threshold_weight=threshold_weight)
+        plan = daily_etf_signal.generate_plan(
+            holdings=base_holdings if holdings_is_configured else None,
+            threshold_weight=threshold_weight,
+        )
         plan["quote_source"] = "synthetic"
         plan["live_quote_status"] = {
             "requested": 0,
@@ -150,12 +100,15 @@ def get_daily_signal(
             "missing": 0,
             "use_cache": use_cache,
         }
+        daily_etf_signal.append_audit_entry(plan, quote_source="api:synthetic")
         return {"success": True, "data": plan}
 
-    seed_holdings = daily_etf_signal.load_default_holdings()
-    live_quotes, live_status = _load_live_quotes(use_cache=use_cache)
+    codes = [h.code for h in base_holdings]
+    live_quotes, live_status = daily_etf_signal.fetch_live_quotes(
+        codes, use_cache=use_cache
+    )
     if live_quotes:
-        holdings = daily_etf_signal.apply_quotes_to_holdings(seed_holdings, live_quotes)
+        holdings = daily_etf_signal.apply_quotes_to_holdings(base_holdings, live_quotes)
         quote_map = daily_etf_signal.load_default_quotes(holdings)
         quote_map.update(live_quotes)
         plan = daily_etf_signal.generate_plan(
@@ -169,7 +122,86 @@ def get_daily_signal(
         )
         plan["quote_source"] = "live"
     else:
-        plan = daily_etf_signal.generate_plan(threshold_weight=threshold_weight)
+        plan = daily_etf_signal.generate_plan(
+            holdings=base_holdings if holdings_is_configured else None,
+            threshold_weight=threshold_weight,
+        )
         plan["quote_source"] = "fallback_synthetic"
     plan["live_quote_status"] = live_status
+    daily_etf_signal.append_audit_entry(plan, quote_source=f"api:{plan['quote_source']}")
     return {"success": True, "data": plan}
+
+
+def _serialise_cached(cached: Any) -> dict[str, Any]:
+    return {
+        "plan": cached.plan,
+        "refreshed_at": cached.refreshed_at.isoformat() if cached.refreshed_at else None,
+        "quote_source": cached.quote_source,
+        "debounced": cached.debounced,
+        "debounce_max_delta": cached.debounce_max_delta,
+        "reasons": list(cached.reasons or []),
+    }
+
+
+@router.get(
+    "/live-target",
+    summary="读取最近一次后台刷新的 ETF 轮动目标仓位",
+    description=(
+        "返回 EtfRotationService 缓存的最新计划与刷新元数据。前端可"
+        "高频轮询此端点而不触发底层数据拉取——后台刷新循环负责保持缓存常新。"
+        "trigger_refresh=true 时即使非交易时段也会强制刷新一次。"
+    ),
+)
+def get_live_target(
+    trigger_refresh: bool = Query(
+        default=False,
+        description="true=阻塞触发一次刷新（即使非交易时段）；false=仅读缓存。",
+    ),
+) -> dict[str, Any]:
+    service = _get_service()
+    if trigger_refresh:
+        outcome = service.refresh(force=True)
+        return {
+            "success": True,
+            "data": _serialise_cached(outcome.cached),
+            "refresh": {
+                "refreshed": outcome.refreshed,
+                "skipped_reason": outcome.skipped_reason,
+            },
+        }
+
+    cached = service.get_cached_plan()
+    if cached is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "ETF rotation service has not produced a plan yet. "
+                "Call /live-target?trigger_refresh=true or wait for the "
+                "next scheduled refresh."
+            ),
+        )
+    return {
+        "success": True,
+        "data": _serialise_cached(cached),
+        "refresh": {
+            "is_trading_hours": service.is_trading_hours(),
+        },
+    }
+
+
+@router.post(
+    "/refresh",
+    summary="强制刷新 ETF 轮动信号缓存",
+    description="即使在非交易时段也立即重新计算一次 plan，并写入审计日志。",
+)
+def post_refresh(use_cache: bool = Query(default=True)) -> dict[str, Any]:
+    service = _get_service()
+    outcome = service.refresh(force=True, use_cache=use_cache)
+    return {
+        "success": True,
+        "data": _serialise_cached(outcome.cached),
+        "refresh": {
+            "refreshed": outcome.refreshed,
+            "skipped_reason": outcome.skipped_reason,
+        },
+    }
