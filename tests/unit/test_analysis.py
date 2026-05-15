@@ -180,6 +180,44 @@ class TestTrendAnalyzer:
         assert payload["data_points"] > 0
 
     @patch("backend.app.api.v1.endpoints.analysis.data_manager.get_historical_data")
+    def test_risk_metrics_endpoint_sanitizes_non_finite_json_values(self, mock_get_data):
+        """风险指标遇到 NaN 派生值时仍返回 JSON-safe 响应和 CORS 头。"""
+        dates = pd.date_range(start="2024-01-01", periods=60)
+        close = np.full(60, 100.0)
+        close[-2] = 101.0
+        close[-1] = 100.0
+        history = pd.DataFrame({
+            "open": close - 0.5,
+            "high": close + 1.0,
+            "low": close - 1.0,
+            "close": close,
+            "volume": np.full(60, 1000),
+        }, index=dates)
+        mock_get_data.return_value = history
+        cors_client = TestClient(app, raise_server_exceptions=False)
+
+        response = cors_client.post(
+            "/analysis/risk-metrics",
+            json={"symbol": "TEST", "interval": "1d"},
+            headers={"Origin": "http://localhost:3000"},
+        )
+
+        assert response.status_code == 200
+        assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+        payload = response.json()
+        for key in [
+            "var_95",
+            "var_99",
+            "max_drawdown",
+            "annual_return",
+            "annual_volatility",
+            "sharpe_ratio",
+            "sortino_ratio",
+            "beta",
+        ]:
+            assert np.isfinite(payload[key])
+
+    @patch("backend.app.api.v1.endpoints.analysis.data_manager.get_historical_data")
     def test_sentiment_history_endpoint_returns_history(self, mock_get_data):
         """测试情绪历史端点返回最近窗口和当前情绪摘要。"""
         dates = pd.date_range(start="2024-01-01", periods=120)

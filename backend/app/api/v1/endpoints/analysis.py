@@ -154,6 +154,19 @@ def _analysis_cache_key(name: str, request: TrendAnalysisRequest, **extra) -> st
     return f"analysis::{name}::{json.dumps(payload, sort_keys=True, default=str)}"
 
 
+def _finite_float(value, default: float = 0.0) -> float:
+    """Return a JSON-safe finite float for endpoint payloads."""
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return default
+    return numeric if np.isfinite(numeric) else default
+
+
+def _round_finite(value, digits: int = 2, default: float = 0.0) -> float:
+    return round(_finite_float(value, default), digits)
+
+
 def _get_cached_analysis(name: str, request: TrendAnalysisRequest, **extra):
     return cache_manager.get(_analysis_cache_key(name, request, **extra))
 
@@ -1231,18 +1244,18 @@ async def get_risk_metrics(request: TrendAnalysisRequest):
         return {
             "symbol": request.symbol,
             "timestamp": datetime.now().isoformat(),
-            "var_95": round(var_95, 2),
-            "var_99": round(var_99, 2),
-            "max_drawdown": round(max_drawdown, 2),
+            "var_95": _round_finite(var_95),
+            "var_99": _round_finite(var_99),
+            "max_drawdown": _round_finite(max_drawdown),
             "max_drawdown_period": {
                 "start": max_dd_start_idx.strftime("%Y-%m-%d") if hasattr(max_dd_start_idx, 'strftime') else str(max_dd_start_idx),
                 "end": max_dd_end_idx.strftime("%Y-%m-%d") if hasattr(max_dd_end_idx, 'strftime') else str(max_dd_end_idx)
             },
-            "annual_return": round(annual_return, 2),
-            "annual_volatility": round(annual_volatility, 2),
-            "sharpe_ratio": round(sharpe_ratio, 2),
-            "sortino_ratio": round(sortino_ratio, 2),
-            "beta": round(beta, 2),
+            "annual_return": _round_finite(annual_return),
+            "annual_volatility": _round_finite(annual_volatility),
+            "sharpe_ratio": _round_finite(sharpe_ratio),
+            "sortino_ratio": _round_finite(sortino_ratio),
+            "beta": _round_finite(beta, default=1.0),
             "risk_level": risk_level,
             "risk_description": risk_description,
             "data_points": len(returns)

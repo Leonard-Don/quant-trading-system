@@ -367,6 +367,11 @@ def build_trade_suggestions(
         delta_value = abs(delta) * total_asset
         raw_shares = delta_value / price
         rounded = _floor_to_lot(raw_shares, lot_size)
+        # Cap sells at the holding's lot-floored share count so the
+        # suggestion remains physically executable in the manual workflow
+        # when the live quote drifts below the position snapshot price.
+        if delta < 0 and holding is not None:
+            rounded = min(rounded, _floor_to_lot(holding.shares, lot_size))
         if rounded <= 0:
             suggestions.append(EtfTradeSuggestion(
                 code=code, name=name, action="hold", shares=0,

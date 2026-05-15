@@ -421,3 +421,44 @@ def test_build_trade_suggestions_below_lot_size_becomes_hold():
     # 0.1% drift on 100k = 100. At 1.50 that's 66 shares → 0 lots of 1000.
     assert by_code["159985"].action == "hold"
     assert by_code["159985"].shares == 0
+
+
+def test_build_trade_suggestions_caps_sell_at_current_holding_shares():
+    """A 'sell' suggestion must never request more shares than the holding has.
+
+    The order is sized from ``abs(delta) * total_asset / quote_price``, where
+    ``total_asset`` reflects the position snapshot (using ``holding.current_price``)
+    but ``quote_price`` is the live quote. Whenever the live quote drifts below
+    the snapshot price, this ratio overshoots ``holding.shares`` — a manual
+    user cannot fill the over-sized order. Lock in the invariant: a sell
+    suggestion's share count is bounded by the actual position.
+    """
+    # 1000 shares at the snapshot price 5.00 → market_value 5000.
+    holding = EtfHolding(
+        code="510300", name="沪深300ETF", shares=1000,
+        cost_price=4.50, current_price=5.00,
+    )
+    # Live quote shows a lower price than the snapshot used for total_asset.
+    quote = EtfQuote(
+        code="510300", name="沪深300ETF",
+        current_price=4.00, prev_close=4.10,
+    )
+
+    out = build_trade_suggestions(
+        current_holdings=[holding],
+        target_weights={"510300": 0.0},
+        quotes={"510300": quote},
+        total_asset=5000.0,
+        lot_size=100,
+        threshold_weight=0.01,
+    )
+    by_code = _by_code(out)
+
+    assert by_code["510300"].action == "sell"
+    # Naive sizing wants 1250 → rounded 1200 lots. Cap must keep us at the
+    # holding's actual share count (1000), preserving the lot multiple.
+    assert by_code["510300"].shares <= holding.shares, (
+        f"sell suggestion overshot the position: got "
+        f"{by_code['510300'].shares} shares vs {holding.shares} held"
+    )
+    assert by_code["510300"].shares % 100 == 0
