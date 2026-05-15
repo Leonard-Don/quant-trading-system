@@ -80,6 +80,10 @@ const collectConsoleErrors = (page, label) => {
         await page.route('**/etf-rotation/live-target**', fulfillEtfSignalFixture);
         await page.goto(`${FRONTEND}/?view=etf`);
         await page.waitForSelector('[data-testid="etf-rotation-dashboard"]', { timeout: 30000 }).catch(() => null);
+        await page.waitForFunction(
+            () => /512400/.test(document.body.innerText) && /510300/.test(document.body.innerText),
+            { timeout: 10000 },
+        ).catch(() => null);
         const dashboard = await page.$('[data-testid="etf-rotation-dashboard"]');
         if (dashboard) ok('ETF 轮动工作区已渲染 (?view=etf)');
         else fail('ETF 轮动工作区未渲染', 'data-testid="etf-rotation-dashboard" 不存在');
