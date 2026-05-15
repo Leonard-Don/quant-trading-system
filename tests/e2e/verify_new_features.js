@@ -19,22 +19,24 @@ const { chromium } = require('playwright');
 const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 const failures = [];
+const ETF_SIGNAL_PLAN = {
+    manual_only: true,
+    auto_ordering: false,
+    banner: '手动调仓计划：请人工复核后执行；不连接券商接口，也不会自动下单。',
+    total_asset: 32000,
+    current_weights: { '159985': 0.074, '512400': 0.324, '510300': 0.219, '518680': 0.320, '513130': 0.062 },
+    target_weights: { '159985': 0.05, '512400': 0.22, '510300': 0.28, '518680': 0.20, '513130': 0.07 },
+    adjusted_weights: { '159985': 0.05, '512400': 0.22, '510300': 0.28, '518680': 0.20, '513130': 0.07, CASH: 0.18 },
+    suggestions: [
+        { code: '512400', name: '有色金属ETF南方', action: 'sell', shares: 1500, estimated_amount: 3313.5, current_weight: 0.324, target_weight: 0.22, reason: 'delta_-0.1040' },
+        { code: '510300', name: '沪深300ETF华泰柏瑞', action: 'buy', shares: 500, estimated_amount: 2508.5, current_weight: 0.219, target_weight: 0.28, reason: 'delta_+0.0610' },
+    ],
+    risk_reasons: ['Cash floor target maintained', 'Manual-only ETF rotation signal'],
+};
 const ETF_SIGNAL_FIXTURE = {
     success: true,
-    data: {
-        manual_only: true,
-        auto_ordering: false,
-        banner: '手动调仓计划：请人工复核后执行；不连接券商接口，也不会自动下单。',
-        total_asset: 32000,
-        current_weights: { '159985': 0.074, '512400': 0.324, '510300': 0.219, '518680': 0.320, '513130': 0.062 },
-        target_weights: { '159985': 0.05, '512400': 0.22, '510300': 0.28, '518680': 0.20, '513130': 0.07 },
-        adjusted_weights: { '159985': 0.05, '512400': 0.22, '510300': 0.28, '518680': 0.20, '513130': 0.07, CASH: 0.18 },
-        suggestions: [
-            { code: '512400', name: '有色金属ETF南方', action: 'sell', shares: 1500, estimated_amount: 3313.5, current_weight: 0.324, target_weight: 0.22, reason: 'delta_-0.1040' },
-            { code: '510300', name: '沪深300ETF华泰柏瑞', action: 'buy', shares: 500, estimated_amount: 2508.5, current_weight: 0.219, target_weight: 0.28, reason: 'delta_+0.0610' },
-        ],
-        risk_reasons: ['Cash floor target maintained', 'Manual-only ETF rotation signal'],
-    },
+    data: ETF_SIGNAL_PLAN,
+    ...ETF_SIGNAL_PLAN,
 };
 const log = (...args) => console.log(...args);
 const fail = (label, detail) => {
