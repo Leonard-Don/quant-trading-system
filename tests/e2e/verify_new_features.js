@@ -71,11 +71,13 @@ const collectConsoleErrors = (page, label) => {
     {
         const page = await context.newPage();
         const drainConsole = collectConsoleErrors(page, 'ETF轮动');
-        await page.route('**/etf-rotation/daily-signal**', (route) => route.fulfill({
+        const fulfillEtfSignalFixture = (route) => route.fulfill({
             status: 200,
             contentType: 'application/json; charset=utf-8',
             body: JSON.stringify(ETF_SIGNAL_FIXTURE),
-        }));
+        });
+        await page.route('**/etf-rotation/daily-signal**', fulfillEtfSignalFixture);
+        await page.route('**/etf-rotation/live-target**', fulfillEtfSignalFixture);
         await page.goto(`${FRONTEND}/?view=etf`);
         await page.waitForSelector('[data-testid="etf-rotation-dashboard"]', { timeout: 30000 }).catch(() => null);
         const dashboard = await page.$('[data-testid="etf-rotation-dashboard"]');
