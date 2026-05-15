@@ -400,6 +400,41 @@ describe('crossMarketRecommendations', () => {
     expect(card.matchedDrivers.some((item) => item.key === 'structural-decay-radar-defensive_beta_hedge')).toBe(true);
   });
 
+  it('keeps adjusted weights finite when an upstream factor value is non-finite', () => {
+    const payload = {
+      templates: [
+        {
+          id: 'energy_vs_ai_apps',
+          name: 'Energy vs AI',
+          linked_factors: ['baseload_mismatch'],
+          linked_dimensions: [],
+          assets: [
+            { symbol: 'XLE', side: 'long', weight: 0.5, asset_class: 'ETF' },
+            { symbol: 'XLU', side: 'long', weight: 0.5, asset_class: 'ETF' },
+            { symbol: 'IGV', side: 'short', weight: 1, asset_class: 'ETF' },
+          ],
+          preferred_signal: 'positive',
+        },
+      ],
+    };
+    const overview = {
+      factors: [{ name: 'baseload_mismatch', z_score: Infinity, value: Infinity, signal: 1 }],
+    };
+
+    const card = buildCrossMarketCards(payload, overview, {})[0];
+
+    card.adjustedAssets.forEach((asset) => {
+      expect(Number.isFinite(asset.weight)).toBe(true);
+    });
+    card.rawAdjustedAssets.forEach((asset) => {
+      expect(Number.isFinite(asset.weight)).toBe(true);
+    });
+    const longSum = card.adjustedAssets
+      .filter((asset) => asset.side === 'long')
+      .reduce((sum, asset) => sum + asset.weight, 0);
+    expect(longSum).toBeCloseTo(1, 5);
+  });
+
   it('carries policy-execution and source-mode governance into template construction metadata', () => {
     const payload = {
       templates: [
