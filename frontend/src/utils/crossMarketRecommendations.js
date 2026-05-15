@@ -29,7 +29,10 @@ const RISK_ON_LONG_SYMBOLS = new Set(['QQQ', 'ARKK', 'IGV', 'CLOU', 'SOXX', 'SMH
 
 const formatFactorName = (name = '') => FACTOR_LABELS[name] || name.replace(/_/g, ' ');
 
-const clampMin = (value, minimum = 0.05) => Math.max(minimum, Number(value || 0));
+const clampMin = (value, minimum = 0.05) => {
+  const numeric = Number(value);
+  return Math.max(minimum, Number.isFinite(numeric) ? numeric : 0);
+};
 const pushContribution = (list, key, label, value) => {
   const numeric = Number(value || 0);
   if (numeric <= 0.005) {
