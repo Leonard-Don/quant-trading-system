@@ -4,6 +4,17 @@
 
 ### Tooling
 
+- **CI**: 新增 `lint` 任务与 coverage 阈值，防止 ETF rotation 扩张期债务静默回涨。
+  - `lint` 任务：`ruff check src backend scripts tests --output-format=github`
+    输出 GitHub 行内注释（advisory），随后 `python scripts/check_ruff_baseline.py`
+    作为硬门槛——读取 `scripts/ruff_baseline_count.txt`（首版 3102），
+    比当前发现数大就 fail，留出修就降一档的空间。
+  - `backend` 任务的 `pytest --cov` 调用新增 `--cov-fail-under=60`
+    （当前实测 61%，1 个百分点缓冲）。后续覆盖率上涨时手动抬高，
+    永不下调。
+  - 本地复跑：`python scripts/check_ruff_baseline.py` 与
+    `pytest tests/unit tests/integration -m "not perf" --cov=src --cov=backend --cov-fail-under=60`。
+  - 详细的 re-baseline 流程见 `docs/MAINTENANCE_GUIDE.md` 第 9 节。
 - **BREAKING (前端)**：从 CRA (`react-scripts 5.0.1`) 迁移到 **Vite 5 + Vitest 2**。
   - `npm start` 与 `npm run build` 仍然存在，但底层换成 Vite。构建输出目录保持 `frontend/build/` 不变。
   - 新增 `npm run dev`（与 `start` 同义）和 `npm run preview`（预览 production bundle）。

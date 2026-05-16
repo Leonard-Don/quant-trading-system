@@ -26,6 +26,24 @@ cd ..
 - 如果涉及 API，请同步更新文档
 - 新功能尽量补充测试
 
+## CI 质量门槛
+
+PR 必须通过这两道防回涨门槛，本地都能跑：
+
+```bash
+# Ruff 基线门——发现数不允许增长（首版基线 = scripts/ruff_baseline_count.txt）
+python scripts/check_ruff_baseline.py
+
+# Coverage 阈值——当前锁在 60%
+pytest tests/unit tests/integration -m "not perf" \
+  --cov=src --cov=backend --cov-fail-under=60 -q
+```
+
+如果你顺手清理了一批 lint 发现，请同步降低基线：
+`python scripts/check_ruff_baseline.py --write-baseline`，
+然后把 `scripts/ruff_baseline_count.txt` 一起提交。
+完整 re-baseline 流程见 `docs/MAINTENANCE_GUIDE.md` 第 9 节。
+
 ## 问题反馈
 
 欢迎通过 GitHub Issues 提交 Bug、改进建议或功能请求。
