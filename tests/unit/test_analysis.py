@@ -218,6 +218,44 @@ class TestTrendAnalyzer:
             assert np.isfinite(payload[key])
 
     @patch("backend.app.api.v1.endpoints.analysis.data_manager.get_historical_data")
+    def test_correlation_endpoint_sanitizes_non_finite_values(self, mock_get_data):
+        """相关性端点遇到零方差列时仍返回 JSON-safe 有限值。"""
+        cache_manager.clear()
+        dates = pd.date_range(start="2024-01-01", periods=40)
+        flat_close = np.full(40, 100.0)
+        varying_close = np.linspace(100.0, 120.0, 40)
+
+        def _per_symbol(symbol, **_kwargs):
+            close = flat_close if symbol == "FLAT" else varying_close
+            return pd.DataFrame(
+                {
+                    "open": close - 0.5,
+                    "high": close + 1.0,
+                    "low": close - 1.0,
+                    "close": close,
+                    "volume": np.full(40, 1000),
+                },
+                index=dates,
+            )
+
+        mock_get_data.side_effect = _per_symbol
+        safe_client = TestClient(app, raise_server_exceptions=False)
+
+        response = safe_client.post(
+            "/analysis/correlation",
+            json={"symbols": ["FLAT", "MOVE"], "period_days": 90},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["symbols"] == ["FLAT", "MOVE"]
+        assert np.isfinite(payload["average_correlation"])
+        for entry in payload["correlation_matrix"]:
+            assert np.isfinite(entry["correlation"]), entry
+        for entry in payload["top_correlations"]:
+            assert np.isfinite(entry["correlation"]), entry
+
+    @patch("backend.app.api.v1.endpoints.analysis.data_manager.get_historical_data")
     def test_sentiment_history_endpoint_returns_history(self, mock_get_data):
         """测试情绪历史端点返回最近窗口和当前情绪摘要。"""
         dates = pd.date_range(start="2024-01-01", periods=120)

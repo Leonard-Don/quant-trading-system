@@ -660,7 +660,7 @@ async def analyze_correlation(request: CorrelationRequest):
                 corr_data.append({
                     "symbol1": sym1,
                     "symbol2": sym2,
-                    "correlation": round(correlation_matrix.loc[sym1, sym2], 4)
+                    "correlation": _round_finite(correlation_matrix.loc[sym1, sym2], digits=4)
                 })
 
         pair_correlations = []
@@ -669,11 +669,13 @@ async def analyze_correlation(request: CorrelationRequest):
                 if i < j:
                     pair_correlations.append({
                         "pair": f"{sym1}-{sym2}",
-                        "correlation": round(correlation_matrix.loc[sym1, sym2], 4)
+                        "correlation": _round_finite(correlation_matrix.loc[sym1, sym2], digits=4)
                     })
 
         pair_correlations.sort(key=lambda x: abs(x["correlation"]), reverse=True)
-        avg_correlation = np.mean([abs(p["correlation"]) for p in pair_correlations])
+        avg_correlation = _finite_float(
+            np.mean([abs(p["correlation"]) for p in pair_correlations])
+        ) if pair_correlations else 0.0
 
         return {
             "timestamp": datetime.now().isoformat(),
@@ -682,7 +684,7 @@ async def analyze_correlation(request: CorrelationRequest):
             "data_points": len(returns),
             "correlation_matrix": corr_data,
             "top_correlations": pair_correlations[:5],
-            "average_correlation": round(avg_correlation, 4),
+            "average_correlation": _round_finite(avg_correlation, digits=4),
             "interpretation": get_correlation_interpretation(avg_correlation)
         }
 
