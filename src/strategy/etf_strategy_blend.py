@@ -1,0 +1,200 @@
+"""Multi-strategy ensemble — weighted blend of trend + mean-reversion signals.
+
+Single strategies have *single* failure modes:
+
+* Pure trend-following bleeds in chop / sideways markets and during
+  whipsaw transitions.
+* Pure mean-reversion bleeds in strong directional regimes and is
+  vulnerable to falling-knife trades when the long-term trend breaks.
+
+Combining them with a **regime-aware blend weight** produces a payoff
+that is less correlated with any single regime, which is the textbook
+quant motivation for ensembles. The blender:
+
+1. Asks each child strategy for its target-weight signals.
+2. Computes a regime-aware ``α`` (default: bull/crisis = 1.0 trend,
+   sideways = 0.5 balanced, bear = 0.4 MR-tilted, correction = 0.6).
+3. Blends per-ETF target weight as ``α * w_trend + (1-α) * w_mr``.
+4. Re-normalises to respect the gross-cap.
+5. Emits ``EtfSignal`` objects whose ``reasons`` carry the blend ratio
+   so the dashboard / audit log can show which strategy drove each
+   position.
+
+The blender exposes the *same* ``evaluate(...)`` signature as
+``EtfRotationStrategy`` so ``daily_etf_signal.generate_plan`` can use
+it as a drop-in replacement.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field, replace
+from typing import Dict, List, Mapping, Optional
+
+import pandas as pd
+
+from src.strategy.etf_rotation_strategy import EtfOverlay, EtfSignal
+
+logger = logging.getLogger(__name__)
+
+
+DEFAULT_REGIME_BLEND_WEIGHTS: Dict[str, float] = {
+    # α = trend weight (1.0 = pure trend, 0.0 = pure MR)
+    "bull": 1.00,
+    "correction": 0.60,
+    "sideways": 0.50,
+    "bear": 0.40,
+    "crisis": 1.00,  # crisis = stay with trend's defensive call; MR catches knives
+    "unknown": 1.00,  # safe default
+}
+
+
+@dataclass(frozen=True)
+class EtfStrategyBlendConfig:
+    """Blender configuration — defaults are deliberately trend-biased."""
+
+    enabled: bool = False
+    regime_blend_weights: Dict[str, float] = field(
+        default_factory=lambda: dict(DEFAULT_REGIME_BLEND_WEIGHTS)
+    )
+    # Floor / ceiling on alpha to avoid catastrophic single-strategy bets
+    alpha_floor: float = 0.20
+    alpha_ceiling: float = 1.00
+
+
+@dataclass(frozen=True)
+class StrategyComponentSignal:
+    """One child strategy's output for a single ETF, attached to the blended signal."""
+
+    label: str
+    score: float
+    raw_target_weight: float
+    blended_weight_contribution: float
+
+
+class EtfStrategyBlend:
+    """Drop-in strategy that delegates to trend + MR and blends the results."""
+
+    def __init__(
+        self,
+        *,
+        trend_strategy,
+        mr_strategy,
+        config: Optional[EtfStrategyBlendConfig] = None,
+        regime: str = "unknown",
+    ) -> None:
+        self._trend = trend_strategy
+        self._mr = mr_strategy
+        self._config = config or EtfStrategyBlendConfig()
+        self._regime = regime
+
+    def set_regime(self, regime: str) -> None:
+        """Update the regime label used to look up the blend weight."""
+
+        self._regime = regime
+
+    def current_alpha(self) -> float:
+        """Return the trend-weight α applied for the current regime."""
+
+        raw = float(self._config.regime_blend_weights.get(
+            self._regime,
+            self._config.regime_blend_weights.get("unknown", 1.0),
+        ))
+        return max(
+            self._config.alpha_floor,
+            min(self._config.alpha_ceiling, raw),
+        )
+
+    def evaluate(
+        self,
+        price_matrix: pd.DataFrame,
+        *,
+        overlays: Optional[Mapping[str, EtfOverlay]] = None,
+        current_weights: Optional[Mapping[str, float]] = None,
+    ) -> List[EtfSignal]:
+        trend_signals = self._trend.evaluate(
+            price_matrix,
+            overlays=overlays,
+            current_weights=current_weights,
+        )
+        mr_signals = self._mr.evaluate(
+            price_matrix,
+            overlays=overlays,
+            current_weights=current_weights,
+        )
+        return self._blend(trend_signals, mr_signals)
+
+    def _blend(
+        self,
+        trend_signals: List[EtfSignal],
+        mr_signals: List[EtfSignal],
+    ) -> List[EtfSignal]:
+        alpha = self.current_alpha()
+        trend_by_code = {s.symbol: s for s in trend_signals}
+        mr_by_code = {s.symbol: s for s in mr_signals}
+        codes = set(trend_by_code) | set(mr_by_code)
+
+        out: List[EtfSignal] = []
+        for code in codes:
+            t = trend_by_code.get(code)
+            m = mr_by_code.get(code)
+            # Linear blend on target_weight and score.
+            t_w = float(t.target_weight) if t else 0.0
+            m_w = float(m.target_weight) if m else 0.0
+            blended_w = alpha * t_w + (1.0 - alpha) * m_w
+
+            t_score = float(t.score) if t else 0.0
+            m_score = float(m.score) if m else 0.0
+            blended_score = alpha * t_score + (1.0 - alpha) * m_score
+
+            base = t or m
+            if base is None:
+                continue
+
+            reasons = list(base.reasons)
+            reasons.append(
+                f"blend:trend={alpha:.2f}*{t_w:.4f} mr={1.0 - alpha:.2f}*{m_w:.4f} regime={self._regime}"
+            )
+            out.append(replace(
+                base,
+                score=blended_score,
+                raw_weight=blended_w,
+                target_weight=blended_w,
+                reasons=reasons,
+            ))
+        return out
+
+    @staticmethod
+    def build_component_breakdown(
+        trend_signals: List[EtfSignal],
+        mr_signals: List[EtfSignal],
+        alpha: float,
+    ) -> Dict[str, Dict[str, object]]:
+        """Per-code dict showing each child strategy's raw output + contribution.
+
+        Useful for audit logging / dashboards: surfaces *why* the blend
+        landed where it did per asset.
+        """
+
+        breakdown: Dict[str, Dict[str, object]] = {}
+        for sig in trend_signals:
+            breakdown.setdefault(sig.symbol, {})["trend"] = {
+                "score": float(sig.score),
+                "raw_target_weight": float(sig.target_weight),
+                "contribution": float(alpha) * float(sig.target_weight),
+            }
+        for sig in mr_signals:
+            breakdown.setdefault(sig.symbol, {})["mr"] = {
+                "score": float(sig.score),
+                "raw_target_weight": float(sig.target_weight),
+                "contribution": (1.0 - float(alpha)) * float(sig.target_weight),
+            }
+        return breakdown
+
+
+__all__ = [
+    "DEFAULT_REGIME_BLEND_WEIGHTS",
+    "EtfStrategyBlend",
+    "EtfStrategyBlendConfig",
+    "StrategyComponentSignal",
+]

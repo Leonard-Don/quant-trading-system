@@ -71,11 +71,14 @@ def install_service(service: EtfRotationService) -> None:
     ),
 )
 def get_daily_signal(
-    threshold_weight: float = Query(
-        default=0.03,
+    threshold_weight: Optional[float] = Query(
+        default=None,
         ge=0.0,
         le=1.0,
-        description="低于该权重差异的标的不会触发买卖建议（仅生成 hold）。",
+        description=(
+            "低于该权重差异的标的不会触发买卖建议（仅生成 hold）。"
+            "未传时使用 strategy.json -> strategy.rebalance_threshold 的配置值。"
+        ),
     ),
     quote_source: str = Query(
         default="live",

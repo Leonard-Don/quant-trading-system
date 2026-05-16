@@ -73,11 +73,26 @@ class EtfScoringConfig:
       because Z-scores are standardised). Self-calibrating across
       regimes — when everything is in drawdown, the *relatively* best
       assets still get allocated.
+
+    Multi-timeframe extension
+    -------------------------
+    On top of the legacy 20/60-day MA + 5/20/60-day momentum features,
+    the scoring layer now also reads:
+
+    * ``ma200`` — long-term trend context (skipped when history < 200 bars).
+      Above-MA200 gets ``trend_above_ma200_points`` added; below subtracts
+      ``trend_below_ma200_penalty`` (asymmetric: penalty by default smaller
+      than the bonus so a long-term breakdown caps but doesn't dominate).
+    * Short-term reversal — ``return5`` below ``short_reversal_threshold``
+      (oversold) adds ``short_reversal_bonus``. Catches mean-reversion
+      opportunities the pure trend-following body misses.
     """
 
     # Trend (above/below MA points)
     trend_above_ma20_points: float = 20.0
     trend_above_ma60_points: float = 20.0
+    trend_above_ma200_points: float = 12.0
+    trend_below_ma200_penalty: float = 8.0
     trend_ma20_above_ma60_points: float = 20.0
     trend_ma20_below_ma60_penalty: float = 10.0
 
@@ -92,6 +107,11 @@ class EtfScoringConfig:
     momentum_short_spike_penalty: float = 10.0
     momentum_short_uptrend_threshold: float = 0.0
     momentum_short_uptrend_bonus: float = 5.0
+    # Short-term reversal: when return5 dips below this threshold (oversold),
+    # add the bonus. Lets the strategy catch bounces in otherwise-trending
+    # assets without overriding the trend gate.
+    short_reversal_threshold: float = -0.04
+    short_reversal_bonus: float = 4.0
 
     # Risk (volatility & drawdown)
     risk_baseline: float = 15.0
@@ -119,6 +139,15 @@ class EtfScoringConfig:
     cs_z_drawdown_weight: float = 6.0
     cs_z_volatility_weight: float = -8.0
     cs_z_clip: float = 3.0
+
+    # MA60 hard-gate softening: when an asset dips below its 60d MA but
+    # is still above the 200d MA, scale the target weight by this multiplier
+    # instead of cutting to zero. Rationale: the legacy ``latest < ma60``
+    # → 0 rule whipsawed strong long-term uptrends (gold +159% over 4y
+    # with only ~25% drawdowns) because every normal pullback flipped
+    # the gate. Setting to 1.0 disables the softening (full legacy
+    # behaviour); 0.0 also disables (degenerates to legacy zero).
+    long_trend_override_multiplier: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -157,7 +186,12 @@ class EtfRotationConfig:
 
 @dataclass(frozen=True)
 class EtfSignal:
-    """Signal and feature snapshot for a single ETF on one date."""
+    """Signal and feature snapshot for a single ETF on one date.
+
+    ``ma200`` is ``None`` when the price series is shorter than 200 bars
+    so consumers can distinguish "long-term trend irrelevant" from
+    "long-term down-trend confirmed".
+    """
 
     symbol: str
     latest_price: float
@@ -176,6 +210,10 @@ class EtfSignal:
     raw_weight: float
     target_weight: float
     reasons: List[str] = field(default_factory=list)
+    # Multi-timeframe extension (added later, kept at the end for back-compat
+    # with positional EtfSignal(...) constructors in existing tests).
+    ma200: Optional[float] = None
+    trend_long_strength: Optional[float] = None  # price / ma200 - 1
 
 
 class EtfRotationStrategy:
@@ -348,7 +386,10 @@ class EtfRotationStrategy:
         for i, sig in enumerate(signals):
             asset = self._assets[sig.symbol]
             new_score = float(composite[i])
-            new_raw = self._score_to_weight(asset, new_score, sig.latest_price, sig.ma60, sig.volatility60)
+            new_raw = self._score_to_weight(
+                asset, new_score, sig.latest_price, sig.ma60, sig.volatility60,
+                ma200=sig.ma200,
+            )
             new_target = self._apply_asset_constraints(
                 raw_weight=new_raw,
                 asset=asset,
@@ -377,6 +418,12 @@ class EtfRotationStrategy:
         latest = float(series.iloc[-1])
         ma20 = float(series.iloc[-20:].mean())
         ma60 = float(series.iloc[-60:].mean())
+        ma200: Optional[float] = None
+        trend_long_strength: Optional[float] = None
+        if len(series) >= 200:
+            ma200 = float(series.iloc[-200:].mean())
+            if ma200 > 0:
+                trend_long_strength = latest / ma200 - 1.0
         high60 = float(series.iloc[-60:].max())
         returns = series.pct_change().dropna()
 
@@ -389,13 +436,15 @@ class EtfRotationStrategy:
             volatility60 = 0.0
 
         scoring = self.config.scoring
-        trend_score, trend_reasons = self._score_trend(latest, ma20, ma60, scoring)
+        trend_score, trend_reasons = self._score_trend(latest, ma20, ma60, scoring, ma200=ma200)
         momentum_score = self._score_momentum(return5, return20, return60, scoring)
         risk_score = self._score_risk(volatility60, drawdown60, scoring)
         premium_score = self._score_premium(overlay, scoring)
         score = float(np.clip(trend_score + momentum_score + risk_score + premium_score, 0.0, 100.0))
 
-        raw_weight = self._score_to_weight(asset, score, latest, ma60, volatility60)
+        raw_weight = self._score_to_weight(
+            asset, score, latest, ma60, volatility60, ma200=ma200,
+        )
         target_weight = self._apply_asset_constraints(
             raw_weight=raw_weight,
             asset=asset,
@@ -412,6 +461,8 @@ class EtfRotationStrategy:
             latest_price=latest,
             ma20=ma20,
             ma60=ma60,
+            ma200=ma200,
+            trend_long_strength=trend_long_strength,
             return5=return5,
             return20=return20,
             return60=return60,
@@ -446,9 +497,25 @@ class EtfRotationStrategy:
         latest: float,
         ma60: float,
         volatility60: float,
+        ma200: Optional[float] = None,
     ) -> float:
-        if latest < ma60:
-            return 0.0
+        # Trend gate with long-term context override.
+        # * Above MA60 → full weight (standard path)
+        # * Below MA60 but above MA200 → reduced weight via
+        #   ``long_trend_override_multiplier`` (legacy pullback in a
+        #   multi-year uptrend; don't blow the entire position)
+        # * Below MA60 AND below MA200 (or no MA200 yet) → zero
+        long_trend_intact = (
+            ma200 is not None and ma200 > 0 and latest > ma200
+        )
+        short_trend_intact = latest >= ma60
+        trend_multiplier = 1.0
+        if not short_trend_intact:
+            if not long_trend_intact:
+                return 0.0
+            trend_multiplier = float(self.config.scoring.long_trend_override_multiplier)
+            if trend_multiplier <= 0.0:
+                return 0.0
 
         # Smooth ramp on score: zero at min_score_to_hold, full at
         # min_score_full_hold. Prevents micro-thrashing across a hard cutoff.
@@ -462,7 +529,11 @@ class EtfRotationStrategy:
             ramp_weight = float(np.clip((score - ramp_low) / (ramp_high - ramp_low), 0.0, 1.0))
 
         score_fraction = float(np.clip(score / 100.0, 0.0, 1.0))
-        base_target = max(asset.base_weight, asset.max_weight * score_fraction) * ramp_weight
+        base_target = (
+            max(asset.base_weight, asset.max_weight * score_fraction)
+            * ramp_weight
+            * trend_multiplier
+        )
 
         cap = asset.max_weight
         if self.config.enable_vol_targeting and self.config.annualized_vol_target:
@@ -494,6 +565,8 @@ class EtfRotationStrategy:
         ma20: float,
         ma60: float,
         scoring: EtfScoringConfig,
+        *,
+        ma200: Optional[float] = None,
     ) -> tuple[float, List[str]]:
         reasons: List[str] = []
         score = 0.0
@@ -509,6 +582,15 @@ class EtfRotationStrategy:
         else:
             score -= scoring.trend_ma20_below_ma60_penalty
             reasons.append("ma20_not_above_ma60")
+        # Long-term trend context: rewards multi-year uptrends, penalises
+        # multi-year breakdowns. Only consulted when we have 200+ bars.
+        if ma200 is not None and ma200 > 0:
+            if latest > ma200:
+                score += scoring.trend_above_ma200_points
+                reasons.append("price_above_ma200")
+            else:
+                score -= scoring.trend_below_ma200_penalty
+                reasons.append("price_below_ma200")
         return score, reasons
 
     @staticmethod
@@ -529,10 +611,17 @@ class EtfRotationStrategy:
             scoring.momentum_return60_floor,
             scoring.momentum_return60_ceiling,
         )
+        # Short-term path: spike penalty (no chasing) vs mild uptrend bonus
+        # vs *oversold* reversal bonus. Spike threshold takes priority; if
+        # neither extreme triggers we fall back to the uptrend / reversal
+        # branches. The reversal branch was added so the strategy can fade
+        # short-term mean-reverting noise without override needing.
         if return5 > scoring.momentum_short_spike_threshold:
             score -= scoring.momentum_short_spike_penalty
         elif return5 > scoring.momentum_short_uptrend_threshold:
             score += scoring.momentum_short_uptrend_bonus
+        elif return5 <= scoring.short_reversal_threshold:
+            score += scoring.short_reversal_bonus
         return float(score)
 
     @staticmethod

@@ -379,6 +379,180 @@ def test_service_applies_regime_derate_to_gross_cap(tmp_path) -> None:
     assert non_cash <= base_cap * multiplier + 1e-6
 
 
+def test_service_applies_regime_scoring_overrides_in_bear(tmp_path) -> None:
+    """In a bear regime, the scoring overrides for momentum/risk must
+    be merged into the strategy_config that generate_plan sees."""
+
+    import json
+    cfg_path = tmp_path / "strategy.json"
+    cfg_path.write_text(json.dumps({
+        "refresh": {"enabled": True, "interval_seconds": 60},
+        "regime": {
+            "enabled": True,
+            "ma_long_window": 200,
+            "scoring_overrides": {
+                "bear": {
+                    "momentum_return20_multiplier": 50.0,
+                    "risk_volatility_multiplier": 70.0,
+                },
+            },
+        },
+    }))
+    cfg = load_strategy_config(cfg_path)
+    fixed_now = datetime(2026, 5, 11, 2, 0, tzinfo=timezone.utc)
+
+    # Forced bear: 400-day downtrend that ends below MA200.
+    rng = np.random.default_rng(99)
+    dates = pd.bdate_range("2024-01-02", periods=400)
+    drift = np.linspace(0, np.log(0.7), 400)
+    noise = np.cumsum(rng.normal(0, 0.003, 400))
+    bear_series = 5.0 * np.exp(drift + noise)
+    bear_matrix = pd.DataFrame(
+        {"510300": bear_series, "159985": bear_series * 0.95}, index=dates,
+    )
+
+    def fake_holdings():
+        return [
+            EtfHolding(code="510300", name="沪深300", shares=1000,
+                       cost_price=5.0, current_price=float(bear_series[-1])),
+            EtfHolding(code="159985", name="豆粕", shares=1000,
+                       cost_price=2.0, current_price=2.0),
+        ], True
+
+    service = EtfRotationService(
+        strategy_config=cfg,
+        holdings_loader=fake_holdings,
+        quotes_fetcher=_empty_quotes,
+        history_fetcher=lambda codes, **_kw: bear_matrix,
+        audit_log_path=tmp_path / "audit.jsonl",
+        clock=lambda: fixed_now,
+    )
+
+    outcome = service.refresh(force=True)
+    plan = outcome.cached.plan
+
+    # Regime should classify as bear (or crisis) — both should trigger overrides
+    assert plan["regime"]["regime"] in {"bear", "crisis"}
+    overrides = plan["regime"]["scoring_overrides_applied"]
+    if plan["regime"]["regime"] == "bear":
+        # The bear overrides we configured should appear
+        assert overrides.get("momentum_return20_multiplier") == pytest.approx(50.0)
+        assert overrides.get("risk_volatility_multiplier") == pytest.approx(70.0)
+
+
+def test_service_with_ensemble_disabled_uses_trend_only(tmp_path) -> None:
+    """With ensemble.enabled=False (the default) plan must NOT contain blend metadata."""
+
+    cfg = _config_with_refresh_enabled(tmp_path)
+    fixed_now = datetime(2026, 5, 11, 2, 0, tzinfo=timezone.utc)
+    service = EtfRotationService(
+        strategy_config=cfg,
+        holdings_loader=_fake_holdings_loader,
+        quotes_fetcher=_empty_quotes,
+        history_fetcher=lambda codes, **_kw: _build_price_matrix(list(codes)),
+        audit_log_path=tmp_path / "audit.jsonl",
+        clock=lambda: fixed_now,
+    )
+    outcome = service.refresh(force=True)
+    plan = outcome.cached.plan
+    assert plan.get("ensemble", {}).get("enabled") is False
+
+
+def test_service_with_ensemble_enabled_blends_strategies(tmp_path) -> None:
+    """Enabling ensemble in strategy.json must surface blend metadata in plan."""
+
+    import json
+    cfg_path = tmp_path / "strategy.json"
+    cfg_path.write_text(json.dumps({
+        "refresh": {"enabled": True, "interval_seconds": 60},
+        "ensemble": {
+            "enabled": True,
+            "regime_blend_weights": {
+                "bull": 0.70,
+                "sideways": 0.50,
+                "unknown": 0.80,
+            },
+        },
+    }))
+    cfg = load_strategy_config(cfg_path)
+    fixed_now = datetime(2026, 5, 11, 2, 0, tzinfo=timezone.utc)
+
+    # Long uptrend → regime should be bull
+    rng = np.random.default_rng(3)
+    dates = pd.bdate_range("2024-01-02", periods=400)
+    bull_series = 5.0 * np.exp(np.linspace(0, np.log(1.30), 400) + np.cumsum(rng.normal(0, 0.003, 400)))
+    bull_matrix = pd.DataFrame(
+        {"510300": bull_series, "159985": bull_series * 0.95}, index=dates,
+    )
+
+    service = EtfRotationService(
+        strategy_config=cfg,
+        holdings_loader=lambda: ([
+            EtfHolding(code="510300", name="沪深300", shares=1000,
+                       cost_price=5.0, current_price=float(bull_series[-1])),
+            EtfHolding(code="159985", name="豆粕", shares=1000,
+                       cost_price=2.0, current_price=2.0),
+        ], True),
+        quotes_fetcher=_empty_quotes,
+        history_fetcher=lambda codes, **_kw: bull_matrix,
+        audit_log_path=tmp_path / "audit.jsonl",
+        clock=lambda: fixed_now,
+    )
+
+    outcome = service.refresh(force=True)
+    plan = outcome.cached.plan
+    ensemble = plan["ensemble"]
+    assert ensemble["enabled"] is True
+    assert ensemble["regime"] == "bull"
+    assert ensemble["alpha_trend"] == pytest.approx(0.70)
+    assert ensemble["alpha_mean_reversion"] == pytest.approx(0.30)
+
+
+def test_service_no_scoring_overrides_for_bull_regime(tmp_path) -> None:
+    """A bull regime should leave the scoring at its defaults (or whatever
+    default scoring overrides config provides — currently empty for bull)."""
+
+    import json
+    cfg_path = tmp_path / "strategy.json"
+    cfg_path.write_text(json.dumps({
+        "refresh": {"enabled": True, "interval_seconds": 60},
+        "regime": {
+            "enabled": True,
+            "scoring_overrides": {
+                "bear": {"momentum_return20_multiplier": 50.0},
+                # No "bull" key → bull keeps defaults
+            },
+        },
+    }))
+    cfg = load_strategy_config(cfg_path)
+    fixed_now = datetime(2026, 5, 11, 2, 0, tzinfo=timezone.utc)
+
+    rng = np.random.default_rng(1)
+    dates = pd.bdate_range("2024-01-02", periods=400)
+    bull_series = 5.0 * np.exp(np.linspace(0, np.log(1.3), 400) + np.cumsum(rng.normal(0, 0.003, 400)))
+    bull_matrix = pd.DataFrame(
+        {"510300": bull_series, "159985": bull_series * 0.95}, index=dates,
+    )
+
+    service = EtfRotationService(
+        strategy_config=cfg,
+        holdings_loader=lambda: ([
+            EtfHolding(code="510300", name="沪深300", shares=1000,
+                       cost_price=5.0, current_price=float(bull_series[-1])),
+        ], True),
+        quotes_fetcher=_empty_quotes,
+        history_fetcher=lambda codes, **_kw: bull_matrix,
+        audit_log_path=tmp_path / "audit.jsonl",
+        clock=lambda: fixed_now,
+    )
+
+    outcome = service.refresh(force=True)
+    plan = outcome.cached.plan
+    assert plan["regime"]["regime"] == "bull"
+    # No bull override → empty dict
+    assert plan["regime"]["scoring_overrides_applied"] == {}
+
+
 def test_service_premium_auto_block_disables_new_buys_above_threshold(tmp_path) -> None:
     """Premium >= 5% must produce overlay with block_new_buys=True."""
 
