@@ -421,6 +421,109 @@ def test_apply_position_cut_zero_keeps_current() -> None:
     assert daily_etf_signal._apply_position_cut(current, target, 0.0) == current
 
 
+# ---------------------------------------------------------------------------
+# Per-position stop loss
+# ---------------------------------------------------------------------------
+
+
+def test_apply_position_stop_losses_zeros_targets_below_threshold() -> None:
+    from src.data.etf_rotation import EtfHolding
+
+    holdings = [
+        EtfHolding(code="A", name="a", shares=1000, cost_price=10.0, current_price=8.0),  # -20%
+        EtfHolding(code="B", name="b", shares=1000, cost_price=10.0, current_price=9.0),  # -10%
+        EtfHolding(code="C", name="c", shares=1000, cost_price=10.0, current_price=11.0), # +10%
+    ]
+    targets = {"A": 0.30, "B": 0.20, "C": 0.30}
+    triggered = daily_etf_signal._apply_position_stop_losses(
+        holdings=holdings, target_weights=targets, threshold=-0.15,
+    )
+    assert "A" in triggered  # -20% breaches the -15% bound
+    assert "B" not in triggered  # -10% is still above the bound
+    assert "C" not in triggered
+    assert targets["A"] == 0.0  # in-place mutation
+    assert targets["B"] == 0.20
+    assert triggered["A"]["loss_pct"] == pytest.approx(-0.20)
+    assert triggered["A"]["previous_target_weight"] == pytest.approx(0.30)
+
+
+def test_apply_position_stop_losses_disabled_when_threshold_none() -> None:
+    from src.data.etf_rotation import EtfHolding
+
+    holdings = [
+        EtfHolding(code="A", name="a", shares=1000, cost_price=10.0, current_price=5.0),
+    ]
+    targets = {"A": 0.30}
+    triggered = daily_etf_signal._apply_position_stop_losses(
+        holdings=holdings, target_weights=targets, threshold=None,
+    )
+    assert triggered == {}
+    assert targets["A"] == 0.30  # untouched
+
+
+def test_apply_position_stop_losses_rejects_non_negative_threshold() -> None:
+    from src.data.etf_rotation import EtfHolding
+
+    holdings = [
+        EtfHolding(code="A", name="a", shares=1000, cost_price=10.0, current_price=5.0),
+    ]
+    targets = {"A": 0.30}
+    # A positive threshold is nonsense — defensively treated as disabled.
+    triggered = daily_etf_signal._apply_position_stop_losses(
+        holdings=holdings, target_weights=targets, threshold=0.05,
+    )
+    assert triggered == {}
+    assert targets["A"] == 0.30
+
+
+def test_generate_plan_emits_stop_loss_triggered_field() -> None:
+    """The plan output must surface stop-loss decisions for the dashboard."""
+
+    from src.data.etf_rotation import EtfHolding
+
+    # Holding at -25% from cost → triggers default -15% stop.
+    holdings = [
+        EtfHolding(code="510300", name="沪深300ETF", shares=1000,
+                   cost_price=8.0, current_price=6.0),
+        EtfHolding(code="159985", name="豆粕ETF", shares=1000,
+                   cost_price=2.0, current_price=2.10),
+    ]
+    plan = daily_etf_signal.generate_plan(holdings=holdings)
+    triggered = plan.get("stop_loss_triggered") or {}
+    assert "510300" in triggered
+    assert "159985" not in triggered
+    # Strategy/risk pipeline should treat 510300 as zero target.
+    assert plan["target_weights"]["510300"] == 0.0
+
+
+def test_generate_plan_emits_score_breakdown_for_audit() -> None:
+    """The score_breakdown carries the data IC analytics later consume."""
+
+    plan = daily_etf_signal.generate_plan()
+    score_breakdown = plan.get("score_breakdown") or {}
+    # Should have at least the seed codes' scores.
+    assert {"159985", "510300"}.issubset(set(score_breakdown))
+    for code, sb in score_breakdown.items():
+        assert "score" in sb
+        assert "latest_price" in sb
+        assert isinstance(sb["score"], float)
+
+
+def test_audit_log_entry_includes_score_breakdown_and_prices(tmp_path) -> None:
+    audit_path = tmp_path / "audit.jsonl"
+    plan = daily_etf_signal.generate_plan()
+    daily_etf_signal.append_audit_entry(plan, path=audit_path, quote_source="test")
+    entries = daily_etf_signal.read_audit_log(audit_path)
+    assert len(entries) == 1
+    entry = entries[0]
+    assert "score_breakdown" in entry
+    assert "prices_at_decision" in entry
+    assert "stop_loss_triggered" in entry
+    # Per-code score + decision price are present.
+    assert "510300" in entry["score_breakdown"]
+    assert "510300" in entry["prices_at_decision"]
+
+
 def test_main_cli_position_cut_halves_a_sell_recommendation(
     tmp_path, capsys, monkeypatch
 ) -> None:

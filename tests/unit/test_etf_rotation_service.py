@@ -326,6 +326,209 @@ def test_service_premium_monitor_none_keeps_legacy_behaviour(tmp_path) -> None:
     assert "premium_monitor_status" not in plan
 
 
+def test_service_applies_regime_derate_to_gross_cap(tmp_path) -> None:
+    """A bear-regime price matrix must derate the strategy's gross_cap."""
+
+    import json
+    cfg_path = tmp_path / "strategy.json"
+    cfg_path.write_text(json.dumps({
+        "refresh": {"enabled": True, "interval_seconds": 60},
+        "regime": {"enabled": True, "ma_long_window": 200},
+    }))
+    cfg = load_strategy_config(cfg_path)
+    fixed_now = datetime(2026, 5, 11, 2, 0, tzinfo=timezone.utc)
+
+    # Build a long down-trending 510300 series that ends below MA200.
+    rng = np.random.default_rng(13)
+    dates = pd.bdate_range("2024-01-02", periods=400)
+    drift = np.linspace(0, np.log(0.7), 400)
+    noise = np.cumsum(rng.normal(0, 0.003, 400))
+    bear_series = 5.0 * np.exp(drift + noise)
+    bear_matrix = pd.DataFrame(
+        {"510300": bear_series, "159985": bear_series * 0.95},
+        index=dates,
+    )
+
+    def fake_holdings():
+        return [
+            EtfHolding(code="510300", name="沪深300", shares=1000,
+                       cost_price=5.0, current_price=float(bear_series[-1])),
+            EtfHolding(code="159985", name="豆粕", shares=1000,
+                       cost_price=2.0, current_price=2.0),
+        ], True
+
+    service = EtfRotationService(
+        strategy_config=cfg,
+        holdings_loader=fake_holdings,
+        quotes_fetcher=_empty_quotes,
+        history_fetcher=lambda codes, **_kw: bear_matrix,
+        audit_log_path=tmp_path / "audit.jsonl",
+        clock=lambda: fixed_now,
+    )
+
+    outcome = service.refresh(force=True)
+    plan = outcome.cached.plan
+
+    assert "regime" in plan
+    assert plan["regime"]["regime"] in {"bear", "crisis"}
+    assert plan["regime"]["gross_cap_multiplier"] < 1.0
+    # Derated gross cap: total non-cash <= base_gross_cap * multiplier
+    base_cap = float(cfg.strategy.get("gross_cap", 0.90))
+    multiplier = plan["regime"]["gross_cap_multiplier"]
+    non_cash = sum(v for k, v in plan["adjusted_weights"].items() if k != "CASH")
+    assert non_cash <= base_cap * multiplier + 1e-6
+
+
+def test_service_premium_auto_block_disables_new_buys_above_threshold(tmp_path) -> None:
+    """Premium >= 5% must produce overlay with block_new_buys=True."""
+
+    import asyncio
+    from src.data.etf_premium_monitor import EtfPremiumMonitor
+
+    cfg = _config_with_refresh_enabled(tmp_path)
+    # Force the auto_block_threshold to 0.05.
+    cfg = type(cfg)(  # rebuild with overridden premium config
+        universe=cfg.universe, risk_rules=cfg.risk_rules,
+        strategy=cfg.strategy, scoring=cfg.scoring,
+        refresh=cfg.refresh, regime=cfg.regime,
+        premium={"auto_block_threshold": 0.05},
+        source_path=cfg.source_path, source_mtime=cfg.source_mtime,
+    )
+    fixed_now = datetime(2026, 5, 11, 2, 0, tzinfo=timezone.utc)
+
+    async def fake_fetcher(code: str):
+        if code != "510300":
+            return None
+        # NAV 5.0, market will be 5.30 → 6% premium → auto-block fires.
+        return (
+            'jsonpgz({"fundcode":"510300","name":"沪深300ETF",'
+            '"jzrq":"2026-05-14","dwjz":"5.0000","gsz":"5.0000",'
+            '"gszzl":"0.00","gztime":"2026-05-15 10:30"});'
+        )
+
+    monitor = EtfPremiumMonitor(["510300", "159985"], fetcher=fake_fetcher)
+    asyncio.run(monitor.refresh_async())
+
+    def quotes_fetcher(codes, use_cache):
+        return {
+            "510300": EtfQuote(
+                code="510300", name="沪深300ETF",
+                current_price=5.30, prev_close=5.00, source="fake-live",
+                timestamp="2026-05-15T02:00:00+00:00",
+            ),
+        }, {"requested": len(codes), "resolved": 1}
+
+    service = EtfRotationService(
+        strategy_config=cfg,
+        holdings_loader=_fake_holdings_loader,
+        quotes_fetcher=quotes_fetcher,
+        history_fetcher=lambda codes, **_kw: _build_price_matrix(list(codes)),
+        premium_monitor=monitor,
+        audit_log_path=tmp_path / "audit.jsonl",
+        clock=lambda: fixed_now,
+    )
+
+    outcome = service.refresh(force=True)
+    plan = outcome.cached.plan
+    assert "510300" in plan["overlays"]
+    overlay = plan["overlays"]["510300"]
+    assert overlay["block_new_buys"] is True
+    assert "auto_block_new_buys" in (overlay.get("reason") or "")
+
+
+def test_service_premium_auto_block_inactive_below_threshold(tmp_path) -> None:
+    """Premium below the threshold leaves block_new_buys False."""
+
+    import asyncio
+    from src.data.etf_premium_monitor import EtfPremiumMonitor
+
+    cfg = _config_with_refresh_enabled(tmp_path)
+    cfg = type(cfg)(
+        universe=cfg.universe, risk_rules=cfg.risk_rules,
+        strategy=cfg.strategy, scoring=cfg.scoring,
+        refresh=cfg.refresh, regime=cfg.regime,
+        premium={"auto_block_threshold": 0.05},
+        source_path=cfg.source_path, source_mtime=cfg.source_mtime,
+    )
+    fixed_now = datetime(2026, 5, 11, 2, 0, tzinfo=timezone.utc)
+
+    async def fake_fetcher(code: str):
+        return (
+            f'jsonpgz({{"fundcode":"{code}","name":"x","jzrq":"2026-05-14",'
+            '"dwjz":"5.0000","gsz":"5.0000","gszzl":"0.00","gztime":"2026-05-15 10:30"});'
+        )
+
+    monitor = EtfPremiumMonitor(["510300"], fetcher=fake_fetcher)
+    asyncio.run(monitor.refresh_async())
+
+    def quotes_fetcher(codes, use_cache):
+        return {
+            "510300": EtfQuote(
+                code="510300", name="沪深300ETF",
+                current_price=5.05, prev_close=5.00, source="fake-live",  # only 1% premium
+                timestamp="2026-05-15T02:00:00+00:00",
+            ),
+        }, {"requested": len(codes), "resolved": 1}
+
+    service = EtfRotationService(
+        strategy_config=cfg,
+        holdings_loader=_fake_holdings_loader,
+        quotes_fetcher=quotes_fetcher,
+        history_fetcher=lambda codes, **_kw: _build_price_matrix(list(codes)),
+        premium_monitor=monitor,
+        audit_log_path=tmp_path / "audit.jsonl",
+        clock=lambda: fixed_now,
+    )
+    outcome = service.refresh(force=True)
+    plan = outcome.cached.plan
+    assert plan["overlays"]["510300"]["block_new_buys"] is False
+
+
+def test_service_reload_strategy_config_picks_up_file_edits(tmp_path, monkeypatch) -> None:
+    """Editing strategy.json + calling reload_strategy_config must surface
+    the new values without restarting the process."""
+
+    import json
+    cfg_path = tmp_path / "strategy.json"
+    cfg_path.write_text(json.dumps({"strategy": {"gross_cap": 0.80}}))
+    monkeypatch.setenv("ETF_STRATEGY_CONFIG_PATH", str(cfg_path))
+
+    service = EtfRotationService()
+    assert service._strategy_config.strategy["gross_cap"] == pytest.approx(0.80)
+
+    cfg_path.write_text(json.dumps({"strategy": {"gross_cap": 0.65}}))
+    new_cfg = service.reload_strategy_config()
+    assert new_cfg.strategy["gross_cap"] == pytest.approx(0.65)
+    assert service._strategy_config.strategy["gross_cap"] == pytest.approx(0.65)
+
+
+def test_service_reload_strategy_config_propagates_universe_to_monitor(tmp_path, monkeypatch) -> None:
+    import json
+    from src.data.etf_premium_monitor import EtfPremiumMonitor
+
+    cfg_path = tmp_path / "strategy.json"
+    cfg_path.write_text(json.dumps({}))
+    monkeypatch.setenv("ETF_STRATEGY_CONFIG_PATH", str(cfg_path))
+
+    async def fetcher(code: str):
+        return None
+    monitor = EtfPremiumMonitor(["159985", "512400", "510300", "518680", "513130"], fetcher=fetcher)
+    service = EtfRotationService(premium_monitor=monitor)
+
+    # Replace universe with a single new code via reload.
+    cfg_path.write_text(json.dumps({
+        "universe": [
+            {"code": "511260", "name": "10年国债ETF", "exchange": "sh",
+             "max_weight": 0.20, "base_weight": 0.10,
+             "risk_metadata": {"bucket": "fixed_income"}}
+        ]
+    }))
+    service.reload_strategy_config()
+    # set_codes is invoked → monitor's universe now is the user override
+    # appended onto the built-in defaults.
+    assert "511260" in monitor.codes
+
+
 def test_service_propagates_cross_sectional_scoring(tmp_path) -> None:
     import json
 
