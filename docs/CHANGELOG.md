@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Features
+
+- feat(etf-rotation): surface policy_radar signal in dashboard
+  - 在 ETF 轮动调仓页面新增「政策信号」Collapse 面板，展示 `policy_radar` 最新行业级别影响（按 `|avg_impact|` 排序的 Top 3）。
+  - 面板位于审计日志 Collapse 之前，懒加载方式拉取 `/policy-radar/signal`；`available:false` 时显示 Empty 占位；`last_refresh` 超过 24 小时时打上「已过期」提示。
+  - 仅 UI 改动；ETF 轮动策略的目标权重计算（`src/strategy/etf_rotation_strategy.py`）保持不变，政策信号仅作为信息提示。
+
 ### Tooling
 
 - **CI**: 新增 `lint` 任务与 coverage 阈值，防止 ETF rotation 扩张期债务静默回涨。

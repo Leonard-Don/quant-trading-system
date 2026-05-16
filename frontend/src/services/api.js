@@ -1193,7 +1193,7 @@ export const runCrossMarketBacktest = async (payload) => {
 };
 
 export const getPolicyRadarSignal = async () => {
-  const response = await api.get('/policy-radar/signal');
+  const response = await api.get('/policy-radar/signal', withTimeoutProfile('standard'));
   return response.data;
 };
 
