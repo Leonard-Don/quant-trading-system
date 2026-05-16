@@ -29,9 +29,17 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from dataclasses import replace as dc_replace
+
 from scripts import daily_etf_signal
+from src.data.etf_premium_monitor import EtfPremiumMonitor
 from src.data.etf_price_history import fetch_etf_history
 from src.data.etf_rotation import EtfHolding, EtfQuote
+from src.strategy.etf_regime_detector import (
+    RegimeDecision,
+    build_detector_config,
+    classify_regime,
+)
 from src.strategy.etf_rotation_config_loader import (
     StrategyConfig,
     load_strategy_config,
@@ -138,6 +146,7 @@ class EtfRotationService:
         holdings_loader: Optional[HoldingsLoader] = None,
         quotes_fetcher: Optional[QuotesFetcher] = None,
         history_fetcher: Optional[HistoryFetcher] = None,
+        premium_monitor: Optional[EtfPremiumMonitor] = None,
         audit_log_path: Optional[Path] = None,
         clock: Optional[Callable[[], datetime]] = None,
     ) -> None:
@@ -145,10 +154,13 @@ class EtfRotationService:
         self._holdings_loader = holdings_loader or daily_etf_signal.load_configured_holdings
         self._quotes_fetcher = quotes_fetcher or self._default_quotes_fetcher
         self._history_fetcher = history_fetcher or fetch_etf_history
+        self._premium_monitor = premium_monitor
         self._audit_log_path = audit_log_path
         self._clock = clock or (lambda: datetime.now(timezone.utc))
         self._cache: Optional[CachedPlan] = None
         self._lock = threading.Lock()
+        # Last regime label drives the bull/bear hysteresis on the next call.
+        self._last_regime: Optional[str] = None
 
     @staticmethod
     def _default_quotes_fetcher(
@@ -254,11 +266,51 @@ class EtfRotationService:
             self._cache = None
 
     def reload_strategy_config(self) -> StrategyConfig:
-        """Re-read the strategy.json file. The next refresh will use it."""
+        """Re-read the strategy.json file. The next refresh will use it.
+
+        Also propagates the (possibly changed) universe to the premium
+        monitor so newly-added ETFs start getting NAV pulls and removed
+        ones get evicted from the monitor cache. The next refresh will
+        rebuild the plan with the new config — and may flip regime as a
+        side-effect since the regime classifier reads from the same file.
+        """
 
         with self._lock:
             self._strategy_config = load_strategy_config()
+            if self._premium_monitor is not None:
+                codes = [a["code"] for a in self._strategy_config.universe if a.get("code")]
+                try:
+                    self._premium_monitor.set_codes(codes)
+                except Exception as exc:  # noqa: BLE001 — never block reload
+                    logger.warning("Premium monitor universe refresh failed: %s", exc)
             return self._strategy_config
+
+    def _classify_regime(self, price_matrix: Optional[pd.DataFrame]) -> Optional[RegimeDecision]:
+        """Run the regime classifier on the proxy column of the price matrix.
+
+        Returns ``None`` when regime detection is disabled in strategy.json
+        or the proxy code isn't present in the supplied history.
+        """
+
+        regime_cfg = self._strategy_config.regime
+        if not regime_cfg or not regime_cfg.get("enabled", True):
+            return None
+        if price_matrix is None or price_matrix.empty:
+            return None
+        detector_cfg = build_detector_config(regime_cfg)
+        if detector_cfg.proxy_code not in price_matrix.columns:
+            logger.debug(
+                "regime detector: proxy %s not in price matrix columns %s",
+                detector_cfg.proxy_code, list(price_matrix.columns),
+            )
+            return None
+        decision = classify_regime(
+            price_matrix[detector_cfg.proxy_code],
+            config=detector_cfg,
+            previous_regime=self._last_regime,
+        )
+        self._last_regime = decision.regime
+        return decision
 
     # -----------------------------------------------------------------------
     # Internals
@@ -293,6 +345,31 @@ class EtfRotationService:
                 (q.timestamp for q in live_quotes.values() if q.timestamp), default=None
             )
 
+        # Premium overlay enrichment: splice NAV onto the live quotes so
+        # risk rules see ``quote.premium``, then build EtfOverlay objects
+        # so the strategy's scoring layer also sees premium points.
+        overlays = None
+        if self._premium_monitor is not None and quote_map:
+            for code, quote in quote_map.items():
+                enrichment = self._premium_monitor.enrichment_for_quote(code)
+                if not enrichment:
+                    continue
+                if quote.estimated_nav is None:
+                    quote.estimated_nav = enrichment.get("estimated_nav")
+                if quote.prev_nav is None:
+                    quote.prev_nav = enrichment.get("prev_nav")
+            market_prices = {
+                code: quote.current_price for code, quote in quote_map.items()
+            }
+            premium_cfg = self._strategy_config.premium or {}
+            auto_block = premium_cfg.get("auto_block_threshold")
+            overlays = self._premium_monitor.build_overlays(
+                market_prices,
+                auto_block_threshold=(
+                    float(auto_block) if auto_block is not None else None
+                ),
+            )
+
         price_matrix = None
         price_matrix_as_of = None
         if use_live_history and codes:
@@ -306,15 +383,45 @@ class EtfRotationService:
                     else str(last_dt)
                 )
 
+        # Broad-market regime adjustment: classify the proxy index and
+        # potentially derate gross_cap + raise min_score_to_hold.
+        active_strategy_config = self._strategy_config
+        regime_decision = self._classify_regime(price_matrix)
+        if regime_decision is not None and regime_decision.regime != "unknown":
+            adjusted_strategy_params = dict(active_strategy_config.strategy)
+            base_gross_cap = float(adjusted_strategy_params.get("gross_cap", 0.90))
+            base_min_score = float(adjusted_strategy_params.get("min_score_to_hold", 25.0))
+            adjusted_strategy_params["gross_cap"] = max(
+                0.05,
+                min(1.0, base_gross_cap * regime_decision.gross_cap_multiplier),
+            )
+            adjusted_strategy_params["min_score_to_hold"] = (
+                base_min_score + regime_decision.min_score_to_hold_offset
+            )
+            # Keep min_score_full_hold above the new min_score_to_hold.
+            base_full_hold = float(adjusted_strategy_params.get("min_score_full_hold", 35.0))
+            adjusted_strategy_params["min_score_full_hold"] = max(
+                adjusted_strategy_params["min_score_to_hold"] + 1.0,
+                base_full_hold + regime_decision.min_score_to_hold_offset,
+            )
+            active_strategy_config = dc_replace(
+                active_strategy_config,
+                strategy=adjusted_strategy_params,
+            )
+
         plan = daily_etf_signal.generate_plan(
             holdings=holdings if holdings_is_configured else None,
             quotes=quote_map,
+            overlays=overlays or None,
             price_matrix=price_matrix,
-            strategy_config=self._strategy_config,
+            strategy_config=active_strategy_config,
             quotes_as_of=quotes_as_of,
             price_matrix_as_of=price_matrix_as_of,
             now=now,
         )
+
+        if regime_decision is not None:
+            plan["regime"] = regime_decision.to_dict()
 
         if live_quotes and price_matrix is not None:
             quote_source = "live"
@@ -325,6 +432,9 @@ class EtfRotationService:
         else:
             quote_source = "synthetic"
         plan["quote_source"] = quote_source
+
+        if self._premium_monitor is not None:
+            plan["premium_monitor_status"] = self._premium_monitor.status()
         return plan, quote_source
 
 

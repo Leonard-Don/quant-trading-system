@@ -205,3 +205,85 @@ def post_refresh(use_cache: bool = Query(default=True)) -> dict[str, Any]:
             "skipped_reason": outcome.skipped_reason,
         },
     }
+
+
+@router.get(
+    "/audit-log",
+    summary="读取 ETF 轮动信号审计日志",
+    description=(
+        "返回 JSON Lines 审计日志的最近 N 行（默认 200）。"
+        "可选 ``since`` 参数（ISO timestamp）过滤更新时间。"
+        "完全只读；日志位置 = ``ETF_AUDIT_LOG_PATH`` env / "
+        "``~/.config/etf-rotation/audit.jsonl``。"
+    ),
+)
+def get_audit_log(
+    limit: int = Query(default=200, ge=1, le=2000),
+    since: Optional[str] = Query(default=None),
+) -> dict[str, Any]:
+    entries = daily_etf_signal.read_audit_log()
+    if since:
+        entries = [e for e in entries if str(e.get("run_at", "")) >= since]
+    total = len(entries)
+    tail = entries[-limit:]
+    return {
+        "success": True,
+        "data": {
+            "entries": tail,
+            "total": total,
+            "returned": len(tail),
+        },
+    }
+
+
+def _summarise_strategy_config(cfg: Any) -> dict[str, Any]:
+    """Compact view of the loaded strategy config (returned by /reload-config)."""
+
+    return {
+        "source_path": str(cfg.source_path) if cfg.source_path else None,
+        "source_mtime": cfg.source_mtime,
+        "universe": [
+            {
+                "code": asset.get("code"),
+                "name": asset.get("name", ""),
+                "max_weight": asset.get("max_weight"),
+                "base_weight": asset.get("base_weight"),
+            }
+            for asset in cfg.universe
+        ],
+        "risk_rules": dict(cfg.risk_rules),
+        "strategy": dict(cfg.strategy),
+        "refresh": dict(cfg.refresh),
+        "regime": dict(cfg.regime),
+        "premium": dict(cfg.premium),
+    }
+
+
+@router.post(
+    "/reload-config",
+    summary="重载 strategy.json，不重启 backend 即可应用",
+    description=(
+        "重新读取 ``ETF_STRATEGY_CONFIG_PATH`` / ``~/.config/etf-rotation/strategy.json``"
+        "，同步到 EtfRotationService 与 EtfPremiumMonitor，下次刷新自动生效。"
+        "返回值是重载后的完整配置摘要（universe / risk_rules / strategy / refresh / regime / premium）。"
+    ),
+)
+def post_reload_config(refresh_after: bool = Query(default=True)) -> dict[str, Any]:
+    service = _get_service()
+    cfg = service.reload_strategy_config()
+    summary = _summarise_strategy_config(cfg)
+    refresh_outcome = None
+    if refresh_after:
+        outcome = service.refresh(force=True)
+        refresh_outcome = {
+            "refreshed": outcome.refreshed,
+            "skipped_reason": outcome.skipped_reason,
+            "refreshed_at": (
+                outcome.cached.refreshed_at.isoformat() if outcome.cached else None
+            ),
+        }
+    return {
+        "success": True,
+        "data": summary,
+        "refresh": refresh_outcome,
+    }

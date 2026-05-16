@@ -744,6 +744,28 @@ export const postEtfRotationRefresh = async ({ useCache = true } = {}) => {
   return response.data;
 };
 
+export const postEtfRotationReloadConfig = async ({ refreshAfter = true } = {}) => {
+  const response = await api.post(
+    '/etf-rotation/reload-config',
+    null,
+    {
+      params: { refresh_after: refreshAfter ? 'true' : 'false' },
+      ...withTimeoutProfile('standard'),
+    },
+  );
+  return response.data;
+};
+
+export const getEtfRotationAuditLog = async ({ limit = 200, since = null } = {}) => {
+  const params = { limit };
+  if (since) params.since = since;
+  const response = await api.get('/etf-rotation/audit-log', {
+    params,
+    ...withTimeoutProfile('standard'),
+  });
+  return response.data;
+};
+
 export const getRealtimeQuote = async (symbol) => {
   const response = await api.get(`/realtime/quote/${encodeURIComponent(symbol)}`);
   return response.data;
