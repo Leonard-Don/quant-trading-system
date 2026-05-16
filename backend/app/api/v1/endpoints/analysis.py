@@ -1089,11 +1089,11 @@ async def get_industry_comparison(request: TrendAnalysisRequest):
                     peers.append({
                         "symbol": peer_symbol,
                         "name": metrics.get("name", peer_symbol),
-                        "pe_ratio": round(metrics.get("pe_ratio", 0) or 0, 2),
-                        "revenue_growth": round((metrics.get("revenue_growth", 0) or 0) * 100, 2),
-                        "profit_margin": round((metrics.get("profit_margin", 0) or 0) * 100, 2),
-                        "market_cap": metrics.get("market_cap", 0),
-                        "price_to_book": round(metrics.get("price_to_book", 0) or 0, 2)
+                        "pe_ratio": _round_finite(metrics.get("pe_ratio")),
+                        "revenue_growth": _round_finite(_finite_float(metrics.get("revenue_growth")) * 100),
+                        "profit_margin": _round_finite(_finite_float(metrics.get("profit_margin")) * 100),
+                        "market_cap": _finite_float(metrics.get("market_cap")),
+                        "price_to_book": _round_finite(metrics.get("price_to_book")),
                     })
             except Exception as e:
                 logger.warning(f"Could not fetch data for peer {peer_symbol}: {e}")
@@ -1102,19 +1102,21 @@ async def get_industry_comparison(request: TrendAnalysisRequest):
         target = {
             "symbol": request.symbol,
             "name": target_metrics.get("name", request.symbol),
-            "pe_ratio": round(target_metrics.get("pe_ratio", 0) or 0, 2),
-            "revenue_growth": round((target_metrics.get("revenue_growth", 0) or 0) * 100, 2),
-            "profit_margin": round((target_metrics.get("profit_margin", 0) or 0) * 100, 2),
-            "market_cap": target_metrics.get("market_cap", 0),
-            "price_to_book": round(target_metrics.get("price_to_book", 0) or 0, 2)
+            "pe_ratio": _round_finite(target_metrics.get("pe_ratio")),
+            "revenue_growth": _round_finite(_finite_float(target_metrics.get("revenue_growth")) * 100),
+            "profit_margin": _round_finite(_finite_float(target_metrics.get("profit_margin")) * 100),
+            "market_cap": _finite_float(target_metrics.get("market_cap")),
+            "price_to_book": _round_finite(target_metrics.get("price_to_book")),
         }
 
-        # 计算行业平均值
+        # 计算行业平均值 — np.mean over a filtered-empty list returns NaN, which
+        # FastAPI's strict JSON encoder rejects with "Out of range float values".
         all_companies = [target, *peers]
+        positive_pe = [c["pe_ratio"] for c in all_companies if c["pe_ratio"] > 0]
         industry_avg = {
-            "pe_ratio": round(np.mean([c["pe_ratio"] for c in all_companies if c["pe_ratio"] > 0]), 2),
-            "revenue_growth": round(np.mean([c["revenue_growth"] for c in all_companies]), 2),
-            "profit_margin": round(np.mean([c["profit_margin"] for c in all_companies]), 2)
+            "pe_ratio": _round_finite(np.mean(positive_pe)) if positive_pe else 0.0,
+            "revenue_growth": _round_finite(np.mean([c["revenue_growth"] for c in all_companies])),
+            "profit_margin": _round_finite(np.mean([c["profit_margin"] for c in all_companies])),
         }
 
         # 计算排名
