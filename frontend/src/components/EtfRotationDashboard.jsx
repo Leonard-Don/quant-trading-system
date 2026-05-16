@@ -10,6 +10,7 @@ import {
   HistoryOutlined,
   LineChartOutlined,
   PauseCircleOutlined,
+  RadarChartOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
   SettingOutlined,
@@ -23,6 +24,7 @@ import {
   getEtfRotationAuditLog,
   getEtfRotationDailySignal,
   getEtfRotationLiveTarget,
+  getPolicyRadarSignal,
   postEtfRotationRefresh,
   postEtfRotationReloadConfig,
 } from '../services/api';
@@ -72,6 +74,15 @@ const REGIME_META = {
 const MANUAL_BANNER_ZH = '手动调仓计划：请人工复核后执行；不连接券商接口，也不会自动下单。';
 
 const POLL_INTERVAL_MS = 30_000;
+
+// Policy data older than this is flagged as stale in the UI.
+const POLICY_STALE_THRESHOLD_MS = 24 * 60 * 60 * 1000;
+
+const POLICY_SIGNAL_META = {
+  bullish: { color: 'red', label: '偏多' },
+  bearish: { color: 'green', label: '偏空' },
+  neutral: { color: 'default', label: '中性' },
+};
 
 const STATIC_REASON_LABELS = {
   within_threshold: '无需调仓（偏离低于阈值）',
@@ -312,6 +323,9 @@ const EtfRotationDashboard = () => {
   const [auditLoading, setAuditLoading] = useState(false);
   const [analytics, setAnalytics] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [policySignal, setPolicySignal] = useState(null);
+  const [policyLoading, setPolicyLoading] = useState(false);
+  const [policyLoaded, setPolicyLoaded] = useState(false);
   const pollTimerRef = useRef(null);
 
   const applyResponse = useCallback((response, endpointUsed) => {
@@ -423,6 +437,22 @@ const EtfRotationDashboard = () => {
     }
   }, []);
 
+  const fetchPolicySignal = useCallback(async () => {
+    setPolicyLoading(true);
+    try {
+      const response = await getPolicyRadarSignal();
+      setPolicySignal(response?.data || null);
+    } catch (err) {
+      // Degrade silently: policy radar is informational only, never fail loud.
+      // eslint-disable-next-line no-console
+      console.warn('policy-radar signal fetch failed', err);
+      setPolicySignal(null);
+    } finally {
+      setPolicyLoaded(true);
+      setPolicyLoading(false);
+    }
+  }, []);
+
   // Initial load + polling
   useEffect(() => {
     let cancelled = false;
@@ -473,6 +503,25 @@ const EtfRotationDashboard = () => {
         : '截图种子行情'
   );
   const refreshedAt = formatIsoToLocal(meta?.refreshedAt) || formatIsoToLocal(lastFetchedAt);
+
+  const topPolicySignals = useMemo(() => {
+    const industrySignals = policySignal?.industry_signals;
+    if (!industrySignals || typeof industrySignals !== 'object') return [];
+    return Object.entries(industrySignals)
+      .filter(([, info]) => info && typeof info === 'object')
+      .sort((a, b) => Math.abs(Number(b[1]?.avg_impact) || 0) - Math.abs(Number(a[1]?.avg_impact) || 0))
+      .slice(0, 3);
+  }, [policySignal]);
+
+  const policyLastRefresh = policySignal?.last_refresh || null;
+  const policyLastRefreshLocal = formatIsoToLocal(policyLastRefresh);
+  const policyIsStale = useMemo(() => {
+    if (!policyLastRefresh) return false;
+    const date = new Date(policyLastRefresh);
+    if (Number.isNaN(date.getTime())) return false;
+    return Date.now() - date.getTime() > POLICY_STALE_THRESHOLD_MS;
+  }, [policyLastRefresh]);
+  const policyAvailable = Boolean(policySignal?.available) && topPolicySignals.length > 0;
 
   const weightColumns = [
     {
@@ -879,6 +928,85 @@ const EtfRotationDashboard = () => {
                           );
                         })}
                       </Row>
+                    )}
+                  </Space>
+                ),
+              }]}
+            />
+
+            <Collapse
+              data-testid="etf-policy-signals-panel"
+              onChange={(keys) => {
+                const arr = Array.isArray(keys) ? keys : [keys];
+                if (arr.includes('policy') && !policyLoaded && !policyLoading) fetchPolicySignal();
+              }}
+              items={[{
+                key: 'policy',
+                label: (
+                  <Space>
+                    <RadarChartOutlined />
+                    <Text strong>政策信号（policy_radar 最新行业影响）</Text>
+                    {policyLoaded && policyAvailable ? (
+                      <Tag color="default">Top {topPolicySignals.length}</Tag>
+                    ) : null}
+                    {policyLoaded && policyIsStale ? (
+                      <Tooltip title={`政策数据最近一次刷新已超过 24 小时（${policyLastRefreshLocal || '时间未知'}）`}>
+                        <Tag
+                          color="warning"
+                          icon={<WarningOutlined />}
+                          data-testid="etf-policy-signals-stale-warning"
+                        >
+                          已过期
+                        </Tag>
+                      </Tooltip>
+                    ) : null}
+                  </Space>
+                ),
+                children: (
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    <Space size={[8, 4]} wrap>
+                      <Button size="small" onClick={fetchPolicySignal} loading={policyLoading}>重新加载</Button>
+                      <Text type="secondary">
+                        {policyLastRefreshLocal
+                          ? `政策数据更新时间：${policyLastRefreshLocal}`
+                          : '政策数据更新时间：—'}
+                      </Text>
+                      <Text type="secondary">
+                        仅供参考；不参与 ETF 轮动策略的目标权重计算。
+                      </Text>
+                    </Space>
+                    {policyLoading && !policyLoaded ? (
+                      <Spin />
+                    ) : !policyAvailable ? (
+                      <Empty
+                        description="政策数据未就绪。请确认 alt-data 调度器已启动并完成首次抓取。"
+                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                      />
+                    ) : (
+                      <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                        {topPolicySignals.map(([industry, info]) => {
+                          const signalKey = info?.signal || 'neutral';
+                          const palette = POLICY_SIGNAL_META[signalKey] || POLICY_SIGNAL_META.neutral;
+                          const avgImpact = Number(info?.avg_impact);
+                          const impactText = Number.isFinite(avgImpact) ? avgImpact.toFixed(2) : '—';
+                          const mentions = info?.mentions ?? 0;
+                          return (
+                            <Space
+                              key={industry}
+                              size={[8, 4]}
+                              wrap
+                              data-testid={`etf-policy-signal-row-${industry}`}
+                            >
+                              <Text strong>{industry}</Text>
+                              <Tag color={palette.color}>{palette.label}</Tag>
+                              <Text type="secondary">
+                                平均影响 {avgImpact >= 0 && Number.isFinite(avgImpact) ? '+' : ''}{impactText}
+                              </Text>
+                              <Text type="secondary">· 提及 {mentions}</Text>
+                            </Space>
+                          );
+                        })}
+                      </Space>
                     )}
                   </Space>
                 ),
