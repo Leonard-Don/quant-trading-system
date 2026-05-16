@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Tests
+
+- test(strategy): add coverage for mean reversion + strategy blend modules
+
 ### Features
 
 - feat(etf-rotation): surface policy_radar signal in dashboard
