@@ -1,6 +1,8 @@
 import json
 import sqlite3
 
+import pytest
+
 from src.backtest.history import BacktestHistory
 
 
@@ -356,6 +358,47 @@ def test_history_persists_sqlite_mirror(tmp_path):
         count = connection.execute("SELECT COUNT(*) FROM backtest_history").fetchone()[0]
 
     assert count == 1
+
+
+def test_history_summary_replaces_null_numeric_metrics_with_zero(tmp_path):
+    """Numeric summary metrics must never persist as None.
+
+    ``metrics.get(field, 0)`` only falls back to ``0`` when the key is
+    missing — if a caller (or older snapshot sanitised via
+    ``clean_data_for_json``) explicitly stores ``None`` for ``total_return``,
+    the summary used to surface that ``None`` and crash downstream
+    accumulators with ``TypeError: 'int' + 'NoneType'``.
+    """
+    history = BacktestHistory(storage_path=tmp_path, max_records=10)
+
+    history.save(
+        {
+            "record_type": "batch_backtest",
+            "title": "missing-return",
+            "symbol": "AAPL",
+            "strategy": "demo",
+            "metrics": {"total_return": None, "total_tasks": 1},
+            "result": {"summary": {}},
+        }
+    )
+    history.save(
+        {
+            "record_type": "batch_backtest",
+            "title": "has-return",
+            "symbol": "AAPL",
+            "strategy": "demo",
+            "metrics": {"total_return": 0.10, "total_tasks": 1},
+            "result": {"summary": {}},
+        }
+    )
+
+    null_record = history.get_history(limit=10)[1]
+    assert null_record["metrics"]["total_return"] == 0
+
+    stats = history.get_statistics(record_type="batch_backtest")
+
+    assert stats["total_records"] == 2
+    assert stats["avg_return"] == pytest.approx(0.05)
 
 
 def test_history_migrates_existing_json_records_into_sqlite(tmp_path):
