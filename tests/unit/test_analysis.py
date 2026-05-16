@@ -255,6 +255,64 @@ class TestTrendAnalyzer:
         for entry in payload["top_correlations"]:
             assert np.isfinite(entry["correlation"]), entry
 
+    @patch("backend.app.api.v1.endpoints.analysis.fundamental_analyzer.analyze")
+    def test_industry_comparison_endpoint_sanitizes_non_finite_metrics(self, mock_analyze):
+        """行业对比端点遇到 NaN/Inf 基本面字段时仍返回 JSON-safe 有限值。
+
+        触发两个 NaN 泄漏路径：
+        1. ``metrics.get(key, 0) or 0`` 把 NaN 当作真值穿透 → ``round(NaN)`` 进入 JSON。
+        2. peer 拉取失败/全部为 0 PE 时，``np.mean([])`` 返回 NaN 进入 industry_avg。
+        """
+        nan = float("nan")
+        inf = float("inf")
+        # Target metrics carry NaN/Inf for every numeric field. Peers are absent
+        # (industry "Unknown" with no sector → Default peers fail to resolve).
+        # The endpoint must still return finite values for every numeric field.
+        target_payload = {
+            "metrics": {
+                "name": "Broken Co",
+                "industry": "Unknown",
+                "sector": "Unknown",
+                "pe_ratio": nan,
+                "revenue_growth": nan,
+                "profit_margin": inf,
+                "market_cap": nan,
+                "price_to_book": -inf,
+            }
+        }
+
+        def _analyze(symbol):
+            if symbol == "BROKEN":
+                return target_payload
+            # All peer lookups fail to return metrics → industry_avg derives
+            # only from the all-NaN target, which exposes the np.mean([]) leak
+            # once individual NaNs are sanitized to 0.
+            return None
+
+        mock_analyze.side_effect = _analyze
+        safe_client = TestClient(app, raise_server_exceptions=False)
+
+        response = safe_client.post(
+            "/analysis/industry-comparison",
+            json={"symbol": "BROKEN", "interval": "1d"},
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["symbol"] == "BROKEN"
+
+        target = payload["target"]
+        for key in ("pe_ratio", "revenue_growth", "profit_margin", "market_cap", "price_to_book"):
+            assert np.isfinite(target[key]), (key, target[key])
+
+        for peer in payload.get("peers", []):
+            for key in ("pe_ratio", "revenue_growth", "profit_margin", "market_cap", "price_to_book"):
+                assert np.isfinite(peer[key]), (peer["symbol"], key, peer[key])
+
+        industry_avg = payload["industry_avg"]
+        for key in ("pe_ratio", "revenue_growth", "profit_margin"):
+            assert np.isfinite(industry_avg[key]), (key, industry_avg[key])
+
     @patch("backend.app.api.v1.endpoints.analysis.data_manager.get_historical_data")
     def test_sentiment_history_endpoint_returns_history(self, mock_get_data):
         """测试情绪历史端点返回最近窗口和当前情绪摘要。"""
