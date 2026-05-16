@@ -114,6 +114,42 @@ DEFAULT_REFRESH_PARAMS: Dict[str, Any] = {
 }
 
 
+DEFAULT_REGIME_PARAMS: Dict[str, Any] = {
+    "enabled": True,
+    "proxy_code": "510300",
+    "ma_long_window": 200,
+    "vol_window": 60,
+    "vol_history_window": 252,
+    "drawdown_window": 60,
+    "vol_elevated_multiplier": 1.5,
+    "vol_crisis_multiplier": 2.0,
+    "drawdown_correction": 0.05,
+    "drawdown_crisis": 0.15,
+    "ma_hysteresis": 0.01,
+    "gross_cap_multipliers": {
+        "bull": 1.00,
+        "correction": 0.85,
+        "sideways": 0.90,
+        "bear": 0.60,
+        "crisis": 0.40,
+        "unknown": 1.00,
+    },
+    "min_score_to_hold_offsets": {
+        "bull": 0.0,
+        "correction": 0.0,
+        "sideways": 0.0,
+        "bear": 5.0,
+        "crisis": 10.0,
+        "unknown": 0.0,
+    },
+}
+
+
+DEFAULT_PREMIUM_PARAMS: Dict[str, Any] = {
+    "auto_block_threshold": 0.05,
+}
+
+
 # ---------------------------------------------------------------------------
 # Public dataclass
 # ---------------------------------------------------------------------------
@@ -132,6 +168,8 @@ class StrategyConfig:
     strategy: Dict[str, Any]
     scoring: Dict[str, Any]
     refresh: Dict[str, Any]
+    regime: Dict[str, Any] = field(default_factory=dict)
+    premium: Dict[str, Any] = field(default_factory=dict)
     source_path: Optional[Path] = None
     source_mtime: Optional[float] = None
 
@@ -275,6 +313,8 @@ def load_strategy_config(
     strategy = _merge_dict(DEFAULT_STRATEGY_PARAMS, raw.get("strategy"))
     scoring = _merge_dict(default_scoring, raw.get("scoring"))
     refresh = _merge_dict(DEFAULT_REFRESH_PARAMS, raw.get("refresh"))
+    regime = _merge_dict(DEFAULT_REGIME_PARAMS, raw.get("regime"))
+    premium = _merge_dict(DEFAULT_PREMIUM_PARAMS, raw.get("premium"))
 
     return StrategyConfig(
         universe=universe,
@@ -282,6 +322,8 @@ def load_strategy_config(
         strategy=strategy,
         scoring=scoring,
         refresh=refresh,
+        regime=regime,
+        premium=premium,
         source_path=resolved_path,
         source_mtime=mtime,
     )
@@ -290,7 +332,9 @@ def load_strategy_config(
 __all__ = [
     "CONFIG_PATH_ENV",
     "DEFAULT_CONFIG_PATH",
+    "DEFAULT_PREMIUM_PARAMS",
     "DEFAULT_REFRESH_PARAMS",
+    "DEFAULT_REGIME_PARAMS",
     "DEFAULT_RISK_RULES",
     "DEFAULT_STRATEGY_PARAMS",
     "DEFAULT_UNIVERSE",

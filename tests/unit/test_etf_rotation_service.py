@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from src.data.etf_rotation import EtfHolding, EtfQuote
 from src.strategy.etf_rotation_config_loader import StrategyConfig, load_strategy_config
@@ -245,6 +246,84 @@ def test_service_quote_source_reflects_inputs(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 # Adaptive scoring smoke (delegates to strategy but exercised via service)
 # ---------------------------------------------------------------------------
+
+
+def test_service_premium_monitor_injects_overlays_into_plan(tmp_path) -> None:
+    """When a premium monitor reports a fresh +6% premium for 512400,
+    the service must enrich the quote with NAV and emit an overlay so
+    both the risk-rule veto and the scoring penalty fire."""
+
+    import asyncio
+    from src.data.etf_premium_monitor import EtfPremiumMonitor
+
+    cfg = _config_with_refresh_enabled(tmp_path)
+    fixed_now = datetime(2026, 5, 11, 2, 0, tzinfo=timezone.utc)
+
+    async def fake_fetcher(code: str):
+        if code != "512400":
+            return None
+        payload = (
+            'jsonpgz({"fundcode":"512400","name":"有色金属ETF",'
+            '"jzrq":"2026-05-14","dwjz":"2.0000","gsz":"2.0000",'
+            '"gszzl":"0.00","gztime":"2026-05-15 10:30"});'
+        )
+        return payload
+
+    monitor = EtfPremiumMonitor(["510300", "512400"], fetcher=fake_fetcher)
+    asyncio.run(monitor.refresh_async())
+
+    # Live quote fetcher returns a 512400 market price 6% above NAV.
+    def quotes_fetcher(codes, use_cache):
+        from src.data.etf_rotation import EtfQuote
+        return {
+            "512400": EtfQuote(
+                code="512400", name="有色",
+                current_price=2.12, prev_close=2.00, source="fake-live",
+                timestamp="2026-05-15T02:00:00+00:00",
+            ),
+        }, {"requested": len(codes), "resolved": 1, "missing": len(codes) - 1}
+
+    service = EtfRotationService(
+        strategy_config=cfg,
+        holdings_loader=_fake_holdings_loader,
+        quotes_fetcher=quotes_fetcher,
+        history_fetcher=lambda codes, **_kw: _build_price_matrix(list(codes)),
+        premium_monitor=monitor,
+        audit_log_path=tmp_path / "audit.jsonl",
+        clock=lambda: fixed_now,
+    )
+
+    outcome = service.refresh(force=True)
+    plan = outcome.cached.plan
+
+    # Overlay surfaced in the plan output (6% > 5% hard premium veto).
+    assert "overlays" in plan
+    assert "512400" in plan["overlays"]
+    assert plan["overlays"]["512400"]["premium"] == pytest.approx(0.06, abs=1e-6)
+    # Quote enrichment: estimated_nav populated and the snapshot reflects it.
+    snapshot = plan["quote_snapshot"]["512400"]
+    assert snapshot.get("premium") == pytest.approx(0.06, abs=1e-6)
+    # Premium-monitor status is also surfaced for dashboards.
+    assert "premium_monitor_status" in plan
+
+
+def test_service_premium_monitor_none_keeps_legacy_behaviour(tmp_path) -> None:
+    cfg = _config_with_refresh_enabled(tmp_path)
+    fixed_now = datetime(2026, 5, 11, 2, 0, tzinfo=timezone.utc)
+
+    service = EtfRotationService(
+        strategy_config=cfg,
+        holdings_loader=_fake_holdings_loader,
+        quotes_fetcher=_empty_quotes,
+        history_fetcher=lambda codes, **_kw: _build_price_matrix(list(codes)),
+        premium_monitor=None,
+        audit_log_path=tmp_path / "audit.jsonl",
+        clock=lambda: fixed_now,
+    )
+    outcome = service.refresh(force=True)
+    plan = outcome.cached.plan
+    assert plan.get("overlays") == {}
+    assert "premium_monitor_status" not in plan
 
 
 def test_service_propagates_cross_sectional_scoring(tmp_path) -> None:

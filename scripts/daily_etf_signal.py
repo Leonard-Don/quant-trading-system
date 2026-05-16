@@ -63,6 +63,7 @@ from src.strategy.etf_rotation_config_loader import (  # noqa: E402
 from src.strategy.etf_rotation_strategy import (  # noqa: E402
     DEFAULT_REBALANCE_THRESHOLD,
     EtfAssetConfig,
+    EtfOverlay,
     EtfRotationConfig,
     EtfRotationStrategy,
     EtfScoringConfig,
@@ -221,6 +222,8 @@ def _quotes_to_snapshot(quotes: Mapping[str, EtfQuote]) -> Dict[str, Dict[str, A
             "prev_close": quote.prev_close,
             "change_pct": quote.change_pct,
             "premium": quote.premium,
+            "estimated_nav": quote.estimated_nav,
+            "prev_nav": quote.prev_nav,
             "open_price": quote.open_price,
             "high": quote.high,
             "low": quote.low,
@@ -516,6 +519,7 @@ def generate_plan(
     holdings: Optional[Sequence[EtfHolding]] = None,
     quotes: Optional[Mapping[str, EtfQuote]] = None,
     *,
+    overlays: Optional[Mapping[str, EtfOverlay]] = None,
     price_matrix: Optional[pd.DataFrame] = None,
     risk_config: Optional[EtfRiskRuleConfig] = None,
     strategy_config: Optional[StrategyConfig] = None,
@@ -556,6 +560,7 @@ def generate_plan(
 
     signals = strategy.evaluate(
         price_matrix,
+        overlays=dict(overlays) if overlays else None,
         current_weights=current_weights,
     )
     target_weights = {sig.symbol: sig.target_weight for sig in signals}
@@ -600,6 +605,16 @@ def generate_plan(
         now=now,
     )
 
+    overlay_payload = {
+        code: {
+            "premium": float(o.premium) if o.premium is not None else None,
+            "max_weight": float(o.max_weight) if o.max_weight is not None else None,
+            "block_new_buys": bool(o.block_new_buys),
+            "reason": o.reason or None,
+        }
+        for code, o in (overlays or {}).items()
+    }
+
     return {
         "manual_only": True,
         "auto_ordering": False,
@@ -624,6 +639,7 @@ def generate_plan(
         "risk_reasons": list(decision.reasons),
         "source_health": source_health,
         "quote_snapshot": _quotes_to_snapshot(quote_map),
+        "overlays": overlay_payload,
     }
 
 

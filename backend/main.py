@@ -31,6 +31,8 @@ from src.data.alternative import (
     stop_alt_data_scheduler,
 )
 from backend.app.api.v1.endpoints import etf_rotation as etf_rotation_endpoint
+from src.data.etf_premium_monitor import EtfPremiumMonitor, run_premium_refresh_loop
+from src.strategy.etf_rotation_config_loader import load_strategy_config
 from src.strategy.etf_rotation_service import EtfRotationService
 
 # 配置日志
@@ -188,7 +190,15 @@ async def lifespan(app: FastAPI):
     # ETF rotation: build service singleton + start refresh loop. The loop
     # itself checks the strategy.json `refresh.enabled` flag and exits
     # immediately when disabled, so this is safe to always wire up.
-    etf_service = EtfRotationService()
+    etf_strategy_cfg = load_strategy_config()
+    etf_premium_monitor = EtfPremiumMonitor(
+        codes=[asset["code"] for asset in etf_strategy_cfg.universe if asset.get("code")],
+        max_age_seconds=int(etf_strategy_cfg.refresh.get("premium_max_age_seconds", 300)),
+    )
+    etf_service = EtfRotationService(
+        strategy_config=etf_strategy_cfg,
+        premium_monitor=etf_premium_monitor,
+    )
     etf_rotation_endpoint.install_service(etf_service)
     background_tasks.append(
         start_background_task(
@@ -196,6 +206,18 @@ async def lifespan(app: FastAPI):
             name="etf-rotation-refresh",
         )
     )
+    if etf_strategy_cfg.refresh.get("enabled", False):
+        background_tasks.append(
+            start_background_task(
+                run_premium_refresh_loop(
+                    etf_premium_monitor,
+                    interval_seconds=int(
+                        etf_strategy_cfg.refresh.get("premium_interval_seconds", 60)
+                    ),
+                ),
+                name="etf-premium-monitor",
+            )
+        )
 
     try:
         yield

@@ -14,9 +14,11 @@ import {
 } from '@ant-design/icons';
 
 import {
+  getEtfRotationAuditLog,
   getEtfRotationDailySignal,
   getEtfRotationLiveTarget,
   postEtfRotationRefresh,
+  postEtfRotationReloadConfig,
 } from '../services/api';
 
 const { Text, Title } = Typography;
@@ -50,6 +52,15 @@ const QUOTE_SOURCE_LABELS = {
   live_history_synthetic_quotes: '实盘历史 / 合成报价',
   synthetic: '全合成',
   fallback_synthetic: '回退合成',
+};
+
+const REGIME_META = {
+  bull: { color: 'success', label: '牛市 / 顺势', detail: '广义市场处于 200 日均线之上、波动率正常区间。' },
+  correction: { color: 'warning', label: '调整 / 高位回撤', detail: '价格仍在 200 日均线之上但 60 日回撤 ≥ 5%。' },
+  sideways: { color: 'processing', label: '盘整 / 波动放大', detail: '在 200 日均线附近横盘但波动率高于历史中位 1.5×。' },
+  bear: { color: 'error', label: '熊市 / 趋势走弱', detail: '价格跌破 200 日均线，已开始降仓。' },
+  crisis: { color: 'volcano', label: '危机 / 高波动深回撤', detail: '波动率 ≥ 2× 历史中位 或 60 日回撤 ≥ 15%。' },
+  unknown: { color: 'default', label: '数据不足', detail: '历史数据不够长，暂不调整 gross_cap。' },
 };
 
 const MANUAL_BANNER_ZH = '手动调仓计划：请人工复核后执行；不连接券商接口，也不会自动下单。';
@@ -150,10 +161,12 @@ const buildWeightRows = (plan) => {
   const target = plan?.target_weights || {};
   const adjusted = plan?.adjusted_weights || {};
   const quotes = plan?.quote_snapshot || {};
+  const overlays = plan?.overlays || {};
   const codes = Array.from(new Set([...Object.keys(current), ...Object.keys(target), ...Object.keys(adjusted), ...Object.keys(quotes)]));
   const orderedCodes = [...codes.filter((code) => code !== 'CASH').sort(), ...codes.filter((code) => code === 'CASH')];
   return orderedCodes.map((code) => {
     const quote = quotes[code] || {};
+    const overlay = overlays[code] || null;
     return {
       key: code,
       code,
@@ -164,8 +177,21 @@ const buildWeightRows = (plan) => {
       currentPrice: quote.current_price,
       quoteSource: formatQuoteSource(quote.source),
       quoteTimestamp: quote.timestamp || quote.date,
+      premium: typeof quote.premium === 'number' ? quote.premium : null,
+      estimatedNav: typeof quote.estimated_nav === 'number' ? quote.estimated_nav : null,
+      overlay,
     };
   });
+};
+
+const renderPremium = (value) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return <Text type="secondary">—</Text>;
+  const pct = (value * 100).toFixed(2);
+  let color = 'default';
+  if (value >= 0.05) color = 'error';        // hard veto threshold
+  else if (value >= 0.02) color = 'warning'; // qdii/commodity veto threshold
+  else if (value <= -0.01) color = 'success';
+  return <Tag color={color}>{value >= 0 ? '+' : ''}{pct}%</Tag>;
 };
 
 /**
@@ -338,6 +364,9 @@ const EtfRotationDashboard = () => {
   const riskReasons = Array.isArray(plan?.risk_reasons) ? plan.risk_reasons : [];
   const liveStatus = plan?.live_quote_status || {};
   const sourceHealth = Array.isArray(plan?.source_health) ? plan.source_health : [];
+  const premiumStatus = plan?.premium_monitor_status || null;
+  const activeOverlays = plan?.overlays || {};
+  const regime = plan?.regime || null;
   const quoteSourceCode = meta?.quoteSource || plan?.quote_source;
   const quoteModeLabel = QUOTE_SOURCE_LABELS[quoteSourceCode] || (
     plan?.quote_source === 'live'
@@ -349,9 +378,21 @@ const EtfRotationDashboard = () => {
   const refreshedAt = formatIsoToLocal(meta?.refreshedAt) || formatIsoToLocal(lastFetchedAt);
 
   const weightColumns = [
-    { title: '代码', dataIndex: 'code', key: 'code', width: 110 },
+    { title: '代码', dataIndex: 'code', key: 'code', width: 100 },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '实时价', dataIndex: 'currentPrice', key: 'currentPrice', render: formatPrice },
+    {
+      title: '估算净值',
+      dataIndex: 'estimatedNav',
+      key: 'estimatedNav',
+      render: (value) => Number.isFinite(value) ? formatPrice(value) : <Text type="secondary">—</Text>,
+    },
+    {
+      title: '溢价',
+      dataIndex: 'premium',
+      key: 'premium',
+      render: renderPremium,
+    },
     { title: '行情源', dataIndex: 'quoteSource', key: 'quoteSource', render: (value) => value ? <Tag color="blue">{value}</Tag> : <Text type="secondary">—</Text> },
     { title: '当前权重', dataIndex: 'current', key: 'current', render: formatPercent },
     { title: '策略目标', dataIndex: 'target', key: 'target', render: formatPercent },
@@ -411,10 +452,80 @@ const EtfRotationDashboard = () => {
               description={`本页使用实时行情刷新当前持仓市值和权重；只展示目标权重和手动买卖建议，不连接券商、不自动下单。${liveStatus.error ? ` 行情错误：${liveStatus.error}` : ''}`}
               data-testid="etf-manual-only-banner"
             />
+            {regime ? (
+              <Space direction="vertical" size={4} style={{ width: '100%' }} data-testid="etf-regime-row">
+                <Text type="secondary">市场状态（regime 探测，影响总仓位上限）</Text>
+                <Space size={[8, 4]} wrap>
+                  <Tooltip
+                    title={
+                      <>
+                        <div>{REGIME_META[regime.regime]?.detail || regime.regime}</div>
+                        {regime.proxy_code ? <div>代理：{regime.proxy_code}</div> : null}
+                        {regime.proxy_price !== null && regime.ma_long !== null ? (
+                          <div>价格 {regime.proxy_price?.toFixed(3)} vs 200日均线 {regime.ma_long?.toFixed(3)}</div>
+                        ) : null}
+                        {regime.realized_vol !== null ? (
+                          <div>60日年化波动 {(regime.realized_vol * 100).toFixed(1)}%
+                            {regime.vol_median !== null
+                              ? `（历史中位 ${(regime.vol_median * 100).toFixed(1)}%）`
+                              : ''}
+                          </div>
+                        ) : null}
+                        {regime.drawdown !== null ? (
+                          <div>60日回撤 {(regime.drawdown * 100).toFixed(1)}%</div>
+                        ) : null}
+                        {(regime.reasons || []).map((reason, i) => (
+                          <div key={i}>• {reason}</div>
+                        ))}
+                      </>
+                    }
+                  >
+                    <Tag color={(REGIME_META[regime.regime] || REGIME_META.unknown).color} data-testid="etf-regime-tag">
+                      {(REGIME_META[regime.regime] || REGIME_META.unknown).label}
+                    </Tag>
+                  </Tooltip>
+                  <Tag>gross_cap × {regime.gross_cap_multiplier?.toFixed(2)}</Tag>
+                  {regime.min_score_to_hold_offset > 0 ? (
+                    <Tag color="orange">min_score +{regime.min_score_to_hold_offset.toFixed(0)}</Tag>
+                  ) : null}
+                </Space>
+              </Space>
+            ) : null}
+
             {sourceHealth.length > 0 ? (
               <Space direction="vertical" size={4} style={{ width: '100%' }}>
                 <Text type="secondary">数据源健康度（鼠标悬停看采样时间）</Text>
                 <SourceHealthBadges entries={sourceHealth} />
+              </Space>
+            ) : null}
+            {premiumStatus ? (
+              <Space direction="vertical" size={4} style={{ width: '100%' }} data-testid="etf-premium-monitor-status">
+                <Text type="secondary">
+                  溢价监控（每 60s 拉取东财估值，最近运行：
+                  {formatIsoToLocal(premiumStatus.last_run_at) || '—'}）
+                </Text>
+                <Space size={[8, 4]} wrap>
+                  {(premiumStatus.watched_codes || []).map((code) => {
+                    const outcome = (premiumStatus.last_outcome || {})[code] || 'pending';
+                    const overlay = activeOverlays[code];
+                    const color = outcome === 'ok' ? 'success' : 'default';
+                    const label =
+                      outcome === 'ok' ? '已更新'
+                      : outcome === 'fetch_error' ? '网络错误'
+                      : outcome === 'parse_failed' ? '解析失败'
+                      : outcome === 'pending' ? '等待中'
+                      : outcome;
+                    const premiumStr =
+                      overlay && typeof overlay.premium === 'number'
+                        ? ` ${overlay.premium >= 0 ? '+' : ''}${(overlay.premium * 100).toFixed(2)}%`
+                        : '';
+                    return (
+                      <Tag key={code} color={color}>
+                        {code}: {label}{premiumStr}
+                      </Tag>
+                    );
+                  })}
+                </Space>
               </Space>
             ) : null}
           </Space>
