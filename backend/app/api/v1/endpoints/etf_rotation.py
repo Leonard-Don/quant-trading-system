@@ -26,6 +26,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from scripts import daily_etf_signal
+from src.strategy.etf_rotation_analytics import summarise_edge
 from src.strategy.etf_rotation_service import EtfRotationService
 
 logger = logging.getLogger(__name__)
@@ -205,6 +206,37 @@ def post_refresh(use_cache: bool = Query(default=True)) -> dict[str, Any]:
             "skipped_reason": outcome.skipped_reason,
         },
     }
+
+
+@router.get(
+    "/analytics",
+    summary="策略 Edge 度量：IC + 命中率 + 每标的拆解",
+    description=(
+        "从审计日志计算策略的信息系数（Spearman 相关）和命中率，"
+        "用于回答 “策略到底有没有 alpha” 这个问题。"
+        "默认三档前瞻期：1 小时 / 4 小时 / 1 个交易日。"
+        "60 日滚动 IC > 0.05 是行业经验上 “有可测量 edge” 的门槛。"
+    ),
+)
+def get_analytics(
+    horizons: Optional[str] = Query(
+        default=None,
+        description="逗号分隔的前瞻分钟数列表，默认 60,240,1440",
+    ),
+) -> dict[str, Any]:
+    entries = daily_etf_signal.read_audit_log()
+    if horizons:
+        try:
+            horizon_values = [float(h.strip()) for h in horizons.split(",") if h.strip()]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid horizons: {exc}")
+        if not horizon_values:
+            horizon_values = [60.0, 240.0, 1440.0]
+    else:
+        horizon_values = [60.0, 240.0, 1440.0]
+
+    report = summarise_edge(entries, horizons_minutes=horizon_values)
+    return {"success": True, "data": report}
 
 
 @router.get(

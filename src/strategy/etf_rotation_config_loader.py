@@ -102,6 +102,13 @@ DEFAULT_STRATEGY_PARAMS: Dict[str, Any] = {
     "min_score_to_hold": 25.0,
     "min_score_full_hold": 35.0,
     "scoring_mode": "absolute",  # "absolute" | "cross_sectional"
+    # Per-position protective stop: any holding whose mark-to-market loss
+    # vs cost basis is at or below this threshold (negative number) is
+    # force-sold to target_weight=0 before risk rules, regardless of
+    # what the scoring layer thinks. ``None`` disables. Default -15%
+    # because the scoring layer's MA60 trend filter can lag 30+ days
+    # and a hard stop is the simplest reliable backstop on real money.
+    "stop_loss_threshold": -0.15,
 }
 
 

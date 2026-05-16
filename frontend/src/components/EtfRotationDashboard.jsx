@@ -1,19 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Button, Card, Col, Empty, Row, Space, Spin, Statistic, Table, Tag, Tooltip, Typography,
+  Alert, Button, Card, Col, Collapse, Empty, message, Row, Space, Spin, Statistic, Table, Tag, Timeline, Tooltip, Typography,
 } from 'antd';
 import {
+  AlertOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
   ExperimentOutlined,
+  HistoryOutlined,
+  LineChartOutlined,
   PauseCircleOutlined,
   ReloadOutlined,
   SafetyCertificateOutlined,
+  SettingOutlined,
+  StopOutlined,
   SwapOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 
 import {
+  getEtfRotationAnalytics,
   getEtfRotationAuditLog,
   getEtfRotationDailySignal,
   getEtfRotationLiveTarget,
@@ -162,11 +168,13 @@ const buildWeightRows = (plan) => {
   const adjusted = plan?.adjusted_weights || {};
   const quotes = plan?.quote_snapshot || {};
   const overlays = plan?.overlays || {};
+  const stopLossTriggered = plan?.stop_loss_triggered || {};
   const codes = Array.from(new Set([...Object.keys(current), ...Object.keys(target), ...Object.keys(adjusted), ...Object.keys(quotes)]));
   const orderedCodes = [...codes.filter((code) => code !== 'CASH').sort(), ...codes.filter((code) => code === 'CASH')];
   return orderedCodes.map((code) => {
     const quote = quotes[code] || {};
     const overlay = overlays[code] || null;
+    const stop = stopLossTriggered[code] || null;
     return {
       key: code,
       code,
@@ -180,6 +188,7 @@ const buildWeightRows = (plan) => {
       premium: typeof quote.premium === 'number' ? quote.premium : null,
       estimatedNav: typeof quote.estimated_nav === 'number' ? quote.estimated_nav : null,
       overlay,
+      stopLoss: stop,
     };
   });
 };
@@ -258,11 +267,16 @@ const SourceHealthBadges = ({ entries }) => {
 const EtfRotationDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [forceLoading, setForceLoading] = useState(false);
+  const [reloadLoading, setReloadLoading] = useState(false);
   const [plan, setPlan] = useState(null);
   const [meta, setMeta] = useState(null);
   const [error, setError] = useState(null);
   const [endpoint, setEndpoint] = useState('live-target'); // 'live-target' | 'daily-signal'
   const [lastFetchedAt, setLastFetchedAt] = useState(null);
+  const [auditEntries, setAuditEntries] = useState([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const pollTimerRef = useRef(null);
 
   const applyResponse = useCallback((response, endpointUsed) => {
@@ -327,6 +341,53 @@ const EtfRotationDashboard = () => {
     }
   }, [endpoint, applyResponse]);
 
+  const reloadConfig = useCallback(async () => {
+    setReloadLoading(true);
+    try {
+      const response = await postEtfRotationReloadConfig({ refreshAfter: true });
+      message.success('配置已重载，下次刷新生效');
+      // Pick up the freshly-built plan that reload-config triggered.
+      try {
+        const latest = await getEtfRotationLiveTarget({ triggerRefresh: false });
+        applyResponse(latest, 'live-target');
+      } catch (innerErr) {
+        // eslint-disable-next-line no-console
+        console.warn('reload-config post-fetch failed', innerErr);
+      }
+      return response;
+    } catch (err) {
+      message.error(err?.userMessage || err?.message || '重载配置失败');
+      throw err;
+    } finally {
+      setReloadLoading(false);
+    }
+  }, [applyResponse]);
+
+  const fetchAuditLog = useCallback(async () => {
+    setAuditLoading(true);
+    try {
+      const response = await getEtfRotationAuditLog({ limit: 40 });
+      const entries = response?.data?.entries || [];
+      setAuditEntries(entries.slice().reverse()); // newest first
+    } catch (err) {
+      message.error(err?.userMessage || err?.message || '审计日志加载失败');
+    } finally {
+      setAuditLoading(false);
+    }
+  }, []);
+
+  const fetchAnalytics = useCallback(async () => {
+    setAnalyticsLoading(true);
+    try {
+      const response = await getEtfRotationAnalytics();
+      setAnalytics(response?.data || null);
+    } catch (err) {
+      message.error(err?.userMessage || err?.message || 'Edge 度量加载失败');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, []);
+
   // Initial load + polling
   useEffect(() => {
     let cancelled = false;
@@ -378,7 +439,31 @@ const EtfRotationDashboard = () => {
   const refreshedAt = formatIsoToLocal(meta?.refreshedAt) || formatIsoToLocal(lastFetchedAt);
 
   const weightColumns = [
-    { title: '代码', dataIndex: 'code', key: 'code', width: 100 },
+    {
+      title: '代码',
+      dataIndex: 'code',
+      key: 'code',
+      width: 110,
+      render: (code, row) => row?.stopLoss ? (
+        <Tooltip
+          title={
+            <>
+              <div>触发 per-position 止损</div>
+              <div>成本 ¥{row.stopLoss.cost_price?.toFixed(3)} / 当前 ¥{row.stopLoss.current_price?.toFixed(3)}</div>
+              <div>浮亏 {(row.stopLoss.loss_pct * 100).toFixed(2)}%</div>
+              <div>阈值 {(row.stopLoss.threshold * 100).toFixed(0)}%</div>
+            </>
+          }
+        >
+          <Space size={4}>
+            <span>{code}</span>
+            <Tag icon={<StopOutlined />} color="error" data-testid={`etf-stop-loss-${code}`}>
+              止损
+            </Tag>
+          </Space>
+        </Tooltip>
+      ) : code,
+    },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '实时价', dataIndex: 'currentPrice', key: 'currentPrice', render: formatPrice },
     {
@@ -435,6 +520,16 @@ const EtfRotationDashboard = () => {
                     <Tag icon={<PauseCircleOutlined />} color="default">已防抖</Tag>
                   </Tooltip>
                 ) : null}
+                <Tooltip title="重新读取 ~/.config/etf-rotation/strategy.json，无需重启后端">
+                  <Button
+                    icon={<SettingOutlined />}
+                    onClick={reloadConfig}
+                    loading={reloadLoading}
+                    data-testid="etf-reload-config-button"
+                  >
+                    重载配置
+                  </Button>
+                </Tooltip>
                 <Button
                   icon={<ReloadOutlined />}
                   onClick={refreshNow}
@@ -533,6 +628,28 @@ const EtfRotationDashboard = () => {
 
         {error ? <Alert type="error" showIcon message="ETF轮动信号加载失败" description={error} /> : null}
 
+        {plan?.stop_loss_triggered && Object.keys(plan.stop_loss_triggered).length > 0 ? (
+          <Alert
+            type="error"
+            showIcon
+            icon={<AlertOutlined />}
+            data-testid="etf-stop-loss-alert"
+            message="触发 per-position 止损"
+            description={
+              <Space direction="vertical" size={4}>
+                {Object.entries(plan.stop_loss_triggered).map(([code, info]) => (
+                  <Text key={code}>
+                    {ETF_NAMES[code] || code}（{code}）浮亏
+                    <Text strong type="danger">{` ${(info.loss_pct * 100).toFixed(2)}% `}</Text>
+                    达到阈值 {(info.threshold * 100).toFixed(0)}%，
+                    策略已将目标权重强制设为 0；建议人工复核后清仓。
+                  </Text>
+                ))}
+              </Space>
+            }
+          />
+        ) : null}
+
         {loading && !plan ? (
           <Card><Spin /> <Text type="secondary">正在加载 ETF 轮动信号...</Text></Card>
         ) : !plan ? (
@@ -590,6 +707,167 @@ const EtfRotationDashboard = () => {
                 </Space>
               )}
             </Card>
+
+            <Collapse
+              data-testid="etf-edge-analytics-collapse"
+              onChange={(keys) => {
+                const arr = Array.isArray(keys) ? keys : [keys];
+                if (arr.includes('edge') && !analytics && !analyticsLoading) fetchAnalytics();
+              }}
+              items={[{
+                key: 'edge',
+                label: (
+                  <Space>
+                    <LineChartOutlined />
+                    <Text strong>策略 Edge 度量（IC + 命中率）</Text>
+                    {analytics ? (
+                      <Tag color="default">{analytics.n_audit_entries} 条历史</Tag>
+                    ) : null}
+                  </Space>
+                ),
+                children: (
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    <Space size={[8, 4]} wrap>
+                      <Button size="small" onClick={fetchAnalytics} loading={analyticsLoading}>重新计算</Button>
+                      <Text type="secondary">
+                        IC ≥ 0.05 = 有可测量 alpha；命中率 ≥ 55% = 信号方向准确度高。
+                        审计样本不足时显示为 —。
+                      </Text>
+                    </Space>
+                    {!analytics ? (
+                      <Empty description={analyticsLoading ? '计算中...' : '点击重新计算载入'} />
+                    ) : (
+                      <Row gutter={[16, 16]}>
+                        {Object.entries(analytics.horizons || {}).map(([key, h]) => {
+                          const ic = h?.information_coefficient;
+                          const hr = h?.hit_rate;
+                          const hmin = h?.horizon_minutes;
+                          const horizonLabel =
+                            hmin >= 1440 ? `${(hmin / 1440).toFixed(0)} 日`
+                            : hmin >= 60 ? `${(hmin / 60).toFixed(0)} 小时`
+                            : `${hmin} 分钟`;
+                          const formatPct = (v) =>
+                            typeof v === 'number' && Number.isFinite(v)
+                              ? `${(v * 100).toFixed(1)}%`
+                              : '—';
+                          const formatIC = (v) =>
+                            typeof v === 'number' && Number.isFinite(v) ? v.toFixed(3) : '—';
+                          const icColor =
+                            typeof ic === 'number' && Number.isFinite(ic)
+                              ? ic > 0.05 ? '#52c41a' : ic > 0 ? '#faad14' : '#ff4d4f'
+                              : undefined;
+                          return (
+                            <Col xs={24} md={8} key={key}>
+                              <Card size="small" title={`前瞻 ${horizonLabel}`}>
+                                <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                                  <Space size={[8, 4]} wrap>
+                                    <Statistic
+                                      title="IC"
+                                      value={formatIC(ic)}
+                                      valueStyle={icColor ? { color: icColor } : undefined}
+                                    />
+                                    <Statistic title="命中率" value={formatPct(hr)} />
+                                    <Statistic title="样本" value={h?.n_pairs ?? 0} />
+                                  </Space>
+                                  {h?.per_code && Object.keys(h.per_code).length > 0 ? (
+                                    <Space size={[6, 4]} wrap>
+                                      {Object.entries(h.per_code).map(([code, m]) => {
+                                        const codeIC = m?.ic;
+                                        const codeIcColor =
+                                          typeof codeIC === 'number' && Number.isFinite(codeIC)
+                                            ? codeIC > 0.05 ? 'success' : codeIC > 0 ? 'warning' : 'error'
+                                            : 'default';
+                                        return (
+                                          <Tooltip
+                                            key={code}
+                                            title={
+                                              <>
+                                                <div>样本 {m.n_pairs}</div>
+                                                <div>IC {formatIC(codeIC)}</div>
+                                                <div>命中率 {formatPct(m.hit_rate)}</div>
+                                              </>
+                                            }
+                                          >
+                                            <Tag color={codeIcColor}>
+                                              {code} IC={formatIC(codeIC)}
+                                            </Tag>
+                                          </Tooltip>
+                                        );
+                                      })}
+                                    </Space>
+                                  ) : null}
+                                </Space>
+                              </Card>
+                            </Col>
+                          );
+                        })}
+                      </Row>
+                    )}
+                  </Space>
+                ),
+              }]}
+            />
+
+            <Collapse
+              data-testid="etf-audit-log-collapse"
+              onChange={(keys) => {
+                if (Array.isArray(keys) ? keys.includes('audit') : keys === 'audit') {
+                  if (auditEntries.length === 0 && !auditLoading) fetchAuditLog();
+                }
+              }}
+              items={[{
+                key: 'audit',
+                label: (
+                  <Space>
+                    <HistoryOutlined />
+                    <Text strong>信号历史（最近 40 次刷新）</Text>
+                  </Space>
+                ),
+                children: (
+                  <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                    <Space>
+                      <Button size="small" onClick={fetchAuditLog} loading={auditLoading}>重新加载</Button>
+                      <Text type="secondary">读自 ~/.config/etf-rotation/audit.jsonl</Text>
+                    </Space>
+                    {auditEntries.length === 0 && !auditLoading ? (
+                      <Empty description="暂无审计记录" />
+                    ) : (
+                      <Timeline
+                        items={auditEntries.slice(0, 40).map((entry) => {
+                          const ts = formatIsoToLocal(entry.run_at) || entry.run_at;
+                          const adj = entry.adjusted_weights || {};
+                          const cash = adj.CASH;
+                          const non_zero = Object.entries(adj).filter(([k, v]) => k !== 'CASH' && Number(v) > 0.005);
+                          return {
+                            key: entry.run_at,
+                            color: String(entry.quote_source || '').includes('debounced') ? 'gray' : 'blue',
+                            children: (
+                              <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                                <Space>
+                                  <Text strong>{ts}</Text>
+                                  <Tag>{entry.quote_source || '-'}</Tag>
+                                  {typeof entry.total_asset === 'number'
+                                    ? <Text type="secondary">¥{Number(entry.total_asset).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</Text>
+                                    : null}
+                                </Space>
+                                <Space size={[6, 4]} wrap>
+                                  {non_zero.map(([code, w]) => (
+                                    <Tag key={code} color="blue">{code} {(Number(w) * 100).toFixed(1)}%</Tag>
+                                  ))}
+                                  {typeof cash === 'number'
+                                    ? <Tag color="default">CASH {(cash * 100).toFixed(1)}%</Tag>
+                                    : null}
+                                </Space>
+                              </Space>
+                            ),
+                          };
+                        })}
+                      />
+                    )}
+                  </Space>
+                ),
+              }]}
+            />
           </>
         )}
       </Space>

@@ -207,6 +207,127 @@ def test_post_refresh_force_refreshes_even_outside_trading_hours() -> None:
     assert payload["refresh"]["refreshed"] is True
 
 
+def test_reload_config_returns_summary_with_universe_and_rules() -> None:
+    client = TestClient(app)
+    response = client.post("/etf-rotation/reload-config?refresh_after=false")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    data = payload["data"]
+    assert "universe" in data and len(data["universe"]) >= 5
+    for required in ("risk_rules", "strategy", "refresh", "regime", "premium"):
+        assert required in data, f"missing {required}"
+    # No refresh requested → null refresh block
+    assert payload["refresh"] is None
+
+
+def test_reload_config_then_refresh_returns_refresh_metadata() -> None:
+    client = TestClient(app)
+    response = client.post("/etf-rotation/reload-config?refresh_after=true")
+    assert response.status_code == 200
+    refresh = response.json()["refresh"]
+    assert refresh is not None
+    assert refresh["refreshed"] is True
+    assert refresh["refreshed_at"] is not None
+
+
+def test_audit_log_endpoint_returns_recent_entries(tmp_path, monkeypatch) -> None:
+    """Write a deterministic audit log to a temp file, point the loader at
+    it, and verify the endpoint returns the rows."""
+    import json
+    audit_path = tmp_path / "audit.jsonl"
+    rows = [
+        {"run_at": "2026-05-14T10:00:00+00:00", "quote_source": "test:1", "adjusted_weights": {"CASH": 0.5}},
+        {"run_at": "2026-05-14T10:05:00+00:00", "quote_source": "test:2", "adjusted_weights": {"CASH": 0.45}},
+    ]
+    audit_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    monkeypatch.setenv("ETF_AUDIT_LOG_PATH", str(audit_path))
+
+    client = TestClient(app)
+    response = client.get("/etf-rotation/audit-log?limit=10")
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["returned"] == 2
+    assert payload["total"] == 2
+    assert payload["entries"][0]["quote_source"] == "test:1"
+    assert payload["entries"][1]["quote_source"] == "test:2"
+
+
+def test_analytics_endpoint_returns_zero_state_on_empty_log(tmp_path, monkeypatch) -> None:
+    audit_path = tmp_path / "audit.jsonl"
+    audit_path.write_text("", encoding="utf-8")
+    monkeypatch.setenv("ETF_AUDIT_LOG_PATH", str(audit_path))
+
+    client = TestClient(app)
+    response = client.get("/etf-rotation/analytics")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["n_audit_entries"] == 0
+    assert "horizons" in data
+    for h in data["horizons"].values():
+        assert h["n_pairs"] == 0
+        assert h["information_coefficient"] is None
+
+
+def test_analytics_endpoint_computes_ic_from_seeded_history(tmp_path, monkeypatch) -> None:
+    """A monotone score→return relationship must yield positive IC."""
+
+    import json
+    audit_path = tmp_path / "audit.jsonl"
+    rows = []
+    base_price = 5.00
+    # 6 entries every 30 minutes, score positively correlated with subsequent returns.
+    for i, (score, price) in enumerate([
+        (80.0, base_price * 1.00),
+        (70.0, base_price * 1.02),
+        (90.0, base_price * 1.04),
+        (60.0, base_price * 1.07),
+        (40.0, base_price * 1.06),
+        (50.0, base_price * 1.05),
+    ]):
+        ts = f"2026-05-15T{10 + (i * 30) // 60:02d}:{(i * 30) % 60:02d}:00+00:00"
+        rows.append({
+            "run_at": ts,
+            "score_breakdown": {"X": {"score": score}},
+            "prices_at_decision": {"X": price},
+        })
+    audit_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    monkeypatch.setenv("ETF_AUDIT_LOG_PATH", str(audit_path))
+
+    client = TestClient(app)
+    response = client.get("/etf-rotation/analytics?horizons=30")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    horizon = data["horizons"]["horizon_30min"]
+    assert horizon["n_pairs"] >= 3
+    assert horizon["information_coefficient"] is not None
+
+
+def test_analytics_endpoint_rejects_invalid_horizons() -> None:
+    client = TestClient(app)
+    response = client.get("/etf-rotation/analytics?horizons=not_a_number,60")
+    assert response.status_code == 400
+
+
+def test_audit_log_endpoint_filters_by_since(tmp_path, monkeypatch) -> None:
+    import json
+    audit_path = tmp_path / "audit.jsonl"
+    rows = [
+        {"run_at": "2026-05-14T10:00:00+00:00", "quote_source": "a"},
+        {"run_at": "2026-05-14T11:00:00+00:00", "quote_source": "b"},
+        {"run_at": "2026-05-14T12:00:00+00:00", "quote_source": "c"},
+    ]
+    audit_path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+    monkeypatch.setenv("ETF_AUDIT_LOG_PATH", str(audit_path))
+
+    client = TestClient(app)
+    response = client.get("/etf-rotation/audit-log?since=2026-05-14T10:30:00")
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["returned"] == 2
+    assert {e["quote_source"] for e in payload["entries"]} == {"b", "c"}
+
+
 def test_daily_signal_use_cache_false_forces_fresh_live_quote_fetch(monkeypatch) -> None:
     observed = []
 

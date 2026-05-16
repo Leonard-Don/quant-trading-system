@@ -766,6 +766,16 @@ export const getEtfRotationAuditLog = async ({ limit = 200, since = null } = {})
   return response.data;
 };
 
+export const getEtfRotationAnalytics = async ({ horizons = null } = {}) => {
+  const params = {};
+  if (horizons) params.horizons = Array.isArray(horizons) ? horizons.join(',') : horizons;
+  const response = await api.get('/etf-rotation/analytics', {
+    params,
+    ...withTimeoutProfile('standard'),
+  });
+  return response.data;
+};
+
 export const getRealtimeQuote = async (symbol) => {
   const response = await api.get(`/realtime/quote/${encodeURIComponent(symbol)}`);
   return response.data;

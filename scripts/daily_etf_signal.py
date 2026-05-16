@@ -512,6 +512,52 @@ def _quotes_to_premium_map(quotes: Mapping[str, EtfQuote]) -> Dict[str, float]:
     return premiums
 
 
+def _apply_position_stop_losses(
+    *,
+    holdings: Sequence[EtfHolding],
+    target_weights: Dict[str, float],
+    threshold: Optional[float],
+) -> Dict[str, Dict[str, Any]]:
+    """Force-sell any holding whose unrealised P&L breaches the stop.
+
+    Mutates ``target_weights`` in place: each triggered code gets its
+    target_weight clamped to ``0`` so the suggestion layer emits a
+    full-position sell. Returns a per-code report dict for audit/UI.
+
+    The threshold is the *negative* loss bound (e.g. ``-0.15`` for 15%).
+    Passing ``None`` or a non-negative value disables the stop entirely.
+    """
+
+    if threshold is None:
+        return {}
+    try:
+        bound = float(threshold)
+    except (TypeError, ValueError):
+        return {}
+    if bound >= 0:
+        return {}
+
+    triggered: Dict[str, Dict[str, Any]] = {}
+    for holding in holdings:
+        if holding.cost_price is None or holding.cost_price <= 0:
+            continue
+        loss = (holding.current_price - holding.cost_price) / holding.cost_price
+        if loss > bound + 1e-12:
+            continue
+        # Forces the position to zero; the cash floor / bucket cap will
+        # absorb the freed weight. Below-threshold positions stay zeroed
+        # even if the scoring layer wanted to *increase* exposure.
+        triggered[holding.code] = {
+            "loss_pct": float(loss),
+            "threshold": bound,
+            "cost_price": float(holding.cost_price),
+            "current_price": float(holding.current_price),
+            "previous_target_weight": float(target_weights.get(holding.code, 0.0)),
+        }
+        target_weights[holding.code] = 0.0
+    return triggered
+
+
 _AsOf = Optional[Union[str, datetime]]
 
 
@@ -569,6 +615,18 @@ def generate_plan(
     for holding in holdings:
         target_weights.setdefault(holding.code, 0.0)
 
+    # Per-position protective stop — applied BEFORE risk rules so the
+    # freed weight can be redirected to cash by the cash floor / bucket
+    # cap pipeline. This is intentionally placed outside the scoring
+    # layer because the scoring layer's trend filter (latest < ma60)
+    # can lag 30+ days; a hard P&L stop is the simplest reliable
+    # backstop on real-money positions.
+    stop_loss_triggered = _apply_position_stop_losses(
+        holdings=holdings,
+        target_weights=target_weights,
+        threshold=active_config.strategy.get("stop_loss_threshold"),
+    )
+
     effective_risk_config = risk_config if risk_config is not None else build_risk_config(active_config)
     decision = apply_etf_portfolio_risk_rules(
         proposed_weights=target_weights,
@@ -615,6 +673,30 @@ def generate_plan(
         for code, o in (overlays or {}).items()
     }
 
+    # Per-ETF signal breakdown — exposed so the audit log can later
+    # back-fill forward returns and compute the strategy's Information
+    # Coefficient. Captured BEFORE risk rules / stop-loss override so
+    # the IC measures the *scoring layer's* edge, not the post-rule
+    # output. ``raw_target_weight`` preserves what the scoring layer
+    # wanted before stop-loss/risk rules ate into it.
+    score_breakdown = {
+        sig.symbol: {
+            "score": float(sig.score),
+            "trend_score": float(sig.trend_score),
+            "momentum_score": float(sig.momentum_score),
+            "risk_score": float(sig.risk_score),
+            "premium_score": float(sig.premium_score),
+            "raw_target_weight": float(sig.target_weight),
+            "latest_price": float(sig.latest_price),
+            "return5": float(sig.return5),
+            "return20": float(sig.return20),
+            "return60": float(sig.return60),
+            "drawdown60": float(sig.drawdown60),
+            "volatility60": float(sig.volatility60),
+        }
+        for sig in signals
+    }
+
     return {
         "manual_only": True,
         "auto_ordering": False,
@@ -640,6 +722,8 @@ def generate_plan(
         "source_health": source_health,
         "quote_snapshot": _quotes_to_snapshot(quote_map),
         "overlays": overlay_payload,
+        "stop_loss_triggered": stop_loss_triggered,
+        "score_breakdown": score_breakdown,
     }
 
 
@@ -947,7 +1031,15 @@ def _resolve_audit_log_path(explicit: Optional[Path] = None) -> Optional[Path]:
 def _audit_entry_from_plan(
     plan: Mapping[str, Any], *, run_at: datetime, quote_source: Optional[str]
 ) -> Dict[str, Any]:
-    """Slim a plan dict into a stable audit row."""
+    """Slim a plan dict into a stable audit row.
+
+    Carries enough per-code state to support forward-return back-fill
+    later: ``score_breakdown`` keeps the strategy's scoring view of each
+    ETF at the time of the run, and ``prices_at_decision`` captures the
+    current_price the strategy "saw". Together these let the analytics
+    module compute Information Coefficient and hit rate by looking up
+    later audit entries' prices as the realised forward return.
+    """
 
     suggestions = [
         {
@@ -969,6 +1061,16 @@ def _audit_entry_from_plan(
         }
         for entry in plan.get("source_health") or []
     ]
+    # Per-code price at decision time — pulled from quote_snapshot so it
+    # mirrors what the strategy saw rather than re-querying realtime.
+    prices_at_decision: Dict[str, float] = {}
+    for code, quote_data in (plan.get("quote_snapshot") or {}).items():
+        price = quote_data.get("current_price") if isinstance(quote_data, dict) else None
+        if price is not None:
+            try:
+                prices_at_decision[code] = float(price)
+            except (TypeError, ValueError):
+                continue
     return {
         "run_at": run_at.isoformat(),
         "quote_source": quote_source,
@@ -981,6 +1083,9 @@ def _audit_entry_from_plan(
         "suggestions": suggestions,
         "risk_reasons": list(plan.get("risk_reasons") or []),
         "source_health": source_health,
+        "score_breakdown": dict(plan.get("score_breakdown") or {}),
+        "stop_loss_triggered": dict(plan.get("stop_loss_triggered") or {}),
+        "prices_at_decision": prices_at_decision,
     }
 
 
