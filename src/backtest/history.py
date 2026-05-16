@@ -88,13 +88,25 @@ class BacktestHistory:
     def _build_summary_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
         summary = {}
 
+        def numeric(*keys: str) -> Any:
+            # ``dict.get(key, 0)`` only falls back to 0 when the key is missing;
+            # an explicit ``None`` (from older snapshots sanitised via
+            # ``clean_data_for_json``, or batch payloads without computed
+            # returns) would otherwise leak through and crash downstream
+            # accumulators like ``get_statistics``.
+            for key in keys:
+                value = metrics.get(key)
+                if value is not None:
+                    return value
+            return 0
+
         for field in SUMMARY_METRIC_FIELDS:
             if field == "total_trades":
-                summary[field] = metrics.get("total_trades", metrics.get("num_trades", 0))
+                summary[field] = numeric("total_trades", "num_trades")
             elif field == "has_open_position":
                 summary[field] = bool(metrics.get(field, False))
             else:
-                summary[field] = metrics.get(field, 0)
+                summary[field] = numeric(field)
 
         return ensure_json_serializable(summary)
 
