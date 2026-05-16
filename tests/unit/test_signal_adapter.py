@@ -48,3 +48,22 @@ def test_normalize_target_weights_caps_gross_exposure():
 
     assert weights.abs().sum(axis=1).max() == pytest.approx(1.0)
     assert weights.loc[index[1], "B"] < 0
+
+
+def test_normalize_target_weights_preserves_sub_cap_weights():
+    index = pd.date_range("2024-01-01", periods=2, freq="D")
+    raw = pd.DataFrame({"A": [0.3, 0.0], "B": [0.2, 0.4]}, index=index)
+    weights = SignalAdapter.normalize_target_weights(
+        raw,
+        index=index,
+        columns=["A", "B"],
+        max_abs_weight=1.0,
+        max_gross_exposure=1.0,
+    )
+
+    # Row 0: gross = 0.5 < cap → preserve as-is, no down-scaling
+    assert weights.loc[index[0], "A"] == pytest.approx(0.3)
+    assert weights.loc[index[0], "B"] == pytest.approx(0.2)
+    # Row 1: gross = 0.4 < cap → preserve as-is
+    assert weights.loc[index[1], "A"] == pytest.approx(0.0)
+    assert weights.loc[index[1], "B"] == pytest.approx(0.4)

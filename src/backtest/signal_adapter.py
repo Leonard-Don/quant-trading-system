@@ -98,7 +98,7 @@ class SignalAdapter:
 
         if max_gross_exposure is not None:
             gross = frame.abs().sum(axis=1)
-            scale = gross.where(gross <= max_gross_exposure, max_gross_exposure / gross.replace(0, np.nan))
+            scale = (max_gross_exposure / gross.replace(0, np.nan)).clip(upper=1.0)
             scale = scale.fillna(1.0)
             frame = frame.mul(scale, axis=0)
 
