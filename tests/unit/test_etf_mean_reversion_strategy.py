@@ -481,19 +481,18 @@ def test_mr_below_warmup_skips_silently_in_multi_asset_universe() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_mr_drawdown_severe_branch_fires_with_calibrated_floor() -> None:
-    """Drawdown severe-penalty path requires a calibrated ``drawdown_floor``.
+def test_mr_drawdown_severe_branch_fires_with_default_floor() -> None:
+    """Drawdown severe-penalty path must fire at the default ``drawdown_floor``.
 
-    Discovery: the default ``drawdown_floor=-25.0`` is wired as if
-    drawdown were a percentage, but the runtime feeds it a *fraction*
-    (e.g. -0.25 for a 25% peak-to-trough). The branch is dead code at
-    defaults. We pin the behaviour with a fraction-shaped floor so the
-    config knob is at least covered.
+    Historical context: an earlier commit shipped ``drawdown_floor=-25.0``,
+    wired as if drawdown were a percentage. But the runtime feeds it a
+    *fraction* (e.g. -0.25 for a 25% peak-to-trough). The branch was dead
+    code at defaults. The default is now ``-0.20`` — a meaningful "severe"
+    threshold in fraction units — so this test runs without overriding it.
     """
 
-    matrix = _uptrend_with_recent_dip(periods=220, dip_pct=-0.15)
+    matrix = _uptrend_with_recent_dip(periods=220, dip_pct=-0.25)
     scoring = EtfMeanReversionConfig(
-        drawdown_floor=-0.10,        # fraction-shaped so it actually fires
         drawdown_severe_penalty=20.0,
         allow_below_long_trend=True, # lift the long-trend gate so the
                                      # risk path is the one being tested
@@ -504,6 +503,22 @@ def test_mr_drawdown_severe_branch_fires_with_calibrated_floor() -> None:
     assert "mr_drawdown_severe" in sig.reasons
     # Risk component falls below the baseline once the severe penalty fires.
     assert sig.risk_score < scoring.risk_baseline
+
+
+def test_mr_drawdown_floor_default_is_fraction_not_percentage() -> None:
+    """The default ``drawdown_floor`` must live in fraction units.
+
+    Guard against regression to the old ``-25.0`` value: the runtime
+    compares ``drawdown_floor`` against ``drawdown60`` which is a fraction
+    (latest/high60 - 1.0, so always in [-1.0, 0.0]). A value outside
+    that range would silently make the severe-drawdown branch unreachable.
+    """
+
+    default = EtfMeanReversionConfig()
+    assert -1.0 < default.drawdown_floor < 0.0, (
+        f"drawdown_floor={default.drawdown_floor} is not a fraction in (-1, 0); "
+        "it must match the units of drawdown60 (latest/high60 - 1.0)."
+    )
 
 
 def test_mr_ramp_degenerate_when_full_hold_equals_min_score() -> None:

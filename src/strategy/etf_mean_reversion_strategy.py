@@ -72,7 +72,11 @@ class EtfMeanReversionConfig:
     risk_volatility_multiplier: float = 35.0
     risk_volatility_penalty_floor: float = 0.0
     risk_volatility_penalty_ceiling: float = 25.0
-    drawdown_floor: float = -25.0
+    # ``drawdown_floor`` is compared against ``drawdown60`` which is a
+    # *fraction* (e.g. -0.25 for a 25% peak-to-trough loss), so the default
+    # lives in fraction units, not percent. -0.20 means "20% drawdown =
+    # severe", a meaningful and historically common threshold.
+    drawdown_floor: float = -0.20
     drawdown_severe_penalty: float = 15.0
 
     # Anti-falling-knife: refuse score if 60d return is below this
