@@ -81,6 +81,22 @@ cd backend && alembic upgrade head
 
 > 当前 baseline (`0001_baseline`) 是 no-op，仅记录"DB 已经在 timescale_schema.sql 状态"。后续真正的 schema 变更必须通过新的 migration 脚本写入。
 
+### 4.1 政策雷达快照引导（policy_radar）
+
+`/policy-radar/signal`、`/policy-radar/records` 端点是只读的，从 `cache/alt_data/providers/policy_radar.json` 读数据。
+**首次部署或新克隆后**，缓存目录是空的，端点会按"本地优先"协议返回 `available: false`。
+跑一次 `scripts/refresh_policy_radar.py` 就能把快照填上，之后由 cron 定期刷新（见 `docs/MAINTENANCE_GUIDE.md` §4.3）：
+
+```bash
+# 首次手动引导
+python scripts/refresh_policy_radar.py --force
+
+# 验证：端点应返回 available:true
+curl -s http://localhost:8000/policy-radar/signal | jq '.data.available, .data.policy_count'
+```
+
+`--no-force` 模式会尊重 `PolicySignalProvider.needs_update()` 的节流逻辑；cron 建议保留 `--force` 以保证每 6 小时一次的强刷。
+
 ### 5. 环境变量
 
 后端主要配置通过 `src/settings/` 读取，可通过项目根目录 `.env` 或环境变量覆盖：

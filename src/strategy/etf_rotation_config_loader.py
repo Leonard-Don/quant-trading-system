@@ -109,6 +109,14 @@ DEFAULT_STRATEGY_PARAMS: Dict[str, Any] = {
     # because the scoring layer's MA60 trend filter can lag 30+ days
     # and a hard stop is the simplest reliable backstop on real money.
     "stop_loss_threshold": -0.15,
+    # Trade-suggestion threshold: only emit a buy/sell action if the
+    # target weight differs from the current weight by at least this
+    # amount. Backtested on 4 years of CN ETF data — values around
+    # 0.15–0.20 deliver materially better Sharpe than the legacy 0.03
+    # because they let positions ride through normal volatility instead
+    # of churning on every wiggle. Set to 0.0 to emit every drift as a
+    # suggestion (high cognitive load, more friction in live trading).
+    "rebalance_threshold": 0.20,
 }
 
 
@@ -149,11 +157,78 @@ DEFAULT_REGIME_PARAMS: Dict[str, Any] = {
         "crisis": 10.0,
         "unknown": 0.0,
     },
+    # Per-regime EtfScoringConfig overrides. Each entry is partial — only
+    # the fields you list here override the default scoring; everything
+    # else falls back. Empty/missing regime keys use the default scoring.
+    #
+    # Reasoning:
+    # * bear: dial DOWN momentum (trend-following loses edge in bear
+    #   markets), dial UP short-term reversal bonus (oversold bounces),
+    #   dial UP risk-volatility penalty (defensive)
+    # * crisis: nearly mute momentum, max risk aversion
+    # * bull/correction/sideways: keep default trend-momentum tilt
+    "scoring_overrides": {
+        "bear": {
+            "momentum_return20_multiplier": 120.0,
+            "momentum_return60_multiplier": 60.0,
+            "momentum_short_uptrend_bonus": 2.0,
+            "short_reversal_bonus": 8.0,
+            "risk_volatility_multiplier": 50.0,
+        },
+        "crisis": {
+            "momentum_return20_multiplier": 40.0,
+            "momentum_return60_multiplier": 20.0,
+            "momentum_short_uptrend_bonus": 0.0,
+            "momentum_short_spike_penalty": 20.0,
+            "short_reversal_bonus": 6.0,
+            "risk_baseline": 25.0,
+            "risk_volatility_multiplier": 70.0,
+            "risk_volatility_penalty_ceiling": 40.0,
+            "trend_above_ma200_points": 6.0,
+            "trend_below_ma200_penalty": 16.0,
+        },
+        "correction": {
+            "momentum_short_uptrend_bonus": 3.0,
+            "short_reversal_bonus": 6.0,
+        },
+    },
 }
 
 
 DEFAULT_PREMIUM_PARAMS: Dict[str, Any] = {
     "auto_block_threshold": 0.05,
+}
+
+
+DEFAULT_ENSEMBLE_PARAMS: Dict[str, Any] = {
+    "enabled": False,  # off by default so legacy behaviour is preserved
+    "regime_blend_weights": {
+        "bull": 1.00,
+        "correction": 0.60,
+        "sideways": 0.50,
+        "bear": 0.40,
+        "crisis": 1.00,
+        "unknown": 1.00,
+    },
+    "alpha_floor": 0.20,
+    "alpha_ceiling": 1.00,
+    # Mean-reversion strategy scoring (only consulted when enabled=True)
+    "mean_reversion": {
+        "require_above_ma200": True,
+        "allow_below_long_trend": False,
+        "above_ma200_baseline": 30.0,
+        "deviation_clip": 0.10,
+        "deviation_max_points": 40.0,
+        "short_reversal_threshold": -0.04,
+        "short_reversal_bonus": 15.0,
+        "deep_capitulation_threshold": -0.07,
+        "deep_capitulation_bonus": 10.0,
+        "risk_baseline": 10.0,
+        "risk_volatility_multiplier": 35.0,
+        "min_long_return": -0.20,
+        "min_score_to_hold": 25.0,
+        "min_score_full_hold": 40.0,
+    },
 }
 
 
@@ -177,6 +252,7 @@ class StrategyConfig:
     refresh: Dict[str, Any]
     regime: Dict[str, Any] = field(default_factory=dict)
     premium: Dict[str, Any] = field(default_factory=dict)
+    ensemble: Dict[str, Any] = field(default_factory=dict)
     source_path: Optional[Path] = None
     source_mtime: Optional[float] = None
 
@@ -322,6 +398,7 @@ def load_strategy_config(
     refresh = _merge_dict(DEFAULT_REFRESH_PARAMS, raw.get("refresh"))
     regime = _merge_dict(DEFAULT_REGIME_PARAMS, raw.get("regime"))
     premium = _merge_dict(DEFAULT_PREMIUM_PARAMS, raw.get("premium"))
+    ensemble = _merge_dict(DEFAULT_ENSEMBLE_PARAMS, raw.get("ensemble"))
 
     return StrategyConfig(
         universe=universe,
@@ -331,6 +408,7 @@ def load_strategy_config(
         refresh=refresh,
         regime=regime,
         premium=premium,
+        ensemble=ensemble,
         source_path=resolved_path,
         source_mtime=mtime,
     )
@@ -339,6 +417,7 @@ def load_strategy_config(
 __all__ = [
     "CONFIG_PATH_ENV",
     "DEFAULT_CONFIG_PATH",
+    "DEFAULT_ENSEMBLE_PARAMS",
     "DEFAULT_PREMIUM_PARAMS",
     "DEFAULT_REFRESH_PARAMS",
     "DEFAULT_REGIME_PARAMS",

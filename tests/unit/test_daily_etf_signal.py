@@ -509,6 +509,49 @@ def test_generate_plan_emits_score_breakdown_for_audit() -> None:
         assert isinstance(sb["score"], float)
 
 
+def test_generate_plan_reads_rebalance_threshold_from_config(tmp_path, monkeypatch) -> None:
+    """When ``threshold_weight`` is None, ``generate_plan`` must fall back
+    to ``strategy.rebalance_threshold`` from the loaded config — verified
+    by comparing two configs that differ only on this knob and confirming
+    the produced ``hold`` count differs accordingly."""
+
+    import json
+    cfg_low_path = tmp_path / "low.json"
+    cfg_low_path.write_text(json.dumps({"strategy": {"rebalance_threshold": 0.001}}))
+    cfg_high_path = tmp_path / "high.json"
+    cfg_high_path.write_text(json.dumps({"strategy": {"rebalance_threshold": 0.99}}))
+
+    monkeypatch.setenv("ETF_STRATEGY_CONFIG_PATH", str(cfg_low_path))
+    plan_low = daily_etf_signal.generate_plan()
+    holds_low = sum(1 for s in plan_low["suggestions"] if s["action"] == "hold")
+
+    monkeypatch.setenv("ETF_STRATEGY_CONFIG_PATH", str(cfg_high_path))
+    plan_high = daily_etf_signal.generate_plan()
+    holds_high = sum(1 for s in plan_high["suggestions"] if s["action"] == "hold")
+
+    # With threshold=0.99 every delta below 99 pp becomes a hold; with
+    # threshold=0.001 nearly any drift becomes a buy/sell.
+    assert holds_high >= holds_low
+    assert holds_high == len(plan_high["suggestions"])
+
+
+def test_generate_plan_explicit_threshold_overrides_config(tmp_path, monkeypatch) -> None:
+    """Explicit ``threshold_weight`` must override what strategy.json says."""
+
+    import json
+    cfg_path = tmp_path / "strategy.json"
+    cfg_path.write_text(json.dumps({"strategy": {"rebalance_threshold": 0.99}}))
+    monkeypatch.setenv("ETF_STRATEGY_CONFIG_PATH", str(cfg_path))
+
+    # Config says 0.99 (all holds) but we pass 0.001 → should see buys/sells.
+    plan = daily_etf_signal.generate_plan(threshold_weight=0.001)
+    actions = [s["action"] for s in plan["suggestions"]]
+    assert any(a in {"buy", "sell"} for a in actions), (
+        f"Expected at least one buy/sell when explicit threshold=0.001 overrides "
+        f"config 0.99, got {actions}"
+    )
+
+
 def test_audit_log_entry_includes_score_breakdown_and_prices(tmp_path) -> None:
     audit_path = tmp_path / "audit.jsonl"
     plan = daily_etf_signal.generate_plan()

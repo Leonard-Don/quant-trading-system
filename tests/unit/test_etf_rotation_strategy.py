@@ -271,6 +271,167 @@ def test_scoring_config_zero_trend_points_produces_lower_strong_score():
     assert flat_signals["STRONG"].score < base_signals["STRONG"].score
 
 
+def test_ma200_trend_bonus_applied_when_history_long_enough():
+    """Two assets identical except for long-term trend posture should
+    produce different trend_score components."""
+
+    cfg = EtfScoringConfig()  # default ma200 bonus/penalty
+    # Synthetic above-MA200: latest 110, MA200=100 → +trend_above_ma200
+    score_up, reasons_up = EtfRotationStrategy._score_trend(
+        latest=110.0, ma20=108.0, ma60=105.0, scoring=cfg, ma200=100.0,
+    )
+    # Same trend posture without MA200 (legacy / short history)
+    score_no_long, _ = EtfRotationStrategy._score_trend(
+        latest=110.0, ma20=108.0, ma60=105.0, scoring=cfg, ma200=None,
+    )
+    # Below-MA200: latest 90, MA200=100 → -trend_below_ma200_penalty
+    score_down, reasons_down = EtfRotationStrategy._score_trend(
+        latest=90.0, ma20=92.0, ma60=94.0, scoring=cfg, ma200=100.0,
+    )
+
+    assert "price_above_ma200" in reasons_up
+    assert "price_below_ma200" in reasons_down
+    assert score_up == score_no_long + cfg.trend_above_ma200_points
+    # Down-trend below MA200: the base trend score loses 10 (ma20<ma60)
+    # AND loses trend_below_ma200_penalty. Just check it's strictly below
+    # both up-trend variants.
+    assert score_down < score_no_long
+    assert score_down < score_up
+
+
+def test_short_reversal_bonus_fires_on_oversold_return5():
+    """Negative ret5 below the reversal threshold should add the bonus."""
+
+    cfg = EtfScoringConfig(
+        short_reversal_threshold=-0.04,
+        short_reversal_bonus=4.0,
+    )
+    # Oversold: ret5 = -5%, below threshold
+    score_oversold = EtfRotationStrategy._score_momentum(
+        return5=-0.05, return20=0.0, return60=0.0, scoring=cfg,
+    )
+    # Mild drop: ret5 = -2%, above threshold but below uptrend trigger
+    score_mild = EtfRotationStrategy._score_momentum(
+        return5=-0.02, return20=0.0, return60=0.0, scoring=cfg,
+    )
+    # Above threshold → no bonus
+    assert score_mild == 0.0
+    # Below threshold → bonus applied
+    assert score_oversold == pytest.approx(4.0)
+
+
+def test_short_spike_penalty_takes_priority_over_reversal_bonus():
+    """A short-term *spike* up should never be misread as a reversal buy."""
+
+    cfg = EtfScoringConfig()
+    # Spike up of +10%, ret20/60 neutral → should subtract the spike penalty,
+    # not add anything else.
+    score = EtfRotationStrategy._score_momentum(
+        return5=0.10, return20=0.0, return60=0.0, scoring=cfg,
+    )
+    assert score == pytest.approx(-cfg.momentum_short_spike_penalty)
+
+
+def test_signal_records_ma200_when_history_long_enough():
+    """Build a 250-day series, evaluate, and confirm EtfSignal carries ma200."""
+
+    dates = pd.date_range("2025-01-01", periods=250, freq="B")
+    rng = np.random.default_rng(seed=11)
+    drift = np.linspace(0.0, 0.40, len(dates))
+    noise = rng.normal(0.0, 0.003, len(dates))
+    prices = 100.0 * np.exp(drift + np.cumsum(noise))
+    matrix = pd.DataFrame({"X": prices}, index=dates)
+    config = EtfRotationConfig(
+        assets=[EtfAssetConfig(symbol="X", max_weight=0.50)],
+        gross_cap=0.9,
+    )
+    signals = EtfRotationStrategy(config).evaluate(matrix)
+    assert len(signals) == 1
+    sig = signals[0]
+    assert sig.ma200 is not None
+    assert sig.trend_long_strength is not None
+    # Strong uptrend should leave latest meaningfully above MA200
+    assert sig.latest_price > sig.ma200
+    assert sig.trend_long_strength > 0
+
+
+def test_long_trend_override_keeps_position_when_above_ma200_but_below_ma60():
+    """The MA60 hard gate is softened to allow partial weight when MA200
+    confirms the long-term uptrend — the data-driven 'let winners ride
+    through normal pullbacks' fix from the 4-year backtest."""
+
+    cfg = EtfRotationConfig(
+        assets=[EtfAssetConfig(symbol="X", min_weight=0.0, max_weight=0.50, base_weight=0.10)],
+        gross_cap=0.9,
+        scoring=EtfScoringConfig(long_trend_override_multiplier=0.5),
+    )
+    strategy = EtfRotationStrategy(cfg)
+    asset = cfg.assets[0]
+
+    # Latest below MA60 but above MA200 → reduced (not zero) weight
+    above_ma200 = strategy._score_to_weight(
+        asset, score=60.0, latest=9.5, ma60=10.0, volatility60=0.15, ma200=8.5,
+    )
+    # Latest below both MA60 and MA200 → zero (legacy behaviour preserved)
+    below_both = strategy._score_to_weight(
+        asset, score=60.0, latest=8.0, ma60=10.0, volatility60=0.15, ma200=8.5,
+    )
+    # Latest above MA60 → full weight regardless of MA200
+    above_ma60 = strategy._score_to_weight(
+        asset, score=60.0, latest=10.5, ma60=10.0, volatility60=0.15, ma200=8.5,
+    )
+
+    assert above_ma200 > 0.0
+    assert above_ma200 < above_ma60  # multiplier=0.5 means half
+    assert above_ma200 == pytest.approx(above_ma60 * 0.5, rel=1e-6)
+    assert below_both == 0.0
+
+
+def test_long_trend_override_zero_keeps_legacy_hard_gate_behaviour():
+    """Setting the multiplier to 0 should reproduce the pre-softening gate."""
+
+    cfg = EtfRotationConfig(
+        assets=[EtfAssetConfig(symbol="X", max_weight=0.50)],
+        scoring=EtfScoringConfig(long_trend_override_multiplier=0.0),
+    )
+    strategy = EtfRotationStrategy(cfg)
+    asset = cfg.assets[0]
+    # Below MA60 but above MA200 → should still be zero under legacy mode
+    result = strategy._score_to_weight(
+        asset, score=80.0, latest=9.5, ma60=10.0, volatility60=0.15, ma200=8.5,
+    )
+    assert result == 0.0
+
+
+def test_long_trend_override_falls_back_to_zero_when_ma200_missing():
+    """No MA200 (history too short) → legacy hard gate at MA60."""
+
+    cfg = EtfRotationConfig(
+        assets=[EtfAssetConfig(symbol="X", max_weight=0.50)],
+        scoring=EtfScoringConfig(long_trend_override_multiplier=0.5),
+    )
+    strategy = EtfRotationStrategy(cfg)
+    asset = cfg.assets[0]
+    result = strategy._score_to_weight(
+        asset, score=80.0, latest=9.5, ma60=10.0, volatility60=0.15, ma200=None,
+    )
+    assert result == 0.0
+
+
+def test_signal_skips_ma200_when_history_too_short():
+    """Series of 120 bars (less than 200) → ma200 stays None."""
+
+    dates = pd.date_range("2025-01-01", periods=120, freq="B")
+    matrix = pd.DataFrame({"X": np.linspace(100, 110, 120)}, index=dates)
+    config = EtfRotationConfig(
+        assets=[EtfAssetConfig(symbol="X", max_weight=0.50)],
+        gross_cap=0.9,
+    )
+    signals = EtfRotationStrategy(config).evaluate(matrix)
+    assert signals[0].ma200 is None
+    assert signals[0].trend_long_strength is None
+
+
 def test_cross_sectional_scoring_picks_strongest_when_universe_is_mixed():
     """In cross_sectional mode, the strongest asset gets a higher weight
     than the weak one even if absolute thresholds wouldn't have separated them."""

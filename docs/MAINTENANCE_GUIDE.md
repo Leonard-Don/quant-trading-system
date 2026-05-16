@@ -125,7 +125,15 @@ tar czf backups/data-$(date +%F).tgz data/ output/
 ```cron
 # 每日 02:30 备份 DB,保留 14 天
 30 2 * * * cd /opt/quant && ./scripts/backup_db.sh && find backups -name '*.dump' -mtime +14 -delete
+
+# 每 6 小时刷新 policy_radar 另类数据快照,驱动 /policy-radar/* 端点
+# (会触发 PolicySignalProvider.run_pipeline 实抓 + NLP,落盘到 cache/alt_data/providers/policy_radar.json)
+0 */6 * * * cd /opt/quant && /usr/bin/env python scripts/refresh_policy_radar.py --force >> logs/refresh_policy_radar.log 2>&1
 ```
+
+> `refresh_policy_radar.py` 是 `/policy-radar/signal` 与 `/policy-radar/records` 端点的喂料入口。
+> 没有这条 cron(或者手动执行)时,端点会按"本地优先"协议优雅降级为 `available:false`;
+> cron 跑过一次后,端点立即翻成 `available:true` 并返回真实政策记录。
 
 ---
 

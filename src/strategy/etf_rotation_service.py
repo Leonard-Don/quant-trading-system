@@ -35,6 +35,11 @@ from scripts import daily_etf_signal
 from src.data.etf_premium_monitor import EtfPremiumMonitor
 from src.data.etf_price_history import fetch_etf_history
 from src.data.etf_rotation import EtfHolding, EtfQuote
+from src.strategy.etf_mean_reversion_strategy import (
+    EtfMeanReversionConfig,
+    EtfMeanReversionRotationConfig,
+    EtfMeanReversionStrategy,
+)
 from src.strategy.etf_regime_detector import (
     RegimeDecision,
     build_detector_config,
@@ -43,6 +48,11 @@ from src.strategy.etf_regime_detector import (
 from src.strategy.etf_rotation_config_loader import (
     StrategyConfig,
     load_strategy_config,
+)
+from src.strategy.etf_rotation_strategy import EtfRotationStrategy
+from src.strategy.etf_strategy_blend import (
+    EtfStrategyBlend,
+    EtfStrategyBlendConfig,
 )
 
 logger = logging.getLogger(__name__)
@@ -161,6 +171,8 @@ class EtfRotationService:
         self._lock = threading.Lock()
         # Last regime label drives the bull/bear hysteresis on the next call.
         self._last_regime: Optional[str] = None
+        # Most recent blender (when ensemble is enabled) for post-hoc inspection.
+        self._last_blender: Optional[EtfStrategyBlend] = None
 
     @staticmethod
     def _default_quotes_fetcher(
@@ -285,6 +297,81 @@ class EtfRotationService:
                     logger.warning("Premium monitor universe refresh failed: %s", exc)
             return self._strategy_config
 
+    def _build_strategy(
+        self,
+        *,
+        active_strategy_config: StrategyConfig,
+        holdings: List[EtfHolding],
+        regime_label: str,
+        ensemble_meta: Dict[str, Any],
+    ):
+        """Construct the strategy used for this refresh.
+
+        * Pure trend when ``ensemble.enabled`` is False (legacy behaviour).
+        * ``EtfStrategyBlend`` over (trend, mean-reversion) when enabled,
+          using the regime label to pick the blend weight.
+        """
+
+        trend_strategy = EtfRotationStrategy(
+            daily_etf_signal.build_strategy_config(holdings, active_strategy_config)
+        )
+
+        ensemble_cfg = active_strategy_config.ensemble or {}
+        if not ensemble_cfg.get("enabled", False):
+            ensemble_meta.update({"enabled": False})
+            return trend_strategy
+
+        # Build the MR strategy. Reuse the asset list / caps from the
+        # trend strategy so they're guaranteed in sync.
+        mr_raw_scoring = ensemble_cfg.get("mean_reversion") or {}
+        mr_scoring_fields = {
+            f.name for f in EtfMeanReversionConfig.__dataclass_fields__.values()  # type: ignore[attr-defined]
+        }
+        mr_scoring_kwargs = {
+            k: v for k, v in mr_raw_scoring.items() if k in mr_scoring_fields
+        }
+        mr_scoring = EtfMeanReversionConfig(**mr_scoring_kwargs)
+        mr_rotation_cfg = EtfMeanReversionRotationConfig(
+            assets=list(trend_strategy.config.assets),
+            gross_cap=float(trend_strategy.config.gross_cap),
+            warmup_days=int(trend_strategy.config.warmup_days),
+            scoring=mr_scoring,
+            min_score_to_hold=float(
+                mr_raw_scoring.get("min_score_to_hold", 25.0)
+            ),
+            min_score_full_hold=float(
+                mr_raw_scoring.get("min_score_full_hold", 40.0)
+            ),
+        )
+        mr_strategy = EtfMeanReversionStrategy(mr_rotation_cfg)
+
+        blend_cfg = EtfStrategyBlendConfig(
+            enabled=True,
+            regime_blend_weights=dict(
+                ensemble_cfg.get("regime_blend_weights") or {}
+            ),
+            alpha_floor=float(ensemble_cfg.get("alpha_floor", 0.20)),
+            alpha_ceiling=float(ensemble_cfg.get("alpha_ceiling", 1.00)),
+        )
+        blender = EtfStrategyBlend(
+            trend_strategy=trend_strategy,
+            mr_strategy=mr_strategy,
+            config=blend_cfg,
+            regime=regime_label,
+        )
+
+        # Stash a reference so we can read its alpha post-evaluate when
+        # surfacing ensemble metadata in the plan output.
+        self._last_blender = blender
+        ensemble_meta.update({
+            "enabled": True,
+            "regime": regime_label,
+            "alpha_trend": blender.current_alpha(),
+            "alpha_mean_reversion": 1.0 - blender.current_alpha(),
+            "regime_blend_weights": dict(blend_cfg.regime_blend_weights),
+        })
+        return blender
+
     def _classify_regime(self, price_matrix: Optional[pd.DataFrame]) -> Optional[RegimeDecision]:
         """Run the regime classifier on the proxy column of the price matrix.
 
@@ -384,9 +471,12 @@ class EtfRotationService:
                 )
 
         # Broad-market regime adjustment: classify the proxy index and
-        # potentially derate gross_cap + raise min_score_to_hold.
+        # potentially derate gross_cap + raise min_score_to_hold AND swap
+        # in regime-conditional scoring overrides (bear markets get
+        # different scoring weights from bull markets).
         active_strategy_config = self._strategy_config
         regime_decision = self._classify_regime(price_matrix)
+        regime_scoring_active: Dict[str, Any] = {}
         if regime_decision is not None and regime_decision.regime != "unknown":
             adjusted_strategy_params = dict(active_strategy_config.strategy)
             base_gross_cap = float(adjusted_strategy_params.get("gross_cap", 0.90))
@@ -404,10 +494,31 @@ class EtfRotationService:
                 adjusted_strategy_params["min_score_to_hold"] + 1.0,
                 base_full_hold + regime_decision.min_score_to_hold_offset,
             )
+            # Regime-conditional scoring overrides
+            scoring_overrides_map = (
+                self._strategy_config.regime.get("scoring_overrides") or {}
+            )
+            override = scoring_overrides_map.get(regime_decision.regime) or {}
+            adjusted_scoring = dict(active_strategy_config.scoring)
+            adjusted_scoring.update(override)
+            regime_scoring_active = dict(override)
+
             active_strategy_config = dc_replace(
                 active_strategy_config,
                 strategy=adjusted_strategy_params,
+                scoring=adjusted_scoring,
             )
+
+        # Build the strategy: pure trend by default, or a blender when the
+        # ensemble is enabled in strategy.json. The blender's regime label
+        # comes from the same classifier as gross-cap adjustment.
+        ensemble_meta: Dict[str, Any] = {"enabled": False}
+        strategy_override = self._build_strategy(
+            active_strategy_config=active_strategy_config,
+            holdings=holdings,
+            regime_label=regime_decision.regime if regime_decision else "unknown",
+            ensemble_meta=ensemble_meta,
+        )
 
         plan = daily_etf_signal.generate_plan(
             holdings=holdings if holdings_is_configured else None,
@@ -415,6 +526,7 @@ class EtfRotationService:
             overlays=overlays or None,
             price_matrix=price_matrix,
             strategy_config=active_strategy_config,
+            strategy_override=strategy_override,
             quotes_as_of=quotes_as_of,
             price_matrix_as_of=price_matrix_as_of,
             now=now,
@@ -422,6 +534,9 @@ class EtfRotationService:
 
         if regime_decision is not None:
             plan["regime"] = regime_decision.to_dict()
+            plan["regime"]["scoring_overrides_applied"] = regime_scoring_active
+
+        plan["ensemble"] = ensemble_meta
 
         if live_quotes and price_matrix is not None:
             quote_source = "live"

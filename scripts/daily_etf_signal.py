@@ -569,7 +569,8 @@ def generate_plan(
     price_matrix: Optional[pd.DataFrame] = None,
     risk_config: Optional[EtfRiskRuleConfig] = None,
     strategy_config: Optional[StrategyConfig] = None,
-    threshold_weight: float = DEFAULT_REBALANCE_THRESHOLD,
+    strategy_override: Optional[Any] = None,
+    threshold_weight: Optional[float] = None,
     lot_size: int = 100,
     holdings_as_of: _AsOf = None,
     quotes_as_of: _AsOf = None,
@@ -600,7 +601,19 @@ def generate_plan(
     current_weights = calculate_current_weights(holdings, total_asset)
 
     active_config = strategy_config if strategy_config is not None else load_strategy_config()
-    strategy = EtfRotationStrategy(build_strategy_config(holdings, active_config))
+    # Resolve the trade-suggestion threshold from the strategy config when
+    # the caller didn't pin one explicitly. Defaulting at the call site
+    # (live API, CLI) lets the same knob be tuned via strategy.json
+    # without touching code.
+    if threshold_weight is None:
+        threshold_weight = float(
+            active_config.strategy.get("rebalance_threshold", DEFAULT_REBALANCE_THRESHOLD)
+        )
+
+    if strategy_override is not None:
+        strategy = strategy_override
+    else:
+        strategy = EtfRotationStrategy(build_strategy_config(holdings, active_config))
     if price_matrix is None:
         price_matrix = synthesize_price_matrix(quote_map)
 
@@ -688,6 +701,13 @@ def generate_plan(
             "premium_score": float(sig.premium_score),
             "raw_target_weight": float(sig.target_weight),
             "latest_price": float(sig.latest_price),
+            "ma20": float(sig.ma20),
+            "ma60": float(sig.ma60),
+            "ma200": float(sig.ma200) if sig.ma200 is not None else None,
+            "trend_long_strength": (
+                float(sig.trend_long_strength)
+                if sig.trend_long_strength is not None else None
+            ),
             "return5": float(sig.return5),
             "return20": float(sig.return20),
             "return60": float(sig.return60),

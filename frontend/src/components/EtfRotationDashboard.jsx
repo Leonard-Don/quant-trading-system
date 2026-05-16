@@ -169,12 +169,14 @@ const buildWeightRows = (plan) => {
   const quotes = plan?.quote_snapshot || {};
   const overlays = plan?.overlays || {};
   const stopLossTriggered = plan?.stop_loss_triggered || {};
+  const scoreBreakdown = plan?.score_breakdown || {};
   const codes = Array.from(new Set([...Object.keys(current), ...Object.keys(target), ...Object.keys(adjusted), ...Object.keys(quotes)]));
   const orderedCodes = [...codes.filter((code) => code !== 'CASH').sort(), ...codes.filter((code) => code === 'CASH')];
   return orderedCodes.map((code) => {
     const quote = quotes[code] || {};
     const overlay = overlays[code] || null;
     const stop = stopLossTriggered[code] || null;
+    const breakdown = scoreBreakdown[code] || null;
     return {
       key: code,
       code,
@@ -189,8 +191,41 @@ const buildWeightRows = (plan) => {
       estimatedNav: typeof quote.estimated_nav === 'number' ? quote.estimated_nav : null,
       overlay,
       stopLoss: stop,
+      breakdown,
     };
   });
+};
+
+const renderPriceWithBreakdown = (value, row) => {
+  if (!Number.isFinite(Number(value))) return <Text type="secondary">—</Text>;
+  const bd = row?.breakdown;
+  if (!bd) return formatPrice(value);
+  return (
+    <Tooltip
+      title={
+        <Space direction="vertical" size={2}>
+          {bd.ma20 !== undefined ? <div>MA20: {Number(bd.ma20).toFixed(3)}</div> : null}
+          {bd.ma60 !== undefined ? <div>MA60: {Number(bd.ma60).toFixed(3)}</div> : null}
+          {bd.ma200 !== null && bd.ma200 !== undefined ? (
+            <div>
+              MA200: {Number(bd.ma200).toFixed(3)}
+              {bd.trend_long_strength !== null && bd.trend_long_strength !== undefined ? (
+                <Text type={bd.trend_long_strength >= 0 ? 'success' : 'danger'}>
+                  {` (${bd.trend_long_strength >= 0 ? '+' : ''}${(bd.trend_long_strength * 100).toFixed(2)}%)`}
+                </Text>
+              ) : null}
+            </div>
+          ) : <div>MA200: 数据不足</div>}
+          <div>composite score: {Number(bd.score).toFixed(1)}</div>
+          <div>　趋势 {Number(bd.trend_score).toFixed(1)} · 动量 {Number(bd.momentum_score).toFixed(1)} · 风险 {Number(bd.risk_score).toFixed(1)}</div>
+        </Space>
+      }
+    >
+      <span style={{ borderBottom: '1px dotted var(--color-text-tertiary, #888)', cursor: 'help' }}>
+        {formatPrice(value)}
+      </span>
+    </Tooltip>
+  );
 };
 
 const renderPremium = (value) => {
@@ -428,6 +463,7 @@ const EtfRotationDashboard = () => {
   const premiumStatus = plan?.premium_monitor_status || null;
   const activeOverlays = plan?.overlays || {};
   const regime = plan?.regime || null;
+  const ensemble = plan?.ensemble || null;
   const quoteSourceCode = meta?.quoteSource || plan?.quote_source;
   const quoteModeLabel = QUOTE_SOURCE_LABELS[quoteSourceCode] || (
     plan?.quote_source === 'live'
@@ -465,7 +501,7 @@ const EtfRotationDashboard = () => {
       ) : code,
     },
     { title: '名称', dataIndex: 'name', key: 'name' },
-    { title: '实时价', dataIndex: 'currentPrice', key: 'currentPrice', render: formatPrice },
+    { title: '实时价', dataIndex: 'currentPrice', key: 'currentPrice', render: renderPriceWithBreakdown },
     {
       title: '估算净值',
       dataIndex: 'estimatedNav',
@@ -549,7 +585,7 @@ const EtfRotationDashboard = () => {
             />
             {regime ? (
               <Space direction="vertical" size={4} style={{ width: '100%' }} data-testid="etf-regime-row">
-                <Text type="secondary">市场状态（regime 探测，影响总仓位上限）</Text>
+                <Text type="secondary">市场状态（regime 探测，影响总仓位上限 + 评分权重）</Text>
                 <Space size={[8, 4]} wrap>
                   <Tooltip
                     title={
@@ -582,6 +618,47 @@ const EtfRotationDashboard = () => {
                   <Tag>gross_cap × {regime.gross_cap_multiplier?.toFixed(2)}</Tag>
                   {regime.min_score_to_hold_offset > 0 ? (
                     <Tag color="orange">min_score +{regime.min_score_to_hold_offset.toFixed(0)}</Tag>
+                  ) : null}
+                  {regime.scoring_overrides_applied
+                    && Object.keys(regime.scoring_overrides_applied).length > 0 ? (
+                    <Tooltip
+                      title={
+                        <>
+                          <div>该 regime 下激活的 scoring 覆盖：</div>
+                          {Object.entries(regime.scoring_overrides_applied).map(([k, v]) => (
+                            <div key={k}>• {k} = {typeof v === 'number' ? v.toFixed(2) : String(v)}</div>
+                          ))}
+                        </>
+                      }
+                    >
+                      <Tag color="purple" data-testid="etf-regime-scoring-override">
+                        scoring 覆盖 ×{Object.keys(regime.scoring_overrides_applied).length}
+                      </Tag>
+                    </Tooltip>
+                  ) : null}
+                  {ensemble?.enabled ? (
+                    <Tooltip
+                      title={
+                        <>
+                          <div>多策略融合：trend + mean-reversion</div>
+                          <div>当前 regime: {ensemble.regime}</div>
+                          <div>α_trend = {(ensemble.alpha_trend * 100).toFixed(0)}%</div>
+                          <div>α_mr = {(ensemble.alpha_mean_reversion * 100).toFixed(0)}%</div>
+                          {ensemble.regime_blend_weights ? (
+                            <div style={{ marginTop: 4, fontSize: 11 }}>
+                              全 regime 权重表：
+                              {Object.entries(ensemble.regime_blend_weights).map(([k, v]) => (
+                                <div key={k}>· {k}: trend {(v * 100).toFixed(0)}% / mr {((1 - v) * 100).toFixed(0)}%</div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </>
+                      }
+                    >
+                      <Tag color="geekblue" data-testid="etf-ensemble-tag">
+                        融合 α={ensemble.alpha_trend?.toFixed(2)}
+                      </Tag>
+                    </Tooltip>
                   ) : null}
                 </Space>
               </Space>
