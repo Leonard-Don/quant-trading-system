@@ -246,4 +246,63 @@ cd frontend && CI=1 npm test -- --runInBand --watchAll=false
 
 ---
 
-**最后更新**: 2026-05-02
+## 9. CI 质量门槛 (lint + coverage)
+
+`.github/workflows/ci.yml` 里有两道"防回涨"门槛,只增不减,绝对不允许在不
+对齐基线的情况下放宽:
+
+### 9.1 Ruff 基线门 (`scripts/check_ruff_baseline.py`)
+
+- 基线文件: `scripts/ruff_baseline_count.txt` (单整数, 首版 = 3102)
+- CI 行为: `lint` job 跑 `ruff check src backend scripts tests` 并比对计数,
+  发现数 **大于** 基线即 fail
+- **不要求清零** —— 只要求"不再增长"。新写的代码必须不引入新发现。
+
+**本地复跑(每次 push 前推荐):**
+
+```bash
+python scripts/check_ruff_baseline.py
+# 通过: Ruff baseline gate passed: current=3102 baseline=3102 resolved=0 new=0
+# 失败: 列出 top-10 规则码, 提示要么修要么 --write-baseline
+```
+
+**修了一批后,降低基线 (这是健康行为, 多做):**
+
+```bash
+# 比如顺手 ruff check --fix 干掉一批 PIE790
+ruff check src backend scripts tests --fix --select=PIE790
+python scripts/check_ruff_baseline.py --write-baseline
+git add scripts/ruff_baseline_count.txt
+git commit -m "chore(lint): tighten ruff baseline to <new-N>"
+```
+
+**绝对不要在没有清理动作的情况下抬高基线** —— 那等于把回归静音化。
+如果新代码必须引入暂时无法修的发现 (例如第三方库的兼容垫片),
+先评估能否走 `# noqa` + 文件内 `# noqa` 注释,或在 `pyproject.toml`
+`[tool.ruff.lint] ignore` 加个明确条目,再调基线。
+
+### 9.2 Coverage 阈值 (`--cov-fail-under`)
+
+- 当前阈值: 60% (实测 61%, 1 个百分点缓冲, 2026-05-16 锁定)
+- CI 行为: `backend` job 里 `pytest ... --cov-fail-under=60`,
+  覆盖率跌破 60% 即 fail
+- **只升不降** —— 阈值随补测试自然抬高,每隔几周复测一次
+
+**本地复跑:**
+
+```bash
+pytest tests/unit tests/integration -m "not perf" \
+  --cov=src --cov=backend --cov-report=term --cov-fail-under=60 -q
+# 末尾会打印 TOTAL ... 61%
+```
+
+**抬高阈值:**
+
+```bash
+# 看实测百分比, 然后改 .github/workflows/ci.yml 里的 --cov-fail-under=N
+# (保留 1pt 缓冲, 比如实测 65% → 设 64)
+```
+
+---
+
+**最后更新**: 2026-05-16

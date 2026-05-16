@@ -33,8 +33,13 @@ jobs:
           pip install -r requirements-dev.txt
 
       - name: Run backend regression suite
+        # Coverage threshold matches current state at 2026-05-16 (measured 61%);
+        # the 1-pt buffer (60) absorbs minor add/remove churn. Raise it as
+        # coverage grows — never lower it.
         run: |
-          pytest tests/unit tests/integration -q -m "not perf" --cov=src --cov=backend --cov-report=xml
+          pytest tests/unit tests/integration -q -m "not perf" \
+            --cov=src --cov=backend --cov-report=xml --cov-report=term \
+            --cov-fail-under=60
 
       - name: Upload coverage report
         if: always()
@@ -43,6 +48,40 @@ jobs:
           name: backend-coverage
           if-no-files-found: ignore
           path: coverage.xml
+
+  lint:
+    # Baseline-locked ruff gate. Mirrors the super-pricing sibling pattern:
+    # we don't require zero findings, we require the count not to grow.
+    # Tighten the floor by running `python scripts/check_ruff_baseline.py
+    # --write-baseline` after intentional clean-up commits.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Ruff annotations (visible inline in PR)
+        # `|| true` keeps this advisory step from short-circuiting the gate;
+        # the hard pass/fail decision is owned by the baseline check below.
+        run: |
+          ruff check src backend scripts tests --output-format=github || true
+
+      - name: Ruff baseline gate (must pass)
+        run: |
+          python scripts/check_ruff_baseline.py
 
   typecheck:
     runs-on: ubuntu-latest
