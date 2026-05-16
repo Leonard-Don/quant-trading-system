@@ -48,6 +48,12 @@ from src.strategy.etf_strategy_blend import EtfStrategyBlend, EtfStrategyBlendCo
 
 logger = logging.getLogger(__name__)
 
+# Default tolerance for per-bar failures during a full historical walk.
+# Above this rate we treat the run as data-integrity-broken rather than a
+# few transient errors and raise to halt the cron job loudly. Tunable via
+# ``--max-error-rate`` and the ``max_error_rate`` kwarg.
+DEFAULT_MAX_ERROR_RATE = 0.25
+
 
 class FullPipelineStrategy:
     """Drop-in for ``PortfolioBacktester`` that runs the full live pipeline.
@@ -62,6 +68,11 @@ class FullPipelineStrategy:
     * ``trend``: pure trend strategy, no regime / no ensemble
     * ``regime``: trend + regime adjustment (gross_cap + scoring override)
     * ``ensemble``: regime + trend/MR ensemble (full live pipeline)
+
+    Per-bar failures are swallowed by default (some transient scoring
+    bugs shouldn't abort a multi-year backtest), but once the cumulative
+    failure rate crosses ``max_error_rate`` we raise — that pattern means
+    the input data is broken, not just a couple of bad bars.
     """
 
     def __init__(
@@ -71,13 +82,19 @@ class FullPipelineStrategy:
         mode: str = "ensemble",
         lag_days: int = 1,
         apply_risk_rules: bool = True,
+        max_error_rate: float = DEFAULT_MAX_ERROR_RATE,
     ) -> None:
         if mode not in {"trend", "regime", "ensemble"}:
             raise ValueError(f"mode must be trend|regime|ensemble, got {mode}")
+        if not 0.0 <= max_error_rate <= 1.0:
+            raise ValueError(
+                f"max_error_rate must be in [0.0, 1.0], got {max_error_rate}"
+            )
         self._cfg = strategy_config
         self._mode = mode
         self._lag_days = lag_days
         self._apply_risk_rules = apply_risk_rules
+        self._max_error_rate = max_error_rate
         # Holdings are needed for build_strategy_config — use the example seed.
         self._holdings = load_default_holdings()
         self._asset_codes = [h.code for h in self._holdings]
@@ -99,18 +116,36 @@ class FullPipelineStrategy:
         prices = price_matrix.apply(pd.to_numeric, errors="coerce").ffill().dropna(how="all")
 
         weights = pd.DataFrame(0.0, index=prices.index, columns=prices.columns)
+        total_bars = 0
+        error_count = 0
         for idx in range(warmup, len(prices)):
             window = prices.iloc[: idx + 1]
             timestamp = prices.index[idx]
+            total_bars += 1
             try:
                 bar_weights, regime_label = self._compute_bar(window, timestamp)
             except Exception as exc:  # noqa: BLE001
+                error_count += 1
                 logger.warning("bar at %s failed (%s); using zero weights", timestamp, exc)
                 continue
             for code, w in bar_weights.items():
                 if code in weights.columns:
                     weights.iat[idx, weights.columns.get_loc(code)] = float(w)
             self._regime_counts[regime_label] = self._regime_counts.get(regime_label, 0) + 1
+
+        if total_bars > 0:
+            error_rate = error_count / total_bars
+            if error_rate > self._max_error_rate:
+                raise RuntimeError(
+                    f"Per-bar failure rate {error_rate:.1%} exceeds threshold "
+                    f"{self._max_error_rate:.1%} ({error_count}/{total_bars} bars "
+                    f"failed); check input data integrity"
+                )
+            success = total_bars - error_count
+            logger.info(
+                "Backtest completed: %d/%d bars succeeded (%.1f%% success)",
+                success, total_bars, (success / total_bars) * 100.0,
+            )
 
         if self._lag_days > 0:
             weights = weights.shift(self._lag_days).fillna(0.0)
@@ -256,11 +291,13 @@ def run_backtest(
     slippage: float = 0.001,
     min_rebalance_weight_delta: float = DEFAULT_REBALANCE_THRESHOLD,
     strategy_config: Optional[StrategyConfig] = None,
+    max_error_rate: float = DEFAULT_MAX_ERROR_RATE,
 ) -> Dict[str, Any]:
     prices = load_price_matrix(prices_csv)
     strat_cfg = strategy_config or load_strategy_config()
     strategy = FullPipelineStrategy(
         strategy_config=strat_cfg, mode=mode, lag_days=1,
+        max_error_rate=max_error_rate,
     )
 
     backtester = PortfolioBacktester(
@@ -308,11 +345,22 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_REBALANCE_THRESHOLD,
     )
+    parser.add_argument(
+        "--max-error-rate",
+        type=float,
+        default=DEFAULT_MAX_ERROR_RATE,
+        help=(
+            "Maximum tolerated per-bar failure rate during the historical "
+            "walk (default: %(default)s). Above this fraction we raise — "
+            "that pattern usually means broken input data, not transient "
+            "edge cases. Set to 1.0 to disable the guard."
+        ),
+    )
     return parser
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
-    logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _build_arg_parser().parse_args(argv)
     result = run_backtest(
         args.prices_csv,
@@ -321,6 +369,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         commission=args.commission,
         slippage=args.slippage,
         min_rebalance_weight_delta=args.min_rebalance_weight_delta,
+        max_error_rate=args.max_error_rate,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     return 0

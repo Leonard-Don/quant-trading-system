@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import sys
 from contextlib import redirect_stdout
 from dataclasses import replace as dc_replace
@@ -319,34 +320,143 @@ def test_main_raises_on_missing_prices_csv() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_generate_signals_swallows_per_bar_exceptions(
+def test_generate_signals_below_error_threshold_continues_and_logs_summary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """When ``_compute_bar`` raises, the loop logs and continues to the next bar.
+    """Per-bar failures below the threshold are swallowed; success summary is logged.
 
     Why: a transient bug in scoring shouldn't abort an entire historical
-    backtest — the script must degrade gracefully and the affected bar
-    should land as zeros. We patch ``_compute_bar`` to raise on every
-    call and assert the surrounding loop still produces a clean
-    zero-filled weight matrix without raising.
+    backtest. Bars that fail land as zeros, but as long as the rate stays
+    under ``max_error_rate`` we proceed and emit a final summary line so
+    operators can see how clean the run was.
     """
 
     csv_path = _write_prices(tmp_path)
     matrix = full_pipeline_backtest.load_price_matrix(csv_path)
     cfg = load_strategy_config()
     strat = full_pipeline_backtest.FullPipelineStrategy(
-        strategy_config=cfg, mode="trend", lag_days=1
+        strategy_config=cfg, mode="trend", lag_days=1,
+        # Allow up to 100% failure rate so we can pin the "swallows" branch
+        # without the threshold raising.
+        max_error_rate=1.0,
+    )
+
+    # Fail roughly the first 10% of post-warmup bars only.
+    call_state = {"n": 0}
+    real = strat._compute_bar
+
+    def _flaky(window, timestamp):
+        call_state["n"] += 1
+        if call_state["n"] <= 10:
+            raise RuntimeError("simulated transient scoring failure")
+        return real(window, timestamp)
+
+    monkeypatch.setattr(strat, "_compute_bar", _flaky)
+    caplog.set_level(logging.INFO, logger=full_pipeline_backtest.logger.name)
+    weights = strat.generate_signals(matrix)
+    # No raise; weights matrix has the expected shape.
+    assert weights.shape == matrix.shape
+    # Some bars succeeded → at least one non-zero post-warmup row.
+    assert (weights.iloc[200:].to_numpy() > 0).any()
+    # The success summary log line is emitted.
+    assert any(
+        "Backtest completed" in rec.getMessage() and "bars succeeded" in rec.getMessage()
+        for rec in caplog.records
+    ), f"missing summary log; got: {[r.getMessage() for r in caplog.records[-5:]]}"
+
+
+def test_generate_signals_above_error_threshold_raises(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If every bar fails, the threshold guard must raise with a clear message.
+
+    Why: a multi-year backtest where 100% of bars fail is not a transient
+    issue — it's a data integrity problem (wrong schema, NaN columns,
+    etc.). Cron jobs must halt loudly rather than write a degenerate
+    summary that looks like success.
+    """
+
+    csv_path = _write_prices(tmp_path)
+    matrix = full_pipeline_backtest.load_price_matrix(csv_path)
+    cfg = load_strategy_config()
+    strat = full_pipeline_backtest.FullPipelineStrategy(
+        strategy_config=cfg, mode="trend", lag_days=1,
     )
 
     def _boom(*_args, **_kwargs):
         raise RuntimeError("simulated scoring failure")
 
     monkeypatch.setattr(strat, "_compute_bar", _boom)
+    with pytest.raises(RuntimeError, match=r"Per-bar failure rate .* exceeds threshold"):
+        strat.generate_signals(matrix)
+
+
+def test_generate_signals_custom_max_error_rate_allows_higher_tolerance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``max_error_rate=0.5`` must allow up to 50% per-bar failure without raising.
+
+    Why: noisy alt-data corpuses (e.g. early-2020 COVID gap) legitimately
+    produce more failures than the 25% default. Users need a knob to
+    tune tolerance without monkey-patching internals.
+    """
+
+    csv_path = _write_prices(tmp_path)
+    matrix = full_pipeline_backtest.load_price_matrix(csv_path)
+    cfg = load_strategy_config()
+    strat = full_pipeline_backtest.FullPipelineStrategy(
+        strategy_config=cfg, mode="trend", lag_days=1,
+        max_error_rate=0.5,
+    )
+
+    # Fail every other call → roughly 50% failure rate.
+    call_state = {"n": 0}
+    real = strat._compute_bar
+
+    def _alternating(window, timestamp):
+        call_state["n"] += 1
+        if call_state["n"] % 2 == 0:
+            raise RuntimeError("simulated alternating failure")
+        return real(window, timestamp)
+
+    monkeypatch.setattr(strat, "_compute_bar", _alternating)
+    # Should not raise — 50% is at-or-below the 50% threshold (strict >).
     weights = strat.generate_signals(matrix)
-    # Every bar failed → every cell is 0.
-    assert (weights.to_numpy() == 0.0).all()
-    # And no regime was recorded (continue skipped the counter increment).
-    assert strat.regime_counts == {}
+    assert weights.shape == matrix.shape
+
+
+def test_full_pipeline_strategy_rejects_invalid_max_error_rate() -> None:
+    """``max_error_rate`` outside [0.0, 1.0] must raise at construction time.
+
+    Why: the threshold is a fraction; values outside that range indicate
+    a unit confusion (percent vs. fraction). We pin a fail-fast contract
+    so the script can't run with a meaningless tolerance.
+    """
+
+    cfg = load_strategy_config()
+    with pytest.raises(ValueError, match=r"max_error_rate must be in"):
+        full_pipeline_backtest.FullPipelineStrategy(
+            strategy_config=cfg, mode="trend", max_error_rate=1.5,
+        )
+    with pytest.raises(ValueError, match=r"max_error_rate must be in"):
+        full_pipeline_backtest.FullPipelineStrategy(
+            strategy_config=cfg, mode="trend", max_error_rate=-0.1,
+        )
+
+
+def test_argparse_max_error_rate_flag_default_and_override() -> None:
+    """``--max-error-rate`` must default to 0.25 and accept a custom value.
+
+    Why: this is the new public knob from the threshold refactor. Pin
+    both default and override paths so the CLI surface is locked.
+    """
+
+    parser = full_pipeline_backtest._build_arg_parser()
+    args = parser.parse_args(["--prices-csv", "x.csv"])
+    assert args.max_error_rate == 0.25
+    args = parser.parse_args(["--prices-csv", "x.csv", "--max-error-rate", "0.5"])
+    assert args.max_error_rate == 0.5
 
 
 def test_compute_bar_skips_risk_rules_when_apply_risk_rules_false(
