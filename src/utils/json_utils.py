@@ -3,10 +3,12 @@ JSON序列化工具
 """
 
 import json
+import math
+from datetime import date, datetime
+from typing import Any
+
 import numpy as np
 import pandas as pd
-from datetime import datetime, date
-from typing import Any
 
 
 class CustomJSONEncoder(json.JSONEncoder):
@@ -32,7 +34,11 @@ class CustomJSONEncoder(json.JSONEncoder):
 
 def safe_json_dumps(data: Any, **kwargs) -> str:
     """安全的JSON序列化，处理NaN和特殊数据类型"""
-    return json.dumps(data, cls=CustomJSONEncoder, **kwargs)
+    # Pre-clean so native Python NaN/Infinity become null instead of leaking
+    # through json.dumps as the non-standard NaN/Infinity tokens. Enforce
+    # allow_nan=False as a backstop in case a caller bypasses pre-cleaning.
+    kwargs.setdefault("allow_nan", False)
+    return json.dumps(clean_data_for_json(data), cls=CustomJSONEncoder, **kwargs)
 
 
 def clean_data_for_json(data: Any) -> Any:
@@ -42,17 +48,29 @@ def clean_data_for_json(data: Any) -> Any:
     elif isinstance(data, list):
         return [clean_data_for_json(item) for item in data]
     elif isinstance(data, pd.DataFrame):
-        # 替换NaN值并转换为字典
-        return data.fillna(0).to_dict("records")
+        # 替换NaN值并转换为字典；recurse so non-finite values (e.g. Inf,
+        # which fillna does not replace) are also sanitised.
+        return [
+            clean_data_for_json(record) for record in data.fillna(0).to_dict("records")
+        ]
     elif isinstance(data, pd.Series):
-        return data.fillna(0).tolist()
-    elif pd.isna(data):
-        return None
+        return [clean_data_for_json(item) for item in data.fillna(0).tolist()]
     elif isinstance(data, (np.integer, np.floating)):
         if np.isnan(data) or np.isinf(data):
             return None
         return float(data) if isinstance(data, np.floating) else int(data)
+    elif isinstance(data, float):
+        # Native Python float — pd.isna catches NaN but not +/-Infinity,
+        # so check explicitly to keep parity with the numpy branch above.
+        if not math.isfinite(data):
+            return None
+        return data
     elif isinstance(data, np.ndarray):
-        return data.tolist()
+        # Check ndarray before pd.isna(data): pandas returns an array of bools
+        # whose truth value is ambiguous. Recurse so Inf/NaN elements become
+        # JSON null instead of leaking through nested lists.
+        return clean_data_for_json(data.tolist())
+    elif pd.isna(data):
+        return None
     else:
         return data
