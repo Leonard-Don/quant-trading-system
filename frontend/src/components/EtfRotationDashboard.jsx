@@ -47,6 +47,15 @@ const EtfWalkforwardPanel = lazyWithRetry(
   () => import('./EtfWalkforwardPanel'),
 );
 
+// Regime classifier tile — small + always-on, fetched once on mount via a
+// deterministic backend endpoint. Lazy-loaded so the AntD Progress + Card
+// tree it pulls in stays out of the initial dashboard chunk; the wrapper
+// keeps the test-id "etf-regime-tile" available even before the chunk
+// resolves so the existing Cypress/playwright selectors work.
+const EtfRegimeTile = lazyWithRetry(
+  () => import('./EtfRegimeTile'),
+);
+
 const { Text, Title } = Typography;
 
 const ETF_NAMES = {
@@ -1037,6 +1046,10 @@ const EtfRotationDashboard = () => {
                 </Card>
               </Col>
             </Row>
+
+            <Suspense fallback={<Card data-testid="etf-regime-tile"><Spin /></Card>}>
+              <EtfRegimeTile lookbackDays={90} />
+            </Suspense>
 
             <Card title="权重对比" data-testid="etf-weight-table">
               <Table columns={weightColumns} dataSource={weightRows} pagination={false} size="small" />

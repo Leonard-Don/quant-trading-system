@@ -17,6 +17,13 @@ vi.mock('../services/api', () => ({
   getEtfRotationAuditLog: vi.fn(),
   getEtfRotationDailySignal: vi.fn(),
   getEtfRotationLiveTarget: vi.fn(),
+  getEtfRotationRegimeRecommendation: vi.fn().mockResolvedValue({
+    success: true,
+    data: {
+      regime: { regime_name: 'choppy_low_vol', confidence: 0.73, features: {} },
+      recommendation: { recommended_strategy: 'rotation', config_overrides: {} },
+    },
+  }),
   getEtfRotationPolicyFactorAttribution: vi.fn().mockResolvedValue({
     success: true,
     data: { n_factor_on_rebalances: 0, per_rebalance_attribution: [] },

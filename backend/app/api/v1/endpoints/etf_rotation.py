@@ -60,6 +60,11 @@ from src.strategy.etf_rotation_preferences import (
     get_preferences_store,
 )
 from src.strategy.etf_rotation_service import EtfRotationService
+from src.strategy.market_regime_classifier import (
+    ClassifierConfig,
+    MarketRegimeClassifier,
+)
+from src.strategy.strategy_recommender import recommend_strategy
 
 logger = logging.getLogger(__name__)
 
@@ -1339,3 +1344,92 @@ def post_strategy_comparison(
     response_payload = report.to_dict()
     _strategy_comparison_cache[cache_key] = (now, response_payload)
     return {"success": True, "data": response_payload, "cached": False}
+
+
+# ---------------------------------------------------------------------------
+# Regime classifier + strategy recommender
+#
+# Productises commit ``a54b986``'s empirical finding (rotation wins choppy,
+# mean_reversion wins trending). Reads the committed historical price
+# matrix, classifies the trailing ``lookback_days`` window, and returns a
+# typed recommendation the dashboard tile renders without any second
+# round-trip.
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/regime-recommendation",
+    summary="基于市场状态分类返回推荐策略",
+    description=(
+        "对 ``data/etf_backtest/etf_prices_4y.csv`` 的最近 lookback_days 行做"
+        "5 特征分类（trend R² / 波动率 / 偏度 / 回撤比 / 跨资产相关性）；"
+        "每只 ETF 先在 lookback 起点归一化为 1.0，再构造等权市场代理，"
+        "避免高价格基金支配信号。"
+        "映射到 6 个 regime 之一，并返回对应的推荐策略 + config 覆盖。"
+        "确定性、无 ML 模型；同样输入永远同样输出。"
+        "\n\n"
+        "实证锚点（commit ``a54b986`` 多策略比较）：2024-01-01 → 2025-04-30 窗口下，"
+        "choppy 上半场 (R²=0.370) 是 rotation 胜出 (+5.48%)，"
+        "trending 下半场 (R²=0.792) 是 mean_reversion 胜出 (+6.17%)。"
+        "本端点把那张表落地成运行时建议。"
+    ),
+)
+def get_regime_recommendation(
+    lookback_days: int = Query(
+        default=90,
+        ge=10,
+        le=500,
+        description="计算窗口长度（交易日，默认 90）。",
+    ),
+    trend_r2_threshold: Optional[float] = Query(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="可选：覆盖 trending 判定的 R² 阈值（默认 0.55）。",
+    ),
+    vol_high_threshold: Optional[float] = Query(
+        default=None,
+        ge=0.0,
+        le=2.0,
+        description="可选：覆盖 high-vol 阈值（年化波动率，默认 0.25）。",
+    ),
+) -> dict[str, Any]:
+    try:
+        prices = _load_backtest_price_matrix(None)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Backtest price matrix not found at {exc}. Run the data "
+                "pipeline (`scripts/refresh_*`) before calling "
+                "/regime-recommendation."
+            ),
+        )
+
+    cfg_kwargs: dict[str, Any] = {}
+    if trend_r2_threshold is not None:
+        cfg_kwargs["trend_r2_threshold"] = float(trend_r2_threshold)
+    if vol_high_threshold is not None:
+        cfg_kwargs["vol_high_threshold"] = float(vol_high_threshold)
+    config = ClassifierConfig(**cfg_kwargs) if cfg_kwargs else ClassifierConfig()
+
+    classifier = MarketRegimeClassifier(config=config)
+    regime = classifier.classify(prices, lookback_days=int(lookback_days))
+    recommendation = recommend_strategy(regime)
+    return {
+        "success": True,
+        "data": {
+            "regime": regime.to_dict(),
+            "recommendation": recommendation.to_dict(),
+            "config": {
+                "trend_r2_threshold": float(config.trend_r2_threshold),
+                "vol_high_threshold": float(config.vol_high_threshold),
+                "bear_slope_threshold": float(config.bear_slope_threshold),
+                "skew_negative_threshold": float(config.skew_negative_threshold),
+                "drawdown_ratio_high": float(config.drawdown_ratio_high),
+                "correlation_high_threshold": float(
+                    config.correlation_high_threshold
+                ),
+            },
+        },
+    }
