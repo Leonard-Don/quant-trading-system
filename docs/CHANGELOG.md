@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Features
+
+- feat(export): public summary JSON for external consumers (Phase F1)
+  - 新增 `scripts/export_public_summary.py`（含 `scripts/refresh_public_summary.sh` thin wrapper），把 `cache/alt_data/providers/policy_radar.json`、`data/industry/heatmap_history.json` 最新 snapshot、`data/paper_trading/*.json` 的 profile 名、`~/.config/etf-rotation/audit.jsonl` 最后一条记录的时间戳，蒸馏成一份小而稳定的 `data/public/quant_summary.json`（schema_version=1，当前 ~1.4 KB）。
+  - 顶层 sections：`policy_radar`（top-5 行业按 \|avg_impact\| 排序）、`industry_heat`（top-10 行业按 total_score，命中 policy_radar 时附带 `policy_signal`）、`etf_rotation`（默认 `policy_signal_factor_enabled` / 默认 universe size / 可用策略数 / 最近一次 audit 时间戳与条目数）、`paper_trading`（profile 名，**永不**暴露现金或持仓）。
+  - 安全过滤：原始 RSS 正文、文件路径、用户现金、调仓权重等不会进入输出；缺 cache 时对应 key 直接缺席，绝不写入合成数据。Atomic-write 通过 `tempfile.mkstemp + replace` 保证并发读不会看到半截 JSON。
+  - 下游消费者：sibling 项目 `cn-altdata-brief` 现在可以在 GitHub Actions 里 `git clone` 本仓库 → 读 `data/public/quant_summary.json` 拿到全部 headline 数据，**不再**需要直接访问 `cache/`（被 `.gitignore` 排除）或拉起 FastAPI 进程。
+  - 触发方式：CLAUDE.md 已经声明 Celery 只用于回测任务卸载（**不**做定期调度），所以这里通过 `docs/MAINTENANCE_GUIDE.md` 推荐的 cron 条目（`0 * * * *`，每小时一次）周期触发；本地手动跑 `./scripts/refresh_public_summary.sh` 即可。
+  - `.gitignore`：把 `data/` 顶层规则改成 `data/*` 并把 `data/public/*.json` 加入白名单；其它子目录（`paper_trading/`、`industry/`、`research_journal/` 等）保持忽略。
+  - 单元测试：12 条新 case 覆盖 schema 必备字段、policy_radar 排序与 cap、industry_heat 与 policy_radar 关联富化、paper_trading 不泄露现金 / 持仓 / 股票代码、audit 只暴露时间戳、provider/heatmap 缺失时的优雅降级、atomic-write 不留 `.tmp`、size budget < 50 KB、`SCHEMA_VERSION` 锁定为 1、同输入 → 同输出的确定性、敏感字符串黑名单。
+
 ### Tests
 
 - test(strategy): add coverage for mean reversion + strategy blend modules

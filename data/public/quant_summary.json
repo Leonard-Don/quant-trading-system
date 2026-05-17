@@ -1,0 +1,58 @@
+{
+  "etf_rotation": {
+    "available_strategies_count": 26,
+    "config_default_universe_size": 5,
+    "latest_audit_at": null,
+    "latest_audit_log_entry_count": 122,
+    "latest_audit_run_at": "2026-05-16T10:34:25.943089+00:00",
+    "policy_signal_factor_enabled_default": false
+  },
+  "generated_at": "2026-05-17T02:56:14+00:00",
+  "industry_heat": {
+    "days": 5,
+    "snapshot_captured_at": "2026-05-17T10:53:58.929876",
+    "top_industries_by_score": [
+      {
+        "change_pct": 4.2,
+        "industry_name": "测试行业",
+        "rank": 1,
+        "score": 91.2,
+        "stock_count": 2
+      }
+    ]
+  },
+  "paper_trading": {
+    "active_profiles": [
+      "e2e-smoke"
+    ],
+    "available": true,
+    "profile_count": 1
+  },
+  "policy_radar": {
+    "last_refresh_at": "2026-05-17T10:29:47.063347",
+    "policy_count": 10,
+    "top_industries": [
+      {
+        "avg_impact": -0.32,
+        "industry": "新能源汽车",
+        "mentions": 119,
+        "signal": "bearish"
+      },
+      {
+        "avg_impact": 0.0,
+        "industry": "电网",
+        "mentions": 6,
+        "signal": "neutral"
+      },
+      {
+        "avg_impact": 0.0,
+        "industry": "风电",
+        "mentions": 3,
+        "signal": "neutral"
+      }
+    ],
+    "total_records": 10
+  },
+  "schema_version": 1,
+  "source_codebase_version": "5.0.0"
+}
