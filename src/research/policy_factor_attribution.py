@@ -601,13 +601,13 @@ def render_markdown(report: AttributionReport, *, title: Optional[str] = None) -
             "| Run at | Hold days | ON % | OFF % | Contribution % | Applied codes |"
         )
         lines.append("|---|---:|---:|---:|---:|---|")
-        for row in report.per_rebalance_attribution:
-            applied = ", ".join(row.applied_codes) or "—"
+        for attribution_row in report.per_rebalance_attribution:
+            applied = ", ".join(attribution_row.applied_codes) or "—"
             lines.append(
-                f"| `{row.run_at}` | {row.n_days} | "
-                f"{row.factor_on_return_pct:+.4f}% | "
-                f"{row.factor_off_return_pct:+.4f}% | "
-                f"{row.factor_contribution_pct:+.4f}% | "
+                f"| `{attribution_row.run_at}` | {attribution_row.n_days} | "
+                f"{attribution_row.factor_on_return_pct:+.4f}% | "
+                f"{attribution_row.factor_off_return_pct:+.4f}% | "
+                f"{attribution_row.factor_contribution_pct:+.4f}% | "
                 f"{applied} |"
             )
         lines.append("")
