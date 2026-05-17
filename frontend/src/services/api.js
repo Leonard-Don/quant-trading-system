@@ -790,6 +790,28 @@ export const getEtfRotationAnalytics = async ({ horizons = null } = {}) => {
   return response.data;
 };
 
+export const getEtfRotationPreferences = async () => {
+  const response = await api.get('/etf-rotation/preferences', {
+    ...withTimeoutProfile('standard'),
+  });
+  return response.data;
+};
+
+// `value` may be true / false to set, or null to clear the preference
+// and fall back to the strategy.json default.
+export const postEtfRotationPreferences = async ({
+  policySignalFactorEnabled = undefined,
+} = {}) => {
+  const body = {};
+  if (typeof policySignalFactorEnabled === 'boolean' || policySignalFactorEnabled === null) {
+    body.policy_signal_factor_enabled = policySignalFactorEnabled;
+  }
+  const response = await api.post('/etf-rotation/preferences', body, {
+    ...withTimeoutProfile('standard'),
+  });
+  return response.data;
+};
+
 export const getRealtimeQuote = async (symbol) => {
   const response = await api.get(`/realtime/quote/${encodeURIComponent(symbol)}`);
   return response.data;

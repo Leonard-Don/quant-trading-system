@@ -17,7 +17,16 @@ vi.mock('../services/api', () => ({
   getEtfRotationAuditLog: vi.fn(),
   getEtfRotationDailySignal: vi.fn(),
   getEtfRotationLiveTarget: vi.fn(),
+  getEtfRotationPreferences: vi.fn().mockResolvedValue({
+    success: true,
+    data: {
+      preference: { policy_signal_factor_enabled: null },
+      effective: { policy_signal_factor_enabled: false, source: 'config' },
+      config_default: { policy_signal_factor_enabled: false },
+    },
+  }),
   getPolicyRadarSignal: vi.fn(),
+  postEtfRotationPreferences: vi.fn(),
   postEtfRotationRefresh: vi.fn(),
   postEtfRotationReloadConfig: vi.fn(),
 }));

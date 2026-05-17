@@ -14,8 +14,8 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from backend.main import app
 from backend.app.api.v1.endpoints import etf_rotation as etf_endpoint
+from backend.main import app
 from scripts import daily_etf_signal
 
 PLAN_KEYS = {
@@ -406,3 +406,191 @@ def test_daily_signal_use_cache_false_forces_fresh_live_quote_fetch(monkeypatch)
     assert data["quote_source"] == "fallback_synthetic"
     assert data["live_quote_status"]["requested"] == 5
     assert data["live_quote_status"]["resolved"] == 0
+
+
+# ---------------------------------------------------------------------------
+# /etf-rotation/preferences + precedence chain
+#
+# These tests exercise the per-installation preference store that backs the
+# dashboard's policy-signal-factor toggle. Each test points the store at a
+# tmp_path so it cannot stomp the developer's real ~/.config file.
+# ---------------------------------------------------------------------------
+
+
+def _install_isolated_preferences(monkeypatch, tmp_path) -> None:
+    """Point the preferences singleton at a tmp_path file and install it."""
+
+    from src.strategy import etf_rotation_preferences as prefs_module
+
+    prefs_path = tmp_path / "ui_preferences.json"
+    monkeypatch.setenv(prefs_module.PREFERENCES_PATH_ENV, str(prefs_path))
+    prefs_module.reset_preferences_store_for_tests()
+    etf_endpoint.install_preferences(prefs_module.EtfRotationPreferences(path=prefs_path))
+
+
+def test_preferences_get_returns_default_when_unset(monkeypatch, tmp_path) -> None:
+    _install_isolated_preferences(monkeypatch, tmp_path)
+    try:
+        client = TestClient(app)
+        response = client.get("/etf-rotation/preferences")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["success"] is True
+        data = body["data"]
+        # File not written yet → preference.policy_signal_factor_enabled is None
+        assert data["preference"]["policy_signal_factor_enabled"] is None
+        # No preference → effective folds in the config default (False)
+        assert data["effective"]["policy_signal_factor_enabled"] is False
+        assert data["effective"]["source"] == "config"
+        assert data["config_default"]["policy_signal_factor_enabled"] is False
+    finally:
+        etf_endpoint.reset_preferences_for_tests()
+
+
+def test_preferences_post_persists_and_atomic(monkeypatch, tmp_path) -> None:
+    _install_isolated_preferences(monkeypatch, tmp_path)
+    try:
+        client = TestClient(app)
+        post_response = client.post(
+            "/etf-rotation/preferences",
+            json={"policy_signal_factor_enabled": True},
+        )
+        assert post_response.status_code == 200
+        post_data = post_response.json()["data"]
+        assert post_data["preference"]["policy_signal_factor_enabled"] is True
+        assert post_data["effective"]["policy_signal_factor_enabled"] is True
+        assert post_data["effective"]["source"] == "preference"
+
+        # The file lives at the path the env var points to and contains valid
+        # JSON — i.e. the temp-file + rename actually committed.
+        prefs_path = tmp_path / "ui_preferences.json"
+        assert prefs_path.exists(), "Preferences file was not written"
+        import json
+        on_disk = json.loads(prefs_path.read_text(encoding="utf-8"))
+        assert on_disk["policy_signal_factor_enabled"] is True
+        # No leftover .tmp file — proves write-then-rename happened.
+        assert not (tmp_path / "ui_preferences.json.tmp").exists()
+
+        # A subsequent GET sees the same state (i.e. the singleton reads
+        # from disk on every snapshot, not from an in-memory cache that
+        # could go stale).
+        get_response = client.get("/etf-rotation/preferences")
+        assert get_response.status_code == 200
+        get_data = get_response.json()["data"]
+        assert get_data["preference"]["policy_signal_factor_enabled"] is True
+        assert get_data["effective"]["source"] == "preference"
+    finally:
+        etf_endpoint.reset_preferences_for_tests()
+
+
+def test_preferences_post_null_clears_the_preference(monkeypatch, tmp_path) -> None:
+    """Sending ``null`` removes the preference so the config default wins again."""
+
+    _install_isolated_preferences(monkeypatch, tmp_path)
+    try:
+        client = TestClient(app)
+        client.post(
+            "/etf-rotation/preferences",
+            json={"policy_signal_factor_enabled": False},
+        )
+
+        clear_response = client.post(
+            "/etf-rotation/preferences",
+            json={"policy_signal_factor_enabled": None},
+        )
+        assert clear_response.status_code == 200
+        data = clear_response.json()["data"]
+        assert data["preference"]["policy_signal_factor_enabled"] is None
+        # With no opinion, we fall through to the config default (False).
+        assert data["effective"]["source"] == "config"
+    finally:
+        etf_endpoint.reset_preferences_for_tests()
+
+
+def test_preferences_post_rejects_non_boolean(monkeypatch, tmp_path) -> None:
+    _install_isolated_preferences(monkeypatch, tmp_path)
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/etf-rotation/preferences",
+            json={"policy_signal_factor_enabled": "yes"},
+        )
+        assert response.status_code == 422
+    finally:
+        etf_endpoint.reset_preferences_for_tests()
+
+
+def test_daily_signal_precedence_query_beats_preference(monkeypatch, tmp_path) -> None:
+    """``?enable_policy_signal_factor=false`` overrides a True preference."""
+
+    _install_isolated_preferences(monkeypatch, tmp_path)
+    try:
+        client = TestClient(app)
+        client.post(
+            "/etf-rotation/preferences",
+            json={"policy_signal_factor_enabled": True},
+        )
+
+        # Query param wins → enabled=False, source='query'.
+        response = client.get(
+            "/etf-rotation/daily-signal?quote_source=synthetic"
+            "&enable_policy_signal_factor=false"
+        )
+        assert response.status_code == 200
+        plan = response.json()["data"]
+        assert plan["policy_signal_factor_enabled"] is False
+        summary = plan["policy_signal_factor"]
+        assert summary["enabled"] is False
+        assert summary["source"] == "query"
+
+        # Without the query param the preference wins.
+        response_pref = client.get(
+            "/etf-rotation/daily-signal?quote_source=synthetic"
+        )
+        plan_pref = response_pref.json()["data"]
+        assert plan_pref["policy_signal_factor_enabled"] is True
+        assert plan_pref["policy_signal_factor"]["source"] == "preference"
+    finally:
+        etf_endpoint.reset_preferences_for_tests()
+
+
+def test_daily_signal_precedence_preference_beats_config(monkeypatch, tmp_path) -> None:
+    """Preference=True with config default False yields enabled=True."""
+
+    _install_isolated_preferences(monkeypatch, tmp_path)
+    try:
+        client = TestClient(app)
+        client.post(
+            "/etf-rotation/preferences",
+            json={"policy_signal_factor_enabled": True},
+        )
+
+        response = client.get(
+            "/etf-rotation/daily-signal?quote_source=synthetic"
+        )
+        assert response.status_code == 200
+        plan = response.json()["data"]
+        # config_default is False (the built-in), preference is True → True wins.
+        assert plan["policy_signal_factor_enabled"] is True
+        assert plan["policy_signal_factor"]["source"] == "preference"
+    finally:
+        etf_endpoint.reset_preferences_for_tests()
+
+
+def test_daily_signal_returns_effective_enabled_field(monkeypatch, tmp_path) -> None:
+    """Even without any user opinion, the response exposes the effective bool
+    so the UI can render the toggle without a separate round-trip."""
+
+    _install_isolated_preferences(monkeypatch, tmp_path)
+    try:
+        client = TestClient(app)
+        response = client.get(
+            "/etf-rotation/daily-signal?quote_source=synthetic"
+        )
+        assert response.status_code == 200
+        plan = response.json()["data"]
+        # Field present + boolean even on the cold-start path.
+        assert isinstance(plan.get("policy_signal_factor_enabled"), bool)
+        assert plan["policy_signal_factor"]["source"] == "config"
+    finally:
+        etf_endpoint.reset_preferences_for_tests()

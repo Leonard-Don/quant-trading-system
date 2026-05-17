@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Alert, Button, Card, Col, Collapse, Empty, message, Row, Space, Spin, Statistic, Table, Tag, Timeline, Tooltip, Typography,
+  Alert, Badge, Button, Card, Col, Collapse, Empty, message, Row, Space, Spin, Statistic, Switch, Table, Tag, Timeline, Tooltip, Typography,
 } from 'antd';
 import {
   AlertOutlined,
@@ -16,6 +16,7 @@ import {
   SettingOutlined,
   StopOutlined,
   SwapOutlined,
+  ThunderboltOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
 
@@ -24,7 +25,9 @@ import {
   getEtfRotationAuditLog,
   getEtfRotationDailySignal,
   getEtfRotationLiveTarget,
+  getEtfRotationPreferences,
   getPolicyRadarSignal,
+  postEtfRotationPreferences,
   postEtfRotationRefresh,
   postEtfRotationReloadConfig,
 } from '../services/api';
@@ -326,6 +329,10 @@ const EtfRotationDashboard = () => {
   const [policySignal, setPolicySignal] = useState(null);
   const [policyLoading, setPolicyLoading] = useState(false);
   const [policyLoaded, setPolicyLoaded] = useState(false);
+  // Policy-factor toggle state. Optimistic flip on click; reconciled from
+  // the daily-signal response (which always carries the effective
+  // ``policy_signal_factor_enabled`` boolean) once the round-trip lands.
+  const [policyToggleLoading, setPolicyToggleLoading] = useState(false);
   const pollTimerRef = useRef(null);
 
   const applyResponse = useCallback((response, endpointUsed) => {
@@ -453,6 +460,67 @@ const EtfRotationDashboard = () => {
     }
   }, []);
 
+  // Persist the policy-factor preference and re-pull the daily signal so
+  // the response (and the page) reflects the new effective state. The
+  // server stamps ``policy_signal_factor_enabled`` on the plan, which
+  // ``unwrapPlanEnvelope`` -> ``setPlan`` propagates to the toggle below.
+  const togglePolicyFactor = useCallback(async (nextEnabled) => {
+    setPolicyToggleLoading(true);
+    try {
+      await postEtfRotationPreferences({ policySignalFactorEnabled: nextEnabled });
+      // Pull a fresh plan so the page sees the new effective bool + the
+      // recomputed weights. Prefer live-target (the canonical endpoint
+      // when the service is healthy); fall back to daily-signal when the
+      // service hasn't bootstrapped yet.
+      try {
+        const refreshed = await getEtfRotationLiveTarget({ triggerRefresh: true });
+        applyResponse(refreshed, 'live-target');
+        setEndpoint('live-target');
+      } catch (innerErr) {
+        // eslint-disable-next-line no-console
+        console.warn('live-target re-fetch after toggle failed; falling back', innerErr);
+        const fallback = await getEtfRotationDailySignal({ quote_source: 'live', use_cache: false });
+        applyResponse(fallback, 'daily-signal');
+        setEndpoint('daily-signal');
+      }
+      message.success(
+        nextEnabled ? '已启用政策信号因子（生效到下次刷新）' : '已关闭政策信号因子',
+      );
+    } catch (err) {
+      message.error(err?.userMessage || err?.message || '政策因子开关保存失败');
+    } finally {
+      setPolicyToggleLoading(false);
+    }
+  }, [applyResponse]);
+
+  // Bootstrap the toggle state on first render: pull the preference store
+  // so we render the same "off vs on" the next daily-signal call will
+  // resolve to. Failures degrade silently to "off, source=config".
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await getEtfRotationPreferences();
+        if (cancelled) return;
+        // No setState needed yet — the daily-signal response is what
+        // drives the rendered toggle (single source of truth). We just
+        // surface a console message when the preference disagrees with
+        // the current rendered state, to flag mid-air collisions during
+        // dev. In production this whole block is a no-op pre-warmer that
+        // confirms the endpoint is reachable.
+        const effective = response?.data?.effective?.policy_signal_factor_enabled;
+        if (typeof effective !== 'boolean') {
+          // eslint-disable-next-line no-console
+          console.warn('preferences endpoint returned unexpected shape', response);
+        }
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn('preferences pre-warm failed', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // Initial load + polling
   useEffect(() => {
     let cancelled = false;
@@ -495,7 +563,28 @@ const EtfRotationDashboard = () => {
   const regime = plan?.regime || null;
   const ensemble = plan?.ensemble || null;
   const policyFactorSummary = plan?.policy_signal_factor || {};
-  const policyFactorEnabled = Boolean(policyFactorSummary.enabled);
+  // Top-level shortcut is what the API stamps after the precedence
+  // resolution (query > preference > config). When it's missing we fall
+  // back to the summary block — which is what older API responses had.
+  const policyFactorEnabled = typeof plan?.policy_signal_factor_enabled === 'boolean'
+    ? plan.policy_signal_factor_enabled
+    : Boolean(policyFactorSummary.enabled);
+  const policyFactorSource = typeof policyFactorSummary.source === 'string'
+    ? policyFactorSummary.source
+    : null;
+  // Aggregate per-ETF policy_adjustment entries so the Δ panel renders
+  // exactly what the strategy is doing right now (instead of pulling
+  // potentially-stale data from the audit log).
+  const policyAdjustmentRows = useMemo(() => {
+    const bd = plan?.score_breakdown || {};
+    return Object.entries(bd)
+      .map(([code, payload]) => {
+        const meta = payload?.policy_adjustment;
+        if (!meta || !meta.applied) return null;
+        return { code, ...meta };
+      })
+      .filter(Boolean);
+  }, [plan]);
   const quoteSourceCode = meta?.quoteSource || plan?.quote_source;
   const quoteModeLabel = QUOTE_SOURCE_LABELS[quoteSourceCode] || (
     plan?.quote_source === 'live'
@@ -714,6 +803,115 @@ const EtfRotationDashboard = () => {
                 </Space>
               </Space>
             ) : null}
+
+            <Space
+              direction="vertical"
+              size={6}
+              style={{ width: '100%' }}
+              data-testid="etf-policy-factor-toggle-row"
+            >
+              <Space size={[8, 4]} wrap align="center">
+                <Tooltip
+                  title={(
+                    <Space direction="vertical" size={2}>
+                      <div>启用后：政策雷达对每个 ETF 行业的多空判断会以一个温和的权重因子参与目标权重计算。</div>
+                      <div>默认调整幅度小（±10%），并且会被 ETF 单只仓位上限 / 现金底线等风控规则二次约束。</div>
+                      <div>关闭后：纯趋势/动量/风险/溢价四因子，policy_radar 数据仅作为参考展示。</div>
+                      <div>偏好持久化在 ~/.config/etf-rotation/ui_preferences.json，不影响 strategy.json。</div>
+                    </Space>
+                  )}
+                >
+                  <Space size={6} align="center">
+                    <ThunderboltOutlined style={{ color: policyFactorEnabled ? 'var(--accent-success, #52c41a)' : 'var(--color-text-tertiary, #888)' }} />
+                    <Text strong>政策信号因子</Text>
+                  </Space>
+                </Tooltip>
+                <Switch
+                  checked={policyFactorEnabled}
+                  loading={policyToggleLoading}
+                  onChange={togglePolicyFactor}
+                  data-testid="etf-policy-factor-toggle"
+                  checkedChildren="ON"
+                  unCheckedChildren="OFF"
+                />
+                <Badge
+                  status={policyFactorEnabled ? 'success' : 'default'}
+                  text={(
+                    <Text type={policyFactorEnabled ? 'success' : 'secondary'} data-testid="etf-policy-factor-state-tag">
+                      {policyFactorEnabled ? '已启用' : '已关闭'}
+                    </Text>
+                  )}
+                />
+                {policyFactorSource ? (
+                  <Tooltip
+                    title={(
+                      <>
+                        <div>当前生效来源：</div>
+                        <div>· query = 本次 URL 参数覆盖</div>
+                        <div>· preference = 仪表盘开关（持久化）</div>
+                        <div>· config = strategy.json 默认值</div>
+                      </>
+                    )}
+                  >
+                    <Tag color="blue">来源：{policyFactorSource}</Tag>
+                  </Tooltip>
+                ) : null}
+                {policyFactorEnabled && policyFactorSummary.applied_count ? (
+                  <Tag color="purple">当前应用 {policyFactorSummary.applied_count} 只</Tag>
+                ) : null}
+              </Space>
+              {policyFactorEnabled ? (
+                <Card
+                  size="small"
+                  data-testid="etf-policy-factor-delta-panel"
+                  style={{ background: 'var(--color-fill-quaternary, rgba(0,0,0,0.02))' }}
+                  title={(
+                    <Space size={6}>
+                      <Text strong>Δ vs factor-off</Text>
+                      <Text type="secondary">（开启后相对关闭状态的权重调整）</Text>
+                    </Space>
+                  )}
+                >
+                  {policyAdjustmentRows.length === 0 ? (
+                    <Text type="secondary">
+                      暂无生效调整：policy_radar 信号要么是中性，要么没有 ETF 命中。
+                    </Text>
+                  ) : (
+                    <ul
+                      style={{ margin: 0, paddingLeft: 18 }}
+                      data-testid="etf-policy-factor-delta-list"
+                    >
+                      {policyAdjustmentRows.map((row) => {
+                        const deltaPct = Number(row.delta_weight ?? 0) * 100;
+                        const sign = deltaPct >= 0 ? '+' : '';
+                        const label = row.signal === 'bullish'
+                          ? 'policy boost'
+                          : row.signal === 'bearish'
+                            ? 'policy penalty'
+                            : 'policy adjustment';
+                        return (
+                          <li
+                            key={`${row.code}-policy-delta`}
+                            data-testid={`etf-policy-factor-delta-${row.code}`}
+                          >
+                            <Space size={6} wrap>
+                              <Text strong>{ETF_NAMES[row.code] || row.code}</Text>
+                              <Text type="secondary">（{row.code}）</Text>
+                              <Tag color={row.signal === 'bullish' ? 'green' : row.signal === 'bearish' ? 'red' : 'default'}>
+                                {sign}{deltaPct.toFixed(1)}% {label}
+                              </Tag>
+                              {row.industry ? (
+                                <Text type="secondary">行业：{row.industry}</Text>
+                              ) : null}
+                            </Space>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </Card>
+              ) : null}
+            </Space>
 
             {sourceHealth.length > 0 ? (
               <Space direction="vertical" size={4} style={{ width: '100%' }}>

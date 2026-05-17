@@ -7,14 +7,35 @@ import EtfRotationDashboard from '../components/EtfRotationDashboard';
 import {
   getEtfRotationDailySignal,
   getEtfRotationLiveTarget,
+  getEtfRotationPreferences,
   postEtfRotationRefresh,
 } from '../services/api';
 
 vi.mock('../services/api', () => ({
+  getEtfRotationAnalytics: vi.fn(),
+  getEtfRotationAuditLog: vi.fn(),
   getEtfRotationDailySignal: vi.fn(),
   getEtfRotationLiveTarget: vi.fn(),
+  getEtfRotationPreferences: vi.fn(),
+  getPolicyRadarSignal: vi.fn(),
+  postEtfRotationPreferences: vi.fn(),
   postEtfRotationRefresh: vi.fn(),
+  postEtfRotationReloadConfig: vi.fn(),
 }));
+
+beforeEach(() => {
+  // The dashboard pre-warms the preference store on mount; let the
+  // bootstrap resolve quietly so unrelated tests don't see console
+  // warnings about an unhandled rejection.
+  getEtfRotationPreferences.mockResolvedValue({
+    success: true,
+    data: {
+      preference: { policy_signal_factor_enabled: null },
+      effective: { policy_signal_factor_enabled: false, source: 'config' },
+      config_default: { policy_signal_factor_enabled: false },
+    },
+  });
+});
 
 beforeAll(() => {
   if (!window.matchMedia) {
@@ -167,6 +188,28 @@ test('点击 "强制刷新" 在 live-target 模式下调用 POST /etf-rotation/r
   await waitFor(() => {
     expect(postEtfRotationRefresh).toHaveBeenCalledWith({ useCache: false });
   });
+});
+
+test('政策因子开关默认显示为关闭，Δ 面板不渲染', async () => {
+  getEtfRotationLiveTarget.mockResolvedValue({
+    data: {
+      plan: mixedLanguageFixture,
+      refreshed_at: '2026-05-16T02:00:00+00:00',
+      quote_source: 'live',
+      debounced: false,
+    },
+  });
+
+  render(<EtfRotationDashboard />);
+  // Toggle row renders unconditionally inside the header card.
+  const toggle = await screen.findByTestId('etf-policy-factor-toggle');
+  expect(toggle).toBeInTheDocument();
+  // ``aria-checked`` is how Antd Switch surfaces state to ARIA.
+  expect(toggle.getAttribute('aria-checked')).toBe('false');
+  // Δ panel hides while the factor is off.
+  expect(screen.queryByTestId('etf-policy-factor-delta-panel')).not.toBeInTheDocument();
+  // The state badge says "已关闭".
+  expect(screen.getByTestId('etf-policy-factor-state-tag')).toHaveTextContent('已关闭');
 });
 
 test('ETF轮动页面在 live-target 503 后会自动 trigger_refresh 重新拉取', async () => {
