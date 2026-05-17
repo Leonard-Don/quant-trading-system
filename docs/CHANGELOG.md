@@ -4,6 +4,12 @@
 
 ### Features
 
+- feat(ui): policy_factor_attribution panel in ETF rotation dashboard
+  - 完成上一轮显式推迟的前端 tile：`frontend/src/components/EtfPolicyFactorAttributionPanel.jsx` 现在调用 `GET /etf-rotation/policy-factor-attribution`，把 `AttributionReport` 渲染成头部 contribution Tag（正向绿 / 负向红）+ Antd Collapse 内的 Recharts `BarChart`（每次调仓一根条，色彩按 contribution 正负切换）+ Top winners / Top losers 两张迷你表。
+  - 新增 7/30/60/90 天 Radio 周期选择器，切换即触发新的 fetch（不带 `refresh`，沿用 backend 5min 缓存）；🔄 按钮显式带 `refresh=true` 跳过缓存。空窗口走 Antd `Empty`，错误走 `Alert`，加载中走 `Spin`。
+  - `EtfRotationDashboard.jsx`：把直接 import 改成 `lazyWithRetry(() => import('./EtfPolicyFactorAttributionPanel'))`，再用 `<Suspense fallback={null}>` 包装，并加上 `policyFactorEnabled` gate —— 因子关闭时整个面板根本不进入 DOM，初始 dashboard chunk 也不会拖 Recharts 进来。
+  - 新增 `frontend/src/__tests__/etf-rotation-attribution-tile.test.jsx` 6 条用例：toggle on/off 显隐、+0.68% 绿 Tag / -0.45% 红 Tag、5 次调仓 → 5 个 Recharts Cell（mock recharts 后比对 fill 颜色）、Top winners 表渲染 515030 / 512400、refresh 按钮带 `refresh=true` 二次 fetch、period 7/30/90 切换分别带 `periodDays` 触发新 fetch、空窗口走 empty state。既有 16 条 ETF dashboard 测试全部不破。
+
 - feat(etf-rotation): policy_signal_factor performance attribution
   - 新增 `src/research/policy_factor_attribution.py`，对启用了 `policy_signal_factor` 的历史调仓做实证归因：`adjusted_weights` 作为 factor-on 路径，对每只受影响 ETF 按 `policy_adjustment.weight_before / weight_after` 比例反推 factor-off 反事实路径，两条权重在下一条审计 rebalance 前持有（按 ETF 收盘价 mark-to-market），差值即 P&L 边际贡献。返回 `AttributionReport` dataclass，包含窗口 on/off/contribution（逐窗口复利）、命中率、top winner/loser ETF、逐次调仓拆解。
   - 新增 CLI `scripts/analyze_policy_factor.py`：`--audit-log`/`--period-days`/`--output-md`/`--output-json`，并提供 `--synthetic` 模式生成确定性 30 天 audit + 价格矩阵，便于在真实审计日志尚无 factor-on 历史时预览报告形态。

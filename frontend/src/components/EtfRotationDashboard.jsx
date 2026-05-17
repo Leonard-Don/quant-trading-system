@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Badge, Button, Card, Col, Collapse, Empty, message, Row, Space, Spin, Statistic, Switch, Table, Tag, Timeline, Tooltip, Typography,
 } from 'antd';
@@ -32,7 +32,14 @@ import {
   postEtfRotationReloadConfig,
 } from '../services/api';
 
-import EtfPolicyFactorAttributionPanel from './EtfPolicyFactorAttributionPanel';
+import lazyWithRetry from '../utils/lazyWithRetry';
+
+// The attribution panel pulls in a Recharts <BarChart> + a fairly large
+// markup tree; keep it out of the initial dashboard chunk so the toggle's
+// default-OFF state never pays for code it doesn't render.
+const EtfPolicyFactorAttributionPanel = lazyWithRetry(
+  () => import('./EtfPolicyFactorAttributionPanel'),
+);
 
 const { Text, Title } = Typography;
 
@@ -913,10 +920,14 @@ const EtfRotationDashboard = () => {
                   )}
                 </Card>
               ) : null}
-              <EtfPolicyFactorAttributionPanel
-                visible={policyFactorEnabled}
-                periodDays={30}
-              />
+              {policyFactorEnabled ? (
+                <Suspense fallback={null}>
+                  <EtfPolicyFactorAttributionPanel
+                    visible={policyFactorEnabled}
+                    periodDays={30}
+                  />
+                </Suspense>
+              ) : null}
             </Space>
 
             {sourceHealth.length > 0 ? (
