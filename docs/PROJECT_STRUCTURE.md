@@ -54,6 +54,11 @@ backend/app/api/v1/api.py
 - `research-journal` 只聚合公开仓内的回测快照、实时复盘、提醒和行业观察，不引入私有研究工作台。
 - `cross-market` 保留在回测模块中，但不再依赖工作台队列和宏观错误定价草稿。
 
+## 公开导出层（Phase F1）
+
+- `data/public/` —— 新增的「committed runtime artifacts」目录。`data/` 顶层在 `.gitignore` 中默认忽略，但 `data/public/*.json` 通过白名单允许提交。当前唯一文件：
+    - `data/public/quant_summary.json` —— 由 `scripts/export_public_summary.py` 蒸馏出的小型公开摘要（schema_version=1，~1.4 KB），下游消费者（sibling 项目 `cn-altdata-brief` 等）`git clone` 本仓库就能读到，无需访问 `cache/` 或拉起后端。详见 `docs/CHANGELOG.md::Unreleased` 与 `docs/MAINTENANCE_GUIDE.md` 的 cron 条目。
+
 ## 私有系统仓
 
 拆出的系统模块保留在私有仓：

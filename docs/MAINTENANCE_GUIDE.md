@@ -129,11 +129,23 @@ tar czf backups/data-$(date +%F).tgz data/ output/
 # 每 6 小时刷新 policy_radar 另类数据快照,驱动 /policy-radar/* 端点
 # (会触发 PolicySignalProvider.run_pipeline 实抓 + NLP,落盘到 cache/alt_data/providers/policy_radar.json)
 0 */6 * * * cd /opt/quant && /usr/bin/env python scripts/refresh_policy_radar.py --force >> logs/refresh_policy_radar.log 2>&1
+
+# 每小时刷新 data/public/quant_summary.json (Phase F1 公开摘要导出)
+# 把 cache/alt_data/* + data/industry/heatmap_history.json + data/paper_trading/* +
+# ~/.config/etf-rotation/audit.jsonl 蒸馏成一份小型公开 JSON,供 sibling 项目
+# cn-altdata-brief 在 GitHub Actions 里 git clone 后直接消费。
+# 本项目 Celery 仅用于回测任务卸载,不做 beat 调度,所以这里走 cron。
+0 * * * * cd /opt/quant && ./scripts/refresh_public_summary.sh >> logs/export_public_summary.log 2>&1
 ```
 
 > `refresh_policy_radar.py` 是 `/policy-radar/signal` 与 `/policy-radar/records` 端点的喂料入口。
 > 没有这条 cron(或者手动执行)时,端点会按"本地优先"协议优雅降级为 `available:false`;
 > cron 跑过一次后,端点立即翻成 `available:true` 并返回真实政策记录。
+>
+> `refresh_public_summary.sh` 是 `scripts/export_public_summary.py` 的 thin wrapper(自动激活 `.venv/`)。
+> 输出 `data/public/quant_summary.json` 是 committable 工件,会被 git 跟踪;
+> 不跑这条 cron 时下游项目会读到最后一次手动导出的快照,数据不会自动过期失败 —— 只会变陈旧。
+> 手动一次性运行:`./scripts/refresh_public_summary.sh` 或 `./scripts/refresh_public_summary.sh --print` 输出到 stdout 调试。
 
 ---
 
