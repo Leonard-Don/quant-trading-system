@@ -7,7 +7,6 @@ way as research_journal so the workspace shares the per-browser identity.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 

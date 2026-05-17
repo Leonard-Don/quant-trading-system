@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-
 AUTH_USER_RECORD_TYPE = "auth_user"
 
 AUTH_POLICY_RECORD_TYPE = "auth_policy"
