@@ -504,3 +504,296 @@ def test_scoring_config_premium_threshold_alters_penalty():
 
     assert tight["512400"].premium_score < default["512400"].premium_score
     assert tight["512400"].score < default["512400"].score
+
+
+# ---------------------------------------------------------------------------
+# policy_signal_factor — opt-in policy_radar tilt
+# ---------------------------------------------------------------------------
+
+
+def _policy_universe_config(*, enabled: bool = False, **overrides) -> EtfRotationConfig:
+    """Build a 3-ETF rotation config with the policy factor knobs surfaced."""
+
+    base_kwargs = dict(
+        assets=[
+            EtfAssetConfig(symbol="STRONG", min_weight=0.0, max_weight=0.5),
+            EtfAssetConfig(symbol="WEAK", min_weight=0.0, max_weight=0.5),
+            EtfAssetConfig(symbol="512400", min_weight=0.0, max_weight=0.4),
+        ],
+        gross_cap=0.9,
+        policy_signal_factor_enabled=enabled,
+        policy_signal_factor_bullish_boost=0.10,
+        policy_signal_factor_bearish_penalty=0.10,
+        policy_signal_factor_neutral_pass=True,
+        policy_signal_factor_bullish_threshold=0.10,
+    )
+    base_kwargs.update(overrides)
+    return EtfRotationConfig(**base_kwargs)
+
+
+def test_policy_signal_factor_disabled_leaves_weights_unchanged():
+    """Default OFF — regression guard that the feature is invisible by default."""
+
+    prices = _make_price_matrix()
+    config = _policy_universe_config(enabled=False)
+    strategy = EtfRotationStrategy(config)
+    industry_signals = {
+        "metals": {"avg_impact": 0.30, "signal": "bullish"},
+    }
+    industry_map = {"STRONG": "metals", "512400": "metals"}
+
+    base = {s.symbol: s for s in strategy.evaluate(prices)}
+    with_policy = {
+        s.symbol: s
+        for s in strategy.evaluate(
+            prices,
+            industry_signals=industry_signals,
+            etf_industry_map=industry_map,
+        )
+    }
+    # Identical because the factor never fires when disabled.
+    for sym in ("STRONG", "WEAK", "512400"):
+        assert with_policy[sym].target_weight == pytest.approx(base[sym].target_weight)
+        # No policy_adjustment metadata when disabled.
+        assert with_policy[sym].policy_adjustment is None
+
+
+def test_policy_signal_factor_bullish_boosts_target_weight():
+    """Enabled + bullish industry → weight goes up by exactly the boost."""
+
+    prices = _make_price_matrix()
+    config = _policy_universe_config(enabled=True)
+    strategy = EtfRotationStrategy(config)
+    industry_signals = {"metals": {"avg_impact": 0.40, "signal": "bullish"}}
+    industry_map = {"STRONG": "metals"}
+
+    base = {s.symbol: s for s in strategy.evaluate(prices)}
+    boosted = {
+        s.symbol: s
+        for s in strategy.evaluate(
+            prices,
+            industry_signals=industry_signals,
+            etf_industry_map=industry_map,
+        )
+    }
+    base_strong = base["STRONG"].target_weight
+    assert base_strong > 0.0
+    boosted_strong = boosted["STRONG"].target_weight
+    # Boost might be partially clamped by gross_cap if it pushes total over;
+    # we test that EITHER the multiplier holds OR the gross cap is binding.
+    gross_after = sum(max(s.target_weight, 0.0) for s in boosted.values())
+    if gross_after <= 0.9 + 1e-9:
+        # Below cap → multiplier holds exactly (allowing for asset.max_weight clamp).
+        expected_boosted = min(base_strong * 1.10, 0.5)
+        assert boosted_strong == pytest.approx(expected_boosted, rel=1e-6)
+    # Gross-cap invariant always holds.
+    assert gross_after <= 0.9 + 1e-9
+    # Metadata is attached on the affected ETF.
+    assert boosted["STRONG"].policy_adjustment is not None
+    assert boosted["STRONG"].policy_adjustment["signal"] == "bullish"
+    assert boosted["STRONG"].policy_adjustment["applied"] is True
+    # Non-mapped ETFs unaffected.
+    assert boosted["WEAK"].target_weight == pytest.approx(base["WEAK"].target_weight)
+    assert boosted["WEAK"].policy_adjustment is None
+
+
+def test_policy_signal_factor_bearish_penalises_target_weight():
+    """Enabled + bearish industry → weight goes down by exactly the penalty."""
+
+    prices = _make_price_matrix()
+    config = _policy_universe_config(enabled=True)
+    strategy = EtfRotationStrategy(config)
+    industry_signals = {"metals": {"avg_impact": -0.40, "signal": "bearish"}}
+    industry_map = {"STRONG": "metals"}
+
+    base = {s.symbol: s for s in strategy.evaluate(prices)}
+    penalised = {
+        s.symbol: s
+        for s in strategy.evaluate(
+            prices,
+            industry_signals=industry_signals,
+            etf_industry_map=industry_map,
+        )
+    }
+    base_strong = base["STRONG"].target_weight
+    penalised_strong = penalised["STRONG"].target_weight
+    # Penalty makes it strictly lower (when the base was non-zero).
+    assert base_strong > 0
+    assert penalised_strong == pytest.approx(base_strong * 0.90, rel=1e-6)
+    # Strategy invariant — with defaults, no zeroing.
+    assert penalised_strong > 0.0
+    # Metadata attached.
+    assert penalised["STRONG"].policy_adjustment["signal"] == "bearish"
+    assert penalised["STRONG"].policy_adjustment["delta_weight"] < 0.0
+    # Total still <= gross_cap.
+    assert sum(max(s.target_weight, 0.0) for s in penalised.values()) <= 0.9 + 1e-9
+
+
+def test_policy_signal_factor_neutral_signal_does_not_change_weight():
+    """A neutral industry signal must leave the weight untouched."""
+
+    prices = _make_price_matrix()
+    config = _policy_universe_config(enabled=True)
+    strategy = EtfRotationStrategy(config)
+    industry_signals = {"metals": {"avg_impact": 0.02, "signal": "neutral"}}
+    industry_map = {"STRONG": "metals"}
+
+    base = {s.symbol: s for s in strategy.evaluate(prices)}
+    neutral = {
+        s.symbol: s
+        for s in strategy.evaluate(
+            prices,
+            industry_signals=industry_signals,
+            etf_industry_map=industry_map,
+        )
+    }
+    assert neutral["STRONG"].target_weight == pytest.approx(base["STRONG"].target_weight)
+    # Metadata still attached so dashboards can display the neutral context.
+    assert neutral["STRONG"].policy_adjustment is not None
+    assert neutral["STRONG"].policy_adjustment["signal"] == "neutral"
+    assert neutral["STRONG"].policy_adjustment["applied"] is False
+
+
+def test_policy_signal_factor_missing_industry_data_passes_through():
+    """ETF mapped to an industry with no policy_radar data is unchanged."""
+
+    prices = _make_price_matrix()
+    config = _policy_universe_config(enabled=True)
+    strategy = EtfRotationStrategy(config)
+    industry_signals: dict = {}  # empty snapshot
+    industry_map = {"STRONG": "metals"}
+
+    base = {s.symbol: s for s in strategy.evaluate(prices)}
+    out = {
+        s.symbol: s
+        for s in strategy.evaluate(
+            prices,
+            industry_signals=industry_signals,
+            etf_industry_map=industry_map,
+        )
+    }
+    # With no industry data at all, the wrapper short-circuits before
+    # touching signals — every ETF must match the baseline.
+    for sym in ("STRONG", "WEAK", "512400"):
+        assert out[sym].target_weight == pytest.approx(base[sym].target_weight)
+        assert out[sym].policy_adjustment is None
+
+
+def test_policy_signal_factor_mixed_bull_and_bear_both_applied():
+    """Bullish AND bearish in same universe — both adjustments applied + re-normalised."""
+
+    prices = _make_price_matrix()
+    config = _policy_universe_config(enabled=True)
+    strategy = EtfRotationStrategy(config)
+    industry_signals = {
+        "good": {"avg_impact": 0.30, "signal": "bullish"},
+        "bad": {"avg_impact": -0.30, "signal": "bearish"},
+    }
+    industry_map = {"STRONG": "good", "512400": "bad"}
+
+    base = {s.symbol: s for s in strategy.evaluate(prices)}
+    mixed = {
+        s.symbol: s
+        for s in strategy.evaluate(
+            prices,
+            industry_signals=industry_signals,
+            etf_industry_map=industry_map,
+        )
+    }
+    # Strong should move UP (capped by asset.max_weight and gross_cap).
+    # 512400 should move DOWN by exactly 10%.
+    if base["STRONG"].target_weight > 0:
+        assert mixed["STRONG"].target_weight >= base["STRONG"].target_weight - 1e-9
+        assert mixed["STRONG"].policy_adjustment["signal"] == "bullish"
+    if base["512400"].target_weight > 0:
+        assert mixed["512400"].target_weight < base["512400"].target_weight
+        assert mixed["512400"].policy_adjustment["signal"] == "bearish"
+    # Gross cap invariant holds even with mixed adjustments.
+    assert sum(max(s.target_weight, 0.0) for s in mixed.values()) <= 0.9 + 1e-9
+    # All adjusted weights stay non-negative.
+    assert all(s.target_weight >= 0.0 for s in mixed.values())
+
+
+def test_policy_signal_factor_extreme_avg_impact_is_bounded():
+    """An extreme avg_impact (e.g. -2.0) must NOT produce NaN, negative, or >1.0 weights."""
+
+    prices = _make_price_matrix()
+    config = _policy_universe_config(enabled=True)
+    strategy = EtfRotationStrategy(config)
+    industry_signals = {
+        "wild": {"avg_impact": 999.0, "signal": "bullish"},
+        "abyss": {"avg_impact": -999.0, "signal": "bearish"},
+    }
+    industry_map = {"STRONG": "wild", "512400": "abyss"}
+
+    out = {
+        s.symbol: s
+        for s in strategy.evaluate(
+            prices,
+            industry_signals=industry_signals,
+            etf_industry_map=industry_map,
+        )
+    }
+    for sym, sig in out.items():
+        # No NaN
+        assert np.isfinite(sig.target_weight)
+        # Non-negative
+        assert sig.target_weight >= 0.0
+        # Never exceeds per-asset max_weight × 1.10 (the bullish boost) — and
+        # crucially, never exceeds 1.0 even on absurd inputs.
+        assert sig.target_weight <= 1.0
+    # Gross cap still respected.
+    assert sum(max(s.target_weight, 0.0) for s in out.values()) <= 0.9 + 1e-9
+
+
+def test_policy_signal_factor_nan_avg_impact_treated_as_neutral():
+    """NaN avg_impact mustn't poison the multiplier — falls back to neutral."""
+
+    prices = _make_price_matrix()
+    config = _policy_universe_config(enabled=True)
+    strategy = EtfRotationStrategy(config)
+    industry_signals = {"nan": {"avg_impact": float("nan"), "signal": "bullish"}}
+    industry_map = {"STRONG": "nan"}
+
+    base = {s.symbol: s for s in strategy.evaluate(prices)}
+    out = {
+        s.symbol: s
+        for s in strategy.evaluate(
+            prices,
+            industry_signals=industry_signals,
+            etf_industry_map=industry_map,
+        )
+    }
+    # NaN → neutral classification → no adjustment.
+    assert out["STRONG"].target_weight == pytest.approx(base["STRONG"].target_weight)
+    assert out["STRONG"].policy_adjustment["signal"] == "neutral"
+
+
+def test_policy_signal_factor_negative_bullish_boost_rejected():
+    """Config validation: bullish_boost can't be negative."""
+
+    with pytest.raises(ValueError, match="bullish_boost"):
+        EtfRotationConfig(
+            assets=[EtfAssetConfig(symbol="X", max_weight=0.30)],
+            policy_signal_factor_bullish_boost=-0.05,
+        )
+
+
+def test_policy_signal_factor_bearish_penalty_must_be_below_one():
+    """penalty=1.0 would zero out positions — explicitly rejected."""
+
+    with pytest.raises(ValueError, match="bearish_penalty"):
+        EtfRotationConfig(
+            assets=[EtfAssetConfig(symbol="X", max_weight=0.30)],
+            policy_signal_factor_bearish_penalty=1.0,
+        )
+
+
+def test_policy_signal_factor_default_construction_matches_legacy():
+    """A bare config (no policy knobs) must construct identical-looking object."""
+
+    cfg = EtfRotationConfig(assets=[EtfAssetConfig(symbol="X", max_weight=0.30)])
+    assert cfg.policy_signal_factor_enabled is False
+    assert cfg.policy_signal_factor_bullish_boost == pytest.approx(0.10)
+    assert cfg.policy_signal_factor_bearish_penalty == pytest.approx(0.10)
+    assert cfg.policy_signal_factor_neutral_pass is True

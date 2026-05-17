@@ -724,20 +724,34 @@ export const getEtfRotationDailySignal = async (params = {}) => {
   return response.data;
 };
 
-export const getEtfRotationLiveTarget = async ({ triggerRefresh = false } = {}) => {
+export const getEtfRotationLiveTarget = async ({
+  triggerRefresh = false,
+  enablePolicySignalFactor = null,
+} = {}) => {
+  const params = { trigger_refresh: triggerRefresh ? 'true' : 'false' };
+  if (typeof enablePolicySignalFactor === 'boolean') {
+    params.enable_policy_signal_factor = enablePolicySignalFactor ? 'true' : 'false';
+  }
   const response = await api.get('/etf-rotation/live-target', {
-    params: { trigger_refresh: triggerRefresh ? 'true' : 'false' },
+    params,
     ...withTimeoutProfile('standard'),
   });
   return response.data;
 };
 
-export const postEtfRotationRefresh = async ({ useCache = true } = {}) => {
+export const postEtfRotationRefresh = async ({
+  useCache = true,
+  enablePolicySignalFactor = null,
+} = {}) => {
+  const params = { use_cache: useCache ? 'true' : 'false' };
+  if (typeof enablePolicySignalFactor === 'boolean') {
+    params.enable_policy_signal_factor = enablePolicySignalFactor ? 'true' : 'false';
+  }
   const response = await api.post(
     '/etf-rotation/refresh',
     null,
     {
-      params: { use_cache: useCache ? 'true' : 'false' },
+      params,
       ...withTimeoutProfile('standard'),
     },
   );

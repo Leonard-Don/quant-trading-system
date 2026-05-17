@@ -8,6 +8,60 @@
 
 ### Features
 
+- feat(etf-rotation): opt-in policy_signal_factor closes the decision-impact loop
+  - 把 commit `1d2f9f7`/`7148009` 引入的 `policy_radar` 信号从「面板/工作区只展示」升级为「可选择真正影响 ETF 目标权重」。**默认关闭** —— 既有用户体验完全不变，要 opt-in 才生效。
+  - 新增四个配置项（`src/strategy/etf_rotation_config_loader.py::DEFAULT_STRATEGY_PARAMS` + `EtfRotationConfig`）：
+    - `policy_signal_factor_enabled: bool = False` —— 总开关
+    - `policy_signal_factor_bullish_boost: float = 0.10` —— 看多行业 ETF 目标权重 × `(1 + 0.10)`
+    - `policy_signal_factor_bearish_penalty: float = 0.10` —— 看空行业 ETF 目标权重 × `(1 - 0.10)`
+    - `policy_signal_factor_neutral_pass: bool = True` —— 中性信号视为 no-op
+    - `policy_signal_factor_bullish_threshold: float = 0.10` —— `avg_impact` 多空分界，与现有 dashboard tag 配色一致
+  - 新增 `StrategyConfig.etf_industry_map: dict[str, str]` —— 把 ETF 6 位代码映射到 policy_radar 行业名。默认空，缺映射的 ETF 完全不受影响 —— 渐进式 opt-in。
+  - **策略不变量**：在默认 ±10% 区间内，任何单只 ETF 都不会被这个因子归零或翻倍；每轮在 `_apply_policy_signal_factor` 内部按 `gross_cap` 做比例缩放，组合级约束守住。
+  - 实施在 `src/strategy/etf_rotation_strategy.py::EtfRotationStrategy._apply_policy_signal_factor`：score 计算之后、`_normalize_signals` 之前对每只映射 ETF 应用乘数。`EtfSignal.policy_adjustment` 字段沿审计链下沉到 `score_breakdown[code].policy_adjustment` 与审计日志条目顶层 `policy_signal_factor` 摘要。
+  - 命令行：`scripts/daily_etf_signal.py` 新增 `--enable-policy-signal` / `--disable-policy-signal` 互斥开关（覆盖 `strategy.json` 配置）。
+  - HTTP API：`/etf-rotation/daily-signal` 新增 `enable_policy_signal_factor` 查询参数（`true` / `false` / 省略沿用配置）。`EtfRotationService.refresh(...)` 也接受同名参数，方便面板做 "本次开启试看" 的预览刷新。
+  - Dashboard 审计 Timeline：现在每行渲染 `score_breakdown[code].policy_adjustment.applied=true` 的条目（如 `512400 -8.0% policy bearish`），同时在头部加 `政策因子 ON` 紫色 Tag，便于回看历史调仓与政策信号的对应关系。
+  - 单元测试：11 条新 case 覆盖 enabled-off 不动权重、bullish boost、bearish penalty、neutral pass、缺失行业数据、极端 `avg_impact`（不出 NaN/负值/超 1.0）、NaN `avg_impact`、混合多空（含再归一化）、config 验证（负 boost / penalty=1.0）等；新增 4 条 `daily_etf_signal` 测试覆盖审计 payload + `load_policy_industry_signals` 解析。
+  - **工作示例**（4 只 ETF，`enabled=True`，默认 ±10%；policy_radar 当时 `新能源汽车=bearish (avg_impact=-0.32)`、`风电=neutral (0.0)`、`电网=neutral (0.0)`、`metals=bullish (0.30)`，假设 `etf_industry_map={'515030':'新能源汽车','159987':'风电','562880':'电网','512400':'metals'}`）：
+    ```
+    code   industry    base_w    policy_w  delta
+    515030 新能源汽车   0.20  →   0.180     -10% bearish
+    159987 风电        0.20  →   0.200      0   neutral
+    562880 电网        0.10  →   0.100      0   neutral
+    512400 metals      0.20  →   0.220     +10% bullish
+    --                 0.70      0.700     gross_cap (0.90) not bound → no rescale
+    ```
+    - 若 boost 把总仓推超过 `gross_cap`（例如四只都被 boost 到 0.99），系统会按 `0.90 / 0.99 ≈ 0.91` 比例统一缩放，组合级守住 0.90。
+    - 若 policy_radar 离线（`cache/alt_data/providers/policy_radar.json` 缺失或解析失败），`load_policy_industry_signals` 返回空字典，整套权重退化到不开启的旧行为，永不抛错。
+  - **审计日志样例**（`~/.config/etf-rotation/audit.jsonl` 每条 JSON）：
+    ```json
+    {
+      "run_at": "2026-05-17T10:30:01+00:00",
+      "quote_source": "service:live",
+      "adjusted_weights": {"512400": 0.220, "515030": 0.180, "159987": 0.200, "562880": 0.100, "CASH": 0.300},
+      "policy_signal_factor": {
+        "enabled": true,
+        "industry_signals_count": 3,
+        "applied_count": 2,
+        "boosted": ["512400"],
+        "penalised": ["515030"],
+        "last_refresh": "2026-05-17T08:29:46"
+      },
+      "score_breakdown": {
+        "515030": {
+          "score": 32.1, "raw_target_weight": 0.180,
+          "policy_adjustment": {
+            "industry": "新能源汽车", "signal": "bearish", "avg_impact": -0.32,
+            "multiplier": 0.90, "delta_weight": -0.020,
+            "weight_before": 0.200, "weight_after": 0.180,
+            "applied": true
+          }
+        }
+      }
+    }
+    ```
+
 - feat(industry): surface policy_radar in ranking + heatmap
   - 把 `policy_radar` 的覆盖面从 commit `1d2f9f7` 的「ETF 轮动调仓面板」扩展到「行业研究视图」(`?view=industry`)。
   - 后端 `/industry/industries/hot` 新增可选 `include_policy_signal` 查询参数（默认 `false`，既有调用方完全不变）。`true` 时每一行追加 `policy_signal: {avg_impact, mentions, signal, last_refresh_at}`；缺政策数据的行业返回 `null`。policy_radar 离线时整张表整体降级为 `None`，HTTP 200 不变。

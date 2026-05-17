@@ -197,4 +197,34 @@ describe('EtfRotationDashboard — policy_radar signals panel', () => {
     expect(await screen.findByTestId('etf-policy-signals-stale-warning')).toBeInTheDocument();
     expect(screen.getByText(/已过期/)).toBeInTheDocument();
   });
+
+  test('policy panel copy says signals participate when policy factor is enabled', async () => {
+    getEtfRotationLiveTarget.mockResolvedValue({
+      data: {
+        plan: {
+          ...basePlanFixture,
+          policy_signal_factor: {
+            enabled: true,
+            applied_count: 2,
+            boosted: ['512400'],
+            penalised: ['510300'],
+          },
+        },
+        refreshed_at: '2026-05-16T02:00:00+00:00',
+        quote_source: 'live',
+        debounced: false,
+      },
+    });
+    getPolicyRadarSignal.mockResolvedValue({ success: true, data: THREE_INDUSTRY_SIGNAL });
+
+    render(<EtfRotationDashboard />);
+    await waitFor(() => expect(screen.getByTestId('etf-rotation-dashboard')).toBeInTheDocument());
+
+    const user = userEvent.setup();
+    await expandPolicyPanel(user);
+
+    expect(await screen.findByText(/政策因子已启用/)).toBeInTheDocument();
+    expect(screen.getByText(/参与目标权重计算/)).toBeInTheDocument();
+    expect(screen.queryByText(/这里仅供参考，不参与 ETF 轮动目标权重计算/)).not.toBeInTheDocument();
+  });
 });

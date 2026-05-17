@@ -111,11 +111,19 @@ class EtfStrategyBlend:
         *,
         overlays: Optional[Mapping[str, EtfOverlay]] = None,
         current_weights: Optional[Mapping[str, float]] = None,
+        industry_signals: Optional[Mapping[str, Mapping[str, object]]] = None,
+        etf_industry_map: Optional[Mapping[str, str]] = None,
     ) -> List[EtfSignal]:
+        # The trend child gets the policy nudge; the MR child intentionally
+        # does NOT (mean-reversion already trades against momentum, so a
+        # policy boost on the trend leg is the right signal to consume —
+        # the MR leg would be double-counting).
         trend_signals = self._trend.evaluate(
             price_matrix,
             overlays=overlays,
             current_weights=current_weights,
+            industry_signals=industry_signals,
+            etf_industry_map=etf_industry_map,
         )
         mr_signals = self._mr.evaluate(
             price_matrix,
@@ -155,14 +163,51 @@ class EtfStrategyBlend:
             reasons.append(
                 f"blend:trend={alpha:.2f}*{t_w:.4f} mr={1.0 - alpha:.2f}*{m_w:.4f} regime={self._regime}"
             )
+            policy_adjustment = self._blend_policy_adjustment(
+                trend_signal=t,
+                mr_weight=m_w,
+                alpha=alpha,
+                blended_weight=blended_w,
+            )
             out.append(replace(
                 base,
                 score=blended_score,
                 raw_weight=blended_w,
                 target_weight=blended_w,
                 reasons=reasons,
+                policy_adjustment=policy_adjustment,
             ))
         return out
+
+    @staticmethod
+    def _blend_policy_adjustment(
+        *,
+        trend_signal: Optional[EtfSignal],
+        mr_weight: float,
+        alpha: float,
+        blended_weight: float,
+    ) -> Optional[dict[str, object]]:
+        """Translate trend-leg policy metadata onto the final blended weight."""
+
+        if trend_signal is None or not trend_signal.policy_adjustment:
+            return None
+
+        meta = dict(trend_signal.policy_adjustment)
+        try:
+            trend_before = float(meta.get("weight_before", trend_signal.target_weight))
+        except (TypeError, ValueError):
+            trend_before = float(trend_signal.target_weight)
+
+        blended_before = float(alpha) * trend_before + (1.0 - float(alpha)) * float(mr_weight)
+        blended_after = float(blended_weight)
+        delta = blended_after - blended_before
+
+        meta["weight_before"] = blended_before
+        meta["weight_after"] = blended_after
+        meta["delta_weight"] = delta
+        if abs(delta) <= 1e-12:
+            meta["applied"] = False
+        return meta
 
     @staticmethod
     def build_component_breakdown(

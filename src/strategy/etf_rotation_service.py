@@ -202,11 +202,17 @@ class EtfRotationService:
         use_live_quotes: bool = True,
         use_cache: bool = True,
         force: bool = False,
+        enable_policy_signal_factor: Optional[bool] = None,
     ) -> RefreshOutcome:
         """Re-run the plan; respect trading hours and debounce thresholds.
 
         ``force=True`` bypasses the trading-hours skip — use when the user
         clicks "refresh now" outside market hours.
+
+        ``enable_policy_signal_factor`` overrides the config's
+        ``strategy.policy_signal_factor_enabled`` for this single refresh
+        (``None`` honours the config). Surfaced so the dashboard "preview
+        with policy on" button can flip the factor without persisting it.
         """
 
         with self._lock:
@@ -223,6 +229,7 @@ class EtfRotationService:
                 use_live_quotes=use_live_quotes,
                 use_cache=use_cache,
                 now=now,
+                enable_policy_signal_factor=enable_policy_signal_factor,
             )
 
             debounce_delta: Optional[float] = None
@@ -410,6 +417,7 @@ class EtfRotationService:
         use_live_quotes: bool,
         use_cache: bool,
         now: datetime,
+        enable_policy_signal_factor: Optional[bool] = None,
     ) -> Tuple[Dict[str, Any], str]:
         base_holdings, holdings_is_configured = self._holdings_loader()
         codes = [h.code for h in base_holdings]
@@ -509,6 +517,16 @@ class EtfRotationService:
                 scoring=adjusted_scoring,
             )
 
+        if enable_policy_signal_factor is not None:
+            adjusted_strategy_params = dict(active_strategy_config.strategy)
+            adjusted_strategy_params["policy_signal_factor_enabled"] = bool(
+                enable_policy_signal_factor
+            )
+            active_strategy_config = dc_replace(
+                active_strategy_config,
+                strategy=adjusted_strategy_params,
+            )
+
         # Build the strategy: pure trend by default, or a blender when the
         # ensemble is enabled in strategy.json. The blender's regime label
         # comes from the same classifier as gross-cap adjustment.
@@ -530,6 +548,7 @@ class EtfRotationService:
             quotes_as_of=quotes_as_of,
             price_matrix_as_of=price_matrix_as_of,
             now=now,
+            enable_policy_signal_factor=enable_policy_signal_factor,
         )
 
         if regime_decision is not None:

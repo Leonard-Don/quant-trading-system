@@ -117,6 +117,42 @@ DEFAULT_STRATEGY_PARAMS: Dict[str, Any] = {
     # of churning on every wiggle. Set to 0.0 to emit every drift as a
     # suggestion (high cognitive load, more friction in live trading).
     "rebalance_threshold": 0.20,
+    # ---- policy_signal_factor (opt-in policy_radar integration) ----
+    # OFF by default — legacy callers see identical behaviour. When True
+    # the ETF rotation tilt each ETF's target weight by its mapped
+    # policy_radar industry signal: bullish industries gain
+    # ``policy_signal_factor_bullish_boost``; bearish industries lose
+    # ``policy_signal_factor_bearish_penalty``. Neutral signals pass
+    # through unchanged when ``policy_signal_factor_neutral_pass=True``.
+    # The default ±10% knobs are deliberately mild: with defaults the
+    # change is at most ±10% per ETF, never zeroing or doubling a
+    # position. After the per-ETF tilt the strategy re-normalises so
+    # the gross_cap invariant is preserved.
+    "policy_signal_factor_enabled": False,
+    "policy_signal_factor_bullish_boost": 0.10,
+    "policy_signal_factor_bearish_penalty": 0.10,
+    "policy_signal_factor_neutral_pass": True,
+    "policy_signal_factor_bullish_threshold": 0.10,
+}
+
+
+# Mapping from each ETF code to the policy_radar industry name used by the
+# policy_signal_factor opt-in. Keys are 6-digit codes, values match the
+# ``industry_signals`` key in ``cache/alt_data/providers/policy_radar.json``
+# (or whatever the active policy_radar provider produces). ETFs not in the
+# map are left untouched by the factor — adding rows is a non-breaking,
+# opt-in operation. Empty by default; populated via ``etf_industry_map`` in
+# the strategy.json file or the example config. The default mapping uses
+# the broad-industry buckets that exist in policy_radar.json today.
+DEFAULT_ETF_INDUSTRY_MAP: dict[str, str] = {
+    # 新能源汽车 sleeve (currently no ETF mapped to it in the default
+    # universe — the entry is reserved for users who add an EV-themed
+    # sleeve via strategy.json).
+    # "515030": "新能源汽车",
+    # The legacy default universe (159985 / 512400 / 510300 / 518680 /
+    # 513130) has no clean 1:1 mapping into policy_radar industries
+    # today, so the default map is empty: enabling the factor on the
+    # legacy universe is a no-op until the user provides a mapping.
 }
 
 
@@ -243,6 +279,11 @@ class StrategyConfig:
 
     The loader returns one of these and the rest of the codebase consumes
     it. Never mutate; if you need a different shape, construct a new one.
+
+    ``etf_industry_map`` carries the opt-in mapping from each ETF's 6-digit
+    code to the policy_radar industry name used by the policy_signal_factor.
+    The map can be partial — codes not listed are simply left untouched
+    by the policy nudge (legacy-safe by construction).
     """
 
     universe: List[Dict[str, Any]]
@@ -253,6 +294,7 @@ class StrategyConfig:
     regime: Dict[str, Any] = field(default_factory=dict)
     premium: Dict[str, Any] = field(default_factory=dict)
     ensemble: Dict[str, Any] = field(default_factory=dict)
+    etf_industry_map: dict[str, str] = field(default_factory=dict)
     source_path: Optional[Path] = None
     source_mtime: Optional[float] = None
 
@@ -399,6 +441,16 @@ def load_strategy_config(
     regime = _merge_dict(DEFAULT_REGIME_PARAMS, raw.get("regime"))
     premium = _merge_dict(DEFAULT_PREMIUM_PARAMS, raw.get("premium"))
     ensemble = _merge_dict(DEFAULT_ENSEMBLE_PARAMS, raw.get("ensemble"))
+    raw_industry_map = raw.get("etf_industry_map") or {}
+    if not isinstance(raw_industry_map, Mapping):
+        logger.warning(
+            "etf_industry_map in strategy config is not a mapping; ignoring.",
+        )
+        raw_industry_map = {}
+    etf_industry_map = {
+        **DEFAULT_ETF_INDUSTRY_MAP,
+        **{str(k): str(v) for k, v in raw_industry_map.items() if k and v},
+    }
 
     return StrategyConfig(
         universe=universe,
@@ -409,6 +461,7 @@ def load_strategy_config(
         regime=regime,
         premium=premium,
         ensemble=ensemble,
+        etf_industry_map=etf_industry_map,
         source_path=resolved_path,
         source_mtime=mtime,
     )
@@ -418,6 +471,7 @@ __all__ = [
     "CONFIG_PATH_ENV",
     "DEFAULT_CONFIG_PATH",
     "DEFAULT_ENSEMBLE_PARAMS",
+    "DEFAULT_ETF_INDUSTRY_MAP",
     "DEFAULT_PREMIUM_PARAMS",
     "DEFAULT_REFRESH_PARAMS",
     "DEFAULT_REGIME_PARAMS",

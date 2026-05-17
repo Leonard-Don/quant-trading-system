@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import List, Mapping, Optional
 
 import numpy as np
@@ -29,10 +30,14 @@ class _FakeStrategy:
         *,
         overlays: Optional[Mapping[str, EtfOverlay]] = None,
         current_weights: Optional[Mapping[str, float]] = None,
+        industry_signals: Optional[Mapping[str, Mapping[str, object]]] = None,
+        etf_industry_map: Optional[Mapping[str, str]] = None,
     ) -> List[EtfSignal]:
         self.last_call_kwargs = {
             "overlays": overlays,
             "current_weights": current_weights,
+            "industry_signals": industry_signals,
+            "etf_industry_map": etf_industry_map,
         }
         return self._signals
 
@@ -216,6 +221,40 @@ def test_blend_reason_trail_records_regime_and_components() -> None:
     blend_reasons = [r for r in sig.reasons if r.startswith("blend:")]
     assert blend_reasons
     assert "regime=sideways" in blend_reasons[0]
+
+
+def test_blend_recomputes_policy_adjustment_against_final_weight() -> None:
+    trend_sig = replace(
+        _sig("A", 80.0, 0.33),
+        policy_adjustment={
+            "industry": "metals",
+            "signal": "bullish",
+            "avg_impact": 0.40,
+            "multiplier": 1.10,
+            "delta_weight": 0.03,
+            "weight_before": 0.30,
+            "weight_after": 0.33,
+            "applied": True,
+        },
+    )
+    trend = _FakeStrategy([trend_sig])
+    mr = _FakeStrategy([_sig("A", 40.0, 0.10)])
+    blender = EtfStrategyBlend(
+        trend_strategy=trend,
+        mr_strategy=mr,
+        config=EtfStrategyBlendConfig(regime_blend_weights={"sideways": 0.5}),
+        regime="sideways",
+    )
+
+    sig = blender.evaluate(pd.DataFrame())[0]
+    meta = sig.policy_adjustment
+
+    assert sig.target_weight == pytest.approx(0.215)
+    assert meta is not None
+    assert meta["weight_before"] == pytest.approx(0.20)
+    assert meta["weight_after"] == pytest.approx(sig.target_weight)
+    assert meta["delta_weight"] == pytest.approx(0.015)
+    assert meta["applied"] is True
 
 
 def test_build_component_breakdown_aggregates_per_strategy() -> None:
