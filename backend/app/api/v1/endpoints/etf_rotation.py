@@ -38,6 +38,11 @@ from src.backtest.etf_rotation_backtest import (
     DEFAULT_REBALANCE_FREQ_DAYS,
     EtfRotationBacktester,
 )
+from src.backtest.etf_rotation_walkforward import (
+    DEFAULT_STEP_MONTHS,
+    DEFAULT_WINDOW_MONTHS,
+    EtfRotationWalkforwardAnalyzer,
+)
 from src.research.policy_factor_attribution import (
     AttributionReport,
     compute_attribution,
@@ -869,3 +874,194 @@ def post_backtest(
     )
     report = backtester.run()
     return {"success": True, "data": report.to_dict()}
+
+
+# ---------------------------------------------------------------------------
+# Walkforward stability analyzer
+#
+# Rolls ``EtfRotationBacktester`` across overlapping windows of the committed
+# 4-year price matrix and returns the aggregate ``WalkforwardReport``. The
+# expensive bit is the per-window backtest; for 15 months / 3-month windows /
+# 1-month step we generate ~13 windows ≈ ~13 backtests. Each takes a few
+# seconds, so the full run is on the order of 30-60s. We cache the JSON
+# payload for ``_WALKFORWARD_CACHE_TTL`` seconds keyed on every parameter
+# that materially affects the result, so a follow-up poll from the UI returns
+# instantly without re-running the windows.
+# ---------------------------------------------------------------------------
+
+
+_WALKFORWARD_CACHE_TTL = 3600.0  # 1 hour
+# Cache key is the full set of params the analyzer reads + the price-matrix
+# mtime/size so a new CSV invalidates everything in-flight.
+_walkforward_cache: dict[
+    tuple[
+        str, str, int, int, int, bool, int, float, str, int, int,
+    ],
+    tuple[float, dict[str, Any]],
+] = {}
+
+
+def reset_walkforward_cache_for_tests() -> None:
+    """Drop the walkforward cache — tests call this between scenarios."""
+
+    _walkforward_cache.clear()
+
+
+@router.post(
+    "/walkforward",
+    summary="多窗口滚动回放 ETF 轮动策略并返回稳定性报告",
+    description=(
+        "把 ``EtfRotationBacktester`` 在已提交的历史价格矩阵（默认 "
+        "``data/etf_backtest/etf_prices_4y.csv``）上滚动多次，每次切一个 "
+        "``window_months`` 长的子窗口（默认 3 个月），按 ``step_months`` 步进 "
+        "（默认 1 个月）。返回 ``WalkforwardReport`` —— 每个窗口的 BacktestReport "
+        "原样保留，并汇总：median/mean/std 窗口收益、正收益窗口比例、平均与最差 "
+        "MaxDD、平均 Sharpe、平均 buy-hold 对照、0-1 的 ``consistency_score``。"
+        "\n\n"
+        "请求体（全部可选除明确标注）："
+        "``{period_start: ISO 日期, period_end: ISO 日期, window_months: int=3, "
+        "step_months: int=1, enable_policy_signal_factor: bool=false, "
+        "rebalance_freq_days: int=5, initial_capital: float=100000, "
+        "strategy_config_overrides: object}``。"
+        "``period_start`` / ``period_end`` 必填 —— 没有外层边界 walkforward 无从滚动。"
+        "\n\n"
+        "缓存 1 小时；缓存 key 包含所有窗口参数 + 价格 CSV 的 mtime/size，"
+        "新 CSV 自动让全部 in-flight 缓存失效。同步执行，~13 个窗口实测 ~60s。"
+        "**全部继承 v0.1 backtest 的简化**：无交易成本 / 无买卖价差 / 无冲击 / "
+        "next-bar close 全额成交 / 无幸存者偏差；额外 walkforward 警示：重叠窗口在 "
+        "``aggregate_return_pct`` 上会双计重叠部分，看 ``median_window_return_pct`` 更稳。"
+    ),
+)
+def post_walkforward(
+    payload: dict[str, Any] = Body(default_factory=dict),  # type: ignore[assignment]
+) -> dict[str, Any]:
+    period_start = payload.get("period_start")
+    period_end = payload.get("period_end")
+    if not period_start or not period_end:
+        raise HTTPException(
+            status_code=422,
+            detail="period_start and period_end are required for walkforward.",
+        )
+
+    # Explicit None-check rather than ``or`` so a deliberate ``0`` reaches the
+    # validation block below and returns 422 instead of being silently coerced
+    # back to the default.
+    window_months_raw = payload.get("window_months")
+    window_months = int(
+        window_months_raw if window_months_raw is not None else DEFAULT_WINDOW_MONTHS
+    )
+    step_months_raw = payload.get("step_months")
+    step_months = int(
+        step_months_raw if step_months_raw is not None else DEFAULT_STEP_MONTHS
+    )
+    enable_policy_signal_factor = bool(
+        payload.get("enable_policy_signal_factor", False)
+    )
+    rebalance_freq_days = int(
+        payload.get("rebalance_freq_days", DEFAULT_REBALANCE_FREQ_DAYS) or 1
+    )
+    initial_capital = float(
+        payload.get("initial_capital", DEFAULT_INITIAL_CAPITAL) or DEFAULT_INITIAL_CAPITAL
+    )
+    overrides = payload.get("strategy_config_overrides") or {}
+    refresh = bool(payload.get("refresh", False))
+
+    if not isinstance(overrides, dict):
+        raise HTTPException(
+            status_code=422,
+            detail="strategy_config_overrides must be a JSON object.",
+        )
+    if window_months < 1:
+        raise HTTPException(status_code=422, detail="window_months must be >= 1.")
+    if step_months < 1:
+        raise HTTPException(status_code=422, detail="step_months must be >= 1.")
+    if rebalance_freq_days < 1:
+        raise HTTPException(status_code=422, detail="rebalance_freq_days must be >= 1.")
+    if initial_capital <= 0:
+        raise HTTPException(status_code=422, detail="initial_capital must be > 0.")
+
+    csv_path = DEFAULT_BACKTEST_PRICE_CSV
+    if not csv_path.is_file():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Backtest price matrix not found at {csv_path}. Run the data "
+                "pipeline (`scripts/refresh_*`) before calling /walkforward."
+            ),
+        )
+    stat = csv_path.stat()
+
+    # Cache key — including overrides via repr() so the hash distinguishes
+    # parameter variations without needing each field broken out.
+    overrides_key = repr(sorted(overrides.items())) if overrides else ""
+    cache_key = (
+        str(period_start),
+        str(period_end),
+        window_months,
+        step_months,
+        rebalance_freq_days,
+        enable_policy_signal_factor,
+        int(initial_capital * 100),  # cents-precision key so floats key cleanly
+        float(0),  # reserved slot — keep cache_key shape stable for future params
+        overrides_key,
+        int(stat.st_mtime_ns),
+        int(stat.st_size),
+    )
+    now = time.monotonic()
+    if not refresh and cache_key in _walkforward_cache:
+        cached_at, cached_payload = _walkforward_cache[cache_key]
+        if now - cached_at < _WALKFORWARD_CACHE_TTL:
+            return {
+                "success": True,
+                "data": cached_payload,
+                "cached": True,
+                "cache_age_seconds": round(now - cached_at, 3),
+            }
+
+    try:
+        prices = _load_backtest_price_matrix(None)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Backtest price matrix not found at {exc}. Run the data "
+                "pipeline (`scripts/refresh_*`) before calling /walkforward."
+            ),
+        )
+
+    strategy_cfg = load_strategy_config()
+    if overrides:
+        merged_strategy = {**strategy_cfg.strategy, **overrides}
+        strategy_cfg = dataclass_replace(strategy_cfg, strategy=merged_strategy)
+
+    holdings = [
+        h for h in daily_etf_signal.load_default_holdings() if h.code in prices.columns
+    ] or daily_etf_signal.load_default_holdings()
+    config = daily_etf_signal.build_strategy_config(holdings, strategy_cfg)
+
+    industry_signals: Optional[dict[str, Any]] = None
+    etf_industry_map: Optional[dict[str, str]] = (
+        dict(strategy_cfg.etf_industry_map) if strategy_cfg.etf_industry_map else None
+    )
+    if enable_policy_signal_factor:
+        loaded, _last_refresh = daily_etf_signal.load_policy_industry_signals()
+        if loaded:
+            industry_signals = dict(loaded)
+
+    analyzer = EtfRotationWalkforwardAnalyzer(
+        config=config,
+        price_history=prices,
+        window_months=window_months,
+        step_months=step_months,
+        period_start=period_start,
+        period_end=period_end,
+        policy_signal_factor_enabled=enable_policy_signal_factor,
+        industry_signals=industry_signals,
+        etf_industry_map=etf_industry_map,
+        rebalance_freq_days=rebalance_freq_days,
+        initial_capital=initial_capital,
+    )
+    report = analyzer.run()
+    response_payload = report.to_dict()
+    _walkforward_cache[cache_key] = (now, response_payload)
+    return {"success": True, "data": response_payload, "cached": False}
