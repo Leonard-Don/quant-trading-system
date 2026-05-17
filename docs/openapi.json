@@ -16,6 +16,26 @@
     "version": "5.0.0"
   },
   "paths": {
+    "/market-data/sources/health": {
+      "get": {
+        "tags": [
+          "Market Data"
+        ],
+        "summary": "获取数据源健康状态",
+        "description": "Return normalized provider/source health without probing upstream APIs.",
+        "operationId": "get_market_data_source_health_market_data_sources_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/market-data/": {
       "post": {
         "tags": [
@@ -665,7 +685,14 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "Symbol"
             }
           },
@@ -674,7 +701,14 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "Strategy"
             }
           },
@@ -683,7 +717,14 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "Record Type"
             }
           },
@@ -734,7 +775,14 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "Symbol"
             }
           },
@@ -743,7 +791,14 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "Strategy"
             }
           },
@@ -752,7 +807,14 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "string",
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "Record Type"
             }
           }
@@ -1082,6 +1144,26 @@
           }
         },
         "deprecated": true
+      }
+    },
+    "/system/providers/status": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "summary": "数据源运行状态",
+        "description": "Return provider registry and circuit-breaker state without probing remotes.",
+        "operationId": "get_provider_runtime_status_system_providers_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
       }
     },
     "/system/dependencies": {
@@ -2653,6 +2735,456 @@
         }
       }
     },
+    "/industry/industries/heatmap": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Industry Heatmap",
+        "description": "获取行业热力图数据\n\n返回所有行业的涨跌幅和市值数据，用于渲染热力图可视化。",
+        "operationId": "get_industry_heatmap_industry_industries_heatmap_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "description": "分析周期（天）",
+              "default": 5,
+              "title": "Days"
+            },
+            "description": "分析周期（天）"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeatmapResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/industries/heatmap/history": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Industry Heatmap History",
+        "description": "获取行业热力图历史快照。\n\n用于行业热度模块的历史回放。当前返回服务端近期保留的快照窗口。",
+        "operationId": "get_industry_heatmap_history_industry_industries_heatmap_history_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 50,
+              "minimum": 1,
+              "description": "返回快照数量",
+              "default": 10,
+              "title": "Limit"
+            },
+            "description": "返回快照数量"
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 90,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "按周期过滤",
+              "title": "Days"
+            },
+            "description": "按周期过滤"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HeatmapHistoryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/bootstrap": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Industry Bootstrap",
+        "operationId": "get_industry_bootstrap_industry_bootstrap_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 90,
+              "minimum": 1,
+              "description": "热力图与默认热度排序使用的周期",
+              "default": 5,
+              "title": "Days"
+            },
+            "description": "热力图与默认热度排序使用的周期"
+          },
+          {
+            "name": "ranking_top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "预热排行榜条数",
+              "default": 50,
+              "title": "Ranking Top N"
+            },
+            "description": "预热排行榜条数"
+          },
+          {
+            "name": "leader_top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "预热龙头股总条数",
+              "default": 20,
+              "title": "Leader Top N"
+            },
+            "description": "预热龙头股总条数"
+          },
+          {
+            "name": "top_industries",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "龙头股从前N个热门行业中选取",
+              "default": 5,
+              "title": "Top Industries"
+            },
+            "description": "龙头股从前N个热门行业中选取"
+          },
+          {
+            "name": "per_industry",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "每个行业选取的龙头数量",
+              "default": 5,
+              "title": "Per Industry"
+            },
+            "description": "每个行业选取的龙头数量"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IndustryBootstrapResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/leaders": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Leader Stocks",
+        "description": "获取龙头股推荐列表\n\n- hot (热点先锋): 使用独立的 0-100 动量评分，聚焦短期涨势与资金关注度。\n- core (核心资产): 使用 0-100 综合评分，侧重长线基本面与流动性。",
+        "operationId": "get_leader_stocks_industry_leaders_get",
+        "parameters": [
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "返回龙头股数量",
+              "default": 20,
+              "title": "Top N"
+            },
+            "description": "返回龙头股数量"
+          },
+          {
+            "name": "top_industries",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "从前N个热门行业中选取",
+              "default": 5,
+              "title": "Top Industries"
+            },
+            "description": "从前N个热门行业中选取"
+          },
+          {
+            "name": "per_industry",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "每个行业选取的龙头数量",
+              "default": 5,
+              "title": "Per Industry"
+            },
+            "description": "每个行业选取的龙头数量"
+          },
+          {
+            "name": "list_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "hot",
+                "core"
+              ],
+              "type": "string",
+              "description": "榜单类型：hot(热点先锋) 或 core(核心资产)",
+              "default": "hot",
+              "title": "List Type"
+            },
+            "description": "榜单类型：hot(热点先锋) 或 core(核心资产)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LeaderStockResponse"
+                  },
+                  "title": "Response Get Leader Stocks Industry Leaders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/leaders/overview": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Leader Boards",
+        "description": "一次性返回核心资产与热点先锋榜单，减少前端冷启动的双请求成本。",
+        "operationId": "get_leader_boards_industry_leaders_overview_get",
+        "parameters": [
+          {
+            "name": "top_n",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "description": "返回龙头股数量",
+              "default": 20,
+              "title": "Top N"
+            },
+            "description": "返回龙头股数量"
+          },
+          {
+            "name": "top_industries",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "从前N个热门行业中选取",
+              "default": 5,
+              "title": "Top Industries"
+            },
+            "description": "从前N个热门行业中选取"
+          },
+          {
+            "name": "per_industry",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "每个行业选取的龙头数量",
+              "default": 5,
+              "title": "Per Industry"
+            },
+            "description": "每个行业选取的龙头数量"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaderBoardsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/industry/leaders/{symbol}/detail": {
+      "get": {
+        "tags": [
+          "Industry Analysis"
+        ],
+        "summary": "Get Leader Detail",
+        "description": "获取龙头股详细分析\n\n返回指定股票的完整分析报告，包括评分详情、技术分析和历史价格。\n\n- **symbol**: 股票代码（如 \"000001\"、\"600519\"）",
+        "operationId": "get_leader_detail_industry_leaders__symbol__detail_get",
+        "parameters": [
+          {
+            "name": "symbol",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Symbol"
+            }
+          },
+          {
+            "name": "score_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "core",
+                "hot"
+              ],
+              "type": "string",
+              "description": "评分类型: core 或 hot",
+              "default": "core",
+              "title": "Score Type"
+            },
+            "description": "评分类型: core 或 hot"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeaderDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/industry/industries/hot": {
       "get": {
         "tags": [
@@ -2910,122 +3442,6 @@
             "content": {
               "application/json": {
                 "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/industry/industries/heatmap": {
-      "get": {
-        "tags": [
-          "Industry Analysis"
-        ],
-        "summary": "Get Industry Heatmap",
-        "description": "获取行业热力图数据\n\n返回所有行业的涨跌幅和市值数据，用于渲染热力图可视化。",
-        "operationId": "get_industry_heatmap_industry_industries_heatmap_get",
-        "parameters": [
-          {
-            "name": "days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 90,
-              "minimum": 1,
-              "description": "分析周期（天）",
-              "default": 5,
-              "title": "Days"
-            },
-            "description": "分析周期（天）"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HeatmapResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/industry/industries/heatmap/history": {
-      "get": {
-        "tags": [
-          "Industry Analysis"
-        ],
-        "summary": "Get Industry Heatmap History",
-        "description": "获取行业热力图历史快照。\n\n用于行业热度模块的历史回放。当前返回服务端近期保留的快照窗口。",
-        "operationId": "get_industry_heatmap_history_industry_industries_heatmap_history_get",
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 50,
-              "minimum": 1,
-              "description": "返回快照数量",
-              "default": 10,
-              "title": "Limit"
-            },
-            "description": "返回快照数量"
-          },
-          {
-            "name": "days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer",
-                  "maximum": 90,
-                  "minimum": 1
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "description": "按周期过滤",
-              "title": "Days"
-            },
-            "description": "按周期过滤"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HeatmapHistoryResponse"
-                }
               }
             }
           },
@@ -3446,340 +3862,6 @@
             "content": {
               "application/json": {
                 "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/industry/leaders": {
-      "get": {
-        "tags": [
-          "Industry Analysis"
-        ],
-        "summary": "Get Leader Stocks",
-        "description": "获取龙头股推荐列表\n\n- hot (热点先锋): 使用独立的 0-100 动量评分，聚焦短期涨势与资金关注度。\n- core (核心资产): 使用 0-100 综合评分，侧重长线基本面与流动性。",
-        "operationId": "get_leader_stocks_industry_leaders_get",
-        "parameters": [
-          {
-            "name": "top_n",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 100,
-              "minimum": 1,
-              "description": "返回龙头股数量",
-              "default": 20,
-              "title": "Top N"
-            },
-            "description": "返回龙头股数量"
-          },
-          {
-            "name": "top_industries",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 20,
-              "minimum": 1,
-              "description": "从前N个热门行业中选取",
-              "default": 5,
-              "title": "Top Industries"
-            },
-            "description": "从前N个热门行业中选取"
-          },
-          {
-            "name": "per_industry",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 20,
-              "minimum": 1,
-              "description": "每个行业选取的龙头数量",
-              "default": 5,
-              "title": "Per Industry"
-            },
-            "description": "每个行业选取的龙头数量"
-          },
-          {
-            "name": "list_type",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "enum": [
-                "hot",
-                "core"
-              ],
-              "type": "string",
-              "description": "榜单类型：hot(热点先锋) 或 core(核心资产)",
-              "default": "hot",
-              "title": "List Type"
-            },
-            "description": "榜单类型：hot(热点先锋) 或 core(核心资产)"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/LeaderStockResponse"
-                  },
-                  "title": "Response Get Leader Stocks Industry Leaders Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/industry/leaders/overview": {
-      "get": {
-        "tags": [
-          "Industry Analysis"
-        ],
-        "summary": "Get Leader Boards",
-        "description": "一次性返回核心资产与热点先锋榜单，减少前端冷启动的双请求成本。",
-        "operationId": "get_leader_boards_industry_leaders_overview_get",
-        "parameters": [
-          {
-            "name": "top_n",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 100,
-              "minimum": 1,
-              "description": "返回龙头股数量",
-              "default": 20,
-              "title": "Top N"
-            },
-            "description": "返回龙头股数量"
-          },
-          {
-            "name": "top_industries",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 20,
-              "minimum": 1,
-              "description": "从前N个热门行业中选取",
-              "default": 5,
-              "title": "Top Industries"
-            },
-            "description": "从前N个热门行业中选取"
-          },
-          {
-            "name": "per_industry",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 20,
-              "minimum": 1,
-              "description": "每个行业选取的龙头数量",
-              "default": 5,
-              "title": "Per Industry"
-            },
-            "description": "每个行业选取的龙头数量"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LeaderBoardsResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/industry/bootstrap": {
-      "get": {
-        "tags": [
-          "Industry Analysis"
-        ],
-        "summary": "Get Industry Bootstrap",
-        "operationId": "get_industry_bootstrap_industry_bootstrap_get",
-        "parameters": [
-          {
-            "name": "days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 90,
-              "minimum": 1,
-              "description": "热力图与默认热度排序使用的周期",
-              "default": 5,
-              "title": "Days"
-            },
-            "description": "热力图与默认热度排序使用的周期"
-          },
-          {
-            "name": "ranking_top_n",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 100,
-              "minimum": 1,
-              "description": "预热排行榜条数",
-              "default": 50,
-              "title": "Ranking Top N"
-            },
-            "description": "预热排行榜条数"
-          },
-          {
-            "name": "leader_top_n",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 100,
-              "minimum": 1,
-              "description": "预热龙头股总条数",
-              "default": 20,
-              "title": "Leader Top N"
-            },
-            "description": "预热龙头股总条数"
-          },
-          {
-            "name": "top_industries",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 20,
-              "minimum": 1,
-              "description": "龙头股从前N个热门行业中选取",
-              "default": 5,
-              "title": "Top Industries"
-            },
-            "description": "龙头股从前N个热门行业中选取"
-          },
-          {
-            "name": "per_industry",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "maximum": 20,
-              "minimum": 1,
-              "description": "每个行业选取的龙头数量",
-              "default": 5,
-              "title": "Per Industry"
-            },
-            "description": "每个行业选取的龙头数量"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/IndustryBootstrapResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/industry/leaders/{symbol}/detail": {
-      "get": {
-        "tags": [
-          "Industry Analysis"
-        ],
-        "summary": "Get Leader Detail",
-        "description": "获取龙头股详细分析\n\n返回指定股票的完整分析报告，包括评分详情、技术分析和历史价格。\n\n- **symbol**: 股票代码（如 \"000001\"、\"600519\"）",
-        "operationId": "get_leader_detail_industry_leaders__symbol__detail_get",
-        "parameters": [
-          {
-            "name": "symbol",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "title": "Symbol"
-            }
-          },
-          {
-            "name": "score_type",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "enum": [
-                "core",
-                "hot"
-              ],
-              "type": "string",
-              "description": "评分类型: core 或 hot",
-              "default": "core",
-              "title": "Score Type"
-            },
-            "description": "评分类型: core 或 hot"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/LeaderDetailResponse"
-                }
               }
             }
           },
@@ -6096,6 +6178,820 @@
         }
       }
     },
+    "/policy-radar/signal": {
+      "get": {
+        "tags": [
+          "Policy Radar"
+        ],
+        "summary": "获取最新政策雷达综合信号",
+        "description": "返回 PolicySignalProvider 的最新汇总信号：industry_signals / source_health / policy_count / last_refresh。底层数据来自 AltDataManager 的 60 分钟缓存，不会触发现场抓取或 NLP 推理。",
+        "operationId": "get_policy_signal_policy_radar_signal_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Get Policy Signal Policy Radar Signal Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/policy-radar/records": {
+      "get": {
+        "tags": [
+          "Policy Radar"
+        ],
+        "summary": "获取政策雷达历史记录",
+        "description": "按时间倒序返回最近的政策记录，可选按行业 tag 过滤。`industry` 与记录 tags 完全匹配（区分大小写按字面值）。`timeframe` 形如 `7d` / `30d`。",
+        "operationId": "get_policy_records_policy_radar_records_get",
+        "parameters": [
+          {
+            "name": "industry",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "可选：仅返回 tags 包含该值的记录",
+              "title": "Industry"
+            },
+            "description": "可选：仅返回 tags 包含该值的记录"
+          },
+          {
+            "name": "timeframe",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "时间窗（如 7d / 30d）",
+              "default": "7d",
+              "title": "Timeframe"
+            },
+            "description": "时间窗（如 7d / 30d）"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "description": "最多返回的记录条数",
+              "default": 50,
+              "title": "Limit"
+            },
+            "description": "最多返回的记录条数"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Get Policy Records Policy Radar Records Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/paper/account": {
+      "get": {
+        "tags": [
+          "Paper Trading"
+        ],
+        "summary": "获取纸面账户当前状态",
+        "operationId": "get_paper_account_paper_account_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Get Paper Account Paper Account Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/paper/orders": {
+      "post": {
+        "tags": [
+          "Paper Trading"
+        ],
+        "summary": "提交一笔纸面订单（立即成交）",
+        "operationId": "submit_paper_order_paper_orders_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaperOrderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Submit Paper Order Paper Orders Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Paper Trading"
+        ],
+        "summary": "获取纸面订单历史",
+        "operationId": "list_paper_orders_paper_orders_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response List Paper Orders Paper Orders Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/paper/reset": {
+      "post": {
+        "tags": [
+          "Paper Trading"
+        ],
+        "summary": "重置纸面账户至初始资金",
+        "operationId": "reset_paper_account_paper_reset_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PaperResetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Reset Paper Account Paper Reset Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/paper/orders/{order_id}": {
+      "delete": {
+        "tags": [
+          "Paper Trading"
+        ],
+        "summary": "取消一笔挂单（仅 LIMIT pending）",
+        "operationId": "cancel_paper_order_paper_orders__order_id__delete",
+        "parameters": [
+          {
+            "name": "order_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Order Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Cancel Paper Order Paper Orders  Order Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/etf-rotation/daily-signal": {
+      "get": {
+        "tags": [
+          "ETF Rotation"
+        ],
+        "summary": "获取每日 ETF 轮动手动调仓建议",
+        "description": "返回 ``scripts.daily_etf_signal.generate_plan`` 的完整计划字段：current_weights / target_weights / adjusted_weights / suggestions / risk_reasons。该接口只读、默认使用实时行情更新持仓现价，但不调用任何券商或下单接口。",
+        "operationId": "get_daily_signal_etf_rotation_daily_signal_get",
+        "parameters": [
+          {
+            "name": "threshold_weight",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1.0,
+                  "minimum": 0.0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "低于该权重差异的标的不会触发买卖建议（仅生成 hold）。未传时使用 strategy.json -> strategy.rebalance_threshold 的配置值。",
+              "title": "Threshold Weight"
+            },
+            "description": "低于该权重差异的标的不会触发买卖建议（仅生成 hold）。未传时使用 strategy.json -> strategy.rebalance_threshold 的配置值。"
+          },
+          {
+            "name": "quote_source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(live|synthetic)$",
+              "description": "live=用实时行情刷新持仓现价；synthetic=使用截图种子的确定性行情。",
+              "default": "live",
+              "title": "Quote Source"
+            },
+            "description": "live=用实时行情刷新持仓现价；synthetic=使用截图种子的确定性行情。"
+          },
+          {
+            "name": "use_cache",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "live 模式下是否允许使用实时行情缓存；手动刷新可传 false。",
+              "default": true,
+              "title": "Use Cache"
+            },
+            "description": "live 模式下是否允许使用实时行情缓存；手动刷新可传 false。"
+          },
+          {
+            "name": "enable_policy_signal_factor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "可选：覆盖 strategy.json -> strategy.policy_signal_factor_enabled。true=本次调用启用 policy_radar 影响 ETF 权重；false=本次关闭；省略=沿用配置值（默认关闭）。",
+              "title": "Enable Policy Signal Factor"
+            },
+            "description": "可选：覆盖 strategy.json -> strategy.policy_signal_factor_enabled。true=本次调用启用 policy_radar 影响 ETF 权重；false=本次关闭；省略=沿用配置值（默认关闭）。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Get Daily Signal Etf Rotation Daily Signal Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/etf-rotation/live-target": {
+      "get": {
+        "tags": [
+          "ETF Rotation"
+        ],
+        "summary": "读取最近一次后台刷新的 ETF 轮动目标仓位",
+        "description": "返回 EtfRotationService 缓存的最新计划与刷新元数据。前端可高频轮询此端点而不触发底层数据拉取——后台刷新循环负责保持缓存常新。trigger_refresh=true 时即使非交易时段也会强制刷新一次。",
+        "operationId": "get_live_target_etf_rotation_live_target_get",
+        "parameters": [
+          {
+            "name": "trigger_refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "true=阻塞触发一次刷新（即使非交易时段）；false=仅读缓存。",
+              "default": false,
+              "title": "Trigger Refresh"
+            },
+            "description": "true=阻塞触发一次刷新（即使非交易时段）；false=仅读缓存。"
+          },
+          {
+            "name": "enable_policy_signal_factor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "可选：trigger_refresh=true 时覆盖 strategy.policy_signal_factor_enabled；省略=沿用配置。",
+              "title": "Enable Policy Signal Factor"
+            },
+            "description": "可选：trigger_refresh=true 时覆盖 strategy.policy_signal_factor_enabled；省略=沿用配置。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Get Live Target Etf Rotation Live Target Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/etf-rotation/refresh": {
+      "post": {
+        "tags": [
+          "ETF Rotation"
+        ],
+        "summary": "强制刷新 ETF 轮动信号缓存",
+        "description": "即使在非交易时段也立即重新计算一次 plan，并写入审计日志。",
+        "operationId": "post_refresh_etf_rotation_refresh_post",
+        "parameters": [
+          {
+            "name": "use_cache",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Use Cache"
+            }
+          },
+          {
+            "name": "enable_policy_signal_factor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "可选：覆盖 strategy.policy_signal_factor_enabled；true=本次启用；false=本次关闭；省略=沿用配置。",
+              "title": "Enable Policy Signal Factor"
+            },
+            "description": "可选：覆盖 strategy.policy_signal_factor_enabled；true=本次启用；false=本次关闭；省略=沿用配置。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Post Refresh Etf Rotation Refresh Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/etf-rotation/analytics": {
+      "get": {
+        "tags": [
+          "ETF Rotation"
+        ],
+        "summary": "策略 Edge 度量：IC + 命中率 + 每标的拆解",
+        "description": "从审计日志计算策略的信息系数（Spearman 相关）和命中率，用于回答 “策略到底有没有 alpha” 这个问题。默认三档前瞻期：1 小时 / 4 小时 / 1 个交易日。60 日滚动 IC > 0.05 是行业经验上 “有可测量 edge” 的门槛。",
+        "operationId": "get_analytics_etf_rotation_analytics_get",
+        "parameters": [
+          {
+            "name": "horizons",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "逗号分隔的前瞻分钟数列表，默认 60,240,1440",
+              "title": "Horizons"
+            },
+            "description": "逗号分隔的前瞻分钟数列表，默认 60,240,1440"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Get Analytics Etf Rotation Analytics Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/etf-rotation/audit-log": {
+      "get": {
+        "tags": [
+          "ETF Rotation"
+        ],
+        "summary": "读取 ETF 轮动信号审计日志",
+        "description": "返回 JSON Lines 审计日志的最近 N 行（默认 200）。可选 ``since`` 参数（ISO timestamp）过滤更新时间。完全只读；日志位置 = ``ETF_AUDIT_LOG_PATH`` env / ``~/.config/etf-rotation/audit.jsonl``。",
+        "operationId": "get_audit_log_etf_rotation_audit_log_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 2000,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Get Audit Log Etf Rotation Audit Log Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/etf-rotation/reload-config": {
+      "post": {
+        "tags": [
+          "ETF Rotation"
+        ],
+        "summary": "重载 strategy.json，不重启 backend 即可应用",
+        "description": "重新读取 ``ETF_STRATEGY_CONFIG_PATH`` / ``~/.config/etf-rotation/strategy.json``，同步到 EtfRotationService 与 EtfPremiumMonitor，下次刷新自动生效。返回值是重载后的完整配置摘要（universe / risk_rules / strategy / refresh / regime / premium）。",
+        "operationId": "post_reload_config_etf_rotation_reload_config_post",
+        "parameters": [
+          {
+            "name": "refresh_after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true,
+              "title": "Refresh After"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Post Reload Config Etf Rotation Reload Config Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/etf-rotation/preferences": {
+      "get": {
+        "tags": [
+          "ETF Rotation"
+        ],
+        "summary": "读取 ETF 轮动 UI 偏好（per-installation, 持久化到 JSON 文件）",
+        "description": "返回当前用户在仪表盘里设置的偏好，目前只包含 ``policy_signal_factor_enabled``。``preference`` 反映文件里的原值（``null`` = 未设置），``effective`` 是把 config 默认折算进去之后“现在到底开没开”的真实状态。``source`` ∈ {{config, preference}} 解释 effective 是哪一档赢了。",
+        "operationId": "get_preferences_etf_rotation_preferences_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Get Preferences Etf Rotation Preferences Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "ETF Rotation"
+        ],
+        "summary": "更新 ETF 轮动 UI 偏好",
+        "description": "POST 一个 JSON ``{policy_signal_factor_enabled: bool | null}``——``true``/``false`` 持久化（覆盖 config 默认），``null`` 清除该偏好（回退到 config 默认）。写入采用 temp-file + rename 原子模式，保证并发读不会读到半截 JSON。",
+        "operationId": "post_preferences_etf_rotation_preferences_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Post Preferences Etf Rotation Preferences Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/etf-rotation/policy-factor-attribution": {
+      "get": {
+        "tags": [
+          "ETF Rotation"
+        ],
+        "summary": "读取 policy_signal_factor 的 30 日实证归因报告",
+        "description": "对启用了 policy_signal_factor 的历史调仓做归因回放：保留审计日志里的最终 ``adjusted_weights`` 作为 *factor-on*，并按每个 ETF 的 ``policy_adjustment.weight_before / weight_after`` 比例缩放最终权重，得到一个 post-overlay 的 *factor-off* proxy。两条权重路径在下一条审计 rebalance 之前持有（按 ETF 收盘价计算 mark-to-market），差值即 policy_signal_factor 对该窗口 P&L 的边际贡献。\n\n返回结构（``AttributionReport.to_dict()``）包含：聚合 on/off/contribution（逐窗口复利）、命中率、top winner/loser ETF、以及逐次调仓的拆解。结果按 ``period_days`` 缓存 5 分钟；审计日志 size/mtime 变化会自动打破缓存。\n\n**注意**：不计交易成本、不计调仓滞后；off leg 是比例 proxy，不是重新跑一遍完整策略 —— 详见模块顶部 docstring。",
+        "operationId": "get_policy_factor_attribution_etf_rotation_policy_factor_attribution_get",
+        "parameters": [
+          {
+            "name": "period_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 365,
+              "minimum": 1,
+              "description": "窗口长度（天），默认 30。",
+              "default": 30,
+              "title": "Period Days"
+            },
+            "description": "窗口长度（天），默认 30。"
+          },
+          {
+            "name": "refresh",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "true=绕过 5 分钟缓存强制重算。",
+              "default": false,
+              "title": "Refresh"
+            },
+            "description": "true=绕过 5 分钟缓存强制重算。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "title": "Response Get Policy Factor Attribution Etf Rotation Policy Factor Attribution Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "summary": "Root",
@@ -8239,6 +9135,49 @@
         "title": "IndustryBootstrapResponse",
         "description": "行业页首屏 bootstrap 响应"
       },
+      "IndustryPolicySignal": {
+        "properties": {
+          "avg_impact": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Impact",
+            "description": "平均影响强度，正值偏多/负值偏空"
+          },
+          "mentions": {
+            "type": "integer",
+            "title": "Mentions",
+            "description": "近期政策提及次数",
+            "default": 0
+          },
+          "signal": {
+            "type": "string",
+            "title": "Signal",
+            "description": "信号分类: bullish / bearish / neutral",
+            "default": "neutral"
+          },
+          "last_refresh_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Refresh At",
+            "description": "policy_radar 最后刷新时间 (ISO 8601)"
+          }
+        },
+        "type": "object",
+        "title": "IndustryPolicySignal",
+        "description": "行业级政策雷达信号（policy_radar industry_signals 投影）"
+      },
       "IndustryPreferencesResponse": {
         "properties": {
           "watchlist_industries": {
@@ -8376,49 +9315,6 @@
         ],
         "title": "IndustryRankResponse",
         "description": "行业排名响应"
-      },
-      "IndustryPolicySignal": {
-        "properties": {
-          "avg_impact": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Avg Impact",
-            "description": "平均影响强度，正值偏多/负值偏空"
-          },
-          "mentions": {
-            "type": "integer",
-            "title": "Mentions",
-            "description": "近期政策提及次数",
-            "default": 0
-          },
-          "signal": {
-            "type": "string",
-            "title": "Signal",
-            "description": "信号分类: bullish / bearish / neutral",
-            "default": "neutral"
-          },
-          "last_refresh_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Refresh At",
-            "description": "policy_radar 最后刷新时间 (ISO 8601)"
-          }
-        },
-        "type": "object",
-        "title": "IndustryPolicySignal",
-        "description": "行业级政策雷达信号（policy_radar industry_signals 投影）"
       },
       "IndustryRotationResponse": {
         "properties": {
@@ -9203,13 +10099,7 @@
               "type": "number"
             },
             "type": "array",
-            "title": "Sample Trade Values",
-            "default": [
-              10000,
-              50000,
-              100000,
-              250000
-            ]
+            "title": "Sample Trade Values"
           }
         },
         "type": "object",
@@ -9641,12 +10531,7 @@
               "type": "string"
             },
             "type": "array",
-            "title": "Intervals",
-            "default": [
-              "1d",
-              "1wk",
-              "1mo"
-            ]
+            "title": "Intervals"
           }
         },
         "type": "object",
@@ -9889,6 +10774,126 @@
           "client_id"
         ],
         "title": "OAuthProviderRequest"
+      },
+      "PaperOrderRequest": {
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Symbol"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "title": "Side"
+          },
+          "quantity": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity"
+          },
+          "order_type": {
+            "type": "string",
+            "enum": [
+              "MARKET",
+              "LIMIT"
+            ],
+            "title": "Order Type",
+            "default": "MARKET"
+          },
+          "fill_price": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Fill Price"
+          },
+          "limit_price": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit Price"
+          },
+          "slippage_bps": {
+            "type": "number",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Slippage Bps",
+            "default": 0.0
+          },
+          "commission": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Commission",
+            "default": 0.0
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Note",
+            "default": ""
+          },
+          "stop_loss_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 0.5,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stop Loss Pct"
+          },
+          "take_profit_pct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 5.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Take Profit Pct"
+          }
+        },
+        "type": "object",
+        "required": [
+          "symbol",
+          "side",
+          "quantity",
+          "fill_price"
+        ],
+        "title": "PaperOrderRequest"
+      },
+      "PaperResetRequest": {
+        "properties": {
+          "initial_capital": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initial Capital"
+          }
+        },
+        "type": "object",
+        "title": "PaperResetRequest"
       },
       "PersistenceBootstrapRequest": {
         "properties": {
@@ -10465,6 +11470,9 @@
           "status": {
             "type": "string",
             "title": "Status"
+          },
+          "note": {
+            "title": "Note"
           }
         },
         "type": "object",

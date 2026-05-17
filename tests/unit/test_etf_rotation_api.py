@@ -666,3 +666,160 @@ def test_reload_config_refresh_honors_persisted_preference(
     assert response.status_code == 200
     assert service.calls[0]["force"] is True
     assert service.calls[0]["enable_policy_signal_factor"] is True
+
+
+# ---------------------------------------------------------------------------
+# /policy-factor-attribution
+# ---------------------------------------------------------------------------
+
+
+def test_policy_factor_attribution_returns_zero_when_audit_missing(
+    tmp_path, monkeypatch,
+) -> None:
+    """No audit log → endpoint returns a zero report with a note, not 404."""
+
+    monkeypatch.setenv("ETF_AUDIT_LOG_PATH", str(tmp_path / "missing.jsonl"))
+    etf_endpoint.reset_attribution_cache_for_tests()
+
+    client = TestClient(app)
+    response = client.get("/etf-rotation/policy-factor-attribution?period_days=30")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    data = payload["data"]
+    assert data["n_factor_on_rebalances"] == 0
+    assert data["factor_contribution_pct"] == 0.0
+
+
+def test_policy_factor_attribution_replays_factor_on_rows(
+    tmp_path, monkeypatch,
+) -> None:
+    """A synthetic factor-ON audit + flat prices → the endpoint returns numbers."""
+
+    import json
+    audit_path = tmp_path / "audit.jsonl"
+    audit_path.write_text(
+        json.dumps({
+            "run_at": "2026-05-10T02:00:00+00:00",
+            "adjusted_weights": {"512400": 0.22},
+            "target_weights": {"512400": 0.22},
+            "score_breakdown": {
+                "512400": {"policy_adjustment": {
+                    "industry": "metals", "signal": "bullish",
+                    "multiplier": 1.10, "weight_before": 0.20,
+                    "weight_after": 0.22, "delta_weight": 0.02,
+                    "applied": True,
+                }},
+            },
+            "policy_signal_factor": {"enabled": True, "applied_count": 1},
+        }) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ETF_AUDIT_LOG_PATH", str(audit_path))
+    etf_endpoint.reset_attribution_cache_for_tests()
+
+    # Stub the (network-bound) price fetcher with a flat in-memory matrix.
+    import pandas as pd
+    idx = pd.date_range(start="2026-05-10", end="2026-05-20", freq="D")
+    nav = pd.DataFrame(
+        {"512400": [100.0 * (1.005 ** i) for i in range(len(idx))]},
+        index=idx,
+    )
+    monkeypatch.setattr(etf_endpoint, "_fetch_attribution_prices", lambda *a, **k: nav)
+
+    client = TestClient(app)
+    response = client.get("/etf-rotation/policy-factor-attribution?period_days=30")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["n_factor_on_rebalances"] == 1
+    # Bullish boost on a rising ETF → strictly positive contribution.
+    assert data["factor_contribution_pct"] > 0
+    assert len(data["per_rebalance_attribution"]) == 1
+
+
+def test_policy_factor_attribution_uses_cache_within_ttl(
+    tmp_path, monkeypatch,
+) -> None:
+    """Second call within TTL must return ``cached=True`` and skip the engine."""
+
+    import json
+    audit_path = tmp_path / "audit.jsonl"
+    audit_path.write_text(
+        json.dumps({
+            "run_at": "2026-05-10T02:00:00+00:00",
+            "adjusted_weights": {"512400": 0.20},
+            "policy_signal_factor": {"enabled": False},
+        }) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ETF_AUDIT_LOG_PATH", str(audit_path))
+    etf_endpoint.reset_attribution_cache_for_tests()
+
+    import pandas as pd
+    monkeypatch.setattr(
+        etf_endpoint, "_fetch_attribution_prices", lambda *a, **k: pd.DataFrame(),
+    )
+
+    client = TestClient(app)
+    first = client.get("/etf-rotation/policy-factor-attribution?period_days=30")
+    second = client.get("/etf-rotation/policy-factor-attribution?period_days=30")
+    assert first.status_code == 200 and second.status_code == 200
+    assert first.json()["cached"] is False
+    assert second.json()["cached"] is True
+    assert second.json().get("cache_age_seconds", 0) >= 0
+
+
+def test_policy_factor_attribution_cache_invalidates_when_audit_changes(
+    tmp_path, monkeypatch,
+) -> None:
+    """Appending a new audit row should bypass the 5-minute cache automatically."""
+
+    import json
+
+    import pandas as pd
+
+    audit_path = tmp_path / "audit.jsonl"
+    audit_path.write_text(
+        json.dumps({
+            "run_at": "2026-05-10T02:00:00+00:00",
+            "adjusted_weights": {"512400": 0.20},
+            "policy_signal_factor": {"enabled": False},
+        }) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ETF_AUDIT_LOG_PATH", str(audit_path))
+    etf_endpoint.reset_attribution_cache_for_tests()
+
+    idx = pd.date_range(start="2026-05-10", end="2026-05-20", freq="D")
+    nav = pd.DataFrame(
+        {"512400": [100.0 * (1.01 ** i) for i in range(len(idx))]},
+        index=idx,
+    )
+    monkeypatch.setattr(etf_endpoint, "_fetch_attribution_prices", lambda *a, **k: nav)
+
+    client = TestClient(app)
+    first = client.get("/etf-rotation/policy-factor-attribution?period_days=30")
+    assert first.status_code == 200
+    assert first.json()["cached"] is False
+    assert first.json()["data"]["n_factor_on_rebalances"] == 0
+
+    with audit_path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({
+            "run_at": "2026-05-11T02:00:00+00:00",
+            "adjusted_weights": {"512400": 0.22},
+            "score_breakdown": {
+                "512400": {"policy_adjustment": {
+                    "industry": "metals", "signal": "bullish",
+                    "multiplier": 1.10, "weight_before": 0.20,
+                    "weight_after": 0.22, "delta_weight": 0.02,
+                    "applied": True,
+                }},
+            },
+            "policy_signal_factor": {"enabled": True, "applied_count": 1},
+        }, ensure_ascii=False))
+        fh.write("\n")
+
+    second = client.get("/etf-rotation/policy-factor-attribution?period_days=30")
+    assert second.status_code == 200
+    assert second.json()["cached"] is False
+    assert second.json()["data"]["n_factor_on_rebalances"] == 1

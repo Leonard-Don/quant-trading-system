@@ -790,6 +790,22 @@ export const getEtfRotationAnalytics = async ({ horizons = null } = {}) => {
   return response.data;
 };
 
+// Read the empirical attribution report for the policy_signal_factor over
+// the last ``periodDays`` days. Cached on the backend for 5 minutes;
+// ``refresh: true`` bypasses the cache.
+export const getEtfRotationPolicyFactorAttribution = async ({
+  periodDays = 30,
+  refresh = false,
+} = {}) => {
+  const params = { period_days: periodDays };
+  if (refresh) params.refresh = 'true';
+  const response = await api.get('/etf-rotation/policy-factor-attribution', {
+    params,
+    ...withTimeoutProfile('standard'),
+  });
+  return response.data;
+};
+
 export const getEtfRotationPreferences = async () => {
   const response = await api.get('/etf-rotation/preferences', {
     ...withTimeoutProfile('standard'),
