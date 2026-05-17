@@ -66,13 +66,19 @@ def generate_markdown_docs(openapi_spec: Dict[str, Any], output_file: Path = Non
         tag["name"]: tag.get("description", "") for tag in openapi_spec.get("tags", [])
     }
 
-    # 按标签组织端点
+    # 按标签组织端点。FastAPI routers can emit path-level tags even when
+    # the top-level OpenAPI ``tags`` list is absent, so keep those tags too.
     endpoints_by_tag = {}
+    ordered_tags = list(tags_info.keys())
     for path, methods in paths.items():
         for method, details in methods.items():
             if method.upper() in ["GET", "POST", "PUT", "DELETE", "PATCH"]:
                 tags = details.get("tags", ["未分类"])
                 for tag in tags:
+                    if tag not in tags_info:
+                        tags_info[tag] = ""
+                    if tag not in ordered_tags:
+                        ordered_tags.append(tag)
                     if tag not in endpoints_by_tag:
                         endpoints_by_tag[tag] = []
                     endpoints_by_tag[tag].append(
@@ -80,7 +86,8 @@ def generate_markdown_docs(openapi_spec: Dict[str, Any], output_file: Path = Non
                     )
 
     # 生成每个标签的文档
-    for tag, description in tags_info.items():
+    for tag in ordered_tags:
+        description = tags_info.get(tag, "")
         if tag in endpoints_by_tag:
             markdown_content += f"### {tag}\n\n"
             if description:

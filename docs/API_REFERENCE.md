@@ -41,6 +41,2563 @@
 
 ## API端点
 
+### Market Data
+
+#### GET /market-data/sources/health
+
+**获取数据源健康状态**
+
+Return normalized provider/source health without probing upstream APIs.
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### POST /market-data/
+
+**获取市场数据**
+
+获取市场数据
+
+**请求体: **
+
+参考模型: `MarketDataRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+### Strategies
+
+#### GET /strategies/
+
+**获取所有可用策略**
+
+获取系统中所有可用的交易策略
+使用 lru_cache 缓存策略列表以提高性能
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+### Backtest
+
+#### POST /backtest/batch
+
+**批量运行多个回测任务**
+
+**请求体: **
+
+参考模型: `BatchBacktestRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/walk-forward
+
+**运行 Walk-Forward 分析**
+
+**请求体: **
+
+参考模型: `WalkForwardRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/market-regimes
+
+**运行市场状态分层回测**
+
+**请求体: **
+
+参考模型: `MarketRegimeRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/portfolio-strategy
+
+**运行组合级策略回测**
+
+**请求体: **
+
+参考模型: `PortfolioStrategyRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/
+
+**运行策略回测**
+
+运行交易策略回测
+
+**请求体: **
+
+参考模型: `BacktestRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/compare
+
+**比较多个策略的性能**
+
+**请求体: **
+
+参考模型: `CompareRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/monte-carlo
+
+**回测结果 Monte Carlo 路径模拟**
+
+**请求体: **
+
+参考模型: `MonteCarloBacktestRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/monte-carlo/async
+
+**异步提交 Monte Carlo 回测任务**
+
+**请求体: **
+
+参考模型: `MonteCarloBacktestRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/compare/significance
+
+**策略对比显著性检验**
+
+**请求体: **
+
+参考模型: `SignificanceCompareRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/compare/significance/async
+
+**异步提交策略显著性检验任务**
+
+**请求体: **
+
+参考模型: `SignificanceCompareRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/multi-period
+
+**多周期并行回测**
+
+**请求体: **
+
+参考模型: `MultiPeriodBacktestRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/multi-period/async
+
+**异步提交多周期回测任务**
+
+**请求体: **
+
+参考模型: `MultiPeriodBacktestRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/impact-analysis
+
+**市场冲击敏感性分析**
+
+**请求体: **
+
+参考模型: `MarketImpactAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/impact-analysis/async
+
+**异步提交市场冲击分析任务**
+
+**请求体: **
+
+参考模型: `MarketImpactAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /backtest/history
+
+**获取回测历史记录**
+
+获取回测历史记录
+
+Args:
+    limit: 返回记录数量限制 (默认20)
+    symbol: 按股票代码过滤
+    strategy: 按策略名称过滤
+
+**请求参数: **
+
+- `limit` （可选）: 无描述
+- `offset` （可选）: 无描述
+- `symbol` （可选）: 无描述
+- `strategy` （可选）: 无描述
+- `record_type` （可选）: 无描述
+- `summary_only` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /backtest/history/stats
+
+**获取回测历史统计**
+
+获取回测历史统计信息
+
+**请求参数: **
+
+- `symbol` （可选）: 无描述
+- `strategy` （可选）: 无描述
+- `record_type` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /backtest/history/{record_id}
+
+**获取特定回测记录**
+
+根据ID获取回测记录详情
+
+**请求参数: **
+
+- `record_id` （必需）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### DELETE /backtest/history/{record_id}
+
+**删除回测记录**
+
+删除特定回测记录
+
+**请求参数: **
+
+- `record_id` （必需）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/history/advanced
+
+**保存高级实验记录到历史**
+
+**请求体: **
+
+参考模型: `AdvancedHistorySaveRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/report
+
+**生成回测报告 PDF**
+
+生成策略回测报告 PDF
+
+如果提供了 backtest_result，则直接使用；
+否则会先运行回测再生成报告。
+
+**请求体: **
+
+参考模型: `ReportRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /backtest/report/base64
+
+**生成回测报告 (Base64)**
+
+生成策略回测报告并返回 Base64 编码
+适用于前端直接下载
+
+**请求体: **
+
+参考模型: `ReportRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+### System
+
+#### GET /system/status
+
+**系统状态检查**
+
+系统状态检查接口
+
+Args:
+    detailed: 是否执行详细检查 (默认 False，仅返回基础资源使用情况)
+
+**请求参数: **
+
+- `detailed` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /system/performance
+
+**获取性能指标概览**
+
+获取性能指标
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### GET /system/health-check
+
+**综合健康检查**
+
+综合健康检查
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### GET /system/metrics
+
+**获取详细性能指标**
+
+获取性能指标
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### GET /system/providers/status
+
+**数据源运行状态**
+
+Return provider registry and circuit-breaker state without probing remotes.
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### GET /system/dependencies
+
+**依赖项连通性检查**
+
+检查所有外部依赖项的连通性
+包括：yfinance API、缓存系统、ML模型等
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+### Realtime
+
+#### GET /realtime/quote/{symbol}
+
+**获取实时报价**
+
+获取股票的统一实时报价信息。
+
+**请求参数: **
+
+- `symbol` （必需）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /realtime/quotes
+
+**批量获取实时报价**
+
+批量获取股票的统一实时报价信息。
+
+**请求参数: **
+
+- `symbols` （必需）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /realtime/summary
+
+**获取实时行情运行摘要**
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### GET /realtime/metadata
+
+**获取实时标的元数据**
+
+**请求参数: **
+
+- `symbols` （必需）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /realtime/replay/{symbol}
+
+**个股行情回放帧**
+
+**请求参数: **
+
+- `symbol` （必需）: 无描述
+- `period` （可选）: 无描述
+- `interval` （可选）: 无描述
+- `limit` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /realtime/anomaly-diagnostics/{symbol}
+
+**统计异常波动诊断**
+
+**请求参数: **
+
+- `symbol` （必需）: 无描述
+- `period` （可选）: 无描述
+- `interval` （可选）: 无描述
+- `limit` （可选）: 无描述
+- `z_window` （可选）: 无描述
+- `return_z_threshold` （可选）: 无描述
+- `volume_z_threshold` （可选）: 无描述
+- `cusum_threshold_sigma` （可选）: 无描述
+- `pattern_lookback` （可选）: 无描述
+- `pattern_matches` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /realtime/orderbook/{symbol}
+
+**Level 2 订单簿能力探测**
+
+**请求参数: **
+
+- `symbol` （必需）: 无描述
+- `levels` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /realtime/preferences
+
+**获取实时行情偏好配置**
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### PUT /realtime/preferences
+
+**更新实时行情偏好配置**
+
+**请求体: **
+
+参考模型: `RealtimePreferencesRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /realtime/alerts
+
+**获取实时提醒规则**
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### PUT /realtime/alerts
+
+**更新实时提醒规则**
+
+**请求体: **
+
+参考模型: `RealtimeAlertsRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /realtime/alerts/hits
+
+**记录实时提醒命中**
+
+**请求体: **
+
+参考模型: `RealtimeAlertHitRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /realtime/journal
+
+**获取实时行情复盘与时间线**
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### PUT /realtime/journal
+
+**更新实时行情复盘与时间线**
+
+**请求体: **
+
+参考模型: `RealtimeJournalRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /realtime/subscribe
+
+**兼容层：确认订阅请求**
+
+兼容旧客户端的订阅确认接口，不维护持久订阅态。
+
+**请求体: **
+
+参考模型: `SubscriptionRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /realtime/unsubscribe
+
+**兼容层：确认取消订阅请求**
+
+兼容旧客户端的取消订阅确认接口，不维护持久订阅态。
+
+**请求体: **
+
+参考模型: `SubscriptionRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+### Analysis
+
+#### POST /analysis/analyze
+
+**分析股票趋势**
+
+分析股票趋势，返回趋势方向、支撑阻力位和技术评分
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/comprehensive
+
+**综合分析**
+
+综合分析股票，整合趋势、量价、情绪等多维度分析
+返回综合评分和投资建议
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/overview
+
+**分析总览**
+
+轻量总览分析，返回评分与关键信号
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/fundamental
+
+**基本面分析**
+
+基本面分析
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/klines
+
+**K线数据**
+
+获取K线数据（默认150条）
+
+**请求参数: **
+
+- `limit` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/volume-price
+
+**量价分析**
+
+分析成交量与价格的关系
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/sentiment
+
+**市场情绪分析**
+
+分析市场情绪和恐慌程度
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/patterns
+
+**形态识别**
+
+识别K线形态和图表形态
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/prediction
+
+**AI价格预测**
+
+使用AI模型预测未来价格
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/correlation
+
+**多股票相关性分析**
+
+分析多只股票之间的价格相关性
+返回相关性矩阵和统计信息
+
+**请求体: **
+
+参考模型: `CorrelationRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/prediction/compare
+
+**多模型预测对比**
+
+使用多个模型进行预测并对比结果
+同时返回 Random Forest 和 LSTM 的预测结果
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/prediction/lstm
+
+**LSTM 模型预测**
+
+使用 LSTM 神经网络模型进行价格预测
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/train/all
+
+**训练所有模型**
+
+为指定股票训练所有可用的预测模型
+包括 Random Forest 和 LSTM
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/technical-indicators
+
+**技术指标快照**
+
+获取常用技术指标快照（RSI、MACD、布林带）
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/sentiment-history
+
+**历史情绪趋势**
+
+获取过去N天的恐慌贪婪指数历史趋势
+
+**请求参数: **
+
+- `days` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/industry-comparison
+
+**行业对比分析**
+
+获取同行业公司的关键指标对比
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /analysis/risk-metrics
+
+**风险评估增强**
+
+获取 VaR、最大回撤、夏普比率等风险指标
+
+**请求体: **
+
+参考模型: `TrendAnalysisRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+### Optimization
+
+#### POST /optimization/optimize
+
+**投资组合优化**
+
+计算投资组合的最优资产配置权重
+
+**请求体: **
+
+参考模型: `Body_optimize_portfolio_optimization_optimize_post`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+### Trading
+
+#### GET /trade/portfolio
+
+**获取投资组合状态**
+
+获取当前账户余额、持仓和总资产
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### POST /trade/execute
+
+**执行交易**
+
+执行买入或卖出交易
+
+**请求体: **
+
+参考模型: `TradeRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /trade/history
+
+**获取交易历史**
+
+获取历史交易记录
+
+**请求参数: **
+
+- `limit` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /trade/reset
+
+**重置账户**
+
+重置模拟账户
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+### Industry Analysis
+
+#### GET /industry/industries/heatmap
+
+**Get Industry Heatmap**
+
+获取行业热力图数据
+
+返回所有行业的涨跌幅和市值数据，用于渲染热力图可视化。
+
+**请求参数: **
+
+- `days` （可选）: 分析周期（天）
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/industries/heatmap/history
+
+**Get Industry Heatmap History**
+
+获取行业热力图历史快照。
+
+用于行业热度模块的历史回放。当前返回服务端近期保留的快照窗口。
+
+**请求参数: **
+
+- `limit` （可选）: 返回快照数量
+- `days` （可选）: 按周期过滤
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/bootstrap
+
+**Get Industry Bootstrap**
+
+**请求参数: **
+
+- `days` （可选）: 热力图与默认热度排序使用的周期
+- `ranking_top_n` （可选）: 预热排行榜条数
+- `leader_top_n` （可选）: 预热龙头股总条数
+- `top_industries` （可选）: 龙头股从前N个热门行业中选取
+- `per_industry` （可选）: 每个行业选取的龙头数量
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/leaders
+
+**Get Leader Stocks**
+
+获取龙头股推荐列表
+
+- hot (热点先锋): 使用独立的 0-100 动量评分，聚焦短期涨势与资金关注度。
+- core (核心资产): 使用 0-100 综合评分，侧重长线基本面与流动性。
+
+**请求参数: **
+
+- `top_n` （可选）: 返回龙头股数量
+- `top_industries` （可选）: 从前N个热门行业中选取
+- `per_industry` （可选）: 每个行业选取的龙头数量
+- `list_type` （可选）: 榜单类型：hot(热点先锋) 或 core(核心资产)
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/leaders/overview
+
+**Get Leader Boards**
+
+一次性返回核心资产与热点先锋榜单，减少前端冷启动的双请求成本。
+
+**请求参数: **
+
+- `top_n` （可选）: 返回龙头股数量
+- `top_industries` （可选）: 从前N个热门行业中选取
+- `per_industry` （可选）: 每个行业选取的龙头数量
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/leaders/{symbol}/detail
+
+**Get Leader Detail**
+
+获取龙头股详细分析
+
+返回指定股票的完整分析报告，包括评分详情、技术分析和历史价格。
+
+- **symbol**: 股票代码（如 "000001"、"600519"）
+
+**请求参数: **
+
+- `symbol` （必需）: 无描述
+- `score_type` （可选）: 评分类型: core 或 hot
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/industries/hot
+
+**Get Hot Industries**
+
+获取热门行业排名
+
+基于动量、资金流向和成交量变化综合评分，识别当前市场关注度高的行业。
+
+- **top_n**: 返回排名前 N 的行业
+- **lookback_days**: 用于计算动量和资金流向的回看周期
+- **sort_by**: 排序字段 (total_score, change_pct, money_flow, industry_volatility)
+- **order**: 排序顺序 (desc, asc)
+- **include_policy_signal**: 可选，附带 policy_radar 行业级政策信号；缺数据时为 None
+
+**请求参数: **
+
+- `top_n` （可选）: 返回前N个热门行业
+- `lookback_days` （可选）: 回看周期（天）
+- `sort_by` （可选）: 排序字段: total_score, change_pct, money_flow, industry_volatility
+- `order` （可选）: 排序顺序: desc, asc
+- `include_policy_signal` （可选）: 是否在每一行附带 policy_radar 政策信号 (avg_impact / mentions / signal / last_refresh_at)。默认 false，保持既有调用方不变；缺少政策数据的行业返回 None。
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/industries/{industry_name}/stocks
+
+**Get Industry Stocks**
+
+获取行业成分股及排名
+
+返回指定行业内按综合得分排名的股票列表。
+
+- **industry_name**: 行业名称（如 "电子"、"医药生物"）
+- **top_n**: 返回排名前 N 的股票
+
+**请求参数: **
+
+- `industry_name` （必需）: 无描述
+- `top_n` （可选）: 返回前N只股票
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/industries/{industry_name}/stocks/status
+
+**Get Industry Stock Build Status**
+
+**请求参数: **
+
+- `industry_name` （必需）: 无描述
+- `top_n` （可选）: 返回前N只股票
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/industries/{industry_name}/stocks/stream
+
+**Stream Industry Stock Build Status**
+
+**请求参数: **
+
+- `industry_name` （必需）: 无描述
+- `top_n` （可选）: 返回前N只股票
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/preferences
+
+**Get Industry Preferences**
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### PUT /industry/preferences
+
+**Update Industry Preferences**
+
+**请求体: **
+
+参考模型: `IndustryPreferencesResponse`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/preferences/export
+
+**Export Industry Preferences**
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### POST /industry/preferences/import
+
+**Import Industry Preferences**
+
+**请求体: **
+
+参考模型: `IndustryPreferencesResponse`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/industries/{industry_name}/trend
+
+**Get Industry Trend**
+
+获取行业趋势分析
+
+返回指定行业的详细趋势分析，包括涨幅/跌幅前5的股票。
+
+**请求参数: **
+
+- `industry_name` （必需）: 无描述
+- `days` （可选）: 分析周期（天）
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/industries/clusters
+
+**Get Industry Clusters**
+
+获取行业聚类分析
+
+使用 K-Means 算法将行业聚类为热门组和非热门组。
+
+**请求参数: **
+
+- `n_clusters` （可选）: 聚类数量
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/industries/rotation
+
+**Get Industry Rotation**
+
+获取行业轮动对比数据
+
+比较多个行业在不同时间周期的涨跌幅表现。
+
+- **industries**: 行业名称列表，用逗号分隔（如2-5个）
+
+**请求参数: **
+
+- `industries` （必需）: 行业名称列表，逗号分隔
+- `periods` （可选）: 统计周期列表，逗号分隔，如 1,5,20
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/industries/intelligence
+
+**行业生命周期、ETF 映射与事件日历**
+
+**请求参数: **
+
+- `top_n` （可选）: 分析前 N 个热门行业
+- `lookback_days` （可选）: 热度回看周期
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/industries/network
+
+**行业相关性网络图**
+
+**请求参数: **
+
+- `top_n` （可选）: 网络节点数量
+- `lookback_days` （可选）: 热度回看周期
+- `min_similarity` （可选）: 最小相似度
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /industry/health
+
+**Health Check**
+
+行业分析模块健康检查 + 数据源状态
+
+返回当前活跃数据源、能力、连接状态等详细信息
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+### Events
+
+#### POST /events/summary
+
+**获取股票相关事件**
+
+获取股票的事件信息，包括财报、分红和新闻
+
+**请求体: **
+
+参考模型: `EventRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+### Cross Market
+
+#### GET /cross-market/templates
+
+**Get cross-market demo templates**
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### POST /cross-market/backtest
+
+**Run cross-market backtest**
+
+**请求体: **
+
+参考模型: `CrossMarketBacktestRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+### Infrastructure
+
+#### GET /infrastructure/status
+
+**基础设施状态**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/auth/token
+
+**签发本地研究令牌**
+
+**请求体: **
+
+参考模型: `TokenRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/auth/login
+
+**本地用户密码登录**
+
+**请求体: **
+
+参考模型: `LoginRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/auth/refresh
+
+**使用 refresh token 刷新访问令牌**
+
+**请求体: **
+
+参考模型: `RefreshRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/oauth/token
+
+**OAuth2 Password / Refresh Token 交换**
+
+**请求体: **
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /infrastructure/auth/users
+
+**查看本地用户目录**
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### POST /infrastructure/auth/users
+
+**创建或更新本地用户**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `AuthUserRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /infrastructure/auth/oauth/providers
+
+**查看 OAuth Provider 配置**
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### POST /infrastructure/auth/oauth/providers
+
+**创建或更新 OAuth Provider**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `OAuthProviderRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/auth/oauth/providers/sync-env
+
+**从环境变量同步 OAuth Provider**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /infrastructure/auth/oauth/providers/{provider_id}/diagnostics
+
+**诊断 OAuth Provider 配置**
+
+**请求参数: **
+
+- `provider_id` （必需）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/auth/oauth/providers/{provider_id}/authorize
+
+**生成 OAuth 授权链接**
+
+**请求参数: **
+
+- `provider_id` （必需）: 无描述
+
+**请求体: **
+
+参考模型: `OAuthAuthorizationRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/auth/oauth/providers/{provider_id}/exchange
+
+**交换 OAuth 授权码**
+
+**请求参数: **
+
+- `provider_id` （必需）: 无描述
+
+**请求体: **
+
+参考模型: `OAuthExchangeRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /infrastructure/auth/oauth/providers/{provider_id}/callback
+
+**OAuth 登录回调**
+
+**请求参数: **
+
+- `provider_id` （必需）: 无描述
+- `code` （可选）: 无描述
+- `state` （可选）: 无描述
+- `error` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/auth/sessions/{session_id}/revoke
+
+**撤销 refresh session**
+
+**请求参数: **
+
+- `session_id` （必需）: 无描述
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/auth/policy
+
+**更新认证策略**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `AuthPolicyRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/tasks
+
+**提交异步任务**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `TaskRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /infrastructure/tasks
+
+**查看任务队列**
+
+**请求参数: **
+
+- `limit` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /infrastructure/tasks/{task_id}
+
+**查看任务状态**
+
+**请求参数: **
+
+- `task_id` （必需）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/tasks/{task_id}/cancel
+
+**取消异步任务**
+
+**请求参数: **
+
+- `task_id` （必需）: 无描述
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/rate-limits
+
+**更新按用户 / 按端点限流规则**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `RateLimitUpdateRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/persistence/records
+
+**写入持久化记录**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `RecordRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /infrastructure/persistence/records
+
+**读取持久化记录**
+
+**请求参数: **
+
+- `record_type` （可选）: 无描述
+- `limit` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /infrastructure/persistence/diagnostics
+
+**查看数据库 / TimescaleDB 接入诊断**
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### POST /infrastructure/persistence/bootstrap
+
+**初始化 PostgreSQL / TimescaleDB 持久化结构**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `PersistenceBootstrapRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /infrastructure/persistence/migration/preview
+
+**预览 SQLite fallback -> PostgreSQL 迁移**
+
+**请求参数: **
+
+- `sqlite_path` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/persistence/migration/run
+
+**执行 SQLite fallback -> PostgreSQL 迁移**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `PersistenceMigrationRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/persistence/timeseries
+
+**写入时序记录**
+
+**请求体: **
+
+参考模型: `TimeSeriesRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /infrastructure/persistence/timeseries
+
+**读取时序记录**
+
+**请求参数: **
+
+- `series_name` （可选）: 无描述
+- `symbol` （可选）: 无描述
+- `limit` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/config-versions
+
+**保存配置版本**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `ConfigVersionRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /infrastructure/config-versions
+
+**读取配置版本**
+
+**请求参数: **
+
+- `config_type` （必需）: 无描述
+- `config_key` （必需）: 无描述
+- `owner_id` （可选）: 无描述
+- `limit` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /infrastructure/config-versions/diff
+
+**对比配置版本**
+
+**请求参数: **
+
+- `config_type` （必需）: 无描述
+- `config_key` （必需）: 无描述
+- `from_version` （必需）: 无描述
+- `to_version` （必需）: 无描述
+- `owner_id` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/config-versions/restore
+
+**从历史配置恢复为新版本**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `ConfigRestoreRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/notifications/test
+
+**测试通知通道**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
+**请求体: **
+
+参考模型: `NotificationRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /infrastructure/notifications/channels
+
+**保存通知渠道**
+
+**请求体: **
+
+参考模型: `NotificationChannelRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### DELETE /infrastructure/notifications/channels/{channel_id}
+
+**删除通知渠道**
+
+**请求参数: **
+
+- `channel_id` （必需）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+### Research Journal
+
+#### GET /research-journal/snapshot
+
+**获取统一研究档案快照**
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### PUT /research-journal/snapshot
+
+**同步统一研究档案快照**
+
+**请求体: **
+
+参考模型: `ResearchJournalSnapshotRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /research-journal/entries
+
+**新增一条研究档案记录**
+
+**请求体: **
+
+参考模型: `ResearchJournalEntryRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### PATCH /research-journal/entries/{entry_id}/status
+
+**更新研究档案记录状态**
+
+**请求参数: **
+
+- `entry_id` （必需）: 无描述
+
+**请求体: **
+
+参考模型: `ResearchJournalStatusRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+### Policy Radar
+
+#### GET /policy-radar/signal
+
+**获取最新政策雷达综合信号**
+
+返回 PolicySignalProvider 的最新汇总信号：industry_signals / source_health / policy_count / last_refresh。底层数据来自 AltDataManager 的 60 分钟缓存，不会触发现场抓取或 NLP 推理。
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### GET /policy-radar/records
+
+**获取政策雷达历史记录**
+
+按时间倒序返回最近的政策记录，可选按行业 tag 过滤。`industry` 与记录 tags 完全匹配（区分大小写按字面值）。`timeframe` 形如 `7d` / `30d`。
+
+**请求参数: **
+
+- `industry` （可选）: 可选：仅返回 tags 包含该值的记录
+- `timeframe` （可选）: 时间窗（如 7d / 30d）
+- `limit` （可选）: 最多返回的记录条数
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+### Paper Trading
+
+#### GET /paper/account
+
+**获取纸面账户当前状态**
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### POST /paper/orders
+
+**提交一笔纸面订单（立即成交）**
+
+**请求体: **
+
+参考模型: `PaperOrderRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /paper/orders
+
+**获取纸面订单历史**
+
+**请求参数: **
+
+- `limit` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /paper/reset
+
+**重置纸面账户至初始资金**
+
+**请求体: **
+
+参考模型: `PaperResetRequest`
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### DELETE /paper/orders/{order_id}
+
+**取消一笔挂单（仅 LIMIT pending）**
+
+**请求参数: **
+
+- `order_id` （必需）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+### ETF Rotation
+
+#### GET /etf-rotation/daily-signal
+
+**获取每日 ETF 轮动手动调仓建议**
+
+返回 ``scripts.daily_etf_signal.generate_plan`` 的完整计划字段：current_weights / target_weights / adjusted_weights / suggestions / risk_reasons。该接口只读、默认使用实时行情更新持仓现价，但不调用任何券商或下单接口。
+
+**请求参数: **
+
+- `threshold_weight` （可选）: 低于该权重差异的标的不会触发买卖建议（仅生成 hold）。未传时使用 strategy.json -> strategy.rebalance_threshold 的配置值。
+- `quote_source` （可选）: live=用实时行情刷新持仓现价；synthetic=使用截图种子的确定性行情。
+- `use_cache` （可选）: live 模式下是否允许使用实时行情缓存；手动刷新可传 false。
+- `enable_policy_signal_factor` （可选）: 可选：覆盖 strategy.json -> strategy.policy_signal_factor_enabled。true=本次调用启用 policy_radar 影响 ETF 权重；false=本次关闭；省略=沿用配置值（默认关闭）。
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /etf-rotation/live-target
+
+**读取最近一次后台刷新的 ETF 轮动目标仓位**
+
+返回 EtfRotationService 缓存的最新计划与刷新元数据。前端可高频轮询此端点而不触发底层数据拉取——后台刷新循环负责保持缓存常新。trigger_refresh=true 时即使非交易时段也会强制刷新一次。
+
+**请求参数: **
+
+- `trigger_refresh` （可选）: true=阻塞触发一次刷新（即使非交易时段）；false=仅读缓存。
+- `enable_policy_signal_factor` （可选）: 可选：trigger_refresh=true 时覆盖 strategy.policy_signal_factor_enabled；省略=沿用配置。
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /etf-rotation/refresh
+
+**强制刷新 ETF 轮动信号缓存**
+
+即使在非交易时段也立即重新计算一次 plan，并写入审计日志。
+
+**请求参数: **
+
+- `use_cache` （可选）: 无描述
+- `enable_policy_signal_factor` （可选）: 可选：覆盖 strategy.policy_signal_factor_enabled；true=本次启用；false=本次关闭；省略=沿用配置。
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /etf-rotation/analytics
+
+**策略 Edge 度量：IC + 命中率 + 每标的拆解**
+
+从审计日志计算策略的信息系数（Spearman 相关）和命中率，用于回答 “策略到底有没有 alpha” 这个问题。默认三档前瞻期：1 小时 / 4 小时 / 1 个交易日。60 日滚动 IC > 0.05 是行业经验上 “有可测量 edge” 的门槛。
+
+**请求参数: **
+
+- `horizons` （可选）: 逗号分隔的前瞻分钟数列表，默认 60,240,1440
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /etf-rotation/audit-log
+
+**读取 ETF 轮动信号审计日志**
+
+返回 JSON Lines 审计日志的最近 N 行（默认 200）。可选 ``since`` 参数（ISO timestamp）过滤更新时间。完全只读；日志位置 = ``ETF_AUDIT_LOG_PATH`` env / ``~/.config/etf-rotation/audit.jsonl``。
+
+**请求参数: **
+
+- `limit` （可选）: 无描述
+- `since` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /etf-rotation/reload-config
+
+**重载 strategy.json，不重启 backend 即可应用**
+
+重新读取 ``ETF_STRATEGY_CONFIG_PATH`` / ``~/.config/etf-rotation/strategy.json``，同步到 EtfRotationService 与 EtfPremiumMonitor，下次刷新自动生效。返回值是重载后的完整配置摘要（universe / risk_rules / strategy / refresh / regime / premium）。
+
+**请求参数: **
+
+- `refresh_after` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /etf-rotation/preferences
+
+**读取 ETF 轮动 UI 偏好（per-installation, 持久化到 JSON 文件）**
+
+返回当前用户在仪表盘里设置的偏好，目前只包含 ``policy_signal_factor_enabled``。``preference`` 反映文件里的原值（``null`` = 未设置），``effective`` 是把 config 默认折算进去之后“现在到底开没开”的真实状态。``source`` ∈ {{config, preference}} 解释 effective 是哪一档赢了。
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+#### POST /etf-rotation/preferences
+
+**更新 ETF 轮动 UI 偏好**
+
+POST 一个 JSON ``{policy_signal_factor_enabled: bool | null}``——``true``/``false`` 持久化（覆盖 config 默认），``null`` 清除该偏好（回退到 config 默认）。写入采用 temp-file + rename 原子模式，保证并发读不会读到半截 JSON。
+
+**请求体: **
+
+JSON格式请求体
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /etf-rotation/policy-factor-attribution
+
+**读取 policy_signal_factor 的 30 日实证归因报告**
+
+对启用了 policy_signal_factor 的历史调仓做归因回放：保留审计日志里的最终 ``adjusted_weights`` 作为 *factor-on*，并按每个 ETF 的 ``policy_adjustment.weight_before / weight_after`` 比例缩放最终权重，得到一个 post-overlay 的 *factor-off* proxy。两条权重路径在下一条审计 rebalance 之前持有（按 ETF 收盘价计算 mark-to-market），差值即 policy_signal_factor 对该窗口 P&L 的边际贡献。
+
+返回结构（``AttributionReport.to_dict()``）包含：聚合 on/off/contribution（逐窗口复利）、命中率、top winner/loser ETF、以及逐次调仓的拆解。结果按 ``period_days`` 缓存 5 分钟；审计日志 size/mtime 变化会自动打破缓存。
+
+**注意**：不计交易成本、不计调仓滞后；off leg 是比例 proxy，不是重新跑一遍完整策略 —— 详见模块顶部 docstring。
+
+**请求参数: **
+
+- `period_days` （可选）: 窗口长度（天），默认 30。
+- `refresh` （可选）: true=绕过 5 分钟缓存强制重算。
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /etf-rotation/backtest
+
+**历史回放 ETF 轮动策略并返回业绩指标**
+
+在已提交的历史价格矩阵（默认 ``data/etf_backtest/etf_prices_4y.csv``）上回放 ``EtfRotationStrategy``：根据指定的 ``period_start`` / ``period_end`` 窗口逐周（默认）调仓，输出 ``BacktestReport`` —— 总收益 / Sharpe / 最大回撤 / Calmar / 平均换手 / 命中率 / 等权 buy-and-hold 对照。
+
+``enable_policy_signal_factor`` 用于 A/B 测试因子开关；``strategy_config_overrides`` 接受一个 partial 的 strategy 块（如 ``min_score_to_hold``）。**不计算交易成本、不模拟买卖价差、不建模冲击成本** —— 详见 BacktestReport.caveats。调用预期同步，3 个月窗口 < 30s。
+
+**请求体: **
+
+JSON格式请求体
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /etf-rotation/walkforward
+
+**多窗口滚动回放 ETF 轮动策略并返回稳定性报告**
+
+把 ``EtfRotationBacktester`` 在已提交的历史价格矩阵（默认 ``data/etf_backtest/etf_prices_4y.csv``）上滚动多次，每次切一个 ``window_months`` 长的子窗口（默认 3 个月），按 ``step_months`` 步进 （默认 1 个月）。返回 ``WalkforwardReport`` —— 每个窗口的 BacktestReport 原样保留，并汇总：median/mean/std 窗口收益、正收益窗口比例、平均与最差 MaxDD、平均 Sharpe、平均 buy-hold 对照、0-1 的 ``consistency_score``。
+
+请求体（全部可选除明确标注）：``{period_start: ISO 日期, period_end: ISO 日期, window_months: int=3, step_months: int=1, enable_policy_signal_factor: bool=false, rebalance_freq_days: int=5, initial_capital: float=100000, strategy_config_overrides: object}``。``period_start`` / ``period_end`` 必填 —— 没有外层边界 walkforward 无从滚动。
+
+缓存 1 小时；缓存 key 包含所有窗口参数 + 价格 CSV 的 mtime/size，新 CSV 自动让全部 in-flight 缓存失效。同步执行，~13 个窗口实测 ~60s。**全部继承 v0.1 backtest 的简化**：无交易成本 / 无买卖价差 / 无冲击 / next-bar close 全额成交 / 无幸存者偏差；额外 walkforward 警示：重叠窗口在 ``aggregate_return_pct`` 上会双计重叠部分，看 ``median_window_return_pct`` 更稳。
+
+**请求体: **
+
+JSON格式请求体
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### POST /etf-rotation/strategy-comparison
+
+**同窗口对照回放 rotation / mean_reversion / blend 三大 ETF 策略**
+
+在已提交的历史价格矩阵（默认 ``data/etf_backtest/etf_prices_4y.csv``）上，让 ``EtfRotationStrategy`` / ``EtfMeanReversionStrategy`` / ``EtfStrategyBlend``（或任意子集，通过 ``strategies`` 字段筛选）在 **同一个** 窗口 / 同一份价格 / 同一个 rebalance 节奏下回放，返回 ``ComparisonReport``：每个策略的完整 ``BacktestReport`` + Sharpe / 总收益 / Calmar / MaxDD / 换手 单项冠军 + trending/choppy 区间分析（哪个策略在哪种 regime 占优）+ 全部有序两两的 return / sharpe / MaxDD 差值（A vs B = A 减 B，两个方向都返回）。
+
+请求体（全部可选除明确标注）：``{period_start: ISO 日期 (必填), period_end: ISO 日期 (必填), strategies: list[str] 或逗号分隔 str，默认全 3 个；enable_policy_signal_factor: bool=false（仅 rotation + blend 的 trend leg 消费，mean_reversion 按约定忽略 —— 避免反趋势策略对政策利好做二次叠加），rebalance_freq_days: int=5, initial_capital: float=100000, blend_regime: str=unknown (bull/correction/sideways/bear/crisis/unknown), strategy_config_overrides: object, refresh: bool=false}``。
+
+缓存 1 小时；缓存 key 包含所有比较参数 + 价格 CSV 的 mtime/size，新 CSV 自动让 in-flight 缓存失效；响应里带 ``cached: bool`` + ``cache_age_seconds``。同步执行，3 策略 × 15 个月窗口实测 ~10s。**全部继承 v0.1 backtest 简化**：无交易成本 / 无买卖价差 / 无冲击 / next-bar close 全额成交 / 无幸存者偏差 —— 比较是内部 apples-to-apples，但绝对收益不是 cost-adjusted 的活盘预测。
+
+**请求体: **
+
+JSON格式请求体
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /etf-rotation/regime-recommendation
+
+**基于市场状态分类返回推荐策略**
+
+对 ``data/etf_backtest/etf_prices_4y.csv`` 的最近 lookback_days 行做5 特征分类（trend R² / 波动率 / 偏度 / 回撤比 / 跨资产相关性）；每只 ETF 先在 lookback 起点归一化为 1.0，再构造等权市场代理，避免高价格基金支配信号。映射到 6 个 regime 之一，并返回对应的推荐策略 + config 覆盖。确定性、无 ML 模型；同样输入永远同样输出。
+
+实证锚点（commit ``a54b986`` 多策略比较）：2024-01-01 → 2025-04-30 窗口下，choppy 上半场 (R²=0.370) 是 rotation 胜出 (+5.48%)，trending 下半场 (R²=0.792) 是 mean_reversion 胜出 (+6.17%)。本端点把那张表落地成运行时建议。
+
+**请求参数: **
+
+- `lookback_days` （可选）: 计算窗口长度（交易日，默认 90）。
+- `trend_r2_threshold` （可选）: 可选：覆盖 trending 判定的 R² 阈值（默认 0.55）。
+- `vol_high_threshold` （可选）: 可选：覆盖 high-vol 阈值（年化波动率，默认 0.25）。
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+### 未分类
+
+#### GET /
+
+**Root**
+
+根路径
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
+### 健康检查
+
+#### GET /health
+
+**基础健康检查**
+
+基础健康检查接口
+
+**响应: **
+
+- **200**: Successful Response
+
+---
+
 ## 实时行情说明
 
 - **正式实时订阅入口**: `WS /ws/quotes`

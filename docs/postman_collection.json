@@ -4227,6 +4227,29 @@
       }
     },
     {
+      "name": "基于市场状态分类返回推荐策略",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/etf-rotation/regime-recommendation",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "etf-rotation",
+            "regime-recommendation"
+          ]
+        }
+      }
+    },
+    {
       "name": "Root",
       "request": {
         "method": "GET",
