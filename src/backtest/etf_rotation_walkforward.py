@@ -339,6 +339,19 @@ class EtfRotationWalkforwardAnalyzer:
         *,
         windows: Optional[Sequence[BacktestReport]] = None,
     ) -> WalkforwardReport:
+        caveats = [
+            "walkforward_overlapping_windows_double_count_overlap",
+            "sequential_execution_no_parallelism",
+            f"window_months={self._window_months}_step_months={self._step_months}",
+            f"empty_report:{reason}",
+        ]
+        seen: set[str] = set(caveats)
+        for report in windows or ():
+            for caveat in report.caveats:
+                if caveat not in seen:
+                    caveats.append(caveat)
+                    seen.add(caveat)
+
         return WalkforwardReport(
             period_start=(
                 str(self._period_start.date()) if self._period_start is not None else None
@@ -352,13 +365,8 @@ class EtfRotationWalkforwardAnalyzer:
             rebalance_freq_days=self._rebalance_freq_days,
             initial_capital=self._initial_capital,
             policy_signal_factor_enabled=self._policy_factor_enabled,
-            windows=list(windows) if windows else [],
-            caveats=[
-                "walkforward_overlapping_windows_double_count_overlap",
-                "sequential_execution_no_parallelism",
-                f"window_months={self._window_months}_step_months={self._step_months}",
-                f"empty_report:{reason}",
-            ],
+            windows=[],
+            caveats=caveats,
         )
 
 
