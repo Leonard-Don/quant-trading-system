@@ -176,8 +176,51 @@ describe('EtfWalkforwardPanel', () => {
     expect(summaryTag.textContent).toContain('median');
 
     expect(await screen.findByTestId('etf-walkforward-summary-tile')).toBeInTheDocument();
+    expect(screen.getByText('median 窗口收益')).toBeInTheDocument();
+    expect(screen.getByText('mean 窗口收益')).toBeInTheDocument();
+    expect(screen.getByText('std (pp)')).toBeInTheDocument();
+    expect(screen.getByText('% 正收益窗口')).toBeInTheDocument();
+    expect(screen.getByText('consistency')).toBeInTheDocument();
+    expect(screen.getByText('mean buy-hold/窗口')).toBeInTheDocument();
     expect(await screen.findByTestId('etf-walkforward-chart')).toBeInTheDocument();
     expect(await screen.findByTestId('etf-walkforward-table')).toBeInTheDocument();
+  });
+
+  it('renders a successful empty-window report as a degraded empty state', async () => {
+    const user = userEvent.setup();
+    const emptyReport = buildSampleReport({
+      n_windows: 0,
+      windows: [],
+      aggregate_return_pct: 0,
+      mean_window_return_pct: 0,
+      median_window_return_pct: 0,
+      return_std_pct: 0,
+      pct_positive_windows: 0,
+      mean_sharpe: 0,
+      median_sharpe: 0,
+      mean_max_dd_pct: 0,
+      worst_window_dd_pct: 0,
+      mean_buy_hold_return_pct: 0,
+      consistency_score: 0,
+      caveats: ['empty_report:no_windows_generated'],
+    });
+    const fetcher = makeFetcher(emptyReport);
+
+    render(<EtfWalkforwardPanel postWalkforward={fetcher} />);
+
+    await user.click(screen.getByTestId('etf-walkforward-run-button'));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+
+    const summaryTag = await screen.findByTestId('etf-walkforward-summary-tag');
+    expect(summaryTag.textContent).toContain('0%');
+    expect(summaryTag.textContent).toContain('median +0.00%');
+
+    const noWindows = await screen.findByTestId('etf-walkforward-no-windows');
+    expect(noWindows).toHaveTextContent('没有可用窗口');
+    expect(screen.queryByTestId('etf-walkforward-summary-tile')).toBeNull();
+    expect(screen.queryByTestId('etf-walkforward-chart')).toBeNull();
+    expect(screen.queryByTestId('etf-walkforward-table')).toBeNull();
+    expect(screen.queryByTestId('etf-walkforward-error')).toBeNull();
   });
 
   it('shows the loading state with the "约 30 秒 / 14 个窗口" hint while POST is in flight', async () => {
