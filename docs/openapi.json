@@ -7144,6 +7144,96 @@
         }
       }
     },
+    "/etf-rotation/regime-recommendation": {
+      "get": {
+        "tags": [
+          "ETF Rotation"
+        ],
+        "summary": "基于市场状态分类返回推荐策略",
+        "description": "对 ``data/etf_backtest/etf_prices_4y.csv`` 的最近 lookback_days 行做5 特征分类（trend R² / 波动率 / 偏度 / 回撤比 / 跨资产相关性）；每只 ETF 先在 lookback 起点归一化为 1.0，再构造等权市场代理，避免高价格基金支配信号。映射到 6 个 regime 之一，并返回对应的推荐策略 + config 覆盖。确定性、无 ML 模型；同样输入永远同样输出。\n\n实证锚点（commit ``a54b986`` 多策略比较）：2024-01-01 → 2025-04-30 窗口下，choppy 上半场 (R²=0.370) 是 rotation 胜出 (+5.48%)，trending 下半场 (R²=0.792) 是 mean_reversion 胜出 (+6.17%)。本端点把那张表落地成运行时建议。",
+        "operationId": "get_regime_recommendation_etf_rotation_regime_recommendation_get",
+        "parameters": [
+          {
+            "name": "lookback_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 10,
+              "description": "计算窗口长度（交易日，默认 90）。",
+              "default": 90,
+              "title": "Lookback Days"
+            },
+            "description": "计算窗口长度（交易日，默认 90）。"
+          },
+          {
+            "name": "trend_r2_threshold",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 1.0,
+                  "minimum": 0.0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "可选：覆盖 trending 判定的 R² 阈值（默认 0.55）。",
+              "title": "Trend R2 Threshold"
+            },
+            "description": "可选：覆盖 trending 判定的 R² 阈值（默认 0.55）。"
+          },
+          {
+            "name": "vol_high_threshold",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 2.0,
+                  "minimum": 0.0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "可选：覆盖 high-vol 阈值（年化波动率，默认 0.25）。",
+              "title": "Vol High Threshold"
+            },
+            "description": "可选：覆盖 high-vol 阈值（年化波动率，默认 0.25）。"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Regime Recommendation Etf Rotation Regime Recommendation Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/": {
       "get": {
         "summary": "Root",

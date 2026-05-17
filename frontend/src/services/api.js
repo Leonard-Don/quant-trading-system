@@ -823,6 +823,31 @@ export const getEtfRotationAnalytics = async ({ horizons = null } = {}) => {
   return response.data;
 };
 
+// Classify the current market regime over the trailing ``lookbackDays``
+// window of the committed historical price matrix and return the recommended
+// strategy + config overrides. Productisation of commit a54b986's
+// regime-separation finding (rotation wins choppy, MR wins trending).
+// Deterministic — same input → same output, so safe to poll on dashboard
+// mount without backend-side caching.
+export const getEtfRotationRegimeRecommendation = async ({
+  lookbackDays = 90,
+  trendR2Threshold = null,
+  volHighThreshold = null,
+} = {}) => {
+  const params = { lookback_days: lookbackDays };
+  if (typeof trendR2Threshold === 'number') {
+    params.trend_r2_threshold = trendR2Threshold;
+  }
+  if (typeof volHighThreshold === 'number') {
+    params.vol_high_threshold = volHighThreshold;
+  }
+  const response = await api.get('/etf-rotation/regime-recommendation', {
+    params,
+    ...withTimeoutProfile('standard'),
+  });
+  return response.data;
+};
+
 // Read the empirical attribution report for the policy_signal_factor over
 // the last ``periodDays`` days. Cached on the backend for 5 minutes;
 // ``refresh: true`` bypasses the cache.
