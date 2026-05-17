@@ -4,6 +4,12 @@ from .portfolio_backtester import PortfolioBacktester
 from .batch_backtester import BatchBacktester, WalkForwardAnalyzer
 from .cross_market_backtester import CrossMarketBacktester
 from .etf_rotation_backtest import BacktestReport, EtfRotationBacktester
+from .transaction_costs import (
+    CostBreakdown,
+    RebalanceEventInput,
+    TransactionCostModel,
+    apply_transaction_costs,
+)
 from .execution_engine import PortfolioExecutionConfig, PortfolioExecutionEngine
 from .signal_adapter import SignalAdapter, NormalizedSingleAssetSignals
 from .risk_manager import RiskManager, RiskContext, RiskAction, RiskDecision
@@ -47,4 +53,8 @@ __all__ = [
     "SizingContext",
     "SizingResult",
     "create_position_sizer",
+    "CostBreakdown",
+    "RebalanceEventInput",
+    "TransactionCostModel",
+    "apply_transaction_costs",
 ]

@@ -51,6 +51,14 @@ from src.backtest.etf_rotation_backtest import (  # noqa: E402
     BacktestReport,
     EtfRotationBacktester,
 )
+from src.backtest.transaction_costs import (  # noqa: E402
+    DEFAULT_BID_ASK_SPREAD_BPS,
+    DEFAULT_COMMISSION_BPS,
+    DEFAULT_MARKET_IMPACT_BPS_PER_PCT_ADV,
+    DEFAULT_MIN_COMMISSION_PER_TRADE,
+    DEFAULT_MIN_TRADE_SIZE_RMB,
+    TransactionCostModel,
+)
 from src.strategy.etf_rotation_config_loader import (  # noqa: E402
     StrategyConfig,
     load_strategy_config,
@@ -87,6 +95,7 @@ def run_backtest(
     initial_capital: float = DEFAULT_INITIAL_CAPITAL,
     strategy_config_path: Optional[Path] = None,
     strategy_config_overrides: Optional[dict[str, Any]] = None,
+    tc_model: Optional[TransactionCostModel] = None,
 ) -> BacktestReport:
     """Top-level orchestration the CLI / API both call into."""
 
@@ -121,6 +130,7 @@ def run_backtest(
         etf_industry_map=etf_industry_map or None,
         rebalance_freq_days=rebalance_freq_days,
         initial_capital=initial_capital,
+        tc_model=tc_model,
     )
     return backtester.run()
 
@@ -180,6 +190,30 @@ def format_report_markdown(report: BacktestReport) -> str:
         f"{_pct(report.comparable_buy_hold_return_pct)} |"
     )
     lines.append("")
+    if report.tc_enabled:
+        lines.append("## Transaction Costs")
+        lines.append("")
+        lines.append("| Metric | Value |")
+        lines.append("|---|---|")
+        lines.append(f"| Gross total return | {_pct(report.gross_total_return_pct)} |")
+        lines.append(f"| Net total return | {_pct(report.net_total_return_pct)} |")
+        lines.append(f"| Total TC cost | {report.total_tc_cost_pct:.4f}% |")
+        lines.append(
+            f"| Avg TC per rebalance | {report.avg_tc_per_rebalance_bps:.2f} bps |"
+        )
+        lines.append(
+            f"| TC drag (annualized) | {report.tc_drag_annualized_pct:.2f}% |"
+        )
+        if report.tc_model_params:
+            params = report.tc_model_params
+            lines.append(
+                f"| Model | commission={params.get('commission_bps')}bps, "
+                f"spread={params.get('bid_ask_spread_bps')}bps, "
+                f"impact={params.get('market_impact_bps_per_pct_adv')}bps/%ADV, "
+                f"min_commission={params.get('min_commission_per_trade')}RMB, "
+                f"min_trade_size={params.get('min_trade_size_rmb')}RMB |"
+            )
+        lines.append("")
     if report.rebalance_log:
         lines.append("## Rebalances")
         lines.append("")
@@ -232,9 +266,77 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_INITIAL_CAPITAL,
     )
+    parser.add_argument(
+        "--enable-tc",
+        action="store_true",
+        help=(
+            "Enable transaction-cost modelling (commission + spread + impact). "
+            "Defaults reflect CN ETF retail brokerage; tune via --commission-bps "
+            "/ --spread-bps / --impact-bps-per-pct-adv / --min-commission-rmb / "
+            "--min-trade-size-rmb."
+        ),
+    )
+    parser.add_argument(
+        "--commission-bps",
+        type=float,
+        default=DEFAULT_COMMISSION_BPS,
+        help=(
+            "Per-side commission in basis points (default %(default)s = 3 bps; "
+            "typical CN retail brokerage 0.025%%-0.03%%)."
+        ),
+    )
+    parser.add_argument(
+        "--spread-bps",
+        type=float,
+        default=DEFAULT_BID_ASK_SPREAD_BPS,
+        help=(
+            "Half-spread cost per side in basis points (default %(default)s)."
+        ),
+    )
+    parser.add_argument(
+        "--impact-bps-per-pct-adv",
+        type=float,
+        default=DEFAULT_MARKET_IMPACT_BPS_PER_PCT_ADV,
+        help=(
+            "Almgren-linear impact coefficient in bps per 1%% of ADV "
+            "(default %(default)s; fires only for trades >5%% of ADV)."
+        ),
+    )
+    parser.add_argument(
+        "--min-commission-rmb",
+        type=float,
+        default=DEFAULT_MIN_COMMISSION_PER_TRADE,
+        help=(
+            "Minimum commission per trade leg in RMB (default %(default)s; "
+            "universal CN broker floor)."
+        ),
+    )
+    parser.add_argument(
+        "--min-trade-size-rmb",
+        type=float,
+        default=DEFAULT_MIN_TRADE_SIZE_RMB,
+        help=(
+            "Minimum trade notional in RMB below which the trade is skipped "
+            "(default %(default)s)."
+        ),
+    )
     parser.add_argument("--output-md", type=Path, default=None)
     parser.add_argument("--output-json", type=Path, default=None)
     return parser
+
+
+def _build_tc_model_from_args(args: argparse.Namespace) -> Optional[TransactionCostModel]:
+    """Translate CLI flags into a :class:`TransactionCostModel` or None."""
+
+    if not getattr(args, "enable_tc", False):
+        return None
+    return TransactionCostModel(
+        commission_bps=args.commission_bps,
+        bid_ask_spread_bps=args.spread_bps,
+        market_impact_bps_per_pct_adv=args.impact_bps_per_pct_adv,
+        min_commission_per_trade=args.min_commission_rmb,
+        min_trade_size_rmb=args.min_trade_size_rmb,
+    )
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -249,6 +351,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         rebalance_freq_days=args.rebalance_freq_days,
         initial_capital=args.initial_capital,
         strategy_config_path=args.strategy_config,
+        tc_model=_build_tc_model_from_args(args),
     )
 
     payload = report.to_dict()

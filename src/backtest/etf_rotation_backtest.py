@@ -16,16 +16,22 @@ honours that contract: at each rebalance, we look up the **next-day**
 weight from the lagged matrix and hold it until the next rebalance bar.
 No same-bar close-to-close fills sneak in.
 
-v0.1 caveats
+v0.2 caveats
 ------------
-* **No transaction costs.** The harness does NOT model commission or any
-  per-trade fee. Live trading costs (CN ETF brokerage typically 0.012%–
-  0.03% one-way) will degrade the realised returns.
-* **No bid-ask spread / slippage.** All fills happen at the next bar's
-  close. In practice ETF spreads in CN are 1–3 bps for the popular tickers
-  and meaningfully wider for low-volume QDII; expect 2–10 bps drag.
-* **No market impact.** Position sizes here are notional. A real desk
-  trading >5% of an ETF's ADV would push prices around.
+* **Transaction costs are opt-in.** Pass a :class:`TransactionCostModel`
+  via the ``tc_model`` argument to deduct per-rebalance commission +
+  spread + impact (defaults track CN broker reality — see
+  ``src/backtest/transaction_costs.py``). With ``tc_model=None`` the
+  harness runs gross-of-fees exactly as v0.1, so existing callers see
+  no behavioural change.
+* **No bid-ask spread / slippage beyond the TC model.** When
+  ``tc_model=None`` no spread is charged. When a model is supplied,
+  ``bid_ask_spread_bps`` (default 5 bps per side) covers the half-spread
+  crossing cost.
+* **Market impact is conservative.** The Almgren-linear impact term
+  inside the TC model kicks in only when a single trade exceeds 5%
+  of ADV — fine for retail-sized portfolios, optimistic for desks
+  sizing larger.
 * **Strict next-bar fills.** No partial fills, no execution delay beyond
   the one-bar lag the strategy enforces. Real fills can take minutes to
   hours on illiquid CN ETFs.
@@ -34,8 +40,8 @@ v0.1 caveats
   the column from the universe.
 
 Use the harness to answer "does the scoring layer have any edge at all
-over the period?". Use the live audit log + attribution module to measure
-realised production results with execution costs baked in.
+over the period, net of realistic CN brokerage friction?". Use the live
+audit log + attribution module to measure realised production results.
 """
 
 from __future__ import annotations
@@ -50,6 +56,12 @@ from typing import Any, Optional, Union
 import numpy as np
 import pandas as pd
 
+from src.backtest.transaction_costs import (
+    CostBreakdown,
+    RebalanceEventInput,
+    TransactionCostModel,
+    apply_transaction_costs,
+)
 from src.strategy.etf_rotation_strategy import (
     TRADING_DAYS_PER_YEAR,
     EtfRotationConfig,
@@ -118,6 +130,19 @@ class BacktestReport:
     comparable_buy_hold_return_pct: float
     policy_signal_factor_enabled: bool
     rebalance_freq_days: int
+    # Transaction-cost annotations. When the backtester runs with
+    # ``tc_model=None`` (default), gross == net and the TC fields below
+    # are zero so existing consumers can ignore them. When a model is
+    # passed, ``total_return_pct`` is the **net** return (after fees)
+    # and ``gross_total_return_pct`` carries the original gross number
+    # alongside the absolute cost drag.
+    tc_enabled: bool = False
+    gross_total_return_pct: float = 0.0
+    net_total_return_pct: float = 0.0
+    total_tc_cost_pct: float = 0.0
+    avg_tc_per_rebalance_bps: float = 0.0
+    tc_drag_annualized_pct: float = 0.0
+    tc_model_params: Optional[dict[str, Any]] = None
     # Per-rebalance breakdown for downstream consumers (UI, audits).
     rebalance_log: list[dict[str, Any]] = field(default_factory=list)
     # Free-form caveats so consumers know what hasn't been modeled.
@@ -174,6 +199,7 @@ class EtfRotationBacktester:
         etf_industry_map: Optional[Mapping[str, str]] = None,
         rebalance_freq_days: int = DEFAULT_REBALANCE_FREQ_DAYS,
         initial_capital: float = DEFAULT_INITIAL_CAPITAL,
+        tc_model: Optional[TransactionCostModel] = None,
     ) -> None:
         if rebalance_freq_days < 1:
             raise ValueError("rebalance_freq_days must be >= 1")
@@ -187,6 +213,12 @@ class EtfRotationBacktester:
         self._policy_factor_enabled = bool(policy_signal_factor_enabled)
         self._industry_signals = dict(industry_signals) if industry_signals else None
         self._etf_industry_map = dict(etf_industry_map) if etf_industry_map else None
+        # Transaction-cost model is opt-in. When None, the harness runs
+        # gross-of-fees exactly as before (existing callers see no
+        # behavioural change). When a model is provided, each rebalance
+        # debits the cost in bps from the equity curve and the resulting
+        # report distinguishes gross vs net.
+        self._tc_model = tc_model
         # Audit history is currently passed through unchanged — the harness
         # does NOT use it for anything in v0.1, but storing it lets the
         # report carry a "n_audit_entries" hint and lets future revisions
@@ -270,6 +302,15 @@ class EtfRotationBacktester:
         metrics = self._compute_metrics(equity, win_rate, avg_turnover)
         bh_return = self._comparable_buy_hold_return(window_prices)
 
+        gross_equity = getattr(self, "_last_gross_equity", equity)
+        tc_summary = _summarise_tc(
+            rebalance_log=rebalance_log,
+            n_bars=len(window_prices),
+            tc_enabled=self._tc_model is not None,
+            equity=equity,
+            gross_equity=gross_equity,
+        )
+
         return BacktestReport(
             period_start=str(window_prices.index[0].date()),
             period_end=str(window_prices.index[-1].date()),
@@ -288,6 +329,19 @@ class EtfRotationBacktester:
             comparable_buy_hold_return_pct=bh_return,
             policy_signal_factor_enabled=self._policy_factor_enabled,
             rebalance_freq_days=self._rebalance_freq_days,
+            tc_enabled=self._tc_model is not None,
+            gross_total_return_pct=tc_summary["gross_total_return_pct"]
+            if self._tc_model is not None
+            else metrics["total_return_pct"],
+            net_total_return_pct=metrics["total_return_pct"]
+            if self._tc_model is not None
+            else metrics["total_return_pct"],
+            total_tc_cost_pct=tc_summary["total_tc_cost_pct"],
+            avg_tc_per_rebalance_bps=tc_summary["avg_tc_per_rebalance_bps"],
+            tc_drag_annualized_pct=tc_summary["tc_drag_annualized_pct"],
+            tc_model_params=(
+                self._tc_model.to_dict() if self._tc_model is not None else None
+            ),
             rebalance_log=rebalance_log,
             caveats=self._build_caveats(),
         )
@@ -334,6 +388,11 @@ class EtfRotationBacktester:
 
         idx = prices.index
         equity = pd.Series(self._initial_capital, index=idx, dtype=float)
+        # Parallel gross-of-TC equity series. Identical to ``equity`` when
+        # ``tc_model is None``; when TC is active, this curve skips the
+        # commission/spread/impact deduction so we can report the
+        # pre-friction total return alongside the net.
+        gross_equity = pd.Series(self._initial_capital, index=idx, dtype=float)
 
         # Active weights held into the next bar. We rebalance to the
         # strategy's *target* (post-lag) weight at each rebalance bar.
@@ -356,6 +415,7 @@ class EtfRotationBacktester:
             # spurious drift before the first rebalance.
             if bar_position == 0:
                 equity.iat[bar_position] = self._initial_capital
+                gross_equity.iat[bar_position] = self._initial_capital
             else:
                 period_return = float((active_weights * row_return).sum())
                 # Cash bucket implicitly earns 0% — gross_cap < 1 leaves the
@@ -364,6 +424,9 @@ class EtfRotationBacktester:
                 equity.iat[bar_position] = float(equity.iat[bar_position - 1]) * (
                     1.0 + period_return
                 )
+                gross_equity.iat[bar_position] = float(
+                    gross_equity.iat[bar_position - 1]
+                ) * (1.0 + period_return)
 
             # Rebalance: on the first bar AND on every cadence step
             # thereafter, slot in the strategy's lagged target weights.
@@ -371,6 +434,41 @@ class EtfRotationBacktester:
                 desired = target_weights.loc[dt].reindex(prices.columns).fillna(0.0)
                 turnover = float((desired - active_weights).abs().sum()) / 2.0
                 turnover_sum += turnover
+
+                # Apply transaction costs (if a model is configured) BEFORE
+                # snapshotting equity_after / period_return. Cost is in bps
+                # of current equity; we subtract a multiplicative factor so
+                # the equity curve carries the friction forward through
+                # compounding.
+                cost_entry: Optional[dict[str, Any]] = None
+                if self._tc_model is not None:
+                    weight_deltas = {
+                        sym: float(desired.get(sym, 0.0) - active_weights.get(sym, 0.0))
+                        for sym in prices.columns
+                    }
+                    pre_cost_equity = float(equity.iat[bar_position])
+                    breakdown = apply_transaction_costs(
+                        RebalanceEventInput(
+                            portfolio_value=pre_cost_equity,
+                            weight_deltas=weight_deltas,
+                        ),
+                        self._tc_model,
+                    )
+                    cost_bps = float(breakdown.total_cost_bps_of_portfolio)
+                    if cost_bps > 0:
+                        new_equity = pre_cost_equity * (1.0 - cost_bps / 10_000.0)
+                        equity.iat[bar_position] = float(new_equity)
+                    cost_entry = {
+                        "total_cost_rmb": float(breakdown.total_cost_rmb),
+                        "total_cost_bps": cost_bps,
+                        "commission_rmb": float(breakdown.commission_rmb),
+                        "spread_rmb": float(breakdown.spread_rmb),
+                        "impact_rmb": float(breakdown.impact_rmb),
+                        "n_trades_charged": int(breakdown.n_trades_charged),
+                        "n_trades_skipped_under_min": int(
+                            breakdown.n_trades_skipped_under_min
+                        ),
+                    }
 
                 # Period P&L since the prior rebalance — credits the win-rate
                 # accounting. Skip the very first bar because there's no
@@ -382,29 +480,31 @@ class EtfRotationBacktester:
                     if period_return_pct > 0:
                         positive_period_count += 1
                     period_count += 1
-                    rebalance_log.append(
-                        {
-                            "date": str(dt.date()),
-                            "weights": {
-                                k: float(v) for k, v in desired.items() if v > 1e-9
-                            },
-                            "turnover": float(turnover),
-                            "period_return_pct": float(period_return_pct * 100.0),
-                            "equity_after": float(equity.iat[bar_position]),
-                        }
-                    )
+                    rebalance_entry: dict[str, Any] = {
+                        "date": str(dt.date()),
+                        "weights": {
+                            k: float(v) for k, v in desired.items() if v > 1e-9
+                        },
+                        "turnover": float(turnover),
+                        "period_return_pct": float(period_return_pct * 100.0),
+                        "equity_after": float(equity.iat[bar_position]),
+                    }
+                    if cost_entry is not None:
+                        rebalance_entry["tc_cost"] = cost_entry
+                    rebalance_log.append(rebalance_entry)
                 else:
-                    rebalance_log.append(
-                        {
-                            "date": str(dt.date()),
-                            "weights": {
-                                k: float(v) for k, v in desired.items() if v > 1e-9
-                            },
-                            "turnover": float(turnover),
-                            "period_return_pct": 0.0,
-                            "equity_after": float(equity.iat[bar_position]),
-                        }
-                    )
+                    rebalance_entry = {
+                        "date": str(dt.date()),
+                        "weights": {
+                            k: float(v) for k, v in desired.items() if v > 1e-9
+                        },
+                        "turnover": float(turnover),
+                        "period_return_pct": 0.0,
+                        "equity_after": float(equity.iat[bar_position]),
+                    }
+                    if cost_entry is not None:
+                        rebalance_entry["tc_cost"] = cost_entry
+                    rebalance_log.append(rebalance_entry)
 
                 active_weights = desired.copy()
                 last_rebalance_equity = float(equity.iat[bar_position])
@@ -412,6 +512,11 @@ class EtfRotationBacktester:
         n_rebalances = max(len(rebalance_log), 1)
         avg_turnover = turnover_sum / n_rebalances
         win_rate = positive_period_count / period_count if period_count else 0.0
+        # Stash the gross-equity series on the instance so the caller can
+        # pull it out without reshaping the public return signature.
+        # Existing consumers ignore this; the report-construction path
+        # consumes it via ``self._last_gross_equity``.
+        self._last_gross_equity = gross_equity
         return equity, rebalance_log, win_rate, avg_turnover
 
     def _compute_metrics(
@@ -495,15 +600,34 @@ class EtfRotationBacktester:
         return float(per_asset_return.mean() * 100.0)
 
     def _build_caveats(self) -> list[str]:
-        return [
-            "no_transaction_costs_modeled",
-            "no_bid_ask_spread_or_slippage",
-            "no_market_impact",
+        caveats: list[str] = []
+        if self._tc_model is None:
+            # Original v0.1 caveat set when TC modelling is opt-out.
+            caveats.extend([
+                "no_transaction_costs_modeled",
+                "no_bid_ask_spread_or_slippage",
+                "no_market_impact",
+            ])
+        else:
+            # When TC modelling is on, the per-rebalance commission, spread,
+            # and impact terms are deducted from equity. Surface a single
+            # tag describing the active model parameters so downstream
+            # consumers know the report is net of fees.
+            caveats.append(
+                "transaction_costs_modeled"
+                f"(commission_bps={self._tc_model.commission_bps:.2f}"
+                f",spread_bps={self._tc_model.bid_ask_spread_bps:.2f}"
+                f",impact_bps_per_pct_adv={self._tc_model.market_impact_bps_per_pct_adv:.2f}"
+                f",min_commission_rmb={self._tc_model.min_commission_per_trade:.2f}"
+                f",min_trade_size_rmb={self._tc_model.min_trade_size_rmb:.2f})"
+            )
+        caveats.extend([
             "next_bar_close_fills_only",
             "equal_weight_buy_hold_benchmark",
             "ignores_survivorship_bias",
             f"rebalance_cadence_fixed_at_{self._rebalance_freq_days}_bar(s)",
-        ]
+        ])
+        return caveats
 
     def _empty_report(self, reason: str) -> BacktestReport:
         return BacktestReport(
@@ -528,6 +652,15 @@ class EtfRotationBacktester:
             comparable_buy_hold_return_pct=0.0,
             policy_signal_factor_enabled=self._policy_factor_enabled,
             rebalance_freq_days=self._rebalance_freq_days,
+            tc_enabled=self._tc_model is not None,
+            gross_total_return_pct=0.0,
+            net_total_return_pct=0.0,
+            total_tc_cost_pct=0.0,
+            avg_tc_per_rebalance_bps=0.0,
+            tc_drag_annualized_pct=0.0,
+            tc_model_params=(
+                self._tc_model.to_dict() if self._tc_model is not None else None
+            ),
             rebalance_log=[],
             caveats=[*self._build_caveats(), f"empty_report:{reason}"],
         )
@@ -546,6 +679,75 @@ def _to_timestamp(
     if isinstance(value, pd.Timestamp):
         return value
     return pd.Timestamp(value)
+
+
+def _summarise_tc(
+    *,
+    rebalance_log: list[dict[str, Any]],
+    n_bars: int,
+    tc_enabled: bool,
+    equity: pd.Series,
+    gross_equity: pd.Series,
+) -> dict[str, float]:
+    """Roll up per-rebalance TC entries into report-level summaries.
+
+    Returns a dict with these keys:
+
+    * ``gross_total_return_pct`` — total return on the parallel
+      *gross-of-TC* equity curve (the simulation runs both curves
+      side-by-side; the gross curve never gets the per-rebalance bps
+      drag deducted).
+    * ``total_tc_cost_pct`` — sum of per-rebalance bps drags expressed
+      as percent. NOT compounded; the additive "gross minus net" tag.
+    * ``avg_tc_per_rebalance_bps`` — arithmetic mean of bps drag per
+      charged rebalance. Skips zero-cost rebalances (e.g. a no-trade
+      rebalance day when desired == active weights).
+    * ``tc_drag_annualized_pct`` — additive cost drag annualised by
+      ``cost / years`` where ``years = n_bars / TRADING_DAYS_PER_YEAR``.
+
+    When ``tc_enabled=False`` the function returns zero on every TC
+    field so the report still has a uniform schema.
+    """
+
+    if not tc_enabled or not rebalance_log:
+        return {
+            "gross_total_return_pct": 0.0,
+            "total_tc_cost_pct": 0.0,
+            "avg_tc_per_rebalance_bps": 0.0,
+            "tc_drag_annualized_pct": 0.0,
+        }
+
+    total_cost_bps = 0.0
+    charged_count = 0
+    for entry in rebalance_log:
+        cost = entry.get("tc_cost")
+        cost_bps = float(cost.get("total_cost_bps", 0.0)) if cost else 0.0
+        if cost_bps > 0:
+            total_cost_bps += cost_bps
+            charged_count += 1
+
+    # Gross total return reads off the parallel gross-equity curve so it
+    # captures both inter-rebalance drift and the tail between the last
+    # rebalance and the end of the window.
+    initial = float(gross_equity.iloc[0])
+    final = float(gross_equity.iloc[-1])
+    if initial <= 0:
+        gross_total_return_pct = 0.0
+    else:
+        gross_total_return_pct = (final / initial - 1.0) * 100.0
+
+    total_tc_cost_pct = total_cost_bps / 100.0
+    avg_per_rebalance = total_cost_bps / max(charged_count, 1)
+
+    years = max(n_bars / TRADING_DAYS_PER_YEAR, 1.0 / TRADING_DAYS_PER_YEAR)
+    drag_annualized_pct = total_tc_cost_pct / years
+
+    return {
+        "gross_total_return_pct": float(gross_total_return_pct),
+        "total_tc_cost_pct": float(total_tc_cost_pct),
+        "avg_tc_per_rebalance_bps": float(avg_per_rebalance),
+        "tc_drag_annualized_pct": float(drag_annualized_pct),
+    }
 
 
 def _sanitize_for_json(obj: Any) -> Any:
@@ -574,5 +776,7 @@ __all__ = [
     "DEFAULT_INITIAL_CAPITAL",
     "DEFAULT_REBALANCE_FREQ_DAYS",
     "BacktestReport",
+    "CostBreakdown",
     "EtfRotationBacktester",
+    "TransactionCostModel",
 ]

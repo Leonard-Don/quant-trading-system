@@ -123,3 +123,33 @@ the single +6.37% number from the v0.1 window.
 - `equal_weight_buy_hold_benchmark`
 - `ignores_survivorship_bias`
 - `rebalance_cadence_fixed_at_5_bar(s)`
+
+---
+
+## Re-run with default Transaction Cost model (Unreleased)
+
+Same 14 windows, same universe, with `--enable-tc` (defaults: commission
+3 bps/side, spread 5 bps half, impact 0.5 bps/%ADV above 5%, commission
+floor 5 RMB, min trade 100 RMB):
+
+| Metric | Gross | Net (default TC) |
+|---|---|---|
+| Mean window return | +2.20% | **+1.96%** |
+| Median window return | +2.10% | **+1.79%** |
+| % positive windows | 9/14 (64.3%) | 9/14 (64.3%) |
+| Mean Sharpe | 0.96 | **0.86** |
+| Mean max-drawdown | 4.62% | **4.71%** |
+| Worst-window drawdown | 6.74% | **6.89%** |
+| Mean per-window TC cost | 0 | **0.29% (~24 bps/window)** |
+| Annualised TC drag | 0 | **1.22%** |
+
+The cost layer **does not flip the directional verdict**: 9 of 14
+windows are still positive net, the mean window return still beats
+zero (+1.96%), and the strategy still meaningfully trails the +5.05%
+mean per-window buy-hold benchmark. The annualised TC drag (~1.2%)
+matches the ~1.4% total drag observed in the same-window
+multi-strategy report — directly attributable to the 7.55%
+per-rebalance turnover and the universal 5 RMB CN broker floor.
+
+Generate this version yourself by adding `--enable-tc` to the
+reproduce command above.

@@ -116,7 +116,38 @@ BatchBacktester                # 多任务并行
 CrossMarketBacktester          # 跨市场组合
 PortfolioBacktester            # 组合优化驱动
 WalkForwardAnalyzer            # 时间序列交叉验证
+EtfRotationBacktester          # ETF 轮动 (opt-in TransactionCostModel)
+  ├── TransactionCostModel     # commission + spread + impact
+  └── (CostBreakdown per rebalance)
+EtfRotationWalkforwardAnalyzer # 多窗口稳定性 + TC 透传
+StrategyComparator             # 三策略对照 + TC 透传
 ```
+
+#### Transaction Cost modelling (Unreleased)
+
+`src/backtest/transaction_costs.py` 提供 ``TransactionCostModel`` /
+``apply_transaction_costs`` 两条入口；模型默认值贴 **CN 真实零售 ETF
+经纪现实**：
+
+- `commission_bps = 3.0` (per-side; CN 零售券商 ETF 大多 0.025%-0.03%)
+- `min_commission_per_trade = 5.0` 元 (华泰 / 国泰 / 中信 / 招商 / 平安
+  几乎都是 5 元 floor)
+- `bid_ask_spread_bps = 5.0` (half-spread; 主流 ETF 1-3 bps，QDII 8-15
+  bps；5 bps 是 weighted midpoint)
+- `market_impact_bps_per_pct_adv = 0.5` (Almgren-linear；只在单笔
+  > 5% ADV 触发，零售头寸基本免疫)
+- `min_trade_size_rmb = 100.0` (小于此 notional 自动跳过，对应实盘的
+  "下次再补"工作流)
+
+`EtfRotationBacktester(...)` / `EtfRotationWalkforwardAnalyzer(...)` /
+`StrategyComparator(...)` 全部接受可选 `tc_model: TransactionCostModel
+| None`：None 走 v0.1 gross-of-fees 路径（向后兼容），传入 model 则
+report 区分 `gross_total_return_pct` / `net_total_return_pct` /
+`total_tc_cost_pct` / `avg_tc_per_rebalance_bps` / `tc_drag_annualized_pct`。
+配套 CLI flag `--enable-tc / --commission-bps / --spread-bps /
+--impact-bps-per-pct-adv / --min-commission-rmb / --min-trade-size-rmb`
+与 HTTP body `tc_model: {commission_bps: ..., ...} | true | false`
+对齐。
 
 ### 3.3 策略层 — `src/strategy/`
 

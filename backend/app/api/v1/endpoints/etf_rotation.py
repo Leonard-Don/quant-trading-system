@@ -48,6 +48,7 @@ from src.backtest.strategy_comparison import (
     StrategyComparator,
     build_default_strategy_specs,
 )
+from src.backtest.transaction_costs import TransactionCostModel
 from src.research.policy_factor_attribution import (
     AttributionReport,
     compute_attribution,
@@ -768,6 +769,39 @@ def get_policy_factor_attribution(
 # ---------------------------------------------------------------------------
 
 
+def _parse_tc_model(payload: dict[str, Any]) -> Optional[TransactionCostModel]:
+    """Translate the optional ``tc_model`` body slot into a model instance.
+
+    Body shape accepted (all fields optional except presence of the key):
+
+        {"tc_model": {"commission_bps": 3.0, "bid_ask_spread_bps": 5.0, ...}}
+
+    Or simply ``{"tc_model": true}`` to enable the model with all defaults.
+    ``{"tc_model": false}`` or ``{"tc_model": null}`` / absence → opt-out
+    (the report stays gross-of-fees, matching pre-TC behaviour). Raises
+    ``HTTPException(422)`` on malformed inputs so the caller can surface
+    the error directly.
+    """
+
+    raw = payload.get("tc_model", None)
+    if raw is None or raw is False:
+        return None
+    if raw is True:
+        return TransactionCostModel()
+    if not isinstance(raw, dict):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "tc_model must be either a bool (true=defaults, "
+                "false/null=disabled) or a JSON object with override fields."
+            ),
+        )
+    try:
+        return TransactionCostModel.from_overrides(raw)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"tc_model: {exc}") from exc
+
+
 def _load_backtest_price_matrix(prices_csv_path: Optional[Path]) -> pd.DataFrame:
     """Load the wide price matrix used by the backtest endpoint.
 
@@ -866,6 +900,7 @@ def post_backtest(
         if loaded:
             industry_signals = dict(loaded)
 
+    tc_model = _parse_tc_model(payload)
     backtester = EtfRotationBacktester(
         config=config,
         price_history=prices,
@@ -876,6 +911,7 @@ def post_backtest(
         etf_industry_map=etf_industry_map,
         rebalance_freq_days=rebalance_freq_days,
         initial_capital=initial_capital,
+        tc_model=tc_model,
     )
     report = backtester.run()
     return {"success": True, "data": report.to_dict()}
@@ -997,8 +1033,12 @@ def post_walkforward(
     stat = csv_path.stat()
 
     # Cache key — including overrides via repr() so the hash distinguishes
-    # parameter variations without needing each field broken out.
+    # parameter variations without needing each field broken out. The
+    # reserved slot stores a stable repr of the TC model so toggling the
+    # cost layer (or tweaking its params) invalidates the cache.
     overrides_key = repr(sorted(overrides.items())) if overrides else ""
+    tc_payload = payload.get("tc_model")
+    tc_key = repr(tc_payload) if tc_payload is not None else ""
     cache_key = (
         str(period_start),
         str(period_end),
@@ -1008,7 +1048,7 @@ def post_walkforward(
         enable_policy_signal_factor,
         int(initial_capital * 100),  # cents-precision key so floats key cleanly
         float(0),  # reserved slot — keep cache_key shape stable for future params
-        overrides_key,
+        overrides_key + "|tc=" + tc_key,
         int(stat.st_mtime_ns),
         int(stat.st_size),
     )
@@ -1053,6 +1093,7 @@ def post_walkforward(
         if loaded:
             industry_signals = dict(loaded)
 
+    tc_model = _parse_tc_model(payload)
     analyzer = EtfRotationWalkforwardAnalyzer(
         config=config,
         price_history=prices,
@@ -1065,6 +1106,7 @@ def post_walkforward(
         etf_industry_map=etf_industry_map,
         rebalance_freq_days=rebalance_freq_days,
         initial_capital=initial_capital,
+        tc_model=tc_model,
     )
     report = analyzer.run()
     response_payload = report.to_dict()
@@ -1220,6 +1262,8 @@ def post_strategy_comparison(
     stat = csv_path.stat()
 
     overrides_key = repr(sorted(overrides.items())) if overrides else ""
+    tc_payload = payload.get("tc_model")
+    tc_key = repr(tc_payload) if tc_payload is not None else ""
     cache_key = (
         str(period_start),
         str(period_end),
@@ -1229,7 +1273,7 @@ def post_strategy_comparison(
         int(initial_capital * 100),
         float(0),  # reserved slot — keep cache_key shape stable for future params
         blend_regime,
-        overrides_key,
+        overrides_key + "|tc=" + tc_key,
         int(stat.st_mtime_ns),
         int(stat.st_size),
     )
@@ -1279,6 +1323,7 @@ def post_strategy_comparison(
     )
     chosen_specs = [all_specs[label] for label in strategy_labels]
 
+    tc_model = _parse_tc_model(payload)
     comparator = StrategyComparator(
         strategies=chosen_specs,
         price_history=prices,
@@ -1288,6 +1333,7 @@ def post_strategy_comparison(
         etf_industry_map=etf_industry_map,
         rebalance_freq_days=rebalance_freq_days,
         initial_capital=initial_capital,
+        tc_model=tc_model,
     )
     report = comparator.run()
     response_payload = report.to_dict()

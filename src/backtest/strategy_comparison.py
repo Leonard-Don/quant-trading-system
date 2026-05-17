@@ -69,7 +69,9 @@ from src.backtest.etf_rotation_backtest import (
     BacktestReport,
     EtfRotationBacktester,
     _sanitize_for_json,
+    _summarise_tc,
 )
+from src.backtest.transaction_costs import TransactionCostModel
 from src.strategy.etf_mean_reversion_strategy import (
     EtfMeanReversionRotationConfig,
     EtfMeanReversionStrategy,
@@ -411,6 +413,7 @@ class _ExternalSignalRotationBacktester(EtfRotationBacktester):
         etf_industry_map: Optional[Mapping[str, str]] = None,
         rebalance_freq_days: int = DEFAULT_REBALANCE_FREQ_DAYS,
         initial_capital: float = DEFAULT_INITIAL_CAPITAL,
+        tc_model: Optional[TransactionCostModel] = None,
     ) -> None:
         # Mean-reversion / blend never honour the policy flag — only the
         # rotation strategy and blend's trend leg consume industry
@@ -427,6 +430,7 @@ class _ExternalSignalRotationBacktester(EtfRotationBacktester):
             etf_industry_map=etf_industry_map,
             rebalance_freq_days=rebalance_freq_days,
             initial_capital=initial_capital,
+            tc_model=tc_model,
         )
         self._signal_generator = signal_generator
         self._strategy_label = strategy_label
@@ -475,6 +479,15 @@ class _ExternalSignalRotationBacktester(EtfRotationBacktester):
         metrics = self._compute_metrics(equity, win_rate, avg_turnover)
         bh_return = self._comparable_buy_hold_return(window_prices)
 
+        gross_equity = getattr(self, "_last_gross_equity", equity)
+        tc_summary = _summarise_tc(
+            rebalance_log=rebalance_log,
+            n_bars=len(window_prices),
+            tc_enabled=self._tc_model is not None,
+            equity=equity,
+            gross_equity=gross_equity,
+        )
+
         return BacktestReport(
             period_start=str(window_prices.index[0].date()),
             period_end=str(window_prices.index[-1].date()),
@@ -493,6 +506,19 @@ class _ExternalSignalRotationBacktester(EtfRotationBacktester):
             comparable_buy_hold_return_pct=bh_return,
             policy_signal_factor_enabled=self._policy_factor_enabled,
             rebalance_freq_days=self._rebalance_freq_days,
+            tc_enabled=self._tc_model is not None,
+            gross_total_return_pct=tc_summary["gross_total_return_pct"]
+            if self._tc_model is not None
+            else metrics["total_return_pct"],
+            net_total_return_pct=metrics["total_return_pct"]
+            if self._tc_model is not None
+            else metrics["total_return_pct"],
+            total_tc_cost_pct=tc_summary["total_tc_cost_pct"],
+            avg_tc_per_rebalance_bps=tc_summary["avg_tc_per_rebalance_bps"],
+            tc_drag_annualized_pct=tc_summary["tc_drag_annualized_pct"],
+            tc_model_params=(
+                self._tc_model.to_dict() if self._tc_model is not None else None
+            ),
             rebalance_log=rebalance_log,
             caveats=[*self._build_caveats(), f"strategy_label:{self._strategy_label}"],
         )
@@ -591,6 +617,12 @@ class ComparisonReport:
     winner_by_max_dd: WinnerSummary  # lower drawdown wins
     winner_by_turnover: WinnerSummary  # lower turnover wins
     regime_analysis: Optional[RegimeBreakdown]
+    # Transaction-cost metadata at the comparison level. Each per-strategy
+    # ``BacktestReport`` carries its own TC summary; these two top-level
+    # fields let callers learn "is this comparison net of TC?" without
+    # walking the nested reports.
+    tc_enabled: bool = False
+    tc_model_params: Optional[dict[str, Any]] = None
     pairwise_spreads: list[PairwiseSpread] = field(default_factory=list)
     caveats: list[str] = field(default_factory=list)
 
@@ -633,6 +665,7 @@ class StrategyComparator:
         etf_industry_map: Optional[Mapping[str, str]] = None,
         rebalance_freq_days: int = DEFAULT_REBALANCE_FREQ_DAYS,
         initial_capital: float = DEFAULT_INITIAL_CAPITAL,
+        tc_model: Optional[TransactionCostModel] = None,
     ) -> None:
         if rebalance_freq_days < 1:
             raise ValueError("rebalance_freq_days must be >= 1")
@@ -653,6 +686,7 @@ class StrategyComparator:
         )
         self._rebalance_freq_days = int(rebalance_freq_days)
         self._initial_capital = float(initial_capital)
+        self._tc_model = tc_model
 
         # Validate that labels are unique up-front so the report's dict
         # keys don't silently collide and shadow one strategy.
@@ -679,6 +713,7 @@ class StrategyComparator:
                 etf_industry_map=self._etf_industry_map,
                 rebalance_freq_days=self._rebalance_freq_days,
                 initial_capital=self._initial_capital,
+                tc_model=self._tc_model,
             )
             per_strategy[spec.label] = backtester.run()
 
@@ -737,6 +772,10 @@ class StrategyComparator:
             winner_by_max_dd=winner_max_dd,
             winner_by_turnover=winner_turnover,
             regime_analysis=regime,
+            tc_enabled=self._tc_model is not None,
+            tc_model_params=(
+                self._tc_model.to_dict() if self._tc_model is not None else None
+            ),
             pairwise_spreads=spreads,
             caveats=caveats,
         )
@@ -946,6 +985,10 @@ class StrategyComparator:
                 none_winner, metric="avg_turnover_pct", higher_is_better=False,
             ),
             regime_analysis=None,
+            tc_enabled=self._tc_model is not None,
+            tc_model_params=(
+                self._tc_model.to_dict() if self._tc_model is not None else None
+            ),
             pairwise_spreads=[],
             caveats=[f"empty_report:{reason}"],
         )
@@ -1137,6 +1180,33 @@ def render_comparison_markdown(report: ComparisonReport) -> str:
             f"{r.comparable_buy_hold_return_pct:.2f} |"
         )
     lines.append("")
+
+    if report.tc_enabled:
+        lines.append("## 交易成本拆解 (Gross vs Net)")
+        lines.append("")
+        lines.append(
+            "| 策略 | 毛收益 % | 净收益 % | TC 总成本 % | 平均 bps/调仓 | 年化拖累 % |"
+        )
+        lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
+        for label in report.strategy_labels:
+            r = report.per_strategy_metrics[label]
+            lines.append(
+                f"| `{label}` | {r.gross_total_return_pct:+.2f} | "
+                f"{r.net_total_return_pct:+.2f} | {r.total_tc_cost_pct:.4f} | "
+                f"{r.avg_tc_per_rebalance_bps:.2f} | "
+                f"{r.tc_drag_annualized_pct:.2f} |"
+            )
+        lines.append("")
+        params = report.tc_model_params or {}
+        if params:
+            lines.append(
+                f"> TC 模型: commission={params.get('commission_bps')} bps "
+                f"per-side · spread={params.get('bid_ask_spread_bps')} bps half · "
+                f"impact={params.get('market_impact_bps_per_pct_adv')} bps/%ADV · "
+                f"min_commission={params.get('min_commission_per_trade')} 元 · "
+                f"min_trade={params.get('min_trade_size_rmb')} 元"
+            )
+            lines.append("")
 
     lines.append("## 单项冠军")
     lines.append("")
