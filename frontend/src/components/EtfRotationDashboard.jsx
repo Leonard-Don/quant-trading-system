@@ -32,6 +32,8 @@ import {
   postEtfRotationReloadConfig,
 } from '../services/api';
 
+import EtfPolicyFactorAttributionPanel from './EtfPolicyFactorAttributionPanel';
+
 const { Text, Title } = Typography;
 
 const ETF_NAMES = {
@@ -911,6 +913,10 @@ const EtfRotationDashboard = () => {
                   )}
                 </Card>
               ) : null}
+              <EtfPolicyFactorAttributionPanel
+                visible={policyFactorEnabled}
+                periodDays={30}
+              />
             </Space>
 
             {sourceHealth.length > 0 ? (

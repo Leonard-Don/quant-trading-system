@@ -21,11 +21,18 @@ Endpoints
 from __future__ import annotations
 
 import logging
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import APIRouter, Body, HTTPException, Query
 
 from scripts import daily_etf_signal
+from src.research.policy_factor_attribution import (
+    AttributionReport,
+    compute_attribution,
+)
 from src.strategy.etf_rotation_analytics import summarise_edge
 from src.strategy.etf_rotation_config_loader import load_strategy_config
 from src.strategy.etf_rotation_preferences import (
@@ -587,3 +594,138 @@ def post_preferences(
         _get_preferences().update(patch)
 
     return {"success": True, "data": _build_preferences_envelope()}
+
+
+# ---------------------------------------------------------------------------
+# Policy factor attribution
+#
+# Computes the empirical contribution of ``policy_signal_factor`` over the
+# last N days by comparing actually-emitted final weights against a proportional
+# post-overlay proxy with the policy multiplier removed. Cached for
+# ``_ATTRIBUTION_CACHE_TTL`` so the (~50ms) attribution sweep doesn't fire on
+# every UI poll; cache keys include audit-log size/mtime so new rows invalidate.
+# ---------------------------------------------------------------------------
+
+
+_ATTRIBUTION_CACHE_TTL = 300.0  # 5 minutes
+_attribution_cache: dict[tuple[int, str, int, int], tuple[float, dict[str, Any]]] = {}
+
+
+def reset_attribution_cache_for_tests() -> None:
+    """Drop the attribution cache — tests call this between scenarios."""
+
+    _attribution_cache.clear()
+
+
+def _fetch_attribution_prices(
+    audit_path: Path, period_days: int,
+) -> Any:
+    """Look up close history for every ETF referenced in the audit window.
+
+    Wrapped in its own helper so tests can monkeypatch it without going through
+    the (network-bound) akshare client.
+    """
+
+    try:
+        from src.data.etf_price_history import fetch_etf_history
+    except ImportError:  # pragma: no cover - akshare missing in CI
+        return None
+
+    entries = daily_etf_signal.read_audit_log(audit_path)
+    codes: set[str] = set()
+    for entry in entries:
+        for code in (entry.get("adjusted_weights") or {}):
+            if code != "CASH":
+                codes.add(str(code))
+    if not codes:
+        return None
+    end = datetime.now()
+    start = end - timedelta(days=max(period_days + 10, 60))
+    try:
+        return fetch_etf_history(sorted(codes), start_date=start, end_date=end)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("ETF price fetch for attribution failed: %s", exc)
+        return None
+
+
+@router.get(
+    "/policy-factor-attribution",
+    summary="读取 policy_signal_factor 的 30 日实证归因报告",
+    description=(
+        "对启用了 policy_signal_factor 的历史调仓做归因回放："
+        "保留审计日志里的最终 ``adjusted_weights`` 作为 *factor-on*，"
+        "并按每个 ETF 的 ``policy_adjustment.weight_before / weight_after`` "
+        "比例缩放最终权重，得到一个 post-overlay 的 *factor-off* proxy。"
+        "两条权重路径在下一条审计 rebalance 之前持有（按 ETF 收盘价计算 mark-to-market），"
+        "差值即 policy_signal_factor 对该窗口 P&L 的边际贡献。"
+        "\n\n"
+        "返回结构（``AttributionReport.to_dict()``）包含："
+        "聚合 on/off/contribution（逐窗口复利）、命中率、top winner/loser ETF、"
+        "以及逐次调仓的拆解。结果按 ``period_days`` 缓存 5 分钟；"
+        "审计日志 size/mtime 变化会自动打破缓存。"
+        "\n\n"
+        "**注意**：不计交易成本、不计调仓滞后；off leg 是比例 proxy，"
+        "不是重新跑一遍完整策略 —— 详见模块顶部 docstring。"
+    ),
+)
+def get_policy_factor_attribution(
+    period_days: int = Query(
+        default=30, ge=1, le=365,
+        description="窗口长度（天），默认 30。",
+    ),
+    refresh: bool = Query(
+        default=False,
+        description="true=绕过 5 分钟缓存强制重算。",
+    ),
+) -> dict[str, Any]:
+    audit_path = daily_etf_signal._resolve_audit_log_path()
+    audit_file = Path(audit_path) if audit_path is not None else None
+    if audit_file is not None and audit_file.is_file():
+        stat = audit_file.stat()
+        cache_key = (
+            int(period_days), str(audit_file), int(stat.st_mtime_ns), int(stat.st_size),
+        )
+    else:
+        cache_key = (int(period_days), str(audit_file) if audit_file else "", 0, 0)
+    now = time.monotonic()
+    if not refresh and cache_key in _attribution_cache:
+        cached_at, cached_payload = _attribution_cache[cache_key]
+        if now - cached_at < _ATTRIBUTION_CACHE_TTL:
+            return {
+                "success": True,
+                "data": cached_payload,
+                "cached": True,
+                "cache_age_seconds": round(now - cached_at, 3),
+            }
+
+    if audit_file is None or not audit_file.is_file():
+        empty = {
+            "period_start": None,
+            "period_end": None,
+            "period_days": period_days,
+            "n_rebalances": 0,
+            "n_factor_on_rebalances": 0,
+            "factor_on_return_pct": 0.0,
+            "factor_off_return_pct": 0.0,
+            "factor_contribution_pct": 0.0,
+            "hit_rate_pct": 0.0,
+            "top_winner_etfs": [],
+            "top_loser_etfs": [],
+            "per_rebalance_attribution": [],
+            "notes": ["Audit log not configured — set ETF_AUDIT_LOG_PATH."],
+        }
+        _attribution_cache[cache_key] = (now, empty)
+        return {"success": True, "data": empty, "cached": False}
+
+    nav = _fetch_attribution_prices(audit_file, period_days)
+    if nav is None:
+        # Even with no prices the engine returns a structured "zero" report,
+        # which the UI can render with a "data unavailable" hint.
+        import pandas as pd
+        nav = pd.DataFrame()
+    report: AttributionReport = compute_attribution(
+        audit_file, nav, period_days=period_days,
+    )
+    payload = report.to_dict()
+    _attribution_cache[cache_key] = (now, payload)
+    return {"success": True, "data": payload, "cached": False}

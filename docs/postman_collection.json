@@ -4053,6 +4053,84 @@
       }
     },
     {
+      "name": "读取 ETF 轮动 UI 偏好（per-installation, 持久化到 JSON 文件）",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/etf-rotation/preferences",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "etf-rotation",
+            "preferences"
+          ]
+        }
+      }
+    },
+    {
+      "name": "更新 ETF 轮动 UI 偏好",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/etf-rotation/preferences",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "etf-rotation",
+            "preferences"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "读取 policy_signal_factor 的 30 日实证归因报告",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/etf-rotation/policy-factor-attribution",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "etf-rotation",
+            "policy-factor-attribution"
+          ]
+        }
+      }
+    },
+    {
       "name": "Root",
       "request": {
         "method": "GET",
