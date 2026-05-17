@@ -4195,6 +4195,38 @@
       }
     },
     {
+      "name": "同窗口对照回放 rotation / mean_reversion / blend 三大 ETF 策略",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/etf-rotation/strategy-comparison",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "etf-rotation",
+            "strategy-comparison"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "Root",
       "request": {
         "method": "GET",

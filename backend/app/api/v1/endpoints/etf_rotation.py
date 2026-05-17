@@ -43,6 +43,11 @@ from src.backtest.etf_rotation_walkforward import (
     DEFAULT_WINDOW_MONTHS,
     EtfRotationWalkforwardAnalyzer,
 )
+from src.backtest.strategy_comparison import (
+    DEFAULT_STRATEGY_LABELS,
+    StrategyComparator,
+    build_default_strategy_specs,
+)
 from src.research.policy_factor_attribution import (
     AttributionReport,
     compute_attribution,
@@ -1064,4 +1069,227 @@ def post_walkforward(
     report = analyzer.run()
     response_payload = report.to_dict()
     _walkforward_cache[cache_key] = (now, response_payload)
+    return {"success": True, "data": response_payload, "cached": False}
+
+
+# ---------------------------------------------------------------------------
+# Multi-strategy head-to-head comparison endpoint
+#
+# Runs ``EtfRotationStrategy``, ``EtfMeanReversionStrategy``, and
+# ``EtfStrategyBlend`` (any subset) on the **same** historical window using
+# the shared ``EtfRotationBacktester`` engine, then surfaces winner-by-metric,
+# pairwise spreads, and a regime breakdown. Cached for 1 hour, keyed on every
+# parameter that materially affects the result + the price CSV mtime/size.
+# ---------------------------------------------------------------------------
+
+
+_STRATEGY_COMPARISON_CACHE_TTL = 3600.0  # 1 hour
+_strategy_comparison_cache: dict[
+    tuple[
+        str, str, str, int, bool, int, float, str, str, int, int,
+    ],
+    tuple[float, dict[str, Any]],
+] = {}
+
+
+def reset_strategy_comparison_cache_for_tests() -> None:
+    """Drop the comparison cache — tests call this between scenarios."""
+
+    _strategy_comparison_cache.clear()
+
+
+@router.post(
+    "/strategy-comparison",
+    summary="同窗口对照回放 rotation / mean_reversion / blend 三大 ETF 策略",
+    description=(
+        "在已提交的历史价格矩阵（默认 ``data/etf_backtest/etf_prices_4y.csv``）上，"
+        "让 ``EtfRotationStrategy`` / ``EtfMeanReversionStrategy`` / "
+        "``EtfStrategyBlend``（或任意子集，通过 ``strategies`` 字段筛选）"
+        "在 **同一个** 窗口 / 同一份价格 / 同一个 rebalance 节奏下回放，"
+        "返回 ``ComparisonReport``：每个策略的完整 ``BacktestReport`` + "
+        "Sharpe / 总收益 / Calmar / MaxDD / 换手 单项冠军 + trending/choppy "
+        "区间分析（哪个策略在哪种 regime 占优）+ 全部有序两两的 return / sharpe / "
+        "MaxDD 差值（A vs B = A 减 B，两个方向都返回）。"
+        "\n\n"
+        "请求体（全部可选除明确标注）："
+        "``{period_start: ISO 日期 (必填), period_end: ISO 日期 (必填), "
+        "strategies: list[str] 或逗号分隔 str，默认全 3 个；"
+        "enable_policy_signal_factor: bool=false（仅 rotation + blend 的 trend leg 消费，"
+        "mean_reversion 按约定忽略 —— 避免反趋势策略对政策利好做二次叠加），"
+        "rebalance_freq_days: int=5, initial_capital: float=100000, "
+        "blend_regime: str=unknown (bull/correction/sideways/bear/crisis/unknown), "
+        "strategy_config_overrides: object, refresh: bool=false}``。"
+        "\n\n"
+        "缓存 1 小时；缓存 key 包含所有比较参数 + 价格 CSV 的 mtime/size，"
+        "新 CSV 自动让 in-flight 缓存失效；响应里带 ``cached: bool`` + "
+        "``cache_age_seconds``。同步执行，3 策略 × 15 个月窗口实测 ~10s。"
+        "**全部继承 v0.1 backtest 简化**：无交易成本 / 无买卖价差 / 无冲击 / "
+        "next-bar close 全额成交 / 无幸存者偏差 —— 比较是内部 apples-to-apples，"
+        "但绝对收益不是 cost-adjusted 的活盘预测。"
+    ),
+)
+def post_strategy_comparison(
+    payload: dict[str, Any] = Body(default_factory=dict),  # type: ignore[assignment]
+) -> dict[str, Any]:
+    period_start = payload.get("period_start")
+    period_end = payload.get("period_end")
+    if not period_start or not period_end:
+        raise HTTPException(
+            status_code=422,
+            detail="period_start and period_end are required for strategy-comparison.",
+        )
+
+    raw_strategies = payload.get("strategies")
+    if raw_strategies is None:
+        strategy_labels = list(DEFAULT_STRATEGY_LABELS)
+    elif isinstance(raw_strategies, str):
+        strategy_labels = [
+            item.strip() for item in raw_strategies.split(",") if item.strip()
+        ]
+    elif isinstance(raw_strategies, (list, tuple)):
+        strategy_labels = [str(item).strip() for item in raw_strategies if str(item).strip()]
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail="strategies must be a list[str] or a comma-separated string.",
+        )
+
+    unknown = [label for label in strategy_labels if label not in DEFAULT_STRATEGY_LABELS]
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Unknown strategies {unknown}; valid options are "
+                f"{list(DEFAULT_STRATEGY_LABELS)}."
+            ),
+        )
+    if not strategy_labels:
+        raise HTTPException(
+            status_code=422,
+            detail="strategies must select at least one label.",
+        )
+    # Dedupe while preserving the caller-supplied order.
+    deduped_labels: list[str] = []
+    for label in strategy_labels:
+        if label not in deduped_labels:
+            deduped_labels.append(label)
+    strategy_labels = deduped_labels
+
+    enable_policy_signal_factor = bool(
+        payload.get("enable_policy_signal_factor", False)
+    )
+    blend_regime = str(payload.get("blend_regime", "unknown") or "unknown")
+    allowed_regimes = {"bull", "correction", "sideways", "bear", "crisis", "unknown"}
+    if blend_regime not in allowed_regimes:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"blend_regime={blend_regime!r} is not valid; "
+                f"choose one of {sorted(allowed_regimes)}."
+            ),
+        )
+
+    rebalance_freq_days = int(
+        payload.get("rebalance_freq_days", DEFAULT_REBALANCE_FREQ_DAYS) or 1
+    )
+    initial_capital = float(
+        payload.get("initial_capital", DEFAULT_INITIAL_CAPITAL) or DEFAULT_INITIAL_CAPITAL
+    )
+    overrides = payload.get("strategy_config_overrides") or {}
+    refresh = bool(payload.get("refresh", False))
+
+    if not isinstance(overrides, dict):
+        raise HTTPException(
+            status_code=422,
+            detail="strategy_config_overrides must be a JSON object.",
+        )
+    if rebalance_freq_days < 1:
+        raise HTTPException(status_code=422, detail="rebalance_freq_days must be >= 1.")
+    if initial_capital <= 0:
+        raise HTTPException(status_code=422, detail="initial_capital must be > 0.")
+
+    csv_path = DEFAULT_BACKTEST_PRICE_CSV
+    if not csv_path.is_file():
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Backtest price matrix not found at {csv_path}. Run the data "
+                "pipeline (`scripts/refresh_*`) before calling /strategy-comparison."
+            ),
+        )
+    stat = csv_path.stat()
+
+    overrides_key = repr(sorted(overrides.items())) if overrides else ""
+    cache_key = (
+        str(period_start),
+        str(period_end),
+        ",".join(strategy_labels),
+        rebalance_freq_days,
+        enable_policy_signal_factor,
+        int(initial_capital * 100),
+        float(0),  # reserved slot — keep cache_key shape stable for future params
+        blend_regime,
+        overrides_key,
+        int(stat.st_mtime_ns),
+        int(stat.st_size),
+    )
+    now = time.monotonic()
+    if not refresh and cache_key in _strategy_comparison_cache:
+        cached_at, cached_payload = _strategy_comparison_cache[cache_key]
+        if now - cached_at < _STRATEGY_COMPARISON_CACHE_TTL:
+            return {
+                "success": True,
+                "data": cached_payload,
+                "cached": True,
+                "cache_age_seconds": round(now - cached_at, 3),
+            }
+
+    try:
+        prices = _load_backtest_price_matrix(None)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Backtest price matrix not found at {exc}. Run the data "
+                "pipeline (`scripts/refresh_*`) before calling /strategy-comparison."
+            ),
+        )
+
+    strategy_cfg = load_strategy_config()
+    if overrides:
+        merged_strategy = {**strategy_cfg.strategy, **overrides}
+        strategy_cfg = dataclass_replace(strategy_cfg, strategy=merged_strategy)
+
+    holdings = [
+        h for h in daily_etf_signal.load_default_holdings() if h.code in prices.columns
+    ] or daily_etf_signal.load_default_holdings()
+    rotation_config = daily_etf_signal.build_strategy_config(holdings, strategy_cfg)
+
+    industry_signals: Optional[dict[str, Any]] = None
+    etf_industry_map: Optional[dict[str, str]] = (
+        dict(strategy_cfg.etf_industry_map) if strategy_cfg.etf_industry_map else None
+    )
+    if enable_policy_signal_factor:
+        loaded, _last_refresh = daily_etf_signal.load_policy_industry_signals()
+        if loaded:
+            industry_signals = dict(loaded)
+
+    all_specs = build_default_strategy_specs(
+        rotation_config, blend_regime=blend_regime,
+    )
+    chosen_specs = [all_specs[label] for label in strategy_labels]
+
+    comparator = StrategyComparator(
+        strategies=chosen_specs,
+        price_history=prices,
+        period_start=period_start,
+        period_end=period_end,
+        industry_signals=industry_signals,
+        etf_industry_map=etf_industry_map,
+        rebalance_freq_days=rebalance_freq_days,
+        initial_capital=initial_capital,
+    )
+    report = comparator.run()
+    response_payload = report.to_dict()
+    _strategy_comparison_cache[cache_key] = (now, response_payload)
     return {"success": True, "data": response_payload, "cached": False}
