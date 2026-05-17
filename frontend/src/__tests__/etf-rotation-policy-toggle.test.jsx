@@ -28,6 +28,7 @@ vi.mock('../services/api', () => ({
   postEtfRotationPreferences: vi.fn(),
   postEtfRotationRefresh: vi.fn(),
   postEtfRotationReloadConfig: vi.fn(),
+  postEtfRotationWalkforward: vi.fn(),
 }));
 
 beforeAll(() => {
