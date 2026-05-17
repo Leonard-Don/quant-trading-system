@@ -49,13 +49,24 @@
 
   "strategy": {
     "_comment": "scoring_mode: 'absolute' uses hand-tuned thresholds (legacy); 'cross_sectional' Z-scores each feature across the universe daily (self-calibrating across regimes).",
+    "_policy_signal_factor": "Opt-in policy_radar nudge. enabled=false by default (legacy-safe). When true, each ETF's target weight is multiplied by (1 + bullish_boost) for bullish-classified industries and (1 - bearish_penalty) for bearish-classified industries. Neutral signals pass through unchanged. Defaults are mild ±10% so the change is bounded — no position is ever zeroed or doubled by this factor alone. After per-ETF tilt the gross weight is re-normalised so the gross_cap invariant holds. Classification threshold (default ±0.10) matches the dashboard's existing bullish/bearish chip cutoffs.",
     "gross_cap": 0.90,
     "warmup_days": 60,
     "annualized_vol_target": 0.20,
     "enable_vol_targeting": false,
     "min_score_to_hold": 25.0,
     "min_score_full_hold": 35.0,
-    "scoring_mode": "absolute"
+    "scoring_mode": "absolute",
+    "policy_signal_factor_enabled": false,
+    "policy_signal_factor_bullish_boost": 0.10,
+    "policy_signal_factor_bearish_penalty": 0.10,
+    "policy_signal_factor_neutral_pass": true,
+    "policy_signal_factor_bullish_threshold": 0.10
+  },
+
+  "etf_industry_map": {
+    "_comment": "Map each ETF (by 6-digit code) to the policy_radar industry it belongs to. Industries must match the keys produced by policy_radar.json's signal.industry_signals (currently: 新能源汽车 / 风电 / 电网, plus whatever the active policy NLP map adds). Codes not listed here are left untouched by the policy_signal_factor. This is the only piece of config that ties opt-in policy_radar influence to your ETF universe — keep it explicit. Example: '515030': '新能源汽车' once you add an EV-themed ETF to the universe.",
+    "_example_515030": "新能源汽车"
   },
 
   "scoring": {

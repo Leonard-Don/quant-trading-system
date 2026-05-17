@@ -442,6 +442,21 @@ def build_strategy_config(
         enable_vol_targeting=bool(strategy_params.get("enable_vol_targeting", False)),
         scoring=scoring,
         scoring_mode=str(strategy_params.get("scoring_mode", "absolute")),
+        policy_signal_factor_enabled=bool(
+            strategy_params.get("policy_signal_factor_enabled", False)
+        ),
+        policy_signal_factor_bullish_boost=float(
+            strategy_params.get("policy_signal_factor_bullish_boost", 0.10)
+        ),
+        policy_signal_factor_bearish_penalty=float(
+            strategy_params.get("policy_signal_factor_bearish_penalty", 0.10)
+        ),
+        policy_signal_factor_neutral_pass=bool(
+            strategy_params.get("policy_signal_factor_neutral_pass", True)
+        ),
+        policy_signal_factor_bullish_threshold=float(
+            strategy_params.get("policy_signal_factor_bullish_threshold", 0.10)
+        ),
     )
 
 
@@ -462,6 +477,55 @@ def build_risk_config(strategy_config: Optional[StrategyConfig] = None) -> EtfRi
         ),
         cash_symbol=str(rr.get("cash_symbol", "CASH")),
     )
+
+
+def load_policy_industry_signals(
+    *,
+    cache_path: Optional[Path] = None,
+) -> tuple[dict[str, dict[str, Any]], Optional[str]]:
+    """Read the latest policy_radar industry_signals snapshot.
+
+    Resolution order:
+    1. ``cache_path`` argument when provided.
+    2. ``POLICY_RADAR_SNAPSHOT_PATH`` env override.
+    3. Project default ``cache/alt_data/providers/policy_radar.json``.
+
+    Returns ``({industry_name: {avg_impact, signal, ...}}, last_refresh)``.
+    Missing files / parse failures return ``({}, None)`` so the strategy
+    naturally falls back to the legacy (no-tilt) path.
+    """
+
+    if cache_path is None:
+        env_value = os.environ.get("POLICY_RADAR_SNAPSHOT_PATH")
+        if env_value:
+            cache_path = Path(env_value).expanduser()
+    if cache_path is None:
+        cache_path = PROJECT_ROOT / "cache" / "alt_data" / "providers" / "policy_radar.json"
+
+    try:
+        payload = json.loads(Path(cache_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.debug(
+            "policy_radar snapshot unavailable at %s (%s); skipping policy nudge.",
+            cache_path, exc,
+        )
+        return {}, None
+
+    signal_block = (payload or {}).get("signal") or {}
+    industry_signals_raw = signal_block.get("industry_signals") or {}
+    if not isinstance(industry_signals_raw, dict):
+        return {}, None
+    last_refresh = signal_block.get("timestamp")
+    industry_signals: dict[str, dict[str, Any]] = {}
+    for industry, payload_block in industry_signals_raw.items():
+        if not isinstance(payload_block, dict):
+            continue
+        industry_signals[str(industry)] = {
+            "avg_impact": float(payload_block.get("avg_impact", 0.0) or 0.0),
+            "mentions": int(payload_block.get("mentions", 0) or 0),
+            "signal": str(payload_block.get("signal") or "neutral"),
+        }
+    return industry_signals, last_refresh
 
 
 def synthesize_price_matrix(
@@ -576,6 +640,8 @@ def generate_plan(
     quotes_as_of: _AsOf = None,
     price_matrix_as_of: _AsOf = None,
     now: Optional[datetime] = None,
+    enable_policy_signal_factor: Optional[bool] = None,
+    industry_signals: Optional[Mapping[str, Mapping[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Produce a full manual trade plan for the supplied holdings.
 
@@ -588,6 +654,14 @@ def generate_plan(
     ``strategy_config`` lets callers inject a pre-loaded ``StrategyConfig``
     (avoiding repeated JSON parsing in service / refresh contexts). When
     omitted, the loader resolves the active config from env / default path.
+
+    ``enable_policy_signal_factor`` is the per-call opt-in for the
+    policy_radar tilt. ``None`` (default) honours
+    ``strategy.policy_signal_factor_enabled`` from the config; ``True`` /
+    ``False`` overrides it for this single call (used by the API query
+    param + CLI flag). When effectively enabled, ``industry_signals`` is
+    used when supplied; otherwise the latest policy_radar snapshot is
+    auto-loaded from disk.
     """
 
     holdings_supplied = holdings is not None
@@ -610,6 +684,28 @@ def generate_plan(
             active_config.strategy.get("rebalance_threshold", DEFAULT_REBALANCE_THRESHOLD)
         )
 
+    # Resolve the per-call policy-factor toggle. ``None`` honours the config;
+    # explicit True/False override.
+    if enable_policy_signal_factor is None:
+        effective_policy_enabled = bool(
+            active_config.strategy.get("policy_signal_factor_enabled", False)
+        )
+    else:
+        effective_policy_enabled = bool(enable_policy_signal_factor)
+
+    # Override the strategy_config's enable flag with the per-call value
+    # so the strategy constructor sees the effective setting.
+    if (
+        enable_policy_signal_factor is not None
+        and effective_policy_enabled != bool(
+            active_config.strategy.get("policy_signal_factor_enabled", False)
+        )
+    ):
+        from dataclasses import replace as _dc_replace
+        adjusted_strategy_params = dict(active_config.strategy)
+        adjusted_strategy_params["policy_signal_factor_enabled"] = effective_policy_enabled
+        active_config = _dc_replace(active_config, strategy=adjusted_strategy_params)
+
     if strategy_override is not None:
         strategy = strategy_override
     else:
@@ -617,10 +713,22 @@ def generate_plan(
     if price_matrix is None:
         price_matrix = synthesize_price_matrix(quote_map)
 
+    # Load policy_radar industry signals lazily — only when the factor is
+    # effectively enabled. Avoids touching disk on the common (legacy) path.
+    policy_industry_signals: Mapping[str, Mapping[str, Any]] = {}
+    policy_last_refresh: Optional[str] = None
+    if effective_policy_enabled:
+        if industry_signals is not None:
+            policy_industry_signals = industry_signals
+        else:
+            policy_industry_signals, policy_last_refresh = load_policy_industry_signals()
+
     signals = strategy.evaluate(
         price_matrix,
         overlays=dict(overlays) if overlays else None,
         current_weights=current_weights,
+        industry_signals=policy_industry_signals if effective_policy_enabled else None,
+        etf_industry_map=active_config.etf_industry_map if effective_policy_enabled else None,
     )
     target_weights = {sig.symbol: sig.target_weight for sig in signals}
     # Make sure every held symbol appears in the target map (zero if the
@@ -713,8 +821,35 @@ def generate_plan(
             "return60": float(sig.return60),
             "drawdown60": float(sig.drawdown60),
             "volatility60": float(sig.volatility60),
+            # Surfaced when the policy_signal_factor was enabled and this
+            # ETF had an industry mapping. ``None`` otherwise so the
+            # legacy / disabled path produces identical bytes.
+            "policy_adjustment": (
+                dict(sig.policy_adjustment) if sig.policy_adjustment else None
+            ),
         }
         for sig in signals
+    }
+
+    # Roll-up summary for dashboards and audit headers.
+    applied_adjustments = [
+        (sig.symbol, sig.policy_adjustment)
+        for sig in signals
+        if sig.policy_adjustment and sig.policy_adjustment.get("applied")
+    ]
+    policy_signal_factor_summary = {
+        "enabled": effective_policy_enabled,
+        "industry_signals_count": len(policy_industry_signals),
+        "applied_count": len(applied_adjustments),
+        "boosted": [
+            code for code, meta in applied_adjustments
+            if meta.get("signal") == "bullish"
+        ],
+        "penalised": [
+            code for code, meta in applied_adjustments
+            if meta.get("signal") == "bearish"
+        ],
+        "last_refresh": policy_last_refresh,
     }
 
     return {
@@ -744,6 +879,7 @@ def generate_plan(
         "overlays": overlay_payload,
         "stop_loss_triggered": stop_loss_triggered,
         "score_breakdown": score_breakdown,
+        "policy_signal_factor": policy_signal_factor_summary,
     }
 
 
@@ -1106,6 +1242,7 @@ def _audit_entry_from_plan(
         "score_breakdown": dict(plan.get("score_breakdown") or {}),
         "stop_loss_triggered": dict(plan.get("stop_loss_triggered") or {}),
         "prices_at_decision": prices_at_decision,
+        "policy_signal_factor": dict(plan.get("policy_signal_factor") or {}),
     }
 
 
@@ -1330,6 +1467,25 @@ def _build_arg_parser() -> argparse.ArgumentParser:
             "用于规避策略一刀切清仓时的执行风险，可手动谨慎减仓。"
         ),
     )
+    factor_group = parser.add_mutually_exclusive_group()
+    factor_group.add_argument(
+        "--enable-policy-signal",
+        dest="enable_policy_signal_factor",
+        action="store_const",
+        const=True,
+        help=(
+            "启用 policy_radar 行业信号对 ETF 目标权重的微调"
+            "（覆盖 strategy.json 配置）。默认关闭。"
+        ),
+    )
+    factor_group.add_argument(
+        "--disable-policy-signal",
+        dest="enable_policy_signal_factor",
+        action="store_const",
+        const=False,
+        help="禁用 policy_radar 影响（覆盖 strategy.json 配置）。",
+    )
+    parser.set_defaults(enable_policy_signal_factor=None)
     return parser
 
 
@@ -1439,6 +1595,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         holdings_as_of=holdings_as_of,
         quotes_as_of=quotes_as_of,
         price_matrix_as_of=price_matrix_as_of,
+        enable_policy_signal_factor=args.enable_policy_signal_factor,
     )
 
     if args.position_cut < 1.0:

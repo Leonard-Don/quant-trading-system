@@ -494,6 +494,8 @@ const EtfRotationDashboard = () => {
   const activeOverlays = plan?.overlays || {};
   const regime = plan?.regime || null;
   const ensemble = plan?.ensemble || null;
+  const policyFactorSummary = plan?.policy_signal_factor || {};
+  const policyFactorEnabled = Boolean(policyFactorSummary.enabled);
   const quoteSourceCode = meta?.quoteSource || plan?.quote_source;
   const quoteModeLabel = QUOTE_SOURCE_LABELS[quoteSourceCode] || (
     plan?.quote_source === 'live'
@@ -972,7 +974,9 @@ const EtfRotationDashboard = () => {
                           : '政策数据更新时间：—'}
                       </Text>
                       <Text type="secondary">
-                        仅供参考；不参与 ETF 轮动策略的目标权重计算。
+                        {policyFactorEnabled
+                          ? `政策因子已启用：映射到 ETF 的行业信号会以温和权重因子参与目标权重计算；当前应用 ${policyFactorSummary.applied_count || 0} 只。`
+                          : '当前策略未启用政策因子；这里仅供参考，不参与 ETF 轮动目标权重计算。'}
                       </Text>
                     </Space>
                     {policyLoading && !policyLoaded ? (
@@ -1043,6 +1047,17 @@ const EtfRotationDashboard = () => {
                           const adj = entry.adjusted_weights || {};
                           const cash = adj.CASH;
                           const non_zero = Object.entries(adj).filter(([k, v]) => k !== 'CASH' && Number(v) > 0.005);
+                          const policyFactor = entry.policy_signal_factor || null;
+                          const scoreBreakdown = entry.score_breakdown || {};
+                          // Collect per-ETF policy adjustments where applied=true.
+                          // Each row reads: "新能源汽车 ETF: -8% policy bearish".
+                          const policyAdjustments = Object.entries(scoreBreakdown)
+                            .map(([code, payload]) => {
+                              const meta = payload?.policy_adjustment;
+                              if (!meta || !meta.applied) return null;
+                              return { code, ...meta };
+                            })
+                            .filter(Boolean);
                           return {
                             key: entry.run_at,
                             color: String(entry.quote_source || '').includes('debounced') ? 'gray' : 'blue',
@@ -1054,6 +1069,16 @@ const EtfRotationDashboard = () => {
                                   {typeof entry.total_asset === 'number'
                                     ? <Text type="secondary">¥{Number(entry.total_asset).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</Text>
                                     : null}
+                                  {policyFactor && policyFactor.enabled
+                                    ? (
+                                      <Tag color="purple" data-testid="etf-audit-policy-factor-tag">
+                                        政策因子 ON
+                                        {policyFactor.applied_count
+                                          ? ` · ${policyFactor.applied_count} 只`
+                                          : ''}
+                                      </Tag>
+                                    )
+                                    : null}
                                 </Space>
                                 <Space size={[6, 4]} wrap>
                                   {non_zero.map(([code, w]) => (
@@ -1063,6 +1088,30 @@ const EtfRotationDashboard = () => {
                                     ? <Tag color="default">CASH {(cash * 100).toFixed(1)}%</Tag>
                                     : null}
                                 </Space>
+                                {policyAdjustments.length > 0 ? (
+                                  <Space
+                                    size={[6, 4]}
+                                    wrap
+                                    data-testid="etf-audit-policy-adjustments"
+                                  >
+                                    {policyAdjustments.map((row) => {
+                                      const deltaPct = Number(row.delta_weight ?? 0) * 100;
+                                      const sign = deltaPct >= 0 ? '+' : '';
+                                      const color = row.signal === 'bullish'
+                                        ? 'green'
+                                        : (row.signal === 'bearish' ? 'red' : 'default');
+                                      return (
+                                        <Tag
+                                          key={`${row.code}-policy`}
+                                          color={color}
+                                          title={`industry=${row.industry}, avg_impact=${Number(row.avg_impact || 0).toFixed(3)}`}
+                                        >
+                                          {row.code} {sign}{deltaPct.toFixed(1)}% policy {row.signal}
+                                        </Tag>
+                                      );
+                                    })}
+                                  </Space>
+                                ) : null}
                               </Space>
                             ),
                           };

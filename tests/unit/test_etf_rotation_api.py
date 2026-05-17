@@ -9,9 +9,13 @@ The endpoint should:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
 from backend.main import app
+from backend.app.api.v1.endpoints import etf_rotation as etf_endpoint
 from scripts import daily_etf_signal
 
 PLAN_KEYS = {
@@ -185,6 +189,57 @@ def test_live_target_trigger_refresh_builds_initial_plan() -> None:
     assert "plan" in payload["data"]
     assert "adjusted_weights" in payload["data"]["plan"]
     assert payload["refresh"]["refreshed"] is True
+
+
+def test_live_endpoints_forward_policy_factor_override() -> None:
+    class CaptureService:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def refresh(self, **kwargs):
+            self.calls.append(kwargs)
+            cached = SimpleNamespace(
+                plan={"adjusted_weights": {"CASH": 1.0}},
+                refreshed_at=datetime(2026, 5, 15, 2, 0, tzinfo=timezone.utc),
+                quote_source="test",
+                debounced=False,
+                debounce_max_delta=None,
+                reasons=[],
+            )
+            return SimpleNamespace(
+                refreshed=True,
+                cached=cached,
+                skipped_reason=None,
+            )
+
+        def get_cached_plan(self):
+            return None
+
+        def is_trading_hours(self):
+            return False
+
+    service = CaptureService()
+    etf_endpoint.install_service(service)
+    try:
+        client = TestClient(app)
+        live_response = client.get(
+            "/etf-rotation/live-target"
+            "?trigger_refresh=true&enable_policy_signal_factor=true"
+        )
+        refresh_response = client.post(
+            "/etf-rotation/refresh"
+            "?use_cache=false&enable_policy_signal_factor=false"
+        )
+    finally:
+        etf_endpoint.reset_service_for_tests()
+
+    assert live_response.status_code == 200
+    assert refresh_response.status_code == 200
+    assert service.calls[0]["force"] is True
+    assert service.calls[0]["enable_policy_signal_factor"] is True
+    assert service.calls[1]["force"] is True
+    assert service.calls[1]["use_cache"] is False
+    assert service.calls[1]["enable_policy_signal_factor"] is False
 
 
 def test_live_target_returns_cached_plan_after_initial_refresh() -> None:

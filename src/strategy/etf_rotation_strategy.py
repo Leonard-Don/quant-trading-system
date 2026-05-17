@@ -16,11 +16,14 @@ for live ``evaluate()``-style inspection, never for backtesting.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, replace
-from typing import Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, Iterable, List, Mapping, Optional
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 TRADING_DAYS_PER_YEAR = 252
 
@@ -158,6 +161,29 @@ class EtfRotationConfig:
     it produce zero weight, scores at ``min_score_full_hold`` reach the full
     score-scaled cap. The two together stop the strategy from snapping
     in/out of a position when the score wobbles by 0.1 around a hard cutoff.
+
+    Policy signal factor
+    --------------------
+    Optional, default-OFF integration with ``policy_radar`` industry signals.
+    When ``policy_signal_factor_enabled=True``, each ETF's target weight is
+    multiplied by ``(1 + bullish_boost)`` if its mapped industry signal is
+    bullish or ``(1 - bearish_penalty)`` if bearish. Neutral signals
+    (``policy_signal_factor_neutral_pass=True``) leave the weight unchanged.
+    After adjustment the weights are re-normalised so the gross cap invariant
+    is preserved. The strategy invariant — with the mild default knobs of
+    ±10% — is that no position is ever zeroed or doubled by this factor
+    alone; it nudges only.
+
+    Construction:
+
+    * Pass ``industry_signals`` to ``generate_signals`` / ``evaluate`` as a
+      ``{industry_name: {"avg_impact": float, "signal": "bullish"|...}}``
+      mapping (the live shape of ``policy_radar.json``'s ``industry_signals``).
+    * Pass ``etf_industry_map`` as a ``{etf_code: industry_name}`` lookup so
+      the strategy can resolve each ETF to a policy-radar industry. Codes
+      missing from the map are silently skipped (no penalty, no boost) — so
+      adding a single ETF↔industry edge gradually rolls out without forcing
+      every legacy ETF to be mapped at once.
     """
 
     assets: List[EtfAssetConfig]
@@ -169,6 +195,15 @@ class EtfRotationConfig:
     enable_vol_targeting: bool = False
     scoring: EtfScoringConfig = field(default_factory=EtfScoringConfig)
     scoring_mode: str = "absolute"  # "absolute" | "cross_sectional"
+    # Policy-radar opt-in nudges. All defaults reproduce legacy behaviour.
+    policy_signal_factor_enabled: bool = False
+    policy_signal_factor_bullish_boost: float = 0.10
+    policy_signal_factor_bearish_penalty: float = 0.10
+    policy_signal_factor_neutral_pass: bool = True
+    # avg_impact threshold above which a signal counts as bullish (and
+    # symmetrically below ``-bullish_threshold`` for bearish). Default 0.10
+    # matches the dashboard's existing bullish/bearish classification.
+    policy_signal_factor_bullish_threshold: float = 0.10
 
     def __post_init__(self) -> None:
         if self.min_score_full_hold < self.min_score_to_hold:
@@ -178,6 +213,18 @@ class EtfRotationConfig:
         if self.scoring_mode not in {"absolute", "cross_sectional"}:
             raise ValueError(
                 f"scoring_mode must be 'absolute' or 'cross_sectional', got {self.scoring_mode!r}"
+            )
+        if self.policy_signal_factor_bullish_boost < 0.0:
+            raise ValueError(
+                "policy_signal_factor_bullish_boost must be >= 0"
+            )
+        if not 0.0 <= self.policy_signal_factor_bearish_penalty < 1.0:
+            raise ValueError(
+                "policy_signal_factor_bearish_penalty must be in [0, 1)"
+            )
+        if self.policy_signal_factor_bullish_threshold < 0.0:
+            raise ValueError(
+                "policy_signal_factor_bullish_threshold must be >= 0"
             )
 
     def asset_map(self) -> Dict[str, EtfAssetConfig]:
@@ -214,6 +261,11 @@ class EtfSignal:
     # with positional EtfSignal(...) constructors in existing tests).
     ma200: Optional[float] = None
     trend_long_strength: Optional[float] = None  # price / ma200 - 1
+    # Policy-radar nudge metadata (set when policy_signal_factor fires).
+    # ``policy_adjustment`` is None when no policy adjustment was applied
+    # (factor disabled / no industry mapped / no policy data). When set,
+    # carries the per-ETF context for audit + dashboard surfaces.
+    policy_adjustment: Optional[dict[str, Any]] = None
 
 
 class EtfRotationStrategy:
@@ -234,6 +286,8 @@ class EtfRotationStrategy:
         overlays: Optional[Mapping[str, EtfOverlay]] = None,
         current_weights: Optional[Mapping[str, float]] = None,
         lag_days: int = 1,
+        industry_signals: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        etf_industry_map: Optional[Mapping[str, str]] = None,
     ) -> pd.DataFrame:
         """Return target weights for every date in `price_matrix`.
 
@@ -245,6 +299,13 @@ class EtfRotationStrategy:
                 at ``t`` is applied at ``t + lag_days``. Default ``1``
                 eliminates the close-to-close look-ahead. Set to ``0`` only
                 for diagnostic inspection — never for backtests.
+            industry_signals: Optional snapshot of policy_radar industry
+                signals (``{industry: {avg_impact, signal, ...}}``). Only
+                consulted when ``config.policy_signal_factor_enabled``.
+            etf_industry_map: Optional ``{etf_code: industry_name}`` lookup
+                used to resolve each ETF to a policy_radar industry. Codes
+                missing from the map (or with no matching industry signal)
+                are left untouched.
         """
 
         if lag_days < 0:
@@ -258,7 +319,11 @@ class EtfRotationStrategy:
         for idx in range(self.config.warmup_days, len(prices)):
             window = prices.iloc[: idx + 1]
             signals = self._evaluate_prepared(
-                window, overlays=overlays, current_weights=current_weights
+                window,
+                overlays=overlays,
+                current_weights=current_weights,
+                industry_signals=industry_signals,
+                etf_industry_map=etf_industry_map,
             )
             for signal in signals:
                 if signal.symbol in weights.columns:
@@ -278,16 +343,25 @@ class EtfRotationStrategy:
         *,
         overlays: Optional[Mapping[str, EtfOverlay]] = None,
         current_weights: Optional[Mapping[str, float]] = None,
+        industry_signals: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        etf_industry_map: Optional[Mapping[str, str]] = None,
     ) -> List[EtfSignal]:
         """Evaluate the latest row of a price matrix and return ETF signals.
 
         The returned signals reflect the same-day score (no lag). Callers
         that need a backtest-style lag should use ``generate_signals``.
+
+        ``industry_signals`` / ``etf_industry_map`` carry the policy_radar
+        opt-in. See ``generate_signals`` for the shape.
         """
 
         prices = self._prepare_prices(price_matrix)
         return self._evaluate_prepared(
-            prices, overlays=overlays or {}, current_weights=current_weights or {}
+            prices,
+            overlays=overlays or {},
+            current_weights=current_weights or {},
+            industry_signals=industry_signals,
+            etf_industry_map=etf_industry_map,
         )
 
     def _evaluate_prepared(
@@ -296,6 +370,8 @@ class EtfRotationStrategy:
         *,
         overlays: Mapping[str, EtfOverlay],
         current_weights: Mapping[str, float],
+        industry_signals: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        etf_industry_map: Optional[Mapping[str, str]] = None,
     ) -> List[EtfSignal]:
         signals: List[EtfSignal] = []
         for symbol in prices.columns:
@@ -319,6 +395,23 @@ class EtfRotationStrategy:
         # (gross-cap normaliser + risk rules) consumes the adaptive weights.
         if self.config.scoring_mode == "cross_sectional" and signals:
             signals = self._apply_cross_sectional_scoring(signals, overlays, current_weights)
+
+        # Policy-radar opt-in nudge: applied AFTER scoring so it tilts the
+        # final target without contaminating the score breakdown that the
+        # audit log uses to back-fill the Information Coefficient. The
+        # adjustment is bounded by config (default ±10%) and re-normalised
+        # to preserve the gross cap invariant; see ``_apply_policy_signal_factor``.
+        if (
+            self.config.policy_signal_factor_enabled
+            and signals
+            and industry_signals
+            and etf_industry_map
+        ):
+            signals = self._apply_policy_signal_factor(
+                signals,
+                industry_signals=industry_signals,
+                etf_industry_map=etf_industry_map,
+            )
 
         return self._normalize_signals(signals)
 
@@ -405,6 +498,157 @@ class EtfRotationStrategy:
                 )
             )
         return adapted
+
+    def _classify_industry_signal(
+        self,
+        avg_impact: float,
+    ) -> str:
+        """Classify a policy_radar avg_impact into bullish / bearish / neutral.
+
+        The threshold lives in the strategy config (default ±0.10, matching
+        the dashboard's existing chip colouring). Non-finite avg_impact is
+        treated as neutral to keep NaN out of the multiplier path.
+        """
+
+        if not np.isfinite(avg_impact):
+            return "neutral"
+        threshold = float(self.config.policy_signal_factor_bullish_threshold)
+        if avg_impact > threshold:
+            return "bullish"
+        if avg_impact < -threshold:
+            return "bearish"
+        return "neutral"
+
+    def _apply_policy_signal_factor(
+        self,
+        signals: list[EtfSignal],
+        *,
+        industry_signals: Mapping[str, Mapping[str, Any]],
+        etf_industry_map: Mapping[str, str],
+    ) -> list[EtfSignal]:
+        """Nudge per-ETF target weights by their mapped policy_radar signal.
+
+        Strategy invariant: with default knobs (±10%) no position is ever
+        zeroed or doubled by this factor alone — the adjustment is a tilt,
+        not a switch. After per-ETF multipliers the weights are re-normalised
+        proportionally so the gross-cap invariant is preserved (the next
+        ``_normalize_signals`` pass will scale down further if a downstream
+        rule changed totals).
+
+        Each adjusted ``EtfSignal`` records the multiplier, signal classification,
+        and the policy industry it was mapped to so the audit log / dashboard
+        can render "ETF X: -8% policy bearish" rows after the fact.
+        """
+
+        bullish_boost = float(self.config.policy_signal_factor_bullish_boost)
+        bearish_penalty = float(self.config.policy_signal_factor_bearish_penalty)
+        neutral_pass = bool(self.config.policy_signal_factor_neutral_pass)
+
+        adjusted: list[EtfSignal] = []
+        boosted_count = 0
+        penalised_count = 0
+        for sig in signals:
+            industry = etf_industry_map.get(sig.symbol)
+            if not industry:
+                adjusted.append(sig)
+                continue
+            row = industry_signals.get(industry)
+            if not isinstance(row, Mapping):
+                adjusted.append(sig)
+                continue
+            try:
+                avg_impact = float(row.get("avg_impact", 0.0))
+            except (TypeError, ValueError):
+                avg_impact = 0.0
+
+            classification = self._classify_industry_signal(avg_impact)
+            multiplier = 1.0
+            applied = False
+            if classification == "bullish":
+                multiplier = 1.0 + bullish_boost
+                applied = bullish_boost > 0.0
+            elif classification == "bearish":
+                multiplier = 1.0 - bearish_penalty
+                applied = bearish_penalty > 0.0
+            elif classification == "neutral" and not neutral_pass:
+                # Future hook: explicit neutral handling. Defaults preserve
+                # neutral as a no-op so we stay backward-compatible.
+                multiplier = 1.0
+                applied = False
+
+            if not applied:
+                # Still attach metadata so the dashboard can show the policy
+                # context even when no action was taken (e.g. neutral signal).
+                policy_meta: dict[str, Any] = {
+                    "industry": industry,
+                    "signal": classification,
+                    "avg_impact": avg_impact,
+                    "multiplier": 1.0,
+                    "delta_weight": 0.0,
+                    "weight_before": float(sig.target_weight),
+                    "weight_after": float(sig.target_weight),
+                    "applied": False,
+                }
+                adjusted.append(replace(sig, policy_adjustment=policy_meta))
+                continue
+
+            prior = float(sig.target_weight)
+            new_target = max(0.0, prior * multiplier)
+            # Respect the per-ETF max_weight cap even when boosting.
+            asset = self._assets.get(sig.symbol)
+            if asset is not None:
+                new_target = min(new_target, float(asset.max_weight))
+
+            policy_meta = {
+                "industry": industry,
+                "signal": classification,
+                "avg_impact": avg_impact,
+                "multiplier": float(multiplier),
+                "delta_weight": float(new_target - prior),
+                "weight_before": prior,
+                "weight_after": float(new_target),
+                "applied": True,
+            }
+            if classification == "bullish":
+                boosted_count += 1
+            elif classification == "bearish":
+                penalised_count += 1
+            adjusted.append(
+                replace(
+                    sig,
+                    target_weight=new_target,
+                    policy_adjustment=policy_meta,
+                )
+            )
+
+        # Re-normalise: if the policy tilt pushed total ETF weight above
+        # ``gross_cap`` the normaliser will pull every ETF back down by the
+        # same scale, preserving relative weights. Below the cap means
+        # gross under-allocated — fine, cash absorbs it. We DON'T re-scale
+        # up because that would defeat the bearish penalty (penalty + scale-up
+        # would restore the original weight).
+        gross = sum(max(s.target_weight, 0.0) for s in adjusted)
+        if gross > self.config.gross_cap and gross > 0:
+            scale = self.config.gross_cap / gross
+            rescaled: list[EtfSignal] = []
+            for sig in adjusted:
+                new_w = float(sig.target_weight) * scale
+                meta = sig.policy_adjustment
+                if meta is not None and isinstance(meta, dict):
+                    meta = dict(meta)
+                    meta["weight_after"] = new_w
+                    meta["delta_weight"] = new_w - meta.get("weight_before", new_w)
+                rescaled.append(replace(sig, target_weight=new_w, policy_adjustment=meta))
+            adjusted = rescaled
+
+        if boosted_count or penalised_count:
+            logger.info(
+                "policy_signal_factor: boosted %d ETFs, penalised %d ETFs "
+                "(bullish_boost=%.3f, bearish_penalty=%.3f)",
+                boosted_count, penalised_count,
+                bullish_boost, bearish_penalty,
+            )
+        return adjusted
 
     def _build_signal(
         self,

@@ -458,6 +458,65 @@ def test_service_with_ensemble_disabled_uses_trend_only(tmp_path) -> None:
     assert plan.get("ensemble", {}).get("enabled") is False
 
 
+def test_service_policy_factor_override_rebuilds_live_strategy(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A per-call policy override must affect the service-built strategy."""
+
+    import json
+    from scripts import daily_etf_signal
+
+    cfg_path = tmp_path / "strategy.json"
+    cfg_path.write_text(json.dumps({
+        "refresh": {"enabled": True, "interval_seconds": 60},
+        "regime": {"enabled": False},
+        "strategy": {
+            "policy_signal_factor_enabled": False,
+            "min_score_to_hold": 0.0,
+            "min_score_full_hold": 1.0,
+        },
+        "etf_industry_map": {"510300": "metals"},
+    }))
+    cfg = load_strategy_config(cfg_path)
+    fixed_now = datetime(2026, 5, 11, 2, 0, tzinfo=timezone.utc)
+    policy_snapshot = {"metals": {"avg_impact": 0.50, "mentions": 3, "signal": "bullish"}}
+    monkeypatch.setattr(
+        daily_etf_signal,
+        "load_policy_industry_signals",
+        lambda: (policy_snapshot, "2026-05-11T01:55:00+00:00"),
+    )
+
+    service = EtfRotationService(
+        strategy_config=cfg,
+        holdings_loader=_fake_holdings_loader,
+        quotes_fetcher=_empty_quotes,
+        history_fetcher=lambda codes, **_kw: _build_price_matrix(list(codes)),
+        audit_log_path=tmp_path / "audit.jsonl",
+        clock=lambda: fixed_now,
+    )
+
+    off_plan = service.refresh(
+        force=True,
+        enable_policy_signal_factor=False,
+    ).cached.plan
+    on_plan = service.refresh(
+        force=True,
+        enable_policy_signal_factor=True,
+    ).cached.plan
+
+    assert off_plan["policy_signal_factor"]["enabled"] is False
+    assert off_plan["score_breakdown"]["510300"]["policy_adjustment"] is None
+    assert on_plan["policy_signal_factor"]["enabled"] is True
+    assert on_plan["policy_signal_factor"]["applied_count"] == 1
+    meta = on_plan["score_breakdown"]["510300"]["policy_adjustment"]
+    assert meta["applied"] is True
+    assert meta["signal"] == "bullish"
+    assert meta["weight_after"] == pytest.approx(
+        on_plan["score_breakdown"]["510300"]["raw_target_weight"]
+    )
+
+
 def test_service_with_ensemble_enabled_blends_strategies(tmp_path) -> None:
     """Enabling ensemble in strategy.json must surface blend metadata in plan."""
 

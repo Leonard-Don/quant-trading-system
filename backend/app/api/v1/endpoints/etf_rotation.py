@@ -89,6 +89,14 @@ def get_daily_signal(
         default=True,
         description="live 模式下是否允许使用实时行情缓存；手动刷新可传 false。",
     ),
+    enable_policy_signal_factor: Optional[bool] = Query(
+        default=None,
+        description=(
+            "可选：覆盖 strategy.json -> strategy.policy_signal_factor_enabled。"
+            "true=本次调用启用 policy_radar 影响 ETF 权重；"
+            "false=本次关闭；省略=沿用配置值（默认关闭）。"
+        ),
+    ),
 ) -> dict[str, Any]:
     base_holdings, holdings_is_configured = daily_etf_signal.load_configured_holdings()
 
@@ -96,6 +104,7 @@ def get_daily_signal(
         plan = daily_etf_signal.generate_plan(
             holdings=base_holdings if holdings_is_configured else None,
             threshold_weight=threshold_weight,
+            enable_policy_signal_factor=enable_policy_signal_factor,
         )
         plan["quote_source"] = "synthetic"
         plan["live_quote_status"] = {
@@ -123,12 +132,14 @@ def get_daily_signal(
                 (quote.timestamp for quote in live_quotes.values() if quote.timestamp),
                 default=None,
             ),
+            enable_policy_signal_factor=enable_policy_signal_factor,
         )
         plan["quote_source"] = "live"
     else:
         plan = daily_etf_signal.generate_plan(
             holdings=base_holdings if holdings_is_configured else None,
             threshold_weight=threshold_weight,
+            enable_policy_signal_factor=enable_policy_signal_factor,
         )
         plan["quote_source"] = "fallback_synthetic"
     plan["live_quote_status"] = live_status
@@ -161,10 +172,20 @@ def get_live_target(
         default=False,
         description="true=阻塞触发一次刷新（即使非交易时段）；false=仅读缓存。",
     ),
+    enable_policy_signal_factor: Optional[bool] = Query(
+        default=None,
+        description=(
+            "可选：trigger_refresh=true 时覆盖 "
+            "strategy.policy_signal_factor_enabled；省略=沿用配置。"
+        ),
+    ),
 ) -> dict[str, Any]:
     service = _get_service()
     if trigger_refresh:
-        outcome = service.refresh(force=True)
+        outcome = service.refresh(
+            force=True,
+            enable_policy_signal_factor=enable_policy_signal_factor,
+        )
         return {
             "success": True,
             "data": _serialise_cached(outcome.cached),
@@ -198,9 +219,22 @@ def get_live_target(
     summary="强制刷新 ETF 轮动信号缓存",
     description="即使在非交易时段也立即重新计算一次 plan，并写入审计日志。",
 )
-def post_refresh(use_cache: bool = Query(default=True)) -> dict[str, Any]:
+def post_refresh(
+    use_cache: bool = Query(default=True),
+    enable_policy_signal_factor: Optional[bool] = Query(
+        default=None,
+        description=(
+            "可选：覆盖 strategy.policy_signal_factor_enabled；"
+            "true=本次启用；false=本次关闭；省略=沿用配置。"
+        ),
+    ),
+) -> dict[str, Any]:
     service = _get_service()
-    outcome = service.refresh(force=True, use_cache=use_cache)
+    outcome = service.refresh(
+        force=True,
+        use_cache=use_cache,
+        enable_policy_signal_factor=enable_policy_signal_factor,
+    )
     return {
         "success": True,
         "data": _serialise_cached(outcome.cached),

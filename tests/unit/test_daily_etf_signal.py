@@ -792,6 +792,124 @@ def test_load_price_matrix_sorts_chronologically_before_ffill(tmp_path) -> None:
     )
 
 
+def test_generate_plan_includes_policy_signal_factor_off_by_default() -> None:
+    """Without overrides the plan must carry an OFF policy_signal_factor block."""
+
+    plan = daily_etf_signal.generate_plan()
+    summary = plan.get("policy_signal_factor") or {}
+    # OFF by default — no industry signals loaded, no adjustments applied.
+    assert summary.get("enabled") is False
+    assert summary.get("applied_count", 0) == 0
+    assert summary.get("boosted") == []
+    assert summary.get("penalised") == []
+
+
+def test_generate_plan_policy_signal_factor_can_be_force_enabled(monkeypatch) -> None:
+    """``enable_policy_signal_factor=True`` overrides the config default."""
+
+    # No etf_industry_map → factor is opt-in but harmless (no ETF mapped).
+    plan = daily_etf_signal.generate_plan(enable_policy_signal_factor=True)
+    summary = plan.get("policy_signal_factor") or {}
+    assert summary.get("enabled") is True
+    assert summary.get("applied_count", 0) == 0
+
+
+def test_generate_plan_policy_signal_factor_applies_when_mapped(monkeypatch) -> None:
+    """End-to-end: with a fake industry_signals + mapped ETF, weight tilts."""
+
+    industry_signals = {
+        "metals_test": {"avg_impact": -0.40, "signal": "bearish", "mentions": 50}
+    }
+
+    # Patch the config loader to inject a fresh map that points 512400 → metals_test
+    # so the factor has somewhere to apply.
+    original_loader = daily_etf_signal.load_strategy_config
+
+    def _patched_loader(*args, **kwargs):
+        cfg = original_loader(*args, **kwargs)
+        from dataclasses import replace as _dc_replace
+        return _dc_replace(cfg, etf_industry_map={"512400": "metals_test"})
+
+    monkeypatch.setattr(daily_etf_signal, "load_strategy_config", _patched_loader)
+
+    plan_off = daily_etf_signal.generate_plan(
+        enable_policy_signal_factor=False,
+        industry_signals=industry_signals,
+    )
+    plan_on = daily_etf_signal.generate_plan(
+        enable_policy_signal_factor=True,
+        industry_signals=industry_signals,
+    )
+
+    # OFF run: no adjustments.
+    assert plan_off["policy_signal_factor"]["enabled"] is False
+    # ON run: the bearish penalty fires for 512400.
+    summary = plan_on["policy_signal_factor"]
+    assert summary["enabled"] is True
+    breakdown_on = plan_on["score_breakdown"].get("512400", {})
+    if breakdown_on.get("raw_target_weight", 0.0) > 0:
+        # When the ETF had a non-zero score, the bearish penalty must show up.
+        assert "512400" in summary["penalised"]
+        meta = breakdown_on.get("policy_adjustment") or {}
+        assert meta.get("signal") == "bearish"
+        assert meta.get("delta_weight", 0.0) < 0.0
+
+
+def test_append_audit_entry_includes_policy_signal_factor_block(tmp_path) -> None:
+    """Audit log row must carry the policy_signal_factor summary, OFF or ON."""
+
+    audit_path = tmp_path / "audit.jsonl"
+    plan = daily_etf_signal.generate_plan(enable_policy_signal_factor=True)
+    daily_etf_signal.append_audit_entry(plan, path=audit_path, quote_source="policy-test")
+
+    entries = daily_etf_signal.read_audit_log(audit_path)
+    assert len(entries) == 1
+    entry = entries[0]
+    assert "policy_signal_factor" in entry
+    assert entry["policy_signal_factor"].get("enabled") is True
+    # score_breakdown carries the per-ETF metadata path; even when None it's
+    # an explicit key so dashboards know to look for it.
+    for code, breakdown in entry.get("score_breakdown", {}).items():
+        assert "policy_adjustment" in breakdown
+        # When OFF / no mapping the value must be None (not absent) — keep
+        # the JSON shape stable across runs.
+
+
+def test_load_policy_industry_signals_returns_empty_when_missing(tmp_path) -> None:
+    """Missing snapshot must return ({}, None) so the legacy path stays clean."""
+
+    signals, last_refresh = daily_etf_signal.load_policy_industry_signals(
+        cache_path=tmp_path / "does-not-exist.json"
+    )
+    assert signals == {}
+    assert last_refresh is None
+
+
+def test_load_policy_industry_signals_parses_snapshot(tmp_path) -> None:
+    """Realistic policy_radar.json shape → industry signals dict."""
+
+    snapshot = tmp_path / "policy_radar.json"
+    snapshot.write_text(
+        json.dumps({
+            "provider": "policy_radar",
+            "signal": {
+                "timestamp": "2026-05-17T08:29:46",
+                "industry_signals": {
+                    "新能源汽车": {"avg_impact": -0.32, "mentions": 119, "signal": "bearish"},
+                    "风电": {"avg_impact": 0.0, "mentions": 3, "signal": "neutral"},
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
+    signals, last_refresh = daily_etf_signal.load_policy_industry_signals(
+        cache_path=snapshot
+    )
+    assert last_refresh == "2026-05-17T08:29:46"
+    assert signals["新能源汽车"]["signal"] == "bearish"
+    assert signals["新能源汽车"]["avg_impact"] == pytest.approx(-0.32)
+
+
 def test_main_cli_help_uses_chinese_user_facing_copy(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         daily_etf_signal.main(["--help"])
