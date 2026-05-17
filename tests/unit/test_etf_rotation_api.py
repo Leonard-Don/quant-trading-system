@@ -823,3 +823,71 @@ def test_policy_factor_attribution_cache_invalidates_when_audit_changes(
     assert second.status_code == 200
     assert second.json()["cached"] is False
     assert second.json()["data"]["n_factor_on_rebalances"] == 1
+
+
+# ---------------------------------------------------------------------------
+# /walkforward
+# ---------------------------------------------------------------------------
+
+
+def test_walkforward_empty_windows_response_is_frontend_safe(
+    tmp_path, monkeypatch,
+) -> None:
+    """No executable windows should serialise as a finite zero report.
+
+    This exercises the HTTP layer, not just ``WalkforwardReport.to_dict()``:
+    a one-row committed-price CSV can generate a calendar window, but every
+    per-window backtest is empty after warmup. The frontend contract is still
+    ``n_windows=0`` + ``windows=[]`` so it can render the degraded empty state.
+    """
+
+    import json
+    import math
+
+    prices_csv = tmp_path / "etf_prices_4y.csv"
+    prices_csv.write_text("date,512400\n2024-01-02,100.0\n", encoding="utf-8")
+    monkeypatch.setattr(etf_endpoint, "DEFAULT_BACKTEST_PRICE_CSV", prices_csv)
+    etf_endpoint.reset_walkforward_cache_for_tests()
+
+    client = TestClient(app)
+    response = client.post(
+        "/etf-rotation/walkforward",
+        json={
+            "period_start": "2024-01-01",
+            "period_end": "2024-03-31",
+            "window_months": 3,
+            "step_months": 1,
+            "refresh": True,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["cached"] is False
+    data = payload["data"]
+    assert data["n_windows"] == 0
+    assert data["windows"] == []
+
+    zero_metric_keys = [
+        "aggregate_return_pct",
+        "mean_window_return_pct",
+        "median_window_return_pct",
+        "return_std_pct",
+        "pct_positive_windows",
+        "mean_sharpe",
+        "median_sharpe",
+        "mean_max_dd_pct",
+        "worst_window_dd_pct",
+        "mean_buy_hold_return_pct",
+        "consistency_score",
+    ]
+    for key in zero_metric_keys:
+        assert data[key] == 0.0
+        assert math.isfinite(data[key])
+
+    assert any(c.startswith("empty_report:all_windows_empty") for c in data["caveats"])
+    assert "empty_report:insufficient_history" in " ".join(data["caveats"])
+    serialised = json.dumps(payload, allow_nan=False)
+    assert "NaN" not in serialised
+    assert "undefined" not in serialised
