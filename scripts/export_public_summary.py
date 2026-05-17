@@ -58,6 +58,7 @@ DEFAULT_VERSION_PATH = PROJECT_ROOT / "VERSION"
 DEFAULT_HEATMAP_HISTORY_PATH = PROJECT_ROOT / "data" / "industry" / "heatmap_history.json"
 DEFAULT_PAPER_TRADING_DIR = PROJECT_ROOT / "data" / "paper_trading"
 DEFAULT_AUDIT_LOG_PATH = Path.home() / ".config" / "etf-rotation" / "audit.jsonl"
+DEFAULT_BACKTEST_PRICE_CSV = PROJECT_ROOT / "data" / "etf_backtest" / "etf_prices_4y.csv"
 
 # Ensure ``src.*`` imports resolve when invoked via ``python scripts/...``.
 if str(PROJECT_ROOT) not in sys.path:
@@ -131,6 +132,11 @@ def _coerce_int(value: Any, default: int = 0) -> int:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def _round_optional_float(value: Any, *, digits: int = 4) -> float | None:
+    coerced = _coerce_float(value)
+    return round(coerced, digits) if coerced is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +274,8 @@ def _enrich_industry_heat_with_policy_signal(
 
 def _build_etf_rotation_section(
     audit_log_path: Path,
+    *,
+    backtest_price_csv_path: Path = DEFAULT_BACKTEST_PRICE_CSV,
 ) -> dict[str, Any]:
     """Static config defaults + the most recent audit log line metadata.
 
@@ -332,6 +340,77 @@ def _build_etf_rotation_section(
         "latest_audit_log_entry_count": audit_line_count,
         "latest_audit_at": str(latest_audit_at) if latest_audit_at else None,
         "latest_audit_run_at": str(latest_audit_run_at) if latest_audit_run_at else None,
+        "regime_recommendation": _build_regime_recommendation_section(
+            backtest_price_csv_path
+        ),
+    }
+
+
+def _build_regime_recommendation_section(
+    price_csv_path: Path,
+    *,
+    lookback_days: int = 90,
+) -> dict[str, Any]:
+    """Publish the current market-regime recommendation without raw prices.
+
+    The sibling ``cn-altdata-brief`` project only needs the label,
+    confidence, recommendation and a few rounded feature values. We never
+    include the source CSV path or any raw price rows, so the committed public
+    summary stays portable and does not leak workstation-local paths.
+    """
+
+    base: dict[str, Any] = {
+        "available": False,
+        "lookback_days": int(lookback_days),
+    }
+    if not price_csv_path.is_file():
+        return {**base, "unavailable_reason": "price_matrix_missing"}
+
+    try:
+        import pandas as pd
+
+        from src.strategy.market_regime_classifier import MarketRegimeClassifier
+        from src.strategy.strategy_recommender import recommend_strategy
+    except ImportError as exc:
+        logger.warning("Cannot build regime recommendation: %s", exc)
+        return {**base, "unavailable_reason": "classifier_unavailable"}
+
+    try:
+        frame = pd.read_csv(price_csv_path, index_col=0)
+        frame.index = pd.to_datetime(frame.index)
+        prices = (
+            frame.apply(pd.to_numeric, errors="coerce")
+            .sort_index()
+            .ffill()
+            .dropna(how="all")
+        )
+    except (OSError, ValueError) as exc:
+        logger.warning("Cannot read regime price matrix: %s", exc)
+        return {**base, "unavailable_reason": "price_matrix_unreadable"}
+
+    regime = MarketRegimeClassifier().classify(prices, lookback_days=lookback_days)
+    recommendation = recommend_strategy(regime)
+    features = regime.features or {}
+    return {
+        "available": True,
+        "lookback_days": int(regime.lookback_days),
+        "as_of": regime.as_of,
+        "regime_name": regime.regime_name,
+        "confidence": _round_optional_float(regime.confidence, digits=3),
+        "recommended_strategy": recommendation.strategy_name,
+        "config_overrides": dict(recommendation.config_overrides),
+        "n_assets_used": int(regime.n_assets_used),
+        "features": {
+            "trend_r2": _round_optional_float(features.get("trend_r2"), digits=4),
+            "trend_slope": _round_optional_float(features.get("trend_slope"), digits=6),
+            "realized_vol": _round_optional_float(features.get("realized_vol"), digits=4),
+            "return_skew": _round_optional_float(features.get("return_skew"), digits=4),
+            "drawdown_ratio": _round_optional_float(features.get("drawdown_ratio"), digits=4),
+            "avg_pairwise_correlation": _round_optional_float(
+                features.get("avg_pairwise_correlation"), digits=4
+            ),
+        },
+        "rationale": recommendation.rationale,
     }
 
 
@@ -430,6 +509,7 @@ def build_public_summary(
     heatmap_history_path: Path = DEFAULT_HEATMAP_HISTORY_PATH,
     paper_trading_dir: Path = DEFAULT_PAPER_TRADING_DIR,
     audit_log_path: Path = DEFAULT_AUDIT_LOG_PATH,
+    backtest_price_csv_path: Path = DEFAULT_BACKTEST_PRICE_CSV,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Build the public quant summary dict from on-disk runtime artifacts.
@@ -467,7 +547,10 @@ def build_public_summary(
         payload["industry_heat"] = industry_heat_section
 
     # --- etf_rotation (always present — has static defaults to publish)
-    payload["etf_rotation"] = _build_etf_rotation_section(audit_log_path)
+    payload["etf_rotation"] = _build_etf_rotation_section(
+        audit_log_path,
+        backtest_price_csv_path=backtest_price_csv_path,
+    )
 
     # --- paper_trading (always present — file-presence based)
     payload["paper_trading"] = _build_paper_trading_section(paper_trading_dir)
@@ -506,6 +589,7 @@ def export_public_summary(
     heatmap_history_path: Path = DEFAULT_HEATMAP_HISTORY_PATH,
     paper_trading_dir: Path = DEFAULT_PAPER_TRADING_DIR,
     audit_log_path: Path = DEFAULT_AUDIT_LOG_PATH,
+    backtest_price_csv_path: Path = DEFAULT_BACKTEST_PRICE_CSV,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """One-shot: build the summary and atomic-write it to disk."""
@@ -515,6 +599,7 @@ def export_public_summary(
         heatmap_history_path=heatmap_history_path,
         paper_trading_dir=paper_trading_dir,
         audit_log_path=audit_log_path,
+        backtest_price_csv_path=backtest_price_csv_path,
         generated_at=generated_at,
     )
     write_public_summary_atomic(payload, output_path)
@@ -565,6 +650,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help=f"ETF rotation audit log (default: {DEFAULT_AUDIT_LOG_PATH})",
     )
     parser.add_argument(
+        "--backtest-price-csv",
+        type=Path,
+        default=DEFAULT_BACKTEST_PRICE_CSV,
+        help="ETF rotation historical price matrix for regime recommendation.",
+    )
+    parser.add_argument(
         "--print",
         action="store_true",
         help="Print the JSON to stdout instead of writing to disk.",
@@ -580,6 +671,7 @@ def main(argv: list[str] | None = None) -> int:
         heatmap_history_path=args.heatmap_history,
         paper_trading_dir=args.paper_trading_dir,
         audit_log_path=args.audit_log,
+        backtest_price_csv_path=args.backtest_price_csv,
     )
     if args.print:
         json.dump(payload, sys.stdout, ensure_ascii=False, indent=2, sort_keys=True)
