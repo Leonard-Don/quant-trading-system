@@ -32,19 +32,28 @@ const useIndustryRanking = ({
     const hotIndustriesAbortRef = useRef(null);
     const clustersAbortRef = useRef(null);
 
-    const buildHotQueryKey = useCallback((topN, type, sort, lookback) =>
-        `top_n:${topN}|type:${type}|sort:${sort}|lookback:${lookback}`, []);
+    const buildHotQueryKey = useCallback((
+        topN,
+        type,
+        sort,
+        lookback,
+        includePolicySignal = false
+    ) => (
+        `top_n:${topN}|type:${type}|sort:${sort}|lookback:${lookback}|policy:${includePolicySignal ? 1 : 0}`
+    ), []);
 
     useEffect(() => {
         if (!Array.isArray(bootstrapHotIndustries) || bootstrapHotIndustries.length === 0 || !bootstrapHotMeta) {
             return;
         }
 
+        const bootstrapIncludesPolicySignal = bootstrapHotMeta.includePolicySignal === true;
         const bootstrapQueryKey = buildHotQueryKey(
             bootstrapHotMeta.topN,
             bootstrapHotMeta.type,
             bootstrapHotMeta.sortBy,
-            bootstrapHotMeta.lookbackDays
+            bootstrapHotMeta.lookbackDays,
+            bootstrapIncludesPolicySignal
         );
         const hasConflictingLoaded = hotLoadedQueryKeyRef.current && hotLoadedQueryKeyRef.current !== bootstrapQueryKey;
         const hasConflictingInFlight = hotInFlightQueryKeyRef.current && hotInFlightQueryKeyRef.current !== bootstrapQueryKey;
@@ -66,7 +75,8 @@ const useIndustryRanking = ({
         silent = false
     ) => {
         const requestId = ++hotRequestIdRef.current;
-        const queryKey = buildHotQueryKey(topN, type, sort, lookback);
+        const includePolicySignal = true;
+        const queryKey = buildHotQueryKey(topN, type, sort, lookback, includePolicySignal);
 
         if (hotIndustriesAbortRef.current) {
             hotIndustriesAbortRef.current.abort();
@@ -79,9 +89,11 @@ const useIndustryRanking = ({
             setLoadingHot(true);
             hotInFlightQueryKeyRef.current = queryKey;
             const order = type === 'gainers' ? 'desc' : 'asc';
+            // 一律请求 policy_signal —— policy_radar 端点已是 60min 缓存+空降级，
+            // 同步在 ranking 行内的成本可以忽略，前端因此能稳定渲染政策信号列。
             const result = await getHotIndustries(topN, lookback, sort, order, {
-                signal: currentAbort.signal
-            });
+                signal: currentAbort.signal,
+            }, { includePolicySignal });
             if (requestId === hotRequestIdRef.current && currentAbort === hotIndustriesAbortRef.current) {
                 setHotIndustries(result || []);
                 hotLoadedQueryKeyRef.current = queryKey;
@@ -190,7 +202,7 @@ const useIndustryRanking = ({
     // 当切换到排名或聚类标签时自动加载数据
     useEffect(() => {
         if (activeTab === 'ranking') {
-            const targetQueryKey = buildHotQueryKey(50, rankType, sortBy, lookbackDays);
+            const targetQueryKey = buildHotQueryKey(50, rankType, sortBy, lookbackDays, true);
             const hasMatchingLoaded = hotLoadedQueryKeyRef.current === targetQueryKey;
             const hasMatchingInFlight = hotInFlightQueryKeyRef.current === targetQueryKey;
             if (!hasMatchingLoaded && !hasMatchingInFlight) {

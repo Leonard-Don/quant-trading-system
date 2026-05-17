@@ -8,10 +8,11 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from requests.exceptions import RequestException
 
 from backend.app.api.v1.endpoints._industry_helpers import (
     _build_industry_events,
@@ -49,6 +50,7 @@ from backend.app.schemas.industry import (
 from backend.app.services.industry_preferences import (
     industry_preferences_store,
 )
+from src.data.alternative.base_alt_provider import AltDataError
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -59,9 +61,108 @@ _INDUSTRY_ENDPOINT_OPERATIONAL_ERRORS = (
     TypeError,
     ValueError,
 )
+_POLICY_SIGNAL_OVERLAY_OPERATIONAL_ERRORS = (
+    AppException,
+    AltDataError,
+    OSError,
+    RequestException,
+    RuntimeError,
+    TimeoutError,
+)
 
 
-@router.get("/industries/hot", response_model=list[IndustryRankResponse])
+def _load_policy_signal_overlay() -> tuple[dict[str, Any], Optional[str]]:
+    """Lazily fetch the ``policy_radar`` industry_signals payload.
+
+    Returns ``({}, None)`` whenever the alt-data manager is unreachable or
+    has no policy snapshot — the ranking endpoint must keep responding
+    even when policy_radar is cold. Programmer and schema-contract errors
+    are allowed to propagate; only operational alt-data/runtime transport
+    or storage errors degrade to an empty overlay.
+    """
+    try:
+        from src.data.alternative.runtime import get_alt_data_manager
+
+        manager = get_alt_data_manager()
+        payload = manager.get_alt_signals(category="policy")
+    except _POLICY_SIGNAL_OVERLAY_OPERATIONAL_ERRORS as exc:
+        logger.warning(
+            "industry ranking degrade: policy_radar overlay unavailable (%s)", exc
+        )
+        return {}, None
+
+    last_refresh = payload.get("last_refresh") if isinstance(payload, dict) else None
+    signals = payload.get("signals") if isinstance(payload, dict) else []
+    if not isinstance(signals, list):
+        return {}, last_refresh
+
+    for signal in signals:
+        if not isinstance(signal, dict):
+            continue
+        if signal.get("category") != "policy":
+            continue
+        industry_signals = signal.get("industry_signals") or {}
+        if isinstance(industry_signals, dict):
+            return industry_signals, last_refresh
+        return {}, last_refresh
+
+    return {}, last_refresh
+
+
+def _attach_policy_signal(
+    responses: list[IndustryRankResponse],
+    industry_signals: dict[str, Any],
+    last_refresh: Optional[str],
+) -> list[IndustryRankResponse]:
+    """Pin per-industry policy_radar metadata onto each ranking row.
+
+    ``industry_signals`` is keyed verbatim by the policy_radar Chinese
+    industry name (e.g. ``"新能源汽车"``). Industries with no entry get
+    ``policy_signal=None`` so the frontend can render an empty cell.
+    """
+    if not responses:
+        return responses
+
+    enriched: list[IndustryRankResponse] = []
+    from backend.app.schemas.industry import IndustryPolicySignal
+
+    for row in responses:
+        info = industry_signals.get(row.industry_name) if industry_signals else None
+        if isinstance(info, dict):
+            try:
+                avg_impact_val: Optional[float]
+                raw_impact = info.get("avg_impact")
+                avg_impact_val = float(raw_impact) if raw_impact is not None else None
+            except (TypeError, ValueError):
+                avg_impact_val = None
+            try:
+                mentions_val = int(info.get("mentions") or 0)
+            except (TypeError, ValueError):
+                mentions_val = 0
+            signal_label = info.get("signal") or "neutral"
+            if signal_label not in {"bullish", "bearish", "neutral"}:
+                signal_label = "neutral"
+            policy_signal = IndustryPolicySignal(
+                avg_impact=avg_impact_val,
+                mentions=mentions_val,
+                signal=signal_label,
+                last_refresh_at=last_refresh,
+            )
+        else:
+            policy_signal = None
+
+        # Pydantic models are immutable from the API caller perspective; we
+        # rebuild via ``model_copy`` to keep the original schema intact.
+        enriched.append(row.model_copy(update={"policy_signal": policy_signal}))
+
+    return enriched
+
+
+@router.get(
+    "/industries/hot",
+    response_model=list[IndustryRankResponse],
+    response_model_exclude_unset=True,
+)
 def get_hot_industries(
     top_n: int = Query(10, ge=1, le=50, description="返回前N个热门行业"),
     lookback_days: int = Query(5, ge=1, le=30, description="回看周期（天）"),
@@ -70,6 +171,13 @@ def get_hot_industries(
         description="排序字段: total_score, change_pct, money_flow, industry_volatility",
     ),
     order: str = Query("desc", description="排序顺序: desc, asc"),
+    include_policy_signal: bool = Query(
+        False,
+        description=(
+            "是否在每一行附带 policy_radar 政策信号 (avg_impact / mentions / signal / "
+            "last_refresh_at)。默认 false，保持既有调用方不变；缺少政策数据的行业返回 None。"
+        ),
+    ),
 ) -> list[IndustryRankResponse]:
     """
     获取热门行业排名
@@ -80,10 +188,19 @@ def get_hot_industries(
     - **lookback_days**: 用于计算动量和资金流向的回看周期
     - **sort_by**: 排序字段 (total_score, change_pct, money_flow, industry_volatility)
     - **order**: 排序顺序 (desc, asc)
+    - **include_policy_signal**: 可选，附带 policy_radar 行业级政策信号；缺数据时为 None
     """
+    # Defensive coercion: tests call this function directly (not via FastAPI),
+    # in which case the `Query(False)` default object is bound rather than a
+    # plain ``False``. ``bool(Query(False))`` is truthy, so guard against that
+    # to keep the cache key stable across both call paths.
+    include_policy_flag = include_policy_signal is True
     try:
-        # 端点级缓存
-        cache_key = f"hot:v3:{top_n}:{lookback_days}:{sort_by}:{order}"
+        # 端点级缓存。include_policy_signal 进 cache key，避免污染既有调用方。
+        cache_key = (
+            f"hot:v3:{top_n}:{lookback_days}:{sort_by}:{order}"
+            f":policy={int(include_policy_flag)}"
+        )
         cached = _get_endpoint_cache(cache_key)
         if cached is not None:
             return cached
@@ -94,6 +211,9 @@ def get_hot_industries(
             top_n=top_n, sort_by=sort_by, ascending=ascending, lookback_days=lookback_days
         )
         result = _build_hot_industry_rank_responses(analyzer, hot_industries)
+        if include_policy_flag:
+            industry_signals, last_refresh = _load_policy_signal_overlay()
+            result = _attach_policy_signal(result, industry_signals, last_refresh)
         _set_endpoint_cache(cache_key, result)
         return result
     except HTTPException:

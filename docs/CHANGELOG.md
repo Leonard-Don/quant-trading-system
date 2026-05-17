@@ -8,6 +8,13 @@
 
 ### Features
 
+- feat(industry): surface policy_radar in ranking + heatmap
+  - 把 `policy_radar` 的覆盖面从 commit `1d2f9f7` 的「ETF 轮动调仓面板」扩展到「行业研究视图」(`?view=industry`)。
+  - 后端 `/industry/industries/hot` 新增可选 `include_policy_signal` 查询参数（默认 `false`，既有调用方完全不变）。`true` 时每一行追加 `policy_signal: {avg_impact, mentions, signal, last_refresh_at}`；缺政策数据的行业返回 `null`。policy_radar 离线时整张表整体降级为 `None`，HTTP 200 不变。
+  - 前端「行业排行榜」新增「政策信号」列：偏多/偏空/中性 Tag、提及次数、影响数值，按 `|avg_impact|` 可排序，空数据回退到 `-`。`data-testid="industry-policy-signal-column"` 留作 e2e/集成测试钩子。
+  - 行业热力图新增「政策着色」按钮模式（与默认温度着色独立切换）：tile 背景按 `signal` 重新上色（红=偏多 / 绿=偏空 / 灰=中性或无数据），不替换默认温度着色，OFF 时回归原配色。
+  - 仅信息呈现层；ETF 轮动策略的目标权重计算（`src/strategy/etf_rotation_strategy.py`）保持不变。
+
 - feat(etf-rotation): surface policy_radar signal in dashboard
   - 在 ETF 轮动调仓页面新增「政策信号」Collapse 面板，展示 `policy_radar` 最新行业级别影响（按 `|avg_impact|` 排序的 Top 3）。
   - 面板位于审计日志 Collapse 之前，懒加载方式拉取 `/policy-radar/signal`；`available:false` 时显示 Empty 占位；`last_refresh` 超过 24 小时时打上「已过期」提示。

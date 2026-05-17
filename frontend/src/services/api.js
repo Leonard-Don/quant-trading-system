@@ -1026,8 +1026,21 @@ export const getRiskMetrics = async (symbol, interval = '1d') => {
 // ============ 行业分析 API ============
 
 // 获取热门行业排名
-export const getHotIndustries = async (topN = 10, lookbackDays = 5, sortBy = 'total_score', order = 'desc', options = {}) => {
-  const response = await api.get(`/industry/industries/hot?top_n=${topN}&lookback_days=${lookbackDays}&sort_by=${sortBy}&order=${order}`, options);
+// `includePolicySignal=true` 时附带 policy_radar 行业级信号 (avg_impact / mentions / signal / last_refresh_at)。
+// 默认 false 与既有调用方完全等价；缺少政策数据的行业返回 policy_signal:null。
+export const getHotIndustries = async (
+  topN = 10,
+  lookbackDays = 5,
+  sortBy = 'total_score',
+  order = 'desc',
+  options = {},
+  { includePolicySignal = false } = {},
+) => {
+  const policyParam = includePolicySignal ? '&include_policy_signal=true' : '';
+  const response = await api.get(
+    `/industry/industries/hot?top_n=${topN}&lookback_days=${lookbackDays}&sort_by=${sortBy}&order=${order}${policyParam}`,
+    options,
+  );
   return response.data;
 };
 

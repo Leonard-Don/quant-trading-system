@@ -2659,7 +2659,7 @@
           "Industry Analysis"
         ],
         "summary": "Get Hot Industries",
-        "description": "获取热门行业排名\n\n基于动量、资金流向和成交量变化综合评分，识别当前市场关注度高的行业。\n\n- **top_n**: 返回排名前 N 的行业\n- **lookback_days**: 用于计算动量和资金流向的回看周期\n- **sort_by**: 排序字段 (total_score, change_pct, money_flow, industry_volatility)\n- **order**: 排序顺序 (desc, asc)",
+        "description": "获取热门行业排名\n\n基于动量、资金流向和成交量变化综合评分，识别当前市场关注度高的行业。\n\n- **top_n**: 返回排名前 N 的行业\n- **lookback_days**: 用于计算动量和资金流向的回看周期\n- **sort_by**: 排序字段 (total_score, change_pct, money_flow, industry_volatility)\n- **order**: 排序顺序 (desc, asc)\n- **include_policy_signal**: 可选，附带 policy_radar 行业级政策信号；缺数据时为 None",
         "operationId": "get_hot_industries_industry_industries_hot_get",
         "parameters": [
           {
@@ -2713,6 +2713,18 @@
               "title": "Order"
             },
             "description": "排序顺序: desc, asc"
+          },
+          {
+            "name": "include_policy_signal",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "是否在每一行附带 policy_radar 政策信号 (avg_impact / mentions / signal / last_refresh_at)。默认 false，保持既有调用方不变；缺少政策数据的行业返回 None。",
+              "default": false,
+              "title": "Include Policy Signal"
+            },
+            "description": "是否在每一行附带 policy_radar 政策信号 (avg_impact / mentions / signal / last_refresh_at)。默认 false，保持既有调用方不变；缺少政策数据的行业返回 None。"
           }
         ],
         "responses": {
@@ -8343,6 +8355,17 @@
             "type": "array",
             "title": "Score Breakdown",
             "description": "后端统一评分拆解数据"
+          },
+          "policy_signal": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IndustryPolicySignal"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "行业政策雷达信号（仅当 include_policy_signal=true 时返回，无数据时为 None）"
           }
         },
         "type": "object",
@@ -8353,6 +8376,49 @@
         ],
         "title": "IndustryRankResponse",
         "description": "行业排名响应"
+      },
+      "IndustryPolicySignal": {
+        "properties": {
+          "avg_impact": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avg Impact",
+            "description": "平均影响强度，正值偏多/负值偏空"
+          },
+          "mentions": {
+            "type": "integer",
+            "title": "Mentions",
+            "description": "近期政策提及次数",
+            "default": 0
+          },
+          "signal": {
+            "type": "string",
+            "title": "Signal",
+            "description": "信号分类: bullish / bearish / neutral",
+            "default": "neutral"
+          },
+          "last_refresh_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Refresh At",
+            "description": "policy_radar 最后刷新时间 (ISO 8601)"
+          }
+        },
+        "type": "object",
+        "title": "IndustryPolicySignal",
+        "description": "行业级政策雷达信号（policy_radar industry_signals 投影）"
       },
       "IndustryRotationResponse": {
         "properties": {

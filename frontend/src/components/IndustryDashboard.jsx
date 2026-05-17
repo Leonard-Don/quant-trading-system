@@ -41,6 +41,7 @@ import MiniSparkline from './common/MiniSparkline';
 import IndustryScoreRadarModal from './industry/IndustryScoreRadarModal';
 import IndustrySavedViewsPanel from './industry/IndustrySavedViewsPanel';
 import IndustryRankingPanel from './industry/IndustryRankingPanel';
+import buildIndustryPolicySignalColumn from './industry/buildIndustryPolicySignalColumn';
 import IndustryAlertsPanel from './industry/IndustryAlertsPanel';
 import IndustryWatchlistPanel from './industry/IndustryWatchlistPanel';
 import IndustryMarketSnapshotBar from './industry/IndustryMarketSnapshotBar';
@@ -345,6 +346,7 @@ const IndustryDashboard = () => {
                 </span>
             )
         },
+        buildIndustryPolicySignalColumn({ mutedColor: PANEL_MUTED }),
         {
             title: '成分股',
             dataIndex: 'stock_count',

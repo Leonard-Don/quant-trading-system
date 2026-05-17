@@ -103,15 +103,20 @@ const IndustryHeatmap = ({
     const [policyOverlayOn, setPolicyOverlayOn] = useState(false);
     const [policyIndustrySignals, setPolicyIndustrySignals] = useState(null);
     const [policyOverlayLoading, setPolicyOverlayLoading] = useState(false);
+    // 政策色彩覆盖模式：与默认温度着色并行的可选着色方案，
+    // ON 时 tile 背景按 policy_signal 着色（红=偏多/绿=偏空/灰=中性），
+    // OFF 时回归 colorMetric 决定的温度着色。两套着色互不替换。
+    const [policyColorMode, setPolicyColorMode] = useState(false);
 
     // AbortController refs
     const loadDataAbortRef = useRef(null);
 
-    // Lazy-fetch policy radar signal on toggle. Cache the result so toggling
+    // Lazy-fetch policy radar signal when either the badge overlay or the
+    // policy color-mode is toggled on. Cache the result so toggling either
     // off then back on doesn't re-hit the network unnecessarily within the
     // same component lifecycle.
     useEffect(() => {
-        if (!policyOverlayOn) return undefined;
+        if (!policyOverlayOn && !policyColorMode) return undefined;
         if (policyIndustrySignals !== null) return undefined;
         let cancelled = false;
         setPolicyOverlayLoading(true);
@@ -130,14 +135,16 @@ const IndustryHeatmap = ({
                 if (!cancelled) setPolicyOverlayLoading(false);
             });
         return () => { cancelled = true; };
-    }, [policyOverlayOn, policyIndustrySignals]);
+    }, [policyOverlayOn, policyColorMode, policyIndustrySignals]);
 
     // Memoize the normalized overlay map. Recomputes when either the
     // policy payload or the rendered industry list changes.
+    // 注意：badge 叠加和 color 模式都依赖同一张 lookup map，所以只要任一开关 on
+    // 都要构建一次。否则 color 模式开启时 tile 拿不到 policy 数据。
     const policyOverlayMap = useMemo(() => {
-        if (!policyOverlayOn || !policyIndustrySignals) return null;
+        if ((!policyOverlayOn && !policyColorMode) || !policyIndustrySignals) return null;
         return buildPolicyOverlay(data?.industries || [], policyIndustrySignals);
-    }, [policyOverlayOn, policyIndustrySignals, data]);
+    }, [policyOverlayOn, policyColorMode, policyIndustrySignals, data]);
 
     useEffect(() => {
         if (!focusControlKey) return undefined;
@@ -680,7 +687,7 @@ const IndustryHeatmap = ({
                     else if (colorMetric === 'net_inflow_ratio') displayValue = item.netInflowRatio || 0;
                     else if (colorMetric === 'turnover_rate') displayValue = item.turnoverRate || 0;
 
-                    const bgColor = getColor(displayValue, colorMetric, maxAbsChange);
+                    const baseBgColor = getColor(displayValue, colorMetric, maxAbsChange);
 
                     const policyEntry = policyOverlayMap
                         ? lookupPolicyOverlay(item.name, policyOverlayMap)
@@ -690,6 +697,20 @@ const IndustryHeatmap = ({
                             ? { glyph: '▲', color: HEATMAP_POSITIVE, label: '政策利好' }
                             : { glyph: '▼', color: HEATMAP_NEGATIVE, label: '政策利空' }
                         : null;
+
+                    // 政策色彩覆盖模式：用 policy_signal 接管 tile 背景色。
+                    // 默认温度着色不变，只是 ON 时被 override。无数据的行业回退到中性灰，
+                    // 保证视觉一致（不退化成默认温度色，避免用户误以为没切换成功）。
+                    let bgColor = baseBgColor;
+                    if (policyColorMode) {
+                        if (!policyEntry || policyEntry.signal === 'neutral') {
+                            bgColor = '#6b7280'; // neutral gray
+                        } else if (policyEntry.signal === 'bullish') {
+                            bgColor = 'rgb(200, 60, 60)';
+                        } else if (policyEntry.signal === 'bearish') {
+                            bgColor = 'rgb(60, 140, 80)';
+                        }
+                    }
 
                     const isLargeBlock = layout.width > 90 && layout.height > 70;
                     const isMediumBlock = layout.width > 55 && layout.height > 40;
@@ -1457,6 +1478,19 @@ const IndustryHeatmap = ({
                         />
                         <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>政策</Text>
                     </span>
+                </Tooltip>
+                <Tooltip title="切换为「政策信号着色」模式 —— tile 背景按 policy_radar 信号配色（红=偏多/绿=偏空/灰=中性/无数据），默认温度着色保持不变，只是当前模式下被覆盖。">
+                    <Button
+                        size="small"
+                        type={policyColorMode ? 'primary' : 'default'}
+                        onClick={() => setPolicyColorMode((prev) => !prev)}
+                        data-testid="heatmap-policy-color-mode-toggle"
+                        aria-pressed={policyColorMode}
+                        aria-label="切换政策信号着色模式"
+                        style={{ borderRadius: 8 }}
+                    >
+                        政策着色
+                    </Button>
                 </Tooltip>
                 <Select
                     value={refreshSec}

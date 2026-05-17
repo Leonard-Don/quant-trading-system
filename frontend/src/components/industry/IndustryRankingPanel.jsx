@@ -227,7 +227,7 @@ const IndustryRankingPanel = ({
                 rowKey="industry_name"
                 size="small"
                 loading={loadingHot}
-                scroll={{ x: 980 }}
+                scroll={{ x: 1140 }}
                 pagination={{
                     pageSize: 15,
                     showSizeChanger: true,
