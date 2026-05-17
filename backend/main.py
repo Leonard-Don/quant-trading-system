@@ -3,12 +3,13 @@
 量化交易系统 - FastAPI 后端服务
 """
 
-import sys
-import os
-import logging
 import asyncio
+import logging
+import os
+import sys
 from collections.abc import Awaitable
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -17,21 +18,21 @@ from fastapi.responses import JSONResponse
 # 添加src目录到路径
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
-from backend.app.core.config import APP_VERSION, config, setup_logging
 from backend.app.api.v1.api import api_router
-from backend.app.websocket.routes import router as websocket_router
+from backend.app.api.v1.endpoints import etf_rotation as etf_rotation_endpoint
+from backend.app.core.config import APP_VERSION, config, setup_logging
 from backend.app.core.error_handler import register_exception_handlers
 from backend.app.core.rate_limit_state import rate_limiter
 from backend.app.services.runtime_state import get_data_manager
-from src.middleware.request_id import RequestIDMiddleware
-from src.data.realtime_manager import realtime_manager
+from backend.app.websocket.routes import router as websocket_router
 from src.data.alternative import (
     get_alt_data_manager,
     start_alt_data_scheduler,
     stop_alt_data_scheduler,
 )
-from backend.app.api.v1.endpoints import etf_rotation as etf_rotation_endpoint
 from src.data.etf_premium_monitor import EtfPremiumMonitor, run_premium_refresh_loop
+from src.data.realtime_manager import realtime_manager
+from src.middleware.request_id import RequestIDMiddleware
 from src.strategy.etf_rotation_config_loader import load_strategy_config
 from src.strategy.etf_rotation_service import EtfRotationService
 
@@ -54,7 +55,7 @@ async def warm_up_cache():
     # 1. 基础美股
     hot_symbols = ["AAPL", "GOOGL", "MSFT", "TSLA", "NVDA"]
     logger.info(f"Warming up cache for {len(hot_symbols)} symbols...")
-    
+
     try:
         loop = asyncio.get_event_loop()
         # 预加载美股
@@ -67,7 +68,7 @@ async def warm_up_cache():
             "Skipping eager realtime quote prewarm for %s symbols to avoid poisoning provider health before the first live session.",
             len(HOT_REALTIME_SYMBOLS),
         )
-        
+
         logger.info(
             "Skipping eager A-share industry prewarm during startup; industry endpoints will hydrate on demand from cached snapshots first."
         )
@@ -132,25 +133,30 @@ async def etf_rotation_refresh_loop(service: EtfRotationService) -> None:
     try:
         # Build an initial plan so /live-target returns immediately.
         try:
-            outcome = service.refresh(force=True)
+            outcome = service.refresh(
+                force=True,
+                enable_policy_signal_factor=etf_rotation_endpoint.resolve_policy_factor_refresh_override(),
+            )
             logger.info(
                 "ETF rotation initial refresh complete (source=%s, refreshed=%s)",
                 outcome.cached.quote_source, outcome.refreshed,
             )
-        except Exception as exc:  # noqa: BLE001 — loop must survive
+        except Exception as exc:
             logger.exception("ETF rotation initial refresh failed: %s", exc)
 
         while True:
             await asyncio.sleep(interval)
             try:
-                outcome = service.refresh()
+                outcome = service.refresh(
+                    enable_policy_signal_factor=etf_rotation_endpoint.resolve_policy_factor_refresh_override(),
+                )
                 if outcome.refreshed:
                     logger.debug(
                         "ETF rotation refresh: source=%s, max_delta=%s",
                         outcome.cached.quote_source,
                         outcome.cached.debounce_max_delta,
                     )
-            except Exception as exc:  # noqa: BLE001 — loop must survive
+            except Exception as exc:
                 logger.exception("ETF rotation periodic refresh failed: %s", exc)
     except asyncio.CancelledError:
         logger.info("ETF rotation refresh loop stopped")

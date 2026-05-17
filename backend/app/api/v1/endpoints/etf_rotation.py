@@ -136,6 +136,18 @@ def _resolve_policy_factor_flag(
     return None, config_default, "config"
 
 
+def resolve_policy_factor_refresh_override() -> Optional[bool]:
+    """Return the persisted UI preference override for service refresh calls.
+
+    Background refreshes have no query parameter, but they still need to
+    honor the dashboard preference. ``None`` means no stored preference is
+    set, so ``EtfRotationService.refresh`` should keep honoring strategy.json.
+    """
+
+    effective_for_call, _, _ = _resolve_policy_factor_flag(query_param=None)
+    return effective_for_call
+
+
 @router.get(
     "/daily-signal",
     summary="获取每日 ETF 轮动手动调仓建议",
@@ -470,7 +482,10 @@ def post_reload_config(refresh_after: bool = Query(default=True)) -> dict[str, A
     summary = _summarise_strategy_config(cfg)
     refresh_outcome = None
     if refresh_after:
-        outcome = service.refresh(force=True)
+        outcome = service.refresh(
+            force=True,
+            enable_policy_signal_factor=resolve_policy_factor_refresh_override(),
+        )
         refresh_outcome = {
             "refreshed": outcome.refreshed,
             "skipped_reason": outcome.skipped_reason,

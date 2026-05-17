@@ -2,24 +2,25 @@
 pytest配置文件
 """
 
-import pytest
-import sys
 import os
+import sys
 from pathlib import Path
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+import pytest
 
 # 添加项目根目录到路径
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
+from src.backtest.backtester import Backtester  # noqa: E402
 from src.data.data_manager import DataManager  # noqa: E402
 from src.strategy.strategies import MovingAverageCrossover, RSIStrategy  # noqa: E402
-from src.backtest.backtester import Backtester  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def _isolate_etf_rotation_external_state(monkeypatch):
+def _isolate_etf_rotation_external_state(monkeypatch, tmp_path):
     """Keep ETF rotation tests independent of the developer's local config.
 
     The CLI/API auto-load ``~/.config/etf-rotation/holdings.json`` and call
@@ -31,6 +32,7 @@ def _isolate_etf_rotation_external_state(monkeypatch):
 
     monkeypatch.delenv("ETF_HOLDINGS_PATH", raising=False)
     monkeypatch.delenv("ETF_AUDIT_LOG_PATH", raising=False)
+    monkeypatch.setenv("ETF_PREFERENCES_PATH", str(tmp_path / "etf_preferences.json"))
 
     try:
         from scripts import daily_etf_signal
@@ -69,6 +71,12 @@ def _isolate_etf_rotation_external_state(monkeypatch):
     except ImportError:
         return
     etf_endpoint.reset_service_for_tests()
+    etf_endpoint.reset_preferences_for_tests()
+    try:
+        from src.strategy.etf_rotation_preferences import reset_preferences_store_for_tests
+    except ImportError:
+        return
+    reset_preferences_store_for_tests()
 
 
 @pytest.fixture

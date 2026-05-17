@@ -594,3 +594,75 @@ def test_daily_signal_returns_effective_enabled_field(monkeypatch, tmp_path) -> 
         assert plan["policy_signal_factor"]["source"] == "config"
     finally:
         etf_endpoint.reset_preferences_for_tests()
+
+
+def test_refresh_override_uses_persisted_preference(monkeypatch, tmp_path) -> None:
+    """Background service.refresh callers have no query param, but should
+    still inherit the persisted UI preference when one exists.
+    """
+
+    _install_isolated_preferences(monkeypatch, tmp_path)
+    try:
+        client = TestClient(app)
+        client.post(
+            "/etf-rotation/preferences",
+            json={"policy_signal_factor_enabled": True},
+        )
+        assert etf_endpoint.resolve_policy_factor_refresh_override() is True
+
+        client.post(
+            "/etf-rotation/preferences",
+            json={"policy_signal_factor_enabled": None},
+        )
+        assert etf_endpoint.resolve_policy_factor_refresh_override() is None
+    finally:
+        etf_endpoint.reset_preferences_for_tests()
+
+
+def test_reload_config_refresh_honors_persisted_preference(
+    monkeypatch, tmp_path
+) -> None:
+    """reload-config refresh should compute weights with the UI preference."""
+
+    from src.strategy.etf_rotation_config_loader import load_strategy_config
+
+    class CaptureReloadService:
+        def __init__(self) -> None:
+            self.calls = []
+
+        def reload_strategy_config(self):
+            return load_strategy_config()
+
+        def refresh(self, **kwargs):
+            self.calls.append(kwargs)
+            cached = SimpleNamespace(
+                plan={"adjusted_weights": {"CASH": 1.0}},
+                refreshed_at=datetime(2026, 5, 15, 2, 0, tzinfo=timezone.utc),
+                quote_source="test",
+                debounced=False,
+                debounce_max_delta=None,
+                reasons=[],
+            )
+            return SimpleNamespace(
+                refreshed=True,
+                cached=cached,
+                skipped_reason=None,
+            )
+
+    _install_isolated_preferences(monkeypatch, tmp_path)
+    service = CaptureReloadService()
+    etf_endpoint.install_service(service)  # type: ignore[arg-type]
+    try:
+        client = TestClient(app)
+        client.post(
+            "/etf-rotation/preferences",
+            json={"policy_signal_factor_enabled": True},
+        )
+        response = client.post("/etf-rotation/reload-config?refresh_after=true")
+    finally:
+        etf_endpoint.reset_service_for_tests()
+        etf_endpoint.reset_preferences_for_tests()
+
+    assert response.status_code == 200
+    assert service.calls[0]["force"] is True
+    assert service.calls[0]["enable_policy_signal_factor"] is True
