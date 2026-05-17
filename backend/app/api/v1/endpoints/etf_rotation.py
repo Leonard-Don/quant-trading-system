@@ -16,19 +16,28 @@ Endpoints
   ``EtfRotationService`` background refresh loop, with explicit freshness
   metadata. Use this when the dashboard polls every few seconds.
 * ``POST /refresh`` — force a refresh outside trading hours.
+* ``POST /backtest`` — replay the strategy on a committed historical price
+  matrix and return a BacktestReport.
 """
 
 from __future__ import annotations
 
 import logging
 import time
+from dataclasses import replace as dataclass_replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
+import pandas as pd
 from fastapi import APIRouter, Body, HTTPException, Query
 
 from scripts import daily_etf_signal
+from src.backtest.etf_rotation_backtest import (
+    DEFAULT_INITIAL_CAPITAL,
+    DEFAULT_REBALANCE_FREQ_DAYS,
+    EtfRotationBacktester,
+)
 from src.research.policy_factor_attribution import (
     AttributionReport,
     compute_attribution,
@@ -42,6 +51,14 @@ from src.strategy.etf_rotation_preferences import (
 from src.strategy.etf_rotation_service import EtfRotationService
 
 logger = logging.getLogger(__name__)
+
+# Committed historical price matrix shipped in ``data/etf_backtest/``. The
+# backtest endpoint defaults to this file so the dashboard / CLI don't need
+# to remember a path — and so the endpoint stays hermetic (no live data).
+_PROJECT_ROOT = Path(__file__).resolve().parents[5]
+DEFAULT_BACKTEST_PRICE_CSV = (
+    _PROJECT_ROOT / "data" / "etf_backtest" / "etf_prices_4y.csv"
+)
 
 router = APIRouter()
 
@@ -721,7 +738,6 @@ def get_policy_factor_attribution(
     if nav is None:
         # Even with no prices the engine returns a structured "zero" report,
         # which the UI can render with a "data unavailable" hint.
-        import pandas as pd
         nav = pd.DataFrame()
     report: AttributionReport = compute_attribution(
         audit_file, nav, period_days=period_days,
@@ -729,3 +745,127 @@ def get_policy_factor_attribution(
     payload = report.to_dict()
     _attribution_cache[cache_key] = (now, payload)
     return {"success": True, "data": payload, "cached": False}
+
+
+# ---------------------------------------------------------------------------
+# Historical backtest harness
+#
+# Replays ``EtfRotationStrategy`` over a closed historical window and returns
+# a structured ``BacktestReport``. The endpoint is intentionally synchronous —
+# 3-month windows take ~5s on the committed 4-year price matrix; longer
+# windows degrade gracefully but the caller should expect at most ~30s for a
+# year-long span. No live data is fetched.
+# ---------------------------------------------------------------------------
+
+
+def _load_backtest_price_matrix(prices_csv_path: Optional[Path]) -> pd.DataFrame:
+    """Load the wide price matrix used by the backtest endpoint.
+
+    Defaults to ``DEFAULT_BACKTEST_PRICE_CSV`` when ``prices_csv_path`` is
+    ``None``. Raises ``FileNotFoundError`` when the file is missing — the
+    handler converts that into a 503 so the frontend can surface
+    "historical data unavailable" without crashing.
+    """
+
+    csv_path = prices_csv_path or DEFAULT_BACKTEST_PRICE_CSV
+    if not csv_path.is_file():
+        raise FileNotFoundError(str(csv_path))
+    frame = pd.read_csv(csv_path, index_col=0)
+    frame.index = pd.to_datetime(frame.index)
+    return (
+        frame.apply(pd.to_numeric, errors="coerce")
+        .sort_index()
+        .ffill()
+        .dropna(how="all")
+    )
+
+
+@router.post(
+    "/backtest",
+    summary="历史回放 ETF 轮动策略并返回业绩指标",
+    description=(
+        "在已提交的历史价格矩阵（默认 ``data/etf_backtest/etf_prices_4y.csv``）上"
+        "回放 ``EtfRotationStrategy``：根据指定的 ``period_start`` / ``period_end`` "
+        "窗口逐周（默认）调仓，输出 ``BacktestReport`` —— 总收益 / Sharpe / 最大回撤 / "
+        "Calmar / 平均换手 / 命中率 / 等权 buy-and-hold 对照。"
+        "\n\n"
+        "``enable_policy_signal_factor`` 用于 A/B 测试因子开关；"
+        "``strategy_config_overrides`` 接受一个 partial 的 strategy 块（如 ``min_score_to_hold``）。"
+        "**不计算交易成本、不模拟买卖价差、不建模冲击成本** —— 详见 BacktestReport.caveats。"
+        "调用预期同步，3 个月窗口 < 30s。"
+    ),
+)
+def post_backtest(
+    payload: dict[str, Any] = Body(default_factory=dict),  # type: ignore[assignment]
+) -> dict[str, Any]:
+    period_start = payload.get("period_start")
+    period_end = payload.get("period_end")
+    enable_policy_signal_factor = bool(
+        payload.get("enable_policy_signal_factor", False)
+    )
+    rebalance_freq_days = int(
+        payload.get("rebalance_freq_days", DEFAULT_REBALANCE_FREQ_DAYS) or 1
+    )
+    initial_capital = float(
+        payload.get("initial_capital", DEFAULT_INITIAL_CAPITAL) or DEFAULT_INITIAL_CAPITAL
+    )
+    overrides = payload.get("strategy_config_overrides") or {}
+    if not isinstance(overrides, dict):
+        raise HTTPException(
+            status_code=422,
+            detail="strategy_config_overrides must be a JSON object.",
+        )
+    if rebalance_freq_days < 1:
+        raise HTTPException(
+            status_code=422,
+            detail="rebalance_freq_days must be >= 1.",
+        )
+    if initial_capital <= 0:
+        raise HTTPException(
+            status_code=422,
+            detail="initial_capital must be > 0.",
+        )
+
+    try:
+        prices = _load_backtest_price_matrix(None)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Backtest price matrix not found at {exc}. Run the data "
+                "pipeline (`scripts/refresh_*`) before calling /backtest."
+            ),
+        )
+
+    strategy_cfg = load_strategy_config()
+    if overrides:
+        merged_strategy = {**strategy_cfg.strategy, **overrides}
+        strategy_cfg = dataclass_replace(strategy_cfg, strategy=merged_strategy)
+
+    holdings = [
+        h for h in daily_etf_signal.load_default_holdings() if h.code in prices.columns
+    ] or daily_etf_signal.load_default_holdings()
+    config = daily_etf_signal.build_strategy_config(holdings, strategy_cfg)
+
+    industry_signals: Optional[dict[str, Any]] = None
+    etf_industry_map: Optional[dict[str, str]] = (
+        dict(strategy_cfg.etf_industry_map) if strategy_cfg.etf_industry_map else None
+    )
+    if enable_policy_signal_factor:
+        loaded, _last_refresh = daily_etf_signal.load_policy_industry_signals()
+        if loaded:
+            industry_signals = dict(loaded)
+
+    backtester = EtfRotationBacktester(
+        config=config,
+        price_history=prices,
+        period_start=period_start,
+        period_end=period_end,
+        policy_signal_factor_enabled=enable_policy_signal_factor,
+        industry_signals=industry_signals,
+        etf_industry_map=etf_industry_map,
+        rebalance_freq_days=rebalance_freq_days,
+        initial_capital=initial_capital,
+    )
+    report = backtester.run()
+    return {"success": True, "data": report.to_dict()}

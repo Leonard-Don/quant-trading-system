@@ -4,6 +4,15 @@
 
 ### Features
 
+- feat(etf-rotation): historical backtest harness
+  - 新增 `src/backtest/etf_rotation_backtest.py` —— `EtfRotationBacktester` 类，把已提交的历史价格矩阵喂给生产 `EtfRotationStrategy`，按 `--rebalance-freq-days`（默认 5 天）滚动调仓，输出 `BacktestReport` dataclass：`total_return_pct / annualized_return_pct / sharpe_ratio / max_drawdown_pct / calmar_ratio / avg_turnover_pct / win_rate / comparable_buy_hold_return_pct` + 每次 rebalance 的 weights / turnover / period_return 拆解。
+  - 显式遵守策略原生的 `lag_days=1` 因果约束（bar `t` 的权重来自 bar `t-1` 的 close），现金桶隐含 0% 收益（gross_cap < 1 自然留出剩余权重）；caveats 字段把所有 v0.1 简化（无交易成本 / 无买卖价差 / 无冲击 / next-bar close 全额成交 / 无幸存者偏差）逐项写明，方便下游消费者校准期望。
+  - 新增 CLI `scripts/backtest_etf_rotation_strategy.py`：`--prices-csv`/`--start-date`/`--end-date`/`--enable-policy-signal`/`--strategy-config`/`--rebalance-freq-days`/`--initial-capital`/`--output-md`/`--output-json`，支持 A/B factor 开关。
+  - 新增 HTTP 端点 `POST /etf-rotation/backtest`：body 接受 `{period_start, period_end, enable_policy_signal_factor, rebalance_freq_days, initial_capital, strategy_config_overrides}`，默认回放 `data/etf_backtest/etf_prices_4y.csv`（已提交），返回 `BacktestReport.to_dict()`；3 个月窗口实测 ~5s，同步执行，OpenAPI 已同步。
+  - 文档：`docs/sample_etf_rotation_backtest.md` 由 `2024-09-01 → 2024-12-31` 真实数据跑出（+6.37% rotation vs +12.02% equal-weight buy-hold；Sharpe 1.33；MDD 5.38%；avg turnover 5.98%），并在尾部诚实标注「该窗口策略 underperform buy-hold，单季度数据噪声大，需配合 walkforward 评估」。
+  - 单元测试：12 条新 case 覆盖空价格 → 空报告 / warmup 不足 → empty / 平市 → 0% 收益且 Calmar=None / 单调上涨 → 正收益 0 回撤 / policy factor on+off 双路径都不报错 / turnover 与手算一致 / 单调上涨的最大回撤=0 / buy-hold 基准与天真计算匹配 / `to_dict()` 通过 `json.dumps(allow_nan=False)` / 构造期 `rebalance_freq_days=0` 与 `initial_capital<=0` 报错 / 窗口起止颠倒 → 空报告。
+  - 显式 **不包含** 内容：前端 tile（推迟到下一轮，CLI + backend 已足够支撑这一版）、交易成本建模、bid-ask spread、市场冲击。
+
 - feat(ui): policy_factor_attribution panel in ETF rotation dashboard
   - 完成上一轮显式推迟的前端 tile：`frontend/src/components/EtfPolicyFactorAttributionPanel.jsx` 现在调用 `GET /etf-rotation/policy-factor-attribution`，把 `AttributionReport` 渲染成头部 contribution Tag（正向绿 / 负向红）+ Antd Collapse 内的 Recharts `BarChart`（每次调仓一根条，色彩按 contribution 正负切换）+ Top winners / Top losers 两张迷你表。
   - 新增 7/30/60/90 天 Radio 周期选择器，切换即触发新的 fetch（不带 `refresh`，沿用 backend 5min 缓存）；🔄 按钮显式带 `refresh=true` 跳过缓存。空窗口走 Antd `Empty`，错误走 `Alert`，加载中走 `Spin`。

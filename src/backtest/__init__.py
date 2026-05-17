@@ -3,6 +3,7 @@ from .backtester import Backtester
 from .portfolio_backtester import PortfolioBacktester
 from .batch_backtester import BatchBacktester, WalkForwardAnalyzer
 from .cross_market_backtester import CrossMarketBacktester
+from .etf_rotation_backtest import BacktestReport, EtfRotationBacktester
 from .execution_engine import PortfolioExecutionConfig, PortfolioExecutionEngine
 from .signal_adapter import SignalAdapter, NormalizedSingleAssetSignals
 from .risk_manager import RiskManager, RiskContext, RiskAction, RiskDecision
@@ -28,6 +29,8 @@ __all__ = [
     "BatchBacktester",
     "WalkForwardAnalyzer",
     "CrossMarketBacktester",
+    "BacktestReport",
+    "EtfRotationBacktester",
     "PortfolioExecutionConfig",
     "PortfolioExecutionEngine",
     "SignalAdapter",
