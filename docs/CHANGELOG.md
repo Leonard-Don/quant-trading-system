@@ -4,6 +4,14 @@
 
 ### Features
 
+- feat(etf-rotation): policy_signal_factor performance attribution
+  - 新增 `src/research/policy_factor_attribution.py`，对启用了 `policy_signal_factor` 的历史调仓做实证归因：`adjusted_weights` 作为 factor-on 路径，对每只受影响 ETF 按 `policy_adjustment.weight_before / weight_after` 比例反推 factor-off 反事实路径，两条权重在下一条审计 rebalance 前持有（按 ETF 收盘价 mark-to-market），差值即 P&L 边际贡献。返回 `AttributionReport` dataclass，包含窗口 on/off/contribution（逐窗口复利）、命中率、top winner/loser ETF、逐次调仓拆解。
+  - 新增 CLI `scripts/analyze_policy_factor.py`：`--audit-log`/`--period-days`/`--output-md`/`--output-json`，并提供 `--synthetic` 模式生成确定性 30 天 audit + 价格矩阵，便于在真实审计日志尚无 factor-on 历史时预览报告形态。
+  - 新增 HTTP 端点 `GET /etf-rotation/policy-factor-attribution?period_days=30`：返回 `AttributionReport.to_dict()`；按 (period_days, audit mtime, size) 做 5 分钟内存缓存（`refresh=true` 可绕过）。OpenAPI 已同步。
+  - 文档：`docs/sample_attribution_report.md` 是 `--synthetic --seed 2026` 出来的样例（5 次 rebalance，hit rate 100%，contribution +0.68%）；模块顶部 docstring 显式列出 caveats（TC 不计、调仓滞后假设 0、cash 0%、off leg 是 post-overlay proportional proxy）。
+  - 单元测试：13 条 case 覆盖空 audit / factor-off / bullish boost on rising / bearish penalty on falling / bullish boost on falling / 后置 overlay 比例缩放 / 当日 close 切片 / 多次 rebalance 复利一致 / per-rebalance 加总到总 contribution / hit rate / top winner+loser 识别 / factor toggle 跨连续 rebalance / markdown render smoke。
+  - 显式 **不包含** 内容：前端 tile（推迟到下一轮）、交易成本建模、多周期分解。
+
 - feat(export): public summary JSON for external consumers (Phase F1)
   - 新增 `scripts/export_public_summary.py`（含 `scripts/refresh_public_summary.sh` thin wrapper），把 `cache/alt_data/providers/policy_radar.json`、`data/industry/heatmap_history.json` 最新 snapshot、`data/paper_trading/*.json` 的 profile 名、`~/.config/etf-rotation/audit.jsonl` 最后一条记录的时间戳，蒸馏成一份小而稳定的 `data/public/quant_summary.json`（schema_version=1，当前 ~1.4 KB）。
   - 顶层 sections：`policy_radar`（top-5 行业按 \|avg_impact\| 排序）、`industry_heat`（top-10 行业按 total_score，命中 policy_radar 时附带 `policy_signal`）、`etf_rotation`（默认 `policy_signal_factor_enabled` / 默认 universe size / 可用策略数 / 最近一次 audit 时间戳与条目数）、`paper_trading`（profile 名，**永不**暴露现金或持仓）。
