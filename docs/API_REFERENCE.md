@@ -445,6 +445,17 @@
 - `leaders` (unknown): 龙头股双榜单
 - `errors` (object): 非阻断预热错误
 
+### IndustryPolicySignal
+
+行业级政策雷达信号（policy_radar industry_signals 投影）
+
+**字段: **
+
+- `avg_impact` (unknown): 平均影响强度，正值偏多/负值偏空
+- `mentions` (integer): 近期政策提及次数
+- `signal` (string): 信号分类: bullish / bearish / neutral
+- `last_refresh_at` (unknown): policy_radar 最后刷新时间 (ISO 8601)
+
 ### IndustryPreferencesResponse
 
 **字段: **
@@ -473,6 +484,7 @@
 - `marketCapSource` (string): 行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*
 - `mini_trend` (array): 近5日相对走势火花线数据
 - `score_breakdown` (array): 后端统一评分拆解数据
+- `policy_signal` (unknown): 行业政策雷达信号（仅当 include_policy_signal=true 时返回，无数据时为 None）
 
 ### IndustryRotationResponse
 
@@ -777,6 +789,28 @@
 - `extra_params` (object): 无描述
 - `metadata` (object): 无描述
 
+### PaperOrderRequest
+
+**字段: **
+
+- `symbol` (string): 无描述
+- `side` (string): 无描述
+- `quantity` (number): 无描述
+- `order_type` (string): 无描述
+- `fill_price` (number): 无描述
+- `limit_price` (unknown): 无描述
+- `slippage_bps` (number): 无描述
+- `commission` (number): 无描述
+- `note` (string): 无描述
+- `stop_loss_pct` (unknown): 无描述
+- `take_profit_pct` (unknown): 无描述
+
+### PaperResetRequest
+
+**字段: **
+
+- `initial_capital` (unknown): 无描述
+
 ### PersistenceBootstrapRequest
 
 **字段: **
@@ -924,6 +958,7 @@
 **字段: **
 
 - `status` (string): 无描述
+- `note` (unknown): 无描述
 
 ### SignificanceCompareRequest
 
@@ -1056,6 +1091,8 @@
 - `loc` (array): 无描述
 - `msg` (string): 无描述
 - `type` (string): 无描述
+- `input` (unknown): 无描述
+- `ctx` (object): 无描述
 
 ### WalkForwardRequest
 

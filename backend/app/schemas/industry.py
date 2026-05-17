@@ -7,6 +7,14 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
+class IndustryPolicySignal(BaseModel):
+    """行业级政策雷达信号（policy_radar industry_signals 投影）"""
+    avg_impact: Optional[float] = Field(None, description="平均影响强度，正值偏多/负值偏空")
+    mentions: int = Field(0, description="近期政策提及次数")
+    signal: str = Field("neutral", description="信号分类: bullish / bearish / neutral")
+    last_refresh_at: Optional[str] = Field(None, description="policy_radar 最后刷新时间 (ISO 8601)")
+
+
 class IndustryRankResponse(BaseModel):
     """行业排名响应"""
     rank: int = Field(..., description="排名")
@@ -23,6 +31,7 @@ class IndustryRankResponse(BaseModel):
     marketCapSource: str = Field("unknown", description="行业市值来源: akshare_metadata/sina_stock_sum/sina_proxy_stock_sum/snapshot_*/estimated_*")
     mini_trend: list[float] = Field(default_factory=list, description="近5日相对走势火花线数据")
     score_breakdown: list[dict[str, Any]] = Field(default_factory=list, description="后端统一评分拆解数据")
+    policy_signal: Optional[IndustryPolicySignal] = Field(None, description="行业政策雷达信号（仅当 include_policy_signal=true 时返回，无数据时为 None）")
 
 
 class StockResponse(BaseModel):

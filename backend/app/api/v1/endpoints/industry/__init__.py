@@ -60,6 +60,7 @@ from backend.app.schemas.industry import (
     HeatmapHistoryResponse,
     HeatmapResponse,
     IndustryBootstrapResponse,
+    IndustryPolicySignal,
     IndustryPreferencesResponse,
     IndustryRankResponse,
     IndustryRotationResponse,

@@ -6,6 +6,30 @@
   },
   "item": [
     {
+      "name": "获取数据源健康状态",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/market-data/sources/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "market-data",
+            "sources",
+            "health"
+          ]
+        }
+      }
+    },
+    {
       "name": "获取市场数据",
       "request": {
         "method": "POST",
@@ -792,6 +816,30 @@
           "path": [
             "system",
             "metrics"
+          ]
+        }
+      }
+    },
+    {
+      "name": "数据源运行状态",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/system/providers/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "system",
+            "providers",
+            "status"
           ]
         }
       }
@@ -1927,6 +1975,150 @@
       }
     },
     {
+      "name": "Get Industry Heatmap",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/industries/heatmap",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "industries",
+            "heatmap"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Industry Heatmap History",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/industries/heatmap/history",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "industries",
+            "heatmap",
+            "history"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Industry Bootstrap",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/bootstrap",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "bootstrap"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Leader Stocks",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/leaders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "leaders"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Leader Boards",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/leaders/overview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "leaders",
+            "overview"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Leader Detail",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/industry/leaders/{symbol}/detail",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "industry",
+            "leaders",
+            "{symbol}",
+            "detail"
+          ]
+        }
+      }
+    },
+    {
       "name": "Get Hot Industries",
       "request": {
         "method": "GET",
@@ -2023,55 +2215,6 @@
             "{industry_name}",
             "stocks",
             "stream"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Get Industry Heatmap",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/industry/industries/heatmap",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "industry",
-            "industries",
-            "heatmap"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Get Industry Heatmap History",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/industry/industries/heatmap/history",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "industry",
-            "industries",
-            "heatmap",
-            "history"
           ]
         }
       }
@@ -2305,101 +2448,6 @@
             "industry",
             "industries",
             "network"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Get Leader Stocks",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/industry/leaders",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "industry",
-            "leaders"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Get Leader Boards",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/industry/leaders/overview",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "industry",
-            "leaders",
-            "overview"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Get Industry Bootstrap",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/industry/bootstrap",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "industry",
-            "bootstrap"
-          ]
-        }
-      }
-    },
-    {
-      "name": "Get Leader Detail",
-      "request": {
-        "method": "GET",
-        "header": [
-          {
-            "key": "Content-Type",
-            "value": "application/json",
-            "type": "text"
-          }
-        ],
-        "url": {
-          "raw": "{{baseUrl}}/industry/leaders/{symbol}/detail",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "industry",
-            "leaders",
-            "{symbol}",
-            "detail"
           ]
         }
       }
@@ -3683,6 +3731,324 @@
               "language": "json"
             }
           }
+        }
+      }
+    },
+    {
+      "name": "获取最新政策雷达综合信号",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/policy-radar/signal",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "policy-radar",
+            "signal"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取政策雷达历史记录",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/policy-radar/records",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "policy-radar",
+            "records"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取纸面账户当前状态",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/paper/account",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "paper",
+            "account"
+          ]
+        }
+      }
+    },
+    {
+      "name": "提交一笔纸面订单（立即成交）",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/paper/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "paper",
+            "orders"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "获取纸面订单历史",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/paper/orders",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "paper",
+            "orders"
+          ]
+        }
+      }
+    },
+    {
+      "name": "重置纸面账户至初始资金",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/paper/reset",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "paper",
+            "reset"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "取消一笔挂单（仅 LIMIT pending）",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/paper/orders/{order_id}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "paper",
+            "orders",
+            "{order_id}"
+          ]
+        }
+      }
+    },
+    {
+      "name": "获取每日 ETF 轮动手动调仓建议",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/etf-rotation/daily-signal",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "etf-rotation",
+            "daily-signal"
+          ]
+        }
+      }
+    },
+    {
+      "name": "读取最近一次后台刷新的 ETF 轮动目标仓位",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/etf-rotation/live-target",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "etf-rotation",
+            "live-target"
+          ]
+        }
+      }
+    },
+    {
+      "name": "强制刷新 ETF 轮动信号缓存",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/etf-rotation/refresh",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "etf-rotation",
+            "refresh"
+          ]
+        }
+      }
+    },
+    {
+      "name": "策略 Edge 度量：IC + 命中率 + 每标的拆解",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/etf-rotation/analytics",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "etf-rotation",
+            "analytics"
+          ]
+        }
+      }
+    },
+    {
+      "name": "读取 ETF 轮动信号审计日志",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/etf-rotation/audit-log",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "etf-rotation",
+            "audit-log"
+          ]
+        }
+      }
+    },
+    {
+      "name": "重载 strategy.json，不重启 backend 即可应用",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/etf-rotation/reload-config",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "etf-rotation",
+            "reload-config"
+          ]
         }
       }
     },

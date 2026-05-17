@@ -108,6 +108,7 @@ const useIndustryDashboardData = ({ message }) => {
             type: industryBootstrap.ranking_type,
             sortBy: industryBootstrap.ranking_sort_by,
             lookbackDays: industryBootstrap.days,
+            includePolicySignal: false,
         } : null,
         message,
     });
