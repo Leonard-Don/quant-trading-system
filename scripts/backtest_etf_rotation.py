@@ -6,8 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -45,7 +46,7 @@ def run_backtest(
     commission: float = 0.001,
     slippage: float = 0.001,
     min_rebalance_weight_delta: float = DEFAULT_REBALANCE_THRESHOLD,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Run PortfolioBacktester with EtfRotationStrategy on a local price CSV.
 
     The default ``min_rebalance_weight_delta`` matches the live CLI's
@@ -71,7 +72,7 @@ def run_backtest(
     return backtester.run(strategy, price_matrix)
 
 
-def _summarize_result(result: Dict[str, Any]) -> Dict[str, Any]:
+def _summarize_result(result: dict[str, Any]) -> dict[str, Any]:
     """Keep CLI JSON compact while preserving key metrics."""
 
     if not result:

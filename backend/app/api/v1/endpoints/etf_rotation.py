@@ -788,7 +788,7 @@ def _parse_tc_model(payload: dict[str, Any]) -> Optional[TransactionCostModel]:
     the error directly.
     """
 
-    raw = payload.get("tc_model", None)
+    raw = payload.get("tc_model")
     if raw is None or raw is False:
         return None
     if raw is True:
