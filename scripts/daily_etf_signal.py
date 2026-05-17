@@ -31,9 +31,10 @@ import logging
 import os
 import re
 import sys
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -85,7 +86,7 @@ DEFAULT_AUDIT_LOG_PATH = Path.home() / ".config" / "etf-rotation" / "audit.jsonl
 # ---------------------------------------------------------------------------
 
 
-def load_default_holdings() -> List[EtfHolding]:
+def load_default_holdings() -> list[EtfHolding]:
     """Return the example five-ETF seed used for tests and documentation.
 
     Values are intentionally generic (round share counts, ``cost_price ==
@@ -141,7 +142,7 @@ def _resolve_holdings_path() -> Optional[Path]:
     return None
 
 
-def load_configured_holdings() -> Tuple[List[EtfHolding], bool]:
+def load_configured_holdings() -> tuple[list[EtfHolding], bool]:
     """Load holdings from a private config file, falling back to the example.
 
     Returns a tuple of ``(holdings, is_configured)``. ``is_configured`` is
@@ -164,7 +165,7 @@ def load_configured_holdings() -> Tuple[List[EtfHolding], bool]:
         return load_default_holdings(), False
 
 
-def load_default_quotes(holdings: Sequence[EtfHolding]) -> Dict[str, EtfQuote]:
+def load_default_quotes(holdings: Sequence[EtfHolding]) -> dict[str, EtfQuote]:
     """Synthesize quotes from holdings when no quote file is supplied."""
 
     return {
@@ -181,7 +182,7 @@ def load_default_quotes(holdings: Sequence[EtfHolding]) -> Dict[str, EtfQuote]:
 def apply_quotes_to_holdings(
     holdings: Sequence[EtfHolding],
     quotes: Mapping[str, EtfQuote],
-) -> List[EtfHolding]:
+) -> list[EtfHolding]:
     """Return holdings repriced with any positive live quote prices.
 
     Share counts and cost basis remain unchanged; only ``current_price`` is
@@ -189,7 +190,7 @@ def apply_quotes_to_holdings(
     latest quote snapshot.
     """
 
-    updated: List[EtfHolding] = []
+    updated: list[EtfHolding] = []
     for holding in holdings:
         quote = quotes.get(holding.code)
         live_price = quote.current_price if quote else None
@@ -210,10 +211,10 @@ def apply_quotes_to_holdings(
     return updated
 
 
-def _quotes_to_snapshot(quotes: Mapping[str, EtfQuote]) -> Dict[str, Dict[str, Any]]:
+def _quotes_to_snapshot(quotes: Mapping[str, EtfQuote]) -> dict[str, dict[str, Any]]:
     """Expose quote fields used by dashboards without broker/order data."""
 
-    snapshot: Dict[str, Dict[str, Any]] = {}
+    snapshot: dict[str, dict[str, Any]] = {}
     for code, quote in sorted(quotes.items()):
         snapshot[code] = {
             "code": quote.code,
@@ -237,7 +238,7 @@ def _quotes_to_snapshot(quotes: Mapping[str, EtfQuote]) -> Dict[str, Dict[str, A
     return snapshot
 
 
-def _asset_config_from_strategy_config(strategy_config: StrategyConfig) -> Dict[str, Dict[str, Any]]:
+def _asset_config_from_strategy_config(strategy_config: StrategyConfig) -> dict[str, dict[str, Any]]:
     """Project the universe into the legacy ``{code: spec}`` shape."""
 
     return {
@@ -330,7 +331,7 @@ def fetch_live_quotes(
     codes: Sequence[str],
     *,
     use_cache: bool = True,
-) -> Tuple[Dict[str, EtfQuote], Dict[str, Any]]:
+) -> tuple[dict[str, EtfQuote], dict[str, Any]]:
     """Fetch realtime ETF quotes via the project's ``realtime_manager``.
 
     Returns ``({code: EtfQuote}, status_dict)``. The status carries
@@ -369,7 +370,7 @@ def fetch_live_quotes(
             "error": str(exc),
         }
 
-    quotes: Dict[str, EtfQuote] = {}
+    quotes: dict[str, EtfQuote] = {}
     for symbol, code in symbol_to_code.items():
         payload = payloads.get(symbol) or payloads.get(symbol.upper()) or {}
         quote = _quote_from_realtime_payload(code, payload)
@@ -405,7 +406,7 @@ def build_strategy_config(
     cfg = strategy_config if strategy_config is not None else load_strategy_config()
     asset_specs = _asset_config_from_strategy_config(cfg)
 
-    assets: List[EtfAssetConfig] = []
+    assets: list[EtfAssetConfig] = []
     for holding in holdings:
         spec = asset_specs.get(holding.code, {})
         if not spec:
@@ -551,7 +552,7 @@ def synthesize_price_matrix(
     if end_date is None:
         end_date = pd.Timestamp.today().normalize()
     dates = pd.bdate_range(end=end_date, periods=days)
-    matrix: Dict[str, pd.Series] = {}
+    matrix: dict[str, pd.Series] = {}
 
     for offset, (code, quote) in enumerate(quotes.items()):
         end_price = quote.current_price or 1.0
@@ -565,10 +566,10 @@ def synthesize_price_matrix(
     return pd.DataFrame(matrix)
 
 
-def _quotes_to_premium_map(quotes: Mapping[str, EtfQuote]) -> Dict[str, float]:
+def _quotes_to_premium_map(quotes: Mapping[str, EtfQuote]) -> dict[str, float]:
     """Extract premium percentages from quotes where NAV is known."""
 
-    premiums: Dict[str, float] = {}
+    premiums: dict[str, float] = {}
     for code, quote in quotes.items():
         premium = quote.premium
         if premium is not None:
@@ -579,9 +580,9 @@ def _quotes_to_premium_map(quotes: Mapping[str, EtfQuote]) -> Dict[str, float]:
 def _apply_position_stop_losses(
     *,
     holdings: Sequence[EtfHolding],
-    target_weights: Dict[str, float],
+    target_weights: dict[str, float],
     threshold: Optional[float],
-) -> Dict[str, Dict[str, Any]]:
+) -> dict[str, dict[str, Any]]:
     """Force-sell any holding whose unrealised P&L breaches the stop.
 
     Mutates ``target_weights`` in place: each triggered code gets its
@@ -601,7 +602,7 @@ def _apply_position_stop_losses(
     if bound >= 0:
         return {}
 
-    triggered: Dict[str, Dict[str, Any]] = {}
+    triggered: dict[str, dict[str, Any]] = {}
     for holding in holdings:
         if holding.cost_price is None or holding.cost_price <= 0:
             continue
@@ -642,7 +643,7 @@ def generate_plan(
     now: Optional[datetime] = None,
     enable_policy_signal_factor: Optional[bool] = None,
     industry_signals: Optional[Mapping[str, Mapping[str, Any]]] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Produce a full manual trade plan for the supplied holdings.
 
     The ``*_as_of`` parameters communicate the **sample** time of each input,
@@ -892,7 +893,7 @@ def _build_source_health_payload(
     quotes_as_of: _AsOf = None,
     price_matrix_as_of: _AsOf = None,
     now: Optional[datetime] = None,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Describe where the ETF rotation inputs came from.
 
     The plan's three inputs (holdings, quotes, price matrix) can each be
@@ -918,11 +919,11 @@ def _build_source_health_payload(
         *,
         source_id: str,
         display_name: str,
-        capabilities: Tuple[str, ...],
+        capabilities: tuple[str, ...],
         supplied: bool,
         sample_as_of: _AsOf,
         synthetic_reason: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if not supplied:
             return {
                 "source_id": source_id,
@@ -1082,7 +1083,7 @@ _SOURCE_STATUS_LABELS = {
 }
 
 
-def _render_source_health_lines(plan: Mapping[str, Any]) -> List[str]:
+def _render_source_health_lines(plan: Mapping[str, Any]) -> list[str]:
     entries = plan.get("source_health") or []
     if not entries:
         return []
@@ -1093,7 +1094,7 @@ def _render_source_health_lines(plan: Mapping[str, Any]) -> List[str]:
         label = _SOURCE_STATUS_LABELS.get(status, status)
         as_of = entry.get("as_of")
         reason = entry.get("reason")
-        details: List[str] = []
+        details: list[str] = []
         if as_of:
             details.append(f"采样时间 {as_of}")
         if reason:
@@ -1104,7 +1105,7 @@ def _render_source_health_lines(plan: Mapping[str, Any]) -> List[str]:
 
 
 def _render_text(plan: Mapping[str, Any]) -> str:
-    lines: List[str] = []
+    lines: list[str] = []
     lines.append(MANUAL_BANNER)
     lines.append("（无自动下单；不调用券商 API。）")
     lines.append("")
@@ -1186,7 +1187,7 @@ def _resolve_audit_log_path(explicit: Optional[Path] = None) -> Optional[Path]:
 
 def _audit_entry_from_plan(
     plan: Mapping[str, Any], *, run_at: datetime, quote_source: Optional[str]
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Slim a plan dict into a stable audit row.
 
     Carries enough per-code state to support forward-return back-fill
@@ -1219,7 +1220,7 @@ def _audit_entry_from_plan(
     ]
     # Per-code price at decision time — pulled from quote_snapshot so it
     # mirrors what the strategy saw rather than re-querying realtime.
-    prices_at_decision: Dict[str, float] = {}
+    prices_at_decision: dict[str, float] = {}
     for code, quote_data in (plan.get("quote_snapshot") or {}).items():
         price = quote_data.get("current_price") if isinstance(quote_data, dict) else None
         if price is not None:
@@ -1280,7 +1281,7 @@ def append_audit_entry(
     return target
 
 
-def read_audit_log(path: Optional[Path] = None) -> List[Dict[str, Any]]:
+def read_audit_log(path: Optional[Path] = None) -> list[dict[str, Any]]:
     """Return the audit log as a list of dicts (chronological order).
 
     Returns an empty list when the file does not exist. Bad lines are
@@ -1291,7 +1292,7 @@ def read_audit_log(path: Optional[Path] = None) -> List[Dict[str, Any]]:
     target = path or _resolve_audit_log_path()
     if target is None or not Path(target).is_file():
         return []
-    entries: List[Dict[str, Any]] = []
+    entries: list[dict[str, Any]] = []
     for line_no, line in enumerate(
         Path(target).read_text(encoding="utf-8").splitlines(), start=1
     ):
@@ -1310,7 +1311,7 @@ def read_audit_log(path: Optional[Path] = None) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def load_holdings_from_json(path: Path) -> List[EtfHolding]:
+def load_holdings_from_json(path: Path) -> list[EtfHolding]:
     """Load holdings from a JSON file produced manually or by upstream tools."""
 
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
@@ -1318,7 +1319,7 @@ def load_holdings_from_json(path: Path) -> List[EtfHolding]:
     if not isinstance(raw, list):
         raise ValueError("holdings JSON must contain a list of holdings")
 
-    holdings: List[EtfHolding] = []
+    holdings: list[EtfHolding] = []
     for item in raw:
         holdings.append(
             EtfHolding(
@@ -1332,14 +1333,14 @@ def load_holdings_from_json(path: Path) -> List[EtfHolding]:
     return holdings
 
 
-def load_quotes_from_json(path: Path) -> Dict[str, EtfQuote]:
+def load_quotes_from_json(path: Path) -> dict[str, EtfQuote]:
     """Load real-time quotes from a JSON file keyed by code."""
 
     payload = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(payload, dict):
         raise ValueError("quotes JSON must be a {code: quote-object} mapping")
 
-    quotes: Dict[str, EtfQuote] = {}
+    quotes: dict[str, EtfQuote] = {}
     for code, item in payload.items():
         quotes[str(code)] = EtfQuote(
             code=str(code),
@@ -1493,7 +1494,7 @@ def _apply_position_cut(
     current_weights: Mapping[str, float],
     target_weights: Mapping[str, float],
     cut: float,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Soften reductions: target' = current + (target - current) * cut.
 
     ``cut=1.0`` (default) leaves targets unchanged. ``cut=0.5`` only
@@ -1506,7 +1507,7 @@ def _apply_position_cut(
     cut = float(np.clip(cut, 0.0, 1.0))
     if cut >= 1.0 - 1e-9:
         return dict(target_weights)
-    softened: Dict[str, float] = {}
+    softened: dict[str, float] = {}
     keys = set(target_weights) | set(current_weights)
     for code in keys:
         cw = float(current_weights.get(code, 0.0))
@@ -1522,7 +1523,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # private file ($ETF_HOLDINGS_PATH / ~/.config/etf-rotation/holdings.json),
     # then ``None`` so ``generate_plan`` records the source-health entry as
     # ``synthetic`` and the dashboard surfaces the seed-fallback state.
-    holdings: Optional[List[EtfHolding]]
+    holdings: Optional[list[EtfHolding]]
     holdings_as_of: _AsOf
     if args.holdings_json is not None:
         holdings = load_holdings_from_json(args.holdings_json)
@@ -1546,7 +1547,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # Quotes: explicit --quotes-json wins, then realtime_manager via
     # fetch_live_quotes (default), then ``None`` so generate_plan derives
     # quotes from holdings (offline mode).
-    quotes: Optional[Dict[str, EtfQuote]] = None
+    quotes: Optional[dict[str, EtfQuote]] = None
     quotes_as_of: _AsOf = None
     if args.quotes_json is not None:
         quotes = load_quotes_from_json(args.quotes_json)
@@ -1607,11 +1608,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 def _apply_position_cut_to_plan(
-    plan: Dict[str, Any],
+    plan: dict[str, Any],
     holdings: Optional[Sequence[EtfHolding]],
     quotes: Optional[Mapping[str, EtfQuote]],
     cut: float,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Re-emit suggestions from softened target weights without re-running risk rules."""
 
     if holdings is None or quotes is None:
