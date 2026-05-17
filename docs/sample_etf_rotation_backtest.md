@@ -21,6 +21,10 @@ python scripts/backtest_etf_rotation_strategy.py \
 ```
 
 Add `--enable-policy-signal` to A/B the policy factor in the same window.
+Add `--enable-tc` to model transaction costs (defaults: commission 3 bps/side,
+spread 5 bps half, impact 0.5 bps/%ADV >5%, commission floor 5 RMB, min trade
+100 RMB). On this 16-rebalance window with default TC the gross +6.37%
+becomes **net +6.05%** — a 32 bps drag for the quarter, ~1.01% annualised.
 
 ---
 

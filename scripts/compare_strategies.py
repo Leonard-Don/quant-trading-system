@@ -59,6 +59,14 @@ from src.backtest.strategy_comparison import (  # noqa: E402
     build_default_strategy_specs,
     render_comparison_markdown,
 )
+from src.backtest.transaction_costs import (  # noqa: E402
+    DEFAULT_BID_ASK_SPREAD_BPS,
+    DEFAULT_COMMISSION_BPS,
+    DEFAULT_MARKET_IMPACT_BPS_PER_PCT_ADV,
+    DEFAULT_MIN_COMMISSION_PER_TRADE,
+    DEFAULT_MIN_TRADE_SIZE_RMB,
+    TransactionCostModel,
+)
 from src.strategy.etf_rotation_config_loader import (  # noqa: E402
     StrategyConfig,
     load_strategy_config,
@@ -118,6 +126,7 @@ def run_comparison(
     strategy_config_path: Optional[Path] = None,
     strategy_config_overrides: Optional[dict[str, Any]] = None,
     blend_regime: str = "unknown",
+    tc_model: Optional[TransactionCostModel] = None,
 ) -> ComparisonReport:
     """Top-level orchestration shared by the CLI + API.
 
@@ -158,6 +167,7 @@ def run_comparison(
         etf_industry_map=etf_industry_map or None,
         rebalance_freq_days=rebalance_freq_days,
         initial_capital=initial_capital,
+        tc_model=tc_model,
     )
     return comparator.run()
 
@@ -229,9 +239,52 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=float,
         default=DEFAULT_INITIAL_CAPITAL,
     )
+    parser.add_argument(
+        "--enable-tc",
+        action="store_true",
+        help=(
+            "Enable transaction-cost modelling for every strategy "
+            "(defaults reflect CN ETF retail brokerage)."
+        ),
+    )
+    parser.add_argument(
+        "--commission-bps", type=float, default=DEFAULT_COMMISSION_BPS,
+    )
+    parser.add_argument(
+        "--spread-bps", type=float, default=DEFAULT_BID_ASK_SPREAD_BPS,
+    )
+    parser.add_argument(
+        "--impact-bps-per-pct-adv",
+        type=float,
+        default=DEFAULT_MARKET_IMPACT_BPS_PER_PCT_ADV,
+    )
+    parser.add_argument(
+        "--min-commission-rmb",
+        type=float,
+        default=DEFAULT_MIN_COMMISSION_PER_TRADE,
+    )
+    parser.add_argument(
+        "--min-trade-size-rmb",
+        type=float,
+        default=DEFAULT_MIN_TRADE_SIZE_RMB,
+    )
     parser.add_argument("--output-md", type=Path, default=None)
     parser.add_argument("--output-json", type=Path, default=None)
     return parser
+
+
+def _build_tc_model_from_args(args: argparse.Namespace) -> Optional[TransactionCostModel]:
+    """Translate CLI flags into a :class:`TransactionCostModel` or None."""
+
+    if not getattr(args, "enable_tc", False):
+        return None
+    return TransactionCostModel(
+        commission_bps=args.commission_bps,
+        bid_ask_spread_bps=args.spread_bps,
+        market_impact_bps_per_pct_adv=args.impact_bps_per_pct_adv,
+        min_commission_per_trade=args.min_commission_rmb,
+        min_trade_size_rmb=args.min_trade_size_rmb,
+    )
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
@@ -254,6 +307,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         initial_capital=args.initial_capital,
         strategy_config_path=args.strategy_config,
         blend_regime=args.blend_regime,
+        tc_model=_build_tc_model_from_args(args),
     )
 
     payload = report.to_dict()

@@ -61,6 +61,7 @@ from src.backtest.etf_rotation_backtest import (
     EtfRotationBacktester,
     _sanitize_for_json,
 )
+from src.backtest.transaction_costs import TransactionCostModel
 from src.strategy.etf_rotation_strategy import EtfRotationConfig
 
 logger = logging.getLogger(__name__)
@@ -154,6 +155,15 @@ class WalkforwardReport:
     worst_window_dd_pct: float = 0.0
     mean_buy_hold_return_pct: float = 0.0
     consistency_score: float = 0.0
+    # Transaction-cost summary aggregated across the executed windows.
+    # When ``tc_enabled=False`` the fields are zero so the schema is
+    # uniform regardless of the TC flag.
+    tc_enabled: bool = False
+    mean_gross_return_pct: float = 0.0
+    mean_net_return_pct: float = 0.0
+    mean_tc_cost_pct: float = 0.0
+    mean_tc_drag_annualized_pct: float = 0.0
+    tc_model_params: Optional[dict[str, Any]] = None
     caveats: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -204,6 +214,7 @@ class EtfRotationWalkforwardAnalyzer:
         etf_industry_map: Optional[Mapping[str, str]] = None,
         rebalance_freq_days: int = DEFAULT_REBALANCE_FREQ_DAYS,
         initial_capital: float = DEFAULT_INITIAL_CAPITAL,
+        tc_model: Optional[TransactionCostModel] = None,
     ) -> None:
         if window_months < 1:
             raise ValueError("window_months must be >= 1")
@@ -229,6 +240,7 @@ class EtfRotationWalkforwardAnalyzer:
         self._etf_industry_map = dict(etf_industry_map) if etf_industry_map else None
         self._rebalance_freq_days = int(rebalance_freq_days)
         self._initial_capital = float(initial_capital)
+        self._tc_model = tc_model
 
     # ------------------------------------------------------------------
     # Public entry point
@@ -267,6 +279,7 @@ class EtfRotationWalkforwardAnalyzer:
                 etf_industry_map=self._etf_industry_map,
                 rebalance_freq_days=self._rebalance_freq_days,
                 initial_capital=self._initial_capital,
+                tc_model=self._tc_model,
             )
             report = backtester.run()
             window_reports.append(report)
@@ -309,6 +322,14 @@ class EtfRotationWalkforwardAnalyzer:
             worst_window_dd_pct=agg["worst_window_dd_pct"],
             mean_buy_hold_return_pct=agg["mean_buy_hold_return_pct"],
             consistency_score=agg["consistency_score"],
+            tc_enabled=self._tc_model is not None,
+            mean_gross_return_pct=agg["mean_gross_return_pct"],
+            mean_net_return_pct=agg["mean_net_return_pct"],
+            mean_tc_cost_pct=agg["mean_tc_cost_pct"],
+            mean_tc_drag_annualized_pct=agg["mean_tc_drag_annualized_pct"],
+            tc_model_params=(
+                self._tc_model.to_dict() if self._tc_model is not None else None
+            ),
             caveats=caveats,
         )
 
@@ -366,6 +387,10 @@ class EtfRotationWalkforwardAnalyzer:
             initial_capital=self._initial_capital,
             policy_signal_factor_enabled=self._policy_factor_enabled,
             windows=[],
+            tc_enabled=self._tc_model is not None,
+            tc_model_params=(
+                self._tc_model.to_dict() if self._tc_model is not None else None
+            ),
             caveats=caveats,
         )
 
@@ -454,6 +479,19 @@ def _aggregate_metrics(reports: Sequence[BacktestReport]) -> dict[str, float]:
 
     consistency = _compute_consistency_score(returns, pct_positive)
 
+    # TC summaries — arithmetic means across the executed windows so
+    # callers can read "average per-window cost" without diving into
+    # per-report payloads. When TC is off, every window has zeros for
+    # these fields → the means are zero too.
+    gross_returns = [float(r.gross_total_return_pct) for r in reports]
+    net_returns = [float(r.net_total_return_pct) for r in reports]
+    tc_costs = [float(r.total_tc_cost_pct) for r in reports]
+    tc_drags = [float(r.tc_drag_annualized_pct) for r in reports]
+    mean_gross = sum(gross_returns) / n
+    mean_net = sum(net_returns) / n
+    mean_cost = sum(tc_costs) / n
+    mean_drag = sum(tc_drags) / n
+
     return {
         "aggregate_return_pct": float(aggregate_return),
         "mean_window_return_pct": float(mean_return),
@@ -466,6 +504,10 @@ def _aggregate_metrics(reports: Sequence[BacktestReport]) -> dict[str, float]:
         "worst_window_dd_pct": float(worst_dd),
         "mean_buy_hold_return_pct": float(mean_bh),
         "consistency_score": float(consistency),
+        "mean_gross_return_pct": float(mean_gross),
+        "mean_net_return_pct": float(mean_net),
+        "mean_tc_cost_pct": float(mean_cost),
+        "mean_tc_drag_annualized_pct": float(mean_drag),
     }
 
 
