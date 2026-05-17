@@ -158,11 +158,15 @@ _SINA_PATTERN = re.compile(
 )
 
 
-def _maybe_float(raw: str) -> Optional[float]:
+def _maybe_float(raw: object) -> Optional[float]:
+    """Parse an upstream numeric field into ``float`` when possible."""
+
     if raw is None or raw == "":
         return None
     try:
-        return float(raw)
+        if isinstance(raw, (int, float, str)):
+            return float(raw)
+        return float(str(raw))
     except (TypeError, ValueError):
         return None
 

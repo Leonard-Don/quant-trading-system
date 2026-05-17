@@ -102,6 +102,14 @@ def spearman_correlation(xs: Sequence[float], ys: Sequence[float]) -> Optional[f
     return num / (denom_x ** 0.5 * denom_y ** 0.5)
 
 
+def _pair_float(value: object) -> float:
+    """Coerce JSON-derived pair fields for aggregate metrics."""
+
+    if isinstance(value, (int, float, str)):
+        return float(value)
+    return float(str(value))
+
+
 # ---------------------------------------------------------------------------
 # Forward-return joining
 # ---------------------------------------------------------------------------
@@ -217,8 +225,8 @@ def compute_information_coefficient(pairs: Sequence[Mapping[str, object]]) -> Op
 
     if not pairs:
         return None
-    scores = [float(p["score"]) for p in pairs]
-    returns = [float(p["forward_return"]) for p in pairs]
+    scores = [_pair_float(p["score"]) for p in pairs]
+    returns = [_pair_float(p["forward_return"]) for p in pairs]
     return spearman_correlation(scores, returns)
 
 
@@ -228,8 +236,8 @@ def compute_hit_rate(pairs: Sequence[Mapping[str, object]], *, neutral_score: fl
     hits = 0
     total = 0
     for pair in pairs:
-        score = float(pair["score"])
-        ret = float(pair["forward_return"])
+        score = _pair_float(pair["score"])
+        ret = _pair_float(pair["forward_return"])
         if abs(score - neutral_score) < 1e-9 or abs(ret) < 1e-9:
             continue
         expected_positive = score > neutral_score
@@ -250,8 +258,8 @@ def compute_per_code_metrics(
         by_code.setdefault(str(pair["code"]), []).append(pair)
     out: Dict[str, Dict[str, Optional[float]]] = {}
     for code, code_pairs in by_code.items():
-        scores = [float(p["score"]) for p in code_pairs]
-        returns = [float(p["forward_return"]) for p in code_pairs]
+        scores = [_pair_float(p["score"]) for p in code_pairs]
+        returns = [_pair_float(p["forward_return"]) for p in code_pairs]
         ic = spearman_correlation(scores, returns)
         hit = compute_hit_rate(code_pairs)
         mean_score = float(statistics.fmean(scores)) if scores else None

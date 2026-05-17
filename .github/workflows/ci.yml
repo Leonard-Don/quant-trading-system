@@ -118,9 +118,13 @@ jobs:
             src/backtest/position_sizer.py \
             src/backtest/risk_manager.py \
             src/backtest/signal_adapter.py \
+            src/data/etf_rotation.py \
             src/data/realtime_manager.py \
             src/data/data_manager.py \
             src/data/providers/provider_factory.py \
+            src/research/policy_factor_attribution.py \
+            src/strategy/etf_rotation_analytics.py \
+            src/strategy/etf_rotation_service.py \
             src/trading/__init__.py \
             src/trading/trade_manager.py \
             src/trading/cross_market/__init__.py \

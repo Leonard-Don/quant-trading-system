@@ -91,6 +91,19 @@ def _parse_hhmm(text: str) -> Tuple[int, int]:
     return int(parts[0]), int(parts[1])
 
 
+def _optional_float(value: object) -> Optional[float]:
+    """Coerce optional config/cache payload fields into floats."""
+
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (int, float, str)):
+            return float(value)
+        return float(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def is_within_trading_hours(
     now: datetime,
     sessions: Sequence[Sequence[str]],
@@ -450,9 +463,11 @@ class EtfRotationService:
                 if not enrichment:
                     continue
                 if quote.estimated_nav is None:
-                    quote.estimated_nav = enrichment.get("estimated_nav")
+                    quote.estimated_nav = _optional_float(
+                        enrichment.get("estimated_nav")
+                    )
                 if quote.prev_nav is None:
-                    quote.prev_nav = enrichment.get("prev_nav")
+                    quote.prev_nav = _optional_float(enrichment.get("prev_nav"))
             market_prices = {
                 code: quote.current_price for code, quote in quote_map.items()
             }
