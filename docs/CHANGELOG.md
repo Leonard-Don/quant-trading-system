@@ -8,6 +8,16 @@
 
 ### Features
 
+- feat(ui): policy_signal_factor toggle in ETF rotation dashboard
+  - 用户可以在仪表盘里直接开关 `policy_signal_factor`，**无需编辑** `etf_strategy_config.example.json` 或重启后端。开关勾选状态持久化到 `~/.config/etf-rotation/ui_preferences.json`（路径可由 `ETF_PREFERENCES_PATH` env 覆盖），仅影响当前安装，从源代码或部署清单看不到。
+  - 新增两个 HTTP 端点：
+    - `GET /etf-rotation/preferences` → `{preference, effective, config_default}`。`preference.policy_signal_factor_enabled` 是文件里的原值（`null` = 未设置）；`effective` 已经把 config 默认折算进来；`source ∈ {config, preference}` 解释 effective 是哪一档赢了。
+    - `POST /etf-rotation/preferences` body `{policy_signal_factor_enabled: true|false|null}`。`null` 清除偏好，回退到 config 默认。写入使用 `temp + rename` 原子模式（参考 `src/data/alternative/governance.py::AltDataCacheStore._write_json`），并发读不会读到半截 JSON。
+  - 优先级（高到低）：**显式 query 参数 > UI 偏好 > strategy.json 默认值 > built-in `False`**。`/etf-rotation/daily-signal`、`/live-target?trigger_refresh=true`、`/refresh` 的响应中现在统一带 `policy_signal_factor_enabled` 顶层 bool + `policy_signal_factor.source` 来源标签，便于前端把开关 UI 与「现在到底开没开」保持一致。
+  - 前端：在 `EtfRotationDashboard.jsx` 头部卡片里新增 `data-testid="etf-policy-factor-toggle"` Antd `Switch`、Tooltip 解释「默认调整 ±10%、关闭时只是参考展示」、绿色徽标显示 ON 状态、紫色 Tag 显示「当前应用 N 只」。开启时下方渲染 `Δ vs factor-off` 面板，按 `score_breakdown[code].policy_adjustment` 列出每只受影响 ETF 的 ±% 与 `policy boost` / `policy penalty` 说明。
+  - 策略逻辑保持不变（仍然由 `_apply_policy_signal_factor` 实现 ±10% 边界），仅在 orchestration 层引入偏好查询。配置默认行为 + 既有 query-param + CLI flag 路径全部向后兼容。
+  - 单元测试：8 条新后端测试（GET/POST、原子写、precedence query>preference>config）+ 6 条新前端测试（toggle 默认 OFF、点击→POST→re-fetch、Δ 面板渲染 applied 行、关闭隐藏面板、source 来源 Tag、preferences 预热）。
+
 - feat(etf-rotation): opt-in policy_signal_factor closes the decision-impact loop
   - 把 commit `1d2f9f7`/`7148009` 引入的 `policy_radar` 信号从「面板/工作区只展示」升级为「可选择真正影响 ETF 目标权重」。**默认关闭** —— 既有用户体验完全不变，要 opt-in 才生效。
   - 新增四个配置项（`src/strategy/etf_rotation_config_loader.py::DEFAULT_STRATEGY_PARAMS` + `EtfRotationConfig`）：

@@ -23,10 +23,15 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 
 from scripts import daily_etf_signal
 from src.strategy.etf_rotation_analytics import summarise_edge
+from src.strategy.etf_rotation_config_loader import load_strategy_config
+from src.strategy.etf_rotation_preferences import (
+    EtfRotationPreferences,
+    get_preferences_store,
+)
 from src.strategy.etf_rotation_service import EtfRotationService
 
 logger = logging.getLogger(__name__)
@@ -59,6 +64,76 @@ def install_service(service: EtfRotationService) -> None:
 
     global _service
     _service = service
+
+
+# ---------------------------------------------------------------------------
+# Preference store wiring
+#
+# The preferences module ships its own singleton, but the endpoint layer
+# accepts an injected override (used by tests + the FastAPI lifespan hook
+# when the operator wants a non-default storage path). When the override
+# is ``None`` we fall through to ``get_preferences_store`` so production
+# code keeps a single source of truth.
+# ---------------------------------------------------------------------------
+
+_preferences_override: Optional[EtfRotationPreferences] = None
+
+
+def _get_preferences() -> EtfRotationPreferences:
+    if _preferences_override is not None:
+        return _preferences_override
+    return get_preferences_store()
+
+
+def install_preferences(store: EtfRotationPreferences) -> None:
+    """Wire a non-default preferences store for tests / advanced setups."""
+
+    global _preferences_override
+    _preferences_override = store
+
+
+def reset_preferences_for_tests() -> None:
+    """Drop any preferences override — paired with ``install_preferences``."""
+
+    global _preferences_override
+    _preferences_override = None
+
+
+def _resolve_policy_factor_flag(
+    *, query_param: Optional[bool]
+) -> tuple[Optional[bool], bool, str]:
+    """Return ``(effective_for_call, effective_bool, source_label)``.
+
+    * ``effective_for_call`` is what we pass into ``generate_plan`` /
+      ``service.refresh`` — preserves ``None`` when neither the caller nor
+      the UI preference has expressed an opinion, so the downstream code
+      keeps its existing "honour config" path.
+    * ``effective_bool`` is the *resolved* enabled-or-not value (after the
+      config default has been folded in) for the UI to display.
+    * ``source_label`` is one of ``"query"`` / ``"preference"`` /
+      ``"config"`` so the dashboard / docs can explain who won.
+    """
+
+    if query_param is not None:
+        cfg = load_strategy_config()
+        config_default = bool(cfg.strategy.get("policy_signal_factor_enabled", False))
+        store = _get_preferences()
+        effective = store.resolve_policy_signal_factor_enabled(
+            explicit=query_param, config_default=config_default
+        )
+        return query_param, effective, "query"
+
+    store = _get_preferences()
+    snapshot = store.snapshot()
+    cfg = load_strategy_config()
+    config_default = bool(cfg.strategy.get("policy_signal_factor_enabled", False))
+    if snapshot.policy_signal_factor_enabled is not None:
+        return (
+            bool(snapshot.policy_signal_factor_enabled),
+            bool(snapshot.policy_signal_factor_enabled),
+            "preference",
+        )
+    return None, config_default, "config"
 
 
 @router.get(
@@ -100,11 +175,18 @@ def get_daily_signal(
 ) -> dict[str, Any]:
     base_holdings, holdings_is_configured = daily_etf_signal.load_configured_holdings()
 
+    # Resolve the three-layer precedence (query > preference > config) once
+    # per request and stamp the result on the response so the UI can keep
+    # its toggle in sync without a separate round-trip.
+    effective_for_call, effective_bool, source_label = _resolve_policy_factor_flag(
+        query_param=enable_policy_signal_factor,
+    )
+
     if quote_source == "synthetic":
         plan = daily_etf_signal.generate_plan(
             holdings=base_holdings if holdings_is_configured else None,
             threshold_weight=threshold_weight,
-            enable_policy_signal_factor=enable_policy_signal_factor,
+            enable_policy_signal_factor=effective_for_call,
         )
         plan["quote_source"] = "synthetic"
         plan["live_quote_status"] = {
@@ -113,6 +195,7 @@ def get_daily_signal(
             "missing": 0,
             "use_cache": use_cache,
         }
+        _stamp_policy_factor_source(plan, effective_bool, source_label)
         daily_etf_signal.append_audit_entry(plan, quote_source="api:synthetic")
         return {"success": True, "data": plan}
 
@@ -132,19 +215,43 @@ def get_daily_signal(
                 (quote.timestamp for quote in live_quotes.values() if quote.timestamp),
                 default=None,
             ),
-            enable_policy_signal_factor=enable_policy_signal_factor,
+            enable_policy_signal_factor=effective_for_call,
         )
         plan["quote_source"] = "live"
     else:
         plan = daily_etf_signal.generate_plan(
             holdings=base_holdings if holdings_is_configured else None,
             threshold_weight=threshold_weight,
-            enable_policy_signal_factor=enable_policy_signal_factor,
+            enable_policy_signal_factor=effective_for_call,
         )
         plan["quote_source"] = "fallback_synthetic"
     plan["live_quote_status"] = live_status
+    _stamp_policy_factor_source(plan, effective_bool, source_label)
     daily_etf_signal.append_audit_entry(plan, quote_source=f"api:{plan['quote_source']}")
     return {"success": True, "data": plan}
+
+
+def _stamp_policy_factor_source(
+    plan: dict[str, Any], effective: bool, source_label: str
+) -> None:
+    """Attach the effective enabled-state and its source onto the plan.
+
+    ``generate_plan`` already writes ``policy_signal_factor.enabled``; we
+    just add the ``source`` discriminator alongside it, and surface the
+    boolean at top-level for the UI's convenience (``policy_signal_factor_enabled``).
+    The top-level field is a UI ergonomics shortcut — the canonical
+    record is still under ``policy_signal_factor`` in case the caller wants
+    the rich summary (boosted/penalised lists, last_refresh, etc).
+    """
+
+    summary = plan.get("policy_signal_factor")
+    if not isinstance(summary, dict):
+        summary = {}
+        plan["policy_signal_factor"] = summary
+    summary.setdefault("enabled", effective)
+    summary["enabled"] = bool(effective)
+    summary["source"] = source_label
+    plan["policy_signal_factor_enabled"] = bool(effective)
 
 
 def _serialise_cached(cached: Any) -> dict[str, Any]:
@@ -181,14 +288,20 @@ def get_live_target(
     ),
 ) -> dict[str, Any]:
     service = _get_service()
+    effective_for_call, effective_bool, source_label = _resolve_policy_factor_flag(
+        query_param=enable_policy_signal_factor,
+    )
     if trigger_refresh:
         outcome = service.refresh(
             force=True,
-            enable_policy_signal_factor=enable_policy_signal_factor,
+            enable_policy_signal_factor=effective_for_call,
         )
+        serialised = _serialise_cached(outcome.cached)
+        if isinstance(serialised.get("plan"), dict):
+            _stamp_policy_factor_source(serialised["plan"], effective_bool, source_label)
         return {
             "success": True,
-            "data": _serialise_cached(outcome.cached),
+            "data": serialised,
             "refresh": {
                 "refreshed": outcome.refreshed,
                 "skipped_reason": outcome.skipped_reason,
@@ -205,9 +318,17 @@ def get_live_target(
                 "next scheduled refresh."
             ),
         )
+    serialised = _serialise_cached(cached)
+    # The cached plan was built before the (possibly more recent) preference
+    # change. Re-stamp the effective field so the UI always sees the
+    # current resolution — the underlying weights themselves only refresh
+    # on the next service.refresh tick, but the "is the toggle on?" status
+    # should track the user's last click immediately.
+    if isinstance(serialised.get("plan"), dict):
+        _stamp_policy_factor_source(serialised["plan"], effective_bool, source_label)
     return {
         "success": True,
-        "data": _serialise_cached(cached),
+        "data": serialised,
         "refresh": {
             "is_trading_hours": service.is_trading_hours(),
         },
@@ -230,14 +351,20 @@ def post_refresh(
     ),
 ) -> dict[str, Any]:
     service = _get_service()
+    effective_for_call, effective_bool, source_label = _resolve_policy_factor_flag(
+        query_param=enable_policy_signal_factor,
+    )
     outcome = service.refresh(
         force=True,
         use_cache=use_cache,
-        enable_policy_signal_factor=enable_policy_signal_factor,
+        enable_policy_signal_factor=effective_for_call,
     )
+    serialised = _serialise_cached(outcome.cached)
+    if isinstance(serialised.get("plan"), dict):
+        _stamp_policy_factor_source(serialised["plan"], effective_bool, source_label)
     return {
         "success": True,
-        "data": _serialise_cached(outcome.cached),
+        "data": serialised,
         "refresh": {
             "refreshed": outcome.refreshed,
             "skipped_reason": outcome.skipped_reason,
@@ -356,3 +483,92 @@ def post_reload_config(refresh_after: bool = Query(default=True)) -> dict[str, A
         "data": summary,
         "refresh": refresh_outcome,
     }
+
+
+def _build_preferences_envelope() -> dict[str, Any]:
+    """Compose the GET/POST preferences response.
+
+    Pairs the user's stored preference with the resolved effective state
+    (so the UI can show *what's actually in effect* when no preference is
+    set) plus the config default that would otherwise win — useful when
+    the dashboard wants to explain "off because the config says so".
+    """
+
+    store = _get_preferences()
+    snapshot = store.snapshot()
+    cfg = load_strategy_config()
+    config_default = bool(cfg.strategy.get("policy_signal_factor_enabled", False))
+    if snapshot.policy_signal_factor_enabled is None:
+        effective = config_default
+        source = "config"
+    else:
+        effective = bool(snapshot.policy_signal_factor_enabled)
+        source = "preference"
+    return {
+        "preference": snapshot.to_dict(),
+        "effective": {
+            "policy_signal_factor_enabled": effective,
+            "source": source,
+        },
+        "config_default": {
+            "policy_signal_factor_enabled": config_default,
+        },
+    }
+
+
+@router.get(
+    "/preferences",
+    summary="读取 ETF 轮动 UI 偏好（per-installation, 持久化到 JSON 文件）",
+    description=(
+        "返回当前用户在仪表盘里设置的偏好，目前只包含 ``policy_signal_factor_enabled``。"
+        "``preference`` 反映文件里的原值（``null`` = 未设置），"
+        "``effective`` 是把 config 默认折算进去之后“现在到底开没开”的真实状态。"
+        "``source`` ∈ {{config, preference}} 解释 effective 是哪一档赢了。"
+    ),
+)
+def get_preferences() -> dict[str, Any]:
+    return {"success": True, "data": _build_preferences_envelope()}
+
+
+@router.post(
+    "/preferences",
+    summary="更新 ETF 轮动 UI 偏好",
+    description=(
+        "POST 一个 JSON ``{policy_signal_factor_enabled: bool | null}``——"
+        "``true``/``false`` 持久化（覆盖 config 默认），``null`` 清除该偏好"
+        "（回退到 config 默认）。"
+        "写入采用 temp-file + rename 原子模式，保证并发读不会读到半截 JSON。"
+    ),
+)
+def post_preferences(
+    payload: Optional[dict[str, Any]] = Body(default=None),
+) -> dict[str, Any]:
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=422,
+            detail="Request body must be a JSON object.",
+        )
+
+    patch: dict[str, Any] = {}
+    if "policy_signal_factor_enabled" in payload:
+        raw = payload["policy_signal_factor_enabled"]
+        if raw is None:
+            patch["policy_signal_factor_enabled"] = None
+        elif isinstance(raw, bool):
+            patch["policy_signal_factor_enabled"] = raw
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    "policy_signal_factor_enabled must be a JSON boolean "
+                    "or null (got "
+                    f"{type(raw).__name__})."
+                ),
+            )
+
+    if patch:
+        _get_preferences().update(patch)
+
+    return {"success": True, "data": _build_preferences_envelope()}
