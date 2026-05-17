@@ -12,12 +12,11 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK, WD_LINE_SPACING
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
-from PIL import Image, JpegImagePlugin  # noqa: F401 - registers Pillow's JPEG PDF encoder.
+from PIL import Image, JpegImagePlugin
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DOC_OUTPUT_DIR = PROJECT_ROOT / "output" / "doc"
