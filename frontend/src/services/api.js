@@ -77,6 +77,11 @@ export const API_TIMEOUT_PROFILES = {
   analysis: parseTimeout(getEnv('API_TIMEOUT_ANALYSIS'), 120000),
   standard: parseTimeout(getEnv('API_TIMEOUT_STANDARD'), 30000),
   dashboard: parseTimeout(getEnv('API_TIMEOUT_DASHBOARD'), 45000),
+  // 'long' is for sync endpoints whose worst-case wall-clock is on the
+  // order of 30-90s. /etf-rotation/walkforward is the canonical caller:
+  // 14 overlapping 3-month windows back-to-back ≈ 30s; we add headroom
+  // so a cold cache / heavier override doesn't trip the timeout.
+  long: parseTimeout(getEnv('API_TIMEOUT_LONG'), 180000),
 };
 export const withTimeoutProfile = (profile = 'default', config = {}) => ({
   ...config,
@@ -766,6 +771,34 @@ export const postEtfRotationReloadConfig = async ({ refreshAfter = true } = {}) 
       params: { refresh_after: refreshAfter ? 'true' : 'false' },
       ...withTimeoutProfile('standard'),
     },
+  );
+  return response.data;
+};
+
+// Run the walkforward stability analyzer over the committed historical
+// price matrix. Backend is sync, caches the JSON payload for 1 hour, and
+// takes ~30s for the default 14-window 2024-01 → 2025-04 / 3-month /
+// 1-month-step run. Use ``refresh: true`` to bypass the cache.
+export const postEtfRotationWalkforward = async ({
+  periodStart,
+  periodEnd,
+  windowMonths = 3,
+  stepMonths = 1,
+  enablePolicySignalFactor = false,
+  refresh = false,
+} = {}) => {
+  const body = {
+    period_start: periodStart,
+    period_end: periodEnd,
+    window_months: windowMonths,
+    step_months: stepMonths,
+    enable_policy_signal_factor: Boolean(enablePolicySignalFactor),
+  };
+  if (refresh) body.refresh = true;
+  const response = await api.post(
+    '/etf-rotation/walkforward',
+    body,
+    withTimeoutProfile('long'),
   );
   return response.data;
 };

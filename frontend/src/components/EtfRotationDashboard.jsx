@@ -41,6 +41,12 @@ const EtfPolicyFactorAttributionPanel = lazyWithRetry(
   () => import('./EtfPolicyFactorAttributionPanel'),
 );
 
+// Walkforward panel is button-driven and collapsed by default — lazy
+// import so its Recharts/Antd table tree stays out of the initial chunk.
+const EtfWalkforwardPanel = lazyWithRetry(
+  () => import('./EtfWalkforwardPanel'),
+);
+
 const { Text, Title } = Typography;
 
 const ETF_NAMES = {
@@ -342,6 +348,10 @@ const EtfRotationDashboard = () => {
   // the daily-signal response (which always carries the effective
   // ``policy_signal_factor_enabled`` boolean) once the round-trip lands.
   const [policyToggleLoading, setPolicyToggleLoading] = useState(false);
+  // Walkforward panel: lazy-loaded chunk + collapsed-by-default UX so the
+  // dashboard's initial render doesn't pay for it. We track whether the
+  // user has ever expanded it so the lazy import only fires on demand.
+  const [walkforwardOpen, setWalkforwardOpen] = useState(false);
   const pollTimerRef = useRef(null);
 
   const applyResponse = useCallback((response, endpointUsed) => {
@@ -1335,6 +1345,31 @@ const EtfRotationDashboard = () => {
                     )}
                   </Space>
                 ),
+              }]}
+            />
+
+            <Collapse
+              data-testid="etf-walkforward-collapse"
+              onChange={(keys) => {
+                const arr = Array.isArray(keys) ? keys : [keys];
+                setWalkforwardOpen(arr.includes('walkforward'));
+              }}
+              items={[{
+                key: 'walkforward',
+                label: (
+                  <Space>
+                    <ExperimentOutlined />
+                    <Text strong>历史回测 (Walkforward) · 多窗口稳定性</Text>
+                    <Tag color="default" data-testid="etf-walkforward-scope-tag">
+                      回放历史价格 · 不同于上方因子归因
+                    </Tag>
+                  </Space>
+                ),
+                children: walkforwardOpen ? (
+                  <Suspense fallback={<Spin data-testid="etf-walkforward-lazy-fallback" />}>
+                    <EtfWalkforwardPanel />
+                  </Suspense>
+                ) : null,
               }]}
             />
           </>

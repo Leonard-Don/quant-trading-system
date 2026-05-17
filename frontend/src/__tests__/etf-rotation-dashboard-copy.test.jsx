@@ -9,6 +9,7 @@ import {
   getEtfRotationLiveTarget,
   getEtfRotationPreferences,
   postEtfRotationRefresh,
+  postEtfRotationWalkforward,
 } from '../services/api';
 
 vi.mock('../services/api', () => ({
@@ -25,6 +26,7 @@ vi.mock('../services/api', () => ({
   postEtfRotationPreferences: vi.fn(),
   postEtfRotationRefresh: vi.fn(),
   postEtfRotationReloadConfig: vi.fn(),
+  postEtfRotationWalkforward: vi.fn(),
 }));
 
 beforeEach(() => {
@@ -153,6 +155,32 @@ test('ETF轮动页面在 live-target 可用时显示实时刷新模式并渲染�
   // The legacy daily-signal endpoint must not have been called when
   // live-target succeeded.
   expect(getEtfRotationDailySignal).not.toHaveBeenCalled();
+});
+
+test('ETF轮动页面默认折叠 walkforward，展开后才加载面板且不自动请求', async () => {
+  const liveTargetEnvelope = {
+    data: {
+      plan: mixedLanguageFixture,
+      refreshed_at: '2026-05-15T02:00:00+00:00',
+      quote_source: 'live',
+      debounced: false,
+    },
+    refresh: { is_trading_hours: false },
+  };
+  getEtfRotationLiveTarget.mockResolvedValue(liveTargetEnvelope);
+
+  render(<EtfRotationDashboard />);
+
+  const collapse = await screen.findByTestId('etf-walkforward-collapse');
+  expect(collapse).toBeInTheDocument();
+  expect(screen.queryByTestId('etf-walkforward-panel')).not.toBeInTheDocument();
+
+  const user = userEvent.setup();
+  await user.click(screen.getByText('历史回测 (Walkforward) · 多窗口稳定性'));
+
+  expect(await screen.findByTestId('etf-walkforward-panel')).toBeInTheDocument();
+  expect(screen.getByTestId('etf-walkforward-cache-checkbox')).toBeInTheDocument();
+  expect(postEtfRotationWalkforward).not.toHaveBeenCalled();
 });
 
 test('点击 "强制刷新" 在 live-target 模式下调用 POST /etf-rotation/refresh', async () => {
