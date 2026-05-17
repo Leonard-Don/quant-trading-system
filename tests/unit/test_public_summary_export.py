@@ -16,6 +16,7 @@ sibling project ``cn-altdata-brief`` consumes. These tests verify:
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -161,6 +162,28 @@ def sample_audit_log(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
+def sample_backtest_price_csv(tmp_path: Path) -> Path:
+    """A small deterministic price matrix for regime recommendation export."""
+    path = tmp_path / "etf_prices.csv"
+    start = date(2026, 1, 2)
+    rows = ["date,510300,512400,159915"]
+    for idx in range(120):
+        current = start + timedelta(days=idx)
+        rows.append(
+            ",".join(
+                [
+                    current.isoformat(),
+                    f"{10.0 * (1.0015 ** idx):.6f}",
+                    f"{5.0 * (1.0010 ** idx):.6f}",
+                    f"{3.0 * (1.0008 ** idx):.6f}",
+                ]
+            )
+        )
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
 def empty_audit_log(tmp_path: Path) -> Path:
     """A path that doesn't exist — the audit-log absent branch."""
     return tmp_path / "no-audit.jsonl"
@@ -172,6 +195,7 @@ def full_payload(
     sample_heatmap_history: Path,
     sample_paper_trading_dir: Path,
     sample_audit_log: Path,
+    sample_backtest_price_csv: Path,
     tmp_path: Path,
 ) -> dict[str, Any]:
     """The full payload built against the rich-input fixture set."""
@@ -183,6 +207,7 @@ def full_payload(
         heatmap_history_path=sample_heatmap_history,
         paper_trading_dir=sample_paper_trading_dir,
         audit_log_path=sample_audit_log,
+        backtest_price_csv_path=sample_backtest_price_csv,
         generated_at="2026-05-17T00:00:00+00:00",
     )
 
@@ -271,6 +296,60 @@ def test_etf_rotation_audit_metadata_only_no_weights(
     assert "prices_at_decision" not in serialized
 
 
+def test_etf_rotation_regime_recommendation_exported_without_raw_prices(
+    full_payload: dict[str, Any],
+) -> None:
+    """Public summary includes the R1 regime recommendation, not raw price rows."""
+    rec = full_payload["etf_rotation"]["regime_recommendation"]
+    assert rec["available"] is True
+    assert rec["lookback_days"] == 90
+    assert rec["regime_name"] in {
+        "trending_low_vol",
+        "trending_high_vol",
+        "choppy_low_vol",
+        "choppy_high_vol",
+        "bear_high_vol",
+        "bear_low_vol",
+        "unknown",
+    }
+    assert rec["recommended_strategy"] in {
+        "rotation",
+        "mean_reversion",
+        "blend",
+        "cash",
+        "unchanged",
+    }
+    assert 0.0 <= rec["confidence"] <= 1.0
+    assert rec["n_assets_used"] == 3
+    assert set(rec["features"]) == {
+        "trend_r2",
+        "trend_slope",
+        "realized_vol",
+        "return_skew",
+        "drawdown_ratio",
+        "avg_pairwise_correlation",
+    }
+    serialized = json.dumps(rec, ensure_ascii=False)
+    assert "510300" not in serialized
+    assert "etf_prices" not in serialized
+
+
+def test_missing_regime_price_matrix_reports_reason_without_path(
+    full_payload: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    """Missing price CSV should degrade gracefully and avoid local path leakage."""
+    rec = export_public_summary._build_regime_recommendation_section(
+        tmp_path / "missing.csv"
+    )
+    assert rec == {
+        "available": False,
+        "lookback_days": 90,
+        "unavailable_reason": "price_matrix_missing",
+    }
+    assert str(tmp_path) not in json.dumps(rec, ensure_ascii=False)
+
+
 def test_missing_provider_key_absent_no_synthetic_data(
     tmp_path: Path,
     sample_heatmap_history: Path,
@@ -355,6 +434,7 @@ def test_export_is_deterministic_for_fixed_generated_at(
     sample_heatmap_history: Path,
     sample_paper_trading_dir: Path,
     sample_audit_log: Path,
+    sample_backtest_price_csv: Path,
     tmp_path: Path,
 ) -> None:
     """Same input + same generated_at → byte-identical output."""
@@ -366,6 +446,7 @@ def test_export_is_deterministic_for_fixed_generated_at(
         heatmap_history_path=sample_heatmap_history,
         paper_trading_dir=sample_paper_trading_dir,
         audit_log_path=sample_audit_log,
+        backtest_price_csv_path=sample_backtest_price_csv,
         generated_at="2026-05-17T00:00:00+00:00",
     )
     second = export_public_summary.build_public_summary(
@@ -374,6 +455,7 @@ def test_export_is_deterministic_for_fixed_generated_at(
         heatmap_history_path=sample_heatmap_history,
         paper_trading_dir=sample_paper_trading_dir,
         audit_log_path=sample_audit_log,
+        backtest_price_csv_path=sample_backtest_price_csv,
         generated_at="2026-05-17T00:00:00+00:00",
     )
     assert first == second
