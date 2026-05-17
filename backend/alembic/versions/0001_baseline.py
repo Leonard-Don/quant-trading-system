@@ -14,7 +14,8 @@ and then ``alembic stamp head`` — same result.
 """
 from __future__ import annotations
 
-from typing import Sequence, Union
+from collections.abc import Sequence
+from typing import Union
 
 revision: str = "0001_baseline"
 down_revision: Union[str, None] = None

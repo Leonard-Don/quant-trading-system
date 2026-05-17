@@ -68,7 +68,7 @@ def get_policy_signal() -> dict[str, Any]:
     try:
         manager = _get_alt_manager()
         payload = manager.get_alt_signals(category="policy")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("policy_radar /signal degrade to empty: %s", exc)
         return {"success": True, "data": _empty_signal_payload()}
 
@@ -106,7 +106,7 @@ def get_policy_records(
     try:
         manager = _get_alt_manager()
         records = manager.get_records(category="policy", timeframe=timeframe, limit=limit)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("policy_radar /records degrade to empty: %s", exc)
         return {"success": True, "data": _empty_records_payload(timeframe, industry, limit)}
 
