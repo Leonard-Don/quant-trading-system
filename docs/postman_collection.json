@@ -4131,6 +4131,38 @@
       }
     },
     {
+      "name": "历史回放 ETF 轮动策略并返回业绩指标",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/etf-rotation/backtest",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "etf-rotation",
+            "backtest"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  // 请根据API文档填写请求参数\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "Root",
       "request": {
         "method": "GET",

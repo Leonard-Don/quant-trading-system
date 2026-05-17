@@ -157,3 +157,42 @@ Use this default seed for examples/tests only; it must be configurable and not h
 - Script output is deterministic from local defaults/fixtures.
 - No mobile/Android files touched.
 - No protected ETF 512400 repo files touched.
+
+---
+
+### Task 6 (added 2026-05-17): Historical backtest harness
+
+**Objective:** Close the research loop by replaying the strategy against
+arbitrary historical windows and producing structured performance metrics
+— independent of whatever the live audit log happens to contain.
+
+**Where it lives:**
+- Core: `src/backtest/etf_rotation_backtest.py` (`EtfRotationBacktester`
+  class + `BacktestReport` dataclass).
+- CLI: `scripts/backtest_etf_rotation_strategy.py`
+  (`--prices-csv / --start-date / --end-date / --enable-policy-signal /
+  --output-md / --output-json`).
+- HTTP: `POST /etf-rotation/backtest`, body
+  `{period_start, period_end, enable_policy_signal_factor,
+  rebalance_freq_days, initial_capital, strategy_config_overrides}`.
+
+**When to use it vs the existing tools:**
+
+| Tool | Question it answers |
+|---|---|
+| `EtfRotationBacktester` (new) | "Across this *closed* historical window, what would the strategy have done if I'd held its planned weights bar-to-bar?" |
+| `PortfolioBacktester` via `scripts/backtest_etf_rotation.py` | Same, **plus** commission / slippage / max-turnover modelling. Use when you need a realistic post-cost estimate. |
+| `walkforward_etf_rotation.py` | "Across many *rolling* windows, does the best in-sample config hold up out-of-sample?" — robustness/regime test, not a single-window backtest. |
+| `compute_attribution` (live) | "On the actually-executed audit log, how much did `policy_signal_factor` contribute to realised P&L?" — production observability, not research. |
+
+**v0.1 caveats** (deliberately exhaustive — surface them upstream when
+quoting numbers):
+
+- No transaction costs.
+- No bid-ask spread / slippage.
+- No market impact.
+- Next-bar close fills only (single-bar look-ahead lag from the strategy
+  itself is honoured).
+- Equal-weight buy-and-hold benchmark — naive, not the index the strategy
+  claims to beat.
+- No survivorship-bias handling.
