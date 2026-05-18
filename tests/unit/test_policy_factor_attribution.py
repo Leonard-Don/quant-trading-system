@@ -7,6 +7,7 @@ attribution math sums the way the dataclass docstrings claim it should.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -123,6 +124,56 @@ def test_audit_with_factor_off_only_returns_zero_contribution(tmp_path: Path) ->
     assert report.n_rebalances == 1
     assert report.n_factor_on_rebalances == 0
     assert report.factor_contribution_pct == 0.0
+
+
+def test_audit_reader_skips_malformed_and_non_object_rows(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Malformed and scalar/array JSONL rows should not poison attribution."""
+
+    valid_row = _entry(
+        "2026-05-10T02:00:00+00:00",
+        enabled=True,
+        adjusted_weights={"512400": 0.22},
+        policy_adjustments={
+            "512400": {
+                "industry": "metals",
+                "signal": "bullish",
+                "multiplier": 1.10,
+                "weight_before": 0.20,
+                "weight_after": 0.22,
+                "delta_weight": 0.02,
+                "applied": True,
+            },
+        },
+    )
+    audit_path = tmp_path / "audit.jsonl"
+    audit_path.write_text(
+        "\n".join([
+            "{malformed-json",
+            json.dumps([]),
+            json.dumps(42),
+            json.dumps("x"),
+            json.dumps(valid_row, ensure_ascii=False, sort_keys=True),
+        ]) + "\n",
+        encoding="utf-8",
+    )
+    nav = _flat_prices(["512400"], "2026-05-10", "2026-05-16",
+                        daily_returns={"512400": 0.01})
+
+    with caplog.at_level(logging.WARNING, logger="src.research.policy_factor_attribution"):
+        report = compute_attribution(
+            audit_path, nav, period_days=30,
+            now=datetime(2026, 5, 16, tzinfo=timezone.utc),
+        )
+
+    assert report.n_rebalances == 1
+    assert report.n_factor_on_rebalances == 1
+    assert report.per_rebalance_attribution[0].applied_codes == ["512400"]
+    warning_text = "\n".join(record.getMessage() for record in caplog.records)
+    assert "Skipping malformed audit line" in warning_text
+    assert "Skipping non-object audit line" in warning_text
 
 
 # ---------------------------------------------------------------------------
