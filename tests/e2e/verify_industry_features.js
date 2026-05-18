@@ -69,6 +69,14 @@ const openIndustryWorkspaceTab = async (page, labelPattern) => {
   await page.waitForTimeout(300);
 };
 
+const activateDashboardTab = async (page, key) => {
+  await page.evaluate((targetKey) => {
+    const tabButton = Array.from(document.querySelectorAll(`.ant-tabs-tab[data-node-key="${targetKey}"] .ant-tabs-tab-btn`))
+      .find((node) => node.getClientRects().length > 0);
+    tabButton?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  }, key);
+};
+
 const readVisibleHeatmapIndustryTitles = async (page) => page.locator('[data-testid="heatmap-tile"]:visible').evaluateAll(
   (nodes) => [...new Set(
     nodes
@@ -1291,11 +1299,16 @@ const setRankingSelect = async (page, controlName, optionText, options = {}) => 
     const rankingFilterLabel = (await rankingFilterTag.innerText()).trim();
     await rankingFilterTag.click({ force: true });
     await page.waitForTimeout(1200);
+    const detailModalVisibleAfterSourceTag = await page.locator('[data-testid="industry-detail-modal"]').isVisible().catch(() => false);
     const switchedToHeatmap = await page.getByRole('tab', { name: '热力图' }).getAttribute('aria-selected');
     const heatmapFilterText = await page.locator('body').innerText();
     const heatmapFilterHintVisible = heatmapFilterText.includes(`来源: ${rankingFilterLabel === '实时' ? '实时市值' : rankingFilterLabel === '快照' ? '快照市值' : rankingFilterLabel === '代理' ? '代理市值' : '估算市值'}`);
     console.log(`排行榜来源标签点击后标签页: ${switchedToHeatmap === 'true' ? '热力图' : '未知'}`);
     console.log(`排行榜来源标签 ${rankingFilterLabel} 联动是否生效: ${heatmapFilterHintVisible ? '是' : '否'}`);
+    console.log(`排行榜来源标签点击未打开行业详情: ${!detailModalVisibleAfterSourceTag ? '是' : '否'}`);
+    if (detailModalVisibleAfterSourceTag) {
+      throw new Error('排行榜来源标签点击意外触发行详情弹窗');
+    }
   } else {
     console.log('排行榜来源标签点击后标签页: 跳过');
     console.log('排行榜来源标签联动是否生效: 跳过');
@@ -1305,7 +1318,7 @@ const setRankingSelect = async (page, controlName, optionText, options = {}) => 
   await closeVisibleModal(page, 'industry-detail-modal');
   await closeVisibleModal(page, 'stock-detail-modal');
   await page.keyboard.press('Escape').catch(() => {});
-  await page.locator('.ant-tabs-tab-btn').filter({ hasText: '聚类分析' }).click({ force: true });
+  await activateDashboardTab(page, 'clusters');
   await page.waitForFunction(
     () => document.querySelector('.ant-tabs-tab-active .ant-tabs-tab-btn')?.textContent?.includes('聚类分析'),
     null,
@@ -1327,7 +1340,7 @@ const setRankingSelect = async (page, controlName, optionText, options = {}) => 
   console.log(`聚类分析页仍显示热力图状态条: ${clusterChartState.hasCurrentViewBar ? '是' : '否'}`);
 
   console.log('验证轮动对比...');
-  await page.locator('.ant-tabs-tab-btn').filter({ hasText: '轮动对比' }).click({ force: true });
+  await activateDashboardTab(page, 'rotation');
   await page.waitForFunction(
     () => document.querySelector('.ant-tabs-tab-active .ant-tabs-tab-btn')?.textContent?.includes('轮动对比'),
     null,

@@ -216,11 +216,17 @@ const IndustryDashboard = () => {
                                 data-testid="industry-market-cap-source-tag"
                                 data-market-cap-filter={sourceMeta.filter}
                                 style={{ margin: 0, width: 'fit-content', fontSize: 10, lineHeight: '15px', paddingInline: 6, cursor: 'pointer', borderRadius: 999 }}
-                                onClick={() => data.jumpToMarketCapFilter(sourceMeta.filter)}
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    data.jumpToMarketCapFilter(sourceMeta.filter);
+                                }}
                                 role="button"
                                 tabIndex={0}
                                 aria-label={`按 ${sourceMeta.label} 市值来源筛选 ${name}`}
-                                onKeyDown={(event) => activateOnEnterOrSpace(event, () => data.jumpToMarketCapFilter(sourceMeta.filter))}
+                                onKeyDown={(event) => activateOnEnterOrSpace(event, () => {
+                                    event.stopPropagation();
+                                    data.jumpToMarketCapFilter(sourceMeta.filter);
+                                })}
                             >
                                 {sourceMeta.label}
                             </Tag>
