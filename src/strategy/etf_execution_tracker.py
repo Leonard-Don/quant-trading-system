@@ -16,7 +16,8 @@ Design choices
 --------------
 * **Pure functions + simple I/O.** Storage is JSON-Lines, no DB. The
   tracker reads/writes via :func:`append_execution` and
-  :func:`read_executions`. Tests use ``tmp_path``.
+  :func:`read_executions`. Audit rows are read through
+  :func:`read_audit_entries`. Tests use ``tmp_path``.
 * **Optional fields.** ``actual_fill_price`` is None until the user
   reports it; that's fine — analytics still works on shares + plan price.
 * **Audit-log keyed.** Each execution carries the ``plan_run_at`` it
@@ -42,6 +43,8 @@ logger = logging.getLogger(__name__)
 
 EXECUTIONS_PATH_ENV = "ETF_EXECUTIONS_PATH"
 DEFAULT_EXECUTIONS_PATH = Path.home() / ".config" / "etf-rotation" / "executions.jsonl"
+AUDIT_LOG_PATH_ENV = "ETF_AUDIT_LOG_PATH"
+DEFAULT_AUDIT_LOG_PATH = Path.home() / ".config" / "etf-rotation" / "audit.jsonl"
 VALID_DECISIONS = frozenset({"executed", "modified", "skipped"})
 VALID_ACTIONS = frozenset({"buy", "sell", "hold"})
 ACTION_DIRECTIONS = {"buy": +1.0, "sell": -1.0, "hold": 0.0}
@@ -148,6 +151,19 @@ def _resolve_executions_path(explicit: Optional[Path] = None) -> Optional[Path]:
     return None
 
 
+def _resolve_audit_log_path(explicit: Optional[Path] = None) -> Optional[Path]:
+    """Return the ETF audit path, or None when default auditing is disabled."""
+
+    if explicit is not None:
+        return Path(explicit).expanduser()
+    env_value = os.environ.get(AUDIT_LOG_PATH_ENV)
+    if env_value:
+        return Path(env_value).expanduser()
+    if DEFAULT_AUDIT_LOG_PATH.parent.is_dir():
+        return DEFAULT_AUDIT_LOG_PATH
+    return None
+
+
 def _validate_choice(field_name: str, value: Any, valid_values: frozenset[str]) -> None:
     if value not in valid_values:
         raise ValueError(
@@ -246,6 +262,57 @@ def read_executions(path: Optional[Path] = None) -> List[ExecutionRecord]:
         except (KeyError, TypeError, ValueError) as exc:
             logger.warning("Skipping invalid execution row %d in %s: %s", line_no, target, exc)
     return out
+
+
+def read_audit_entries(path: Optional[Path] = None) -> list[dict[str, Any]]:
+    """Return validated ETF audit rows from JSONL, empty when missing.
+
+    Bad JSON lines, non-object rows, rows without ``run_at``, and rows
+    without mapping ``prices_at_decision`` are logged and skipped. The audit
+    log is observability data, so reader failures must not block the manual
+    strategy or downstream reconciliation helpers.
+    """
+
+    target = path or _resolve_audit_log_path()
+    if target is None or not Path(target).is_file():
+        return []
+
+    entries: list[dict[str, Any]] = []
+    for line_no, line in enumerate(
+        Path(target).read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            raw = json.loads(line)
+        except json.JSONDecodeError as exc:
+            logger.warning("Skipping malformed audit line %d in %s: %s", line_no, target, exc)
+            continue
+        if not isinstance(raw, Mapping):
+            logger.warning(
+                "Skipping invalid audit row %d in %s: expected object",
+                line_no,
+                target,
+            )
+            continue
+        if not raw.get("run_at"):
+            logger.warning(
+                "Skipping invalid audit row %d in %s: missing run_at",
+                line_no,
+                target,
+            )
+            continue
+        prices = raw.get("prices_at_decision")
+        if not isinstance(prices, Mapping):
+            logger.warning(
+                "Skipping invalid audit row %d in %s: prices_at_decision must be an object",
+                line_no,
+                target,
+            )
+            continue
+        entries.append(dict(raw))
+    return entries
 
 
 # ---------------------------------------------------------------------------
@@ -437,6 +504,21 @@ def compare_execution_to_suggestion(
     }
 
 
+def compare_recorded_executions_to_audit(
+    *,
+    executions_path: Optional[Path] = None,
+    audit_path: Optional[Path] = None,
+    horizon_minutes: float = 1440.0,
+) -> Dict[str, Any]:
+    """Load recorded executions plus audit rows and return the comparison report."""
+
+    return compare_execution_to_suggestion(
+        read_executions(executions_path),
+        read_audit_entries(audit_path),
+        horizon_minutes=horizon_minutes,
+    )
+
+
 def _parse_iso(value: Any) -> Optional[datetime]:
     if not value:
         return None
@@ -485,11 +567,15 @@ def _empty_compare_report(horizon_minutes: float) -> Dict[str, Any]:
 
 
 __all__ = [
+    "AUDIT_LOG_PATH_ENV",
+    "DEFAULT_AUDIT_LOG_PATH",
     "DEFAULT_EXECUTIONS_PATH",
     "EXECUTIONS_PATH_ENV",
     "ExecutionRecord",
     "append_execution",
+    "compare_recorded_executions_to_audit",
     "compute_decision_breakdown",
     "compare_execution_to_suggestion",
+    "read_audit_entries",
     "read_executions",
 ]
