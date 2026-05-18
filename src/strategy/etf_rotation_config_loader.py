@@ -236,6 +236,21 @@ DEFAULT_PREMIUM_PARAMS: Dict[str, Any] = {
 }
 
 
+DEFAULT_ORDER_PRICING_PARAMS: Dict[str, Any] = {
+    "tick_size": 0.001,
+    "aggressive_ticks": 2,
+    "neutral_ticks": 1,
+    "passive_ticks": 1,
+    "default_recommendation": "neutral",
+    "batch_breakpoint_shares": 5000,
+    "batch_breakpoint_notional": 30000.0,
+    "preferred_windows": [
+        "10:00-11:00 (上午盘中段，流动性最好)",
+        "13:30-14:30 (下午盘中段，避开 14:55+ 收盘冲击)",
+    ],
+}
+
+
 DEFAULT_ENSEMBLE_PARAMS: Dict[str, Any] = {
     "enabled": False,  # off by default so legacy behaviour is preserved
     "regime_blend_weights": {
@@ -294,6 +309,7 @@ class StrategyConfig:
     regime: Dict[str, Any] = field(default_factory=dict)
     premium: Dict[str, Any] = field(default_factory=dict)
     ensemble: Dict[str, Any] = field(default_factory=dict)
+    order_pricing: Dict[str, Any] = field(default_factory=dict)
     etf_industry_map: dict[str, str] = field(default_factory=dict)
     source_path: Optional[Path] = None
     source_mtime: Optional[float] = None
@@ -345,6 +361,9 @@ def _merge_dict(base: Mapping[str, Any], override: Optional[Mapping[str, Any]]) 
 
     merged = dict(base)
     if not override:
+        return merged
+    if not isinstance(override, Mapping):
+        logger.warning("Strategy config section override is not a mapping; ignoring: %r", override)
         return merged
     for key, value in override.items():
         if isinstance(value, Mapping) and isinstance(merged.get(key), Mapping):
@@ -441,6 +460,7 @@ def load_strategy_config(
     regime = _merge_dict(DEFAULT_REGIME_PARAMS, raw.get("regime"))
     premium = _merge_dict(DEFAULT_PREMIUM_PARAMS, raw.get("premium"))
     ensemble = _merge_dict(DEFAULT_ENSEMBLE_PARAMS, raw.get("ensemble"))
+    order_pricing = _merge_dict(DEFAULT_ORDER_PRICING_PARAMS, raw.get("order_pricing"))
     raw_industry_map = raw.get("etf_industry_map") or {}
     if not isinstance(raw_industry_map, Mapping):
         logger.warning(
@@ -461,6 +481,7 @@ def load_strategy_config(
         regime=regime,
         premium=premium,
         ensemble=ensemble,
+        order_pricing=order_pricing,
         etf_industry_map=etf_industry_map,
         source_path=resolved_path,
         source_mtime=mtime,
@@ -472,6 +493,7 @@ __all__ = [
     "DEFAULT_CONFIG_PATH",
     "DEFAULT_ENSEMBLE_PARAMS",
     "DEFAULT_ETF_INDUSTRY_MAP",
+    "DEFAULT_ORDER_PRICING_PARAMS",
     "DEFAULT_PREMIUM_PARAMS",
     "DEFAULT_REFRESH_PARAMS",
     "DEFAULT_REGIME_PARAMS",

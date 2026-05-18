@@ -775,6 +775,30 @@ def generate_plan(
         threshold_weight=threshold_weight,
     )
 
+    # Enrich each suggestion with limit-order pricing hints. Pure side
+    # car — does not change the suggestion list shape, just attaches a
+    # ``pricing`` dict with three limit levels + batch plan + execution
+    # windows. Pricing config is loaded from strategy.json so the user
+    # can tune aggression / batching without touching code.
+    from src.data.etf_order_pricing import (
+        build_config_from_strategy_json,
+        build_pricing_hints,
+    )
+    pricing_cfg = build_config_from_strategy_json(active_config.order_pricing)
+    pricing_by_code: dict[str, dict[str, Any]] = {}
+    for sug in suggestions:
+        quote = quote_map.get(sug.code)
+        ref_price = quote.current_price if quote is not None else None
+        hints = build_pricing_hints(
+            action=sug.action,
+            reference_price=ref_price,
+            shares=int(sug.shares),
+            estimated_amount=float(sug.estimated_amount),
+            config=pricing_cfg,
+        )
+        if hints is not None:
+            pricing_by_code[sug.code] = hints.to_dict()
+
     source_health = _build_source_health_payload(
         holdings_supplied=holdings_supplied,
         quotes_supplied=quotes_supplied,
@@ -871,6 +895,10 @@ def generate_plan(
                 "current_weight": float(s.current_weight),
                 "target_weight": float(s.target_weight),
                 "reason": s.reason,
+                # Limit-order pricing hints — None for hold actions or when
+                # the upstream quote was missing. Frontend renders the
+                # three price levels + batching guidance inline.
+                "pricing": pricing_by_code.get(s.code),
             }
             for s in suggestions
         ],

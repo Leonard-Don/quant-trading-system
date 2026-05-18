@@ -7,6 +7,7 @@ from pathlib import Path
 
 from src.strategy.etf_rotation_config_loader import (
     CONFIG_PATH_ENV,
+    DEFAULT_ORDER_PRICING_PARAMS,
     DEFAULT_RISK_RULES,
     DEFAULT_STRATEGY_PARAMS,
     DEFAULT_UNIVERSE,
@@ -28,6 +29,11 @@ def test_load_strategy_config_returns_built_in_defaults_when_no_file(monkeypatch
     assert [a["code"] for a in cfg.universe] == [a["code"] for a in DEFAULT_UNIVERSE]
     assert cfg.risk_rules["min_cash_weight"] == DEFAULT_RISK_RULES["min_cash_weight"]
     assert cfg.strategy["scoring_mode"] == DEFAULT_STRATEGY_PARAMS["scoring_mode"]
+    assert cfg.order_pricing["tick_size"] == DEFAULT_ORDER_PRICING_PARAMS["tick_size"]
+    assert (
+        cfg.order_pricing["default_recommendation"]
+        == DEFAULT_ORDER_PRICING_PARAMS["default_recommendation"]
+    )
 
 
 def test_load_strategy_config_overrides_only_specified_fields(tmp_path) -> None:
@@ -142,3 +148,34 @@ def test_load_strategy_config_strips_comment_keys(tmp_path) -> None:
 
     cfg = load_strategy_config(path)
     assert cfg.strategy["gross_cap"] == 0.85
+
+
+def test_load_strategy_config_ignores_non_mapping_order_pricing(tmp_path) -> None:
+    path = tmp_path / "strategy.json"
+    path.write_text(json.dumps({"order_pricing": "not-an-object"}))
+
+    cfg = load_strategy_config(path)
+
+    assert cfg.order_pricing == DEFAULT_ORDER_PRICING_PARAMS
+
+
+def test_load_strategy_config_merges_order_pricing_overrides(tmp_path) -> None:
+    path = tmp_path / "strategy.json"
+    path.write_text(json.dumps({
+        "order_pricing": {
+            "tick_size": 0.01,
+            "default_recommendation": "aggressive",
+            "preferred_windows": ["10:15-10:45"],
+        },
+    }))
+
+    cfg = load_strategy_config(path)
+
+    assert cfg.order_pricing["tick_size"] == 0.01
+    assert cfg.order_pricing["default_recommendation"] == "aggressive"
+    assert cfg.order_pricing["preferred_windows"] == ["10:15-10:45"]
+    # Fields not mentioned by the user still fall back to built-ins.
+    assert (
+        cfg.order_pricing["batch_breakpoint_shares"]
+        == DEFAULT_ORDER_PRICING_PARAMS["batch_breakpoint_shares"]
+    )
