@@ -43,6 +43,11 @@ from src.backtest.etf_rotation_walkforward import (
     DEFAULT_WINDOW_MONTHS,
     EtfRotationWalkforwardAnalyzer,
 )
+from src.backtest.parameter_optimizer import (
+    MAX_GRID_SIZE,
+    SUPPORTED_METRICS,
+    ParameterOptimizer,
+)
 from src.backtest.strategy_comparison import (
     DEFAULT_STRATEGY_LABELS,
     StrategyComparator,
@@ -1433,3 +1438,218 @@ def get_regime_recommendation(
             },
         },
     }
+
+
+# ---------------------------------------------------------------------------
+# Parameter optimization endpoint
+#
+# Wraps :class:`ParameterOptimizer` so the dashboard / CLI can drive a
+# grid-search + sensitivity-analysis pass without re-implementing the
+# strategy / universe resolution that lives in
+# :mod:`scripts.daily_etf_signal`. The grid is capped at
+# :data:`src.backtest.parameter_optimizer.MAX_GRID_SIZE` configs so a typo
+# can't kick off a multi-hour job; callers exceeding the cap must shrink
+# the grid or raise the cap explicitly via ``max_grid_size`` in the body.
+# Sync execution; 20-config grid on 4-year history finishes in ~5-15s.
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/optimize-parameters",
+    summary="网格搜索 + 敏感度分析 ETF 轮动策略参数",
+    description=(
+        "在已提交的历史价格矩阵（默认 ``data/etf_backtest/etf_prices_4y.csv``）上，"
+        "对 ``parameter_grid`` 字段（``EtfRotationConfig`` 字段名 → 候选值列表）的"
+        "笛卡尔积逐个调用 ``EtfRotationBacktester`` 回放，输出 ``OptimizationReport``："
+        "每个 config 的 Sharpe / 总收益 / MaxDD / Calmar / 换手 + 七项 metric 各自的"
+        "最优 config + 按所选 metric 排序的 top-N + 每个 swept 参数的 Sharpe std/range"
+        "（敏感度排序）+ top-N 的 Sharpe bootstrap 95% CI + 可选的 per-config "
+        "walkforward 报告。"
+        "\n\n"
+        "请求体（除明确标注外都可选）："
+        "``{period_start: ISO 日期 (必填), period_end: ISO 日期 (必填), "
+        "parameter_grid: {param_name: [values]} (必填), "
+        "strategy: rotation (v0.1 仅支持 rotation), "
+        "metric: sharpe_ratio|total_return_pct|calmar_ratio|max_drawdown_pct|... (默认 sharpe_ratio), "
+        "top_n: int (默认 10), "
+        "enable_policy_signal_factor: bool=false, "
+        "rebalance_freq_days: int=5, initial_capital: float=100000, "
+        "strategy_config_overrides: object, "
+        "with_walkforward: bool=false, "
+        "walkforward_window_months: int=3, walkforward_step_months: int=1, "
+        "max_grid_size: int=200, tc_model: bool|object}``。"
+        "\n\n"
+        f"v0.1 sanity cap: grid size <= {MAX_GRID_SIZE} configs; 超出报 422。"
+        "**继承全部 v0.1 backtest 简化** + 单窗口优化是定义意义上的 in-sample fit "
+        "（``OptimizationReport.caveats`` 会显式标注）；想要稳健性请打开 "
+        "``with_walkforward=true``。"
+    ),
+)
+def post_optimize_parameters(
+    payload: dict[str, Any] = Body(default_factory=dict),  # type: ignore[assignment]
+) -> dict[str, Any]:
+    period_start = payload.get("period_start")
+    period_end = payload.get("period_end")
+    if not period_start or not period_end:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "period_start and period_end are required for "
+                "/optimize-parameters."
+            ),
+        )
+
+    parameter_grid_raw = payload.get("parameter_grid")
+    if not isinstance(parameter_grid_raw, dict) or not parameter_grid_raw:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "parameter_grid is required and must be a non-empty object "
+                "mapping parameter name to a list of candidate values."
+            ),
+        )
+    parameter_grid: dict[str, list[Any]] = {}
+    for key, values in parameter_grid_raw.items():
+        if not isinstance(key, str) or not key:
+            raise HTTPException(
+                status_code=422,
+                detail=f"parameter_grid keys must be non-empty strings; got {key!r}",
+            )
+        if not isinstance(values, list) or not values:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"parameter_grid[{key!r}] must be a non-empty JSON array."
+                ),
+            )
+        parameter_grid[key] = list(values)
+
+    strategy_name = str(payload.get("strategy", "rotation") or "rotation")
+    if strategy_name not in {"rotation", "mean_reversion", "blend"}:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"strategy must be one of rotation|mean_reversion|blend; "
+                f"got {strategy_name!r}"
+            ),
+        )
+
+    metric = str(payload.get("metric", "sharpe_ratio") or "sharpe_ratio")
+    if metric not in SUPPORTED_METRICS:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"metric={metric!r} not in supported metrics "
+                f"{sorted(SUPPORTED_METRICS)}"
+            ),
+        )
+
+    top_n = int(payload.get("top_n", 10) or 10)
+    if top_n < 1:
+        raise HTTPException(status_code=422, detail="top_n must be >= 1.")
+
+    enable_policy_signal_factor = bool(
+        payload.get("enable_policy_signal_factor", False)
+    )
+    rebalance_freq_days = int(
+        payload.get("rebalance_freq_days", DEFAULT_REBALANCE_FREQ_DAYS) or 1
+    )
+    if rebalance_freq_days < 1:
+        raise HTTPException(
+            status_code=422, detail="rebalance_freq_days must be >= 1.",
+        )
+    initial_capital = float(
+        payload.get("initial_capital", DEFAULT_INITIAL_CAPITAL)
+        or DEFAULT_INITIAL_CAPITAL
+    )
+    if initial_capital <= 0:
+        raise HTTPException(
+            status_code=422, detail="initial_capital must be > 0.",
+        )
+
+    max_grid_size = int(payload.get("max_grid_size", MAX_GRID_SIZE) or MAX_GRID_SIZE)
+    if max_grid_size < 1:
+        raise HTTPException(status_code=422, detail="max_grid_size must be >= 1.")
+
+    overrides = payload.get("strategy_config_overrides") or {}
+    if not isinstance(overrides, dict):
+        raise HTTPException(
+            status_code=422,
+            detail="strategy_config_overrides must be a JSON object.",
+        )
+
+    with_walkforward = bool(payload.get("with_walkforward", False))
+    wf_window = int(
+        payload.get("walkforward_window_months", DEFAULT_WINDOW_MONTHS)
+        or DEFAULT_WINDOW_MONTHS
+    )
+    wf_step = int(
+        payload.get("walkforward_step_months", DEFAULT_STEP_MONTHS)
+        or DEFAULT_STEP_MONTHS
+    )
+    if wf_window < 1 or wf_step < 1:
+        raise HTTPException(
+            status_code=422,
+            detail="walkforward_window_months / walkforward_step_months must be >= 1.",
+        )
+
+    try:
+        prices = _load_backtest_price_matrix(None)
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Backtest price matrix not found at {exc}. Run the data "
+                "pipeline (`scripts/refresh_*`) before calling "
+                "/optimize-parameters."
+            ),
+        )
+
+    strategy_cfg = load_strategy_config()
+    if overrides:
+        merged_strategy = {**strategy_cfg.strategy, **overrides}
+        strategy_cfg = dataclass_replace(strategy_cfg, strategy=merged_strategy)
+
+    holdings = [
+        h for h in daily_etf_signal.load_default_holdings() if h.code in prices.columns
+    ] or daily_etf_signal.load_default_holdings()
+    config = daily_etf_signal.build_strategy_config(holdings, strategy_cfg)
+
+    industry_signals: Optional[dict[str, Any]] = None
+    etf_industry_map: Optional[dict[str, str]] = (
+        dict(strategy_cfg.etf_industry_map)
+        if strategy_cfg.etf_industry_map
+        else None
+    )
+    if enable_policy_signal_factor:
+        loaded, _last_refresh = daily_etf_signal.load_policy_industry_signals()
+        if loaded:
+            industry_signals = dict(loaded)
+
+    tc_model = _parse_tc_model(payload)
+    try:
+        optimizer = ParameterOptimizer(
+            base_config=config,
+            price_history=prices,
+            parameter_grid=parameter_grid,
+            period_start=period_start,
+            period_end=period_end,
+            policy_signal_factor_enabled=enable_policy_signal_factor,
+            industry_signals=industry_signals,
+            etf_industry_map=etf_industry_map,
+            rebalance_freq_days=rebalance_freq_days,
+            initial_capital=initial_capital,
+            tc_model=tc_model,
+            optimize_for=metric,
+            top_n=top_n,
+            max_grid_size=max_grid_size,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    report = optimizer.run(
+        with_walkforward=with_walkforward,
+        walkforward_window_months=wf_window,
+        walkforward_step_months=wf_step,
+    )
+    return {"success": True, "data": report.to_dict()}
