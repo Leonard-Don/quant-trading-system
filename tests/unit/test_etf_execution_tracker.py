@@ -8,10 +8,13 @@ from pathlib import Path
 import pytest
 
 from src.strategy.etf_execution_tracker import (
+    AUDIT_LOG_PATH_ENV,
     ExecutionRecord,
     append_execution,
+    compare_recorded_executions_to_audit,
     compare_execution_to_suggestion,
     compute_decision_breakdown,
+    read_audit_entries,
     read_executions,
 )
 
@@ -103,6 +106,54 @@ def test_read_executions_skips_malformed_and_invalid_rows(tmp_path: Path) -> Non
     loaded = read_executions(path)
 
     assert [record.code for record in loaded] == ["159985"]
+
+
+def test_read_audit_entries_skips_malformed_and_invalid_rows(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    path = tmp_path / "audit.jsonl"
+    good = _audit_entry("2026-05-18T10:00:00+00:00", {"510300": 5.0})
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps(good),
+                "not-json",
+                json.dumps(["not", "an", "object"]),
+                json.dumps({"prices_at_decision": {"510300": 5.0}}),
+                json.dumps({"run_at": "2026-05-18T10:30:00+00:00"}),
+                json.dumps(
+                    {
+                        "run_at": "2026-05-18T11:00:00+00:00",
+                        "prices_at_decision": ["510300", 5.0],
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    entries = read_audit_entries(path)
+
+    assert entries == [good]
+    assert "Skipping malformed audit line" in caplog.text
+    assert "Skipping invalid audit row" in caplog.text
+
+
+def test_read_audit_entries_missing_file_returns_empty_list(tmp_path: Path) -> None:
+    assert read_audit_entries(tmp_path / "missing-audit.jsonl") == []
+
+
+def test_read_audit_entries_uses_env_default_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "audit-from-env.jsonl"
+    good = _audit_entry("2026-05-18T10:00:00+00:00", {"510300": 5.0})
+    path.write_text(json.dumps(good), encoding="utf-8")
+    monkeypatch.setenv(AUDIT_LOG_PATH_ENV, str(path))
+
+    assert read_audit_entries() == [good]
 
 
 def test_append_execution_swallows_write_errors(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -270,3 +321,66 @@ def test_compare_execution_to_suggestion_skips_missing_and_non_numeric_prices() 
 
     assert report["n_pairs"] == 0
     assert report["recent_pairs"] == []
+
+
+def test_compare_recorded_executions_to_audit_reads_jsonl_inputs(tmp_path: Path) -> None:
+    executions_path = tmp_path / "executions.jsonl"
+    audit_path = tmp_path / "audit.jsonl"
+
+    append_execution(
+        _record(
+            decision="modified",
+            action="buy",
+            shares=50,
+            suggested_action="buy",
+            suggested_shares=100,
+        ),
+        path=executions_path,
+    )
+    audit_path.write_text(
+        "\n".join(
+            [
+                json.dumps(_audit_entry("2026-05-18T10:00:00+00:00", {"510300": 5.0})),
+                json.dumps(_audit_entry("2026-05-18T11:00:00+00:00", {"510300": 5.5})),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = compare_recorded_executions_to_audit(
+        executions_path=executions_path,
+        audit_path=audit_path,
+        horizon_minutes=60.0,
+    )
+
+    assert report["n_pairs"] == 1
+    assert report["user_alpha_mean"] == pytest.approx(-0.05)
+
+
+def test_compare_recorded_executions_to_audit_skips_bad_audit_rows(
+    tmp_path: Path,
+) -> None:
+    executions_path = tmp_path / "executions.jsonl"
+    audit_path = tmp_path / "audit.jsonl"
+
+    append_execution(_record(), path=executions_path)
+    audit_path.write_text(
+        "\n".join(
+            [
+                "not-json",
+                json.dumps({"run_at": "2026-05-18T09:30:00+00:00"}),
+                json.dumps(_audit_entry("2026-05-18T10:00:00+00:00", {"510300": 5.0})),
+                json.dumps(_audit_entry("2026-05-18T11:00:00+00:00", {"510300": 5.5})),
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    report = compare_recorded_executions_to_audit(
+        executions_path=executions_path,
+        audit_path=audit_path,
+        horizon_minutes=60.0,
+    )
+
+    assert report["n_pairs"] == 1
+    assert report["recent_pairs"][0]["code"] == "510300"
