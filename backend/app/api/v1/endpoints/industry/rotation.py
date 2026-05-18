@@ -69,6 +69,44 @@ _POLICY_SIGNAL_OVERLAY_OPERATIONAL_ERRORS = (
     RuntimeError,
     TimeoutError,
 )
+_NO_STOCKS_TREND_PREFIX = "No stocks found for industry:"
+
+
+def _is_no_stocks_trend_error(detail: Any) -> bool:
+    return isinstance(detail, str) and detail.startswith(_NO_STOCKS_TREND_PREFIX)
+
+
+def _build_no_stocks_trend_response(industry_name: str, days: int) -> IndustryTrendResponse:
+    return IndustryTrendResponse(
+        industry_name=industry_name,
+        stock_count=0,
+        expected_stock_count=0,
+        total_market_cap=0,
+        avg_pe=0,
+        industry_volatility=0,
+        industry_volatility_source="unavailable",
+        period_days=days,
+        period_change_pct=0,
+        period_money_flow=0,
+        top_gainers=[],
+        top_losers=[],
+        rise_count=0,
+        fall_count=0,
+        flat_count=0,
+        stock_coverage_ratio=0,
+        change_coverage_ratio=0,
+        market_cap_coverage_ratio=0,
+        pe_coverage_ratio=0,
+        total_market_cap_fallback=False,
+        avg_pe_fallback=False,
+        market_cap_source="unavailable",
+        valuation_source="unavailable",
+        valuation_quality="unavailable",
+        trend_series=[],
+        degraded=True,
+        note="当前行业暂无可用成分股明细，趋势数据暂不可用。",
+        update_time=datetime.now().isoformat(),
+    )
 
 
 def _load_policy_signal_overlay() -> tuple[dict[str, Any], Optional[str]]:
@@ -401,45 +439,54 @@ def get_industry_trend(
 
         analyzer = get_industry_analyzer()
         trend_data = analyzer.get_industry_trend(industry_name, days=days)
+        skip_alignment = False
 
         if "error" in trend_data:
-            raise HTTPException(status_code=404, detail=trend_data["error"])
+            detail = trend_data["error"]
+            if _is_no_stocks_trend_error(detail):
+                result = _build_no_stocks_trend_response(industry_name, days)
+                skip_alignment = True
+            else:
+                raise HTTPException(status_code=404, detail=detail)
+        else:
+            result = IndustryTrendResponse(
+                industry_name=trend_data.get("industry_name", ""),
+                stock_count=trend_data.get("stock_count", 0),
+                expected_stock_count=trend_data.get("expected_stock_count", 0),
+                total_market_cap=trend_data.get("total_market_cap", 0),
+                avg_pe=trend_data.get("avg_pe", 0),
+                industry_volatility=trend_data.get("industry_volatility", 0),
+                industry_volatility_source=trend_data.get("industry_volatility_source", "unavailable"),
+                period_days=trend_data.get("period_days", days),
+                period_change_pct=trend_data.get("period_change_pct", 0),
+                period_money_flow=trend_data.get("period_money_flow", 0),
+                top_gainers=trend_data.get("top_gainers", []),
+                top_losers=trend_data.get("top_losers", []),
+                rise_count=trend_data.get("rise_count", 0),
+                fall_count=trend_data.get("fall_count", 0),
+                flat_count=trend_data.get("flat_count", 0),
+                stock_coverage_ratio=trend_data.get("stock_coverage_ratio", 0),
+                change_coverage_ratio=trend_data.get("change_coverage_ratio", 0),
+                market_cap_coverage_ratio=trend_data.get("market_cap_coverage_ratio", 0),
+                pe_coverage_ratio=trend_data.get("pe_coverage_ratio", 0),
+                total_market_cap_fallback=trend_data.get("total_market_cap_fallback", False),
+                avg_pe_fallback=trend_data.get("avg_pe_fallback", False),
+                market_cap_source=trend_data.get("market_cap_source", "unknown"),
+                valuation_source=trend_data.get("valuation_source", "unavailable"),
+                valuation_quality=trend_data.get("valuation_quality", "unavailable"),
+                trend_series=trend_data.get("trend_series", []),
+                degraded=trend_data.get("degraded", False),
+                note=trend_data.get("note"),
+                update_time=trend_data.get("update_time", ""),
+            )
 
-        result = IndustryTrendResponse(
-            industry_name=trend_data.get("industry_name", ""),
-            stock_count=trend_data.get("stock_count", 0),
-            expected_stock_count=trend_data.get("expected_stock_count", 0),
-            total_market_cap=trend_data.get("total_market_cap", 0),
-            avg_pe=trend_data.get("avg_pe", 0),
-            industry_volatility=trend_data.get("industry_volatility", 0),
-            industry_volatility_source=trend_data.get("industry_volatility_source", "unavailable"),
-            period_days=trend_data.get("period_days", days),
-            period_change_pct=trend_data.get("period_change_pct", 0),
-            period_money_flow=trend_data.get("period_money_flow", 0),
-            top_gainers=trend_data.get("top_gainers", []),
-            top_losers=trend_data.get("top_losers", []),
-            rise_count=trend_data.get("rise_count", 0),
-            fall_count=trend_data.get("fall_count", 0),
-            flat_count=trend_data.get("flat_count", 0),
-            stock_coverage_ratio=trend_data.get("stock_coverage_ratio", 0),
-            change_coverage_ratio=trend_data.get("change_coverage_ratio", 0),
-            market_cap_coverage_ratio=trend_data.get("market_cap_coverage_ratio", 0),
-            pe_coverage_ratio=trend_data.get("pe_coverage_ratio", 0),
-            total_market_cap_fallback=trend_data.get("total_market_cap_fallback", False),
-            avg_pe_fallback=trend_data.get("avg_pe_fallback", False),
-            market_cap_source=trend_data.get("market_cap_source", "unknown"),
-            valuation_source=trend_data.get("valuation_source", "unavailable"),
-            valuation_quality=trend_data.get("valuation_quality", "unavailable"),
-            trend_series=trend_data.get("trend_series", []),
-            degraded=trend_data.get("degraded", False),
-            note=trend_data.get("note"),
-            update_time=trend_data.get("update_time", ""),
-        )
-
-        should_attempt_alignment = result.degraded or (
-            result.expected_stock_count > 0
-            and result.stock_count
-            > max(result.expected_stock_count * 2, result.expected_stock_count + 15)
+        should_attempt_alignment = (not skip_alignment) and (
+            result.degraded
+            or (
+                result.expected_stock_count > 0
+                and result.stock_count
+                > max(result.expected_stock_count * 2, result.expected_stock_count + 15)
+            )
         )
         if should_attempt_alignment:
             provider = getattr(analyzer, "provider", None) or _get_or_create_provider()
