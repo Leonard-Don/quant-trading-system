@@ -804,6 +804,30 @@ def test_generate_plan_includes_policy_signal_factor_off_by_default() -> None:
     assert summary.get("penalised") == []
 
 
+def test_generate_plan_attaches_order_pricing_to_actionable_suggestions() -> None:
+    plan = daily_etf_signal.generate_plan()
+    actionable = [
+        item for item in plan["suggestions"]
+        if item["action"] in {"buy", "sell"} and item["shares"] > 0
+    ]
+
+    assert actionable, "default ETF seed should produce at least one actionable trade"
+    for item in actionable:
+        pricing = item.get("pricing")
+        assert pricing is not None
+        assert pricing["action"] == item["action"]
+        assert pricing["recommended_level"] in {"aggressive", "neutral", "passive"}
+        assert pricing["recommended_price"] == pytest.approx(
+            pricing["limit_prices"][pricing["recommended_level"]]
+        )
+        assert sum(pricing["shares_per_batch"]) == item["shares"]
+        assert pricing["preferred_windows"]
+
+    for item in plan["suggestions"]:
+        if item["action"] == "hold":
+            assert item.get("pricing") is None
+
+
 def test_generate_plan_policy_signal_factor_can_be_force_enabled(monkeypatch) -> None:
     """``enable_policy_signal_factor=True`` overrides the config default."""
 
