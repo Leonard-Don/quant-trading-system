@@ -155,9 +155,19 @@ def _read_audit_log(path: Path) -> list[dict[str, Any]]:
         if not line:
             continue
         try:
-            rows.append(json.loads(line))
+            row = json.loads(line)
         except json.JSONDecodeError as exc:
             logger.warning("Skipping malformed audit line %d in %s: %s", line_no, path, exc)
+            continue
+        if not isinstance(row, Mapping):
+            logger.warning(
+                "Skipping non-object audit line %d in %s: decoded %s",
+                line_no,
+                path,
+                type(row).__name__,
+            )
+            continue
+        rows.append(dict(row))
     rows.sort(key=lambda r: str(r.get("run_at", "")))
     return rows
 
