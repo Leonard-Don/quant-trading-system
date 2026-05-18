@@ -178,6 +178,28 @@ def test_industry_trend_preserves_stale_cache_for_runtime_errors(monkeypatch):
     assert industry_endpoint.get_industry_trend("银行", days=30) == stale
 
 
+def test_industry_trend_degrades_when_no_stocks_are_found(monkeypatch):
+    _clear_rotation_endpoint_state()
+
+    class _NoStocksAnalyzer:
+        def get_industry_trend(self, industry_name, days=30):
+            return {"error": f"No stocks found for industry: {industry_name}"}
+
+    monkeypatch.setattr(
+        industry_endpoint,
+        "get_industry_analyzer",
+        lambda: _NoStocksAnalyzer(),
+    )
+
+    result = industry_endpoint.get_industry_trend("电子化学品", days=30)
+
+    assert result.industry_name == "电子化学品"
+    assert result.stock_count == 0
+    assert result.period_days == 30
+    assert result.degraded is True
+    assert "成分股" in (result.note or "")
+
+
 def test_industry_trend_does_not_mask_programmer_assertions(monkeypatch):
     _clear_rotation_endpoint_state()
 
