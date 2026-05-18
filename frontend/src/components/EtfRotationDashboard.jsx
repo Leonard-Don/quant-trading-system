@@ -702,6 +702,48 @@ const EtfRotationDashboard = () => {
     },
     { title: '股数', dataIndex: 'shares', key: 'shares', render: (value) => Number(value || 0).toLocaleString('zh-CN') },
     { title: '估算金额', dataIndex: 'estimated_amount', key: 'estimated_amount', render: formatCurrency },
+    {
+      title: '挂单价（推荐 / 三档）',
+      dataIndex: 'pricing',
+      key: 'pricing',
+      render: (pricing, row) => {
+        if (!pricing || row?.action === 'hold') {
+          return <Text type="secondary">—</Text>;
+        }
+        const fmt = (v) => Number.isFinite(Number(v)) ? `¥${Number(v).toFixed(3)}` : '—';
+        const recColor = row.action === 'sell' ? 'green' : 'red';
+        const levels = pricing.limit_prices || {};
+        return (
+          <Tooltip
+            title={
+              <Space direction="vertical" size={2}>
+                <div><strong>三档限价</strong>（最小单位 {fmt(pricing.tick_size)}）</div>
+                <div>积极：{fmt(levels.aggressive)} {row.action === 'sell' ? '（成交快，价低）' : '（成交快，价高）'}</div>
+                <div>中性：{fmt(levels.neutral)}（约市价）</div>
+                <div>保守：{fmt(levels.passive)} {row.action === 'sell' ? '（挂卖一上方等更好价格）' : '（挂买一下方等更好价格）'}</div>
+                <div style={{ marginTop: 4 }}><strong>分批：</strong>{pricing.batches} 笔 × {(pricing.shares_per_batch || []).map(n => Number(n).toLocaleString('zh-CN')).join(' / ')} 股</div>
+                <div><strong>建议时段：</strong></div>
+                {(pricing.preferred_windows || []).map((w, i) => <div key={i}>· {w}</div>)}
+              </Space>
+            }
+          >
+            <Space direction="vertical" size={1}>
+              <Tag color={recColor} data-testid={`etf-pricing-rec-${row.code}`}>
+                {pricing.recommended_level === 'aggressive' ? '积极' : pricing.recommended_level === 'passive' ? '保守' : '中性'} {fmt(pricing.recommended_price)}
+              </Tag>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {fmt(levels.aggressive)} / {fmt(levels.neutral)} / {fmt(levels.passive)}
+              </Text>
+              {pricing.batches > 1 ? (
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  分 {pricing.batches} 笔
+                </Text>
+              ) : null}
+            </Space>
+          </Tooltip>
+        );
+      },
+    },
     { title: '原因', dataIndex: 'reason', key: 'reason', render: formatTradeReason },
   ];
 

@@ -77,6 +77,21 @@
     "risk_volatility_multiplier": 35.0
   },
 
+  "order_pricing": {
+    "_comment": "Limit-order guidance shown in the dashboard and CLI JSON. These hints do not submit broker orders; they only suggest actionable buy/sell price levels and simple batching.",
+    "tick_size": 0.001,
+    "aggressive_ticks": 2,
+    "neutral_ticks": 1,
+    "passive_ticks": 1,
+    "default_recommendation": "neutral",
+    "batch_breakpoint_shares": 5000,
+    "batch_breakpoint_notional": 30000.0,
+    "preferred_windows": [
+      "10:00-11:00 (上午盘中段，流动性最好)",
+      "13:30-14:30 (下午盘中段，避开 14:55+ 收盘冲击)"
+    ]
+  },
+
   "refresh": {
     "_comment": "Background refresh cadence. Set enabled=true to opt in.",
     "enabled": false,

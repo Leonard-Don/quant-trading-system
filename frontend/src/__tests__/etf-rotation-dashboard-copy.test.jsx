@@ -90,7 +90,28 @@ const mixedLanguageFixture = {
     '510300': { current_price: 5.017, source: 'fake-live' },
   },
   suggestions: [
-    { code: '512400', name: '有色金属ETF南方', action: 'sell', shares: 1500, estimated_amount: 3313.5, current_weight: 0.324, target_weight: 0.22, reason: 'delta_-0.1040' },
+    {
+      code: '512400',
+      name: '有色金属ETF南方',
+      action: 'sell',
+      shares: 1500,
+      estimated_amount: 3313.5,
+      current_weight: 0.324,
+      target_weight: 0.22,
+      reason: 'delta_-0.1040',
+      pricing: {
+        action: 'sell',
+        reference_price: 2.209,
+        tick_size: 0.001,
+        limit_prices: { aggressive: 2.207, neutral: 2.208, passive: 2.210 },
+        recommended_level: 'neutral',
+        recommended_price: 2.208,
+        batches: 1,
+        shares_per_batch: [1500],
+        preferred_windows: ['10:00-11:00'],
+        notes: [],
+      },
+    },
     { code: '510300', name: '沪深300ETF华泰柏瑞', action: 'hold', shares: 0, estimated_amount: 0, current_weight: 0.219, target_weight: 0.28, reason: 'within_threshold' },
   ],
   risk_reasons: ['Cash floor target maintained', 'Manual-only ETF rotation signal'],
@@ -119,6 +140,7 @@ test('ETF轮动页面将接口里的英文提示和原因统一显示为中文',
   expect(pageText).toContain('手动调仓计划');
   expect(pageText).toContain('无需调仓');
   expect(pageText).toContain('目标偏离 -10.40%');
+  expect(screen.getByTestId('etf-pricing-rec-512400')).toHaveTextContent('中性 ¥2.208');
   expect(pageText).toContain('现金底线已保留');
   expect(pageText).toContain('手动 ETF 轮动信号');
   expect(pageText).toContain('历史行情回退');
@@ -132,6 +154,34 @@ test('ETF轮动页面将接口里的英文提示和原因统一显示为中文',
   expect(pageText).not.toContain('Manual-only ETF rotation signal');
   expect(pageText).not.toContain('historical_fallback:yahoo');
   expect(pageText).not.toContain('fake-live');
+});
+
+test('ETF轮动挂单提示使用接口返回的 tick_size', async () => {
+  const fixture = {
+    ...mixedLanguageFixture,
+    suggestions: mixedLanguageFixture.suggestions.map((item) => (
+      item.code === '512400'
+        ? {
+          ...item,
+          pricing: {
+            ...item.pricing,
+            tick_size: 0.01,
+            limit_prices: { aggressive: 2.19, neutral: 2.20, passive: 2.21 },
+            recommended_price: 2.20,
+          },
+        }
+        : item
+    )),
+  };
+  getEtfRotationLiveTarget.mockRejectedValue(Object.assign(new Error('Service Unavailable'), { response: { status: 503 } }));
+  getEtfRotationDailySignal.mockResolvedValue({ data: fixture });
+
+  render(<EtfRotationDashboard />);
+
+  const rec = await screen.findByTestId('etf-pricing-rec-512400');
+  expect(rec).toHaveTextContent('中性 ¥2.200');
+  await userEvent.hover(rec);
+  expect(await screen.findByText(/最小单位 ¥0\.010/)).toBeInTheDocument();
 });
 
 test('ETF轮动页面在 live-target 可用时显示实时刷新模式并渲染数据源健康度', async () => {
