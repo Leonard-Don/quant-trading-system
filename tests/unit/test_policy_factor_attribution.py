@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -131,7 +132,6 @@ def test_audit_reader_skips_malformed_and_non_object_rows(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Malformed and scalar/array JSONL rows should not poison attribution."""
-
     valid_row = _entry(
         "2026-05-10T02:00:00+00:00",
         enabled=True,
@@ -174,6 +174,174 @@ def test_audit_reader_skips_malformed_and_non_object_rows(
     warning_text = "\n".join(record.getMessage() for record in caplog.records)
     assert "Skipping malformed audit line" in warning_text
     assert "Skipping non-object audit line" in warning_text
+
+
+def test_non_finite_audit_numbers_do_not_poison_report(tmp_path: Path) -> None:
+    """NaN/Infinity audit weights are ignored instead of bubbling into totals."""
+    audit_path = tmp_path / "audit.jsonl"
+    _write_audit(audit_path, [
+        _entry(
+            "2026-05-10T02:00:00+00:00",
+            enabled=True,
+            adjusted_weights={"512400": float("nan"), "515030": 0.18},
+            policy_adjustments={
+                "512400": {
+                    "industry": "metals",
+                    "signal": "bullish",
+                    "multiplier": 1.10,
+                    "weight_before": 0.20,
+                    "weight_after": 0.22,
+                    "delta_weight": 0.02,
+                    "applied": True,
+                },
+                "515030": {
+                    "industry": "新能源汽车",
+                    "signal": "bearish",
+                    "multiplier": 0.90,
+                    "weight_before": 0.20,
+                    "weight_after": 0.18,
+                    "delta_weight": -0.02,
+                    "applied": True,
+                },
+            },
+        ),
+    ])
+    nav = _flat_prices(
+        ["512400", "515030"],
+        "2026-05-10",
+        "2026-05-16",
+        daily_returns={"512400": 0.01, "515030": -0.01},
+    )
+
+    report = compute_attribution(
+        audit_path, nav, period_days=30,
+        now=datetime(2026, 5, 16, tzinfo=timezone.utc),
+    )
+
+    assert report.n_factor_on_rebalances == 1
+    assert report.per_rebalance_attribution[0].applied_codes == ["515030"]
+    assert report.per_rebalance_attribution[0].per_code_contribution_pct.keys() == {"515030"}
+    for value in (
+        report.factor_on_return_pct,
+        report.factor_off_return_pct,
+        report.factor_contribution_pct,
+        report.per_rebalance_attribution[0].factor_on_return_pct,
+        report.per_rebalance_attribution[0].factor_off_return_pct,
+        report.per_rebalance_attribution[0].factor_contribution_pct,
+    ):
+        assert math.isfinite(value)
+
+
+def test_integer_price_matrix_keeps_valid_attribution(tmp_path: Path) -> None:
+    """Valid pandas/numpy numeric scalars from integer price matrices must work."""
+    audit_path = tmp_path / "audit.jsonl"
+    _write_audit(audit_path, [
+        _entry(
+            "2026-05-10T02:00:00+00:00",
+            enabled=True,
+            adjusted_weights={"512400": 0.22},
+            policy_adjustments={
+                "512400": {
+                    "industry": "metals",
+                    "signal": "bullish",
+                    "multiplier": 1.10,
+                    "weight_before": 0.20,
+                    "weight_after": 0.22,
+                    "delta_weight": 0.02,
+                    "applied": True,
+                },
+            },
+        ),
+    ])
+    nav = pd.DataFrame(
+        {"512400": [100, 110]},
+        index=pd.to_datetime(["2026-05-10", "2026-05-16"]),
+    )
+
+    report = compute_attribution(
+        audit_path, nav, period_days=30,
+        now=datetime(2026, 5, 16, tzinfo=timezone.utc),
+    )
+
+    assert report.factor_on_return_pct == pytest.approx(2.2)
+    assert report.factor_off_return_pct == pytest.approx(2.0)
+    assert report.factor_contribution_pct == pytest.approx(0.2)
+
+
+def test_non_finite_price_endpoints_do_not_poison_per_code_rows(tmp_path: Path) -> None:
+    """NaN/Infinity prices should not leak into per-code attribution values."""
+    audit_path = tmp_path / "audit.jsonl"
+    _write_audit(audit_path, [
+        _entry(
+            "2026-05-10T02:00:00+00:00",
+            enabled=True,
+            adjusted_weights={"512400": 0.22},
+            policy_adjustments={
+                "512400": {
+                    "industry": "metals",
+                    "signal": "bullish",
+                    "multiplier": 1.10,
+                    "weight_before": 0.20,
+                    "weight_after": 0.22,
+                    "delta_weight": 0.02,
+                    "applied": True,
+                },
+            },
+        ),
+    ])
+    nav = pd.DataFrame(
+        {"512400": [100.0, float("inf")]},
+        index=pd.to_datetime(["2026-05-10", "2026-05-16"]),
+    )
+
+    report = compute_attribution(
+        audit_path, nav, period_days=30,
+        now=datetime(2026, 5, 16, tzinfo=timezone.utc),
+    )
+
+    row = report.per_rebalance_attribution[0]
+    assert row.factor_on_return_pct == 0.0
+    assert row.factor_off_return_pct == 0.0
+    assert row.factor_contribution_pct == 0.0
+    assert row.per_code_contribution_pct["512400"] == 0.0
+
+
+def test_applied_code_missing_from_price_matrix_is_zeroed(tmp_path: Path) -> None:
+    """Missing price columns for applied codes should not crash attribution."""
+    audit_path = tmp_path / "audit.jsonl"
+    _write_audit(audit_path, [
+        _entry(
+            "2026-05-10T02:00:00+00:00",
+            enabled=True,
+            adjusted_weights={"512400": 0.22},
+            policy_adjustments={
+                "512400": {
+                    "industry": "metals",
+                    "signal": "bullish",
+                    "multiplier": 1.10,
+                    "weight_before": 0.20,
+                    "weight_after": 0.22,
+                    "delta_weight": 0.02,
+                    "applied": True,
+                },
+            },
+        ),
+    ])
+    nav = pd.DataFrame(
+        {"515030": [100.0, 101.0]},
+        index=pd.to_datetime(["2026-05-10", "2026-05-16"]),
+    )
+
+    report = compute_attribution(
+        audit_path, nav, period_days=30,
+        now=datetime(2026, 5, 16, tzinfo=timezone.utc),
+    )
+
+    row = report.per_rebalance_attribution[0]
+    assert row.factor_on_return_pct == 0.0
+    assert row.factor_off_return_pct == 0.0
+    assert row.factor_contribution_pct == 0.0
+    assert row.per_code_contribution_pct["512400"] == 0.0
 
 
 # ---------------------------------------------------------------------------

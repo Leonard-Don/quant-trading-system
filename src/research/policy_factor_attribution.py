@@ -58,9 +58,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
+from numbers import Real
 from pathlib import Path
 from typing import Any, Optional
 
@@ -123,6 +125,21 @@ class AttributionReport:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _finite_float(value: object, *, allow_numeric_strings: bool = False) -> Optional[float]:
+    """Return a finite float for attribution math, otherwise ``None``."""
+
+    if isinstance(value, bool):
+        return None
+    if not isinstance(value, Real):
+        if not allow_numeric_strings or not isinstance(value, str):
+            return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if math.isfinite(numeric) else None
 
 
 def _parse_iso(value: object) -> Optional[datetime]:
@@ -216,11 +233,15 @@ def _factor_on_weights(entry: Mapping[str, Any]) -> dict[str, float]:
     raw = entry.get("adjusted_weights") or entry.get("target_weights") or {}
     if not isinstance(raw, Mapping):
         return {}
-    return {
-        str(code): float(weight)
-        for code, weight in raw.items()
-        if isinstance(weight, (int, float)) and code != "CASH"
-    }
+    weights: dict[str, float] = {}
+    for code, weight in raw.items():
+        if code == "CASH":
+            continue
+        numeric = _finite_float(weight)
+        if numeric is None:
+            continue
+        weights[str(code)] = numeric
+    return weights
 
 
 def _factor_off_weights(entry: Mapping[str, Any]) -> tuple[dict[str, float], list[str]]:
@@ -259,13 +280,10 @@ def _factor_off_weights(entry: Mapping[str, Any]) -> tuple[dict[str, float], lis
             continue
         before_raw = adj.get("weight_before")
         after_raw = adj.get("weight_after")
-        if before_raw is None or after_raw is None:
-            continue
-        try:
-            before = float(before_raw)
-            after = float(after_raw)
-            final_on = float(weights[code_s])
-        except (TypeError, ValueError):
+        before = _finite_float(before_raw, allow_numeric_strings=True)
+        after = _finite_float(after_raw, allow_numeric_strings=True)
+        final_on = _finite_float(weights.get(code_s))
+        if before is None or after is None or final_on is None:
             continue
         if final_on < 0:
             continue
@@ -325,15 +343,15 @@ def _weighted_period_return(
     for code, weight in weights.items():
         if code not in prices.columns:
             continue
-        try:
-            p_start = float(start_row[code])
-            p_end = float(end_row[code])
-        except (TypeError, ValueError, KeyError):
+        p_start = _finite_float(start_row[code], allow_numeric_strings=True)
+        p_end = _finite_float(end_row[code], allow_numeric_strings=True)
+        weight_value = _finite_float(weight)
+        if p_start is None or p_end is None or weight_value is None:
             continue
         if not (p_start > 0 and p_end > 0):
             continue
         asset_return = p_end / p_start - 1.0
-        contrib = float(weight) * asset_return
+        contrib = weight_value * asset_return
         total += contrib
         per_code[code] = contrib
     return total, per_code
@@ -487,15 +505,20 @@ def compute_attribution(
         # contribution from the same ETF at its ``weight_before``.
         per_code_attr: dict[str, float] = {}
         for code in applied:
+            if code not in prices.columns:
+                per_code_attr[code] = 0.0
+                continue
             on_c = on_per_code.get(code, 0.0)
-            try:
-                start_p = float(prices.iloc[0][code])
-                end_p = float(prices.iloc[-1][code])
-                off_w = float(weights_off.get(code, 0.0))
-            except (KeyError, TypeError, ValueError):
-                off_w = 0.0
-                start_p = end_p = 0.0
-            if start_p > 0 and end_p > 0:
+            start_p = _finite_float(prices.iloc[0][code], allow_numeric_strings=True)
+            end_p = _finite_float(prices.iloc[-1][code], allow_numeric_strings=True)
+            off_w = _finite_float(weights_off.get(code, 0.0))
+            if (
+                start_p is not None
+                and end_p is not None
+                and off_w is not None
+                and start_p > 0
+                and end_p > 0
+            ):
                 off_c = off_w * (end_p / start_p - 1.0)
             else:
                 off_c = 0.0
