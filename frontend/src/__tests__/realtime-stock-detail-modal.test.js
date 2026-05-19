@@ -218,6 +218,9 @@ describe('RealtimeStockDetailModal', () => {
     );
 
     expect(screen.getByText('盘中走势')).toBeInTheDocument();
+    expect(screen.getByText('最近 3 根 1H K 线 · 收盘价')).toBeInTheDocument();
+    expect(screen.getByText('区间 181.40 - 184.20')).toBeInTheDocument();
+    expect(screen.getByText('较起点 +1.54%')).toBeInTheDocument();
     expect(screen.getByLabelText('AAPL 盘中走势线')).toBeInTheDocument();
   });
 
