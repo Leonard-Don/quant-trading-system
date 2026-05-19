@@ -4,6 +4,84 @@
 
 ### Features
 
+- feat(backtest): formal statistical tests (DM + block bootstrap + Sharpe ratio)
+  - 新增 `src/backtest/strategy_statistical_tests.py`：三个互补的形式化假设检验。
+    `diebold_mariano_test(returns_a, returns_b, *, loss_fn="negative_return"|"squared_error"|"absolute_error"|"sharpe", h=1)`
+    实现 Diebold-Mariano (1995) 的 DM 统计量 + Newey-West HAC 方差（Bartlett kernel,
+    截断滞后 L = h-1），asymptotic 标准正态（n<30 退化到 t-distribution），返回
+    `DMResult{dm_statistic, p_value, p_value_one_sided, mean_loss_differential,
+    hac_variance, n_obs, loss_fn, h, note}`。`politis_romano_block_bootstrap(
+    returns_a, returns_b, *, block_size=10, n_bootstrap=1000, ci_level=0.95, seed=42)`
+    实现 Politis-Romano (1994) circular block bootstrap，保留短期自相关；
+    返回 `BlockBootstrapResult{mean_diff, ci_low, ci_high, ci_level,
+    p_value_two_sided, p_value_one_sided, block_size, n_bootstrap, n_obs}`。
+    `sharpe_ratio_test(returns_a, returns_b, *, method="memmel"|"jobson_korkie")`
+    实现 Memmel (2003) 闭式 Sharpe 差检验（修正 Jobson-Korkie 1981 的方差公式），
+    asymptotic z-test，返回 `SharpeTestResult{sharpe_a, sharpe_b,
+    sharpe_difference, z_statistic, p_value, variance_estimate, method, n_obs}`。
+    多重比较修正 `bonferroni_correct(p_values, *, alpha=0.05)` 和 `holm_correct(...)`
+    返回 `MultipleTestingCorrection` dataclass，含每对的拒绝 flag + adjusted α，
+    所有 result dataclass 都有 `to_dict()` 方法 JSON-friendly。
+  - `StrategyComparator` 新增 `compute_statistical_tests=False` / `statistical_alpha=0.05`
+    / `statistical_block_size=10` / `statistical_n_bootstrap=1000` /
+    `statistical_include_buy_hold=True` 参数；启用时计算所有 unordered pairs 的 DM +
+    block bootstrap + Sharpe 测试，可选加入 buy-and-hold 合成 returns 形成 4-策略 ×
+    6 unordered pairs grid。`ComparisonReport` 新增 `statistical_tests: Optional[
+    StatisticalTestsReport]` 字段（默认 None 保留 v0.1 schema 兼容）。Markdown 渲染
+    多三个表格（DM/Sharpe/Bootstrap CI）+ Bonferroni/Holm 拒绝表 + 三句方法说明 note。
+  - CLI `scripts/compare_strategies.py` 新增 `--with-statistical-tests` /
+    `--statistical-alpha` / `--statistical-block-size` / `--statistical-n-bootstrap` /
+    `--statistical-no-buy-hold` 标志组；新增 stand-alone CLI
+    `scripts/strategy_significance_test.py` 直接打印 pairwise grid 终端表格 +
+    `--output-json` JSON 落盘。
+  - 单元测试：`tests/unit/test_strategy_statistical_tests.py` 24 条新 case 覆盖：
+    DM identical series → p≈1（degenerate-zero-variance fallback path）/ DM 合成
+    clear winner → p<0.05 / DM unknown loss_fn raises / DM 空输入 → neutral result /
+    DM NaN drop pairwise / HAC bandwidth 改 h 改方差 / 4 种 loss_fn 全部接受 /
+    Block bootstrap identical → CI brackets 0 / clear winner → CI clear of 0 /
+    deterministic with seed / 输入校验（block_size/n_bootstrap/ci_level）/
+    Sharpe identical → p≈1 / Sharpe clear winner → p<0.05 / Sharpe 两个 method
+    都接受 / unknown method raises / zero-variance series → graceful 0 returned /
+    Bonferroni 阈值 = α/k / Holm ≥ Bonferroni rejection count / Holm cascade 行为 /
+    空 p_values list → 空 correction / `results_to_dataframe` round-trips 含 labels。
+  - **真实数据回放（2024-01-02 → 2025-04-30，5-asset universe，每周 rebalance，
+    blend regime=sideways，n=63 rebalance periods per strategy）**：
+    - DM test p-values（6 unordered pairs，loss_fn=negative_return）：
+      `rotation_vs_mean_reversion` 0.588 / `rotation_vs_blend` 0.592 /
+      `rotation_vs_buy_hold` 0.387 / `mean_reversion_vs_blend` 0.583 /
+      `mean_reversion_vs_buy_hold` 0.345 / `blend_vs_buy_hold` 0.387
+    - Sharpe difference p-values：0.909 / 0.727 / 0.844 / 0.988 / 0.933 / 0.930
+    - Block bootstrap 2-sided p-values：0.543 / 0.548 / 0.427 / 0.536 / 0.379 /
+      0.392
+    - Block bootstrap 95% CI on (A-B) per-period return differential 全部跨 0：
+      最窄的是 `mean_reversion_vs_blend` [-0.0013, +0.0007]，最宽的是
+      `mean_reversion_vs_buy_hold` [-0.0097, +0.0025]。
+  - **诚实结论**：6 pairs × 3 tests = 18 个 p-value 中，**最小 p = 0.345，**
+    **没有任何配对在 α=0.05 或 α=0.10 下显著**，Bonferroni（α/6=0.0083）+
+    Holm-Bonferroni 也不会让任何对突围（拒绝集合和 raw α=0.05 完全一致：空集）。
+    这与 commit `231c709` 的 parameter-optimizer bootstrap 结论一致：rotation 家族
+    top-N config 的 Sharpe CI 都跨 0；现在我们把这个结论扩展到 family-level：
+    **rotation 家族 strategies 之间的 spread + 它们与 buy-hold 的 16-19 pp 差距，
+    在 2024-01-01 → 2025-04-30 这个窗口上，都是统计学上无法与噪声区分的**。
+  - **Implication for paper / production**: 任何引用 "blend wins by Sharpe" /
+    "rotation wins by total return" / "all three lose to buy-hold" 这些 spreads
+    作为统计 edge 的论述都是 overclaim。论文应当至少 footnote 一句 "differences
+    not significant at α=0.05 (p>0.34 across all pairwise tests)"。要把这些
+    spreads 推到 5% level 显著，窗口大约需要 5× 当前长度（~6 年 weekly cadence）
+    或换更细的 rebalance cadence。Production 不应基于一个窗口的 spread 切策略。
+    `docs/sample_strategy_comparison.md` 已经更新了一节「统计显著性检验
+    (formal hypothesis tests, 2026-Q2 refresh)」记载所有 p-value + CI + 多重比较
+    结论。
+  - 显式 **不包含** 内容：自助标准化的 White (2000) Reality Check / Hansen (2005)
+    SPC（要等多个 horizon 一起测时再加）；Harvey-Liu-Zhu (2016) 的 multiple-
+    testing-adjusted Sharpe（与 Bonferroni 等价但更激进）；t-Stat haircut formulas；
+    Ledoit-Wolf 的 Sharpe 差检验（Memmel 已经够，未加 ledoit_wolf 实现）；GMM-based
+    SR test（小样本下 Memmel 更稳）。
+  - 关联 commit：`a54b986` (multi-strategy comparison) + `231c709` (parameter-
+    optimizer bootstrap CIs) — 本次工作把那两次的 "看起来差异不大 / CIs span 0"
+    的 hand-waving 升级成形式化 p-value，让任何后续 strategy claim 都有
+    statistically defensible 的基础。
+
 - feat(backtest): strategy parameter optimizer with sensitivity analysis
   - 新增 `src/backtest/parameter_optimizer.py`：`ParameterOptimizer` 类把任意 `EtfRotationConfig` 字段（含 ``scoring.*`` 等 dotted 嵌套字段）的笛卡尔积喂给现有 `EtfRotationBacktester` 引擎，返回 `OptimizationReport`（``configurations`` / ``per_config_metrics`` / ``optimal_by_metric`` / ``top_n_by_metric`` / ``parameter_sensitivity`` / ``confidence_intervals`` / ``walkforward_results`` / ``caveats``）。Sharpe / 总收益 / 年化 / MaxDD / Calmar / 换手 / 胜率七项 metric 各自的最优 config + 按所选 metric 排序的 top-N + 每个 swept 参数按 value 分组的 Sharpe std/range（敏感度排序）+ top-N 的 Sharpe bootstrap 95% CI（200 次重采样、deterministic seed）+ 可选 per-config walkforward 稳定性再测。Grid 大小硬上限 ``MAX_GRID_SIZE=200`` 防止误触发多小时任务。
   - 新增 CLI `scripts/optimize_strategy.py`：``--strategy rotation|mean_reversion|blend`` / ``--grid-json <file>`` / ``--metric sharpe|return|calmar|max_dd|turnover|win_rate`` / ``--top-n 10`` / ``--with-walkforward`` / ``--enable-tc`` / ``--output-md`` / ``--output-json`` 等开关；体系上沿用 ``walkforward_etf_rotation_strategy.py`` 的 universe 解析模式（``daily_etf_signal.load_default_holdings`` + ``build_strategy_config``）保证 CLI / backend / 单元测试三条路径用同一份 base config。

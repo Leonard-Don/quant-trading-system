@@ -171,6 +171,74 @@ trying to apply this to a real account.
 | `blend` vs `rotation` | -1.57 | +0.002 | -2.56 |
 | `blend` vs `mean_reversion` | +1.67 | +0.056 | +0.51 |
 
+## 统计显著性检验 (formal hypothesis tests, 2026-Q2 refresh)
+
+Computed via `scripts/strategy_significance_test.py` on the same window
+(`2024-01-02 → 2025-04-30`, weekly cadence, blend regime=sideways).
+Tests use per-rebalance return series (n=63 per strategy). Three
+orthogonal tests:
+
+1. **Diebold-Mariano (1995)** — `loss_fn=negative_return`, `h=1`,
+   Newey-West HAC variance. Tests H0: E[r_a - r_b] = 0.
+2. **Memmel (2003) closed-form Sharpe-difference test** — asymptotic
+   z-statistic on Sharpe_a - Sharpe_b.
+3. **Politis-Romano (1994) circular block bootstrap** — block_size=5,
+   n_bootstrap=1000. Non-parametric 95% CI on the return differential
+   and 2-sided p-value.
+
+### Pairwise p-values (raw, no correction)
+
+| 配对 | DM stat | DM p | Sharpe Δ | Sharpe p | Block-BS p | 95% CI on (A-B) |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `rotation_vs_mean_reversion` | -0.542 | 0.5880 | -0.0099 | 0.9089 | 0.5430 | [-0.0014, +0.0025] |
+| `rotation_vs_blend` | -0.535 | 0.5925 | -0.0108 | 0.7272 | 0.5480 | [-0.0007, +0.0013] |
+| `rotation_vs_buy_hold` | +0.865 | 0.3868 | -0.0190 | 0.8437 | 0.4270 | [-0.0086, +0.0026] |
+| `mean_reversion_vs_blend` | +0.548 | 0.5834 | -0.0009 | 0.9881 | 0.5360 | [-0.0013, +0.0007] |
+| `mean_reversion_vs_buy_hold` | +0.943 | 0.3455 | -0.0091 | 0.9334 | 0.3790 | [-0.0097, +0.0025] |
+| `blend_vs_buy_hold` | +0.921 | 0.3572 | -0.0083 | 0.9304 | 0.3920 | [-0.0091, +0.0024] |
+
+### Headline finding
+
+**No pairwise difference is significant at α=0.05.** The smallest raw
+p-value across all 18 tests (6 pairs × 3 tests) is **0.3455** —
+nowhere near significance. The smallest Sharpe-difference p-value is
+**0.7272**. Even at the more permissive **α=0.10**, no pair survives
+on any test.
+
+Multiple-testing correction is moot here: Bonferroni at α/6 = 0.0083
+and Holm-Bonferroni both reject the same zero pairs as the
+uncorrected α=0.05 test.
+
+### Every 95% CI brackets zero
+
+Inspecting the block-bootstrap CIs is more informative than the
+p-values: **every CI includes zero**, including the strategy-vs-
+buy-hold pairs where the headline return spread is -16 to -19 pp.
+The bootstrap distribution is too wide (per-rebalance returns are
+small + noisy) for any 16 pp annualized spread to be distinguishable
+from chance at n=63 periods.
+
+### Implication
+
+The headline "blend wins by Sharpe", "rotation wins by total return",
+"all three trail buy-hold" rankings reported above are **statistically
+indistinguishable from noise** on this window. Any paper or production
+decision that relies on these spreads as a *significant* edge is
+overstating the evidence.
+
+This is consistent with the parameter-optimizer bootstrap finding
+(commit `231c709`): top-N rotation parameter configs' Sharpe CIs all
+span zero, so the parameter choice doesn't change the conclusion that
+the rotation family doesn't have a statistically detectable edge over
+its peers (or over passive) on the 2024-01 → 2025-04 window.
+
+To detect a +3 pp annual edge with α=0.05 power 0.80 at the observed
+per-rebalance volatility, the window needs roughly 5x more rebalance
+periods (~6 years weekly). Either lengthen the window, increase the
+rebalance cadence, or accept that the family-level ranking is a
+description of *one historical sample*, not a statistically supported
+forecast.
+
 ## Caveats
 
 - transaction_costs_modeled(commission_bps=3.00,spread_bps=5.00,impact_bps_per_pct_adv=0.50,min_commission_rmb=5.00,min_trade_size_rmb=100.00)

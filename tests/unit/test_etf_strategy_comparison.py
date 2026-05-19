@@ -456,3 +456,96 @@ def test_mean_reversion_and_blend_run_against_real_universe() -> None:
         # guards against the "evaluator returned no usable signals"
         # regression case.
         assert rep.n_rebalances > 0
+
+
+def test_statistical_tests_section_emitted_when_opted_in() -> None:
+    """compute_statistical_tests=True populates the statistical_tests block."""
+
+    config = EtfRotationConfig(
+        assets=[
+            EtfAssetConfig(symbol=s, max_weight=0.30)
+            for s in ("A", "B", "C", "D", "E")
+        ],
+        gross_cap=0.90,
+        warmup_days=60,
+    )
+    dates = pd.date_range("2024-01-01", periods=300, freq="B")
+    rng = np.random.default_rng(seed=101)
+    cols: dict[str, np.ndarray] = {}
+    for offset, sym in enumerate(("A", "B", "C", "D", "E")):
+        drift = np.linspace(0.0, 0.20 * (1 + offset * 0.3), 300)
+        noise = rng.normal(0.0, 0.005, 300)
+        cols[sym] = 100.0 * np.exp(drift + np.cumsum(noise))
+    prices = pd.DataFrame(cols, index=dates)
+    specs = list(build_default_strategy_specs(config).values())
+
+    report = StrategyComparator(
+        specs,
+        prices,
+        compute_statistical_tests=True,
+        statistical_alpha=0.05,
+        statistical_block_size=5,
+        statistical_n_bootstrap=200,
+        statistical_include_buy_hold=True,
+    ).run()
+
+    assert report.statistical_tests is not None
+    tests = report.statistical_tests
+    # 3 rotation/MR/blend + buy_hold = 4 strategies → C(4,2)=6 unordered pairs.
+    assert len(tests.pair_labels) == 6
+    assert len(tests.dm_results) == 6
+    assert len(tests.sharpe_results) == 6
+    assert len(tests.block_bootstrap_results) == 6
+    assert tests.alpha == pytest.approx(0.05)
+    # The Bonferroni / Holm tables span the same set of pairs.
+    assert len(tests.bonferroni_dm.rejected) == 6
+    assert len(tests.holm_sharpe.rejected) == 6
+
+
+def test_statistical_tests_section_omitted_by_default() -> None:
+    """Without the opt-in flag the v0.1 report shape is preserved."""
+
+    config = _make_config()
+    prices = _trend_market()
+    specs = list(build_default_strategy_specs(config).values())
+    report = StrategyComparator(specs, prices).run()
+    assert report.statistical_tests is None
+    # Existing markdown renderer is unchanged.
+    rendered = render_comparison_markdown(report)
+    assert "统计显著性检验" not in rendered
+
+
+def test_statistical_tests_serialises_via_to_dict() -> None:
+    """The new section round-trips through ``ComparisonReport.to_dict``."""
+
+    config = EtfRotationConfig(
+        assets=[
+            EtfAssetConfig(symbol=s, max_weight=0.30)
+            for s in ("A", "B", "C", "D", "E")
+        ],
+        gross_cap=0.90,
+        warmup_days=60,
+    )
+    dates = pd.date_range("2024-01-01", periods=300, freq="B")
+    rng = np.random.default_rng(seed=202)
+    cols: dict[str, np.ndarray] = {}
+    for offset, sym in enumerate(("A", "B", "C", "D", "E")):
+        drift = np.linspace(0.0, 0.10 * (1 + offset * 0.3), 300)
+        noise = rng.normal(0.0, 0.005, 300)
+        cols[sym] = 100.0 * np.exp(drift + np.cumsum(noise))
+    prices = pd.DataFrame(cols, index=dates)
+    specs = list(build_default_strategy_specs(config).values())
+
+    report = StrategyComparator(
+        specs,
+        prices,
+        compute_statistical_tests=True,
+        statistical_n_bootstrap=100,
+        statistical_block_size=4,
+    ).run()
+
+    payload = report.to_dict()
+    assert "statistical_tests" in payload
+    assert payload["statistical_tests"] is not None
+    # JSON-strict — no NaN / Inf leakage.
+    json.dumps(payload)

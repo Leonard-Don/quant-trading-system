@@ -54,3 +54,47 @@
 - 单资产回测默认使用 `execution_lag = 1`，即策略在第 N 根 bar 生成的信号最早在第 N+1 根 bar 执行。
 - `execution_diagnostics.execution_lag` 必须回传真实执行延迟。
 - 仅在复现实验或兼容旧结果时将 `execution_lag` 显式设为 `0`。
+
+## Formal statistical tests: when to use which
+
+`src/backtest/strategy_statistical_tests.py` ships three orthogonal
+hypothesis tests. They answer **different** questions; pick by the claim
+you need to defend, not by significance shopping:
+
+- **Diebold-Mariano** (`diebold_mariano_test`) — use when the claim is
+  "strategy A has a *different expected return* (or any other loss
+  metric) than strategy B". Newey-West HAC handles the autocorrelation
+  in trading P&L. Default `loss_fn="negative_return"` for return
+  comparisons; `loss_fn="squared_error"` if the claim is about
+  *volatility* about zero (rare); `loss_fn="sharpe"` for a pooled-
+  variance Sharpe-contribution version. Asymptotic — needs `n >= 30`
+  for clean inference; small samples fall back to a t-distribution.
+- **Memmel Sharpe-ratio test** (`sharpe_ratio_test`) — use when the
+  claim is specifically about *Sharpe ratios* (e.g. "blend wins on
+  risk-adjusted return"). Closed-form, asymptotic z-test on
+  `Sharpe_a - Sharpe_b`. Cheaper than bootstrap; appropriate for
+  pairwise grids of dozens of strategies. Less flexible than DM
+  (Sharpe-only), more direct than computing Sharpe inside a bootstrap.
+- **Politis-Romano block bootstrap** (`politis_romano_block_bootstrap`)
+  — use when (a) the sample is small (`n < 50`), (b) the loss
+  distribution is heavy-tailed or otherwise non-normal, or (c) you want
+  a *confidence interval* on the return differential, not just a
+  p-value. Block size `~ n^(1/3)` is the standard rule of thumb. Costs
+  `O(n * n_bootstrap)` so reserve for headline pairs; DM / Memmel scale
+  to wide grids for free.
+
+**Multiple-testing**: any pairwise comparator that tests `k` pairs
+inflates the family-wise error rate by ~`k`x. `bonferroni_correct(...)`
+is conservative (every p-value compares to `α/k`); `holm_correct(...)`
+is uniformly more powerful (sorted step-down). Use Holm by default;
+prefer Bonferroni when the rejections need to be defensible to a
+hostile reviewer.
+
+When in doubt, **run all three** — they answer the same null from
+different angles. If the conclusions agree (e.g. all three reject, or
+all three fail to reject), the claim is robust; if they disagree (e.g.
+DM rejects but Memmel doesn't), inspect the loss function, sample size,
+and autocorrelation regime before going to print.
+
+See `docs/sample_strategy_comparison.md` for a worked example on real
+ETF data (the 2026-Q2 refresh).
