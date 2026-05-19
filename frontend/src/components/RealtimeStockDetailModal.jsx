@@ -8,7 +8,7 @@ import {
 } from '@ant-design/icons';
 import MarketAnalysis from './MarketAnalysis';
 import { STOCK_DATABASE } from '../constants/stocks';
-import { getKlines } from '../services/api';
+import { getKlines, getRealtimeOrderbook } from '../services/api';
 import { evaluateAlertHitFollowThrough } from '../utils/realtimeSignals';
 import { getCategoryLabel as getCategoryLabelForType, inferSymbolCategory } from '../utils/realtimeFormatters';
 
@@ -102,6 +102,60 @@ const formatSpread = (bid, ask) => {
     }
 
     return Number(Number(ask) - Number(bid)).toFixed(2);
+};
+
+const normalizeOrderBookNumber = (value) => (
+    hasTradableOrderBookValue(value) ? Number(value) : null
+);
+
+const extractOrderBookProbe = (payload = null) => {
+    const data = payload?.data || payload || {};
+    const metrics = data.metrics || {};
+    const bestBid = normalizeOrderBookNumber(metrics.best_bid ?? data.bids?.[0]?.price);
+    const bestAsk = normalizeOrderBookNumber(metrics.best_ask ?? data.asks?.[0]?.price);
+
+    if (bestBid === null && bestAsk === null) {
+        return null;
+    }
+
+    return {
+        bid: bestBid,
+        ask: bestAsk,
+        source: data.source || metrics.source || 'orderbook_probe',
+        mode: data.mode || null,
+        isSynthetic: Boolean(data.is_synthetic ?? data.diagnostics?.is_synthetic),
+    };
+};
+
+const buildEffectiveOrderBook = (quote = null, probe = null, status = 'idle') => {
+    const quoteBid = normalizeOrderBookNumber(quote?.bid);
+    const quoteAsk = normalizeOrderBookNumber(quote?.ask);
+    const probeBid = normalizeOrderBookNumber(probe?.bid);
+    const probeAsk = normalizeOrderBookNumber(probe?.ask);
+    const bid = quoteBid ?? probeBid;
+    const ask = quoteAsk ?? probeAsk;
+    const hasQuoteSide = quoteBid !== null || quoteAsk !== null;
+    const hasProbeSide = !hasQuoteSide && (probeBid !== null || probeAsk !== null);
+
+    let subtle = '盘口最优报价';
+    if (hasProbeSide) {
+        const sourceLabel = probe?.source ? ` · ${probe.source}` : '';
+        subtle = probe?.isSynthetic
+            ? `盘口代理估算${sourceLabel}`
+            : `盘口探测补全${sourceLabel}`;
+    } else if (status === 'loading') {
+        subtle = '盘口探测中';
+    } else if (!hasQuoteSide) {
+        subtle = '当前数据源未返回 bid/ask';
+    }
+
+    return {
+        bid,
+        ask,
+        subtle,
+        source: hasProbeSide ? probe?.source : quote?.source,
+        isProbe: hasProbeSide,
+    };
 };
 
 const formatTimelineTime = (value) => {
@@ -618,10 +672,26 @@ const RealtimeStockDetailModal = ({
         : isPositive
             ? 'var(--accent-success)'
             : 'var(--accent-danger)';
-    const spreadValue = formatSpread(quote?.bid, quote?.ask);
-    const rangePercent = formatRangePercent(quote?.low, quote?.high, quote?.previous_close);
     const [selectedCompareSymbols, setSelectedCompareSymbols] = useState([]);
     const [intradayTrendSeries, setIntradayTrendSeries] = useState(EMPTY_LIST);
+    const [orderBookProbe, setOrderBookProbe] = useState(null);
+    const [orderBookProbeStatus, setOrderBookProbeStatus] = useState('idle');
+    const hasQuoteForOrderBook = Boolean(quote);
+    const effectiveOrderBook = useMemo(
+        () => buildEffectiveOrderBook(quote, orderBookProbe, orderBookProbeStatus),
+        [orderBookProbe, orderBookProbeStatus, quote]
+    );
+    const quoteWithOrderBook = useMemo(
+        () => (quote ? {
+            ...quote,
+            bid: effectiveOrderBook.bid ?? quote.bid,
+            ask: effectiveOrderBook.ask ?? quote.ask,
+        } : quote),
+        [effectiveOrderBook.ask, effectiveOrderBook.bid, quote]
+    );
+    const spreadValue = formatSpread(effectiveOrderBook.bid, effectiveOrderBook.ask);
+    const orderBookPairValue = `${formatOrderBookValue(effectiveOrderBook.bid)} / ${formatOrderBookValue(effectiveOrderBook.ask)}`;
+    const rangePercent = formatRangePercent(quote?.low, quote?.high, quote?.previous_close);
     const snapshotTrendSeries = useMemo(() => buildSnapshotTrendSeries(quote), [quote]);
     const trendUsesIntraday = intradayTrendSeries.length >= 2;
     const activeTrendSeries = trendUsesIntraday ? intradayTrendSeries : snapshotTrendSeries;
@@ -670,6 +740,47 @@ const RealtimeStockDetailModal = ({
     }, [displaySymbol, open]);
 
     useEffect(() => {
+        if (!open || !hasQuoteForOrderBook || !displaySymbol || displaySymbol === '--') {
+            setOrderBookProbe(null);
+            setOrderBookProbeStatus('idle');
+            return undefined;
+        }
+
+        const quoteHasBothSides = hasTradableOrderBookValue(quote.bid) && hasTradableOrderBookValue(quote.ask);
+        if (quoteHasBothSides) {
+            setOrderBookProbe(null);
+            setOrderBookProbeStatus('idle');
+            return undefined;
+        }
+
+        let cancelled = false;
+        setOrderBookProbeStatus('loading');
+        setOrderBookProbe(null);
+
+        const loadOrderBookProbe = async () => {
+            try {
+                const response = await getRealtimeOrderbook(displaySymbol, 1);
+                if (cancelled) {
+                    return;
+                }
+                setOrderBookProbe(extractOrderBookProbe(response));
+                setOrderBookProbeStatus('ready');
+            } catch (error) {
+                if (!cancelled) {
+                    setOrderBookProbe(null);
+                    setOrderBookProbeStatus('error');
+                }
+            }
+        };
+
+        loadOrderBookProbe();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [displaySymbol, hasQuoteForOrderBook, open, quote?.ask, quote?.bid, quote?.source]);
+
+    useEffect(() => {
         if (!open) {
             return;
         }
@@ -684,7 +795,7 @@ const RealtimeStockDetailModal = ({
         setSelectedCompareSymbols((prev) => (isSameSymbolList(prev, nextTargets) ? prev : nextTargets));
     }, [compareTargetSymbols, displaySymbol, open]);
 
-    const signalSummary = useMemo(() => buildSignalSummary(quote, eventTimeline), [eventTimeline, quote]);
+    const signalSummary = useMemo(() => buildSignalSummary(quoteWithOrderBook, eventTimeline), [eventTimeline, quoteWithOrderBook]);
     const quickTradeDraft = useMemo(() => buildQuickTradeDraft(displaySymbol, quote, signalSummary), [displaySymbol, quote, signalSummary]);
     const compareCards = useMemo(
         () => buildCompareCards(displaySymbol, quote, safeCompareCandidates, effectiveSelectedCompareSymbols, safeCompareTimelineMap),
@@ -926,7 +1037,7 @@ const RealtimeStockDetailModal = ({
                                 {renderMetricCard('成交量', formatVolume(quote.volume), '实时累计成交量', '#d3adf7')}
                             </Col>
                             <Col xs={24} sm={12} lg={6}>
-                                {renderMetricCard('买一 / 卖一', `${formatOrderBookValue(quote.bid)} / ${formatOrderBookValue(quote.ask)}`, '盘口最优报价', '#ffe58f')}
+                                {renderMetricCard('买一 / 卖一', orderBookPairValue, effectiveOrderBook.subtle, '#ffe58f')}
                             </Col>
                             <Col xs={24} sm={12} lg={6}>
                                 {renderMetricCard('买卖点差', spreadValue, '买一和卖一的差值', '#87e8de')}

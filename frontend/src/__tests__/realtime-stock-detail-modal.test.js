@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 import RealtimeStockDetailModal from '../components/RealtimeStockDetailModal';
+import { getRealtimeOrderbook } from '../services/api';
 
 const mockMarketAnalysisMountSpy = jest.fn();
 const mockMarketAnalysisUnmountSpy = jest.fn();
@@ -35,6 +36,13 @@ vi.mock('../services/api', () => ({
       { date: '2026-03-27T10:30:00.000Z', close: 182.1 },
       { date: '2026-03-27T11:30:00.000Z', close: 184.2 },
     ],
+  })),
+  getRealtimeOrderbook: jest.fn(() => Promise.resolve({
+    data: {
+      bids: [],
+      asks: [],
+      metrics: {},
+    },
   })),
 }));
 
@@ -196,6 +204,41 @@ describe('RealtimeStockDetailModal', () => {
 
     expect(screen.getAllByText('-- / --').length).toBeGreaterThan(0);
     expect(screen.getByText('点差 --')).toBeInTheDocument();
+  });
+
+  test('fills missing order book fields from the orderbook probe when available', async () => {
+    getRealtimeOrderbook.mockResolvedValueOnce({
+      data: {
+        source: 'us_stock',
+        mode: 'provider_quote_proxy',
+        is_synthetic: true,
+        metrics: {
+          best_bid: 294.02,
+          best_ask: 301.9,
+        },
+      },
+    });
+
+    await renderRealtimeDetailModal(
+      <RealtimeStockDetailModal
+        open
+        symbol="AAPL"
+        quote={{
+          symbol: 'AAPL',
+          price: 297.84,
+          change: -2.39,
+          change_percent: -0.8,
+          bid: null,
+          ask: null,
+        }}
+        onCancel={jest.fn()}
+      />
+    );
+
+    expect(getRealtimeOrderbook).toHaveBeenCalledWith('AAPL', 1);
+    expect(await screen.findByText('294.02 / 301.90')).toBeInTheDocument();
+    expect(screen.getByText('盘口代理估算 · us_stock')).toBeInTheDocument();
+    expect(screen.getByText('点差 7.88')).toBeInTheDocument();
   });
 
   test('renders an intraday klines trend in the quote header section', async () => {
