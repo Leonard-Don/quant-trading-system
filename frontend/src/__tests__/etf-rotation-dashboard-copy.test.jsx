@@ -301,6 +301,53 @@ test('政策因子开关默认显示为关闭，Δ 面板不渲染', async () =>
   expect(screen.getByTestId('etf-policy-factor-state-tag')).toHaveTextContent('已关闭');
 });
 
+test('manual_override 失效线被破时在价格表里显示 override已破 红色徽标', async () => {
+  const planWithInvalidatedOverride = {
+    ...mixedLanguageFixture,
+    manual_override_status: {
+      '512400': {
+        invalidation_price: 1.975,
+        thesis: '底部+石油抽走流动性',
+        set_at: '2026-05-18',
+        current_price: 1.96,
+        invalidated: true,
+        note: '2026-05-19 早盘 1.96 已破',
+      },
+      '510300': {
+        // Override exists but holding the line — should show "override" (gold) not "override已破".
+        invalidation_price: 4.50,
+        thesis: '长期持有',
+        current_price: 5.017,
+        invalidated: false,
+      },
+    },
+  };
+
+  getEtfRotationLiveTarget.mockResolvedValue({
+    data: {
+      plan: planWithInvalidatedOverride,
+      refreshed_at: '2026-05-19T02:00:00+00:00',
+      quote_source: 'live',
+      debounced: false,
+    },
+    refresh: { is_trading_hours: false },
+  });
+
+  render(<EtfRotationDashboard />);
+
+  // The invalidated badge for 512400 must render.
+  await waitFor(() => {
+    expect(screen.getByTestId('etf-override-invalidated-512400')).toBeInTheDocument();
+  });
+  expect(screen.getByTestId('etf-override-invalidated-512400')).toHaveTextContent('override已破');
+
+  // The still-valid override for 510300 renders the lighter "override" pill,
+  // not the red "override已破" one.
+  expect(screen.getByTestId('etf-override-active-510300')).toBeInTheDocument();
+  expect(screen.getByTestId('etf-override-active-510300')).toHaveTextContent('override');
+  expect(screen.queryByTestId('etf-override-invalidated-510300')).not.toBeInTheDocument();
+});
+
 test('ETF轮动页面在 live-target 503 后会自动 trigger_refresh 重新拉取', async () => {
   const error503 = new Error('Service Unavailable');
   error503.response = { status: 503 };
