@@ -208,6 +208,7 @@ const buildWeightRows = (plan) => {
   const overlays = plan?.overlays || {};
   const stopLossTriggered = plan?.stop_loss_triggered || {};
   const scoreBreakdown = plan?.score_breakdown || {};
+  const manualOverrideStatus = plan?.manual_override_status || {};
   const codes = Array.from(new Set([...Object.keys(current), ...Object.keys(target), ...Object.keys(adjusted), ...Object.keys(quotes)]));
   const orderedCodes = [...codes.filter((code) => code !== 'CASH').sort(), ...codes.filter((code) => code === 'CASH')];
   return orderedCodes.map((code) => {
@@ -215,6 +216,7 @@ const buildWeightRows = (plan) => {
     const overlay = overlays[code] || null;
     const stop = stopLossTriggered[code] || null;
     const breakdown = scoreBreakdown[code] || null;
+    const overrideStatus = manualOverrideStatus[code] || null;
     return {
       key: code,
       code,
@@ -230,6 +232,7 @@ const buildWeightRows = (plan) => {
       overlay,
       stopLoss: stop,
       breakdown,
+      manualOverride: overrideStatus,
     };
   });
 };
@@ -647,26 +650,82 @@ const EtfRotationDashboard = () => {
       title: '代码',
       dataIndex: 'code',
       key: 'code',
-      width: 110,
-      render: (code, row) => row?.stopLoss ? (
-        <Tooltip
-          title={
-            <>
-              <div>触发 per-position 止损</div>
-              <div>成本 ¥{row.stopLoss.cost_price?.toFixed(3)} / 当前 ¥{row.stopLoss.current_price?.toFixed(3)}</div>
-              <div>浮亏 {(row.stopLoss.loss_pct * 100).toFixed(2)}%</div>
-              <div>阈值 {(row.stopLoss.threshold * 100).toFixed(0)}%</div>
-            </>
-          }
-        >
-          <Space size={4}>
+      width: 130,
+      render: (code, row) => {
+        const tags = [];
+        if (row?.stopLoss) {
+          tags.push(
+            <Tooltip
+              key="stop-loss"
+              title={
+                <>
+                  <div>触发 per-position 止损</div>
+                  <div>成本 ¥{row.stopLoss.cost_price?.toFixed(3)} / 当前 ¥{row.stopLoss.current_price?.toFixed(3)}</div>
+                  <div>浮亏 {(row.stopLoss.loss_pct * 100).toFixed(2)}%</div>
+                  <div>阈值 {(row.stopLoss.threshold * 100).toFixed(0)}%</div>
+                </>
+              }
+            >
+              <Tag icon={<StopOutlined />} color="error" data-testid={`etf-stop-loss-${code}`}>
+                止损
+              </Tag>
+            </Tooltip>
+          );
+        }
+        if (row?.manualOverride?.invalidated) {
+          const o = row.manualOverride;
+          tags.push(
+            <Tooltip
+              key="override-invalidated"
+              title={
+                <>
+                  <div>你的 override 已破</div>
+                  {o.thesis ? <div>当时判断: {o.thesis}</div> : null}
+                  <div>失效线 ¥{Number(o.invalidation_price).toFixed(3)}</div>
+                  {Number.isFinite(o.current_price) ? (
+                    <div>当前 ¥{Number(o.current_price).toFixed(3)}</div>
+                  ) : null}
+                  {o.set_at ? <div>设置于 {o.set_at}</div> : null}
+                  {o.note ? <div>备注: {o.note}</div> : null}
+                </>
+              }
+            >
+              <Tag color="volcano" data-testid={`etf-override-invalidated-${code}`}>
+                override已破
+              </Tag>
+            </Tooltip>
+          );
+        } else if (row?.manualOverride?.invalidation_price) {
+          const o = row.manualOverride;
+          tags.push(
+            <Tooltip
+              key="override-active"
+              title={
+                <>
+                  <div>你的 override 仍然有效</div>
+                  {o.thesis ? <div>判断: {o.thesis}</div> : null}
+                  <div>失效线 ¥{Number(o.invalidation_price).toFixed(3)}</div>
+                  {Number.isFinite(o.current_price) ? (
+                    <div>当前 ¥{Number(o.current_price).toFixed(3)}</div>
+                  ) : null}
+                  {o.set_at ? <div>设置于 {o.set_at}</div> : null}
+                </>
+              }
+            >
+              <Tag color="gold" data-testid={`etf-override-active-${code}`}>
+                override
+              </Tag>
+            </Tooltip>
+          );
+        }
+        if (tags.length === 0) return code;
+        return (
+          <Space size={4} wrap>
             <span>{code}</span>
-            <Tag icon={<StopOutlined />} color="error" data-testid={`etf-stop-loss-${code}`}>
-              止损
-            </Tag>
+            {tags}
           </Space>
-        </Tooltip>
-      ) : code,
+        );
+      },
     },
     { title: '名称', dataIndex: 'name', key: 'name' },
     { title: '实时价', dataIndex: 'currentPrice', key: 'currentPrice', render: renderPriceWithBreakdown },
