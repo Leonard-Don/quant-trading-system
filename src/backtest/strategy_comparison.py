@@ -71,6 +71,17 @@ from src.backtest.etf_rotation_backtest import (
     _sanitize_for_json,
     _summarise_tc,
 )
+from src.backtest.strategy_statistical_tests import (
+    BlockBootstrapResult,
+    DMResult,
+    MultipleTestingCorrection,
+    SharpeTestResult,
+    bonferroni_correct,
+    diebold_mariano_test,
+    holm_correct,
+    politis_romano_block_bootstrap,
+    sharpe_ratio_test,
+)
 from src.backtest.transaction_costs import TransactionCostModel
 from src.strategy.etf_mean_reversion_strategy import (
     EtfMeanReversionRotationConfig,
@@ -583,6 +594,35 @@ class PairwiseSpread:
 
 
 @dataclass(frozen=True)
+class StatisticalTestsReport:
+    """Pairwise hypothesis-test bundle for a :class:`ComparisonReport`.
+
+    Wraps Diebold-Mariano + Politis-Romano block bootstrap + Memmel
+    Sharpe-ratio test results for every unordered strategy pair (and
+    optionally each strategy vs the buy-and-hold benchmark series), plus
+    Bonferroni / Holm multiple-testing corrections.
+
+    Stored on the parent :class:`ComparisonReport` under
+    ``statistical_tests``; surfaces ``None`` when the caller opts out
+    (the default, for backwards-compat with v0.1 reports).
+    """
+
+    pair_labels: list[str]  # one entry per unordered pair, e.g. "rotation_vs_blend"
+    dm_results: list[DMResult]
+    block_bootstrap_results: list[BlockBootstrapResult]
+    sharpe_results: list[SharpeTestResult]
+    bonferroni_dm: MultipleTestingCorrection
+    bonferroni_sharpe: MultipleTestingCorrection
+    holm_dm: MultipleTestingCorrection
+    holm_sharpe: MultipleTestingCorrection
+    alpha: float
+    notes: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _sanitize_for_json(asdict(self))
+
+
+@dataclass(frozen=True)
 class ComparisonReport:
     """Aggregate over per-strategy :class:`BacktestReport`s.
 
@@ -624,6 +664,10 @@ class ComparisonReport:
     tc_enabled: bool = False
     tc_model_params: Optional[dict[str, Any]] = None
     pairwise_spreads: list[PairwiseSpread] = field(default_factory=list)
+    # Formal hypothesis tests (DM, block bootstrap, Sharpe-difference) +
+    # multiple-testing corrections. ``None`` when the caller did not opt
+    # in (default; preserves v0.1 report shape).
+    statistical_tests: Optional[StatisticalTestsReport] = None
     caveats: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -666,11 +710,18 @@ class StrategyComparator:
         rebalance_freq_days: int = DEFAULT_REBALANCE_FREQ_DAYS,
         initial_capital: float = DEFAULT_INITIAL_CAPITAL,
         tc_model: Optional[TransactionCostModel] = None,
+        compute_statistical_tests: bool = False,
+        statistical_alpha: float = 0.05,
+        statistical_block_size: int = 10,
+        statistical_n_bootstrap: int = 1000,
+        statistical_include_buy_hold: bool = True,
     ) -> None:
         if rebalance_freq_days < 1:
             raise ValueError("rebalance_freq_days must be >= 1")
         if initial_capital <= 0:
             raise ValueError("initial_capital must be > 0")
+        if not 0.0 < statistical_alpha < 1.0:
+            raise ValueError("statistical_alpha must be in (0, 1)")
         # Allow an empty strategy list — produces a fully empty report
         # with a clear caveat. Easier on CLI callers that pass an empty
         # selection than raising and forcing them to special-case it.
@@ -687,6 +738,11 @@ class StrategyComparator:
         self._rebalance_freq_days = int(rebalance_freq_days)
         self._initial_capital = float(initial_capital)
         self._tc_model = tc_model
+        self._compute_statistical_tests = bool(compute_statistical_tests)
+        self._statistical_alpha = float(statistical_alpha)
+        self._statistical_block_size = int(statistical_block_size)
+        self._statistical_n_bootstrap = int(statistical_n_bootstrap)
+        self._statistical_include_buy_hold = bool(statistical_include_buy_hold)
 
         # Validate that labels are unique up-front so the report's dict
         # keys don't silently collide and shadow one strategy.
@@ -736,6 +792,11 @@ class StrategyComparator:
 
         regime = self._infer_regime(per_strategy)
         spreads = self._pairwise_spreads(per_strategy, labels)
+        statistical_tests = (
+            self._compute_pairwise_tests(per_strategy, labels)
+            if self._compute_statistical_tests
+            else None
+        )
 
         # Period bounds: snap to the first/last *executed* window across
         # strategies so the headline matches what was actually backtested
@@ -777,6 +838,7 @@ class StrategyComparator:
                 self._tc_model.to_dict() if self._tc_model is not None else None
             ),
             pairwise_spreads=spreads,
+            statistical_tests=statistical_tests,
             caveats=caveats,
         )
 
@@ -939,6 +1001,155 @@ class StrategyComparator:
             "choppy": _slice_return(*choppy_window),
         }
 
+    # ------------------------------------------------------------------
+    # Formal statistical tests
+    # ------------------------------------------------------------------
+
+    def _compute_pairwise_tests(
+        self,
+        per_strategy: dict[str, BacktestReport],
+        labels: list[str],
+    ) -> Optional[StatisticalTestsReport]:
+        """Run DM + block-bootstrap + Sharpe tests on every unordered pair.
+
+        Returns ``None`` when fewer than two strategies have enough
+        per-period observations to test (we need at least two pairs of
+        rebalance-period returns to make any statistic non-degenerate).
+        """
+
+        returns_per_strategy: dict[str, list[float]] = {}
+        for label, report in per_strategy.items():
+            returns = _returns_from_rebalance_log(report)
+            if len(returns) >= 3:
+                returns_per_strategy[label] = returns
+
+        # Optionally append a buy-and-hold "strategy" computed from the
+        # comparison-window prices so the user can ask "is rotation
+        # significantly different from passive?".
+        bh_returns: Optional[list[float]] = None
+        if self._statistical_include_buy_hold:
+            bh_returns = self._build_buy_hold_period_returns(per_strategy)
+            if bh_returns is not None and len(bh_returns) >= 3:
+                returns_per_strategy["buy_hold"] = bh_returns
+
+        labels_to_test = [
+            label for label in labels if label in returns_per_strategy
+        ]
+        if "buy_hold" in returns_per_strategy and "buy_hold" not in labels_to_test:
+            labels_to_test.append("buy_hold")
+
+        if len(labels_to_test) < 2:
+            return None
+
+        pair_labels: list[str] = []
+        dm_results: list[DMResult] = []
+        bootstrap_results: list[BlockBootstrapResult] = []
+        sharpe_results: list[SharpeTestResult] = []
+        # Unordered pairs only — we want one entry per (A, B), no
+        # duplicates with A and B swapped.
+        for i, label_a in enumerate(labels_to_test):
+            for label_b in labels_to_test[i + 1 :]:
+                ra = returns_per_strategy[label_a]
+                rb = returns_per_strategy[label_b]
+                # Align lengths defensively — bar-truncate to the shorter.
+                min_len = min(len(ra), len(rb))
+                ra_aligned = ra[-min_len:]
+                rb_aligned = rb[-min_len:]
+                pair_labels.append(f"{label_a}_vs_{label_b}")
+                dm_results.append(
+                    diebold_mariano_test(
+                        ra_aligned,
+                        rb_aligned,
+                        loss_fn="negative_return",
+                        h=1,
+                    )
+                )
+                bootstrap_results.append(
+                    politis_romano_block_bootstrap(
+                        ra_aligned,
+                        rb_aligned,
+                        block_size=self._statistical_block_size,
+                        n_bootstrap=self._statistical_n_bootstrap,
+                        seed=42,
+                    )
+                )
+                sharpe_results.append(
+                    sharpe_ratio_test(ra_aligned, rb_aligned, method="memmel")
+                )
+
+        if not pair_labels:
+            return None
+
+        dm_p_values = [r.p_value for r in dm_results]
+        sharpe_p_values = [r.p_value for r in sharpe_results]
+        bonf_dm = bonferroni_correct(
+            dm_p_values, alpha=self._statistical_alpha, labels=pair_labels,
+        )
+        bonf_sharpe = bonferroni_correct(
+            sharpe_p_values, alpha=self._statistical_alpha, labels=pair_labels,
+        )
+        holm_dm = holm_correct(
+            dm_p_values, alpha=self._statistical_alpha, labels=pair_labels,
+        )
+        holm_sharpe = holm_correct(
+            sharpe_p_values, alpha=self._statistical_alpha, labels=pair_labels,
+        )
+
+        notes = [
+            "DM loss_fn=negative_return (H1: strategy A's expected return differs from B's)",
+            "Sharpe difference via Memmel (2003) closed-form, asymptotic z-test",
+            "Block bootstrap: Politis-Romano (1994) circular, "
+            f"block_size={self._statistical_block_size}, "
+            f"n_bootstrap={self._statistical_n_bootstrap}",
+            f"Multiple-testing correction over k={len(pair_labels)} unordered pairs",
+        ]
+        if bh_returns is not None and "buy_hold" in returns_per_strategy:
+            notes.append(
+                "buy_hold synthesised from equal-weight passive return over window"
+            )
+
+        return StatisticalTestsReport(
+            pair_labels=pair_labels,
+            dm_results=dm_results,
+            block_bootstrap_results=bootstrap_results,
+            sharpe_results=sharpe_results,
+            bonferroni_dm=bonf_dm,
+            bonferroni_sharpe=bonf_sharpe,
+            holm_dm=holm_dm,
+            holm_sharpe=holm_sharpe,
+            alpha=self._statistical_alpha,
+            notes=notes,
+        )
+
+    def _build_buy_hold_period_returns(
+        self,
+        per_strategy: dict[str, BacktestReport],
+    ) -> Optional[list[float]]:
+        """Synthesise a buy-and-hold per-rebalance return series.
+
+        We can't reuse the comparable_buy_hold_return_pct scalar — DM and
+        the bootstrap need a *series*. Re-derive by equal-weighting the
+        configured universe over the same executed window, then sampling
+        at the same rebalance cadence the strategies used (so the
+        comparison is apples-to-apples per-period).
+        """
+
+        prices = self._prepare_prices_for_regime(per_strategy)
+        if prices is None or prices.empty or len(prices) < 2:
+            return None
+        equity = (prices / prices.iloc[0]).mean(axis=1)
+        # Sample at the same cadence the strategies fired rebalances —
+        # mirrors the bar_position % rebalance_freq_days == 0 logic in
+        # ``EtfRotationBacktester._simulate``. This gives us period
+        # returns directly comparable to the rebalance-log returns.
+        sample_idx = list(range(0, len(equity), self._rebalance_freq_days))
+        if len(sample_idx) < 2:
+            return None
+        sampled = equity.iloc[sample_idx].to_numpy(dtype=float)
+        returns = (sampled[1:] / sampled[:-1] - 1.0).tolist()
+        # Drop NaN / Inf defensively.
+        return [r for r in returns if math.isfinite(r)]
+
     @staticmethod
     def _pairwise_spreads(
         per_strategy: dict[str, BacktestReport],
@@ -990,6 +1201,7 @@ class StrategyComparator:
                 self._tc_model.to_dict() if self._tc_model is not None else None
             ),
             pairwise_spreads=[],
+            statistical_tests=None,
             caveats=[f"empty_report:{reason}"],
         )
 
@@ -1090,6 +1302,34 @@ def _pick_winner_by_dict_field(
             best_value = fv
             best = label
     return best
+
+
+def _returns_from_rebalance_log(report: BacktestReport) -> list[float]:
+    """Pull a per-rebalance return series from a :class:`BacktestReport`.
+
+    Each rebalance log entry carries ``period_return_pct`` — the
+    multiplicative return over the *prior* holding period. We strip the
+    first entry (it's 0% by construction at simulation start) and convert
+    percent → fraction so the result is a clean returns series suitable
+    for :func:`diebold_mariano_test` and friends.
+    """
+
+    log = report.rebalance_log or []
+    out: list[float] = []
+    for i, entry in enumerate(log):
+        if i == 0:
+            # First entry is the initial allocation — period_return is 0.
+            continue
+        raw = entry.get("period_return_pct")
+        if raw is None:
+            continue
+        try:
+            val = float(raw) / 100.0
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(val):
+            out.append(val)
+    return out
 
 
 def _collect_caveats(reports: Iterable[BacktestReport]) -> list[str]:
@@ -1269,6 +1509,9 @@ def render_comparison_markdown(report: ComparisonReport) -> str:
             )
         lines.append("")
 
+    if report.statistical_tests is not None:
+        lines.extend(_render_statistical_tests_markdown(report.statistical_tests))
+
     lines.append("## Caveats")
     lines.append("")
     for caveat in report.caveats:
@@ -1276,6 +1519,92 @@ def render_comparison_markdown(report: ComparisonReport) -> str:
     lines.append("")
 
     return "\n".join(lines)
+
+
+def _render_statistical_tests_markdown(tests: StatisticalTestsReport) -> list[str]:
+    """Render the formal statistical-tests block as a list of markdown lines.
+
+    Surfaces three tables — DM, Sharpe-difference, block-bootstrap CI —
+    one row per pair, plus a final "which p-values survive multiple-
+    testing correction?" summary.
+    """
+
+    lines: list[str] = []
+    lines.append("## 统计显著性检验 (Statistical hypothesis tests)")
+    lines.append("")
+    lines.append(
+        f"配对数 k = {len(tests.pair_labels)} · 显著性水平 α = {tests.alpha:.3f}"
+    )
+    lines.append("")
+
+    lines.append("### Diebold-Mariano (1995) test (loss = -return)")
+    lines.append("")
+    lines.append(
+        "| 配对 | DM stat | p (2-sided) | p (1-sided, A>B) | mean(L_a - L_b) | n |"
+    )
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
+    for pair, dm in zip(tests.pair_labels, tests.dm_results):
+        lines.append(
+            f"| `{pair}` | {dm.dm_statistic:+.3f} | {dm.p_value:.4f} | "
+            f"{dm.p_value_one_sided:.4f} | {dm.mean_loss_differential:+.6f} | "
+            f"{dm.n_obs} |"
+        )
+    lines.append("")
+
+    lines.append("### Sharpe-ratio difference (Memmel 2003)")
+    lines.append("")
+    lines.append(
+        "| 配对 | Sharpe_a | Sharpe_b | z | p (2-sided) | n |"
+    )
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
+    for pair, sh in zip(tests.pair_labels, tests.sharpe_results):
+        lines.append(
+            f"| `{pair}` | {sh.sharpe_a:+.4f} | {sh.sharpe_b:+.4f} | "
+            f"{sh.z_statistic:+.3f} | {sh.p_value:.4f} | {sh.n_obs} |"
+        )
+    lines.append("")
+
+    lines.append("### Block bootstrap 95% CI on return differential")
+    lines.append("")
+    lines.append(
+        "| 配对 | mean(A-B) | CI low | CI high | p (2-sided) | block | n_boot |"
+    )
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+    for pair, bs in zip(tests.pair_labels, tests.block_bootstrap_results):
+        lines.append(
+            f"| `{pair}` | {bs.mean_diff:+.6f} | {bs.ci_low:+.6f} | "
+            f"{bs.ci_high:+.6f} | {bs.p_value_two_sided:.4f} | "
+            f"{bs.block_size} | {bs.n_bootstrap} |"
+        )
+    lines.append("")
+
+    lines.append("### Multiple-testing correction (Bonferroni & Holm)")
+    lines.append("")
+    lines.append(
+        f"Bonferroni threshold α/k = {tests.alpha / max(len(tests.pair_labels), 1):.5f}"
+    )
+    lines.append("")
+    lines.append(
+        "| 配对 | DM raw p | DM survives Bonferroni? | DM survives Holm? | "
+        "Sharpe raw p | Sharpe survives Bonferroni? | Sharpe survives Holm? |"
+    )
+    lines.append("| --- | ---: | :-: | :-: | ---: | :-: | :-: |")
+    for i, pair in enumerate(tests.pair_labels):
+        dm_p = tests.dm_results[i].p_value
+        sh_p = tests.sharpe_results[i].p_value
+        dm_bonf = "yes" if tests.bonferroni_dm.rejected[i] else "no"
+        dm_holm = "yes" if tests.holm_dm.rejected[i] else "no"
+        sh_bonf = "yes" if tests.bonferroni_sharpe.rejected[i] else "no"
+        sh_holm = "yes" if tests.holm_sharpe.rejected[i] else "no"
+        lines.append(
+            f"| `{pair}` | {dm_p:.4f} | {dm_bonf} | {dm_holm} | "
+            f"{sh_p:.4f} | {sh_bonf} | {sh_holm} |"
+        )
+    lines.append("")
+    for note in tests.notes:
+        lines.append(f"> {note}")
+    lines.append("")
+    return lines
 
 
 __all__ = [
@@ -1287,6 +1616,7 @@ __all__ = [
     "PairwiseSpread",
     "RegimeBreakdown",
     "SignalGenerator",
+    "StatisticalTestsReport",
     "StrategyComparator",
     "StrategySpec",
     "WinnerSummary",

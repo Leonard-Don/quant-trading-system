@@ -127,6 +127,11 @@ def run_comparison(
     strategy_config_overrides: Optional[dict[str, Any]] = None,
     blend_regime: str = "unknown",
     tc_model: Optional[TransactionCostModel] = None,
+    compute_statistical_tests: bool = False,
+    statistical_alpha: float = 0.05,
+    statistical_block_size: int = 10,
+    statistical_n_bootstrap: int = 1000,
+    statistical_include_buy_hold: bool = True,
 ) -> ComparisonReport:
     """Top-level orchestration shared by the CLI + API.
 
@@ -168,6 +173,11 @@ def run_comparison(
         rebalance_freq_days=rebalance_freq_days,
         initial_capital=initial_capital,
         tc_model=tc_model,
+        compute_statistical_tests=compute_statistical_tests,
+        statistical_alpha=statistical_alpha,
+        statistical_block_size=statistical_block_size,
+        statistical_n_bootstrap=statistical_n_bootstrap,
+        statistical_include_buy_hold=statistical_include_buy_hold,
     )
     return comparator.run()
 
@@ -270,6 +280,41 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-md", type=Path, default=None)
     parser.add_argument("--output-json", type=Path, default=None)
+    parser.add_argument(
+        "--with-statistical-tests",
+        action="store_true",
+        help=(
+            "Compute formal pairwise hypothesis tests (Diebold-Mariano, "
+            "Politis-Romano block bootstrap, Memmel Sharpe-difference) plus "
+            "Bonferroni / Holm multiple-testing corrections."
+        ),
+    )
+    parser.add_argument(
+        "--statistical-alpha",
+        type=float,
+        default=0.05,
+        help="Significance level for multiple-testing rejection flags.",
+    )
+    parser.add_argument(
+        "--statistical-block-size",
+        type=int,
+        default=10,
+        help="Block size for the Politis-Romano circular block bootstrap.",
+    )
+    parser.add_argument(
+        "--statistical-n-bootstrap",
+        type=int,
+        default=1000,
+        help="Number of bootstrap replicates for block bootstrap.",
+    )
+    parser.add_argument(
+        "--statistical-no-buy-hold",
+        action="store_true",
+        help=(
+            "Skip including equal-weight buy-and-hold in the pairwise grid "
+            "(default: include, so you get strategy-vs-passive p-values)."
+        ),
+    )
     return parser
 
 
@@ -308,6 +353,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         strategy_config_path=args.strategy_config,
         blend_regime=args.blend_regime,
         tc_model=_build_tc_model_from_args(args),
+        compute_statistical_tests=args.with_statistical_tests,
+        statistical_alpha=args.statistical_alpha,
+        statistical_block_size=args.statistical_block_size,
+        statistical_n_bootstrap=args.statistical_n_bootstrap,
+        statistical_include_buy_hold=not args.statistical_no_buy_hold,
     )
 
     payload = report.to_dict()
