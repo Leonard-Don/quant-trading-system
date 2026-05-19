@@ -12,6 +12,7 @@ import {
     DEFAULT_SUBSCRIBED_SYMBOLS,
     SNAPSHOT_OUTCOME_OPTIONS,
 } from '../utils/realtimePanelConstants';
+import { getCategoryLabel, inferSymbolCategory } from '../utils/realtimeFormatters';
 
 describe('realtimePanelConstants', () => {
     it('default subscribed symbol list is non-empty and unique', () => {
@@ -25,6 +26,16 @@ describe('realtimePanelConstants', () => {
             expect(CATEGORY_THEMES[option.key]).toBeDefined();
             expect(CATEGORY_THEMES[option.key].label).toBe(option.label);
         });
+    });
+
+    it('promotes ETF to a first-class realtime category', () => {
+        expect(CATEGORY_OPTIONS.map((option) => option.key)).toEqual(
+            expect.arrayContaining(['etf']),
+        );
+        expect(getCategoryLabel('etf')).toBe('ETF');
+        expect(inferSymbolCategory('SPY')).toBe('etf');
+        expect(inferSymbolCategory('TLT')).toBe('etf');
+        expect(DEFAULT_SUBSCRIBED_SYMBOLS).toEqual(expect.arrayContaining(['SPY', 'QQQ', 'UVXY']));
     });
 
     it('snapshot outcomes cover the documented states', () => {

@@ -22,6 +22,11 @@ const ANOMALY_THRESHOLDS_BY_CATEGORY = {
     rangeThreshold: 3,
     volumeSpikeRatio: 1.8,
   },
+  etf: {
+    priceMoveThreshold: 1.6,
+    rangeThreshold: 2.6,
+    volumeSpikeRatio: 1.8,
+  },
   crypto: {
     priceMoveThreshold: 5,
     rangeThreshold: 6.5,
