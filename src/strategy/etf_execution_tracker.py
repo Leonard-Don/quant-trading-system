@@ -261,6 +261,7 @@ def read_executions(path: Optional[Path] = None) -> List[ExecutionRecord]:
             out.append(ExecutionRecord.from_dict(raw))
         except (KeyError, TypeError, ValueError) as exc:
             logger.warning("Skipping invalid execution row %d in %s: %s", line_no, target, exc)
+    out.sort(key=_recorded_at_sort_key)
     return out
 
 
@@ -532,6 +533,13 @@ def _parse_iso(value: Any) -> Optional[datetime]:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
+
+
+def _recorded_at_sort_key(record: ExecutionRecord) -> tuple[bool, datetime]:
+    recorded_at = _parse_iso(record.recorded_at)
+    if recorded_at is None:
+        return (True, datetime.max.replace(tzinfo=timezone.utc))
+    return (False, recorded_at)
 
 
 def _normalisation_shares(record: ExecutionRecord) -> float:

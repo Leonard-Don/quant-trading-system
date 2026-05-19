@@ -26,6 +26,7 @@ def _record(
     action: str = "buy",
     shares: int = 100,
     plan_run_at: str = "2026-05-18T10:00:00+00:00",
+    recorded_at: str = "2026-05-18T10:02:00+00:00",
     suggested_action: str = "buy",
     suggested_shares: int = 100,
 ) -> ExecutionRecord:
@@ -35,7 +36,7 @@ def _record(
         action=action,
         shares=shares,
         plan_run_at=plan_run_at,
-        recorded_at="2026-05-18T10:02:00+00:00",
+        recorded_at=recorded_at,
         suggested_action=suggested_action,
         suggested_shares=suggested_shares,
         actual_fill_price=5.01,
@@ -106,6 +107,30 @@ def test_read_executions_skips_malformed_and_invalid_rows(tmp_path: Path) -> Non
     loaded = read_executions(path)
 
     assert [record.code for record in loaded] == ["159985"]
+
+
+def test_read_executions_returns_records_by_recorded_at(tmp_path: Path) -> None:
+    path = tmp_path / "executions.jsonl"
+    newest = _record(code="512400", recorded_at="2026-05-18T10:03:00+00:00")
+    oldest = _record(code="159985", recorded_at="2026-05-18T10:01:00Z")
+    middle = _record(code="510300", recorded_at="2026-05-18T10:02:00+00:00")
+    invalid_timestamp = _record(code="588000", recorded_at="not-a-timestamp")
+    path.write_text(
+        "\n".join(
+            json.dumps(record.to_dict())
+            for record in (newest, invalid_timestamp, oldest, middle)
+        ),
+        encoding="utf-8",
+    )
+
+    loaded = read_executions(path)
+
+    assert [record.code for record in loaded] == [
+        "159985",
+        "510300",
+        "512400",
+        "588000",
+    ]
 
 
 def test_read_audit_entries_skips_malformed_and_invalid_rows(
