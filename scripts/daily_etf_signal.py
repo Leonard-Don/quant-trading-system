@@ -877,6 +877,34 @@ def generate_plan(
         "last_refresh": policy_last_refresh,
     }
 
+    # Manual-override invalidation tracking. The user's strategy.json may
+    # carry per-ETF "I'm holding regardless of strategy" thesis lines.
+    # When the entry includes an ``invalidation_price`` and today's price
+    # is at or below it, surface ``invalidated=True`` so the dashboard can
+    # flag the user's own line as broken. Pure annotation — never feeds
+    # back into weights, scoring, or stop-loss logic.
+    manual_override_status: dict[str, dict[str, Any]] = {}
+    for code, entry in (active_config.manual_overrides or {}).items():
+        status: dict[str, Any] = {
+            "invalidation_price": entry.get("invalidation_price"),
+            "thesis": entry.get("thesis"),
+            "set_at": entry.get("set_at"),
+            "note": entry.get("note"),
+            "current_price": None,
+            "invalidated": False,
+        }
+        invalidation_price = entry.get("invalidation_price")
+        quote = quote_map.get(code)
+        current_price = float(quote.current_price) if quote is not None else None
+        status["current_price"] = current_price
+        if (
+            invalidation_price is not None
+            and current_price is not None
+            and current_price <= float(invalidation_price)
+        ):
+            status["invalidated"] = True
+        manual_override_status[code] = status
+
     return {
         "manual_only": True,
         "auto_ordering": False,
@@ -909,6 +937,7 @@ def generate_plan(
         "stop_loss_triggered": stop_loss_triggered,
         "score_breakdown": score_breakdown,
         "policy_signal_factor": policy_signal_factor_summary,
+        "manual_override_status": manual_override_status,
     }
 
 
@@ -1272,6 +1301,7 @@ def _audit_entry_from_plan(
         "stop_loss_triggered": dict(plan.get("stop_loss_triggered") or {}),
         "prices_at_decision": prices_at_decision,
         "policy_signal_factor": dict(plan.get("policy_signal_factor") or {}),
+        "manual_override_status": dict(plan.get("manual_override_status") or {}),
     }
 
 

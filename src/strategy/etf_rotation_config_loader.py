@@ -299,6 +299,16 @@ class StrategyConfig:
     code to the policy_radar industry name used by the policy_signal_factor.
     The map can be partial — codes not listed are simply left untouched
     by the policy nudge (legacy-safe by construction).
+
+    ``manual_overrides`` records the user's per-ETF "I'm holding regardless
+    of strategy" thesis lines. Each entry is keyed by 6-digit code and
+    contains at minimum a thesis string. When the entry includes
+    ``invalidation_price`` (a positive float), the strategy compares
+    today's price to it and surfaces an ``invalidated=True`` flag in the
+    plan's ``manual_override_status`` payload — the dashboard renders
+    that as a red "你的 override 已破" badge so the user knows their
+    own line is broken. Pure annotation: never changes weights, scoring,
+    or stop-loss behaviour.
     """
 
     universe: List[Dict[str, Any]]
@@ -311,6 +321,7 @@ class StrategyConfig:
     ensemble: Dict[str, Any] = field(default_factory=dict)
     order_pricing: Dict[str, Any] = field(default_factory=dict)
     etf_industry_map: dict[str, str] = field(default_factory=dict)
+    manual_overrides: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     source_path: Optional[Path] = None
     source_mtime: Optional[float] = None
 
@@ -472,6 +483,47 @@ def load_strategy_config(
         **{str(k): str(v) for k, v in raw_industry_map.items() if k and v},
     }
 
+    raw_manual_overrides = raw.get("manual_overrides") or {}
+    if not isinstance(raw_manual_overrides, Mapping):
+        logger.warning(
+            "manual_overrides in strategy config is not a mapping; ignoring.",
+        )
+        raw_manual_overrides = {}
+    manual_overrides: Dict[str, Dict[str, Any]] = {}
+    for raw_code, entry in raw_manual_overrides.items():
+        if not raw_code or not isinstance(entry, Mapping):
+            continue
+        code = str(raw_code).strip()
+        if not code or code.startswith("_"):
+            continue
+        # Whitelist + coerce known keys. Anything else is silently dropped
+        # so a typo in the JSON ("invalidate_price") doesn't pretend to
+        # work. The dashboard reads from this normalised view.
+        normalised: Dict[str, Any] = {}
+        invalidation = entry.get("invalidation_price")
+        if invalidation is not None:
+            try:
+                value = float(invalidation)
+                if value > 0:
+                    normalised["invalidation_price"] = value
+            except (TypeError, ValueError):
+                logger.warning(
+                    "manual_overrides[%s].invalidation_price must be a positive "
+                    "number; ignoring %r",
+                    code, invalidation,
+                )
+        thesis = entry.get("thesis")
+        if isinstance(thesis, str) and thesis.strip():
+            normalised["thesis"] = thesis.strip()
+        set_at = entry.get("set_at")
+        if isinstance(set_at, str) and set_at.strip():
+            normalised["set_at"] = set_at.strip()
+        note = entry.get("note")
+        if isinstance(note, str) and note.strip():
+            normalised["note"] = note.strip()
+        if normalised:
+            manual_overrides[code] = normalised
+
     return StrategyConfig(
         universe=universe,
         risk_rules=risk_rules,
@@ -483,6 +535,7 @@ def load_strategy_config(
         ensemble=ensemble,
         order_pricing=order_pricing,
         etf_industry_map=etf_industry_map,
+        manual_overrides=manual_overrides,
         source_path=resolved_path,
         source_mtime=mtime,
     )
