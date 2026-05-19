@@ -110,6 +110,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Dump the full statistical_tests block to this JSON path.",
     )
+    parser.add_argument(
+        "--output-md",
+        type=Path,
+        default=None,
+        help=(
+            "Optional Markdown summary path. Writes the terminal table plus "
+            "a metadata header so the report can be checked into ``docs/``."
+        ),
+    )
     return parser
 
 
@@ -211,6 +220,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True),
             encoding="utf-8",
         )
+
+    if args.output_md is not None:
+        args.output_md.parent.mkdir(parents=True, exist_ok=True)
+        args.output_md.write_text(_render_markdown(report), encoding="utf-8")
     return 0
 
 

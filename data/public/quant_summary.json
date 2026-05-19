@@ -3,21 +3,111 @@
     "available_strategies_count": 26,
     "config_default_universe_size": 5,
     "latest_audit_at": null,
-    "latest_audit_log_entry_count": 122,
-    "latest_audit_run_at": "2026-05-16T10:34:25.943089+00:00",
-    "policy_signal_factor_enabled_default": false
+    "latest_audit_log_entry_count": 222,
+    "latest_audit_run_at": "2026-05-19T03:30:52.289576+00:00",
+    "policy_signal_factor_enabled_default": false,
+    "regime_recommendation": {
+      "as_of": "2024-12-31",
+      "available": true,
+      "confidence": 0.6,
+      "config_overrides": {
+        "gross_cap": 1.0
+      },
+      "features": {
+        "avg_pairwise_correlation": 0.3256,
+        "drawdown_ratio": 0.3362,
+        "realized_vol": 0.2139,
+        "return_skew": 0.4301,
+        "trend_r2": 0.4902,
+        "trend_slope": 0.001626
+      },
+      "lookback_days": 90,
+      "n_assets_used": 5,
+      "rationale": "Choppy market with calm vol — empirical (commit a54b986) shows rotation captured the choppy half (+5.48% vs MR +2.10%). Run rotation at full gross_cap.",
+      "recommended_strategy": "rotation",
+      "regime_name": "choppy_low_vol"
+    }
   },
-  "generated_at": "2026-05-17T02:56:14+00:00",
+  "generated_at": "2026-05-19T03:44:32+00:00",
   "industry_heat": {
-    "days": 5,
-    "snapshot_captured_at": "2026-05-17T10:53:58.929876",
+    "days": 1,
+    "snapshot_captured_at": "2026-05-18T09:37:27.880372",
     "top_industries_by_score": [
       {
-        "change_pct": 4.2,
-        "industry_name": "测试行业",
+        "change_pct": 0.9,
+        "industry_name": "煤炭开采加工",
         "rank": 1,
-        "score": 91.2,
-        "stock_count": 2
+        "score": 95.0,
+        "stock_count": 34
+      },
+      {
+        "change_pct": 1.07,
+        "industry_name": "油气开采及服务",
+        "rank": 2,
+        "score": 94.61,
+        "stock_count": 19
+      },
+      {
+        "change_pct": -0.7,
+        "industry_name": "中药",
+        "rank": 3,
+        "score": 87.75,
+        "stock_count": 68
+      },
+      {
+        "change_pct": 1.12,
+        "industry_name": "通信服务",
+        "rank": 4,
+        "score": 86.73,
+        "stock_count": 45
+      },
+      {
+        "change_pct": -0.2,
+        "industry_name": "厨卫电器",
+        "rank": 5,
+        "score": 83.69,
+        "stock_count": 9
+      },
+      {
+        "change_pct": 0.08,
+        "industry_name": "黑色家电",
+        "rank": 6,
+        "score": 83.03,
+        "stock_count": 9
+      },
+      {
+        "change_pct": -0.29,
+        "industry_name": "公路铁路运输",
+        "rank": 7,
+        "score": 82.68,
+        "stock_count": 32
+      },
+      {
+        "change_pct": 0.15,
+        "industry_name": "证券",
+        "rank": 8,
+        "score": 79.21,
+        "stock_count": 50
+      },
+      {
+        "change_pct": 0.36,
+        "industry_name": "IT服务",
+        "rank": 9,
+        "score": 78.23,
+        "stock_count": 130
+      },
+      {
+        "change_pct": -0.35,
+        "industry_name": "风电",
+        "policy_signal": {
+          "avg_impact": 0.0,
+          "mentions": 3,
+          "signal": "neutral"
+        },
+        "rank": 10,
+        "score": 75.81,
+        "source_industry_name": "风电设备",
+        "stock_count": 32
       }
     ]
   },
@@ -29,14 +119,14 @@
     "profile_count": 1
   },
   "policy_radar": {
-    "last_refresh_at": "2026-05-17T10:29:47.063347",
-    "policy_count": 10,
+    "last_refresh_at": "2026-05-19T11:34:40.961816",
+    "policy_count": 15,
     "top_industries": [
       {
-        "avg_impact": -0.32,
+        "avg_impact": -0.13,
         "industry": "新能源汽车",
-        "mentions": 119,
-        "signal": "bearish"
+        "mentions": 151,
+        "signal": "neutral"
       },
       {
         "avg_impact": 0.0,
@@ -51,7 +141,120 @@
         "signal": "neutral"
       }
     ],
-    "total_records": 10
+    "total_records": 15
+  },
+  "providers": {
+    "etf_rotation": {
+      "audit_count": 222,
+      "last_refresh_at": "2026-05-19T03:30:52.289576+00:00",
+      "strategy_count": 26
+    },
+    "industry_heat": {
+      "last_refresh_at": "2026-05-18T09:37:27.880372",
+      "top_industries_by_score": [
+        {
+          "heat_score": 95.0,
+          "industry": "煤炭开采加工",
+          "mentions": 0,
+          "policy_impact": 0.0,
+          "policy_signal": "neutral"
+        },
+        {
+          "heat_score": 94.61,
+          "industry": "油气开采及服务",
+          "mentions": 0,
+          "policy_impact": 0.0,
+          "policy_signal": "neutral"
+        },
+        {
+          "heat_score": 87.75,
+          "industry": "中药",
+          "mentions": 0,
+          "policy_impact": 0.0,
+          "policy_signal": "neutral"
+        },
+        {
+          "heat_score": 86.73,
+          "industry": "通信服务",
+          "mentions": 0,
+          "policy_impact": 0.0,
+          "policy_signal": "neutral"
+        },
+        {
+          "heat_score": 83.69,
+          "industry": "厨卫电器",
+          "mentions": 0,
+          "policy_impact": 0.0,
+          "policy_signal": "neutral"
+        },
+        {
+          "heat_score": 83.03,
+          "industry": "黑色家电",
+          "mentions": 0,
+          "policy_impact": 0.0,
+          "policy_signal": "neutral"
+        },
+        {
+          "heat_score": 82.68,
+          "industry": "公路铁路运输",
+          "mentions": 0,
+          "policy_impact": 0.0,
+          "policy_signal": "neutral"
+        },
+        {
+          "heat_score": 79.21,
+          "industry": "证券",
+          "mentions": 0,
+          "policy_impact": 0.0,
+          "policy_signal": "neutral"
+        },
+        {
+          "heat_score": 78.23,
+          "industry": "IT服务",
+          "mentions": 0,
+          "policy_impact": 0.0,
+          "policy_signal": "neutral"
+        },
+        {
+          "heat_score": 75.81,
+          "industry": "风电",
+          "mentions": 3,
+          "policy_impact": 0.0,
+          "policy_signal": "neutral"
+        }
+      ]
+    },
+    "paper_trading": {
+      "active_profiles": [
+        "e2e-smoke"
+      ],
+      "available": true,
+      "profile_count": 1
+    },
+    "policy_radar": {
+      "last_refresh_at": "2026-05-19T11:34:40.961816",
+      "policy_count": 15,
+      "top_industries": [
+        {
+          "avg_impact": -0.13,
+          "industry": "新能源汽车",
+          "mentions": 151,
+          "signal": "neutral"
+        },
+        {
+          "avg_impact": 0.0,
+          "industry": "电网",
+          "mentions": 6,
+          "signal": "neutral"
+        },
+        {
+          "avg_impact": 0.0,
+          "industry": "风电",
+          "mentions": 3,
+          "signal": "neutral"
+        }
+      ]
+    }
   },
   "schema_version": 1,
   "source_codebase_version": "5.0.0"

@@ -54,6 +54,7 @@ from src.backtest.strategy_comparison import (
     build_default_strategy_specs,
 )
 from src.backtest.transaction_costs import TransactionCostModel
+from src.data.etf_price_history import resolve_default_price_csv
 from src.research.policy_factor_attribution import (
     AttributionReport,
     compute_attribution,
@@ -76,10 +77,10 @@ logger = logging.getLogger(__name__)
 # Committed historical price matrix shipped in ``data/etf_backtest/``. The
 # backtest endpoint defaults to this file so the dashboard / CLI don't need
 # to remember a path — and so the endpoint stays hermetic (no live data).
+# Prefer the 5-year file when present (added for power-analysis reasons),
+# fall back to the 4-year file otherwise so the legacy contract is intact.
 _PROJECT_ROOT = Path(__file__).resolve().parents[5]
-DEFAULT_BACKTEST_PRICE_CSV = (
-    _PROJECT_ROOT / "data" / "etf_backtest" / "etf_prices_4y.csv"
-)
+DEFAULT_BACKTEST_PRICE_CSV = resolve_default_price_csv(_PROJECT_ROOT)
 
 router = APIRouter()
 
