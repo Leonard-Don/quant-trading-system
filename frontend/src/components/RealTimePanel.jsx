@@ -1331,7 +1331,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           <div className="realtime-hero">
             <div className="realtime-hero__main">
               <div className="realtime-hero__statusbar">
-                <div className="realtime-hero__eyebrow">Realtime Radar</div>
+                <div className="realtime-hero__eyebrow">实时雷达</div>
                 <div className="realtime-hero__status-meta">
                   {spotlightSymbol && (
                     <div className="realtime-hero__focus-pill">
