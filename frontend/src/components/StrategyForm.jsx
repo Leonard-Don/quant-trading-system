@@ -23,8 +23,10 @@ import {
   saveBacktestWorkspaceDraft,
 } from '../utils/backtestWorkspace';
 import {
+  CUSTOM_MODE,
   getBacktestDraftDateRangeMode,
   getDefaultBacktestDateRange,
+  ROLLING_ONE_YEAR_MODE,
   resolveBacktestDraftDateRange,
 } from '../utils/backtestDefaults';
 import { readResearchContext } from '../utils/researchContext';
@@ -182,6 +184,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
   const [selectedStrategy, setSelectedStrategy] = useState(null);
   const [strategyParams, setStrategyParams] = useState({});
   const [savedConfigs, setSavedConfigs] = useState([]);
+  const [dateRangeEdited, setDateRangeEdited] = useState(false);
   const [saveModalVisible, setSaveModalVisible] = useState(false);
   const [configName, setConfigName] = useState('');
   const watchedValues = Form.useWatch([], form);
@@ -257,6 +260,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       }
 
       const { dateRange, ...scalarValues } = buildFormValuesFromDraft(activeDraft, resolvedDateRange);
+      setDateRangeEdited(activeDraft.dateRangeEdited === true);
       form.setFieldsValue(scalarValues);
       if (!isSameDateRange(form.getFieldValue('dateRange'), dateRange)) {
         form.setFieldValue('dateRange', dateRange);
@@ -282,6 +286,11 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
     const currentDraft = loadBacktestWorkspaceDraft();
     const urlContext = readResearchContext();
     const currentSymbolKey = normalizeSymbolForDraft(currentSymbol);
+    const dateRangeMode = getBacktestDraftDateRangeMode(watchedValues?.dateRange);
+    const shouldPersistCustomDateRange = (
+      dateRangeMode === CUSTOM_MODE
+      && (dateRangeEdited || currentDraft?.dateRangeEdited === true)
+    );
     const shouldPreserveDraftMetadata = (
       currentDraft?.symbol
       && normalizeSymbolForDraft(currentDraft.symbol) === currentSymbolKey
@@ -308,7 +317,8 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
             watchedValues.dateRange[1]?.format(DATE_FORMAT),
           ]
         : null,
-      dateRangeMode: getBacktestDraftDateRangeMode(watchedValues?.dateRange),
+      dateRangeMode,
+      dateRangeEdited: shouldPersistCustomDateRange,
       initial_capital: watchedValues?.initial_capital ?? DEFAULT_TRADING_ASSUMPTIONS.initial_capital,
       commission: watchedValues?.commission ?? DEFAULT_TRADING_ASSUMPTIONS.commission,
       slippage: watchedValues?.slippage ?? DEFAULT_TRADING_ASSUMPTIONS.slippage,
@@ -321,7 +331,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       ...handoffMetadata,
       updated_at: new Date().toISOString(),
     });
-  }, [selectedStrategy, strategyParams, watchedValues]);
+  }, [dateRangeEdited, selectedStrategy, strategyParams, watchedValues]);
 
   // Save current config
   const saveConfig = () => {
@@ -364,6 +374,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       market_impact_model: data.market_impact_model ?? DEFAULT_TRADING_ASSUMPTIONS.market_impact_model,
       execution_lag: data.execution_lag ?? DEFAULT_TRADING_ASSUMPTIONS.execution_lag,
     });
+    setDateRangeEdited(Boolean(data.dateRange));
     if (data.strategyParams) {
       setStrategyParams(data.strategyParams);
     }
@@ -402,6 +413,11 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       ...prev,
       [paramName]: value
     }));
+  };
+
+  const handleDateRangeChange = (nextDateRange) => {
+    const nextMode = getBacktestDraftDateRangeMode(nextDateRange);
+    setDateRangeEdited(nextMode !== ROLLING_ONE_YEAR_MODE);
   };
 
   const handleSubmit = (values) => {
@@ -589,7 +605,12 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
                 name="dateRange"
                 rules={[{ required: true, message: '请选择时间范围' }]}
               >
-                <RangePicker placeholder={['开始日期', '结束日期']} separator="至" style={{ width: '100%' }} />
+                <RangePicker
+                  placeholder={['开始日期', '结束日期']}
+                  separator="至"
+                  style={{ width: '100%' }}
+                  onChange={handleDateRangeChange}
+                />
               </Form.Item>
             </div>
           </div>
