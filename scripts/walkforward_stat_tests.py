@@ -185,6 +185,7 @@ def run_walkforward_stat_tests(
     alpha: float = 0.05,
     period_start: Optional[str] = None,
     period_end: Optional[str] = None,
+    blend_regime: str = "unknown",
 ) -> tuple[pd.DataFrame, dict[str, object]]:
     """Drive the full pipeline and return ``(per_window_df, summary)``.
 
@@ -217,6 +218,7 @@ def run_walkforward_stat_tests(
         strategy_labels=strategy_labels,
         rebalance_freq_days=rebalance_freq_days,
         initial_capital=initial_capital,
+        blend_regime=blend_regime,
         # We compute statistical tests separately in walk-forward mode,
         # so the comparator's own one-shot tests are off here.
         compute_statistical_tests=False,
@@ -303,6 +305,7 @@ def run_walkforward_stat_tests(
             window_years=window_years,
             step_months=step_months,
             alpha=alpha,
+            blend_regime=blend_regime,
         )
 
     combined = pd.concat(per_strategy_frames, ignore_index=True)
@@ -325,6 +328,7 @@ def run_walkforward_stat_tests(
         window_years=window_years,
         step_months=step_months,
         alpha=alpha,
+        blend_regime=blend_regime,
     )
     return combined, summary
 
@@ -334,6 +338,77 @@ def run_walkforward_stat_tests(
 # ---------------------------------------------------------------------------
 
 
+def _detect_blend_rotation_degeneracy(
+    df: pd.DataFrame, *, blend_regime: str,
+) -> Optional[dict[str, object]]:
+    """Detect when ``blend`` produces byte-identical per-window stats as another strategy.
+
+    Under ``blend_regime="unknown"`` the blender resolves α=1.00 (pure
+    trend), which collapses its target weights — and therefore every
+    downstream metric — to the rotation strategy's output. The comparison
+    then reports three strategies but only two are mathematically
+    distinct. This helper detects that case and returns a payload that
+    the summary / Markdown / terminal renderers can surface so the
+    reader is not misled.
+
+    Returns ``None`` when blend is absent, has no comparable strategy,
+    or produces non-identical numbers; otherwise a dict naming the twin
+    and the regime that caused it.
+    """
+
+    if df.empty or "blend" not in df["strategy"].unique():
+        return None
+
+    blend_rows = df[df["strategy"] == "blend"].sort_values("window_id")
+    cmp_keys = ["window_id", "dm_stat", "dm_pvalue"]
+    blend_signature = blend_rows[cmp_keys].reset_index(drop=True)
+    for other in df["strategy"].unique():
+        if other == "blend":
+            continue
+        other_rows = (
+            df[df["strategy"] == other]
+            .sort_values("window_id")[cmp_keys]
+            .reset_index(drop=True)
+        )
+        if len(other_rows) != len(blend_signature):
+            continue
+        merged = blend_signature.merge(
+            other_rows, on="window_id", suffixes=("_blend", "_other"),
+        )
+        if merged.empty or len(merged) != len(blend_signature):
+            continue
+        dm_match = np.allclose(
+            merged["dm_stat_blend"].to_numpy(),
+            merged["dm_stat_other"].to_numpy(),
+            rtol=0.0,
+            atol=0.0,
+            equal_nan=True,
+        )
+        p_match = np.allclose(
+            merged["dm_pvalue_blend"].to_numpy(),
+            merged["dm_pvalue_other"].to_numpy(),
+            rtol=0.0,
+            atol=0.0,
+            equal_nan=True,
+        )
+        if dm_match and p_match:
+            return {
+                "twin_strategy": str(other),
+                "blend_regime": str(blend_regime),
+                "n_matched_windows": len(merged),
+                "explanation": (
+                    f"blend's per-window DM stat and p-value are byte-identical "
+                    f"to {other}'s across all {len(merged)} windows. This is the "
+                    f"documented α=1.00 contract for blend_regime="
+                    f"{blend_regime!r} — the blender collapses to pure trend "
+                    f"when no regime is classified. Re-run with "
+                    f"`--blend-regime sideways` (α=0.5) or any non-trend label "
+                    f"to get a non-degenerate blend comparison."
+                ),
+            }
+    return None
+
+
 def _build_summary(
     df: pd.DataFrame,
     *,
@@ -341,6 +416,7 @@ def _build_summary(
     window_years: float,
     step_months: int,
     alpha: float,
+    blend_regime: str = "unknown",
 ) -> dict[str, object]:
     """Distill the per-window DataFrame into the Markdown-renderer payload."""
 
@@ -348,6 +424,7 @@ def _build_summary(
         "window_years": float(window_years),
         "step_months": int(step_months),
         "alpha": float(alpha),
+        "blend_regime": str(blend_regime),
         "n_total_window_tests": len(df),
         "strategies": sorted(df["strategy"].unique().tolist()) if not df.empty else [],
         "n_windows_per_strategy": {},
@@ -355,6 +432,9 @@ def _build_summary(
     if comparison is not None:
         summary["period_start"] = comparison.period_start
         summary["period_end"] = comparison.period_end
+    summary["blend_degeneracy"] = _detect_blend_rotation_degeneracy(
+        df, blend_regime=blend_regime,
+    )
     if df.empty:
         summary["n_raw_significant"] = 0
         summary["n_holm_significant"] = 0
@@ -401,11 +481,18 @@ def _build_summary(
         f"{min_row['start_date']} → {min_row['end_date']} (window_id={int(min_row['window_id'])})"
     )
 
-    summary["honest_conclusion"] = _craft_conclusion(df, alpha=alpha)
+    summary["honest_conclusion"] = _craft_conclusion(
+        df, alpha=alpha, degeneracy=summary.get("blend_degeneracy"),
+    )
     return summary
 
 
-def _craft_conclusion(df: pd.DataFrame, *, alpha: float) -> str:
+def _craft_conclusion(
+    df: pd.DataFrame,
+    *,
+    alpha: float,
+    degeneracy: Optional[dict[str, object]] = None,
+) -> str:
     """Build the one-paragraph honest finding.
 
     Four mutually-exclusive states:
@@ -426,8 +513,21 @@ def _craft_conclusion(df: pd.DataFrame, *, alpha: float) -> str:
     )
     min_p = float(df["dm_pvalue"].min())
 
+    degeneracy_prefix = ""
+    if degeneracy is not None:
+        twin = degeneracy.get("twin_strategy", "rotation")
+        regime = degeneracy.get("blend_regime", "unknown")
+        degeneracy_prefix = (
+            f"⚠️ blend ≡ {twin} under blend_regime={regime!r}: blend's "
+            f"per-window stats are byte-identical to {twin}'s by design "
+            "(α=1.00 collapses blend to pure trend). The comparison rows "
+            "for blend are not independent evidence — they are the same "
+            f"test as {twin}, reported under a second label. Re-run with "
+            "`--blend-regime sideways` for a non-degenerate blend test. "
+        )
+
     if n_holm > 0:
-        return (
+        return degeneracy_prefix + (
             f"Walk-forward DM tests reject H0 (strategy = buy-hold) in "
             f"{n_holm} of {n_total} window tests at α={alpha} after Holm "
             f"correction (raw p<α in {n_raw}). The smallest p-value was "
@@ -437,7 +537,7 @@ def _craft_conclusion(df: pd.DataFrame, *, alpha: float) -> str:
             "costs / slippage erase the spread."
         )
     if n_raw > 0:
-        return (
+        return degeneracy_prefix + (
             f"{n_raw} of {n_total} window tests have raw DM p < {alpha} "
             f"(min p = {min_p:.4f}), but zero survive Holm correction across "
             f"the family of {n_total} tests. The terminal-period finding "
@@ -447,7 +547,7 @@ def _craft_conclusion(df: pd.DataFrame, *, alpha: float) -> str:
             "statistically indistinguishable from buy-and-hold on this "
             "sample."
         )
-    return (
+    return degeneracy_prefix + (
         f"Every single one of the {n_total} walk-forward window tests has "
         f"raw DM p-value above α={alpha} (minimum p = {min_p:.4f}). After "
         "Holm correction zero windows reject. There is no walk-forward "
@@ -488,6 +588,33 @@ def render_markdown_summary(
         f"(per strategy: {summary['n_windows_per_strategy']})"
     )
     lines.append("")
+
+    degeneracy = cast(
+        Optional[dict[str, object]], summary.get("blend_degeneracy"),
+    )
+    if degeneracy is not None:
+        lines.append("## ⚠️ Degenerate blend comparison")
+        lines.append("")
+        lines.append(
+            f"- `blend_regime` = `{degeneracy.get('blend_regime')}` → blender "
+            "resolves α=1.00 (pure trend)."
+        )
+        lines.append(
+            f"- `blend`'s per-window DM stat and p-value are byte-identical "
+            f"to `{degeneracy.get('twin_strategy')}`'s across all "
+            f"{degeneracy.get('n_matched_windows')} windows."
+        )
+        lines.append(
+            "- This is the documented α=1.00 contract pinned by "
+            "`test_blend_pure_trend_alpha_matches_pure_trend_strategy_output` — "
+            "**not** a bug in the blender. The comparison's `blend` rows are "
+            "the same test as `rotation` reported under a second label."
+        )
+        lines.append(
+            "- For a *non-degenerate* blend test re-run with "
+            "`--blend-regime sideways` (α=0.5) or any non-trend label."
+        )
+        lines.append("")
 
     lines.append("## Headline numbers")
     lines.append("")
@@ -602,6 +729,16 @@ def _render_terminal_summary(df: pd.DataFrame, summary: dict[str, object]) -> st
         f"Holm-survivor: {summary['n_holm_significant']}  |  "
         f"min p: {summary.get('min_pvalue')}"
     )
+    degeneracy = cast(
+        Optional[dict[str, object]], summary.get("blend_degeneracy"),
+    )
+    if degeneracy is not None:
+        lines.append(
+            f"⚠️ blend ≡ {degeneracy.get('twin_strategy')} under "
+            f"blend_regime={degeneracy.get('blend_regime')!r} "
+            f"({degeneracy.get('n_matched_windows')} windows match byte-for-byte). "
+            "Pass --blend-regime sideways for a non-degenerate test."
+        )
     lines.append("")
     if df.empty:
         lines.append("(no window data)")
@@ -721,6 +858,19 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Override the period end (default: last date in CSV).",
     )
     parser.add_argument(
+        "--blend-regime",
+        default="unknown",
+        choices=("bull", "correction", "sideways", "bear", "crisis", "unknown"),
+        help=(
+            "Regime label fed to EtfStrategyBlend (alpha lookup). The "
+            "default 'unknown' resolves to α=1.00 (pure trend), which "
+            "makes blend mathematically identical to rotation; pick a "
+            "non-trend label (e.g. 'sideways') for a meaningful blend "
+            "comparison. The summary surfaces this degeneracy when "
+            "detected."
+        ),
+    )
+    parser.add_argument(
         "--output-csv",
         type=Path,
         default=Path("docs/walkforward_stat_tests.csv"),
@@ -759,6 +909,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         alpha=args.alpha,
         period_start=args.period_start,
         period_end=args.period_end,
+        blend_regime=args.blend_regime,
     )
 
     args.output_csv.parent.mkdir(parents=True, exist_ok=True)
