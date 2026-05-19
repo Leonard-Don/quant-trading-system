@@ -645,7 +645,7 @@ const TodayResearchDashboard = () => {
   const renderEmptyWorkbench = () => (
     <Card className="today-research-panel today-research-empty-workbench">
       <div className="today-research-empty-workbench__content">
-        <div className="app-page-section-kicker">START HERE</div>
+        <div className="app-page-section-kicker">从这里开始</div>
         <div className="today-research-empty-workbench__title">先生成一条研究线索</div>
         <p>
           今日研究会自动收集回测快照、实时复盘和行业观察；现在可以直接从一个模块开始，或先手动记下一条判断。
@@ -759,7 +759,7 @@ const TodayResearchDashboard = () => {
     <div className="today-research-page">
       <section className="today-research-hero">
         <div>
-          <div className="app-page-section-kicker">DAILY RESEARCH</div>
+          <div className="app-page-section-kicker">每日研究</div>
           <Title level={1}>今日研究</Title>
           <p>
             把回测快照、行业观察、实时提醒和复盘记录收成一张桌面工作台，先处理队列，再回到具体模块深挖。
