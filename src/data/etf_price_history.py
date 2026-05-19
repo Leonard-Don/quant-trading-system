@@ -30,6 +30,7 @@ import logging
 import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Dict, Iterator, List, Optional, Sequence
 
 import pandas as pd
@@ -243,4 +244,39 @@ def _normalize_etf_history(raw: pd.DataFrame) -> pd.Series:
     return df["close"].astype(float)
 
 
-__all__ = ["fetch_etf_history"]
+# ---------------------------------------------------------------------------
+# CSV path resolution — 5y > 4y preference
+# ---------------------------------------------------------------------------
+
+
+# Canonical CSV locations relative to the project root. The 5-year file
+# was added for power-analysis reasons (the 4y window had ~63 weekly
+# rebalances, too few for the formal DM/Sharpe/bootstrap tests); when
+# the 5y artefact is on disk we prefer it transparently so callers don't
+# have to special-case the bigger sample.
+_DEFAULT_5Y_RELPATH = Path("data") / "etf_backtest" / "etf_prices_5y.csv"
+_DEFAULT_4Y_RELPATH = Path("data") / "etf_backtest" / "etf_prices_4y.csv"
+
+
+def resolve_default_price_csv(project_root: Path) -> Path:
+    """Return the preferred default price-history CSV under ``project_root``.
+
+    Resolution rule, in order:
+
+    1. ``data/etf_backtest/etf_prices_5y.csv`` — if it exists, return it.
+       The 5-year window is what the post-power-analysis runs depend on.
+    2. ``data/etf_backtest/etf_prices_4y.csv`` — fallback (always
+       returned as-is, even if it does not exist, so the original
+       hard-coded path semantics are preserved for legacy callers that
+       still expect to see this string in error messages).
+
+    The function is pure and does no I/O beyond ``Path.exists()``.
+    """
+
+    candidate_5y = project_root / _DEFAULT_5Y_RELPATH
+    if candidate_5y.exists():
+        return candidate_5y
+    return project_root / _DEFAULT_4Y_RELPATH
+
+
+__all__ = ["fetch_etf_history", "resolve_default_price_csv"]

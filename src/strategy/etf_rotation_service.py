@@ -144,6 +144,56 @@ def max_weight_delta(prev: Mapping[str, float], curr: Mapping[str, float]) -> fl
     return max(abs(float(curr.get(k, 0.0)) - float(prev.get(k, 0.0))) for k in keys)
 
 
+def audit_state_signature(plan: Mapping[str, Any]) -> Tuple[Any, ...]:
+    """Compact, hashable fingerprint of a plan's *actionable* state.
+
+    Used to gate audit-log writes: two refreshes that produce identical
+    actionable state (same weights to 3dp, same stop-loss code set, same
+    risk reasons, same premium-block set, same policy-factor decision)
+    should not produce two audit rows. This keeps the audit log
+    information-dense — IC analytics measure actual decisions, not the
+    same persistent state re-recorded every 3 minutes.
+
+    Specifically excludes:
+
+    * ``score_breakdown`` numeric drift (latest_price/ma values bob with
+      every tick; including them would defeat the whole purpose)
+    * ``total_asset`` / ``prices_at_decision`` (move with quotes)
+    * ``run_at`` / ``quote_source`` (always change)
+    """
+
+    aw = plan.get("adjusted_weights") or {}
+    weights = tuple(
+        (k, round(float(v), 3)) for k, v in sorted(aw.items())
+    )
+
+    stops = tuple(sorted((plan.get("stop_loss_triggered") or {}).keys()))
+
+    risk = tuple(sorted(plan.get("risk_reasons") or []))
+
+    overlays = plan.get("overlays") or {}
+    premium_blocks = tuple(sorted(
+        code for code, ov in overlays.items()
+        if isinstance(ov, Mapping) and ov.get("block_new_buys")
+    ))
+
+    policy = plan.get("policy_signal_factor") or {}
+    policy_state = (
+        bool(policy.get("enabled", False)),
+        int(policy.get("applied_count", 0)),
+        tuple(sorted(policy.get("boosted") or [])),
+        tuple(sorted(policy.get("penalised") or [])),
+    )
+
+    overrides = plan.get("manual_override_status") or {}
+    override_invalidated = tuple(sorted(
+        code for code, status in overrides.items()
+        if isinstance(status, Mapping) and status.get("invalidated")
+    ))
+
+    return (weights, stops, risk, premium_blocks, policy_state, override_invalidated)
+
+
 # ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
@@ -186,6 +236,12 @@ class EtfRotationService:
         self._last_regime: Optional[str] = None
         # Most recent blender (when ensemble is enabled) for post-hoc inspection.
         self._last_blender: Optional[EtfStrategyBlend] = None
+        # Fingerprint of the last audit-logged plan. Used to suppress
+        # writes when the actionable state hasn't changed (persistent
+        # stop-loss, identical weights, same risk reasons). The first
+        # refresh after process start always writes since the prior
+        # signature is None and will compare unequal to anything.
+        self._last_audit_signature: Optional[Tuple[Any, ...]] = None
 
     @staticmethod
     def _default_quotes_fetcher(
@@ -245,6 +301,9 @@ class EtfRotationService:
                 enable_policy_signal_factor=enable_policy_signal_factor,
             )
 
+            new_signature = audit_state_signature(new_plan)
+            state_changed = new_signature != self._last_audit_signature
+
             debounce_delta: Optional[float] = None
             if self._cache is not None and not force:
                 threshold = float(
@@ -263,12 +322,19 @@ class EtfRotationService:
                         debounce_max_delta=debounce_delta,
                         reasons=["rebalance_debounce_active"],
                     )
-                    daily_etf_signal.append_audit_entry(
-                        new_plan,
-                        path=self._audit_log_path,
-                        run_at=now,
-                        quote_source=f"service:debounced:{quote_source}",
-                    )
+                    # Only audit when an actionable state field changed
+                    # (stop-loss code set, risk reasons, premium blocks,
+                    # policy factor decision, override invalidation). The
+                    # weight-drift path is suppressed by the debounce
+                    # threshold itself.
+                    if state_changed:
+                        daily_etf_signal.append_audit_entry(
+                            new_plan,
+                            path=self._audit_log_path,
+                            run_at=now,
+                            quote_source=f"service:debounced:{quote_source}",
+                        )
+                        self._last_audit_signature = new_signature
                     return RefreshOutcome(
                         refreshed=False,
                         cached=self._cache,
@@ -283,12 +349,19 @@ class EtfRotationService:
                 debounce_max_delta=debounce_delta,
             )
             self._cache = cached
-            daily_etf_signal.append_audit_entry(
-                new_plan,
-                path=self._audit_log_path,
-                run_at=now,
-                quote_source=f"service:{quote_source}",
-            )
+            # Non-debounced path: weights crossed the threshold so this is
+            # already a meaningful change. Still gate on signature so the
+            # very rare case where weights changed but everything else
+            # (stop-loss, blocks) is identical and the weight diff happens
+            # to round-trip via 3dp doesn't produce duplicate rows.
+            if state_changed:
+                daily_etf_signal.append_audit_entry(
+                    new_plan,
+                    path=self._audit_log_path,
+                    run_at=now,
+                    quote_source=f"service:{quote_source}",
+                )
+                self._last_audit_signature = new_signature
             return RefreshOutcome(refreshed=True, cached=cached)
 
     def invalidate(self) -> None:

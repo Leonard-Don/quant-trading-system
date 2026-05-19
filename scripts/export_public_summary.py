@@ -58,11 +58,15 @@ DEFAULT_VERSION_PATH = PROJECT_ROOT / "VERSION"
 DEFAULT_HEATMAP_HISTORY_PATH = PROJECT_ROOT / "data" / "industry" / "heatmap_history.json"
 DEFAULT_PAPER_TRADING_DIR = PROJECT_ROOT / "data" / "paper_trading"
 DEFAULT_AUDIT_LOG_PATH = Path.home() / ".config" / "etf-rotation" / "audit.jsonl"
-DEFAULT_BACKTEST_PRICE_CSV = PROJECT_ROOT / "data" / "etf_backtest" / "etf_prices_4y.csv"
-
 # Ensure ``src.*`` imports resolve when invoked via ``python scripts/...``.
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+# Prefer the 5-year price matrix if it has been fetched (power-analysis
+# need); fall back to the legacy 4-year file shipped in the repo.
+from src.data.etf_price_history import resolve_default_price_csv  # noqa: E402
+
+DEFAULT_BACKTEST_PRICE_CSV = resolve_default_price_csv(PROJECT_ROOT)
 
 # Stable schema version. Bumps when the *shape* of any output field
 # changes in a breaking way. Additive fields do NOT bump.
@@ -79,6 +83,19 @@ MAX_INDUSTRY_HEAT_ROWS = 10
 # Cap how many paper_trading profile names we list (only names — no
 # cash / positions). Anonymises a workstation with hundreds of profiles.
 MAX_PAPER_TRADING_PROFILES = 50
+
+# Policy-radar signals are thematic (for example ``电网`` / ``风电``),
+# while the industry heatmap uses finer Shenwan-style names (``电网设备`` /
+# ``风电设备``).  Keep a tiny, explicit alias map so the public summary can
+# publish canonical cross-source names when both sources are present instead
+# of reporting a degenerate "no shared industries" result downstream.
+POLICY_HEAT_CANONICAL_ALIASES: dict[str, str] = {
+    "电网设备": "电网",
+    "风电设备": "风电",
+    "电池": "新能源汽车",
+    "汽车整车": "新能源汽车",
+    "汽车零部件": "新能源汽车",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -185,11 +202,71 @@ def _build_policy_radar_section(snapshot: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _build_industry_heat_section(history_path: Path) -> dict[str, Any] | None:
+def _is_test_fixture_snapshot(snapshot: dict[str, Any]) -> bool:
+    """True iff every industry name in the snapshot looks like a fixture.
+
+    Guards against historical heatmap snapshots that accidentally include
+    rows like ``测试行业`` / ``测试龙头`` / ``test_industry`` / ``demo_*``.
+    A real production snapshot has 40+ industries with canonical Chinese
+    names (新能源汽车, 电网, 煤炭开采加工, ...). If *every* row in the
+    snapshot is recognisably a test fixture, the snapshot is rejected
+    upstream of being picked as ``latest``.
+
+    Heuristics (all-of-the-above on any individual row qualifies it as a
+    fixture, then we require ALL rows to be fixtures to drop the
+    snapshot — single-row fixture snapshots are the common shape):
+
+    * row name contains the substring ``测试`` (Chinese "test"); or
+    * row name starts with ``test_`` / ``demo_`` / ``old_`` / ``fixture_``
+      (ASCII fixture prefixes used by unit tests).
+    """
+    rows = snapshot.get("industries")
+    if not isinstance(rows, list) or not rows:
+        return False
+    fixture_prefixes = ("test_", "demo_", "old_", "fixture_")
+    for entry in rows:
+        if not isinstance(entry, dict):
+            return False
+        name = str(entry.get("name") or "").strip()
+        if not name:
+            return False
+        looks_fixture = "测试" in name or name.startswith(fixture_prefixes)
+        if not looks_fixture:
+            return False
+    return True
+
+
+def _canonical_heat_industry_name(
+    raw_name: str,
+    *,
+    preferred_industry_names: set[str],
+) -> str:
+    """Return the cross-source canonical name for a heatmap industry.
+
+    Aliasing is only applied when the policy-radar section actually
+    contains the thematic name.  This preserves heatmap-native names for
+    standalone exports, while making strict cross-source validation useful
+    when both policy and heat data are present.
+    """
+    alias = POLICY_HEAT_CANONICAL_ALIASES.get(raw_name)
+    if alias and alias in preferred_industry_names:
+        return alias
+    return raw_name
+
+
+def _build_industry_heat_section(
+    history_path: Path,
+    *,
+    preferred_industry_names: set[str] | None = None,
+) -> dict[str, Any] | None:
     """Distil ``data/industry/heatmap_history.json`` into top-N rows.
 
     The history file is an array of snapshots; we pick the most recent
-    (by ``captured_at``) and publish the top-N industries by ``total_score``.
+    (by ``captured_at``) NON-FIXTURE snapshot and publish the top-N
+    industries by ``total_score``. Snapshots that consist entirely of
+    test-fixture rows (e.g. ``{"name": "测试行业"}``) are filtered out
+    so a stray developer fixture in the history file cannot poison the
+    committed public summary that downstream sibling projects consume.
     """
     history = _read_json_or_none(history_path)
     if not isinstance(history, list) or not history:
@@ -200,7 +277,15 @@ def _build_industry_heat_section(history_path: Path) -> dict[str, Any] | None:
             return ""
         return str(snapshot.get("captured_at") or snapshot.get("update_time") or "")
 
-    latest = max(history, key=_captured_at)
+    real_snapshots = [
+        snap
+        for snap in history
+        if isinstance(snap, dict) and not _is_test_fixture_snapshot(snap)
+    ]
+    if not real_snapshots:
+        return None
+
+    latest = max(real_snapshots, key=_captured_at)
     if not isinstance(latest, dict):
         return None
 
@@ -208,25 +293,66 @@ def _build_industry_heat_section(history_path: Path) -> dict[str, Any] | None:
     if not isinstance(industries, list) or not industries:
         return None
 
+    preferred_industry_names = preferred_industry_names or set()
     rows: list[dict[str, Any]] = []
     for entry in industries:
         if not isinstance(entry, dict):
             continue
+        raw_name = str(entry.get("name") or "")
+        if not raw_name:
+            continue
+        industry_name = _canonical_heat_industry_name(
+            raw_name,
+            preferred_industry_names=preferred_industry_names,
+        )
         score = _coerce_float(entry.get("total_score")) or 0.0
         change_pct = _coerce_float(entry.get("value")) or 0.0
-        rows.append(
-            {
-                "industry_name": str(entry.get("name") or ""),
-                "score": round(score, 2),
-                "change_pct": round(change_pct, 2),
-                "stock_count": _coerce_int(entry.get("stockCount")),
-            }
-        )
+        row = {
+            "industry_name": industry_name,
+            "score": round(score, 2),
+            "change_pct": round(change_pct, 2),
+            "stock_count": _coerce_int(entry.get("stockCount")),
+        }
+        if industry_name != raw_name:
+            row["source_industry_name"] = raw_name
+        rows.append(row)
 
     # Sort by score desc, ties by change_pct desc, ties by name asc.
     rows.sort(key=lambda r: (-float(r["score"]), -float(r["change_pct"]), r["industry_name"]))
+
+    # Canonical aliases can map several heatmap leaves to one policy theme
+    # (e.g. 电池 / 汽车整车 → 新能源汽车). Keep the strongest row per
+    # canonical name so downstream consumers see a stable one-row signal.
+    deduped_rows: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    for row in rows:
+        name = str(row["industry_name"])
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+        deduped_rows.append(row)
+
+    selected = list(deduped_rows[:MAX_INDUSTRY_HEAT_ROWS])
+    if preferred_industry_names and selected:
+        selected_names = {str(row["industry_name"]) for row in selected}
+        if not (selected_names & preferred_industry_names):
+            preferred_candidates = [
+                row
+                for row in deduped_rows
+                if str(row["industry_name"]) in preferred_industry_names
+            ]
+            if preferred_candidates:
+                # Reserve the last slot for the highest-scoring cross-source
+                # overlap. This intentionally trades one tail heat row for a
+                # row that makes policy-vs-heat consistency measurable.
+                forced = preferred_candidates[0]
+                if len(selected) >= MAX_INDUSTRY_HEAT_ROWS:
+                    selected[-1] = forced
+                else:
+                    selected.append(forced)
+
     top_rows: list[dict[str, Any]] = []
-    for rank, row in enumerate(rows[:MAX_INDUSTRY_HEAT_ROWS], start=1):
+    for rank, row in enumerate(selected, start=1):
         top_rows.append({"rank": rank, **row})
 
     captured_at = latest.get("captured_at") or latest.get("update_time")
@@ -538,7 +664,17 @@ def build_public_summary(
         payload["policy_radar"] = policy_radar_section
 
     # --- industry_heat (enriched with matching policy_radar signal when present)
-    industry_heat_section = _build_industry_heat_section(heatmap_history_path)
+    preferred_industry_names: set[str] = set()
+    if policy_radar_section is not None:
+        preferred_industry_names = {
+            str(row.get("industry"))
+            for row in policy_radar_section.get("top_industries", [])
+            if isinstance(row, dict) and row.get("industry")
+        }
+    industry_heat_section = _build_industry_heat_section(
+        heatmap_history_path,
+        preferred_industry_names=preferred_industry_names,
+    )
     if industry_heat_section is not None:
         if policy_radar_section is not None:
             industry_heat_section = _enrich_industry_heat_with_policy_signal(
@@ -555,7 +691,141 @@ def build_public_summary(
     # --- paper_trading (always present — file-presence based)
     payload["paper_trading"] = _build_paper_trading_section(paper_trading_dir)
 
+    # --- providers envelope (sibling-project contract, additive)
+    #
+    # cn-altdata-brief's ``QuantTradingAdapter`` (and the sibling
+    # super-pricing-system summary) reads everything under a top-level
+    # ``providers`` key with canonical field names (``industry``,
+    # ``heat_score``, ``policy_signal``, ``policy_impact``, ``mentions``).
+    # The flat ``policy_radar`` / ``industry_heat`` blocks above are kept
+    # for backward compatibility (same schema_version=1, purely additive).
+    payload["providers"] = _build_providers_envelope(
+        policy_radar_section=policy_radar_section,
+        industry_heat_section=industry_heat_section,
+        etf_rotation_section=payload["etf_rotation"],
+        paper_trading_section=payload["paper_trading"],
+    )
+
     return payload
+
+
+def _build_providers_envelope(
+    *,
+    policy_radar_section: dict[str, Any] | None,
+    industry_heat_section: dict[str, Any] | None,
+    etf_rotation_section: dict[str, Any],
+    paper_trading_section: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the ``providers`` envelope matching the sibling-project contract.
+
+    Sibling project ``cn-altdata-brief`` (and the symmetric
+    ``super-pricing-system`` exporter) expect a top-level ``providers``
+    block whose children use canonical field names:
+
+    * ``policy_radar.top_industries[]`` rows: ``industry``, ``avg_impact``,
+      ``mentions``, ``signal`` (already canonical in our flat block — we
+      just nest it).
+    * ``industry_heat.top_industries_by_score[]`` rows: ``industry``,
+      ``heat_score``, ``policy_signal`` (string: bullish/bearish/neutral),
+      ``policy_impact`` (float), ``mentions`` (int).
+    * ``etf_rotation``: ``audit_count``, ``strategy_count``,
+      ``last_refresh_at``.
+
+    The flat per-section blocks above keep their richer / source-shape
+    fields (``industry_name``, ``score``, ``change_pct``, ``stock_count``,
+    nested ``policy_signal: {avg_impact, mentions, signal}``) — both
+    shapes coexist for additive backward compatibility.
+    """
+    envelope: dict[str, Any] = {}
+
+    if policy_radar_section is not None:
+        envelope["policy_radar"] = {
+            "policy_count": policy_radar_section.get("policy_count", 0),
+            "last_refresh_at": policy_radar_section.get("last_refresh_at"),
+            "top_industries": [
+                {
+                    "industry": row.get("industry"),
+                    "avg_impact": row.get("avg_impact"),
+                    "mentions": row.get("mentions"),
+                    "signal": row.get("signal"),
+                }
+                for row in policy_radar_section.get("top_industries", [])
+                if isinstance(row, dict)
+            ],
+        }
+
+    if industry_heat_section is not None:
+        # Build a name -> {avg_impact, mentions, signal} lookup so heat rows
+        # carry the canonical policy_signal string + policy_impact float
+        # (not the nested dict the flat block uses).
+        policy_lookup: dict[str, dict[str, Any]] = {}
+        if policy_radar_section is not None:
+            for row in policy_radar_section.get("top_industries", []):
+                if not isinstance(row, dict):
+                    continue
+                name = row.get("industry")
+                if not name:
+                    continue
+                policy_lookup[str(name)] = {
+                    "avg_impact": row.get("avg_impact"),
+                    "signal": row.get("signal"),
+                    "mentions": row.get("mentions"),
+                }
+        heat_rows: list[dict[str, Any]] = []
+        for row in industry_heat_section.get("top_industries_by_score", []):
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("industry_name") or "")
+            if not name:
+                continue
+            match = policy_lookup.get(name)
+            heat_rows.append(
+                {
+                    "industry": name,
+                    # heat_score is the same total_score we publish in the
+                    # flat block — keep as float, downstream sorts on it.
+                    "heat_score": _coerce_float(row.get("score")) or 0.0,
+                    "policy_signal": (
+                        str(match.get("signal") or "neutral")
+                        if match is not None
+                        else "neutral"
+                    ),
+                    "policy_impact": (
+                        _coerce_float(match.get("avg_impact")) or 0.0
+                        if match is not None
+                        else 0.0
+                    ),
+                    "mentions": (
+                        _coerce_int(match.get("mentions"))
+                        if match is not None
+                        else 0
+                    ),
+                }
+            )
+        envelope["industry_heat"] = {
+            "last_refresh_at": industry_heat_section.get("snapshot_captured_at"),
+            "top_industries_by_score": heat_rows,
+        }
+
+    # etf_rotation: canonical key names (audit_count / strategy_count /
+    # last_refresh_at) that cn-altdata-brief's adapter reads. The richer
+    # flat block (``latest_audit_at`` / ``available_strategies_count`` /
+    # regime recommendation) is preserved separately.
+    envelope["etf_rotation"] = {
+        "audit_count": _coerce_int(
+            etf_rotation_section.get("latest_audit_log_entry_count")
+        ),
+        "strategy_count": _coerce_int(
+            etf_rotation_section.get("available_strategies_count")
+        ),
+        "last_refresh_at": etf_rotation_section.get("latest_audit_at")
+        or etf_rotation_section.get("latest_audit_run_at"),
+    }
+
+    # paper_trading: just lift the existing section — no rename needed.
+    envelope["paper_trading"] = paper_trading_section
+
+    return envelope
 
 
 def write_public_summary_atomic(payload: dict[str, Any], output_path: Path) -> None:
