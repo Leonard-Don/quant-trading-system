@@ -23,6 +23,7 @@ from typing import Any
 import pytest
 
 from scripts import export_public_summary
+from src.data.etf_price_history import resolve_default_price_csv
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -460,6 +461,222 @@ def test_export_is_deterministic_for_fixed_generated_at(
     )
     assert first == second
     assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
+
+
+def test_industry_heat_rejects_test_fixture_snapshot(
+    tmp_path: Path,
+    sample_providers_dir: Path,
+    sample_paper_trading_dir: Path,
+    empty_audit_log: Path,
+) -> None:
+    """A history file whose newest snapshot is a fixture row (e.g. 测试行业)
+    must NOT poison the public summary — the exporter falls back to the
+    most recent *real* snapshot, and never emits an industry name
+    containing the substring ``测试``.
+
+    Regression guard for the cross-project bug discovered by
+    ``cn-altdata-brief validate --strict``: a stray 1-row fixture
+    snapshot at the top of ``data/industry/heatmap_history.json`` was
+    being picked as "latest", shipping ``{"industry_name": "测试行业",
+    "score": 91.2, ...}`` to downstream consumers.
+    """
+    history = [
+        {
+            # Older real snapshot — should be picked.
+            "snapshot_id": "5:real",
+            "days": 5,
+            "captured_at": "2026-05-17T09:22:57",
+            "industries": [
+                {"name": "新能源汽车", "value": 2.5, "total_score": 88.0, "stockCount": 42},
+                {"name": "电网", "value": -0.5, "total_score": 60.1, "stockCount": 12},
+            ],
+        },
+        {
+            # Newest snapshot but it's a fixture row — must be rejected.
+            "snapshot_id": "5:fixture",
+            "days": 5,
+            "captured_at": "2026-05-18T16:18:42",
+            "industries": [
+                {"name": "测试行业", "value": 4.2, "total_score": 91.2, "stockCount": 2},
+            ],
+        },
+    ]
+    history_path = tmp_path / "heatmap_history.json"
+    history_path.write_text(json.dumps(history, ensure_ascii=False), encoding="utf-8")
+
+    payload = export_public_summary.build_public_summary(
+        sample_providers_dir,
+        version_path=tmp_path / "no-version",
+        heatmap_history_path=history_path,
+        paper_trading_dir=sample_paper_trading_dir,
+        audit_log_path=empty_audit_log,
+        generated_at="2026-05-18T00:00:00+00:00",
+    )
+    heat = payload["industry_heat"]["top_industries_by_score"]
+    names = [row["industry_name"] for row in heat]
+    # The fixture row never makes it through.
+    for n in names:
+        assert "测试" not in n, f"fixture industry leaked into summary: {n!r}"
+    # The real snapshot was picked.
+    assert set(names) == {"新能源汽车", "电网"}
+    assert payload["industry_heat"]["snapshot_captured_at"] == "2026-05-17T09:22:57"
+
+
+def test_providers_envelope_matches_sibling_contract(
+    full_payload: dict[str, Any],
+) -> None:
+    """Public summary includes a top-level ``providers`` block that uses
+    the canonical field names cn-altdata-brief's QuantTradingAdapter
+    reads (``industry``, ``heat_score``, ``policy_signal`` as string,
+    ``policy_impact``, ``mentions``). The richer flat sections above
+    coexist additively.
+    """
+    assert "providers" in full_payload, "providers envelope missing"
+    providers = full_payload["providers"]
+    # All four sibling-project sections present.
+    assert set(providers).issuperset(
+        {"policy_radar", "industry_heat", "etf_rotation", "paper_trading"}
+    )
+
+    # policy_radar rows carry canonical industry/avg_impact/mentions/signal.
+    pr_rows = providers["policy_radar"]["top_industries"]
+    assert pr_rows, "providers.policy_radar.top_industries empty"
+    for row in pr_rows:
+        assert set(row) == {"industry", "avg_impact", "mentions", "signal"}
+
+    # industry_heat rows use ``industry`` (not industry_name), ``heat_score``,
+    # and a string ``policy_signal`` — required by the adapter's
+    # _industries_from_public() and the validator's
+    # _industry_signal_from_quant().
+    heat_rows = providers["industry_heat"]["top_industries_by_score"]
+    assert heat_rows, "providers.industry_heat.top_industries_by_score empty"
+    for row in heat_rows:
+        assert "industry" in row and isinstance(row["industry"], str)
+        assert "heat_score" in row and isinstance(row["heat_score"], float)
+        assert isinstance(row["policy_signal"], str)
+        assert row["policy_signal"] in {"bullish", "bearish", "neutral"}
+        assert isinstance(row["policy_impact"], float)
+        assert isinstance(row["mentions"], int)
+
+    # The 新能源汽车 row from sample fixture overlaps policy_radar
+    # → it should carry the bearish signal from policy.
+    by_name = {row["industry"]: row for row in heat_rows}
+    nev = by_name.get("新能源汽车")
+    assert nev is not None
+    assert nev["policy_signal"] == "bearish"
+    # 白酒 has no policy_radar coverage → policy_signal defaults to "neutral".
+    baijiu = by_name.get("白酒")
+    assert baijiu is not None
+    assert baijiu["policy_signal"] == "neutral"
+    assert baijiu["policy_impact"] == 0.0
+    assert baijiu["mentions"] == 0
+
+    # etf_rotation canonical keys are present (sibling project reads
+    # audit_count / strategy_count / last_refresh_at).
+    rotation = providers["etf_rotation"]
+    assert "audit_count" in rotation
+    assert "strategy_count" in rotation
+    assert "last_refresh_at" in rotation
+
+
+def test_industry_heat_names_overlap_policy_radar_when_both_present(
+    full_payload: dict[str, Any],
+) -> None:
+    """When policy_radar cache is present alongside heatmap history,
+    the published industry_heat names should share canonical names with
+    policy_radar (this is what enables the ``cn-altdata-brief``
+    ``cross_source_consistency`` validation to find real overlap rather
+    than degenerate "no industries observed by both" output).
+    """
+    heat = full_payload["industry_heat"]["top_industries_by_score"]
+    policy = full_payload["policy_radar"]["top_industries"]
+    heat_names = {row["industry_name"] for row in heat}
+    policy_names = {row["industry"] for row in policy}
+    # The sample fixtures share 新能源汽车 and 电网 — at least one must
+    # overlap for downstream cross-source comparison to work.
+    assert heat_names & policy_names, (
+        f"no overlap between industry_heat={heat_names!r} "
+        f"and policy_radar={policy_names!r}"
+    )
+
+
+def test_policy_alias_rows_reserved_for_cross_source_overlap(
+    sample_providers_dir: Path,
+    sample_paper_trading_dir: Path,
+    sample_audit_log: Path,
+    sample_backtest_price_csv: Path,
+    tmp_path: Path,
+) -> None:
+    """The real heatmap may say 电网设备 while policy_radar says 电网.
+
+    When both sources are present, the exporter reserves one tail slot for
+    the highest-scoring canonical overlap so downstream strict validation
+    can compare real shared industries instead of reporting no overlap.
+    """
+    heatmap_history = tmp_path / "heatmap_history.json"
+    industries = [
+        {
+            "name": f"高分行业{i}",
+            "value": 2.0,
+            "total_score": 100.0 - i,
+            "stockCount": 10 + i,
+        }
+        for i in range(export_public_summary.MAX_INDUSTRY_HEAT_ROWS + 2)
+    ]
+    # Lower-scoring than the top-N cutoff, but semantically overlaps the
+    # sample policy_radar fixture's "电网" row via the alias map.
+    industries.append(
+        {"name": "电网设备", "value": 0.1, "total_score": 1.0, "stockCount": 8}
+    )
+    heatmap_history.write_text(
+        json.dumps(
+            [
+                {
+                    "snapshot_id": "1:2026-05-18",
+                    "days": 1,
+                    "captured_at": "2026-05-18T09:30:00",
+                    "industries": industries,
+                }
+            ],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    payload = export_public_summary.build_public_summary(
+        sample_providers_dir,
+        heatmap_history_path=heatmap_history,
+        paper_trading_dir=sample_paper_trading_dir,
+        audit_log_path=sample_audit_log,
+        backtest_price_csv_path=sample_backtest_price_csv,
+        generated_at="2026-05-18T00:00:00+00:00",
+    )
+
+    heat_rows = payload["industry_heat"]["top_industries_by_score"]
+    by_name = {row["industry_name"]: row for row in heat_rows}
+    assert "电网" in by_name
+    assert by_name["电网"]["source_industry_name"] == "电网设备"
+    assert by_name["电网"]["policy_signal"]["signal"] == "neutral"
+    policy_names = {row["industry"] for row in payload["policy_radar"]["top_industries"]}
+    assert {row["industry_name"] for row in heat_rows} & policy_names
+
+
+def test_default_price_csv_prefers_5y_when_present(tmp_path: Path) -> None:
+    """Backtest defaults should use the 5y matrix once it has been fetched."""
+    data_dir = tmp_path / "data" / "etf_backtest"
+    data_dir.mkdir(parents=True)
+    legacy = data_dir / "etf_prices_4y.csv"
+    five_year = data_dir / "etf_prices_5y.csv"
+    legacy.write_text("date,510300\n2026-01-01,1\n", encoding="utf-8")
+    five_year.write_text("date,510300\n2026-01-01,2\n", encoding="utf-8")
+
+    assert resolve_default_price_csv(tmp_path) == five_year
+
+
+def test_default_price_csv_falls_back_to_4y_path(tmp_path: Path) -> None:
+    """Legacy hard-coded 4y semantics stay intact when 5y is absent."""
+    expected = tmp_path / "data" / "etf_backtest" / "etf_prices_4y.csv"
+    assert resolve_default_price_csv(tmp_path) == expected
 
 
 def test_sensitive_internal_fields_excluded(full_payload: dict[str, Any]) -> None:

@@ -75,6 +75,7 @@ from src.backtest.parameter_optimizer import (  # noqa: E402
     ParameterOptimizer,
 )
 from src.backtest.transaction_costs import TransactionCostModel  # noqa: E402
+from src.data.etf_price_history import resolve_default_price_csv  # noqa: E402
 from src.strategy.etf_rotation_config_loader import (  # noqa: E402
     StrategyConfig,
     load_strategy_config,
@@ -393,7 +394,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--prices-csv",
         type=Path,
-        default=PROJECT_ROOT / "data" / "etf_backtest" / "etf_prices_4y.csv",
+        default=resolve_default_price_csv(PROJECT_ROOT),
         help="Wide-form price matrix CSV (default: %(default)s).",
     )
     parser.add_argument(
