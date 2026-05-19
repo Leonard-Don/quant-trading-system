@@ -1117,7 +1117,7 @@ const IndustryDashboard = () => {
                     <div className="app-page-hero__content industry-hero-header__content">
                         <div className="app-page-eyebrow">
                             <FireOutlined />
-                            Industry Command
+                            行业指挥席
                         </div>
                         <div className="app-page-heading">
                             <span className="app-page-heading__icon">

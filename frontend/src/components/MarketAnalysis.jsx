@@ -2202,7 +2202,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
             >
                 {embedMode ? (
                     <div className="market-analysis__embed-hero">
-                        <div className="market-analysis__embed-eyebrow">Analysis Workspace</div>
+                        <div className="market-analysis__embed-eyebrow">分析工作台</div>
                         <div className="market-analysis__embed-title-row">
                             <div className="market-analysis__embed-title">{symbol} 全维分析</div>
                             <Tag color="blue" style={{ borderRadius: 999, margin: 0, paddingInline: 10 }}>

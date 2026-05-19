@@ -411,7 +411,7 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
                     styles={{ body: { padding: 20 } }}
                 >
                     <div className="trade-panel-hero__copy">
-                        <div className="trade-panel-hero__eyebrow">Paper Trading</div>
+                        <div className="trade-panel-hero__eyebrow">纸面交易</div>
                         <div className="trade-panel-hero__title">
                             {symbol || 'AAPL'} {action === 'BUY' ? '买入计划' : '卖出计划'}
                         </div>
