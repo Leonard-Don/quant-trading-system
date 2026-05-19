@@ -17,6 +17,14 @@ const { Text } = Typography;
 const SNAPSHOT_PANEL_BG = 'linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 14%, var(--bg-secondary) 86%) 0%, color-mix(in srgb, var(--accent-secondary) 14%, var(--bg-secondary) 86%) 100%)';
 const SNAPSHOT_CARD_BG = 'color-mix(in srgb, var(--bg-secondary) 92%, white 8%)';
 const EMPTY_LIST = [];
+const TREND_CHART_WIDTH = 320;
+const TREND_CHART_HEIGHT = 112;
+const TREND_CHART_PADDING = {
+    top: 12,
+    right: 16,
+    bottom: 18,
+    left: 16,
+};
 
 const getDisplayName = (symbol) => {
     const info = STOCK_DATABASE[symbol];
@@ -59,6 +67,19 @@ const formatTimestamp = (value) => {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return '--';
     return date.toLocaleString();
+};
+
+const formatCompactTimestamp = (value) => {
+    if (!value) return '--';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString([], {
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+    });
 };
 
 const hasTradableOrderBookValue = (value) => (
@@ -160,7 +181,12 @@ const buildSnapshotTrendSeries = (quote = null) => {
     return points.length >= 2 ? points : EMPTY_LIST;
 };
 
-const buildTrendPolyline = (series = [], width = 320, height = 92, padding = 8) => {
+const buildTrendChartModel = (
+    series = [],
+    width = TREND_CHART_WIDTH,
+    height = TREND_CHART_HEIGHT,
+    padding = TREND_CHART_PADDING
+) => {
     if (!Array.isArray(series) || series.length < 2) {
         return null;
     }
@@ -169,12 +195,47 @@ const buildTrendPolyline = (series = [], width = 320, height = 92, padding = 8) 
     const min = Math.min(...values);
     const max = Math.max(...values);
     const span = max - min || 1;
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = height - padding.top - padding.bottom;
 
-    return series.map((item, index) => {
-        const x = padding + (index * (width - padding * 2)) / (series.length - 1);
-        const y = height - padding - (((item.value - min) / span) * (height - padding * 2));
-        return `${x},${y}`;
-    }).join(' ');
+    const points = series.map((item, index) => {
+        const x = padding.left + (index * chartWidth) / (series.length - 1);
+        const y = padding.top + ((max - item.value) / span) * chartHeight;
+        return { ...item, x, y };
+    });
+    const firstPoint = points[0];
+    const lastPoint = points[points.length - 1];
+    const midPoint = points[Math.max(0, Math.floor(points.length / 2))];
+    const linePoints = points.map((item) => `${item.x.toFixed(2)},${item.y.toFixed(2)}`).join(' ');
+    const baseline = height - padding.bottom;
+    const areaPoints = [
+        `${firstPoint.x.toFixed(2)},${baseline}`,
+        linePoints,
+        `${lastPoint.x.toFixed(2)},${baseline}`,
+    ].join(' ');
+    const changePercent = Number(firstPoint.value)
+        ? ((Number(lastPoint.value) - Number(firstPoint.value)) / Number(firstPoint.value)) * 100
+        : null;
+
+    return {
+        points,
+        firstPoint,
+        midPoint,
+        lastPoint,
+        linePoints,
+        areaPoints,
+        min,
+        max,
+        changePercent,
+        gridY: [
+            padding.top,
+            padding.top + chartHeight / 2,
+            baseline,
+        ],
+        labels: [firstPoint, midPoint, lastPoint].filter((item, index, list) => (
+            item && list.findIndex((candidate) => candidate.label === item.label && candidate.value === item.value) === index
+        )),
+    };
 };
 
 const buildIntradayTrendSeries = (klines = []) => (
@@ -562,8 +623,13 @@ const RealtimeStockDetailModal = ({
     const [selectedCompareSymbols, setSelectedCompareSymbols] = useState([]);
     const [intradayTrendSeries, setIntradayTrendSeries] = useState(EMPTY_LIST);
     const snapshotTrendSeries = useMemo(() => buildSnapshotTrendSeries(quote), [quote]);
-    const snapshotTrendPolyline = useMemo(() => buildTrendPolyline(snapshotTrendSeries), [snapshotTrendSeries]);
-    const intradayTrendPolyline = useMemo(() => buildTrendPolyline(intradayTrendSeries), [intradayTrendSeries]);
+    const trendUsesIntraday = intradayTrendSeries.length >= 2;
+    const activeTrendSeries = trendUsesIntraday ? intradayTrendSeries : snapshotTrendSeries;
+    const activeTrendChart = useMemo(() => buildTrendChartModel(activeTrendSeries), [activeTrendSeries]);
+    const trendGradientId = useMemo(
+        () => `detail-trend-gradient-${String(displaySymbol || 'symbol').replace(/[^a-zA-Z0-9_-]/g, '-')}`,
+        [displaySymbol]
+    );
     const compareTargetSymbols = useMemo(
         () => safeCompareCandidates
             .filter((item) => item?.symbol && item.symbol !== displaySymbol)
@@ -732,53 +798,113 @@ const RealtimeStockDetailModal = ({
                         </div>
                     </div>
 
-                    {quote && (intradayTrendPolyline || snapshotTrendPolyline) ? (
+                    {quote && activeTrendChart ? (
                         <div
                             data-testid="detail-snapshot-trend"
                             style={{
                                 marginBottom: 14,
-                                padding: '10px 12px',
-                                borderRadius: 15,
-                                background: 'rgba(255,255,255,0.72)',
-                                border: '1px solid rgba(148, 163, 184, 0.18)',
+                                padding: '12px 14px 11px',
+                                borderRadius: 16,
+                                background: 'linear-gradient(180deg, rgba(255,255,255,0.82) 0%, rgba(255,255,255,0.62) 100%)',
+                                border: '1px solid rgba(148, 163, 184, 0.22)',
+                                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7)',
                             }}
                         >
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
-                                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>
-                                    盘中走势
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 8 }}>
+                                <div style={{ display: 'grid', gap: 3 }}>
+                                    <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-primary)' }}>
+                                        盘中走势
+                                    </div>
+                                    <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                                        {trendUsesIntraday ? `最近 ${activeTrendSeries.length} 根 1H K 线 · 收盘价` : '昨收 / 开盘 / 低点 / 现价 / 高点'}
+                                    </div>
                                 </div>
-                                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                                    {intradayTrendPolyline ? '基于最近一段 K 线收盘价' : '昨收 / 开盘 / 低点 / 现价 / 高点'}
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                                    <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 8, borderColor: 'rgba(148, 163, 184, 0.22)' }}>
+                                        区间 {formatNumber(activeTrendChart.min)} - {formatNumber(activeTrendChart.max)}
+                                    </Tag>
+                                    <Tag
+                                        color={Number(activeTrendChart.changePercent || 0) >= 0 ? 'success' : 'error'}
+                                        style={{ margin: 0, borderRadius: 999, paddingInline: 8, fontWeight: 700 }}
+                                    >
+                                        较起点 {formatSignedNumber(activeTrendChart.changePercent, 2, '%')}
+                                    </Tag>
                                 </div>
                             </div>
                             <svg
                                 width="100%"
-                                height="82"
-                                viewBox="0 0 320 82"
+                                height="118"
+                                viewBox={`0 0 ${TREND_CHART_WIDTH} ${TREND_CHART_HEIGHT}`}
                                 preserveAspectRatio="none"
                                 role="img"
                                 aria-label={`${displaySymbol} 盘中走势线`}
                             >
+                                <defs>
+                                    <linearGradient id={trendGradientId} x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor={changeColor} stopOpacity="0.22" />
+                                        <stop offset="100%" stopColor={changeColor} stopOpacity="0.02" />
+                                    </linearGradient>
+                                </defs>
+                                {activeTrendChart.gridY.map((y) => (
+                                    <line
+                                        key={`grid-${y}`}
+                                        x1={TREND_CHART_PADDING.left}
+                                        x2={TREND_CHART_WIDTH - TREND_CHART_PADDING.right}
+                                        y1={y}
+                                        y2={y}
+                                        stroke="rgba(148, 163, 184, 0.24)"
+                                        strokeWidth="1"
+                                        strokeDasharray="4 5"
+                                    />
+                                ))}
+                                <polygon
+                                    fill={`url(#${trendGradientId})`}
+                                    points={activeTrendChart.areaPoints}
+                                />
                                 <polyline
                                     fill="none"
                                     stroke={changeColor}
-                                    strokeWidth="3"
+                                    strokeWidth="3.2"
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
-                                    points={intradayTrendPolyline || snapshotTrendPolyline}
+                                    points={activeTrendChart.linePoints}
                                 />
+                                {[activeTrendChart.firstPoint, activeTrendChart.lastPoint].map((point) => (
+                                    <circle
+                                        key={`${point.label}-${point.value}`}
+                                        cx={point.x}
+                                        cy={point.y}
+                                        r="4"
+                                        fill="white"
+                                        stroke={changeColor}
+                                        strokeWidth="2.2"
+                                    />
+                                ))}
                             </svg>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
-                                {(intradayTrendPolyline ? [
-                                    intradayTrendSeries[0],
-                                    intradayTrendSeries[Math.max(0, Math.floor(intradayTrendSeries.length / 2))],
-                                    intradayTrendSeries[intradayTrendSeries.length - 1],
-                                ] : snapshotTrendSeries).filter(Boolean).map((item) => (
+                            <div
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: `repeat(${activeTrendChart.labels.length}, minmax(0, 1fr))`,
+                                    gap: 8,
+                                    marginTop: 6,
+                                }}
+                            >
+                                {activeTrendChart.labels.map((item, index) => (
                                     <span
                                         key={`${displaySymbol}-${item.label}-${item.value}`}
-                                        style={{ fontSize: 10, color: 'var(--text-secondary)' }}
+                                        style={{
+                                            minWidth: 0,
+                                            textAlign: index === 0 ? 'left' : index === activeTrendChart.labels.length - 1 ? 'right' : 'center',
+                                            display: 'grid',
+                                            gap: 2,
+                                        }}
                                     >
-                                        {intradayTrendPolyline ? `${formatTimestamp(item.label)} ${formatNumber(item.value)}` : `${item.label} ${formatNumber(item.value)}`}
+                                        <span style={{ fontSize: 10, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            {trendUsesIntraday ? formatCompactTimestamp(item.label) : item.label}
+                                        </span>
+                                        <strong style={{ fontSize: 12, color: 'var(--text-primary)', lineHeight: 1.2 }}>
+                                            {formatNumber(item.value)}
+                                        </strong>
                                     </span>
                                 ))}
                             </div>
