@@ -11,8 +11,15 @@ import {
 import {
     buildDisplayTier,
     buildDisplayTone,
+    formatBiasQualityLabel,
     formatConstructionMode,
     formatExecutionChannel,
+    formatSignalLabel,
+    formatSignalList,
+    formatStatusLabel,
+    formatTemplateName,
+    formatTemplateNarrative,
+    formatTemplateTheme,
     formatTradeAction,
     formatVenue,
 } from '../utils/crossMarketFormatters';
@@ -113,6 +120,16 @@ describe('crossMarketFormatters', () => {
         expect(formatVenue('COMEX_CME')).toBe('CME / COMEX');
         expect(formatVenue('OTHER')).toBe('OTHER');
         expect(formatVenue()).toBe('-');
+    });
+
+    it('localizes cross-market template and signal copy', () => {
+        expect(formatTemplateName({ id: 'utilities_vs_growth', name: 'US utilities vs NASDAQ growth' })).toBe('美股公用事业 vs 纳指成长');
+        expect(formatTemplateTheme('Policy-fragile defensives vs growth beta')).toBe('政策脆弱防御资产 vs 成长 Beta');
+        expect(formatTemplateNarrative('Defensive regulated utilities against growth-heavy tech beta.')).toBe('用受监管的防御型公用事业，对冲高成长科技 Beta。');
+        expect(formatSignalLabel('policy_fragility_defensive')).toBe('政策脆弱防御腿');
+        expect(formatSignalList(['baseload_capacity', 'department_chaos'])).toBe('基荷容量、部门混乱');
+        expect(formatStatusLabel('fallback-heavy')).toBe('回退来源偏高');
+        expect(formatBiasQualityLabel('full')).toBe('完整强度');
     });
 });
 
