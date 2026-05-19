@@ -30,7 +30,7 @@ Typical use::
         --window-years 2 \
         --step-months 6 \
         --strategies rotation,mean_reversion,blend \
-        --output-csv walkforward_stat_tests.csv \
+        --output-csv docs/walkforward_stat_tests.csv \
         --output-md docs/walkforward_stat_tests_summary.md
 
 Outputs:
@@ -723,8 +723,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-csv",
         type=Path,
-        default=Path("walkforward_stat_tests.csv"),
-        help="Destination for the long-form per-window DataFrame.",
+        default=Path("docs/walkforward_stat_tests.csv"),
+        help=(
+            "Destination for the long-form per-window DataFrame "
+            "(default: docs/walkforward_stat_tests.csv)."
+        ),
     )
     parser.add_argument(
         "--output-md",
