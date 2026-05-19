@@ -133,6 +133,106 @@ def test_generate_plan_is_deterministic() -> None:
     ]
 
 
+def test_generate_plan_includes_manual_override_status_default_empty() -> None:
+    """No manual_overrides in config → empty dict, never missing."""
+    plan = _make_plan()
+    assert "manual_override_status" in plan
+    assert plan["manual_override_status"] == {}
+
+
+def test_generate_plan_marks_manual_override_invalidated_when_price_breaks() -> None:
+    """User's invalidation line surfaces as ``invalidated=True`` once the
+    current price crosses below it. The 512400 entry mirrors what
+    actually happened to the user on 2026-05-19 morning."""
+
+    from src.data.etf_rotation import EtfHolding, EtfQuote
+    from src.strategy.etf_rotation_config_loader import (
+        StrategyConfig,
+        load_strategy_config,
+    )
+    from dataclasses import replace as _dc_replace
+
+    holdings = [
+        EtfHolding(code="512400", name="有色金属ETF", shares=4700,
+                   cost_price=2.227, current_price=1.96),
+    ]
+    quotes = {
+        "512400": EtfQuote(
+            code="512400", name="有色金属ETF",
+            current_price=1.96, prev_close=2.00,
+            timestamp="2026-05-19T03:30:00Z",
+        ),
+    }
+
+    # Build a tiny config that just adds the override under test. We start
+    # from the built-in defaults and patch in a single manual_overrides
+    # entry — avoids depending on the user's live strategy.json.
+    default_cfg = load_strategy_config()
+    cfg = _dc_replace(default_cfg, manual_overrides={
+        "512400": {
+            "invalidation_price": 1.975,
+            "thesis": "底部+石油抽走流动性",
+            "set_at": "2026-05-18",
+        },
+    })
+
+    plan = daily_etf_signal.generate_plan(
+        holdings=holdings,
+        quotes=quotes,
+        strategy_config=cfg,
+    )
+
+    status = plan["manual_override_status"]
+    assert "512400" in status
+    assert status["512400"]["invalidated"] is True
+    assert status["512400"]["invalidation_price"] == 1.975
+    assert status["512400"]["current_price"] == 1.96
+    assert status["512400"]["thesis"] == "底部+石油抽走流动性"
+    assert status["512400"]["set_at"] == "2026-05-18"
+
+
+def test_generate_plan_manual_override_not_invalidated_when_price_above_line() -> None:
+    """Price strictly above the line keeps ``invalidated=False``."""
+
+    from src.data.etf_rotation import EtfHolding, EtfQuote
+    from src.strategy.etf_rotation_config_loader import (
+        StrategyConfig,
+        load_strategy_config,
+    )
+    from dataclasses import replace as _dc_replace
+
+    holdings = [
+        EtfHolding(code="513130", name="恒生科技ETF", shares=3100,
+                   cost_price=0.731, current_price=0.65),
+    ]
+    quotes = {
+        "513130": EtfQuote(
+            code="513130", name="恒生科技ETF",
+            current_price=0.65, prev_close=0.64,
+            timestamp="2026-05-19T03:30:00Z",
+        ),
+    }
+
+    default_cfg = load_strategy_config()
+    cfg = _dc_replace(default_cfg, manual_overrides={
+        "513130": {
+            "invalidation_price": 0.60,
+            "thesis": "0.6 技术支撑",
+        },
+    })
+
+    plan = daily_etf_signal.generate_plan(
+        holdings=holdings,
+        quotes=quotes,
+        strategy_config=cfg,
+    )
+
+    status = plan["manual_override_status"]["513130"]
+    assert status["invalidated"] is False
+    assert status["current_price"] == 0.65
+    assert status["invalidation_price"] == 0.60
+
+
 # ---------------------------------------------------------------------------
 # Output formatting
 # ---------------------------------------------------------------------------

@@ -32,7 +32,23 @@ def _isolate_etf_rotation_external_state(monkeypatch, tmp_path):
 
     monkeypatch.delenv("ETF_HOLDINGS_PATH", raising=False)
     monkeypatch.delenv("ETF_AUDIT_LOG_PATH", raising=False)
+    monkeypatch.delenv("ETF_STRATEGY_CONFIG_PATH", raising=False)
     monkeypatch.setenv("ETF_PREFERENCES_PATH", str(tmp_path / "etf_preferences.json"))
+
+    # Neutralise the strategy.json loader so the dev workstation's live
+    # config (with real manual_overrides, holdings, etc.) never bleeds
+    # into a "should be a fresh default" unit-test path. Tests that want
+    # to exercise specific config can still pass `path=` explicitly to
+    # ``load_strategy_config``.
+    try:
+        from src.strategy import etf_rotation_config_loader as _cfg_loader
+        monkeypatch.setattr(
+            _cfg_loader,
+            "DEFAULT_CONFIG_PATH",
+            Path("/nonexistent/etf-rotation/strategy.json"),
+        )
+    except ImportError:
+        pass
 
     try:
         from scripts import daily_etf_signal

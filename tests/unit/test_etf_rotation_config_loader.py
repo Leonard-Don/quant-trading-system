@@ -179,3 +179,90 @@ def test_load_strategy_config_merges_order_pricing_overrides(tmp_path) -> None:
         cfg.order_pricing["batch_breakpoint_shares"]
         == DEFAULT_ORDER_PRICING_PARAMS["batch_breakpoint_shares"]
     )
+
+
+def test_load_strategy_config_parses_manual_overrides(tmp_path) -> None:
+    """Whitelisted keys + price coercion + comment-key stripping."""
+
+    path = tmp_path / "strategy.json"
+    path.write_text(json.dumps({
+        "manual_overrides": {
+            "_comment": "ignored",  # top-level comment key inside the section
+            "512400": {
+                "invalidation_price": "1.975",  # string coerces to float
+                "thesis": "底部+石油抽走流动性",
+                "set_at": "2026-05-18",
+                "note": "extra context",
+                "unsupported_field": "should be dropped",  # silently ignored
+            },
+            "513130": {
+                "invalidation_price": 0.60,
+                "thesis": "0.6 技术支撑",
+            },
+            "518680": {
+                # No invalidation_price → still kept because thesis is set.
+                "thesis": "$4500 spot 黄金承接",
+            },
+            "BADCODE": {
+                # No valid normalised fields → entry is dropped entirely.
+                "invalidation_price": "not-a-number",
+                "thesis": "",
+            },
+        },
+    }))
+
+    cfg = load_strategy_config(path)
+
+    assert "_comment" not in cfg.manual_overrides
+    assert cfg.manual_overrides["512400"] == {
+        "invalidation_price": 1.975,
+        "thesis": "底部+石油抽走流动性",
+        "set_at": "2026-05-18",
+        "note": "extra context",
+    }
+    assert cfg.manual_overrides["513130"] == {
+        "invalidation_price": 0.60,
+        "thesis": "0.6 技术支撑",
+    }
+    assert cfg.manual_overrides["518680"] == {
+        "thesis": "$4500 spot 黄金承接",
+    }
+    assert "BADCODE" not in cfg.manual_overrides
+
+
+def test_load_strategy_config_manual_overrides_default_empty(tmp_path) -> None:
+    """No manual_overrides section → empty dict, never None."""
+
+    path = tmp_path / "strategy.json"
+    path.write_text(json.dumps({"strategy": {"rebalance_threshold": 0.20}}))
+
+    cfg = load_strategy_config(path)
+
+    assert cfg.manual_overrides == {}
+
+
+def test_load_strategy_config_ignores_non_mapping_manual_overrides(tmp_path) -> None:
+    path = tmp_path / "strategy.json"
+    path.write_text(json.dumps({"manual_overrides": "not-an-object"}))
+
+    cfg = load_strategy_config(path)
+
+    assert cfg.manual_overrides == {}
+
+
+def test_load_strategy_config_rejects_negative_invalidation_price(tmp_path) -> None:
+    """Negative/zero prices silently dropped (the entry is still kept if it
+    has thesis text — just without the broken price)."""
+
+    path = tmp_path / "strategy.json"
+    path.write_text(json.dumps({
+        "manual_overrides": {
+            "510300": {"invalidation_price": -1.0, "thesis": "test"},
+            "159985": {"invalidation_price": 0.0, "thesis": "zero"},
+        },
+    }))
+
+    cfg = load_strategy_config(path)
+
+    assert cfg.manual_overrides["510300"] == {"thesis": "test"}
+    assert cfg.manual_overrides["159985"] == {"thesis": "zero"}
