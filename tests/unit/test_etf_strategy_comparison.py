@@ -458,6 +458,116 @@ def test_mean_reversion_and_blend_run_against_real_universe() -> None:
         assert rep.n_rebalances > 0
 
 
+def test_blend_under_default_unknown_regime_is_metrics_identical_to_rotation() -> None:
+    """Pin the harness-level degeneracy: under the default ``blend_regime="unknown"``
+    the comparator's blend ≡ rotation.
+
+    ``DEFAULT_REGIME_BLEND_WEIGHTS["unknown"] = 1.00`` collapses the
+    blender to pure trend by design (see the blender module docstring).
+    The downstream consequence is that ``StrategyComparator`` with the
+    default ``blend_regime`` produces ``BacktestReport`` scalars and
+    rebalance logs that are byte-identical between the ``rotation`` and
+    ``blend`` rows — every Sharpe, total-return, max-DD, and
+    per-rebalance return matches numerically.
+
+    This regression test pins that contract so a future engineer who
+    sees rotation/blend rows with identical numbers in a walk-forward
+    summary can find a test naming the cause instead of having to
+    reproduce-and-investigate from scratch. If someone intentionally
+    changes the unknown-regime default away from 1.0 they must also
+    delete this test and update the walk-forward degeneracy detector.
+    """
+
+    config = EtfRotationConfig(
+        assets=[
+            EtfAssetConfig(symbol=s, max_weight=0.30)
+            for s in ("A", "B", "C", "D", "E")
+        ],
+        gross_cap=0.90,
+        warmup_days=60,
+    )
+    dates = pd.date_range("2024-01-01", periods=200, freq="B")
+    rng = np.random.default_rng(seed=77)
+    cols: dict[str, np.ndarray] = {}
+    for offset, sym in enumerate(("A", "B", "C", "D", "E")):
+        drift = np.linspace(0.0, 0.12 * (1 + offset * 0.4), 200)
+        noise = rng.normal(0.0, 0.005, 200)
+        cols[sym] = 100.0 * np.exp(drift + np.cumsum(noise))
+    prices = pd.DataFrame(cols, index=dates)
+
+    # blend_regime defaults to "unknown" — the case that triggers the
+    # degeneracy. The test would fail if anyone changed the default to a
+    # non-trend label without also updating this contract.
+    specs = list(build_default_strategy_specs(config).values())
+    report = StrategyComparator(specs, prices).run()
+
+    rotation_report = report.per_strategy_metrics[STRATEGY_LABEL_ROTATION]
+    blend_report = report.per_strategy_metrics[STRATEGY_LABEL_BLEND]
+    mr_report = report.per_strategy_metrics[STRATEGY_LABEL_MEAN_REVERSION]
+
+    # Scalar metrics must match byte-for-byte.
+    assert rotation_report.total_return_pct == blend_report.total_return_pct
+    assert rotation_report.sharpe_ratio == blend_report.sharpe_ratio
+    assert rotation_report.max_drawdown_pct == blend_report.max_drawdown_pct
+    assert rotation_report.avg_turnover_pct == blend_report.avg_turnover_pct
+    assert rotation_report.win_rate == blend_report.win_rate
+    assert rotation_report.final_equity == blend_report.final_equity
+    # Per-rebalance log entries match too — proves the degeneracy is on the
+    # signal-generation side, not a coincidental scalar collision.
+    rotation_returns = [
+        e.get("period_return_pct") for e in rotation_report.rebalance_log
+    ]
+    blend_returns = [
+        e.get("period_return_pct") for e in blend_report.rebalance_log
+    ]
+    assert rotation_returns == blend_returns
+    # Mean-reversion is genuinely different — sanity check the degeneracy
+    # is specifically blend-vs-rotation, not blend-vs-everyone.
+    assert mr_report.total_return_pct != blend_report.total_return_pct
+
+
+def test_blend_with_sideways_regime_diverges_from_rotation() -> None:
+    """Counter-test: with ``blend_regime="sideways"`` (α=0.5) the blender
+    is non-degenerate — its metrics must differ from rotation's.
+
+    Why this matters: the previous test pins the degeneracy under the
+    default; this one pins the *escape hatch*. Together they document
+    that the right cure for "blend looks identical to rotation" is
+    `blend_regime != "unknown"`, not a code change to the blender.
+    """
+
+    config = EtfRotationConfig(
+        assets=[
+            EtfAssetConfig(symbol=s, max_weight=0.30)
+            for s in ("A", "B", "C", "D", "E")
+        ],
+        gross_cap=0.90,
+        warmup_days=60,
+    )
+    dates = pd.date_range("2024-01-01", periods=200, freq="B")
+    rng = np.random.default_rng(seed=77)
+    cols: dict[str, np.ndarray] = {}
+    for offset, sym in enumerate(("A", "B", "C", "D", "E")):
+        drift = np.linspace(0.0, 0.12 * (1 + offset * 0.4), 200)
+        noise = rng.normal(0.0, 0.005, 200)
+        cols[sym] = 100.0 * np.exp(drift + np.cumsum(noise))
+    prices = pd.DataFrame(cols, index=dates)
+
+    specs = list(
+        build_default_strategy_specs(config, blend_regime="sideways").values()
+    )
+    report = StrategyComparator(specs, prices).run()
+    rotation_report = report.per_strategy_metrics[STRATEGY_LABEL_ROTATION]
+    blend_report = report.per_strategy_metrics[STRATEGY_LABEL_BLEND]
+    # At α=0.5 the blender pulls in mean-reversion weight, so at least
+    # one headline scalar must move.
+    assert (
+        rotation_report.total_return_pct != blend_report.total_return_pct
+        or rotation_report.sharpe_ratio != blend_report.sharpe_ratio
+        or rotation_report.avg_turnover_pct != blend_report.avg_turnover_pct
+    )
+
+
 def test_statistical_tests_section_emitted_when_opted_in() -> None:
     """compute_statistical_tests=True populates the statistical_tests block."""
 

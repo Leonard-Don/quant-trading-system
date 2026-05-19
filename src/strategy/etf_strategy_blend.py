@@ -23,6 +23,22 @@ quant motivation for ensembles. The blender:
 The blender exposes the *same* ``evaluate(...)`` signature as
 ``EtfRotationStrategy`` so ``daily_etf_signal.generate_plan`` can use
 it as a drop-in replacement.
+
+Degeneracy contract under ``regime="unknown"``
+----------------------------------------------
+``DEFAULT_REGIME_BLEND_WEIGHTS["unknown"] = 1.0`` on purpose: a caller
+that has not classified the market regime gets the pure trend output
+back rather than a silent 50/50 bet on mean-reversion. The consequence
+is that ``EtfStrategyBlend`` with ``regime="unknown"`` (the constructor
+default) is mathematically equivalent to ``EtfRotationStrategy`` —
+*every* per-bar target weight, score, and downstream metric is
+byte-identical. The comparison harness in ``src/backtest/strategy_comparison.py``
+and walk-forward scripts that exercise blend without an explicit regime
+will therefore report blend's per-window metrics as identical to
+rotation's. This is not a bug in the blender; it is the documented
+α=1.0 contract pinned by ``test_blend_pure_trend_alpha_matches_pure_trend_strategy_output``.
+Callers wanting a real blend comparison must pass a non-trend regime
+label (``"sideways"`` → α=0.5, ``"bear"`` → α=0.4, etc.).
 """
 
 from __future__ import annotations
@@ -45,7 +61,19 @@ DEFAULT_REGIME_BLEND_WEIGHTS: Dict[str, float] = {
     "sideways": 0.50,
     "bear": 0.40,
     "crisis": 1.00,  # crisis = stay with trend's defensive call; MR catches knives
-    "unknown": 1.00,  # safe default
+    # ``unknown`` is the "no regime classified yet" fallback — α=1.00 means
+    # the blender returns *exactly* the trend strategy's target weights and
+    # the MR leg contributes nothing. This is by design (a caller that
+    # hasn't classified regime should not be silently making a 50/50 bet on
+    # mean-reversion they didn't ask for) but it has a non-obvious harness
+    # consequence: any comparison / walk-forward that runs blend with the
+    # default regime will produce per-window metrics that are byte-identical
+    # to the rotation strategy's. Callers wanting a *non-degenerate* blend
+    # comparison MUST pass an explicit non-trend regime label (e.g.
+    # ``"sideways"`` for α=0.5) — see ``EtfStrategyBlend.set_regime`` and
+    # the ``--blend-regime`` flag on ``scripts/compare_strategies.py`` /
+    # ``scripts/walkforward_stat_tests.py``.
+    "unknown": 1.00,
 }
 
 

@@ -390,3 +390,166 @@ def test_cli_default_outputs_are_publishable_docs_paths() -> None:
     )
     assert args.output_csv == Path("docs/walkforward_stat_tests.csv")
     assert args.output_md == Path("docs/walkforward_stat_tests_summary.md")
+
+
+# ---------------------------------------------------------------------------
+# Blend ≡ rotation degeneracy detector
+# ---------------------------------------------------------------------------
+
+
+def test_blend_regime_flag_defaults_to_unknown() -> None:
+    """--blend-regime is the passthrough that lets a user escape degeneracy;
+    its default must remain ``unknown`` so existing scripts/CI don't break.
+    """
+
+    from scripts import walkforward_stat_tests as wf
+
+    args = wf._build_arg_parser().parse_args(
+        ["--csv", "data/etf_backtest/etf_prices_5y.csv"]
+    )
+    assert args.blend_regime == "unknown"
+
+
+def test_detect_blend_rotation_degeneracy_flags_identical_rows() -> None:
+    """When blend's per-window DM stats are byte-identical to rotation's
+    the detector returns a payload naming the twin strategy.
+    """
+
+    from scripts.walkforward_stat_tests import _detect_blend_rotation_degeneracy
+
+    df = pd.DataFrame(
+        {
+            "strategy": ["rotation", "rotation", "blend", "blend"],
+            "window_id": [0, 1, 0, 1],
+            "dm_stat": [1.10, -0.25, 1.10, -0.25],
+            "dm_pvalue": [0.27, 0.80, 0.27, 0.80],
+        }
+    )
+    payload = _detect_blend_rotation_degeneracy(df, blend_regime="unknown")
+    assert payload is not None
+    assert payload["twin_strategy"] == "rotation"
+    assert payload["blend_regime"] == "unknown"
+    assert payload["n_matched_windows"] == 2
+
+
+def test_detect_blend_rotation_degeneracy_returns_none_when_distinct() -> None:
+    """When blend's per-window numbers differ from every other strategy the
+    detector must return None — no false-positive warnings.
+    """
+
+    from scripts.walkforward_stat_tests import _detect_blend_rotation_degeneracy
+
+    df = pd.DataFrame(
+        {
+            "strategy": ["rotation", "rotation", "blend", "blend"],
+            "window_id": [0, 1, 0, 1],
+            "dm_stat": [1.10, -0.25, 0.85, -0.31],
+            "dm_pvalue": [0.27, 0.80, 0.39, 0.75],
+        }
+    )
+    assert _detect_blend_rotation_degeneracy(df, blend_regime="sideways") is None
+
+
+def test_detect_blend_rotation_degeneracy_returns_none_when_blend_absent() -> None:
+    """If the strategy list does not include blend the detector is a no-op."""
+
+    from scripts.walkforward_stat_tests import _detect_blend_rotation_degeneracy
+
+    df = pd.DataFrame(
+        {
+            "strategy": ["rotation", "mean_reversion"],
+            "window_id": [0, 0],
+            "dm_stat": [0.5, 0.5],
+            "dm_pvalue": [0.6, 0.6],
+        }
+    )
+    assert _detect_blend_rotation_degeneracy(df, blend_regime="unknown") is None
+
+
+def test_summary_renders_degeneracy_warning_in_markdown_and_terminal() -> None:
+    """The Markdown + terminal renderers must surface the degeneracy
+    payload so a human reading the summary cannot miss it.
+    """
+
+    from scripts.walkforward_stat_tests import (
+        _build_summary,
+        _render_terminal_summary,
+        render_markdown_summary,
+    )
+
+    df = pd.DataFrame(
+        {
+            "strategy": ["rotation", "rotation", "blend", "blend"],
+            "window_id": [0, 1, 0, 1],
+            "start_date": ["2022-01-01"] * 4,
+            "end_date": ["2024-01-01"] * 4,
+            "n_obs": [100, 100, 100, 100],
+            "dm_stat": [1.10, -0.25, 1.10, -0.25],
+            "dm_pvalue": [0.27, 0.80, 0.27, 0.80],
+            "sharpe_z": [0.5, -0.2, 0.5, -0.2],
+            "sharpe_pvalue": [0.6, 0.8, 0.6, 0.8],
+            "boot_lower": [-0.05, -0.10, -0.05, -0.10],
+            "boot_upper": [0.10, 0.05, 0.10, 0.05],
+            "boot_pvalue": [0.4, 0.7, 0.4, 0.7],
+            "dm_holm_threshold": [0.05] * 4,
+            "dm_holm_rejected": [False] * 4,
+            "dm_holm_alpha": [0.05] * 4,
+        }
+    )
+    summary = _build_summary(
+        df,
+        comparison=None,
+        window_years=2.0,
+        step_months=6,
+        alpha=0.05,
+        blend_regime="unknown",
+    )
+    assert summary["blend_degeneracy"] is not None
+    md = render_markdown_summary(df, summary)
+    term = _render_terminal_summary(df, summary)
+    assert "Degenerate blend comparison" in md
+    assert "blend ≡ rotation" in term
+    # The honest conclusion must lead with the degeneracy warning so the
+    # user can't read past the headline numbers without seeing it.
+    assert "blend ≡ rotation" in str(summary["honest_conclusion"])
+
+
+def test_summary_omits_degeneracy_warning_when_sideways_regime() -> None:
+    """A non-degenerate blend run must not trigger the warning."""
+
+    from scripts.walkforward_stat_tests import (
+        _build_summary,
+        _render_terminal_summary,
+        render_markdown_summary,
+    )
+
+    df = pd.DataFrame(
+        {
+            "strategy": ["rotation", "rotation", "blend", "blend"],
+            "window_id": [0, 1, 0, 1],
+            "start_date": ["2022-01-01"] * 4,
+            "end_date": ["2024-01-01"] * 4,
+            "n_obs": [100, 100, 100, 100],
+            "dm_stat": [1.10, -0.25, 0.85, -0.31],
+            "dm_pvalue": [0.27, 0.80, 0.39, 0.75],
+            "sharpe_z": [0.5, -0.2, 0.4, -0.3],
+            "sharpe_pvalue": [0.6, 0.8, 0.7, 0.7],
+            "boot_lower": [-0.05, -0.10, -0.04, -0.09],
+            "boot_upper": [0.10, 0.05, 0.09, 0.04],
+            "boot_pvalue": [0.4, 0.7, 0.5, 0.6],
+            "dm_holm_threshold": [0.05] * 4,
+            "dm_holm_rejected": [False] * 4,
+            "dm_holm_alpha": [0.05] * 4,
+        }
+    )
+    summary = _build_summary(
+        df,
+        comparison=None,
+        window_years=2.0,
+        step_months=6,
+        alpha=0.05,
+        blend_regime="sideways",
+    )
+    assert summary["blend_degeneracy"] is None
+    assert "Degenerate blend comparison" not in render_markdown_summary(df, summary)
+    assert "blend ≡" not in _render_terminal_summary(df, summary)
