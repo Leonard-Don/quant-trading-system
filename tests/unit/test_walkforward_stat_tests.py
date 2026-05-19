@@ -378,3 +378,15 @@ def test_cli_smoke_runs_end_to_end(tmp_path: Path) -> None:
     # Honest conclusion must be a non-empty string.
     assert isinstance(summary["honest_conclusion"], str)
     assert summary["honest_conclusion"]
+
+
+def test_cli_default_outputs_are_publishable_docs_paths() -> None:
+    """A no-flag real-data run should not leave root-level untracked CSVs."""
+
+    from scripts import walkforward_stat_tests as wf
+
+    args = wf._build_arg_parser().parse_args(
+        ["--csv", "data/etf_backtest/etf_prices_5y.csv"]
+    )
+    assert args.output_csv == Path("docs/walkforward_stat_tests.csv")
+    assert args.output_md == Path("docs/walkforward_stat_tests_summary.md")
