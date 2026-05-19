@@ -1,5 +1,13 @@
 import { formatResearchSource } from '../../utils/researchContext.js';
 import {
+  formatConstructionMode,
+  formatSignalLabel,
+  formatStatusLabel,
+  formatTemplateName,
+  formatTemplateNarrative,
+  formatTemplateTheme,
+} from '../../utils/crossMarketFormatters.js';
+import {
   buildCrossMarketRefreshPriorityEvent,
   buildTradeThesisRefreshPriorityEvent,
 } from '../../utils/workbenchPriorityEvents.js';
@@ -389,7 +397,7 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
     return null;
   }
 
-  const templateName = template?.name || templateId || '当前篮子';
+  const templateName = template ? formatTemplateName(template) : (templateId ? formatTemplateName(templateId) : '当前篮子');
   const templateAssets = template?.assets || [];
   const longCount = templateAssets.filter((asset) => asset.side === 'long').length;
   const shortCount = templateAssets.filter((asset) => asset.side === 'short').length;
@@ -405,8 +413,8 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
         : '当前模板还没有命中，先确认 URL 或从模板列表重新选择一个篮子。',
       context: [
         templateName ? `模板 ${templateName}` : null,
-        template?.construction_mode ? `构造 ${template.construction_mode}` : null,
-        template?.theme ? `主题 ${template.theme}` : null,
+        template?.construction_mode ? `构造 ${formatConstructionMode(template.construction_mode)}` : null,
+        template?.theme ? `主题 ${formatTemplateTheme(template)}` : null,
         template?.recommendationTier ? `推荐 ${template.recommendationTier}` : null,
         longCount || shortCount ? `${longCount}L / ${shortCount}S` : null,
         `阶段 ${stageLabel}`,
@@ -421,7 +429,7 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
           id: 'cross-template',
           title: '模板假设确认',
           description: template
-            ? `${template.description || '已载入模板'}；当前结构为 ${longCount} 个多头、${shortCount} 个空头。${template.driverHeadline ? ` 推荐理由：${template.driverHeadline}。` : ''}`
+            ? `${formatTemplateNarrative(template.description || '已载入模板')}；当前结构为 ${longCount} 个多头、${shortCount} 个空头。${template.driverHeadline ? ` 推荐理由：${template.driverHeadline}。` : ''}`
             : '等待模板命中后再确认叙事和篮子结构。',
           status: template ? 'complete' : 'warning',
           cta: null,
@@ -429,14 +437,14 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
         {
           id: 'cross-data',
           title: '数据质量检查',
-          description: '运行回测后检查可交易日占比、丢弃日期数和每个 symbol 的覆盖率。',
+          description: '运行回测后检查可交易日占比、丢弃日期数和每个资产代码的覆盖率。',
           status: 'blocked',
           cta: null,
         },
         {
           id: 'cross-execution',
           title: '执行质量检查',
-          description: '运行回测后检查 turnover、cost drag 和平均持有期是否过高。',
+          description: '运行回测后检查换手率、成本拖累和平均持有期是否过高。',
           status: 'blocked',
           cta: null,
         },
@@ -484,7 +492,7 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
     warnings.push(`成本拖累达到 ${toPercent(execution.cost_drag || 0, 2)}，需要复核换手和交易频率。`);
   }
   if (Number(execution.turnover || 0) > 8) {
-    warnings.push('换手率偏高，说明当前阈值或 lookback 可能过于激进。');
+    warnings.push('换手率偏高，说明当前阈值或回看窗口可能过于激进。');
   }
   if (execution.concentration_level === 'high') {
     warnings.push(`执行集中度偏高，${execution.concentration_reason || '建议分散 provider 或 venue 暴露。'}`);
@@ -496,10 +504,10 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
     warnings.push(`资金放大压力测试提示高集中，${execution.stress_test_reason || '继续放大资金前应先拆分批次或分散 venue。'}`);
   }
   if (execution.liquidity_level === 'stretched') {
-    warnings.push(`当前最大 ADV 使用率达到 ${toPercent(execution.max_adv_usage || 0, 2)}，流动性偏紧，继续放大资金前应复核容量。`);
+    warnings.push(`当前最大日成交额占用达到 ${toPercent(execution.max_adv_usage || 0, 2)}，流动性偏紧，继续放大资金前应复核容量。`);
   }
   if (execution.margin_level === 'aggressive') {
-    warnings.push(`保证金占用达到 ${toPercent(execution.margin_utilization || 0, 2)}，Gross Leverage ${Number(execution.gross_leverage || 0).toFixed(2)}x，当前配置偏激进。`);
+    warnings.push(`保证金占用达到 ${toPercent(execution.margin_utilization || 0, 2)}，总杠杆 ${Number(execution.gross_leverage || 0).toFixed(2)}x，当前配置偏激进。`);
   }
   if (execution.beta_level === 'stretched') {
     warnings.push(`当前长短腿 beta 偏离较大，${execution.beta_reason || '建议复核对冲比和长短腿结构。'}`);
@@ -524,9 +532,9 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
       `阶段 ${stageLabel}`,
       source ? `来源 ${formatResearchSource(source)}` : null,
       template?.construction_mode || execution.construction_mode
-        ? `构造 ${template?.construction_mode || execution.construction_mode}`
+        ? `构造 ${formatConstructionMode(template?.construction_mode || execution.construction_mode)}`
         : null,
-      template?.theme ? `主题 ${template.theme}` : null,
+      template?.theme ? `主题 ${formatTemplateTheme(template)}` : null,
       template?.recommendationTier ? `推荐 ${template.recommendationTier}` : null,
       template?.biasSummary ? `偏置 ${template.biasSummary}` : null,
       coverage ? `覆盖率 ${toPercent(coverage, 1)}` : null,
@@ -540,10 +548,10 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
     next_actions: [pricingAction, returnToGodEye].filter(Boolean),
     tasks: [
       {
-        id: 'cross-template',
-        title: '模板假设确认',
-        description: template
-          ? `${template.description || '已载入模板'}；当前采用 ${template.construction_mode || execution.construction_mode} 构造模式。${template.driverHeadline ? ` 推荐理由：${template.driverHeadline}。` : ''}`
+          id: 'cross-template',
+          title: '模板假设确认',
+          description: template
+          ? `${formatTemplateNarrative(template.description || '已载入模板')}；当前采用 ${formatConstructionMode(template.construction_mode || execution.construction_mode)} 构造模式。${template.driverHeadline ? ` 推荐理由：${template.driverHeadline}。` : ''}`
           : `当前篮子包含 ${longLeg.assets?.length || 0} 个多头、${shortLeg.assets?.length || 0} 个空头。`,
         status: 'complete',
         cta: null,
@@ -556,9 +564,9 @@ export const buildCrossMarketPlaybook = (context = {}, template = null, backtest
         cta: null,
       },
       {
-        id: 'cross-execution',
-        title: '执行质量检查',
-        description: `Turnover ${Number(execution.turnover || 0).toFixed(2)}，Cost Drag ${toPercent(execution.cost_drag || 0, 2)}，平均持有 ${Number(execution.avg_holding_period || 0).toFixed(1)} 天，Lot 效率 ${toPercent(execution.lot_efficiency || 0, 2)}，Max ADV ${toPercent(execution.max_adv_usage || 0, 2)}，保证金 ${toPercent(execution.margin_utilization || 0, 2)}，Gross ${Number(execution.gross_leverage || 0).toFixed(2)}x，Beta ${execution.beta_level || 'balanced'}，日历 ${execution.calendar_level || 'aligned'}，建议调仓 ${execution.suggested_rebalance || 'biweekly'}，压力测试 ${execution.stress_test_flag || 'balanced'}。`,
+          id: 'cross-execution',
+          title: '执行质量检查',
+          description: `换手率 ${Number(execution.turnover || 0).toFixed(2)}，成本拖累 ${toPercent(execution.cost_drag || 0, 2)}，平均持有 ${Number(execution.avg_holding_period || 0).toFixed(1)} 天，最小单位效率 ${toPercent(execution.lot_efficiency || 0, 2)}，最大日成交额占用 ${toPercent(execution.max_adv_usage || 0, 2)}，保证金 ${toPercent(execution.margin_utilization || 0, 2)}，总杠杆 ${Number(execution.gross_leverage || 0).toFixed(2)}x，Beta ${formatStatusLabel(execution.beta_level || 'balanced')}，日历 ${formatStatusLabel(execution.calendar_level || 'aligned')}，建议调仓 ${formatSignalLabel(execution.suggested_rebalance || 'biweekly')}，压力测试 ${formatStatusLabel(execution.stress_test_flag || 'balanced')}。`,
         status:
           Number(execution.cost_drag || 0) > 0.02
           || Number(execution.turnover || 0) > 8

@@ -393,8 +393,8 @@ describe('CrossMarketBacktestPanel retained cross-market flow', () => {
   it('shows governance overlays on the template panel and inside backtest results', async () => {
     render(<CrossMarketBacktestPanel />);
 
-    expect((await screen.findAllByText('来源 fallback-heavy')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('政策执行 chaotic').length).toBeGreaterThan(0);
+    expect((await screen.findAllByText('来源 回退来源偏高')).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('政策执行 混乱').length).toBeGreaterThan(0);
     expect(screen.getAllByText('核心腿：XLU · 辅助腿：XLP').length).toBeGreaterThan(0);
     expect(screen.getAllByText(/来源治理偏脆弱，风险预算应先收缩/).length).toBeGreaterThan(0);
     expect(await screen.findByDisplayValue('XLU')).toBeTruthy();
@@ -408,7 +408,7 @@ describe('CrossMarketBacktestPanel retained cross-market flow', () => {
     expect(mockMessageApi.success).toHaveBeenCalledWith('跨市场回测完成');
 
     expect(await screen.findByText(/执行姿态：防御优先 \/ 对冲增强/)).toBeTruthy();
-    expect(screen.getByText(/政策执行：chaotic/)).toBeTruthy();
-    expect(screen.getByText(/来源治理：fallback-heavy/)).toBeTruthy();
+    expect(screen.getByText(/政策执行：混乱/)).toBeTruthy();
+    expect(screen.getByText(/来源治理：回退来源偏高/)).toBeTruthy();
   });
 });

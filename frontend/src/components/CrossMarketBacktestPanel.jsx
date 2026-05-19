@@ -60,8 +60,15 @@ import {
 import {
     buildDisplayTier,
     buildDisplayTone,
+    formatBiasQualityLabel,
     formatConstructionMode,
     formatExecutionChannel,
+    formatSignalLabel,
+    formatSignalList,
+    formatStatusLabel,
+    formatTemplateName,
+    formatTemplateNarrative,
+    formatTemplateTheme,
     formatTradeAction,
     formatVenue,
 } from '../utils/crossMarketFormatters';
@@ -141,12 +148,12 @@ const getSelectionQualityExplanationLines = (refreshMeta = {}) => {
         ? ` · ${Number(runState.baseScore || 0).toFixed(2)}→${Number(runState.effectiveScore || 0).toFixed(2)}`
         : '';
     lines.push(
-      `降级运行 ${runState.label}${scoreText}${runState.reason ? ` · ${runState.reason}` : ''}`
+      `降级运行 ${formatStatusLabel(runState.label)}${scoreText}${runState.reason ? ` · ${runState.reason}` : ''}`
     );
   }
 
   if (refreshMeta?.selectionQualityDriven && shift?.currentReason) {
-    lines.push(`自动降级 ${shift.currentLabel} · ${shift.currentReason}`);
+    lines.push(`自动降级 ${formatStatusLabel(shift.currentLabel)} · ${shift.currentReason}`);
   }
 
   return lines;
@@ -368,7 +375,7 @@ function CrossMarketBacktestPanel() {
               ? refreshMeta?.biasCompressionShift?.coreLegAffected
                 ? `核心腿 ${refreshMeta?.biasCompressionShift?.topCompressedAsset || ''} 已进入压缩焦点，默认模板选择自动降级`
                 : refreshMeta?.selectionQualityRunState?.active
-                  ? `当前结果已按 ${refreshMeta?.selectionQualityRunState?.label || 'degraded'} 强度运行，默认模板选择进一步下调`
+                  ? `当前结果已按 ${formatStatusLabel(refreshMeta?.selectionQualityRunState?.label || 'degraded')} 强度运行，默认模板选择进一步下调`
                 : refreshMeta?.reviewContextDriven
                   ? `复核语境切换：${refreshMeta?.reviewContextShift?.lead || '最近两版已发生复核语境切换，默认模板选择谨慎下调'}`
                 : refreshMeta?.inputReliabilityDriven
@@ -534,7 +541,7 @@ function CrossMarketBacktestPanel() {
       construction_mode: template.construction_mode || DEFAULT_QUALITY.construction_mode,
     }));
     if (!silent) {
-      message.success(`已载入模板: ${template.name}${useBias ? '（含宏观权重偏置）' : ''}`);
+      message.success(`已载入模板: ${formatTemplateName(template)}${useBias ? '（含宏观权重偏置）' : ''}`);
     }
   }, [displayRecommendedTemplates, message, templates]);
 
@@ -567,7 +574,7 @@ function CrossMarketBacktestPanel() {
     }
     autoRecommendedRef.current = topRecommendation.id;
     applyTemplate(topRecommendation, { useBias: true, silent: true });
-    message.info(`已自动载入当前最优宏观模板: ${topRecommendation.name}`);
+    message.info(`已自动载入当前最优宏观模板: ${formatTemplateName(topRecommendation)}`);
   }, [applyTemplate, displayRecommendedTemplates, message, researchContext, selectedTemplateId]);
 
   const handleRun = async () => {
@@ -704,7 +711,7 @@ function CrossMarketBacktestPanel() {
     () => [
       {
         label: '当前主题',
-        value: selectedTemplate?.theme || selectedTemplate?.name || '自动推荐模板',
+        value: selectedTemplate ? formatTemplateTheme(selectedTemplate) : '自动推荐模板',
       },
       {
         label: '篮子规模',
@@ -728,7 +735,7 @@ function CrossMarketBacktestPanel() {
       {
         label: '模板与偏置',
         value: selectedTemplate
-          ? `${selectedTemplate.name}${appliedBiasMeta ? ' · 宏观偏置已启用' : ' · 原始权重'}`
+          ? `${formatTemplateName(selectedTemplate)}${appliedBiasMeta ? ' · 宏观偏置已启用' : ' · 原始权重'}`
           : '等待绑定模板',
         detail: selectedTemplate?.driverHeadline || '先确认主题模板，再决定长短腿篮子的构造方式。',
       },
@@ -766,7 +773,7 @@ function CrossMarketBacktestPanel() {
     () => [
       {
         label: '策略骨架',
-        value: `spread_zscore · ${formatConstructionMode(quality.construction_mode)}`,
+        value: `${formatSignalLabel('spread_zscore')} · ${formatConstructionMode(quality.construction_mode)}`,
       },
       {
         label: '时间窗口',
@@ -823,12 +830,12 @@ function CrossMarketBacktestPanel() {
       {
         label: '风险预算',
         value: appliedBiasMeta
-          ? `${Number(appliedBiasMeta.strength || 0).toFixed(1)}pp 偏置强度 · ${appliedBiasMeta.qualityLabel || 'full'}`
+          ? `${Number(appliedBiasMeta.strength || 0).toFixed(1)}pp 偏置强度 · ${formatBiasQualityLabel(appliedBiasMeta.qualityLabel || 'full')}`
           : '按模板原始权重执行',
       },
       {
         label: '资金与样本',
-        value: `${formatCurrency(Number(meta.initial_capital || 0))} 初始资金 · lookback ${parameters.lookback} 天`,
+        value: `${formatCurrency(Number(meta.initial_capital || 0))} 初始资金 · 回看 ${parameters.lookback} 天`,
       },
     ],
     [appliedBiasMeta, meta.initial_capital, parameters.lookback, selectedTemplate, topRecommendation]
@@ -842,13 +849,13 @@ function CrossMarketBacktestPanel() {
         render: (value) => formatExecutionChannel(value),
       },
       {
-        title: 'Venue',
+        title: '交易场所',
         dataIndex: 'venue',
         key: 'venue',
         render: (value) => formatVenue(value),
       },
       {
-        title: 'Provider',
+        title: '数据源',
         dataIndex: 'preferred_provider',
         key: 'preferred_provider',
         render: (value) => <Tag color="blue">{value || '-'}</Tag>,
@@ -859,7 +866,7 @@ function CrossMarketBacktestPanel() {
         key: 'order_count',
       },
       {
-        title: 'Gross Weight',
+        title: '总权重',
         dataIndex: 'gross_weight',
         key: 'gross_weight',
         render: (value) => formatPercentage(Number(value || 0)),
@@ -886,7 +893,7 @@ function CrossMarketBacktestPanel() {
         },
       },
       {
-        title: 'ADV Usage',
+        title: '日成交额占用',
         dataIndex: 'adv_usage',
         key: 'adv_usage',
         render: (value) => formatPercentage(Number(value || 0)),
@@ -907,7 +914,7 @@ function CrossMarketBacktestPanel() {
         render: (value) => formatCurrency(Number(value || 0)),
       },
       {
-        title: 'Symbols',
+        title: '资产代码',
         dataIndex: 'symbols',
         key: 'symbols',
         render: (value) => (value || []).join(', '),
@@ -941,13 +948,13 @@ function CrossMarketBacktestPanel() {
         render: (value) => formatExecutionChannel(value),
       },
       {
-        title: 'Venue',
+        title: '交易场所',
         dataIndex: 'venue',
         key: 'venue',
         render: (value) => formatVenue(value),
       },
       {
-        title: 'Provider',
+        title: '数据源',
         dataIndex: 'preferred_provider',
         key: 'preferred_provider',
       },
@@ -1002,7 +1009,7 @@ function CrossMarketBacktestPanel() {
         render: (value) => formatCurrency(Number(value || 0)),
       },
       {
-        title: 'ADV Usage',
+        title: '日成交额占用',
         dataIndex: 'adv_usage',
         key: 'adv_usage',
         render: (value) => formatPercentage(Number(value || 0)),
@@ -1034,7 +1041,7 @@ function CrossMarketBacktestPanel() {
   const providerAllocationColumns = useMemo(
     () => [
       {
-        title: 'Provider',
+        title: '数据源',
         dataIndex: 'key',
         key: 'key',
         render: (value) => <Tag color="blue">{value || '-'}</Tag>,
@@ -1062,7 +1069,7 @@ function CrossMarketBacktestPanel() {
   const venueAllocationColumns = useMemo(
     () => [
       {
-        title: 'Venue',
+        title: '交易场所',
         dataIndex: 'key',
         key: 'key',
         render: (value) => formatVenue(value),
@@ -1115,7 +1122,7 @@ function CrossMarketBacktestPanel() {
         render: (value) => formatCurrency(Number(value || 0)),
       },
       {
-        title: 'Lot 效率',
+        title: '最小单位效率',
         dataIndex: 'lot_efficiency',
         key: 'lot_efficiency',
         render: (value) => formatPercentage(Number(value || 0)),
@@ -1127,7 +1134,7 @@ function CrossMarketBacktestPanel() {
         render: (value) => formatCurrency(Number(value || 0)),
       },
       {
-        title: 'Max ADV',
+        title: '最大日成交额占用',
         dataIndex: 'max_adv_usage',
         key: 'max_adv_usage',
         render: (value) => formatPercentage(Number(value || 0)),
@@ -1255,7 +1262,7 @@ function CrossMarketBacktestPanel() {
         <Card className="app-page-context-rail" variant="borderless">
           <div className="app-page-context-rail__header">
             <div>
-              <div className="app-page-context-rail__eyebrow">Execution Context</div>
+              <div className="app-page-context-rail__eyebrow">执行上下文</div>
               <Text strong style={{ fontSize: 18, color: 'var(--text-primary)' }}>
                 当前跨市场执行上下文
               </Text>
@@ -1274,7 +1281,7 @@ function CrossMarketBacktestPanel() {
                 <span className="app-page-context-item__detail">
                   {researchContext.note
                     ? researchContext.note
-                    : `模板 ${researchContext.template} 已自动预载，可继续编辑后再运行回测。当前剧本阶段为 ${playbook?.stageLabel || '待运行'}。`}
+                    : `模板 ${formatTemplateName(researchContext.template)} 已自动预载，可继续编辑后再运行回测。当前剧本阶段为 ${playbook?.stageLabel || '待运行'}。`}
                 </span>
               </div>
             ) : null}
@@ -1297,10 +1304,10 @@ function CrossMarketBacktestPanel() {
         <Alert
           type="info"
           showIcon
-          message={`当前模板主题：${selectedTemplate.theme || selectedTemplate.name}${selectedTemplate.recommendationTier ? ` · ${selectedTemplate.recommendationTier}` : ''}`}
+          message={`当前模板主题：${formatTemplateTheme(selectedTemplate)}${selectedTemplate.recommendationTier ? ` · ${selectedTemplate.recommendationTier}` : ''}`}
           description={(
             <Space direction="vertical" size={8} style={{ width: '100%' }}>
-              <Text>{selectedTemplate.narrative || selectedTemplate.description}</Text>
+              <Text>{formatTemplateNarrative(selectedTemplate.narrative || selectedTemplate.description)}</Text>
               {selectedTemplate.driverHeadline ? (
                 <Text type="secondary">{selectedTemplate.driverHeadline}</Text>
               ) : null}
@@ -1319,35 +1326,35 @@ function CrossMarketBacktestPanel() {
                   </Tag>
                 ))}
                 {selectedTemplate.resonanceLabel && selectedTemplate.resonanceLabel !== 'mixed' ? (
-                  <Tag color="magenta">resonance {selectedTemplate.resonanceLabel}</Tag>
+                  <Tag color="magenta">共振 {formatStatusLabel(selectedTemplate.resonanceLabel)}</Tag>
                 ) : null}
                 {selectedTemplate.policySourceHealthLabel && selectedTemplate.policySourceHealthLabel !== 'unknown' ? (
                   <Tag color={selectedTemplate.policySourceHealthLabel === 'fragile' ? 'red' : selectedTemplate.policySourceHealthLabel === 'watch' ? 'gold' : 'green'}>
-                    policy source {selectedTemplate.policySourceHealthLabel}
+                    政策来源 {formatStatusLabel(selectedTemplate.policySourceHealthLabel)}
                   </Tag>
                 ) : null}
                 {selectedTemplate.inputReliabilityLabel && selectedTemplate.inputReliabilityLabel !== 'unknown' ? (
                   <Tag color={selectedTemplate.inputReliabilityLabel === 'fragile' ? 'red' : selectedTemplate.inputReliabilityLabel === 'watch' ? 'gold' : 'green'}>
-                    input {selectedTemplate.inputReliabilityLabel}
+                    输入可靠度 {formatStatusLabel(selectedTemplate.inputReliabilityLabel)}
                   </Tag>
                 ) : null}
                 {selectedTemplate.sourceModeLabel && selectedTemplate.sourceModeLabel !== 'mixed' ? (
                   <Tag color={selectedTemplate.sourceModeLabel === 'official-led' ? 'green' : selectedTemplate.sourceModeLabel === 'fallback-heavy' ? 'orange' : 'blue'}>
-                    来源 {selectedTemplate.sourceModeLabel}
+                    来源 {formatStatusLabel(selectedTemplate.sourceModeLabel)}
                   </Tag>
                 ) : null}
                 {selectedTemplate.policyExecutionLabel && selectedTemplate.policyExecutionLabel !== 'unknown' ? (
                   <Tag color={selectedTemplate.policyExecutionLabel === 'chaotic' ? 'red' : selectedTemplate.policyExecutionLabel === 'watch' ? 'gold' : 'green'}>
-                    政策执行 {selectedTemplate.policyExecutionLabel}
+                    政策执行 {formatStatusLabel(selectedTemplate.policyExecutionLabel)}
                   </Tag>
                 ) : null}
                 {selectedTemplate.executionPosture ? (
-                  <Tag color="lime">{selectedTemplate.executionPosture}</Tag>
+                  <Tag color="lime">{formatSignalLabel(selectedTemplate.executionPosture)}</Tag>
                 ) : null}
               </Space>
               {(selectedTemplate.themeCore || selectedTemplate.themeSupport) ? (
                 <Text type="secondary">
-                  核心腿：{selectedTemplate.themeCore || '暂无'} · 辅助腿：{selectedTemplate.themeSupport || '暂无'}
+                  核心腿：{formatSignalList(selectedTemplate.themeCore) || '暂无'} · 辅助腿：{formatSignalList(selectedTemplate.themeSupport) || '暂无'}
                 </Text>
               ) : null}
               {selectedTemplate.policySourceHealthReason ? (
@@ -1376,7 +1383,7 @@ function CrossMarketBacktestPanel() {
                 <Text type="secondary">
                   输入可靠度：{selectedTemplate.inputReliabilityLead}
                   {selectedTemplate.inputReliabilityScore
-                    ? ` · score ${Number(selectedTemplate.inputReliabilityScore || 0).toFixed(2)}`
+                    ? ` · 评分 ${Number(selectedTemplate.inputReliabilityScore || 0).toFixed(2)}`
                     : ''}
                 </Text>
               ) : null}
@@ -1393,7 +1400,7 @@ function CrossMarketBacktestPanel() {
               ))}
               {selectedTemplate.biasQualityLabel && selectedTemplate.biasQualityLabel !== 'full' ? (
                 <Text type="secondary">
-                  偏置收缩 {selectedTemplate.biasQualityLabel} · {selectedTemplate.biasQualityReason}
+                  偏置收缩 {formatBiasQualityLabel(selectedTemplate.biasQualityLabel)} · {selectedTemplate.biasQualityReason}
                 </Text>
               ) : null}
             </Space>
@@ -1410,11 +1417,11 @@ function CrossMarketBacktestPanel() {
             <Space direction="vertical" size={6} style={{ width: '100%' }}>
               <Text>{appliedBiasMeta.summary}</Text>
               {appliedBiasMeta.qualityLabel && appliedBiasMeta.qualityLabel !== 'full' ? (
-                <Text type="secondary">偏置收缩 {appliedBiasMeta.qualityLabel} · {appliedBiasMeta.qualityReason}</Text>
+                <Text type="secondary">偏置收缩 {formatBiasQualityLabel(appliedBiasMeta.qualityLabel)} · {appliedBiasMeta.qualityReason}</Text>
               ) : null}
               {appliedBiasMeta.departmentChaosLabel && appliedBiasMeta.departmentChaosLabel !== 'unknown' ? (
                 <Text type="secondary">
-                  部门混乱 {appliedBiasMeta.departmentChaosLabel}
+                  部门混乱 {formatStatusLabel(appliedBiasMeta.departmentChaosLabel)}
                   {appliedBiasMeta.departmentChaosTopDepartment ? ` · ${appliedBiasMeta.departmentChaosTopDepartment}` : ''}
                   {appliedBiasMeta.departmentChaosRiskBudgetScale !== undefined
                     ? ` · 风险预算 ${Number(appliedBiasMeta.departmentChaosRiskBudgetScale || 1).toFixed(2)}x`
@@ -1423,7 +1430,7 @@ function CrossMarketBacktestPanel() {
               ) : null}
               {appliedBiasMeta.peopleFragilityLabel && appliedBiasMeta.peopleFragilityLabel !== 'stable' ? (
                 <Text type="secondary">
-                  人的维度 {appliedBiasMeta.peopleFragilityLabel}
+                  人的维度 {formatStatusLabel(appliedBiasMeta.peopleFragilityLabel)}
                   {appliedBiasMeta.peopleFragilityFocus ? ` · ${appliedBiasMeta.peopleFragilityFocus}` : ''}
                   {appliedBiasMeta.peopleFragilityRiskBudgetScale !== undefined
                     ? ` · 风险预算 ${Number(appliedBiasMeta.peopleFragilityRiskBudgetScale || 1).toFixed(2)}x`
@@ -1432,7 +1439,7 @@ function CrossMarketBacktestPanel() {
               ) : null}
               {appliedBiasMeta.policyExecutionLabel && appliedBiasMeta.policyExecutionLabel !== 'unknown' ? (
                 <Text type="secondary">
-                  政策执行 {appliedBiasMeta.policyExecutionLabel}
+                  政策执行 {formatStatusLabel(appliedBiasMeta.policyExecutionLabel)}
                   {appliedBiasMeta.policyExecutionTopDepartment ? ` · ${appliedBiasMeta.policyExecutionTopDepartment}` : ''}
                   {appliedBiasMeta.policyExecutionRiskBudgetScale !== undefined
                     ? ` · 风险预算 ${Number(appliedBiasMeta.policyExecutionRiskBudgetScale || 1).toFixed(2)}x`
@@ -1441,7 +1448,7 @@ function CrossMarketBacktestPanel() {
               ) : null}
               {appliedBiasMeta.sourceModeLabel && appliedBiasMeta.sourceModeLabel !== 'mixed' ? (
                 <Text type="secondary">
-                  来源治理 {appliedBiasMeta.sourceModeLabel}
+                  来源治理 {formatStatusLabel(appliedBiasMeta.sourceModeLabel)}
                   {appliedBiasMeta.sourceModeReason ? ` · ${appliedBiasMeta.sourceModeReason}` : ''}
                   {appliedBiasMeta.sourceModeRiskBudgetScale !== undefined
                     ? ` · 风险预算 ${Number(appliedBiasMeta.sourceModeRiskBudgetScale || 1).toFixed(2)}x`
@@ -1450,7 +1457,7 @@ function CrossMarketBacktestPanel() {
               ) : null}
               {appliedBiasMeta.structuralDecayRadarLabel && appliedBiasMeta.structuralDecayRadarLabel !== 'stable' ? (
                 <Text type="secondary">
-                  结构衰败 {appliedBiasMeta.structuralDecayRadarDisplayLabel || appliedBiasMeta.structuralDecayRadarLabel}
+                  结构衰败 {appliedBiasMeta.structuralDecayRadarDisplayLabel || formatStatusLabel(appliedBiasMeta.structuralDecayRadarLabel)}
                   {appliedBiasMeta.structuralDecayRadarScore !== undefined
                     ? ` · ${Math.round(Number(appliedBiasMeta.structuralDecayRadarScore || 0) * 100)}%`
                     : ''}
@@ -1461,7 +1468,7 @@ function CrossMarketBacktestPanel() {
               ) : null}
               <Space wrap size={[6, 6]}>
                 {(appliedBiasMeta.highlights || []).map((item) => (
-                  <Tag key={item} color="green">{item}</Tag>
+                  <Tag key={item} color="green">{formatSignalLabel(item)}</Tag>
                 ))}
               </Space>
             </Space>
@@ -1484,8 +1491,8 @@ function CrossMarketBacktestPanel() {
       {effectiveTemplate?.dominantDrivers?.length ? (
         <Card title="主题结论" variant="borderless">
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <Text>{effectiveTemplate.themeCore || '暂无主题核心腿'}</Text>
-            <Text type="secondary">辅助腿：{effectiveTemplate.themeSupport || '无'}</Text>
+            <Text>{formatSignalList(effectiveTemplate.themeCore) || '暂无主题核心腿'}</Text>
+            <Text type="secondary">辅助腿：{formatSignalList(effectiveTemplate.themeSupport) || '无'}</Text>
             <Space wrap size={[6, 6]}>
               {effectiveTemplate.dominantDrivers.map((item) => (
                 <Tag key={item.key} color="purple">
@@ -1501,7 +1508,7 @@ function CrossMarketBacktestPanel() {
         <Alert
           type={topRecommendationNeedsPriorityReview ? 'warning' : 'success'}
           showIcon
-          message={`当前首选模板：${topRecommendation.name}${topRecommendationNeedsPriorityReview ? ` · ${getReviewPriorityTitleSuffix(topRecommendation?.refreshMeta)}` : ''}`}
+          message={`当前首选模板：${formatTemplateName(topRecommendation)}${topRecommendationNeedsPriorityReview ? ` · ${getReviewPriorityTitleSuffix(topRecommendation?.refreshMeta)}` : ''}`}
           description={`${topRecommendation.driverHeadline}。${
             topRecommendation.recentComparisonLead
               ? `最近两版：${topRecommendation.recentComparisonLead}。`
@@ -1531,14 +1538,16 @@ function CrossMarketBacktestPanel() {
             <div className="cross-market-preview-grid">
               <div className="cross-market-preview-copy">
                 <Text strong className="cross-market-preview-card__title">
-                  {selectedTemplate?.name || draftTemplateContext?.template_name || '当前实验还未绑定模板'}
+                  {selectedTemplate ? formatTemplateName(selectedTemplate) : (draftTemplateContext?.template_name ? formatTemplateName(draftTemplateContext.template_name) : '当前实验还未绑定模板')}
                 </Text>
                 <Paragraph type="secondary" style={{ margin: '10px 0 0' }}>
-                  {selectedTemplate?.narrative
+                  {formatTemplateNarrative(
+                    selectedTemplate?.narrative
                     || selectedTemplate?.description
                     || draftTemplateContext?.recommendation_reason
                     || topRecommendation?.narrative
-                    || '先从侧栏模板快选开始，锁定主题、约束和时间窗口，再运行跨市场实验。'}
+                    || '先从侧栏模板快选开始，锁定主题、约束和时间窗口，再运行跨市场实验。'
+                  )}
                 </Paragraph>
                 <div className="cross-market-preview-copy__list">
                   {previewHighlights.map((item) => (
@@ -1593,7 +1602,7 @@ function CrossMarketBacktestPanel() {
             </div>
             <div className="cross-market-sidebar-card__note">
               {selectedTemplate
-                ? `当前模板：${selectedTemplate.name}${selectedTemplate.theme ? ` · ${selectedTemplate.theme}` : ''}`
+                ? `当前模板：${formatTemplateName(selectedTemplate)}${selectedTemplate.theme ? ` · ${formatTemplateTheme(selectedTemplate)}` : ''}`
                 : '当前未锁定模板，建议先从模板快选开始。'}
             </div>
           </Card>
@@ -1607,7 +1616,7 @@ function CrossMarketBacktestPanel() {
                 >
                   <div className="cross-market-template-card__header">
                     <div>
-                      <div className="cross-market-template-card__title">{template.name}</div>
+                      <div className="cross-market-template-card__title">{formatTemplateName(template)}</div>
                       <Text type="secondary">{template.driverHeadline}</Text>
                     </div>
                     <Button size="small" type={selectedTemplate?.id === template.id ? 'default' : 'primary'} onClick={() => applyTemplate(template, { useBias: true })}>
@@ -1616,9 +1625,9 @@ function CrossMarketBacktestPanel() {
                   </div>
                   <Space wrap size={[6, 6]} className="cross-market-template-card__tags">
                     <Tag color={template.recommendationTone}>{template.recommendationTier}</Tag>
-                    <Tag color="cyan">score {Number(template.recommendationScore || 0).toFixed(2)}</Tag>
+                    <Tag color="cyan">评分 {Number(template.recommendationScore || 0).toFixed(2)}</Tag>
                     {template.executionPosture ? (
-                      <Tag color="lime">{template.executionPosture}</Tag>
+                      <Tag color="lime">{formatSignalLabel(template.executionPosture)}</Tag>
                     ) : null}
                     {template.refreshMeta?.selectionQualityRunState?.active ? (
                       <Tag color="gold">优先重看</Tag>
@@ -1629,7 +1638,7 @@ function CrossMarketBacktestPanel() {
                   </Space>
                   {(template.themeCore || template.themeSupport) ? (
                     <Text type="secondary" className="cross-market-template-card__line">
-                      核心腿：{template.themeCore || '暂无'} · 辅助腿：{template.themeSupport || '暂无'}
+                      核心腿：{formatSignalList(template.themeCore) || '暂无'} · 辅助腿：{formatSignalList(template.themeSupport) || '暂无'}
                     </Text>
                   ) : null}
                   {template.recentComparisonLead ? (
@@ -1654,7 +1663,7 @@ function CrossMarketBacktestPanel() {
                 loading={loadingTemplates}
                 value={selectedTemplateId || undefined}
                 options={templates.map((template) => ({
-                  label: template.name,
+                  label: formatTemplateName(template),
                   value: template.id,
                 }))}
                 onChange={(value) => applyTemplate(value, { useBias: false })}
@@ -1791,14 +1800,14 @@ function CrossMarketBacktestPanel() {
                 <Alert
                   type="warning"
                   showIcon
-                  message={`当前模板：${selectedTemplate?.name || ''} · ${getReviewPriorityTitleSuffix(selectedTemplate?.refreshMeta) || '建议优先重看'}`}
+                  message={`当前模板：${selectedTemplate ? formatTemplateName(selectedTemplate) : ''} · ${getReviewPriorityTitleSuffix(selectedTemplate?.refreshMeta) || '建议优先重看'}`}
                   description={`这次运行更适合作为复核型回测，而不是普通默认模板回测。${
                     selectedTemplate?.recentComparisonLead
                       ? `最近两版：${selectedTemplate.recentComparisonLead} · `
                       : ''
                   }${
                     selectedTemplate?.refreshMeta?.selectionQualityRunState?.active
-                      ? `当前保存结果已按 ${selectedTemplate?.refreshMeta?.selectionQualityRunState?.label || 'degraded'} 强度运行`
+                      ? `当前保存结果已按 ${formatStatusLabel(selectedTemplate?.refreshMeta?.selectionQualityRunState?.label || 'degraded')} 强度运行`
                       : selectedTemplate?.refreshMeta?.reviewContextDriven
                         ? '最近两版已发生复核语境切换'
                         : selectedTemplate?.refreshMeta?.inputReliabilityDriven
@@ -1861,7 +1870,7 @@ function CrossMarketBacktestPanel() {
                 : ''
             }${
               results.allocation_overlay?.selection_quality?.label && results.allocation_overlay.selection_quality.label !== 'original'
-                ? ` 当前结果按 ${results.allocation_overlay.selection_quality.label} 强度运行，应作为复核型结果理解。`
+                ? ` 当前结果按 ${formatStatusLabel(results.allocation_overlay.selection_quality.label)} 强度运行，应作为复核型结果理解。`
                 : ''
             }${
               results.allocation_overlay?.input_reliability?.action_hint
@@ -1889,7 +1898,7 @@ function CrossMarketBacktestPanel() {
                   : ''
               }${
                 results.allocation_overlay.input_reliability?.posture
-                  ? ` · ${results.allocation_overlay.input_reliability.posture}`
+                  ? ` · ${formatStatusLabel(results.allocation_overlay.input_reliability.posture)}`
                   : ''
               }${
                 results.allocation_overlay.input_reliability?.action_hint
@@ -2003,7 +2012,7 @@ function CrossMarketBacktestPanel() {
                 <Row gutter={[16, 16]}>
                   <Col span={8}>
                     <Statistic
-                      title="Gross Exposure"
+                      title="总暴露"
                       value={(results.hedge_portfolio?.gross_exposure || 0) * 100}
                       precision={2}
                       suffix="%"
@@ -2011,7 +2020,7 @@ function CrossMarketBacktestPanel() {
                   </Col>
                   <Col span={8}>
                     <Statistic
-                      title="Net Exposure"
+                      title="净暴露"
                       value={(results.hedge_portfolio?.net_exposure || 0) * 100}
                       precision={2}
                       suffix="%"
@@ -2035,7 +2044,7 @@ function CrossMarketBacktestPanel() {
                   </Col>
                   <Col span={8}>
                     <Statistic
-                      title="Beta Gap"
+                      title="Beta 偏离"
                       value={(results.hedge_portfolio?.beta_neutrality?.beta_gap || 0) * 100}
                       precision={2}
                       suffix="pp"
@@ -2043,7 +2052,7 @@ function CrossMarketBacktestPanel() {
                   </Col>
                   <Col span={8}>
                     <Statistic
-                      title="Rolling Beta"
+                      title="滚动 Beta"
                       value={results.hedge_portfolio?.beta_neutrality?.rolling_beta_last || 0}
                       precision={2}
                     />
@@ -2056,7 +2065,7 @@ function CrossMarketBacktestPanel() {
                     有效空头 {formatPercentage(results.hedge_portfolio?.effective_short_weight || 0)}
                   </Text>
                   <Text type="secondary">
-                    Hedge Ratio 区间 {Number(results.hedge_portfolio?.hedge_ratio?.min || 0).toFixed(2)} ~ {Number(results.hedge_portfolio?.hedge_ratio?.max || 0).toFixed(2)}
+                    对冲比区间 {Number(results.hedge_portfolio?.hedge_ratio?.min || 0).toFixed(2)} ~ {Number(results.hedge_portfolio?.hedge_ratio?.max || 0).toFixed(2)}
                   </Text>
                   {results.hedge_portfolio?.beta_neutrality?.reason ? (
                     <Text type="secondary">
@@ -2097,25 +2106,25 @@ function CrossMarketBacktestPanel() {
 
           <Row gutter={[16, 16]}>
             <Col xs={24} xl={12}>
-              <Card title="Provider 资金分布" variant="borderless">
+              <Card title="数据源资金分布" variant="borderless">
                 <Table
                   size="small"
                   rowKey="key"
                   pagination={false}
                   dataSource={results.execution_plan?.provider_allocation || []}
-                  locale={{ emptyText: '暂无 Provider 分布' }}
+                  locale={{ emptyText: '暂无数据源分布' }}
                   columns={providerAllocationColumns}
                 />
               </Card>
             </Col>
             <Col xs={24} xl={12}>
-              <Card title="Venue 资金分布" variant="borderless">
+              <Card title="交易场所资金分布" variant="borderless">
                 <Table
                   size="small"
                   rowKey="key"
                   pagination={false}
                   dataSource={results.execution_plan?.venue_allocation || []}
-                  locale={{ emptyText: '暂无 Venue 分布' }}
+                  locale={{ emptyText: '暂无交易场所分布' }}
                   columns={venueAllocationColumns}
                 />
               </Card>
@@ -2129,7 +2138,7 @@ function CrossMarketBacktestPanel() {
                   <Space wrap size={[8, 8]}>
                     <Tag color={liquidityMeta.color}>{liquidityMeta.label}</Tag>
                     <Tag color="cyan">
-                      Max ADV {(Number(results.execution_plan?.liquidity_summary?.max_adv_usage || 0) * 100).toFixed(2)}%
+                      最大日成交额占用 {(Number(results.execution_plan?.liquidity_summary?.max_adv_usage || 0) * 100).toFixed(2)}%
                     </Tag>
                     <Tag color="orange">
                       关注路由 {results.execution_plan?.liquidity_summary?.watch_route_count || 0}
@@ -2145,7 +2154,7 @@ function CrossMarketBacktestPanel() {
                     <Text type="secondary">
                       最紧路由 {results.execution_plan.liquidity_summary.largest_adv_route.symbol}
                       {' · '}
-                      ADV {(Number(results.execution_plan.liquidity_summary.largest_adv_route.adv_usage || 0) * 100).toFixed(2)}%
+                      日成交额占用 {(Number(results.execution_plan.liquidity_summary.largest_adv_route.adv_usage || 0) * 100).toFixed(2)}%
                       {' · '}
                       日均成交额 {formatCurrency(Number(results.execution_plan.liquidity_summary.largest_adv_route.avg_daily_notional || 0))}
                     </Text>
@@ -2159,7 +2168,7 @@ function CrossMarketBacktestPanel() {
                   <Space wrap size={[8, 8]}>
                     <Tag color={calendarMeta.color}>{calendarMeta.label}</Tag>
                     <Tag color="cyan">
-                      Max mismatch {(Number(results.data_alignment?.calendar_diagnostics?.max_mismatch_ratio || 0) * 100).toFixed(2)}%
+                      最大错位 {(Number(results.data_alignment?.calendar_diagnostics?.max_mismatch_ratio || 0) * 100).toFixed(2)}%
                     </Tag>
                   </Space>
                   {results.data_alignment?.calendar_diagnostics?.reason ? (
@@ -2173,7 +2182,7 @@ function CrossMarketBacktestPanel() {
                     locale={{ emptyText: '暂无日历错位信息' }}
                     columns={[
                       {
-                        title: 'Venue',
+                        title: '交易场所',
                         dataIndex: 'venue',
                         key: 'venue',
                         render: (value) => formatVenue(value),
@@ -2215,13 +2224,13 @@ function CrossMarketBacktestPanel() {
                       保证金 {(Number(results.execution_plan?.margin_summary?.utilization || 0) * 100).toFixed(2)}%
                     </Tag>
                     <Tag color="purple">
-                      Gross {Number(results.execution_plan?.margin_summary?.gross_leverage || 0).toFixed(2)}x
+                      总杠杆 {Number(results.execution_plan?.margin_summary?.gross_leverage || 0).toFixed(2)}x
                     </Tag>
                     <Tag color="blue">
-                      Short {formatCurrency(Number(results.execution_plan?.margin_summary?.short_notional || 0))}
+                      空头 {formatCurrency(Number(results.execution_plan?.margin_summary?.short_notional || 0))}
                     </Tag>
                     <Tag color="cyan">
-                      Futures {formatCurrency(Number(results.execution_plan?.margin_summary?.futures_notional || 0))}
+                      期货 {formatCurrency(Number(results.execution_plan?.margin_summary?.futures_notional || 0))}
                     </Tag>
                   </Space>
                   {results.execution_plan?.margin_summary?.reason ? (
@@ -2423,11 +2432,11 @@ function CrossMarketBacktestPanel() {
                   <Tag color={results.allocation_overlay.allocation_mode === 'macro_bias' ? 'green' : 'default'}>
                     {results.allocation_overlay.allocation_mode === 'macro_bias' ? '宏观偏置' : '模板原始权重'}
                   </Tag>
-                  {results.allocation_overlay.theme ? <Tag color="blue">{results.allocation_overlay.theme}</Tag> : null}
-                  {results.allocation_overlay.bias_strength ? <Tag color="green">bias {Number(results.allocation_overlay.bias_strength).toFixed(1)}pp</Tag> : null}
+                  {results.allocation_overlay.theme ? <Tag color="blue">{formatTemplateTheme(results.allocation_overlay.theme)}</Tag> : null}
+                  {results.allocation_overlay.bias_strength ? <Tag color="green">偏置 {Number(results.allocation_overlay.bias_strength).toFixed(1)}pp</Tag> : null}
                   {results.allocation_overlay.compression_summary?.label && results.allocation_overlay.compression_summary.label !== 'full' ? (
                     <Tag color={results.allocation_overlay.compression_summary.label === 'compressed' ? 'orange' : 'gold'}>
-                      压缩 {results.allocation_overlay.compression_summary.label}
+                      压缩 {formatBiasQualityLabel(results.allocation_overlay.compression_summary.label)}
                     </Tag>
                   ) : null}
                 </Space>
@@ -2461,7 +2470,7 @@ function CrossMarketBacktestPanel() {
                         推荐降级 {Number(results.allocation_overlay.selection_quality.base_recommendation_score || 0).toFixed(2)}
                         →{Number(results.allocation_overlay.selection_quality.effective_recommendation_score || 0).toFixed(2)}
                         {results.allocation_overlay.selection_quality.effective_recommendation_tier
-                          ? ` · ${results.allocation_overlay.selection_quality.effective_recommendation_tier}`
+                          ? ` · ${formatStatusLabel(results.allocation_overlay.selection_quality.effective_recommendation_tier)}`
                           : ''}
                         {' · '}
                         {results.allocation_overlay.selection_quality.reason}
@@ -2472,7 +2481,7 @@ function CrossMarketBacktestPanel() {
                 {results.allocation_overlay.bias_highlights?.length ? (
                   <Space wrap size={[6, 6]}>
                     {results.allocation_overlay.bias_highlights.map((item) => (
-                      <Tag key={item} color="green">{item}</Tag>
+                      <Tag key={item} color="green">{formatSignalLabel(item)}</Tag>
                     ))}
                   </Space>
                 ) : null}
@@ -2504,20 +2513,20 @@ function CrossMarketBacktestPanel() {
                   </Space>
                 ) : null}
                 {results.allocation_overlay.execution_posture ? (
-                  <Text type="secondary">执行姿态：{results.allocation_overlay.execution_posture}</Text>
+                  <Text type="secondary">执行姿态：{formatSignalLabel(results.allocation_overlay.execution_posture)}</Text>
                 ) : null}
                 {results.allocation_overlay.theme_core ? (
-                  <Text type="secondary">核心腿：{results.allocation_overlay.theme_core}</Text>
+                  <Text type="secondary">核心腿：{formatSignalList(results.allocation_overlay.theme_core)}</Text>
                 ) : null}
                 {extractCoreLegPressure(results.allocation_overlay).affected ? (
                   <Text type="secondary">核心腿受压：{extractCoreLegPressure(results.allocation_overlay).summary}</Text>
                 ) : null}
                 {results.allocation_overlay.theme_support ? (
-                  <Text type="secondary">辅助腿：{results.allocation_overlay.theme_support}</Text>
+                  <Text type="secondary">辅助腿：{formatSignalList(results.allocation_overlay.theme_support)}</Text>
                 ) : null}
                 {results.allocation_overlay.policy_execution?.active ? (
                   <Text type="secondary">
-                    政策执行：{results.allocation_overlay.policy_execution.label}
+                    政策执行：{formatStatusLabel(results.allocation_overlay.policy_execution.label)}
                     {results.allocation_overlay.policy_execution.top_department
                       ? ` · ${results.allocation_overlay.policy_execution.top_department}`
                       : ''}
@@ -2531,7 +2540,7 @@ function CrossMarketBacktestPanel() {
                 ) : null}
                 {results.allocation_overlay.source_mode_summary?.active ? (
                   <Text type="secondary">
-                    来源治理：{results.allocation_overlay.source_mode_summary.label}
+                    来源治理：{formatStatusLabel(results.allocation_overlay.source_mode_summary.label)}
                     {results.allocation_overlay.source_mode_summary.dominant
                       ? ` · ${results.allocation_overlay.source_mode_summary.dominant}`
                       : ''}
@@ -2669,7 +2678,7 @@ function CrossMarketBacktestPanel() {
 	                      title: '触发',
 	                      dataIndex: 'binding',
 	                      key: 'binding',
-	                      render: (value) => (value ? <Tag color={value === 'max' ? 'red' : 'purple'}>{value}</Tag> : '-'),
+	                      render: (value) => (value ? <Tag color={value === 'max' ? 'red' : 'purple'}>{value === 'max' ? '上限' : value === 'min' ? '下限' : value}</Tag> : '-'),
 	                    },
 	                  ]}
 	                />

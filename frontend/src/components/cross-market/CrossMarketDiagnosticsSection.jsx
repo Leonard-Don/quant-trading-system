@@ -50,7 +50,7 @@ function CrossMarketDiagnosticsSection({
                 render: (value) => ASSET_CLASS_LABELS[value] || value,
               },
               {
-                title: 'Provider',
+                title: '数据源',
                 dataIndex: 'provider',
                 key: 'provider',
                 render: (value) => <Tag color="blue">{value || '-'}</Tag>,
@@ -70,7 +70,7 @@ function CrossMarketDiagnosticsSection({
                 render: (value) => formatCurrency(Number(value || 0)),
               },
               {
-                title: 'Venue',
+                title: '交易场所',
                 dataIndex: 'venue',
                 key: 'venue',
                 render: (value) => formatVenue(value),
@@ -100,7 +100,7 @@ function CrossMarketDiagnosticsSection({
               <Statistic title="批次数" value={(results.execution_plan?.batches || []).length} />
             </Col>
             <Col span={8}>
-              <Statistic title="Provider 数" value={Object.keys(results.execution_plan?.by_provider || {}).length} />
+              <Statistic title="数据源数" value={Object.keys(results.execution_plan?.by_provider || {}).length} />
             </Col>
           </Row>
           <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
@@ -113,7 +113,7 @@ function CrossMarketDiagnosticsSection({
           </Row>
           <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
             <Col span={12}>
-              <Statistic title="Lot 效率" value={(results.execution_diagnostics?.lot_efficiency || results.execution_plan?.sizing_summary?.lot_efficiency || 0) * 100} precision={2} suffix="%" />
+              <Statistic title="最小单位效率" value={(results.execution_diagnostics?.lot_efficiency || results.execution_plan?.sizing_summary?.lot_efficiency || 0) * 100} precision={2} suffix="%" />
             </Col>
             <Col span={12}>
               <Statistic title="残余资金" value={results.execution_diagnostics?.residual_notional || results.execution_plan?.sizing_summary?.total_residual_notional || 0} formatter={(value) => formatCurrency(Number(value || 0))} />
@@ -121,7 +121,7 @@ function CrossMarketDiagnosticsSection({
           </Row>
           <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
             <Col span={12}>
-              <Statistic title="最大 ADV 使用率" value={(results.execution_diagnostics?.max_adv_usage || results.execution_plan?.liquidity_summary?.max_adv_usage || 0) * 100} precision={2} suffix="%" />
+              <Statistic title="最大日成交额占用" value={(results.execution_diagnostics?.max_adv_usage || results.execution_plan?.liquidity_summary?.max_adv_usage || 0) * 100} precision={2} suffix="%" />
             </Col>
             <Col span={12}>
               <Statistic title="流动性紧张路由" value={results.execution_diagnostics?.stretched_route_count || results.execution_plan?.liquidity_summary?.stretched_route_count || 0} />
@@ -132,7 +132,7 @@ function CrossMarketDiagnosticsSection({
               <Statistic title="保证金占用" value={(results.execution_diagnostics?.margin_utilization || results.execution_plan?.margin_summary?.utilization || 0) * 100} precision={2} suffix="%" />
             </Col>
             <Col span={12}>
-              <Statistic title="Gross Leverage" value={results.execution_diagnostics?.gross_leverage || results.execution_plan?.margin_summary?.gross_leverage || 0} precision={2} suffix="x" />
+              <Statistic title="总杠杆" value={results.execution_diagnostics?.gross_leverage || results.execution_plan?.margin_summary?.gross_leverage || 0} precision={2} suffix="x" />
             </Col>
           </Row>
           <div style={{ marginTop: 16 }}>
@@ -167,7 +167,7 @@ function CrossMarketDiagnosticsSection({
             <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.cointegration_level === 'weak' ? 'warning' : 'info'} showIcon message="协整关系提示" description={results.execution_diagnostics.cointegration_reason} />
           ) : null}
           {Number(results.execution_diagnostics?.residual_notional || 0) > 0 ? (
-            <Alert style={{ marginTop: 16 }} type="info" showIcon message="最小交易单位提示" description={`按最新价格和 lot size 换算后，预计有 ${formatCurrency(Number(results.execution_diagnostics?.residual_notional || 0))} 的名义金额无法精确贴合目标权重。`} />
+            <Alert style={{ marginTop: 16 }} type="info" showIcon message="最小交易单位提示" description={`按最新价格和最小交易单位换算后，预计有 ${formatCurrency(Number(results.execution_diagnostics?.residual_notional || 0))} 的名义金额无法精确贴合目标权重。`} />
           ) : null}
           {results.execution_diagnostics?.stress_test_flag ? (
             <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics.stress_test_flag === 'high' ? 'warning' : 'info'} showIcon message={`压力测试最坏情景：${stressMeta.label}`} description={results.execution_diagnostics.stress_test_reason || '已根据资金放大情景评估路由拥挤度。'} />
