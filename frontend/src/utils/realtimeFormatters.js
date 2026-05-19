@@ -7,6 +7,7 @@ export const CATEGORY_LABELS = {
   index: '指数',
   us: '美股',
   cn: 'A股',
+  etf: 'ETF',
   crypto: '加密货币',
   bond: '债券',
   future: '期货',

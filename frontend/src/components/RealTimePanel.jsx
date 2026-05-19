@@ -1226,6 +1226,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     { key: 'index', label: '指数', icon: <BarChartOutlined /> },
     { key: 'us', label: '美股', icon: <StockOutlined /> },
     { key: 'cn', label: 'A股', icon: <StockOutlined /> },
+    { key: 'etf', label: 'ETF', icon: <FundOutlined /> },
     { key: 'crypto', label: '加密', icon: <ThunderboltOutlined /> },
     { key: 'bond', label: '债券', icon: <BankOutlined /> },
     { key: 'future', label: '期货', icon: <PropertySafetyOutlined /> },
@@ -1572,7 +1573,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
                       aria-label="添加跟踪标的搜索"
                       name="tracked_symbol_search"
                       autoComplete="off"
-                      placeholder="搜索... (支持指数、美股、A股、加密货币、债券等)"
+                      placeholder="搜索... (支持指数、美股、A股、ETF、加密货币、债券等)"
                       prefix={<SearchOutlined />}
                       allowClear
                       size="large"
