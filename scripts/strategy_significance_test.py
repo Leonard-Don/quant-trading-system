@@ -174,6 +174,102 @@ def _render_summary(report: ComparisonReport) -> str:
     return "\n".join(lines)
 
 
+def _render_markdown(report: ComparisonReport) -> str:
+    """Render the statistical_tests block as a Markdown document.
+
+    The summary stays compact: a metadata header, then one table per
+    test family (DM, Sharpe-Memmel, block bootstrap, multiple-testing
+    corrections). Same column conventions as
+    ``sample_strategy_comparison_5y.md`` so the two reports can be
+    diff'd side-by-side.
+    """
+
+    tests = report.statistical_tests
+    if tests is None:
+        return "(no statistical_tests block — comparator did not opt in)"
+
+    bonf_thr = tests.alpha / max(len(tests.pair_labels), 1)
+    lines: list[str] = []
+    lines.append("# Pairwise statistical significance tests")
+    lines.append("")
+    lines.append(
+        f"- Period: `{report.period_start}` → `{report.period_end}`"
+    )
+    lines.append(
+        f"- Pairs k = {len(tests.pair_labels)} · alpha = {tests.alpha:.3f} "
+        f"· Bonferroni threshold = {bonf_thr:.5f}"
+    )
+    lines.append("")
+
+    lines.append("## Diebold-Mariano (1995) — loss = -return")
+    lines.append("")
+    lines.append("| pair | DM stat | p (2-sided) | p (1-sided, A>B) | mean(L_a - L_b) | n |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
+    for i, pair in enumerate(tests.pair_labels):
+        dm = tests.dm_results[i]
+        lines.append(
+            f"| `{pair}` | {dm.dm_statistic:+.3f} | {dm.p_value:.4f} | "
+            f"{dm.p_value_one_sided:.4f} | {dm.mean_loss_differential:+.6f} | "
+            f"{dm.n_obs} |"
+        )
+    lines.append("")
+
+    lines.append("## Sharpe-ratio difference (Memmel 2003)")
+    lines.append("")
+    lines.append("| pair | Sharpe_a | Sharpe_b | z | p (2-sided) | n |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
+    for i, pair in enumerate(tests.pair_labels):
+        sh = tests.sharpe_results[i]
+        lines.append(
+            f"| `{pair}` | {sh.sharpe_a:+.4f} | {sh.sharpe_b:+.4f} | "
+            f"{sh.z_statistic:+.3f} | {sh.p_value:.4f} | "
+            f"{sh.n_obs} |"
+        )
+    lines.append("")
+
+    lines.append("## Block bootstrap 95% CI on return differential")
+    lines.append("")
+    lines.append("| pair | mean(A-B) | CI low | CI high | p (2-sided) | block | n_boot |")
+    lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: |")
+    for i, pair in enumerate(tests.pair_labels):
+        bs = tests.block_bootstrap_results[i]
+        lines.append(
+            f"| `{pair}` | {bs.mean_diff:+.6f} | "
+            f"{bs.ci_low:+.6f} | {bs.ci_high:+.6f} | "
+            f"{bs.p_value_two_sided:.4f} | {bs.block_size} | "
+            f"{bs.n_bootstrap} |"
+        )
+    lines.append("")
+
+    lines.append("## Multiple-testing correction (Bonferroni & Holm)")
+    lines.append("")
+    lines.append(
+        "| pair | DM raw p | DM Bonferroni? | DM Holm? | "
+        "Sharpe raw p | Sharpe Bonferroni? | Sharpe Holm? |"
+    )
+    lines.append("| --- | ---: | :-: | :-: | ---: | :-: | :-: |")
+    for i, pair in enumerate(tests.pair_labels):
+        dm_p = tests.dm_results[i].p_value
+        sh_p = tests.sharpe_results[i].p_value
+        bonf_dm = "yes" if tests.bonferroni_dm.rejected[i] else "no"
+        holm_dm = "yes" if tests.holm_dm.rejected[i] else "no"
+        bonf_sh = "yes" if tests.bonferroni_sharpe.rejected[i] else "no"
+        holm_sh = "yes" if tests.holm_sharpe.rejected[i] else "no"
+        lines.append(
+            f"| `{pair}` | {dm_p:.4f} | {bonf_dm} | {holm_dm} | "
+            f"{sh_p:.4f} | {bonf_sh} | {holm_sh} |"
+        )
+    lines.append("")
+
+    if tests.notes:
+        lines.append("## Notes")
+        lines.append("")
+        for note in tests.notes:
+            lines.append(f"- {note}")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _build_arg_parser().parse_args(argv)

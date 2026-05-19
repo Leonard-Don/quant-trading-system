@@ -19,6 +19,7 @@ from src.data.etf_rotation import EtfHolding, EtfQuote
 from src.strategy.etf_rotation_config_loader import StrategyConfig, load_strategy_config
 from src.strategy.etf_rotation_service import (
     EtfRotationService,
+    audit_state_signature,
     is_within_trading_hours,
     max_weight_delta,
 )
@@ -110,6 +111,37 @@ def test_max_weight_delta_returns_l_infinity_norm() -> None:
     assert max_weight_delta({}, {}) == 0.0
 
 
+def test_audit_state_signature_ignores_market_noise() -> None:
+    base = {
+        "adjusted_weights": {"510300": 0.5004, "159985": 0.4996},
+        "score_breakdown": {"510300": {"latest_price": 4.01}},
+        "total_asset": 123456.0,
+        "prices_at_decision": {"510300": 4.01},
+        "risk_reasons": ["premium_block_active"],
+        "overlays": {"510300": {"block_new_buys": True}},
+    }
+    noisy = {
+        **base,
+        "score_breakdown": {"510300": {"latest_price": 4.09}},
+        "total_asset": 999999.0,
+        "prices_at_decision": {"510300": 4.09},
+        "run_at": "2026-05-19T10:00:00Z",
+        "quote_source": "service:live",
+    }
+
+    assert audit_state_signature(base) == audit_state_signature(noisy)
+
+
+def test_audit_state_signature_tracks_actionable_changes() -> None:
+    base = {"adjusted_weights": {"510300": 0.5}, "risk_reasons": []}
+    changed = {
+        **base,
+        "stop_loss_triggered": {"510300": {"reason": "drawdown"}},
+    }
+
+    assert audit_state_signature(base) != audit_state_signature(changed)
+
+
 # ---------------------------------------------------------------------------
 # Service: refresh / debounce / trading-hours
 # ---------------------------------------------------------------------------
@@ -188,6 +220,8 @@ def test_service_refresh_debounces_when_weights_barely_change(tmp_path) -> None:
     assert second.refreshed is False
     assert second.skipped_reason == "below_debounce_threshold"
     assert second.cached.debounced is True
+    audit_lines = (tmp_path / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(audit_lines) == 1
 
 
 def test_service_force_refresh_skips_trading_hours_check(tmp_path) -> None:

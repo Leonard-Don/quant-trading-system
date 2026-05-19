@@ -4,6 +4,51 @@
 
 ### Features
 
+- feat(backtest): extend 5y dataset to 2026-05 + re-validate DM/Sharpe/bootstrap
+  - `data/etf_backtest/etf_prices_5y.csv` extended from 2020-01-02 → 2024-12-31
+    (1212 rows) to 2020-01-02 → 2026-05-15 (1540 rows) via
+    `scripts/fetch_etf_history_5y.py --end-date 2026-05-15`. Validated zero
+    mismatch with the 4y golden CSV on all 968 overlapping dates (max abs
+    diff 0.0 on each of 159985/512400/510300/518680/513130).
+  - Re-ran every formal stat tool on the extended data: backtest (5y
+    n_rebalances=308, Sharpe 0.795, ann-return +8.42%, total +63.89%),
+    walkforward (74 × 3-month windows, mean window Sharpe 0.40, worst-DD
+    10.81%), multi-strategy comparison with `--with-statistical-tests`
+    (n=307 weekly obs), parameter optimizer (3⁴ grid, best Sharpe 0.816,
+    no parameter moves Sharpe by more than 0.029), standalone DM test.
+  - Saved 4y vs 5y side-by-side artefacts under `outputs/etf_5y_rerun/`
+    (backtest_*y, walkforward_*y, comparison_*y, significance_*y, plus
+    optimize_5y). Both windows now end on `2026-05-15` so the 4y vs 5y
+    diff isolates the effect of *sample size*, not *recency*.
+  - **Honest finding**: zero pairwise comparisons cross α=0.05 at either
+    window. Smallest 5y DM p = 0.1114 (`rotation_vs_mean_reversion`,
+    down from 0.6873 at the rebuilt 4y baseline because the 4y window
+    happened to flip the sign of the spread); smallest 5y block-bootstrap
+    p = 0.1070 (same pair). Sharpe-difference p-values went the *wrong*
+    way for the `rotation_vs_MR` pair (0.12 → 0.62) because MR's 4y
+    outperformance was driven by its 2022-2024 sub-window — over 5y MR's
+    Sharpe drops from 1.38 to 0.68 and the difference loses both
+    magnitude and statistical resolution. No correction (Bonferroni
+    α/k=0.00833, Holm) flags any pair at either horizon. The "more data
+    won't make it significant" power-analysis prediction from commit
+    `fddfbf8` is confirmed: even at 307 weekly obs over a structurally
+    favourable window, the strategy claim is statistically
+    indistinguishable from noise.
+  - Sub-finding: extending sample *did* fix a few sign-instability
+    issues. The rebuilt 4y baseline window had `rotation_vs_MR` DM stat
+    -0.40 (MR apparently slightly ahead); 5y has -1.59 (rotation clearly
+    ahead, consistent with the 5y total-return spread of +37.46 pp).
+    The sign no longer flips with sample-size — that's progress, even
+    if p stays above 0.05.
+  - Bug fix in `scripts/strategy_significance_test.py`: replaced a
+    missing `_render_markdown` reference (NameError on `--output-md`)
+    with a full markdown renderer (DM / Sharpe / bootstrap CI / multiple-
+    testing correction tables) matching `sample_strategy_comparison_5y.md`
+    column conventions.
+  - Updated docs: `docs/sample_strategy_comparison_5y.md` (now contains
+    explicit 4y vs 5y p-value comparison tables); `docs/sample_walkforward_5y.md`
+    (4y vs 5y aggregate-metric table, 74-window roll instead of 58).
+
 - feat(backtest): formal statistical tests (DM + block bootstrap + Sharpe ratio)
   - 新增 `src/backtest/strategy_statistical_tests.py`：三个互补的形式化假设检验。
     `diebold_mariano_test(returns_a, returns_b, *, loss_fn="negative_return"|"squared_error"|"absolute_error"|"sharpe", h=1)`
