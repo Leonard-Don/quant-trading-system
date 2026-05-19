@@ -1,7 +1,8 @@
 import dayjs from './dayjs';
 
-const ROLLING_ONE_YEAR_MODE = 'rolling_one_year';
-const CUSTOM_MODE = 'custom';
+export const ROLLING_ONE_YEAR_MODE = 'rolling_one_year';
+export const CUSTOM_MODE = 'custom';
+const FIXED_MODE = 'fixed';
 
 const normalizeDateValue = (value) => {
   if (!value) {
@@ -76,6 +77,15 @@ export const resolveBacktestDraftDateRange = (draft = {}, anchor = dayjs()) => {
     && durationDays <= 370
   );
 
-  return looksLikeLegacyRollingDefault ? fallback : normalizedDateRange;
-};
+  if (looksLikeLegacyRollingDefault) {
+    return fallback;
+  }
 
+  const hasExplicitCustomDateRangeIntent = (
+    draft?.dateRangeEdited === true
+    || draft?.dateRangeMode === FIXED_MODE
+    || Boolean(draft?.source || draft?.industry_name || draft?.stock_name || draft?.note)
+  );
+
+  return hasExplicitCustomDateRangeIntent ? normalizedDateRange : fallback;
+};

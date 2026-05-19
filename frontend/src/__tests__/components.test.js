@@ -173,6 +173,8 @@ describe('StrategyForm Component', () => {
                 symbol: 'AAPL',
                 strategy: 'moving_average',
                 dateRange: ['2026-03-21', '2026-04-21'],
+                dateRangeMode: 'custom',
+                dateRangeEdited: true,
                 parameters: {
                     fast_period: 20,
                     slow_period: 50,
@@ -198,6 +200,40 @@ describe('StrategyForm Component', () => {
             await waitFor(() => {
                 expect(screen.getByText('当前回测区间可能太短，策略很可能不会产生交易')).toBeInTheDocument();
                 expect(screen.getByText(/至少需要约 50 个交易日/)).toBeInTheDocument();
+            });
+        });
+
+        test('ignores unmarked legacy short-window workspace drafts and keeps the rolling one-year default', async () => {
+            window.localStorage.setItem('backtest_workspace_draft', JSON.stringify({
+                symbol: 'AAPL',
+                strategy: 'moving_average',
+                dateRange: ['2026-03-21', '2026-04-21'],
+                dateRangeMode: 'custom',
+                parameters: {
+                    fast_period: 20,
+                    slow_period: 50,
+                },
+            }));
+
+            render(
+                <StrategyForm
+                    strategies={[
+                        {
+                            name: 'moving_average',
+                            parameters: {
+                                fast_period: { default: 20 },
+                                slow_period: { default: 50 },
+                            },
+                        },
+                    ]}
+                    onSubmit={jest.fn()}
+                    loading={false}
+                />
+            );
+
+            await waitFor(() => {
+                expect(screen.getByDisplayValue(dayjs().subtract(1, 'year').format('YYYY-MM-DD'))).toBeInTheDocument();
+                expect(screen.getByDisplayValue(dayjs().format('YYYY-MM-DD'))).toBeInTheDocument();
             });
         });
 
