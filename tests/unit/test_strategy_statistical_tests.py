@@ -466,6 +466,10 @@ def test_minimum_detectable_effect_rejects_invalid_design_inputs() -> None:
         minimum_detectable_effect(0.01, 1)
     with pytest.raises(ValueError, match="hac_variance"):
         minimum_detectable_effect(-0.01, 20)
+    with pytest.raises(ValueError, match="hac_variance"):
+        minimum_detectable_effect(float("nan"), 20)
+    with pytest.raises(ValueError, match="hac_variance"):
+        minimum_detectable_effect(float("inf"), 20)
 
 
 def test_minimum_detectable_effect_handles_degenerate_variance() -> None:

@@ -944,8 +944,9 @@ def minimum_detectable_effect(
     Raises
     ------
     ValueError
-        If ``alpha`` or ``power`` are outside ``(0, 1)``,
-        ``periods_per_year`` is not positive, or ``n_obs < 2``.
+        If ``hac_variance`` is negative/non-finite, ``alpha`` or ``power``
+        are outside ``(0, 1)``, ``periods_per_year`` is not positive, or
+        ``n_obs < 2``.
     """
 
     if periods_per_year <= 0.0:
@@ -959,8 +960,8 @@ def minimum_detectable_effect(
 
     note = ""
     hv = float(hac_variance)
-    if hv < 0.0:
-        raise ValueError(f"hac_variance must be >= 0; got {hac_variance}")
+    if not math.isfinite(hv) or hv < 0.0:
+        raise ValueError(f"hac_variance must be finite and >= 0; got {hac_variance}")
     if hv <= 1e-30:
         # Degenerate variance — the differential is essentially constant,
         # so any non-zero effect is "infinitely" detectable. Report zeros
