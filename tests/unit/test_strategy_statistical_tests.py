@@ -466,6 +466,9 @@ def test_minimum_detectable_effect_rejects_invalid_design_inputs() -> None:
         minimum_detectable_effect(0.01, 20, periods_per_year=float("nan"))
     with pytest.raises(ValueError, match="n_obs"):
         minimum_detectable_effect(0.01, 1)
+    for n_obs in (float("nan"), float("inf"), -float("inf")):
+        with pytest.raises(ValueError, match="n_obs"):
+            minimum_detectable_effect(0.01, n_obs)
     with pytest.raises(ValueError, match="hac_variance"):
         minimum_detectable_effect(-0.01, 20)
     with pytest.raises(ValueError, match="hac_variance"):
@@ -494,6 +497,14 @@ def test_dm_power_for_information_ratio_rejects_non_finite_periods() -> None:
 
     with pytest.raises(ValueError, match="periods_per_year"):
         dm_power_for_information_ratio(0.8, 20, periods_per_year=float("nan"))
+
+
+def test_dm_power_for_information_ratio_rejects_non_finite_n_obs() -> None:
+    """Forward-power diagnostics should reject impossible sample sizes."""
+
+    for n_obs in (float("nan"), float("inf"), -float("inf")):
+        with pytest.raises(ValueError, match="n_obs"):
+            dm_power_for_information_ratio(0.8, n_obs)
 
 
 def test_dm_power_for_information_ratio_rejects_non_finite_ir() -> None:

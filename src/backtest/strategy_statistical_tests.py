@@ -946,14 +946,15 @@ def minimum_detectable_effect(
     ValueError
         If ``hac_variance`` is negative/non-finite, ``alpha`` or ``power``
         are outside ``(0, 1)``, ``periods_per_year`` is not positive, or
-        ``n_obs < 2``.
+        ``n_obs`` is non-finite / less than 2.
     """
 
     if not math.isfinite(periods_per_year) or periods_per_year <= 0.0:
         raise ValueError(
             f"periods_per_year must be > 0; got {periods_per_year}"
         )
-    if n_obs < 2:
+    n_obs_value = float(n_obs)
+    if not math.isfinite(n_obs_value) or n_obs_value < 2:
         raise ValueError(f"n_obs must be >= 2 to invert the test; got {n_obs}")
 
     required_ncp = _required_noncentrality(alpha=alpha, power=power)
@@ -975,11 +976,11 @@ def minimum_detectable_effect(
         observed_ir = 0.0
         observed_annual = 0.0
     else:
-        se = math.sqrt(hv / n_obs)
+        se = math.sqrt(hv / n_obs_value)
         ann_te = math.sqrt(hv * periods_per_year)
         mde_per_period = required_ncp * se
         mde_annual = mde_per_period * periods_per_year
-        mde_ir = required_ncp * math.sqrt(periods_per_year / n_obs)
+        mde_ir = required_ncp * math.sqrt(periods_per_year / n_obs_value)
         # Observed diagnostics. d_mean is the loss differential; for
         # loss_fn="negative_return" the excess return is -d_mean.
         observed_excess_per_period = -float(observed_mean_differential)
@@ -998,7 +999,7 @@ def minimum_detectable_effect(
         required_ncp=float(required_ncp),
         power=float(power),
         alpha=float(alpha),
-        n_obs=int(n_obs),
+        n_obs=int(n_obs_value),
         hac_variance=hv,
         annualized_tracking_error=float(ann_te),
         periods_per_year=float(periods_per_year),
@@ -1068,13 +1069,14 @@ def dm_power_for_information_ratio(
         raise ValueError(
             f"periods_per_year must be > 0; got {periods_per_year}"
         )
-    if n_obs < 2:
+    n_obs_value = float(n_obs)
+    if not math.isfinite(n_obs_value) or n_obs_value < 2:
         raise ValueError(f"n_obs must be >= 2; got {n_obs}")
     ir = float(information_ratio)
     if not math.isfinite(ir):
         raise ValueError(f"information_ratio must be finite; got {information_ratio}")
     z_alpha = float(stats.norm.ppf(1.0 - alpha / 2.0))
-    ncp = abs(ir) * math.sqrt(n_obs / periods_per_year)
+    ncp = abs(ir) * math.sqrt(n_obs_value / periods_per_year)
     return _two_sided_normal_power(ncp, z_alpha)
 
 
