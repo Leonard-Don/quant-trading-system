@@ -1107,7 +1107,7 @@ const EtfRotationDashboard = () => {
                   showIcon
                   icon={<AlertOutlined />}
                   data-testid="etf-stop-loss-alert"
-                  message="触发 per-position 止损"
+                  message="触发单仓止损"
                   description={
                     <Space direction="vertical" size={4}>
                       {hard.map(([code, info]) => (
@@ -1127,7 +1127,7 @@ const EtfRotationDashboard = () => {
                   type="warning"
                   showIcon
                   data-testid="etf-stop-loss-advisory-alert"
-                  message="基本面 thesis 复核提醒（不强制清仓）"
+                  message="基本面持仓逻辑复核提醒（不强制清仓）"
                   description={
                     <Space direction="vertical" size={4}>
                       {advisory.map(([code, info]) => (
@@ -1194,7 +1194,7 @@ const EtfRotationDashboard = () => {
               title="逐仓位短线择时（参考用，不动战略仓位）"
               data-testid="etf-tactical-timing-table"
               extra={(
-                <Tooltip title="基于 score_breakdown 的 5/20/60 日动量、MA 距离、RSI(14)、布林位置。策略每次刷新都重算，不再做组合轮动。当前框架：你做基本面长期持有，这张表帮你判断短线加仓点。">
+                <Tooltip title="基于策略评分明细里的 5/20/60 日动量、均线距离、相对强弱、布林带位置。策略每次刷新都会重算。当前框架：你做基本面长期持有，这张表只帮你判断短线加仓点。">
                   <Text type="secondary" style={{ cursor: 'help', borderBottom: '1px dotted var(--color-text-tertiary)' }}>
                     什么是这张表
                   </Text>
@@ -1248,7 +1248,7 @@ const EtfRotationDashboard = () => {
                   else if (v > 70) { color = 'red'; label = '超买'; }
                   else if (v > 60) { color = 'orange'; label = '偏强'; }
                   return (
-                    <Tooltip title={`RSI(14) = ${v.toFixed(1)}（${label}）`}>
+                    <Tooltip title={`相对强弱指标 = ${v.toFixed(1)}（${label}）`}>
                       <Tag color={color}>
                         {v.toFixed(0)} · {label}
                       </Tag>
@@ -1279,17 +1279,17 @@ const EtfRotationDashboard = () => {
                   }
                   // Oversold + at/below lower band + not in freefall (return5 not catastrophic)
                   if (rsi < 35 && bb < 0.2 && (!Number.isFinite(ret5) || ret5 > -0.05)) {
-                    return <Tag color="green" data-testid={`etf-tactical-action-${row.code}`}>战术 ADD 候选</Tag>;
+                    return <Tag color="green" data-testid={`etf-tactical-action-${row.code}`}>战术加仓候选</Tag>;
                   }
                   // Overbought
                   if (rsi > 70 && bb > 0.85) {
-                    return <Tag color="orange" data-testid={`etf-tactical-action-${row.code}`}>OVERBOUGHT</Tag>;
+                    return <Tag color="orange" data-testid={`etf-tactical-action-${row.code}`}>短线过热</Tag>;
                   }
                   // Persistent downtrend
                   if (ma200Below && rsi < 45) {
-                    return <Tag color="default" data-testid={`etf-tactical-action-${row.code}`}>趋势弱·WAIT</Tag>;
+                    return <Tag color="default" data-testid={`etf-tactical-action-${row.code}`}>趋势弱·等待</Tag>;
                   }
-                  return <Tag color="default" data-testid={`etf-tactical-action-${row.code}`}>WAIT</Tag>;
+                  return <Tag color="default" data-testid={`etf-tactical-action-${row.code}`}>等待</Tag>;
                 };
                 const tacticalColumns = [
                   { title: '代码', dataIndex: 'code', key: 'code', width: 90 },
@@ -1303,9 +1303,9 @@ const EtfRotationDashboard = () => {
                   { title: '5日', dataIndex: 'ret5', key: 'ret5', render: renderReturn },
                   { title: '20日', dataIndex: 'ret20', key: 'ret20', render: renderReturn },
                   { title: '60日', dataIndex: 'ret60', key: 'ret60', render: renderReturn },
-                  { title: '距MA20', dataIndex: 'ma20Dist', key: 'ma20Dist', render: renderDistance },
-                  { title: '距MA60', dataIndex: 'ma60Dist', key: 'ma60Dist', render: renderDistance },
-                  { title: 'RSI(14)', dataIndex: 'rsi14', key: 'rsi14', render: renderRSI },
+                  { title: '距20日线', dataIndex: 'ma20Dist', key: 'ma20Dist', render: renderDistance },
+                  { title: '距60日线', dataIndex: 'ma60Dist', key: 'ma60Dist', render: renderDistance },
+                  { title: '相对强弱', dataIndex: 'rsi14', key: 'rsi14', render: renderRSI },
                   { title: '布林位置', dataIndex: 'bbPos', key: 'bbPos', render: renderBBPos },
                   {
                     title: '战术倾向',

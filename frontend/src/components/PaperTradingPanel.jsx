@@ -61,9 +61,20 @@ const { Title, Text } = Typography;
 
 const QUOTE_POLL_MS = 5000;
 
-const formatMoney = (value) => {
+const formatMoneyWithPrefix = (value, prefix = '$') => {
     if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
-    return `$${value.toFixed(2)}`;
+    return `${prefix}${value.toFixed(2)}`;
+};
+
+const formatMoney = (value, symbol) => {
+    const prefix = symbol ? getCurrencySymbol(symbol) : '$';
+    return formatMoneyWithPrefix(value, prefix);
+};
+
+const formatSideLabel = (side) => {
+    if (side === 'BUY') return '买入';
+    if (side === 'SELL') return '卖出';
+    return side || '—';
 };
 
 const computeMarkToMarket = (positions, quoteMap) => {
@@ -180,7 +191,7 @@ const PaperTradingPanel = () => {
             }).then(() => {
                 const reporter = tone === 'success' ? message.success : message.warning;
                 reporter(
-                    `${position.symbol} 触发${label}：自动按 ${formatMoney(lastPrice)} 卖出 ${position.quantity}`,
+                    `${position.symbol} 触发${label}：自动按 ${formatMoney(lastPrice, position.symbol)} 卖出 ${position.quantity}`,
                 );
                 autoTriggerInFlightRef.current.delete(inFlightKey);
                 refresh();
@@ -256,7 +267,7 @@ const PaperTradingPanel = () => {
                     }).then(() => cancelPaperOrder(pendingOrder.id))
                       .then(() => {
                           message.success(
-                              `${pendingOrder.symbol} 限价 ${pendingOrder.side} ${pendingOrder.quantity} 已成交 @ ${formatMoney(limitPrice)}`,
+                              `${pendingOrder.symbol} 限价${formatSideLabel(pendingOrder.side)} ${pendingOrder.quantity} 已成交 @ ${formatMoney(limitPrice, pendingOrder.symbol)}`,
                           );
                           autoTriggerInFlightRef.current.delete(inFlightKey);
                           refresh();
@@ -297,10 +308,12 @@ const PaperTradingPanel = () => {
         const totalReturn = initialCapital > 0 ? (equity - initialCapital) / initialCapital : null;
         // Pick a currency symbol based on the first position (or fall back
         // to ¥, since this is a CN A-stock tool by default).
-        const firstSymbol = enriched[0]?.symbol;
+        const firstSymbol = enriched[0]?.symbol
+            || account?.pending_orders?.[0]?.symbol
+            || orders?.[0]?.symbol;
         const currencyPrefix = firstSymbol ? getCurrencySymbol(firstSymbol) : '¥';
         return { positions: enriched, unrealized, marketValue, equity, totalReturn, cash, initialCapital, currencyPrefix };
-    }, [account, quoteMap]);
+    }, [account, orders, quoteMap]);
 
     const handleSubmit = async () => {
         try {
@@ -334,8 +347,8 @@ const PaperTradingPanel = () => {
             }
             await submitPaperOrder(payload);
             const successMsg = orderType === 'LIMIT'
-                ? `${payload.side} ${payload.quantity} ${payload.symbol} 限价单已挂出 @ ${payload.fill_price}`
-                : `${payload.side} ${payload.quantity} ${payload.symbol} @ ${payload.fill_price} 已成交`;
+                ? `${formatSideLabel(payload.side)} ${payload.quantity} ${payload.symbol} 限价单已挂出 @ ${formatMoney(payload.fill_price, payload.symbol)}`
+                : `${formatSideLabel(payload.side)} ${payload.quantity} ${payload.symbol} @ ${formatMoney(payload.fill_price, payload.symbol)} 已成交`;
             message.success(successMsg);
             orderForm.resetFields([
                 'quantity', 'fill_price', 'commission', 'slippage_bps',
@@ -432,24 +445,24 @@ const PaperTradingPanel = () => {
             dataIndex: 'avg_cost',
             key: 'avg_cost',
             align: 'right',
-            render: formatMoney,
+            render: (value, record) => formatMoney(value, record?.symbol),
         },
         {
             title: '现价',
             dataIndex: 'last_price',
             key: 'last_price',
             align: 'right',
-            render: (value) => (value == null ? <Text type="secondary">—</Text> : formatMoney(value)),
+            render: (value, record) => (value == null ? <Text type="secondary">—</Text> : formatMoney(value, record?.symbol)),
         },
         {
             title: '浮动盈亏',
             dataIndex: 'unrealized_pnl',
             key: 'unrealized_pnl',
             align: 'right',
-            render: (value) => {
+            render: (value, record) => {
                 if (value == null) return <Text type="secondary">—</Text>;
                 const tone = value >= 0 ? 'var(--accent-danger)' : 'var(--accent-success)';
-                return <Text style={{ color: tone }}>{formatMoney(value)}</Text>;
+                return <Text style={{ color: tone }}>{formatMoney(value, record?.symbol)}</Text>;
             },
         },
         {
@@ -476,7 +489,7 @@ const PaperTradingPanel = () => {
                 }
                 return (
                     <div data-testid={`paper-position-stop-loss-${record?.symbol}`}>
-                        {formatMoney(stopLossPrice)}
+                        {formatMoney(stopLossPrice, record?.symbol)}
                         {distanceLabel}
                     </div>
                 );
@@ -506,7 +519,7 @@ const PaperTradingPanel = () => {
                 }
                 return (
                     <div data-testid={`paper-position-take-profit-${record?.symbol}`}>
-                        {formatMoney(takeProfitPrice)}
+                        {formatMoney(takeProfitPrice, record?.symbol)}
                         {distanceLabel}
                     </div>
                 );
@@ -522,7 +535,7 @@ const PaperTradingPanel = () => {
             key: 'side',
             width: 80,
             render: (value) => (
-                <Tag color={value === 'BUY' ? 'red' : 'green'}>{value}</Tag>
+                <Tag color={value === 'BUY' ? 'red' : 'green'}>{formatSideLabel(value)}</Tag>
             ),
         },
         { title: '标的', dataIndex: 'symbol', key: 'symbol', width: 100 },
@@ -551,7 +564,7 @@ const PaperTradingPanel = () => {
                     && Math.abs(effective - requested) > 1e-9;
 
                 if (!hasSlippage) {
-                    return formatMoney(Number.isFinite(effective) ? effective : requested);
+                    return formatMoney(Number.isFinite(effective) ? effective : requested, record?.symbol);
                 }
 
                 const slippageCost = (effective - requested) * Number(record.quantity || 0);
@@ -559,14 +572,14 @@ const PaperTradingPanel = () => {
                     <Tooltip
                         title={(
                             <div style={{ fontSize: 12, lineHeight: 1.6 }}>
-                                <div>报价价：{formatMoney(requested)}</div>
+                                <div>报价价：{formatMoney(requested, record?.symbol)}</div>
                                 <div>滑点：{slippageBps} bps</div>
-                                <div>滑点成本：{formatMoney(Math.abs(slippageCost))}</div>
+                                <div>滑点成本：{formatMoney(Math.abs(slippageCost), record?.symbol)}</div>
                             </div>
                         )}
                     >
                         <Text data-testid={`paper-order-effective-${record?.id}`}>
-                            {formatMoney(effective)}{' '}
+                            {formatMoney(effective, record?.symbol)}{' '}
                             <Tag color="orange" style={{ marginLeft: 4, fontSize: 10 }}>
                                 {slippageBps}bps
                             </Tag>
@@ -668,7 +681,7 @@ const PaperTradingPanel = () => {
                 </Row>
                 <Space style={{ marginTop: 12 }}>
                     <Tooltip title="账户首次开立时设置；可通过重置改变">
-                        <Tag>初始资金 {formatMoney(summary.initialCapital)}</Tag>
+                        <Tag>初始资金 {formatMoneyWithPrefix(summary.initialCapital, summary.currencyPrefix)}</Tag>
                     </Tooltip>
                     <Tag>持仓 {summary.positions.length}</Tag>
                     <Tag>订单 {orders.length}</Tag>
@@ -739,7 +752,7 @@ const PaperTradingPanel = () => {
                             </Tag>
                         ) : null}
                         <Form form={orderForm} layout="vertical" initialValues={{ side: 'BUY', commission: 0, slippage_bps: 0, order_type: 'MARKET' }}>
-                            <Form.Item label="单类型" name="order_type">
+                            <Form.Item label="订单类型" name="order_type">
                                 <Segmented
                                     options={[
                                         { label: '市价单', value: 'MARKET' },
@@ -847,7 +860,7 @@ const PaperTradingPanel = () => {
                 </Col>
             </Row>
 
-            <Card title="挂单（限价单 / Pending）" size="small" style={{ marginTop: 16 }}>
+            <Card title="挂单（限价单 / 待成交）" size="small" style={{ marginTop: 16 }}>
                 <Table
                     dataSource={account?.pending_orders || []}
                     rowKey="id"
@@ -861,14 +874,14 @@ const PaperTradingPanel = () => {
                         {
                             title: '方向', dataIndex: 'side', key: 'side', width: 80,
                             render: (value) => (
-                                <Tag color={value === 'BUY' ? 'red' : 'green'}>{value}</Tag>
+                                <Tag color={value === 'BUY' ? 'red' : 'green'}>{formatSideLabel(value)}</Tag>
                             ),
                         },
                         { title: '标的', dataIndex: 'symbol', key: 'symbol', width: 100 },
                         { title: '数量', dataIndex: 'quantity', key: 'quantity', align: 'right', width: 100 },
                         {
                             title: '限价', dataIndex: 'limit_price', key: 'limit_price',
-                            align: 'right', width: 120, render: formatMoney,
+                            align: 'right', width: 120, render: (value, record) => formatMoney(value, record?.symbol),
                         },
                         {
                             title: '操作', key: 'action', width: 100, align: 'right',

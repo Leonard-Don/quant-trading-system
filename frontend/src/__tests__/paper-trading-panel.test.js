@@ -310,6 +310,65 @@ describe('PaperTradingPanel', () => {
         expect(cell.textContent).toContain('距触发');
     });
 
+    it('formats CN paper-account prices with yuan symbols across positions and pending orders', async () => {
+        const cnAccount = {
+            ...ACCOUNT_WITH_POSITION,
+            cash: 50000,
+            positions: [
+                {
+                    ...ACCOUNT_WITH_POSITION.positions[0],
+                    symbol: '600519.SS',
+                    avg_cost: 1800,
+                    stop_loss_price: 1710,
+                    take_profit_price: 2050,
+                },
+            ],
+            pending_orders: [
+                {
+                    id: 'ord-cn-pending',
+                    symbol: '600519.SS',
+                    side: 'BUY',
+                    quantity: 1,
+                    limit_price: 1760,
+                    submitted_at: '2026-05-05T08:00:00+00:00',
+                    order_type: 'LIMIT',
+                },
+            ],
+        };
+        mockGetAccount.mockResolvedValue({ success: true, data: cnAccount });
+        mockListOrders.mockResolvedValue({
+            success: true,
+            data: {
+                orders: [
+                    {
+                        id: 'ord-cn-history',
+                        symbol: '600519.SS',
+                        side: 'BUY',
+                        quantity: 1,
+                        fill_price: 1800,
+                        commission: 0,
+                        submitted_at: '2026-05-05T08:00:00+00:00',
+                        note: '',
+                    },
+                ],
+                limit: 50,
+            },
+        });
+        mockGetMultipleQuotes.mockResolvedValue({
+            success: true,
+            data: { quotes: { '600519.SS': { price: 1810 } } },
+        });
+
+        renderWithApp(<PaperTradingPanel />);
+
+        const stopLossCell = await screen.findByTestId('paper-position-stop-loss-600519.SS');
+        expect(stopLossCell.textContent).toContain('¥1710.00');
+        expect(screen.getByTestId('paper-position-take-profit-600519.SS').textContent).toContain('¥2050.00');
+        expect(screen.getByText('初始资金 ¥10000.00')).toBeInTheDocument();
+        expect(screen.getByText('¥1760.00')).toBeInTheDocument();
+        expect(screen.queryByText('$1760.00')).not.toBeInTheDocument();
+    });
+
     it('auto-submits a SELL when a quote crosses above take_profit_price', async () => {
         const positionWithTakeProfit = {
             ...ACCOUNT_WITH_POSITION.positions[0],

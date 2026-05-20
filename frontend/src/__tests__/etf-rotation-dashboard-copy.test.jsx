@@ -115,6 +115,32 @@ const mixedLanguageFixture = {
     { code: '510300', name: '沪深300ETF华泰柏瑞', action: 'hold', shares: 0, estimated_amount: 0, current_weight: 0.219, target_weight: 0.28, reason: 'within_threshold' },
   ],
   risk_reasons: ['Cash floor target maintained', 'Manual-only ETF rotation signal'],
+  score_breakdown: {
+    '512400': {
+      latest_price: 2.209,
+      return5: -0.02,
+      return20: 0.03,
+      return60: 0.08,
+      ma20: 2.18,
+      ma60: 2.11,
+      rsi14: 32,
+      bollinger_position: 0.1,
+      drawdown60: -0.06,
+      volatility60: 0.18,
+    },
+    '510300': {
+      latest_price: 5.017,
+      return5: 0.04,
+      return20: 0.07,
+      return60: 0.12,
+      ma20: 4.91,
+      ma60: 4.82,
+      rsi14: 75,
+      bollinger_position: 0.95,
+      drawdown60: -0.02,
+      volatility60: 0.14,
+    },
+  },
   source_health: [
     { source_id: 'etf_holdings', display_name: 'ETF 持仓快照', status: 'ready', as_of: '2026-05-15T01:00:00+00:00' },
     { source_id: 'etf_quotes', display_name: 'ETF 实时行情', status: 'ready', as_of: '2026-05-15T01:30:00+00:00' },
@@ -145,6 +171,11 @@ test('ETF轮动页面将接口里的英文提示和原因统一显示为中文',
   expect(pageText).toContain('手动 ETF 轮动信号');
   expect(pageText).toContain('历史行情回退');
   expect(pageText).toContain('测试实时行情');
+  expect(pageText).toContain('逐仓位短线择时');
+  expect(pageText).toContain('距20日线');
+  expect(pageText).toContain('相对强弱');
+  expect(pageText).toContain('战术加仓候选');
+  expect(pageText).toContain('短线过热');
 
   expect(pageText).not.toContain('Manual trade plan');
   expect(pageText).not.toContain('No broker API');
@@ -154,6 +185,9 @@ test('ETF轮动页面将接口里的英文提示和原因统一显示为中文',
   expect(pageText).not.toContain('Manual-only ETF rotation signal');
   expect(pageText).not.toContain('historical_fallback:yahoo');
   expect(pageText).not.toContain('fake-live');
+  expect(pageText).not.toContain('战术 ADD 候选');
+  expect(pageText).not.toContain('OVERBOUGHT');
+  expect(pageText).not.toContain('趋势弱·WAIT');
 });
 
 test('ETF轮动挂单提示使用接口返回的 tick_size', async () => {
