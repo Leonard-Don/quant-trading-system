@@ -462,6 +462,8 @@ def test_minimum_detectable_effect_rejects_invalid_design_inputs() -> None:
         minimum_detectable_effect(0.01, 20, power=1.0)
     with pytest.raises(ValueError, match="periods_per_year"):
         minimum_detectable_effect(0.01, 20, periods_per_year=0.0)
+    with pytest.raises(ValueError, match="periods_per_year"):
+        minimum_detectable_effect(0.01, 20, periods_per_year=float("nan"))
     with pytest.raises(ValueError, match="n_obs"):
         minimum_detectable_effect(0.01, 1)
     with pytest.raises(ValueError, match="hac_variance"):
@@ -485,6 +487,13 @@ def test_minimum_detectable_effect_handles_degenerate_variance() -> None:
     assert result.mde_ir == 0.0
     assert result.mde_excess_return_annual == 0.0
     assert result.annualized_tracking_error == 0.0
+
+
+def test_dm_power_for_information_ratio_rejects_non_finite_periods() -> None:
+    """Forward-power diagnostics should not emit non-finite probabilities."""
+
+    with pytest.raises(ValueError, match="periods_per_year"):
+        dm_power_for_information_ratio(0.8, 20, periods_per_year=float("nan"))
 
 
 def test_minimum_detectable_effect_from_dm_rejects_non_return_loss() -> None:

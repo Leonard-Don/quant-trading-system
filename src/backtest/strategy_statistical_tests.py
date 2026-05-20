@@ -949,7 +949,7 @@ def minimum_detectable_effect(
         ``n_obs < 2``.
     """
 
-    if periods_per_year <= 0.0:
+    if not math.isfinite(periods_per_year) or periods_per_year <= 0.0:
         raise ValueError(
             f"periods_per_year must be > 0; got {periods_per_year}"
         )
@@ -1064,7 +1064,7 @@ def dm_power_for_information_ratio(
 
     if not 0.0 < alpha < 1.0:
         raise ValueError(f"alpha must be in (0,1); got {alpha}")
-    if periods_per_year <= 0.0:
+    if not math.isfinite(periods_per_year) or periods_per_year <= 0.0:
         raise ValueError(
             f"periods_per_year must be > 0; got {periods_per_year}"
         )
