@@ -12,7 +12,7 @@ import {
     DEFAULT_SUBSCRIBED_SYMBOLS,
     SNAPSHOT_OUTCOME_OPTIONS,
 } from '../utils/realtimePanelConstants';
-import { getCategoryLabel, inferSymbolCategory } from '../utils/realtimeFormatters';
+import { buildMiniTrendSeries, getCategoryLabel, inferSymbolCategory } from '../utils/realtimeFormatters';
 
 describe('realtimePanelConstants', () => {
     it('default subscribed symbol list is non-empty and unique', () => {
@@ -58,6 +58,26 @@ describe('formatCompactCurrency', () => {
     it('handles non-finite gracefully', () => {
         expect(formatCompactCurrency('not a number')).toBe('$0');
         expect(formatCompactCurrency(null)).toBe('$0');
+    });
+});
+
+describe('buildMiniTrendSeries', () => {
+    it('keeps the current price as the final sparkline point', () => {
+        expect(buildMiniTrendSeries({
+            previous_close: 100,
+            open: 101,
+            low: 99,
+            high: 105,
+            price: 104,
+        })).toEqual([100, 101, 99, 105, 104]);
+
+        expect(buildMiniTrendSeries({
+            previous_close: 100,
+            open: 101,
+            low: 95,
+            high: 103,
+            price: 96,
+        })).toEqual([100, 101, 103, 95, 96]);
     });
 });
 

@@ -1627,12 +1627,12 @@ describe('RealTimePanel', () => {
   test('renders a mini sparkline for quote cards in both grid and list view', async () => {
     await renderRealtimePanel();
 
-    expect(await screen.findByLabelText('^GSPC 价格轨迹')).toBeInTheDocument();
+    expect(await screen.findByLabelText(/^(\^GSPC) 盘中走势线/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '列表模式' }));
 
-    expect(await screen.findByLabelText('^GSPC 价格轨迹')).toBeInTheDocument();
-    expect(screen.getByText('快照轨迹')).toBeInTheDocument();
+    expect(await screen.findByLabelText(/^(\^GSPC) 盘中走势线/)).toBeInTheDocument();
+    expect(screen.getAllByText('盘中走势')[0]).toBeInTheDocument();
   });
 
   test('refresh button refetches the current tab instead of sending the click event as symbols', async () => {

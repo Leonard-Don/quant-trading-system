@@ -224,4 +224,18 @@ describe('RealtimeQuoteBoard', () => {
     expect(within(sourceBadge).getByText('历史补数')).toBeInTheDocument();
     expect(within(sourceBadge).getByText('Yahoo')).toBeInTheDocument();
   });
+
+  test('adds baseline, latest point, and readable metadata to quote sparklines', () => {
+    render(<RealtimeQuoteBoard {...createProps(1)} />);
+
+    const chart = screen.getByRole('img', { name: /SYM1 盘中走势线/ });
+    const sparkline = chart.closest('.realtime-quote-card__sparkline');
+
+    expect(chart).toHaveAttribute('viewBox', '0 0 150 50');
+    expect(chart.querySelector('line')).toHaveAttribute('stroke-dasharray', '4 4');
+    expect(chart.querySelector('circle')).toBeInTheDocument();
+    expect(within(sparkline).getByText('盘中走势')).toBeInTheDocument();
+    expect(within(sparkline).getByText('+300.00%')).toBeInTheDocument();
+    expect(within(sparkline).getByText('区间 1 - 4')).toBeInTheDocument();
+  });
 });

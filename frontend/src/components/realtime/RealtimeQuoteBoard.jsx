@@ -168,9 +168,65 @@ const RealtimeQuoteBoard = ({
         : 'rgba(239, 68, 68, 0.14)';
     const freshness = getQuoteFreshness(quote);
     const sparklineSeries = buildMiniTrendSeries(quote);
-    const sparklinePoints = buildSparklinePoints(sparklineSeries);
-    const sparklineLabel = isListMode ? '快照轨迹' : '轨迹';
-    const sparklineTitle = isListMode ? '快照轨迹' : '昨收 / 开盘 / 区间 / 现价';
+    const sparklineWidth = isListMode ? 168 : 150;
+    const sparklineHeight = isListMode ? 54 : 50;
+    const sparklinePadding = 6;
+    const sparklinePoints = buildSparklinePoints(sparklineSeries, sparklineWidth, sparklineHeight, sparklinePadding);
+    const finiteSparklineSeries = sparklineSeries
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const sparklineFirstValue = finiteSparklineSeries[0];
+    const sparklineLatestValue = finiteSparklineSeries[finiteSparklineSeries.length - 1];
+    const sparklineMin = finiteSparklineSeries.length ? Math.min(...finiteSparklineSeries) : null;
+    const sparklineMax = finiteSparklineSeries.length ? Math.max(...finiteSparklineSeries) : null;
+    const sparklineSpan = sparklineMax !== null && sparklineMin !== null
+      ? (sparklineMax - sparklineMin || 1)
+      : 1;
+    const getSparklineY = (value) => (
+      sparklineHeight
+      - sparklinePadding
+      - (((value - sparklineMin) / sparklineSpan) * (sparklineHeight - sparklinePadding * 2))
+    );
+    const sparklineBaselineY = Number.isFinite(sparklineFirstValue)
+      ? getSparklineY(sparklineFirstValue)
+      : sparklineHeight / 2;
+    const sparklineLatestX = finiteSparklineSeries.length > 1
+      ? sparklinePadding
+        + ((finiteSparklineSeries.length - 1) * (sparklineWidth - sparklinePadding * 2)) / (finiteSparklineSeries.length - 1)
+      : sparklineWidth - sparklinePadding;
+    const sparklineLatestY = Number.isFinite(sparklineLatestValue)
+      ? getSparklineY(sparklineLatestValue)
+      : sparklineHeight / 2;
+    const sparklineDeltaPercent = Number.isFinite(sparklineFirstValue)
+      && sparklineFirstValue > 0
+      && Number.isFinite(sparklineLatestValue)
+      ? ((sparklineLatestValue - sparklineFirstValue) / sparklineFirstValue) * 100
+      : null;
+    const sparklineTrendColor = sparklineDeltaPercent === null
+      ? changeColor
+      : sparklineDeltaPercent >= 0
+        ? 'var(--accent-success)'
+        : 'var(--accent-danger)';
+    const sparklineDeltaText = sparklineDeltaPercent === null
+      ? EMPTY_NUMERIC_TEXT
+      : `${sparklineDeltaPercent >= 0 ? '+' : ''}${sparklineDeltaPercent.toFixed(2)}%`;
+    const sparklineDirectionLabel = sparklineDeltaPercent === null
+      ? '走势待补'
+      : sparklineDeltaPercent > 0
+        ? '较起点上行'
+        : sparklineDeltaPercent < 0
+          ? '较起点回落'
+          : '较起点持平';
+    const sparklineRangeText = sparklineMin !== null && sparklineMax !== null
+      ? `${formatPrice(sparklineMin, EMPTY_NUMERIC_TEXT)} - ${formatPrice(sparklineMax, EMPTY_NUMERIC_TEXT)}`
+      : EMPTY_NUMERIC_TEXT;
+    const sparklineAreaPoints = sparklinePoints
+      ? `${sparklinePoints} ${sparklineWidth - sparklinePadding},${sparklineHeight - sparklinePadding} ${sparklinePadding},${sparklineHeight - sparklinePadding}`
+      : null;
+    const sparklineIdToken = symbol.replace(/[^a-zA-Z0-9_-]/g, '-');
+    const sparklineAreaGradientId = `quote-sparkline-area-${sparklineIdToken}`;
+    const sparklineLineGradientId = `quote-sparkline-line-${sparklineIdToken}`;
+    const sparklineTitle = `盘中走势 · ${sparklineDirectionLabel} ${sparklineDeltaText} · 区间 ${sparklineRangeText}`;
     const isSelected = selectedQuoteSymbols.includes(symbol);
     const isDragging = draggingSymbol === symbol;
     const sourceMeta = getRealtimeQuoteSourceMeta(quote.source);
@@ -287,18 +343,106 @@ const RealtimeQuoteBoard = ({
                 {symbol} · 行情 {formatQuoteTime(quote.timestamp)} · 接收 {formatQuoteTime(quote._clientReceivedAt)}
               </Text>
               {sparklinePoints && (
-                <div className="realtime-quote-card__sparkline">
-                  <svg width="144" height="44" viewBox="0 0 144 44" role="img" aria-label={`${symbol} 价格轨迹`}>
+                <div
+                  className="realtime-quote-card__sparkline"
+                  title={sparklineTitle}
+                  style={{
+                    alignItems: 'stretch',
+                    justifyContent: 'space-between',
+                    width: '100%',
+                    maxWidth: isListMode ? 360 : 312,
+                    gap: 12,
+                  }}
+                >
+                  <svg
+                    width={sparklineWidth}
+                    height={sparklineHeight}
+                    viewBox={`0 0 ${sparklineWidth} ${sparklineHeight}`}
+                    role="img"
+                    aria-label={`${symbol} 盘中走势线，${sparklineDirectionLabel} ${sparklineDeltaText}`}
+                    style={{ width: sparklineWidth, height: sparklineHeight }}
+                  >
+                    <defs>
+                      <linearGradient id={sparklineAreaGradientId} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={sparklineTrendColor} stopOpacity="0.26" />
+                        <stop offset="100%" stopColor={sparklineTrendColor} stopOpacity="0.02" />
+                      </linearGradient>
+                      <linearGradient id={sparklineLineGradientId} x1="0" y1="0" x2="1" y2="0">
+                        <stop offset="0%" stopColor={sparklineTrendColor} stopOpacity="0.58" />
+                        <stop offset="100%" stopColor={sparklineTrendColor} stopOpacity="1" />
+                      </linearGradient>
+                    </defs>
+                    <rect
+                      x="0.5"
+                      y="0.5"
+                      width={sparklineWidth - 1}
+                      height={sparklineHeight - 1}
+                      rx="12"
+                      fill="rgba(15, 23, 42, 0.16)"
+                      stroke="rgba(148, 163, 184, 0.24)"
+                    />
+                    <line
+                      x1={sparklinePadding}
+                      y1={sparklineBaselineY}
+                      x2={sparklineWidth - sparklinePadding}
+                      y2={sparklineBaselineY}
+                      stroke="rgba(148, 163, 184, 0.42)"
+                      strokeWidth="1"
+                      strokeDasharray="4 4"
+                    />
+                    {sparklineAreaPoints && (
+                      <polygon points={sparklineAreaPoints} fill={`url(#${sparklineAreaGradientId})`} />
+                    )}
                     <polyline
                       fill="none"
-                      stroke={changeColor}
-                      strokeWidth="2.5"
+                      stroke={`url(#${sparklineLineGradientId})`}
+                      strokeWidth="2.8"
                       strokeLinecap="round"
                       strokeLinejoin="round"
                       points={sparklinePoints}
                     />
+                    <circle
+                      cx={sparklineLatestX}
+                      cy={sparklineLatestY}
+                      r="3.8"
+                      fill={sparklineTrendColor}
+                      stroke="rgba(255, 255, 255, 0.86)"
+                      strokeWidth="1.4"
+                    />
                   </svg>
-                  <span title={sparklineTitle}>{sparklineLabel}</span>
+                  <div
+                    style={{
+                      display: 'grid',
+                      alignContent: 'center',
+                      gap: 2,
+                      minWidth: 0,
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
+                    <strong style={{ color: 'var(--text-primary)', fontSize: 12, lineHeight: 1.25 }}>
+                      盘中走势
+                    </strong>
+                    <span
+                      style={{
+                        color: sparklineTrendColor,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {sparklineDeltaText}
+                    </span>
+                    <small
+                      style={{
+                        color: 'var(--text-muted)',
+                        fontSize: 10,
+                        lineHeight: 1.2,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      区间 {sparklineRangeText}
+                    </small>
+                  </div>
                 </div>
               )}
             </div>

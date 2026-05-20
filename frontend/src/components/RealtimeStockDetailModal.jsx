@@ -17,13 +17,13 @@ const { Text } = Typography;
 const SNAPSHOT_PANEL_BG = 'linear-gradient(135deg, color-mix(in srgb, var(--accent-primary) 14%, var(--bg-secondary) 86%) 0%, color-mix(in srgb, var(--accent-secondary) 14%, var(--bg-secondary) 86%) 100%)';
 const SNAPSHOT_CARD_BG = 'color-mix(in srgb, var(--bg-secondary) 92%, white 8%)';
 const EMPTY_LIST = [];
-const TREND_CHART_WIDTH = 320;
-const TREND_CHART_HEIGHT = 112;
+const TREND_CHART_WIDTH = 960;
+const TREND_CHART_HEIGHT = 132;
 const TREND_CHART_PADDING = {
-    top: 12,
-    right: 16,
-    bottom: 18,
-    left: 16,
+    top: 18,
+    right: 92,
+    bottom: 28,
+    left: 36,
 };
 
 const getDisplayName = (symbol) => {
@@ -224,12 +224,26 @@ const getNumericRangePercent = (quote) => {
 };
 
 const buildSnapshotTrendSeries = (quote = null) => {
+    const open = Number(quote?.open);
+    const low = Number(quote?.low);
+    const high = Number(quote?.high);
+    const price = Number(quote?.price);
+    const hasOpen = Number.isFinite(open) && open > 0;
+    const hasPrice = Number.isFinite(price) && price > 0;
+    const rangePoints = hasOpen && hasPrice && price < open
+        ? [
+            { label: '高点', value: high },
+            { label: '低点', value: low },
+        ]
+        : [
+            { label: '低点', value: low },
+            { label: '高点', value: high },
+        ];
     const points = [
         { label: '昨收', value: Number(quote?.previous_close) },
         { label: '开盘', value: Number(quote?.open) },
-        { label: '低点', value: Number(quote?.low) },
-        { label: '现价', value: Number(quote?.price) },
-        { label: '高点', value: Number(quote?.high) },
+        ...rangePoints,
+        { label: '现价', value: price },
     ].filter((item) => Number.isFinite(item.value) && item.value > 0);
 
     return points.length >= 2 ? points : EMPTY_LIST;
@@ -262,6 +276,7 @@ const buildTrendChartModel = (
     const midPoint = points[Math.max(0, Math.floor(points.length / 2))];
     const linePoints = points.map((item) => `${item.x.toFixed(2)},${item.y.toFixed(2)}`).join(' ');
     const baseline = height - padding.bottom;
+    const baselineY = firstPoint.y;
     const areaPoints = [
         `${firstPoint.x.toFixed(2)},${baseline}`,
         linePoints,
@@ -270,17 +285,40 @@ const buildTrendChartModel = (
     const changePercent = Number(firstPoint.value)
         ? ((Number(lastPoint.value) - Number(firstPoint.value)) / Number(firstPoint.value)) * 100
         : null;
+    const latestBadgeWidth = 116;
+    const latestBadgeHeight = 24;
+    const latestBadgeX = Math.min(
+        Math.max(lastPoint.x - latestBadgeWidth + 10, padding.left),
+        width - padding.right - latestBadgeWidth + 24
+    );
+    const latestBadgeY = Math.min(
+        Math.max(lastPoint.y - latestBadgeHeight - 8, padding.top),
+        height - padding.bottom - latestBadgeHeight
+    );
+    const yAxisLabels = [
+        { label: '高', value: max, y: padding.top },
+        { label: '中', value: (max + min) / 2, y: padding.top + chartHeight / 2 },
+        { label: '低', value: min, y: baseline },
+    ];
 
     return {
         points,
         firstPoint,
         midPoint,
         lastPoint,
+        baselineY,
         linePoints,
         areaPoints,
         min,
         max,
         changePercent,
+        latestBadge: {
+            x: latestBadgeX,
+            y: latestBadgeY,
+            width: latestBadgeWidth,
+            height: latestBadgeHeight,
+        },
+        yAxisLabels,
         gridY: [
             padding.top,
             padding.top + chartHeight / 2,
@@ -696,10 +734,27 @@ const RealtimeStockDetailModal = ({
     const trendUsesIntraday = intradayTrendSeries.length >= 2;
     const activeTrendSeries = trendUsesIntraday ? intradayTrendSeries : snapshotTrendSeries;
     const activeTrendChart = useMemo(() => buildTrendChartModel(activeTrendSeries), [activeTrendSeries]);
-    const trendGradientId = useMemo(
-        () => `detail-trend-gradient-${String(displaySymbol || 'symbol').replace(/[^a-zA-Z0-9_-]/g, '-')}`,
+    const trendAreaGradientId = useMemo(
+        () => `detail-trend-area-gradient-${String(displaySymbol || 'symbol').replace(/[^a-zA-Z0-9_-]/g, '-')}`,
         [displaySymbol]
     );
+    const trendLineGradientId = useMemo(
+        () => `detail-trend-line-gradient-${String(displaySymbol || 'symbol').replace(/[^a-zA-Z0-9_-]/g, '-')}`,
+        [displaySymbol]
+    );
+    const activeTrendChangeText = activeTrendChart
+        ? formatSignedNumber(activeTrendChart.changePercent, 2, '%')
+        : '--';
+    const activeTrendRangeText = activeTrendChart
+        ? `${formatNumber(activeTrendChart.min)} - ${formatNumber(activeTrendChart.max)}`
+        : '--';
+    const activeTrendDirectionLabel = !activeTrendChart
+        ? '走势待补'
+        : Number(activeTrendChart.changePercent || 0) > 0
+            ? '较起点上行'
+            : Number(activeTrendChart.changePercent || 0) < 0
+                ? '较起点回落'
+                : '较起点持平';
     const compareTargetSymbols = useMemo(
         () => safeCompareCandidates
             .filter((item) => item?.symbol && item.symbol !== displaySymbol)
@@ -914,11 +969,11 @@ const RealtimeStockDetailModal = ({
                             data-testid="detail-snapshot-trend"
                             style={{
                                 marginBottom: 14,
-                                padding: '12px 14px 11px',
+                                padding: '14px 14px 12px',
                                 borderRadius: 16,
-                                background: 'linear-gradient(180deg, rgba(255,255,255,0.82) 0%, rgba(255,255,255,0.62) 100%)',
-                                border: '1px solid rgba(148, 163, 184, 0.22)',
-                                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.7)',
+                                background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 84%, var(--accent-primary) 16%) 0%, color-mix(in srgb, var(--bg-secondary) 94%, var(--bg-primary) 6%) 100%)',
+                                border: '1px solid color-mix(in srgb, var(--accent-primary) 22%, var(--border-color) 78%)',
+                                boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.10), 0 14px 34px rgba(15, 23, 42, 0.10)',
                             }}
                         >
                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap', marginBottom: 8 }}>
@@ -927,35 +982,48 @@ const RealtimeStockDetailModal = ({
                                         盘中走势
                                     </div>
                                     <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
-                                        {trendUsesIntraday ? `最近 ${activeTrendSeries.length} 根 1H K 线 · 收盘价` : '昨收 / 开盘 / 低点 / 现价 / 高点'}
+                                        {trendUsesIntraday ? `最近 ${activeTrendSeries.length} 根 1H K 线 · 收盘价` : '昨收 / 开盘 / 高低点 / 现价'}
                                     </div>
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                                     <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 8, borderColor: 'rgba(148, 163, 184, 0.22)' }}>
-                                        区间 {formatNumber(activeTrendChart.min)} - {formatNumber(activeTrendChart.max)}
+                                        区间 {activeTrendRangeText}
                                     </Tag>
                                     <Tag
                                         color={Number(activeTrendChart.changePercent || 0) >= 0 ? 'success' : 'error'}
                                         style={{ margin: 0, borderRadius: 999, paddingInline: 8, fontWeight: 700 }}
                                     >
-                                        较起点 {formatSignedNumber(activeTrendChart.changePercent, 2, '%')}
+                                        较起点 {activeTrendChangeText}
                                     </Tag>
                                 </div>
                             </div>
                             <svg
                                 width="100%"
-                                height="118"
+                                height="132"
                                 viewBox={`0 0 ${TREND_CHART_WIDTH} ${TREND_CHART_HEIGHT}`}
                                 preserveAspectRatio="none"
                                 role="img"
-                                aria-label={`${displaySymbol} 盘中走势线`}
+                                aria-label={`${displaySymbol} 盘中走势线，${activeTrendDirectionLabel} ${activeTrendChangeText}，区间 ${activeTrendRangeText}`}
                             >
                                 <defs>
-                                    <linearGradient id={trendGradientId} x1="0" y1="0" x2="0" y2="1">
+                                    <linearGradient id={trendAreaGradientId} x1="0" y1="0" x2="0" y2="1">
                                         <stop offset="0%" stopColor={changeColor} stopOpacity="0.22" />
                                         <stop offset="100%" stopColor={changeColor} stopOpacity="0.02" />
                                     </linearGradient>
+                                    <linearGradient id={trendLineGradientId} x1="0" y1="0" x2="1" y2="0">
+                                        <stop offset="0%" stopColor={changeColor} stopOpacity="0.58" />
+                                        <stop offset="100%" stopColor={changeColor} stopOpacity="1" />
+                                    </linearGradient>
                                 </defs>
+                                <rect
+                                    x="0.5"
+                                    y="0.5"
+                                    width={TREND_CHART_WIDTH - 1}
+                                    height={TREND_CHART_HEIGHT - 1}
+                                    rx="14"
+                                    fill="rgba(15, 23, 42, 0.10)"
+                                    stroke="rgba(148, 163, 184, 0.18)"
+                                />
                                 {activeTrendChart.gridY.map((y) => (
                                     <line
                                         key={`grid-${y}`}
@@ -968,13 +1036,53 @@ const RealtimeStockDetailModal = ({
                                         strokeDasharray="4 5"
                                     />
                                 ))}
+                                <line
+                                    x1={TREND_CHART_PADDING.left}
+                                    x2={TREND_CHART_WIDTH - TREND_CHART_PADDING.right}
+                                    y1={activeTrendChart.baselineY}
+                                    y2={activeTrendChart.baselineY}
+                                    stroke={changeColor}
+                                    strokeWidth="1.2"
+                                    strokeOpacity="0.38"
+                                    strokeDasharray="7 6"
+                                />
+                                {activeTrendChart.yAxisLabels.map((item) => (
+                                    <text
+                                        key={`${item.label}-${item.value}`}
+                                        x={TREND_CHART_WIDTH - TREND_CHART_PADDING.right + 6}
+                                        y={item.y + 4}
+                                        fill="var(--text-secondary)"
+                                        fontSize="11"
+                                        fontWeight="700"
+                                    >
+                                        {formatNumber(item.value)}
+                                    </text>
+                                ))}
+                                <text
+                                    x={TREND_CHART_PADDING.left + 2}
+                                    y={Math.max(TREND_CHART_PADDING.top + 10, activeTrendChart.baselineY - 6)}
+                                    fill={changeColor}
+                                    fontSize="11"
+                                    fontWeight="800"
+                                >
+                                    起点
+                                </text>
                                 <polygon
-                                    fill={`url(#${trendGradientId})`}
+                                    fill={`url(#${trendAreaGradientId})`}
                                     points={activeTrendChart.areaPoints}
+                                />
+                                <line
+                                    x1={activeTrendChart.lastPoint.x}
+                                    x2={activeTrendChart.lastPoint.x}
+                                    y1={TREND_CHART_PADDING.top}
+                                    y2={TREND_CHART_HEIGHT - TREND_CHART_PADDING.bottom}
+                                    stroke={changeColor}
+                                    strokeWidth="1"
+                                    strokeOpacity="0.24"
                                 />
                                 <polyline
                                     fill="none"
-                                    stroke={changeColor}
+                                    stroke={`url(#${trendLineGradientId})`}
                                     strokeWidth="3.2"
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
@@ -991,6 +1099,25 @@ const RealtimeStockDetailModal = ({
                                         strokeWidth="2.2"
                                     />
                                 ))}
+                                <g transform={`translate(${activeTrendChart.latestBadge.x} ${activeTrendChart.latestBadge.y})`}>
+                                    <rect
+                                        width={activeTrendChart.latestBadge.width}
+                                        height={activeTrendChart.latestBadge.height}
+                                        rx="10"
+                                        fill="rgba(15, 23, 42, 0.72)"
+                                        stroke="rgba(255, 255, 255, 0.22)"
+                                    />
+                                    <text
+                                        x={activeTrendChart.latestBadge.width / 2}
+                                        y="16"
+                                        textAnchor="middle"
+                                        fill="#ffffff"
+                                        fontSize="11"
+                                        fontWeight="800"
+                                    >
+                                        最新 {formatNumber(activeTrendChart.lastPoint.value)}
+                                    </text>
+                                </g>
                             </svg>
                             <div
                                 style={{
