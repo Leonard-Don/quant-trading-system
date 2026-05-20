@@ -145,12 +145,13 @@ def test_generate_plan_marks_manual_override_invalidated_when_price_breaks() -> 
     current price crosses below it. The 512400 entry mirrors what
     actually happened to the user on 2026-05-19 morning."""
 
+    from dataclasses import replace as _dc_replace
+
     from src.data.etf_rotation import EtfHolding, EtfQuote
     from src.strategy.etf_rotation_config_loader import (
         StrategyConfig,
         load_strategy_config,
     )
-    from dataclasses import replace as _dc_replace
 
     holdings = [
         EtfHolding(code="512400", name="有色金属ETF", shares=4700,
@@ -194,12 +195,13 @@ def test_generate_plan_marks_manual_override_invalidated_when_price_breaks() -> 
 def test_generate_plan_manual_override_not_invalidated_when_price_above_line() -> None:
     """Price strictly above the line keeps ``invalidated=False``."""
 
+    from dataclasses import replace as _dc_replace
+
     from src.data.etf_rotation import EtfHolding, EtfQuote
     from src.strategy.etf_rotation_config_loader import (
         StrategyConfig,
         load_strategy_config,
     )
-    from dataclasses import replace as _dc_replace
 
     holdings = [
         EtfHolding(code="513130", name="恒生科技ETF", shares=3100,
@@ -411,9 +413,10 @@ def test_fetch_live_quotes_empty_codes_returns_zero_resolved() -> None:
     """The conftest fixture stubs fetch_live_quotes to empty; remove the
     stub for this test so we exercise the real short-circuit path."""
 
-    from scripts import daily_etf_signal as live_module
     # Re-import to bypass the conftest's monkeypatched stub.
     import importlib
+
+    from scripts import daily_etf_signal as live_module
     fresh = importlib.reload(live_module)
     try:
         quotes, status = fresh.fetch_live_quotes([])
@@ -665,6 +668,7 @@ def test_generate_plan_advisory_stop_loss_keeps_target_weight(tmp_path, monkeypa
     audit log records it, but target_weight stays non-zero."""
 
     import json
+
     from src.data.etf_rotation import EtfHolding
 
     cfg_path = tmp_path / "strategy.json"
