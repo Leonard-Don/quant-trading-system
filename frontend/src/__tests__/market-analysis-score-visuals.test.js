@@ -22,7 +22,7 @@ vi.mock('recharts', () => {
     const Mock = () => null;
     return {
         Radar: Mock,
-        RadarChart: ({ children }) => <div data-testid="radar-chart">{children}</div>,
+        RadarChart: ({ children }) => <svg data-testid="radar-chart">{children}</svg>,
         PolarGrid: Mock,
         PolarAngleAxis: Mock,
         PolarRadiusAxis: Mock,
