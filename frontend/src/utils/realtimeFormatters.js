@@ -175,12 +175,21 @@ export const formatVolume = (volume, fallback = '--') => {
 };
 
 export const buildMiniTrendSeries = (quote) => {
+  const previousClose = Number(quote?.previous_close);
+  const open = Number(quote?.open);
+  const low = Number(quote?.low);
+  const high = Number(quote?.high);
+  const price = Number(quote?.price);
+  const hasOpen = Number.isFinite(open) && open > 0;
+  const hasPrice = Number.isFinite(price) && price > 0;
+  const intradayRange = hasOpen && hasPrice && price < open
+    ? [high, low]
+    : [low, high];
   const series = [
-    Number(quote?.previous_close),
-    Number(quote?.open),
-    Number(quote?.low),
-    Number(quote?.price),
-    Number(quote?.high),
+    previousClose,
+    open,
+    ...intradayRange,
+    price,
   ].filter((value) => Number.isFinite(value) && value > 0);
 
   if (series.length >= 3) {

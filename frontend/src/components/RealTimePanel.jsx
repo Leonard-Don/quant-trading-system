@@ -839,12 +839,12 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     : [];
   const formatTransportDecision = (decision) => {
     const modeLabelMap = {
-      rest_fallback: 'REST 补数',
-      warmup_snapshot: 'Warmup Snapshot',
-      manual_snapshot: '手动 Snapshot',
-      manual_rest: '手动 REST',
-      detail_snapshot: '详情 Snapshot',
-      detail_rest: '详情 REST',
+      rest_fallback: '备用刷新补齐',
+      warmup_snapshot: '首屏快照',
+      manual_snapshot: '手动快照',
+      manual_rest: '手动备用刷新',
+      detail_snapshot: '详情快照',
+      detail_rest: '详情备用刷新',
     };
 
     const modeLabel = modeLabelMap[decision.mode] || decision.mode;
@@ -875,7 +875,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       return {
         state: 'fresh',
         label: marketAgeMs !== null ? '行情刚刚更新' : '刚刚更新',
-        detail: marketAgeMs !== null ? `接收链路${receivedLabel}` : null,
+        detail: marketAgeMs !== null ? `页面接收${receivedLabel}` : null,
         tone: {
           color: '#15803d',
           background: 'rgba(34, 197, 94, 0.14)',
@@ -889,7 +889,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         label: marketAgeMs !== null
           ? formatRelativeAge(effectiveAgeMs, { prefix: '行情 ' })
           : formatRelativeAge(effectiveAgeMs),
-        detail: marketAgeMs !== null ? `接收链路${receivedLabel}` : null,
+        detail: marketAgeMs !== null ? `页面接收${receivedLabel}` : null,
         tone: {
           color: '#b45309',
           background: 'rgba(245, 158, 11, 0.16)',
@@ -902,7 +902,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       label: marketAgeMs !== null
         ? `行情延迟 ${Math.max(1, Math.floor(effectiveAgeMs / 60000))} 分钟`
         : `延迟 ${Math.max(1, Math.floor(effectiveAgeMs / 60000))} 分钟`,
-      detail: marketAgeMs !== null ? `接收链路${receivedLabel}` : null,
+      detail: marketAgeMs !== null ? `页面接收${receivedLabel}` : null,
       tone: {
         color: '#b91c1c',
         background: 'rgba(239, 68, 68, 0.14)',
@@ -1362,7 +1362,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               </div>
               <div className="realtime-hero__meta">
                 <div className="realtime-hero__chip realtime-hero__chip--category">当前分组：{getCategoryLabel(activeTab)}</div>
-                <div className="realtime-hero__chip realtime-hero__chip--transport">链路模式：{transportModeLabel}</div>
+                <div className="realtime-hero__chip realtime-hero__chip--transport">行情更新：{transportModeLabel}</div>
                 <div className="realtime-hero__chip realtime-hero__chip--auto">自动更新：{isAutoUpdate ? '开启' : '暂停'}</div>
                 <div className="realtime-hero__chip realtime-hero__chip--time">行情时间：{lastMarketUpdateLabel}</div>
                 {reconnectAttempts > 0 && <div className="realtime-hero__chip realtime-hero__chip--reconnect">重连 {reconnectAttempts}</div>}
@@ -1601,7 +1601,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
                       aria-label="全局跳转搜索"
                       name="global_jump_search"
                       autoComplete="off"
-                      placeholder="全局搜索并跳转... (例如 AAPL / BTC-USD / 纳指)"
+                      placeholder="全局搜索并跳转... (例如 600519 / AAPL / BTC-USD / 纳指)"
                       prefix={<SearchOutlined />}
                       allowClear
                       size="large"
@@ -1676,7 +1676,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               autoComplete="off"
               value={watchGroupSymbols}
               onChange={(event) => setWatchGroupSymbols(event.target.value)}
-              placeholder="标的列表，逗号分隔，如 AAPL, MSFT, NVDA"
+              placeholder="标的列表，逗号分隔，如 600519, 000858, AAPL"
               onPressEnter={addWatchGroup}
             />
             <Button className="realtime-watch-group-add" type="primary" onClick={addWatchGroup}>添加组合</Button>
@@ -1697,7 +1697,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               autoComplete="off"
               value={watchGroupWeights}
               onChange={(event) => setWatchGroupWeights(event.target.value)}
-              placeholder="权重/对冲腿，可选，如 AAPL:0.5 MSFT:0.3 NVDA:-0.2"
+              placeholder="权重/对冲腿，可选，如 600519:0.5 000858:0.3 AAPL:-0.2"
             />
           </div>
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginTop: 18 }}>

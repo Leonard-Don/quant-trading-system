@@ -30,6 +30,11 @@ import {
   resolveBacktestDraftDateRange,
 } from '../utils/backtestDefaults';
 import { readResearchContext } from '../utils/researchContext';
+import {
+  DEFAULT_SYMBOL,
+  getCurrencyName,
+  getCurrencySymbol,
+} from '../utils/strategyDefaults';
 
 const { Option } = Select;
 const { RangePicker } = DatePicker;
@@ -124,7 +129,7 @@ const buildFormValuesFromDraft = (activeDraft, resolvedDateRange) => ({
 const buildInitialFormValues = (strategies = []) => {
   const draftState = resolveWorkspaceDraftState(strategies);
   return {
-    symbol: 'AAPL',
+    symbol: DEFAULT_SYMBOL,
     strategy: strategies[0]?.name,
     dateRange: getDefaultBacktestDateRange(),
     ...DEFAULT_TRADING_ASSUMPTIONS,
@@ -282,7 +287,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       return;
     }
 
-    const currentSymbol = watchedValues?.symbol || 'AAPL';
+    const currentSymbol = watchedValues?.symbol || DEFAULT_SYMBOL;
     const currentDraft = loadBacktestWorkspaceDraft();
     const urlContext = readResearchContext();
     const currentSymbolKey = normalizeSymbolForDraft(currentSymbol);
@@ -474,7 +479,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
   const summaryItems = [
     {
       label: '标的',
-      value: watchedValues?.symbol || 'AAPL',
+      value: watchedValues?.symbol || DEFAULT_SYMBOL,
     },
     {
       label: '策略',
@@ -488,14 +493,14 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
     },
     {
       label: '资金 / 成本',
-      value: `${watchedValues?.initial_capital ? `$${Number(watchedValues.initial_capital).toLocaleString()}` : '$10,000'} · ${watchedValues?.commission ?? 0.1}% / ${watchedValues?.slippage ?? 0.1}%`,
+      value: `${getCurrencySymbol(watchedValues?.symbol)}${Number(watchedValues?.initial_capital ?? DEFAULT_TRADING_ASSUMPTIONS.initial_capital).toLocaleString()} · ${watchedValues?.commission ?? 0.1}% / ${watchedValues?.slippage ?? 0.1}%`,
     },
     {
       label: '执行假设',
       value: `T+${watchedValues?.execution_lag ?? DEFAULT_TRADING_ASSUMPTIONS.execution_lag} · 冲击 ${watchedValues?.market_impact_bps ?? 0}bp`,
     },
   ];
-  const runBriefSymbol = watchedValues?.symbol || 'AAPL';
+  const runBriefSymbol = watchedValues?.symbol || DEFAULT_SYMBOL;
   const runBriefCapital = Number(watchedValues?.initial_capital ?? DEFAULT_TRADING_ASSUMPTIONS.initial_capital).toLocaleString();
   const runBriefCommission = watchedValues?.commission ?? DEFAULT_TRADING_ASSUMPTIONS.commission;
   const runBriefSlippage = watchedValues?.slippage ?? DEFAULT_TRADING_ASSUMPTIONS.slippage;
@@ -581,7 +586,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
                 name="symbol"
                 rules={[{ required: true, message: '请输入股票代码' }]}
               >
-                <Input placeholder="输入股票代码 (如: AAPL)" />
+                <Input placeholder="输入股票代码 (如: 600519 / AAPL)" />
               </Form.Item>
 
               <Form.Item
@@ -798,7 +803,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
             <div className="workspace-run-brief strategy-form-run-brief">
               <span className="workspace-run-brief__label">本次运行摘要</span>
               <span className="workspace-run-brief__value">
-                {`${runBriefSymbol} · ${selectedStrategy ? getStrategyName(selectedStrategy.name) : '待选策略'} · ${runBriefCapital} 美元 · 手续费 ${runBriefCommission}% · 滑点 ${runBriefSlippage}% · T+${runBriefExecutionLag} · 冲击 ${runBriefImpactBps}bp`}
+                {`${runBriefSymbol} · ${selectedStrategy ? getStrategyName(selectedStrategy.name) : '待选策略'} · ${runBriefCapital} ${getCurrencyName(runBriefSymbol)} · 手续费 ${runBriefCommission}% · 滑点 ${runBriefSlippage}% · T+${runBriefExecutionLag} · 冲击 ${runBriefImpactBps}bp`}
               </span>
             </div>
 
@@ -877,7 +882,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
         cancelText="取消"
       >
         <Input
-          placeholder="输入配置名称 (如: AAPL均线策略)"
+          placeholder="输入配置名称 (如: 茅台均线策略)"
           value={configName}
           onChange={(e) => setConfigName(e.target.value)}
           onPressEnter={saveConfig}

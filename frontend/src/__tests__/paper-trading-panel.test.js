@@ -122,7 +122,7 @@ describe('PaperTradingPanel', () => {
         await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
         const initialAccountCalls = mockGetAccount.mock.calls.length;
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'msft' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'msft' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '210' } });
 
@@ -150,7 +150,7 @@ describe('PaperTradingPanel', () => {
         renderWithApp(<PaperTradingPanel />);
         await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'aapl' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '1000' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '200' } });
 
@@ -168,7 +168,7 @@ describe('PaperTradingPanel', () => {
         renderWithApp(<PaperTradingPanel />);
         await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'aapl' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '120' } });
         fireEvent.change(screen.getByPlaceholderText('如 5'), { target: { value: '8' } });
@@ -192,7 +192,7 @@ describe('PaperTradingPanel', () => {
         renderWithApp(<PaperTradingPanel />);
         await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'aapl' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '1' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '100' } });
         fireEvent.click(screen.getByRole('button', { name: '提交订单' }));
@@ -207,7 +207,7 @@ describe('PaperTradingPanel', () => {
         renderWithApp(<PaperTradingPanel />);
         await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'aapl' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '120' } });
         // Use the dedicated stop-loss testid; both slippage and stop-loss have placeholder "如 5"
@@ -277,7 +277,7 @@ describe('PaperTradingPanel', () => {
         renderWithApp(<PaperTradingPanel />);
         await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'aapl' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '120' } });
         fireEvent.change(screen.getByTestId('paper-take-profit-input'), { target: { value: '15' } });
@@ -308,6 +308,65 @@ describe('PaperTradingPanel', () => {
         const cell = screen.getByTestId('paper-position-take-profit-AAPL');
         expect(cell.textContent).toContain('$172.50');
         expect(cell.textContent).toContain('距触发');
+    });
+
+    it('formats CN paper-account prices with yuan symbols across positions and pending orders', async () => {
+        const cnAccount = {
+            ...ACCOUNT_WITH_POSITION,
+            cash: 50000,
+            positions: [
+                {
+                    ...ACCOUNT_WITH_POSITION.positions[0],
+                    symbol: '600519.SS',
+                    avg_cost: 1800,
+                    stop_loss_price: 1710,
+                    take_profit_price: 2050,
+                },
+            ],
+            pending_orders: [
+                {
+                    id: 'ord-cn-pending',
+                    symbol: '600519.SS',
+                    side: 'BUY',
+                    quantity: 1,
+                    limit_price: 1760,
+                    submitted_at: '2026-05-05T08:00:00+00:00',
+                    order_type: 'LIMIT',
+                },
+            ],
+        };
+        mockGetAccount.mockResolvedValue({ success: true, data: cnAccount });
+        mockListOrders.mockResolvedValue({
+            success: true,
+            data: {
+                orders: [
+                    {
+                        id: 'ord-cn-history',
+                        symbol: '600519.SS',
+                        side: 'BUY',
+                        quantity: 1,
+                        fill_price: 1800,
+                        commission: 0,
+                        submitted_at: '2026-05-05T08:00:00+00:00',
+                        note: '',
+                    },
+                ],
+                limit: 50,
+            },
+        });
+        mockGetMultipleQuotes.mockResolvedValue({
+            success: true,
+            data: { quotes: { '600519.SS': { price: 1810 } } },
+        });
+
+        renderWithApp(<PaperTradingPanel />);
+
+        const stopLossCell = await screen.findByTestId('paper-position-stop-loss-600519.SS');
+        expect(stopLossCell.textContent).toContain('¥1710.00');
+        expect(screen.getByTestId('paper-position-take-profit-600519.SS').textContent).toContain('¥2050.00');
+        expect(screen.getByText('初始资金 ¥10000.00')).toBeInTheDocument();
+        expect(screen.getByText('¥1760.00')).toBeInTheDocument();
+        expect(screen.queryByText('$1760.00')).not.toBeInTheDocument();
     });
 
     it('auto-submits a SELL when a quote crosses above take_profit_price', async () => {
@@ -351,7 +410,7 @@ describe('PaperTradingPanel', () => {
         // accessible click is on the label "限价单".
         fireEvent.click(screen.getByText('限价单'));
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'msft' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'msft' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '95' } });
 
@@ -658,7 +717,7 @@ describe('PaperTradingPanel', () => {
         });
         expect(screen.getByText(/由 BollingerBands · 回测带入/)).toBeInTheDocument();
         // The form's symbol input should now hold the prefilled symbol
-        expect(screen.getByPlaceholderText('如 AAPL')).toHaveValue('MSFT');
+        expect(screen.getByPlaceholderText('如 600519 / AAPL')).toHaveValue('MSFT');
         // sessionStorage entry must be drained after consumption so a refresh
         // doesn't re-apply a stale prefill
         expect(window.sessionStorage.getItem('paper-trading-prefill')).toBeNull();

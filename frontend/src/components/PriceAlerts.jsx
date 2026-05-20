@@ -37,6 +37,7 @@ import {
     normalizePriceAlert,
     summarizeAlertHitHistory,
 } from '../utils/realtimeSignals';
+import { SYMBOL_PLACEHOLDER_BILINGUAL } from '../utils/strategyDefaults';
 
 const { Option } = Select;
 const { Text, Title } = Typography;
@@ -920,7 +921,7 @@ const PriceAlerts = ({
                         label="股票代码"
                         rules={[{ required: true, message: '请输入股票代码' }]}
                     >
-                        <Input placeholder="例如: AAPL" />
+                        <Input placeholder={`例如: ${SYMBOL_PLACEHOLDER_BILINGUAL}`} />
                     </Form.Item>
 
                     <Form.Item

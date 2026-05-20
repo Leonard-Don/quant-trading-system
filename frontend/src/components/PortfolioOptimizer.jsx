@@ -44,7 +44,7 @@ const OBJECTIVE_LABELS = {
 };
 
 const PortfolioOptimizer = () => {
-    const [selectedSymbols, setSelectedSymbols] = useState(['AAPL', 'MSFT', 'GOOGL', 'AMZN']);
+    const [selectedSymbols, setSelectedSymbols] = useState(['600519', '000858', '300750', '600036']);
     const [period, setPeriod] = useState('1y');
     const [objective, setObjective] = useState('max_sharpe');
     const [allocationCapital, setAllocationCapital] = useState(10000);
@@ -150,12 +150,12 @@ const PortfolioOptimizer = () => {
                             <Select
                                 mode="tags"
                                 style={{ width: '100%', marginTop: 8 }}
-                                placeholder="输入股票代码 例如: AAPL, TSLA"
+                                placeholder="输入股票代码 例如: 600519, 000858, AAPL"
                                 value={selectedSymbols}
                                 onChange={setSelectedSymbols}
                                 tokenSeparators={[',', ' ']}
                             >
-                                {['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'AMD'].map(s => (
+                                {['600519', '000858', '300750', '600036', '601318', '601012', '688981', '002594'].map(s => (
                                     <Option key={s} value={s}>{s}</Option>
                                 ))}
                             </Select>

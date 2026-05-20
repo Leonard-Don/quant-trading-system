@@ -145,12 +145,13 @@ def test_generate_plan_marks_manual_override_invalidated_when_price_breaks() -> 
     current price crosses below it. The 512400 entry mirrors what
     actually happened to the user on 2026-05-19 morning."""
 
+    from dataclasses import replace as _dc_replace
+
     from src.data.etf_rotation import EtfHolding, EtfQuote
     from src.strategy.etf_rotation_config_loader import (
         StrategyConfig,
         load_strategy_config,
     )
-    from dataclasses import replace as _dc_replace
 
     holdings = [
         EtfHolding(code="512400", name="有色金属ETF", shares=4700,
@@ -194,12 +195,13 @@ def test_generate_plan_marks_manual_override_invalidated_when_price_breaks() -> 
 def test_generate_plan_manual_override_not_invalidated_when_price_above_line() -> None:
     """Price strictly above the line keeps ``invalidated=False``."""
 
+    from dataclasses import replace as _dc_replace
+
     from src.data.etf_rotation import EtfHolding, EtfQuote
     from src.strategy.etf_rotation_config_loader import (
         StrategyConfig,
         load_strategy_config,
     )
-    from dataclasses import replace as _dc_replace
 
     holdings = [
         EtfHolding(code="513130", name="恒生科技ETF", shares=3100,
@@ -411,9 +413,10 @@ def test_fetch_live_quotes_empty_codes_returns_zero_resolved() -> None:
     """The conftest fixture stubs fetch_live_quotes to empty; remove the
     stub for this test so we exercise the real short-circuit path."""
 
-    from scripts import daily_etf_signal as live_module
     # Re-import to bypass the conftest's monkeypatched stub.
     import importlib
+
+    from scripts import daily_etf_signal as live_module
     fresh = importlib.reload(live_module)
     try:
         quotes, status = fresh.fetch_live_quotes([])
@@ -576,6 +579,56 @@ def test_apply_position_stop_losses_rejects_non_negative_threshold() -> None:
     assert targets["A"] == 0.30
 
 
+def test_apply_position_stop_losses_advisory_only_detects_without_zeroing() -> None:
+    """Advisory mode: still reports the breach but leaves target_weight alone.
+
+    Used by the "technical timing overlay" framing where the user holds
+    long-term on fundamentals — a drawdown should prompt thesis review,
+    not auto-clear the position.
+    """
+
+    from src.data.etf_rotation import EtfHolding
+
+    holdings = [
+        EtfHolding(code="A", name="a", shares=1000, cost_price=10.0, current_price=7.5),  # -25%
+        EtfHolding(code="B", name="b", shares=1000, cost_price=10.0, current_price=11.0), # +10%
+    ]
+    targets = {"A": 0.30, "B": 0.30}
+
+    triggered = daily_etf_signal._apply_position_stop_losses(
+        holdings=holdings,
+        target_weights=targets,
+        threshold=-0.15,
+        advisory_only=True,
+    )
+
+    # Detection is unchanged.
+    assert "A" in triggered
+    assert "B" not in triggered
+    assert triggered["A"]["loss_pct"] == pytest.approx(-0.25)
+    assert triggered["A"]["advisory_only"] is True
+    # The critical difference: target_weight is NOT zeroed.
+    assert targets["A"] == 0.30
+    assert targets["B"] == 0.30
+
+
+def test_apply_position_stop_losses_hard_mode_marks_advisory_false() -> None:
+    """Default mode payloads carry advisory_only=False so the dashboard
+    can disambiguate without a separate boolean upstream."""
+
+    from src.data.etf_rotation import EtfHolding
+
+    holdings = [
+        EtfHolding(code="A", name="a", shares=1000, cost_price=10.0, current_price=7.5),
+    ]
+    targets = {"A": 0.30}
+    triggered = daily_etf_signal._apply_position_stop_losses(
+        holdings=holdings, target_weights=targets, threshold=-0.15,
+    )
+    assert triggered["A"]["advisory_only"] is False
+    assert targets["A"] == 0.0
+
+
 def test_generate_plan_emits_stop_loss_triggered_field() -> None:
     """The plan output must surface stop-loss decisions for the dashboard."""
 
@@ -607,6 +660,71 @@ def test_generate_plan_emits_score_breakdown_for_audit() -> None:
         assert "score" in sb
         assert "latest_price" in sb
         assert isinstance(sb["score"], float)
+
+
+def test_generate_plan_advisory_stop_loss_keeps_target_weight(tmp_path, monkeypatch) -> None:
+    """End-to-end: setting stop_loss_advisory_only=true in strategy.json
+    flows through generate_plan — the position breaches the threshold,
+    audit log records it, but target_weight stays non-zero."""
+
+    import json
+
+    from src.data.etf_rotation import EtfHolding
+
+    cfg_path = tmp_path / "strategy.json"
+    cfg_path.write_text(json.dumps({
+        "strategy": {
+            "stop_loss_threshold": -0.15,
+            "stop_loss_advisory_only": True,
+            "rebalance_threshold": 1.0,  # mirrors the user's live config
+        },
+    }))
+    monkeypatch.setenv("ETF_STRATEGY_CONFIG_PATH", str(cfg_path))
+
+    holdings = [
+        # Deep underwater — would normally force-clear to target=0.
+        EtfHolding(code="510300", name="沪深300ETF", shares=1000,
+                   cost_price=10.0, current_price=7.5),  # -25%
+        EtfHolding(code="159985", name="豆粕ETF", shares=1000,
+                   cost_price=2.0, current_price=2.10),
+    ]
+    plan = daily_etf_signal.generate_plan(holdings=holdings)
+
+    triggered = plan.get("stop_loss_triggered") or {}
+    assert "510300" in triggered, "advisory mode still detects breaches"
+    assert triggered["510300"]["advisory_only"] is True
+    assert triggered["510300"]["previous_target_weight"] >= 0.0
+
+    # No suggestion is the explicit "sell entire 510300 position" form.
+    sells_for_510300 = [
+        s for s in plan["suggestions"]
+        if s["code"] == "510300" and s["action"] == "sell"
+        and s["target_weight"] == 0.0
+    ]
+    assert sells_for_510300 == [], (
+        "advisory stop must not generate a force-clear suggestion"
+    )
+
+
+def test_generate_plan_score_breakdown_includes_rsi_and_bollinger() -> None:
+    """The audit score_breakdown surfaces RSI(14) and bollinger_position
+    so the dashboard panel + weekly cron IC computation can read them
+    without re-deriving from raw prices."""
+
+    plan = daily_etf_signal.generate_plan()
+    sb = plan.get("score_breakdown") or {}
+    assert sb, "score_breakdown must be present for the dashboard panel"
+    for code, entry in sb.items():
+        if code == "CASH":
+            continue
+        assert "rsi14" in entry, f"{code} missing rsi14 field"
+        assert "bollinger_position" in entry, f"{code} missing bollinger_position"
+        # Values can be None on short series, but the keys must exist.
+        if entry["rsi14"] is not None:
+            assert 0.0 <= entry["rsi14"] <= 100.0
+        if entry["bollinger_position"] is not None:
+            # BB position can clip outside [0,1] on strong moves — sanity bound.
+            assert -1.0 <= entry["bollinger_position"] <= 2.0
 
 
 def test_generate_plan_reads_rebalance_threshold_from_config(tmp_path, monkeypatch) -> None:

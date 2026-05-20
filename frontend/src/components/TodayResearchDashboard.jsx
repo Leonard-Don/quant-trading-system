@@ -119,6 +119,27 @@ const EMPTY_JOURNAL = {
 };
 const EMPTY_ENTRIES = [];
 
+const WORKBENCH_FLOW_STEPS = [
+  {
+    key: 'collect',
+    icon: <FileTextOutlined />,
+    title: '线索收件',
+    description: '回测、实时行情、行业观察和纸面账户记录统一汇入。',
+  },
+  {
+    key: 'triage',
+    icon: <ThunderboltOutlined />,
+    title: '排队分层',
+    description: '按需处理、继续观察、稍后回看拆成今日行动清单。',
+  },
+  {
+    key: 'return',
+    icon: <ClockCircleOutlined />,
+    title: '回到上下文',
+    description: '处理完线索后，保留标的时间线和完整复盘档案。',
+  },
+];
+
 const DEFAULT_ENTRY_FILTERS = {
   status: 'all',
   priority: 'all',
@@ -614,7 +635,7 @@ const TodayResearchDashboard = () => {
         </Form.Item>
         <Space.Compact style={{ width: '100%' }}>
           <Form.Item name="symbol" label="标的" style={{ flex: 1 }}>
-            <Input placeholder="AAPL / 600519" />
+            <Input placeholder="600519 / AAPL" />
           </Form.Item>
           <Form.Item name="industry" label="行业" style={{ flex: 1 }}>
             <Input placeholder="半导体" />
@@ -645,10 +666,10 @@ const TodayResearchDashboard = () => {
   const renderEmptyWorkbench = () => (
     <Card className="today-research-panel today-research-empty-workbench">
       <div className="today-research-empty-workbench__content">
-        <div className="app-page-section-kicker">从这里开始</div>
-        <div className="today-research-empty-workbench__title">先生成一条研究线索</div>
+        <div className="app-page-section-kicker">今日入口</div>
+        <div className="today-research-empty-workbench__title">先把第一条线索放进工作台</div>
         <p>
-          今日研究会自动收集回测快照、实时复盘和行业观察；现在可以直接从一个模块开始，或先手动记下一条判断。
+          工作台会把回测快照、实时复盘、行业观察和人工判断统一成可回看的研究流。
         </p>
       </div>
       <div className="today-research-empty-actions">
@@ -750,7 +771,7 @@ const TodayResearchDashboard = () => {
     return (
       <div className="today-research-loading">
         <Spin size="large" />
-        <Text type="secondary">正在整理今日研究档案...</Text>
+        <Text type="secondary">正在整理研究工作台...</Text>
       </div>
     );
   }
@@ -759,10 +780,10 @@ const TodayResearchDashboard = () => {
     <div className="today-research-page">
       <section className="today-research-hero">
         <div>
-          <div className="app-page-section-kicker">每日研究</div>
-          <Title level={1}>今日研究</Title>
+          <div className="app-page-section-kicker">今日线索、提醒与复盘档案</div>
+          <Title level={1}>研究工作台</Title>
           <p>
-            把回测快照、行业观察、实时提醒和复盘记录收成一张桌面工作台，先处理队列，再回到具体模块深挖。
+            把分散在回测、实时行情、行业热度和纸面账户里的线索收成一张日内工作台，先判断轻重缓急，再回到具体模块深挖。
           </p>
           <div className="today-research-hero__status">
             <span>活跃线索 {activeEntries.length} 条</span>
@@ -802,6 +823,18 @@ const TodayResearchDashboard = () => {
             <strong>{getMetricValue(summary, 'industry_watch') + getMetricValue(summary, 'industry_alert')}</strong>
           </div>
         </div>
+      </section>
+
+      <section className="today-research-flow" aria-label="研究工作台流程">
+        {WORKBENCH_FLOW_STEPS.map((step) => (
+          <div className="today-research-flow__item" key={step.key}>
+            <span className="today-research-flow__icon">{step.icon}</span>
+            <div>
+              <strong>{step.title}</strong>
+              <span>{step.description}</span>
+            </div>
+          </div>
+        ))}
       </section>
 
       {isJournalEmpty ? (

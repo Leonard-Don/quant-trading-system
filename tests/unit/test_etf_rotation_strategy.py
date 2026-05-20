@@ -151,6 +151,77 @@ def test_signal_dataclass_records_score_breakdown():
     assert weak_sig.trend_score <= 0.0
 
 
+def test_rsi_computed_and_bounded_for_strong_and_weak_assets():
+    """Per-position technical indicators surface on EtfSignal so the
+    dashboard timing panel + weekly IC cron can read them directly."""
+
+    prices = _make_price_matrix()
+    strategy = EtfRotationStrategy(_make_config())
+
+    signals = strategy.evaluate(prices)
+    by_symbol = {sig.symbol: sig for sig in signals}
+    strong = by_symbol["STRONG"]
+    weak = by_symbol["WEAK"]
+
+    # Both have 120 bars of history → ≥ 14, so RSI must be populated.
+    assert strong.rsi14 is not None
+    assert weak.rsi14 is not None
+    assert 0.0 <= strong.rsi14 <= 100.0
+    assert 0.0 <= weak.rsi14 <= 100.0
+    # A persistent uptrend should sit on the higher end; downtrend lower.
+    assert strong.rsi14 > weak.rsi14
+
+    # Bollinger position is normalised so 0 ≈ lower band, 1 ≈ upper.
+    assert strong.bollinger_position is not None
+    assert weak.bollinger_position is not None
+    # Can clip outside [0,1] on strong moves but should be finite.
+    for value in (strong.bollinger_position, weak.bollinger_position):
+        assert np.isfinite(value)
+
+
+def test_rsi_returns_none_for_too_short_series():
+    """A series shorter than ``period+1`` bars can't compute RSI; the
+    helper must return None rather than raising or producing NaN."""
+
+    short_prices = pd.Series([1.0, 1.1, 1.05], name="x")
+    assert EtfRotationStrategy._rsi(short_prices, period=14) is None
+
+
+def test_rsi_returns_100_when_no_losses():
+    """All-up series: zero down-days → RS = inf → RSI clamps to 100."""
+
+    monotonic = pd.Series([1.0 + 0.01 * i for i in range(30)])
+    value = EtfRotationStrategy._rsi(monotonic, period=14)
+    assert value == pytest.approx(100.0)
+
+
+def test_rsi_returns_50_when_perfectly_flat():
+    """Flat series → no gain and no loss → neutral 50 (per our helper's
+    explicit edge-case branch)."""
+
+    flat = pd.Series([1.0] * 30)
+    value = EtfRotationStrategy._rsi(flat, period=14)
+    assert value == pytest.approx(50.0)
+
+
+def test_bollinger_position_centers_at_05_for_flat_series():
+    """A flat series has zero std → the helper returns the neutral 0.5
+    rather than dividing by zero."""
+
+    flat = pd.Series([5.0] * 25)
+    value = EtfRotationStrategy._bollinger_position(flat, period=20)
+    assert value == pytest.approx(0.5)
+
+
+def test_bollinger_position_below_zero_when_below_lower_band():
+    """Sustained downside push past the lower band → position < 0."""
+
+    series = pd.Series([10.0] * 18 + [9.5, 8.0])  # last bar far below the 20-bar mean
+    value = EtfRotationStrategy._bollinger_position(series, period=20)
+    assert value is not None
+    assert value < 0.5  # at minimum, below the centerline
+
+
 def test_generate_signals_matches_price_matrix_index_and_columns_for_backtester():
     prices = _make_price_matrix()
     strategy = EtfRotationStrategy(_make_config())

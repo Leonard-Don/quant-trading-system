@@ -120,11 +120,14 @@ const collectConsoleErrors = (page, label) => {
         else ok('C 纸面账户工作区已渲染 (?view=paper)');
 
         // Order form fields visible
-        const orderInput = await page.$('input[placeholder="如 AAPL"]');
-        const qtyInput = await page.$('input[placeholder="如 10"]');
-        const fillInput = await page.$('input[placeholder="如 150.0"]');
-        if (orderInput && qtyInput && fillInput) ok('C 下单表单 symbol/quantity/fill_price 输入框俱全');
-        else fail('C 下单表单缺字段', `symbol=${!!orderInput} qty=${!!qtyInput} fill=${!!fillInput}`);
+        const orderInput = page.getByLabel('标的');
+        const qtyInput = page.getByLabel('数量');
+        const fillInput = page.getByLabel('成交价');
+        const hasOrderInput = await orderInput.count();
+        const hasQtyInput = await qtyInput.count();
+        const hasFillInput = await fillInput.count();
+        if (hasOrderInput && hasQtyInput && hasFillInput) ok('C 下单表单 symbol/quantity/fill_price 输入框俱全');
+        else fail('C 下单表单缺字段', `symbol=${!!hasOrderInput} qty=${!!hasQtyInput} fill=${!!hasFillInput}`);
 
         // Account chips render — at least one of these labels must appear
         const text = await page.content();
@@ -158,10 +161,7 @@ const collectConsoleErrors = (page, label) => {
         if (tag) ok('F prefill tag 在工作区出现');
         else fail('F prefill', 'paper-prefill-tag 未渲染');
 
-        const symbolValue = await page.evaluate(() => {
-            const el = document.querySelector('input[placeholder="如 AAPL"]');
-            return el ? el.value : null;
-        });
+        const symbolValue = await page.getByLabel('标的').inputValue().catch(() => null);
         if (symbolValue === 'GOOG') ok('F 表单 symbol 字段已被预填为 GOOG');
         else fail('F 表单 symbol 预填', `期望 GOOG，实际 ${symbolValue}`);
 

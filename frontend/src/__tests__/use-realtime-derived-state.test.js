@@ -41,7 +41,7 @@ describe('useRealtimeDerivedState', () => {
       delayed: 0,
       pending: 0,
     });
-    expect(result.current.transportModeLabel).toBe('WebSocket 实时');
+    expect(result.current.transportModeLabel).toBe('实时推送已连接');
     expect(result.current.transportBanner.title).toBe('实时推送已恢复');
     expect(result.current.transportBannerStyle.color).toBe('#166534');
     // formatQuoteTime is now a module-scope function, producing locale time strings

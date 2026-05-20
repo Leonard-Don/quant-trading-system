@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 import RealtimeStockDetailModal from '../components/RealtimeStockDetailModal';
-import { getRealtimeOrderbook } from '../services/api';
+import { getKlines, getRealtimeOrderbook } from '../services/api';
 
 const mockMarketAnalysisMountSpy = jest.fn();
 const mockMarketAnalysisUnmountSpy = jest.fn();
@@ -264,7 +264,36 @@ describe('RealtimeStockDetailModal', () => {
     expect(screen.getByText('最近 3 根 1H K 线 · 收盘价')).toBeInTheDocument();
     expect(screen.getByText('区间 181.40 - 184.20')).toBeInTheDocument();
     expect(screen.getByText('较起点 +1.54%')).toBeInTheDocument();
-    expect(screen.getByLabelText('AAPL 盘中走势线')).toBeInTheDocument();
+    expect(screen.getByLabelText(/AAPL 盘中走势线，较起点上行 \+1.54%，区间 181.40 - 184.20/)).toBeInTheDocument();
+    expect(screen.getByText('最新 184.20')).toBeInTheDocument();
+  });
+
+  test('keeps snapshot fallback trend ending at the current price', async () => {
+    getKlines.mockResolvedValueOnce({ klines: [] });
+
+    await renderRealtimeDetailModal(
+      <RealtimeStockDetailModal
+        open
+        symbol="AAPL"
+        quote={{
+          symbol: 'AAPL',
+          price: 96,
+          change: -4,
+          change_percent: -4,
+          open: 101,
+          low: 95,
+          high: 105,
+          previous_close: 100,
+        }}
+        onCancel={jest.fn()}
+      />
+    );
+
+    expect(screen.getByText('昨收 / 开盘 / 高低点 / 现价')).toBeInTheDocument();
+    expect(screen.getByText('区间 95.00 - 105.00')).toBeInTheDocument();
+    expect(screen.getByText('较起点 -4.00%')).toBeInTheDocument();
+    expect(screen.getByLabelText(/AAPL 盘中走势线，较起点回落 -4.00%，区间 95.00 - 105.00/)).toBeInTheDocument();
+    expect(screen.getByText('最新 96.00')).toBeInTheDocument();
   });
 
   test('renders an intraday timeline when detail events are provided', async () => {

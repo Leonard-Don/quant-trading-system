@@ -35,7 +35,7 @@ function ResearchToolsPanel({
           <Input
             value={researchSymbolsInput}
             onChange={(event) => setResearchSymbolsInput(event.target.value)}
-            placeholder="用逗号分隔标的，例如 AAPL,MSFT,NVDA"
+            placeholder="用逗号分隔标的，例如 600519,000858,AAPL"
           />
           <div className="workspace-section__hint" style={{ marginTop: 8 }}>
             参数寻优、基准对照会优先使用当前滚动前瞻表单里的单一标的；多标的和组合级回测会读取这里的标的池。

@@ -582,6 +582,7 @@ def _apply_position_stop_losses(
     holdings: Sequence[EtfHolding],
     target_weights: dict[str, float],
     threshold: Optional[float],
+    advisory_only: bool = False,
 ) -> dict[str, dict[str, Any]]:
     """Force-sell any holding whose unrealised P&L breaches the stop.
 
@@ -591,6 +592,19 @@ def _apply_position_stop_losses(
 
     The threshold is the *negative* loss bound (e.g. ``-0.15`` for 15%).
     Passing ``None`` or a non-negative value disables the stop entirely.
+
+    ``advisory_only=True`` switches the function to **report mode**:
+    triggered positions are still detected and surfaced in the return
+    payload (so the dashboard/audit log still raise the badge), but
+    ``target_weights`` is NOT zeroed. The plan keeps the scoring layer's
+    intended weight and emits no force-sell suggestion. The triggered
+    payload carries ``advisory_only=True`` so downstream consumers can
+    render a softer "thesis 复核" prompt instead of "强制清仓".
+
+    This mode exists for users running the system as a *technical timing
+    overlay* on top of fundamentals-driven long-term holdings: a -15%
+    drawdown is a signal to re-examine the thesis, not a directive to
+    sell a position the user is committed to holding.
     """
 
     if threshold is None:
@@ -618,8 +632,10 @@ def _apply_position_stop_losses(
             "cost_price": float(holding.cost_price),
             "current_price": float(holding.current_price),
             "previous_target_weight": float(target_weights.get(holding.code, 0.0)),
+            "advisory_only": bool(advisory_only),
         }
-        target_weights[holding.code] = 0.0
+        if not advisory_only:
+            target_weights[holding.code] = 0.0
     return triggered
 
 
@@ -747,6 +763,9 @@ def generate_plan(
         holdings=holdings,
         target_weights=target_weights,
         threshold=active_config.strategy.get("stop_loss_threshold"),
+        advisory_only=bool(
+            active_config.strategy.get("stop_loss_advisory_only", False)
+        ),
     )
 
     effective_risk_config = risk_config if risk_config is not None else build_risk_config(active_config)
@@ -846,6 +865,14 @@ def generate_plan(
             "return60": float(sig.return60),
             "drawdown60": float(sig.drawdown60),
             "volatility60": float(sig.volatility60),
+            # Technical-timing indicators, surfaced so the per-position
+            # dashboard panel doesn't need to re-derive them client-side
+            # and the weekly cron can compute IC against forward returns.
+            "rsi14": float(sig.rsi14) if sig.rsi14 is not None else None,
+            "bollinger_position": (
+                float(sig.bollinger_position)
+                if sig.bollinger_position is not None else None
+            ),
             # Surfaced when the policy_signal_factor was enabled and this
             # ETF had an industry mapping. ``None`` otherwise so the
             # legacy / disabled path produces identical bytes.

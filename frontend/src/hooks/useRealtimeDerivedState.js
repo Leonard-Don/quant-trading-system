@@ -143,10 +143,10 @@ export const useRealtimeDerivedState = ({
   const transportModeLabel = !isAutoUpdate
     ? '手动刷新'
     : isConnected
-      ? 'WebSocket 实时'
+      ? '实时推送已连接'
       : reconnectAttempts > 0
-        ? '重连中 / REST 补数'
-        : '连接中 / REST 补数';
+        ? '实时通道重连中，备用刷新中'
+        : '实时通道连接中，备用刷新中';
   const lastClientRefreshLabel = lastClientRefreshAt ? formatQuoteTime(lastClientRefreshAt) : '--';
   const lastMarketUpdateLabel = lastMarketUpdateAt ? formatQuoteTime(lastMarketUpdateAt) : '--';
   const transportBanner = !isAutoUpdate
@@ -160,21 +160,21 @@ export const useRealtimeDerivedState = ({
           tone: 'healthy',
           title: hasExperiencedFallback ? '实时推送已恢复' : '实时推送正常',
           description: hasExperiencedFallback
-            ? 'WebSocket 已重新接管实时更新，列表会继续自动推进。'
-            : '当前由 WebSocket 持续推送最新行情，REST 只在首屏和补数时兜底。',
+            ? '实时推送已重新接管行情更新，列表会继续自动推进。'
+            : '当前由实时通道持续推送最新行情，备用刷新只在首屏和补数时兜底。',
         }
       : reconnectAttempts > 0
         ? {
             tone: 'fallback',
             title: '正在重连实时推送',
-            description: `当前已切到 REST 补数，第 ${reconnectAttempts} 次重连进行中。${lastConnectionIssue ? ` 最近异常：${lastConnectionIssue}` : ''}`,
+            description: `实时推送暂不可用，当前用备用刷新维持看盘，第 ${reconnectAttempts} 次重连进行中。${lastConnectionIssue ? ` 最近异常：${lastConnectionIssue}` : ''}`,
           }
         : {
             tone: 'fallback',
-            title: hasEverConnected ? '已降级到 REST 补数' : '正在建立实时连接',
+            title: hasEverConnected ? '已切到备用刷新' : '正在建立实时连接',
             description: hasEverConnected
-              ? `实时推送暂时不可用，页面会先用 REST 补数维持更新，连接恢复后会自动切回实时模式。${lastConnectionIssue ? ` 最近异常：${lastConnectionIssue}` : ''}`
-              : '在 WebSocket 建立前，页面会先通过 REST 拉取当前分组行情，避免首屏空白。',
+              ? `实时推送暂时不可用，页面会先用备用刷新维持更新，连接恢复后会自动切回实时模式。${lastConnectionIssue ? ` 最近异常：${lastConnectionIssue}` : ''}`
+              : '在实时通道建立前，页面会先拉取当前分组快照，避免首屏空白。',
           };
   const transportBannerStyle = transportBanner.tone === 'healthy'
     ? {

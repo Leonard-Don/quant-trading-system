@@ -8,7 +8,6 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
         payload: {
           total_return: 0.08,
           sharpe_ratio: 1.1,
-          data_alignment: { tradable_day_ratio: 0.82 },
           execution_diagnostics: {
             cost_drag: 0.01,
             turnover: 4.2,
@@ -144,7 +143,6 @@ describe('buildSnapshotComparison for cross-market snapshots', () => {
         payload: {
           total_return: 0.12,
           sharpe_ratio: 1.45,
-          data_alignment: { tradable_day_ratio: 0.9 },
           execution_diagnostics: {
             cost_drag: 0.008,
             turnover: 3.8,

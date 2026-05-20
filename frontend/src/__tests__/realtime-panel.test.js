@@ -783,13 +783,13 @@ describe('RealTimePanel', () => {
 
     const freshnessMetric = screen.getByText('新鲜行情').closest('.realtime-hero__metric');
     expect(freshnessMetric).toHaveTextContent('1/6');
-    expect(screen.getByText('链路模式：连接中 / REST 补数')).toBeInTheDocument();
+    expect(screen.getByText('行情更新：实时通道连接中，备用刷新中')).toBeInTheDocument();
     expect(screen.getByText('市场情绪')).toBeInTheDocument();
     expect(screen.getByText('偏强')).toBeInTheDocument();
     expect(screen.getByText('正在建立实时连接')).toBeInTheDocument();
     expect(screen.queryByText('最近接收：--')).not.toBeInTheDocument();
     expect(screen.queryByText('最新行情时间：--')).not.toBeInTheDocument();
-    expect(screen.getByText('接收链路刚刚更新')).toBeInTheDocument();
+    expect(screen.getByText('页面接收刚刚更新')).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith('/realtime/preferences', expect.objectContaining({
       headers: expect.objectContaining({
         'X-Realtime-Profile': expect.any(String),
@@ -855,7 +855,7 @@ describe('RealTimePanel', () => {
     expect(screen.getByText('GC=F(4) / ^HSI(3)')).toBeInTheDocument();
     expect(screen.getByText('最近决策轨迹')).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByText((content) => content.includes('REST 补数 -> ^GSPC'))).toBeInTheDocument();
+      expect(screen.getByText((content) => content.includes('备用刷新补齐 -> ^GSPC'))).toBeInTheDocument();
     });
     expect(api.get).toHaveBeenCalledWith('/realtime/summary');
   });
@@ -1463,7 +1463,7 @@ describe('RealTimePanel', () => {
       expect(screen.getByText('行情延迟 10 分钟')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('接收链路刚刚更新')).toBeInTheDocument();
+    expect(screen.getByText('页面接收刚刚更新')).toBeInTheDocument();
   });
 
   test('shows recovery status after websocket reconnects', async () => {
@@ -1484,7 +1484,7 @@ describe('RealTimePanel', () => {
     await waitFor(() => {
       expect(screen.getByText('正在重连实时推送')).toBeInTheDocument();
     });
-    expect(screen.getByText('链路模式：重连中 / REST 补数')).toBeInTheDocument();
+    expect(screen.getByText('行情更新：实时通道重连中，备用刷新中')).toBeInTheDocument();
     expect(screen.getByText('重连 2')).toBeInTheDocument();
     expect(screen.getByText(/最近异常：network lost/)).toBeInTheDocument();
 
@@ -1496,7 +1496,7 @@ describe('RealTimePanel', () => {
       expect(screen.getByText('实时推送已恢复')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('链路模式：WebSocket 实时')).toBeInTheDocument();
+    expect(screen.getByText('行情更新：实时推送已连接')).toBeInTheDocument();
   });
 
   test('warms the current tab with a websocket snapshot after the realtime connection comes up', async () => {
@@ -1627,12 +1627,12 @@ describe('RealTimePanel', () => {
   test('renders a mini sparkline for quote cards in both grid and list view', async () => {
     await renderRealtimePanel();
 
-    expect(await screen.findByLabelText('^GSPC 价格轨迹')).toBeInTheDocument();
+    expect(await screen.findByLabelText(/^(\^GSPC) 盘中走势线/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '列表模式' }));
 
-    expect(await screen.findByLabelText('^GSPC 价格轨迹')).toBeInTheDocument();
-    expect(screen.getByText('快照轨迹')).toBeInTheDocument();
+    expect(await screen.findByLabelText(/^(\^GSPC) 盘中走势线/)).toBeInTheDocument();
+    expect(screen.getAllByText('盘中走势')[0]).toBeInTheDocument();
   });
 
   test('refresh button refetches the current tab instead of sending the click event as symbols', async () => {

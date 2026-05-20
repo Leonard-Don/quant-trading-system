@@ -266,6 +266,12 @@ class EtfSignal:
     # (factor disabled / no industry mapped / no policy data). When set,
     # carries the per-ETF context for audit + dashboard surfaces.
     policy_adjustment: Optional[dict[str, Any]] = None
+    # Technical-timing indicators, surfaced for the per-position dashboard
+    # panel and the audit score_breakdown so the weekly cron can compute
+    # IC vs forward returns. None when the price series is shorter than
+    # the indicator's required lookback (14 bars for RSI, 20 for BB).
+    rsi14: Optional[float] = None
+    bollinger_position: Optional[float] = None  # 0 = lower band, 1 = upper
 
 
 class EtfRotationStrategy:
@@ -678,6 +684,8 @@ class EtfRotationStrategy:
         volatility60 = float(returns.iloc[-60:].std(ddof=0) * np.sqrt(TRADING_DAYS_PER_YEAR))
         if not np.isfinite(volatility60):
             volatility60 = 0.0
+        rsi14 = self._rsi(series, period=14)
+        bollinger_position = self._bollinger_position(series, period=20)
 
         scoring = self.config.scoring
         trend_score, trend_reasons = self._score_trend(latest, ma20, ma60, scoring, ma200=ma200)
@@ -720,6 +728,8 @@ class EtfRotationStrategy:
             raw_weight=raw_weight,
             target_weight=target_weight,
             reasons=reasons,
+            rsi14=rsi14,
+            bollinger_position=bollinger_position,
         )
 
     def _normalize_signals(self, signals: Iterable[EtfSignal]) -> List[EtfSignal]:
@@ -912,6 +922,64 @@ class EtfRotationStrategy:
         if previous <= 0:
             return 0.0
         return latest / previous - 1.0
+
+    @staticmethod
+    def _rsi(series: pd.Series, period: int = 14) -> Optional[float]:
+        """Classic Wilder-style RSI on a daily close series.
+
+        Returns ``None`` when there isn't enough history for one full
+        period. Handles the no-loss edge case (RS division-by-zero) by
+        returning 100.0 — anything strictly bullish over the window. A
+        flat series with zero gain AND zero loss returns 50.0 (neutral).
+
+        Used for the per-position technical-timing panel: <30 = oversold,
+        >70 = overbought, by convention. Exposed via ``EtfSignal.rsi14``
+        and surfaced in the audit ``score_breakdown`` so the weekly cron
+        can backfill forward-return IC against it.
+        """
+
+        if series is None or len(series) < period + 1:
+            return None
+        delta = series.diff().iloc[-period:]
+        gain = float(delta.clip(lower=0).mean())
+        loss = float(-delta.clip(upper=0).mean())
+        if loss <= 0:
+            return 100.0 if gain > 0 else 50.0
+        rs = gain / loss
+        rsi = 100.0 - 100.0 / (1.0 + rs)
+        if not np.isfinite(rsi):
+            return None
+        return float(rsi)
+
+    @staticmethod
+    def _bollinger_position(series: pd.Series, period: int = 20) -> Optional[float]:
+        """Where the latest close sits between MA20 ± 2σ20.
+
+        Returns a normalised position in [0, 1]:
+
+        * ~0.0 → at or below the lower band (oversold relative to recent vol)
+        * 0.5 → exactly on the MA20
+        * ~1.0 → at or above the upper band (overbought)
+
+        Values can clip past [0,1] when price has run beyond ±2σ. Returns
+        ``None`` when the series is too short.
+        """
+
+        if series is None or len(series) < period:
+            return None
+        window = series.iloc[-period:]
+        mean = float(window.mean())
+        std = float(window.std(ddof=0))
+        if std <= 0:
+            return 0.5
+        upper = mean + 2 * std
+        lower = mean - 2 * std
+        if upper == lower:
+            return 0.5
+        position = (float(series.iloc[-1]) - lower) / (upper - lower)
+        if not np.isfinite(position):
+            return None
+        return float(position)
 
     @staticmethod
     def _prepare_prices(price_matrix: pd.DataFrame) -> pd.DataFrame:

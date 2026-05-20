@@ -102,17 +102,18 @@ const assert = (condition, message) => {
     });
   });
 
-  console.log('正在访问今日研究页面...');
+  console.log('正在访问研究工作台页面...');
   await page.goto(`${APP_URL}/?view=today`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  await page.getByRole('heading', { name: '今日研究' }).waitFor({ state: 'visible', timeout: 60000 });
+  await page.getByRole('heading', { name: '研究工作台' }).waitFor({ state: 'visible', timeout: 60000 });
+  await page.getByRole('region', { name: '研究工作台流程' }).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('处理队列', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByTestId('today-research-entry').first().waitFor({ state: 'visible', timeout: 60000 });
 
   const entries = await page.getByTestId('today-research-entry').count();
-  assert(entries >= 6, `今日研究档案条目过少: ${entries}`);
+  assert(entries >= 6, `研究工作台档案条目过少: ${entries}`);
   await page.getByText('AAPL · buy_and_hold 回测', { exact: false }).first().waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('半导体 · 行业观察', { exact: true }).first().waitFor({ state: 'visible', timeout: 60000 });
-  console.log('本地研究状态已汇总到今日研究: 是');
+  console.log('本地研究状态已汇总到研究工作台: 是');
 
   console.log('验证档案流筛选...');
   const archiveList = page.locator('.today-research-entry-list--archive');
@@ -158,7 +159,7 @@ const assert = (condition, message) => {
   );
 
   await browser.close();
-  console.log('今日研究 E2E 回归通过');
+  console.log('研究工作台 E2E 回归通过');
 })().catch((error) => {
   console.error(error);
   process.exit(1);

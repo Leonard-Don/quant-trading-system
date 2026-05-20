@@ -130,7 +130,7 @@ describe('StrategyForm Component', () => {
             );
 
             await waitFor(() => {
-                expect(screen.getByDisplayValue('AAPL')).toBeInTheDocument();
+                expect(screen.getByDisplayValue('600519.SS')).toBeInTheDocument();
                 expect(screen.getAllByText('移动平均策略').length).toBeGreaterThan(0);
             });
 
