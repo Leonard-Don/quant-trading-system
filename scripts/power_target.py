@@ -353,7 +353,8 @@ def render_terminal(result: dict[str, object]) -> str:
         f"{_fmt_pct(float(mde['mde_excess_return_per_period']))}/period"
     )
     lines.append(
-        f"    required non-centrality     = {float(mde['required_ncp']):.4f}"
+        f"    required non-centrality (two-tail power solve) = "
+        f"{float(mde['required_ncp']):.4f}"
     )
     lines.append("")
     observed_ir = abs(float(mde["observed_ir"]))

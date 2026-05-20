@@ -86,6 +86,7 @@ def test_terminal_renderer_calls_out_noise_floor() -> None:
     assert "MINIMUM DETECTABLE EFFECT" in output
     assert "INSIDE the noise floor" in output
     assert "MDE Information Ratio" in output
+    assert "two-tail power solve" in output
 
 
 def test_markdown_renderer_links_method_and_regeneration_command() -> None:
