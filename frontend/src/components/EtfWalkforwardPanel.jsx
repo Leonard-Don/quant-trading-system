@@ -241,13 +241,13 @@ const EtfWalkforwardPanel = ({
       render: (value) => formatPct(Number(value) || 0),
     },
     {
-      title: 'Sharpe',
+      title: '夏普',
       dataIndex: 'sharpe_ratio',
       key: 'sharpe_ratio',
       render: (value) => formatNumber(Number(value) || 0),
     },
     {
-      title: 'MaxDD',
+      title: '最大回撤',
       dataIndex: 'max_dd_pct',
       key: 'max_dd_pct',
       render: (value) => (

@@ -1340,8 +1340,8 @@ const IndustryHeatmap = ({
         { value: 'pb', label: '看市净率' },
     ];
     const displayCountOptions = [
-        { value: 30, label: 'Top 30' },
-        { value: 50, label: 'Top 50' },
+        { value: 30, label: '前 30' },
+        { value: 50, label: '前 50' },
         { value: 0, label: '全部' },
     ];
     const refreshOptions = [
@@ -1440,8 +1440,8 @@ const IndustryHeatmap = ({
                     }}
                     aria-label="选择行业热力图显示范围"
                 >
-                    <Radio.Button value={30}>Top 30</Radio.Button>
-                    <Radio.Button value={50}>Top 50</Radio.Button>
+                    <Radio.Button value={30}>前 30</Radio.Button>
+                    <Radio.Button value={50}>前 50</Radio.Button>
                     <Radio.Button value={0}>全部</Radio.Button>
                 </Radio.Group>
                 <Input

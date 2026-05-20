@@ -316,7 +316,7 @@ const EtfPolicyFactorAttributionPanel = ({
                         data-testid="etf-policy-factor-attribution-winners"
                         style={{ flex: '1 1 280px', minWidth: 220 }}
                       >
-                        <Text strong>Top winners</Text>
+                        <Text strong>贡献最大</Text>
                         <Table
                           size="small"
                           pagination={false}
@@ -346,7 +346,7 @@ const EtfPolicyFactorAttributionPanel = ({
                         data-testid="etf-policy-factor-attribution-losers"
                         style={{ flex: '1 1 280px', minWidth: 220 }}
                       >
-                        <Text strong>Top losers</Text>
+                        <Text strong>拖累最大</Text>
                         <Table
                           size="small"
                           pagination={false}
