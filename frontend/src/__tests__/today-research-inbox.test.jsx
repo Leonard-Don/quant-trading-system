@@ -87,6 +87,11 @@ describe('TodayResearchDashboard research inbox', () => {
 
     renderWithApp(<TodayResearchDashboard />);
 
+    expect(await screen.findByRole('heading', { name: '研究工作台' })).toBeInTheDocument();
+    expect(screen.getByLabelText('研究工作台流程')).toHaveTextContent('线索收件');
+    expect(screen.getByLabelText('研究工作台流程')).toHaveTextContent('排队分层');
+    expect(screen.getByLabelText('研究工作台流程')).toHaveTextContent('回到上下文');
+
     const inbox = await screen.findByTestId('today-research-inbox');
     await waitFor(() => expect(within(inbox).getByText('研究收件箱')).toBeInTheDocument());
 

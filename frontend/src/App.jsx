@@ -196,7 +196,7 @@ function App() {
     {
       key: 'today',
       icon: <FundOutlined />,
-      label: '今日研究',
+      label: '研究工作台',
     },
     {
       key: 'backtest',
