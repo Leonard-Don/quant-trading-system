@@ -388,6 +388,15 @@ def _aligned_arrays(
     return a[finite_mask], b[finite_mask]
 
 
+def _validate_hac_horizon(h: int) -> int:
+    """Validate the Newey-West forecast horizon used by the DM test."""
+
+    h_value = float(h)
+    if not math.isfinite(h_value) or h_value < 1 or not h_value.is_integer():
+        raise ValueError(f"h must be a finite integer >= 1; got {h}")
+    return int(h_value)
+
+
 # ---------------------------------------------------------------------------
 # Diebold-Mariano test
 # ---------------------------------------------------------------------------
@@ -429,6 +438,7 @@ def diebold_mariano_test(
         and the HAC variance for diagnostics.
     """
 
+    h_value = _validate_hac_horizon(h)
     a, b = _aligned_arrays(returns_a, returns_b)
     n = a.size
     note = ""
@@ -441,13 +451,13 @@ def diebold_mariano_test(
             hac_variance=0.0,
             n_obs=n,
             loss_fn=loss_fn,
-            h=h,
+            h=h_value,
             note="insufficient_observations(<3)",
         )
 
     d = _loss_differential(a, b, loss_fn)
     d_mean = float(d.mean())
-    nw_var = _newey_west_variance(d, h)
+    nw_var = _newey_west_variance(d, h_value)
     if nw_var <= 1e-30:
         # Series is essentially identical: differential is degenerate.
         return DMResult(
@@ -458,7 +468,7 @@ def diebold_mariano_test(
             hac_variance=nw_var,
             n_obs=n,
             loss_fn=loss_fn,
-            h=h,
+            h=h_value,
             note="degenerate_zero_variance",
         )
 
@@ -485,7 +495,7 @@ def diebold_mariano_test(
         hac_variance=float(nw_var),
         n_obs=n,
         loss_fn=loss_fn,
-        h=h,
+        h=h_value,
         note=note,
     )
 

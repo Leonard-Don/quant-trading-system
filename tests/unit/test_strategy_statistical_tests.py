@@ -135,6 +135,14 @@ def test_dm_hac_bandwidth_changes_variance_estimate() -> None:
     assert r_h1.hac_variance != pytest.approx(r_h10.hac_variance, rel=1e-3)
 
 
+def test_dm_rejects_non_finite_hac_horizon() -> None:
+    """HAC horizon should not leak non-finite values into diagnostics."""
+
+    for h in (float("nan"), float("inf"), -float("inf")):
+        with pytest.raises(ValueError, match="h"):
+            diebold_mariano_test([0.01, 0.02, 0.03], [0.0, 0.01, 0.01], h=h)
+
+
 def test_dm_loss_function_supports_all_documented_options() -> None:
     """All advertised loss-fn names are accepted without raising."""
 
