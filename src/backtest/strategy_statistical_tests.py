@@ -240,9 +240,11 @@ class MinimumDetectableEffect:
 
     The relationship that makes this exact rather than a simulation:
     the DM statistic is ``DM = sqrt(n) * (d_mean / sqrt(hac_var))`` and
-    the Information Ratio is ``IR = (mean_per_period / sqrt(hac_var)) *
-    sqrt(periods_per_year)``, so ``IR = DM * sqrt(periods_per_year / n)``
-    and therefore ``mde_ir = required_ncp * sqrt(periods_per_year / n)``.
+    the signed strategy-excess Information Ratio is ``IR =
+    (-d_mean / sqrt(hac_var)) * sqrt(periods_per_year)``, so
+    ``observed_IR = -DM * sqrt(periods_per_year / n)``. The MDE is an
+    unsigned threshold, therefore ``mde_ir = required_ncp *
+    sqrt(periods_per_year / n)``.
     """
 
     mde_ir: float
@@ -900,10 +902,14 @@ def minimum_detectable_effect(
 
         mde_ir = required_ncp * sqrt(periods_per_year / n)
 
-    because ``IR = DM * sqrt(periods_per_year / n)`` (the per-year
-    factor in the numerator's annualised mean and the denominator's
-    annualised tracking error both scale by ``sqrt(periods_per_year)``,
-    so the only sample-size dependence left is ``sqrt(1/n)``).
+    The signed observed strategy-excess IR carries the opposite sign from
+    the negative-return loss differential:
+    ``observed_IR = -DM * sqrt(periods_per_year / n)``. The MDE itself
+    is unsigned, so it uses the required non-centrality magnitude rather
+    than the observed DM sign. The per-year factor in the numerator's
+    annualised mean and the denominator's annualised tracking error both
+    scale by ``sqrt(periods_per_year)``, so the only sample-size
+    dependence left is ``sqrt(1/n)``.
 
     Parameters
     ----------

@@ -31,13 +31,15 @@ it apart from noise."
 Method
 ------
 The DM statistic for ``loss_fn="negative_return"`` is
-``DM = d_mean / sqrt(hac_var / n)`` and the annualised Information Ratio
-is ``IR = DM * sqrt(periods_per_year / n)``. Holding the *observed*
-per-period Newey-West HAC variance fixed, the two-sided test at level α
+``DM = d_mean / sqrt(hac_var / n)`` where ``d_mean`` is the loss
+differential, so the signed strategy-excess IR is
+``observed_IR = -DM * sqrt(periods_per_year / n)``. Holding the
+*observed* per-period Newey-West HAC variance fixed, the two-sided test at level α
 reaches power ``1-β`` when the non-centrality solves the same two-tail
 forward-power equation used by the diagnostic check:
 ``power = Φ(required_ncp - z_{1-α/2}) + Φ(-required_ncp - z_{1-α/2})``.
-The MDE is then ``required_ncp * sqrt(periods_per_year / n)``. See
+The MDE is unsigned and therefore
+``required_ncp * sqrt(periods_per_year / n)``. See
 :func:`src.backtest.strategy_statistical_tests.minimum_detectable_effect`
 for the full derivation. The inversion is an exact deterministic numeric
 solve (not a simulation); ``--self-check`` re-feeds the MDE IR through
@@ -588,15 +590,20 @@ def render_markdown(result: dict[str, object]) -> str:
         "`DM = d_mean / sqrt(hac_var / n)`, where `d_mean` is the mean "
         "loss differential, `-d_mean` is the per-period excess return, "
         "and `hac_var` is the per-period Newey-West HAC variance of the "
-        "differential. The annualised Information Ratio relates to it by "
-        "`IR = DM * sqrt(periods_per_year / n)`. Under the alternative "
-        "the two-sided test at level alpha reaches power `1-b` when the "
-        "non-centrality of `|DM|` solves the same two-tail power equation "
-        "used by the forward check:"
+        "differential. Because `DM` has the loss-differential sign, the "
+        "observed strategy-excess IR uses the opposite sign: "
+        "`observed_IR = -DM * sqrt(periods_per_year / n)`. The MDE is "
+        "an unsigned threshold "
+        "(`mde_ir = required_ncp * sqrt(periods_per_year / n)`), so it "
+        "uses the magnitude of the same relationship. Under the "
+        "alternative the two-sided test at level "
+        "alpha reaches power `1-b` when the non-centrality of `|DM|` "
+        "solves the same two-tail power equation used by the forward check:"
     )
     lines.append("")
     lines.append("```")
     lines.append("power = Phi(required_ncp - z_(1-a/2)) + Phi(-required_ncp - z_(1-a/2))")
+    lines.append("observed_IR = -DM * sqrt(periods_per_year / n)")
     lines.append("mde_ir = required_ncp * sqrt(periods_per_year / n)")
     lines.append("mde_excess_return_per_period = required_ncp * sqrt(hac_var / n)")
     lines.append("```")

@@ -100,3 +100,13 @@ def test_markdown_renderer_links_method_and_regeneration_command() -> None:
     assert "WalkForwardAnalyzer" in output
     assert "statistical_power_diagnostics" in output
     assert "python scripts/power_target.py" in output
+
+
+def test_markdown_method_keeps_dm_sign_separate_from_excess_ir() -> None:
+    """The method note should not imply loss-DM and excess-return IR share sign."""
+
+    output = render_markdown(_sample_power_result())
+
+    assert "observed strategy-excess IR uses the opposite sign" in output
+    assert "`observed_IR = -DM * sqrt(periods_per_year / n)`" in output
+    assert "`mde_ir = required_ncp * sqrt(periods_per_year / n)`" in output

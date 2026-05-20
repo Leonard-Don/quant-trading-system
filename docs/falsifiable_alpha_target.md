@@ -62,10 +62,11 @@ The reusable power-analysis primitive lives in `src.backtest.strategy_statistica
 
 ## Method
 
-The Diebold-Mariano statistic for the negative-return loss is `DM = d_mean / sqrt(hac_var / n)`, where `d_mean` is the mean loss differential, `-d_mean` is the per-period excess return, and `hac_var` is the per-period Newey-West HAC variance of the differential. The annualised Information Ratio relates to it by `IR = DM * sqrt(periods_per_year / n)`. Under the alternative the two-sided test at level alpha reaches power `1-b` when the non-centrality of `|DM|` solves the same two-tail power equation used by the forward check:
+The Diebold-Mariano statistic for the negative-return loss is `DM = d_mean / sqrt(hac_var / n)`, where `d_mean` is the mean loss differential, `-d_mean` is the per-period excess return, and `hac_var` is the per-period Newey-West HAC variance of the differential. Because `DM` has the loss-differential sign, the observed strategy-excess IR uses the opposite sign: `observed_IR = -DM * sqrt(periods_per_year / n)`. The MDE is an unsigned threshold (`mde_ir = required_ncp * sqrt(periods_per_year / n)`), so it uses the magnitude of the same relationship. Under the alternative the two-sided test at level alpha reaches power `1-b` when the non-centrality of `|DM|` solves the same two-tail power equation used by the forward check:
 
 ```
 power = Phi(required_ncp - z_(1-a/2)) + Phi(-required_ncp - z_(1-a/2))
+observed_IR = -DM * sqrt(periods_per_year / n)
 mde_ir = required_ncp * sqrt(periods_per_year / n)
 mde_excess_return_per_period = required_ncp * sqrt(hac_var / n)
 ```
