@@ -453,7 +453,7 @@ const readLocalStorageJson = async (page, key, fallback = null) => page.evaluate
   await page.getByText('市场冲击 (bp)', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
   await page.getByText('市场冲击模型', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
 
-  const symbolInput = page.getByPlaceholder('输入股票代码 (如: AAPL)');
+  const symbolInput = page.getByPlaceholder(/输入股票代码/);
   await symbolInput.waitFor({ state: 'visible', timeout: 60000 });
   const symbolValue = await symbolInput.inputValue();
   assert(symbolValue === 'AAPL', `回测草稿未正确预填标的，当前为 ${symbolValue}`);
@@ -501,7 +501,7 @@ const readLocalStorageJson = async (page, key, fallback = null) => page.evaluate
   }, null, { timeout: 15000 });
   await waitForBacktestWorkspace(page);
   const handoffDraft = await readLocalStorageJson(page, 'backtest_workspace_draft', {});
-  const handoffSymbolValue = await page.getByPlaceholder('输入股票代码 (如: AAPL)').inputValue();
+  const handoffSymbolValue = await page.getByPlaceholder(/输入股票代码/).inputValue();
   assert(handoffDraft.source === 'industry_stock_table', '行业带入回测的来源未写入草稿');
   assert(handoffDraft.symbol && handoffDraft.symbol === handoffSymbolValue, '行业带入回测的标的未正确预填到表单');
   assert(handoffDraft.execution_lag === 1 && handoffDraft.market_impact_model === 'constant', '行业带入回测未使用默认执行假设');

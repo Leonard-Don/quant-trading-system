@@ -103,7 +103,7 @@ const clickMarketAnalysisTab = async (page, tabLabel) => {
 };
 
 const jumpToTrackedSymbol = async (page, symbol, expectedGroupLabel) => {
-  const input = page.getByPlaceholder('全局搜索并跳转... (例如 AAPL / BTC-USD / 纳指)');
+  const input = page.getByPlaceholder(/全局搜索并跳转/);
   await input.scrollIntoViewIfNeeded();
   await input.click();
   await input.fill(symbol);

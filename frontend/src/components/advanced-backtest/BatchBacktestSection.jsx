@@ -33,6 +33,7 @@ import { getStrategyName, getStrategyParameterLabel, getStrategyDetails } from '
 import { formatPercentage, formatCurrency, getValueColor } from '../../utils/formatting';
 import { DEFAULT_CAPITAL, DEFAULT_COMMISSION, DEFAULT_SLIPPAGE, getMetricValue } from '../../hooks/useAdvancedBacktestLab';
 import { getDefaultBacktestDateRange } from '../../utils/backtestDefaults';
+import { DEFAULT_SYMBOL, SYMBOL_PLACEHOLDER_BILINGUAL } from '../../utils/strategyDefaults';
 
 const { RangePicker } = DatePicker;
 
@@ -128,7 +129,7 @@ function BatchBacktestForm({
         layout="vertical"
         onFinish={handleRunBatch}
         initialValues={{
-          symbol: 'AAPL',
+          symbol: DEFAULT_SYMBOL,
           strategies: ['buy_and_hold', 'moving_average'],
           dateRange: getDefaultBacktestDateRange(),
           initial_capital: DEFAULT_CAPITAL,
@@ -141,7 +142,7 @@ function BatchBacktestForm({
         <Row gutter={16}>
           <Col xs={24} md={8}>
             <Form.Item label="标的代码" name="symbol" rules={[{ required: true, message: '请输入标的代码' }]}>
-              <Input placeholder="如 AAPL" />
+              <Input placeholder={`如 ${SYMBOL_PLACEHOLDER_BILINGUAL}`} />
             </Form.Item>
           </Col>
           <Col xs={24} md={16}>

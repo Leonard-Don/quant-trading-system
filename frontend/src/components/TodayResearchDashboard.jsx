@@ -635,7 +635,7 @@ const TodayResearchDashboard = () => {
         </Form.Item>
         <Space.Compact style={{ width: '100%' }}>
           <Form.Item name="symbol" label="标的" style={{ flex: 1 }}>
-            <Input placeholder="AAPL / 600519" />
+            <Input placeholder="600519 / AAPL" />
           </Form.Item>
           <Form.Item name="industry" label="行业" style={{ flex: 1 }}>
             <Input placeholder="半导体" />

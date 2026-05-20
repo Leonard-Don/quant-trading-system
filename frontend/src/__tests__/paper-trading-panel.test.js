@@ -122,7 +122,7 @@ describe('PaperTradingPanel', () => {
         await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
         const initialAccountCalls = mockGetAccount.mock.calls.length;
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'msft' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'msft' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '210' } });
 
@@ -150,7 +150,7 @@ describe('PaperTradingPanel', () => {
         renderWithApp(<PaperTradingPanel />);
         await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'aapl' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '1000' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '200' } });
 
@@ -168,7 +168,7 @@ describe('PaperTradingPanel', () => {
         renderWithApp(<PaperTradingPanel />);
         await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'aapl' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '120' } });
         fireEvent.change(screen.getByPlaceholderText('如 5'), { target: { value: '8' } });
@@ -192,7 +192,7 @@ describe('PaperTradingPanel', () => {
         renderWithApp(<PaperTradingPanel />);
         await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'aapl' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '1' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '100' } });
         fireEvent.click(screen.getByRole('button', { name: '提交订单' }));
@@ -207,7 +207,7 @@ describe('PaperTradingPanel', () => {
         renderWithApp(<PaperTradingPanel />);
         await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'aapl' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '120' } });
         // Use the dedicated stop-loss testid; both slippage and stop-loss have placeholder "如 5"
@@ -277,7 +277,7 @@ describe('PaperTradingPanel', () => {
         renderWithApp(<PaperTradingPanel />);
         await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'aapl' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'aapl' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '120' } });
         fireEvent.change(screen.getByTestId('paper-take-profit-input'), { target: { value: '15' } });
@@ -351,7 +351,7 @@ describe('PaperTradingPanel', () => {
         // accessible click is on the label "限价单".
         fireEvent.click(screen.getByText('限价单'));
 
-        fireEvent.change(screen.getByPlaceholderText('如 AAPL'), { target: { value: 'msft' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519 / AAPL'), { target: { value: 'msft' } });
         fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
         fireEvent.change(screen.getByPlaceholderText('如 150.0'), { target: { value: '95' } });
 
@@ -658,7 +658,7 @@ describe('PaperTradingPanel', () => {
         });
         expect(screen.getByText(/由 BollingerBands · 回测带入/)).toBeInTheDocument();
         // The form's symbol input should now hold the prefilled symbol
-        expect(screen.getByPlaceholderText('如 AAPL')).toHaveValue('MSFT');
+        expect(screen.getByPlaceholderText('如 600519 / AAPL')).toHaveValue('MSFT');
         // sessionStorage entry must be drained after consumption so a refresh
         // doesn't re-apply a stale prefill
         expect(window.sessionStorage.getItem('paper-trading-prefill')).toBeNull();

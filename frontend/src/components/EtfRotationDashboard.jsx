@@ -1091,27 +1091,61 @@ const EtfRotationDashboard = () => {
 
         {error ? <Alert type="error" showIcon message="ETF轮动信号加载失败" description={error} /> : null}
 
-        {plan?.stop_loss_triggered && Object.keys(plan.stop_loss_triggered).length > 0 ? (
-          <Alert
-            type="error"
-            showIcon
-            icon={<AlertOutlined />}
-            data-testid="etf-stop-loss-alert"
-            message="触发 per-position 止损"
-            description={
-              <Space direction="vertical" size={4}>
-                {Object.entries(plan.stop_loss_triggered).map(([code, info]) => (
-                  <Text key={code}>
-                    {ETF_NAMES[code] || code}（{code}）浮亏
-                    <Text strong type="danger">{` ${(info.loss_pct * 100).toFixed(2)}% `}</Text>
-                    达到阈值 {(info.threshold * 100).toFixed(0)}%，
-                    策略已将目标权重强制设为 0；建议人工复核后清仓。
-                  </Text>
-                ))}
-              </Space>
-            }
-          />
-        ) : null}
+        {plan?.stop_loss_triggered && Object.keys(plan.stop_loss_triggered).length > 0 ? (() => {
+          // The triggered payload carries advisory_only=true when the user
+          // has reframed the system as a technical-timing overlay — the
+          // stop is informational ("thesis 复核"), not directive ("清仓").
+          // We render one Alert per mode; mixed cases land in separate rows.
+          const entries = Object.entries(plan.stop_loss_triggered);
+          const advisory = entries.filter(([, info]) => info?.advisory_only);
+          const hard = entries.filter(([, info]) => !info?.advisory_only);
+          return (
+            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+              {hard.length > 0 ? (
+                <Alert
+                  type="error"
+                  showIcon
+                  icon={<AlertOutlined />}
+                  data-testid="etf-stop-loss-alert"
+                  message="触发 per-position 止损"
+                  description={
+                    <Space direction="vertical" size={4}>
+                      {hard.map(([code, info]) => (
+                        <Text key={code}>
+                          {ETF_NAMES[code] || code}（{code}）浮亏
+                          <Text strong type="danger">{` ${(info.loss_pct * 100).toFixed(2)}% `}</Text>
+                          达到阈值 {(info.threshold * 100).toFixed(0)}%，
+                          策略已将目标权重强制设为 0；建议人工复核后清仓。
+                        </Text>
+                      ))}
+                    </Space>
+                  }
+                />
+              ) : null}
+              {advisory.length > 0 ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  data-testid="etf-stop-loss-advisory-alert"
+                  message="基本面 thesis 复核提醒（不强制清仓）"
+                  description={
+                    <Space direction="vertical" size={4}>
+                      {advisory.map(([code, info]) => (
+                        <Text key={code}>
+                          {ETF_NAMES[code] || code}（{code}）浮亏
+                          <Text strong type="warning">{` ${(info.loss_pct * 100).toFixed(2)}% `}</Text>
+                          跌破 {(info.threshold * 100).toFixed(0)}% 阈值——
+                          建议你重新审视当时买入的基本面理由是否依然成立。
+                          策略不会生成清仓建议；目标权重保持不变。
+                        </Text>
+                      ))}
+                    </Space>
+                  }
+                />
+              ) : null}
+            </Space>
+          );
+        })() : null}
 
         {loading && !plan ? (
           <Card><Spin /> <Text type="secondary">正在加载 ETF 轮动信号...</Text></Card>
@@ -1154,6 +1188,140 @@ const EtfRotationDashboard = () => {
 
             <Card title="权重对比" data-testid="etf-weight-table">
               <Table columns={weightColumns} dataSource={weightRows} pagination={false} size="small" />
+            </Card>
+
+            <Card
+              title="逐仓位短线择时（参考用，不动战略仓位）"
+              data-testid="etf-tactical-timing-table"
+              extra={(
+                <Tooltip title="基于 score_breakdown 的 5/20/60 日动量、MA 距离、RSI(14)、布林位置。策略每次刷新都重算，不再做组合轮动。当前框架：你做基本面长期持有，这张表帮你判断短线加仓点。">
+                  <Text type="secondary" style={{ cursor: 'help', borderBottom: '1px dotted var(--color-text-tertiary)' }}>
+                    什么是这张表
+                  </Text>
+                </Tooltip>
+              )}
+            >
+              {(() => {
+                const breakdown = plan?.score_breakdown || {};
+                const codes = Object.keys(breakdown).filter((c) => c !== 'CASH').sort();
+                if (codes.length === 0) {
+                  return <Text type="secondary">暂无技术信号数据。</Text>;
+                }
+                const rows = codes.map((code) => {
+                  const bd = breakdown[code] || {};
+                  return {
+                    key: code,
+                    code,
+                    name: ETF_NAMES[code] || code,
+                    price: bd.latest_price,
+                    ret5: bd.return5,
+                    ret20: bd.return20,
+                    ret60: bd.return60,
+                    rsi14: bd.rsi14,
+                    bbPos: bd.bollinger_position,
+                    ma20Dist: bd.ma20 ? (bd.latest_price / bd.ma20 - 1) : null,
+                    ma60Dist: bd.ma60 ? (bd.latest_price / bd.ma60 - 1) : null,
+                    dd60: bd.drawdown60,
+                    vol60: bd.volatility60,
+                  };
+                });
+                const renderReturn = (v) => {
+                  if (!Number.isFinite(v)) return <Text type="secondary">—</Text>;
+                  const pct = (v * 100).toFixed(2);
+                  return <Text type={v >= 0 ? 'success' : 'danger'}>{v >= 0 ? '+' : ''}{pct}%</Text>;
+                };
+                const renderDistance = (v) => {
+                  if (!Number.isFinite(v)) return <Text type="secondary">—</Text>;
+                  const pct = (v * 100).toFixed(1);
+                  return (
+                    <Text type={v >= 0 ? 'success' : 'danger'}>
+                      {v >= 0 ? '+' : ''}{pct}%
+                    </Text>
+                  );
+                };
+                const renderRSI = (v) => {
+                  if (!Number.isFinite(v)) return <Text type="secondary">—</Text>;
+                  let color = 'default';
+                  let label = '中性';
+                  if (v < 30) { color = 'green'; label = '超卖'; }
+                  else if (v < 40) { color = 'cyan'; label = '偏弱'; }
+                  else if (v > 70) { color = 'red'; label = '超买'; }
+                  else if (v > 60) { color = 'orange'; label = '偏强'; }
+                  return (
+                    <Tooltip title={`RSI(14) = ${v.toFixed(1)}（${label}）`}>
+                      <Tag color={color}>
+                        {v.toFixed(0)} · {label}
+                      </Tag>
+                    </Tooltip>
+                  );
+                };
+                const renderBBPos = (v) => {
+                  if (!Number.isFinite(v)) return <Text type="secondary">—</Text>;
+                  // Clip beyond [0,1] gets shown with sign; midline is 0.5.
+                  let color = 'default';
+                  if (v <= 0.1) color = 'green';      // at/below lower band
+                  else if (v >= 0.9) color = 'red';   // at/above upper band
+                  return (
+                    <Tooltip title={`布林带位置 ${v.toFixed(2)} （0=下轨, 0.5=MA20, 1=上轨）`}>
+                      <Tag color={color}>{v.toFixed(2)}</Tag>
+                    </Tooltip>
+                  );
+                };
+                const renderTacticalAction = (row) => {
+                  // Heuristic for ADD/WAIT — pure UI advisory, NOT used by
+                  // any execution layer. We don't generate sell from here.
+                  const rsi = row.rsi14;
+                  const bb = row.bbPos;
+                  const ret5 = row.ret5;
+                  const ma200Below = Number.isFinite(row.ma60Dist) && row.ma60Dist < -0.05;
+                  if (!Number.isFinite(rsi) || !Number.isFinite(bb)) {
+                    return <Tag color="default">数据不足</Tag>;
+                  }
+                  // Oversold + at/below lower band + not in freefall (return5 not catastrophic)
+                  if (rsi < 35 && bb < 0.2 && (!Number.isFinite(ret5) || ret5 > -0.05)) {
+                    return <Tag color="green" data-testid={`etf-tactical-action-${row.code}`}>战术 ADD 候选</Tag>;
+                  }
+                  // Overbought
+                  if (rsi > 70 && bb > 0.85) {
+                    return <Tag color="orange" data-testid={`etf-tactical-action-${row.code}`}>OVERBOUGHT</Tag>;
+                  }
+                  // Persistent downtrend
+                  if (ma200Below && rsi < 45) {
+                    return <Tag color="default" data-testid={`etf-tactical-action-${row.code}`}>趋势弱·WAIT</Tag>;
+                  }
+                  return <Tag color="default" data-testid={`etf-tactical-action-${row.code}`}>WAIT</Tag>;
+                };
+                const tacticalColumns = [
+                  { title: '代码', dataIndex: 'code', key: 'code', width: 90 },
+                  { title: '名称', dataIndex: 'name', key: 'name' },
+                  {
+                    title: '现价',
+                    dataIndex: 'price',
+                    key: 'price',
+                    render: (v) => Number.isFinite(v) ? formatPrice(v) : <Text type="secondary">—</Text>,
+                  },
+                  { title: '5日', dataIndex: 'ret5', key: 'ret5', render: renderReturn },
+                  { title: '20日', dataIndex: 'ret20', key: 'ret20', render: renderReturn },
+                  { title: '60日', dataIndex: 'ret60', key: 'ret60', render: renderReturn },
+                  { title: '距MA20', dataIndex: 'ma20Dist', key: 'ma20Dist', render: renderDistance },
+                  { title: '距MA60', dataIndex: 'ma60Dist', key: 'ma60Dist', render: renderDistance },
+                  { title: 'RSI(14)', dataIndex: 'rsi14', key: 'rsi14', render: renderRSI },
+                  { title: '布林位置', dataIndex: 'bbPos', key: 'bbPos', render: renderBBPos },
+                  {
+                    title: '战术倾向',
+                    key: 'tactical',
+                    render: (_v, row) => renderTacticalAction(row),
+                  },
+                ];
+                return (
+                  <Table
+                    columns={tacticalColumns}
+                    dataSource={rows}
+                    pagination={false}
+                    size="small"
+                  />
+                );
+              })()}
             </Card>
 
             <Card title="手动交易建议" data-testid="etf-suggestion-table">

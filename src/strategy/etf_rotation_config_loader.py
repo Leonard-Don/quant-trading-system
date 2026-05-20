@@ -109,6 +109,13 @@ DEFAULT_STRATEGY_PARAMS: Dict[str, Any] = {
     # because the scoring layer's MA60 trend filter can lag 30+ days
     # and a hard stop is the simplest reliable backstop on real money.
     "stop_loss_threshold": -0.15,
+    # When True, ``stop_loss_threshold`` is detected and surfaced (audit
+    # log entry, dashboard badge, ``stop_loss_triggered`` payload) but
+    # does NOT zero the target weight. The plan keeps the scoring
+    # layer's intended weight. Use this when the system is running as a
+    # technical-timing overlay on top of fundamentals-driven long-term
+    # holdings — a -15% drawdown becomes "review thesis", not "sell".
+    "stop_loss_advisory_only": False,
     # Trade-suggestion threshold: only emit a buy/sell action if the
     # target weight differs from the current weight by at least this
     # amount. Backtested on 4 years of CN ETF data — values around

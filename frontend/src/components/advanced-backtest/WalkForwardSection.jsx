@@ -29,6 +29,7 @@ import {
 import { getStrategyName, getStrategyParameterLabel, getStrategyDetails } from '../../constants/strategies';
 import { formatPercentage } from '../../utils/formatting';
 import { DEFAULT_CAPITAL, DEFAULT_COMMISSION, DEFAULT_SLIPPAGE, getMetricValue } from '../../hooks/useAdvancedBacktestLab';
+import { DEFAULT_SYMBOL, SYMBOL_PLACEHOLDER_BILINGUAL } from '../../utils/strategyDefaults';
 import dayjs from '../../utils/dayjs';
 
 const { RangePicker } = DatePicker;
@@ -124,7 +125,7 @@ function WalkForwardForm({
         layout="vertical"
         onFinish={handleRunWalkForward}
         initialValues={{
-          symbol: 'AAPL',
+          symbol: DEFAULT_SYMBOL,
           strategy: 'moving_average',
           dateRange: [dayjs().subtract(2, 'year'), dayjs()],
           initial_capital: DEFAULT_CAPITAL,
@@ -142,7 +143,7 @@ function WalkForwardForm({
         <Row gutter={16}>
           <Col xs={24} md={8}>
             <Form.Item label="标的代码" name="symbol" rules={[{ required: true, message: '请输入标的代码' }]}>
-              <Input placeholder="如 AAPL" />
+              <Input placeholder={`如 ${SYMBOL_PLACEHOLDER_BILINGUAL}`} />
             </Form.Item>
           </Col>
           <Col xs={24} md={16}>

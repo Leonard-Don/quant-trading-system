@@ -21,6 +21,7 @@ import {
   submitPaperOrder,
 } from './services/api';
 import { buildBacktestJournalEntry } from './utils/backtestJournalEntry';
+import { getCurrencySymbol } from './utils/strategyDefaults';
 import {
   buildPrefillFromBacktest,
   canAutoExecutePrefill,
@@ -277,7 +278,7 @@ function App() {
         slippage_bps: 0,
       });
       message.success(
-        `已按市价 $${price.toFixed(2)} 下单 ${prefill.side} ${prefill.quantity} ${prefill.symbol}`,
+        `已按市价 ${getCurrencySymbol(prefill.symbol)}${price.toFixed(2)} 下单 ${prefill.side} ${prefill.quantity} ${prefill.symbol}`,
       );
       setCurrentView('paper');
     } catch (error) {

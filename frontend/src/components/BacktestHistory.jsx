@@ -857,7 +857,7 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
                 <div className="workspace-toolbar" style={{ padding: '16px 16px 0', display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                     <AutoComplete
                         allowClear
-                        placeholder="按股票代码筛选，如 AAPL"
+                        placeholder="按股票代码筛选，如 600519 / AAPL"
                         value={filterInputs.symbol}
                         options={symbolOptions}
                         onChange={(value) => setFilterInputs((current) => ({ ...current, symbol: String(value || '').toUpperCase() }))}

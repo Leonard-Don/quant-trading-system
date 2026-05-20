@@ -55,6 +55,7 @@ import {
     buildPaperPositionCsvFilename,
     PAPER_POSITION_CSV_COLUMNS,
 } from '../utils/paperOrderExport';
+import { getCurrencySymbol } from '../utils/strategyDefaults';
 
 const { Title, Text } = Typography;
 
@@ -294,7 +295,11 @@ const PaperTradingPanel = () => {
         const equity = cash + marketValue;
         const initialCapital = account?.initial_capital || 0;
         const totalReturn = initialCapital > 0 ? (equity - initialCapital) / initialCapital : null;
-        return { positions: enriched, unrealized, marketValue, equity, totalReturn, cash, initialCapital };
+        // Pick a currency symbol based on the first position (or fall back
+        // to ¥, since this is a CN A-stock tool by default).
+        const firstSymbol = enriched[0]?.symbol;
+        const currencyPrefix = firstSymbol ? getCurrencySymbol(firstSymbol) : '¥';
+        return { positions: enriched, unrealized, marketValue, equity, totalReturn, cash, initialCapital, currencyPrefix };
     }, [account, quoteMap]);
 
     const handleSubmit = async () => {
@@ -624,7 +629,7 @@ const PaperTradingPanel = () => {
                             title="现金"
                             value={summary.cash}
                             precision={2}
-                            prefix="$"
+                            prefix={summary.currencyPrefix}
                             valueStyle={{ fontSize: 22 }}
                         />
                     </Col>
@@ -633,7 +638,7 @@ const PaperTradingPanel = () => {
                             title="持仓市值"
                             value={summary.marketValue}
                             precision={2}
-                            prefix="$"
+                            prefix={summary.currencyPrefix}
                             valueStyle={{ fontSize: 22 }}
                         />
                     </Col>
@@ -642,7 +647,7 @@ const PaperTradingPanel = () => {
                             title="总权益"
                             value={summary.equity}
                             precision={2}
-                            prefix="$"
+                            prefix={summary.currencyPrefix}
                             valueStyle={{ fontSize: 22, color: 'var(--text-primary)' }}
                         />
                     </Col>
@@ -751,7 +756,7 @@ const PaperTradingPanel = () => {
                                 name="symbol"
                                 rules={[{ required: true, message: '请输入标的代码' }]}
                             >
-                                <Input placeholder="如 AAPL" />
+                                <Input placeholder="如 600519 / AAPL" />
                             </Form.Item>
                             <Form.Item
                                 label="数量"

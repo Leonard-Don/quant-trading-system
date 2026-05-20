@@ -68,6 +68,7 @@ import {
     getEventSummary
 } from '../services/api';
 import lazyWithRetry from '../utils/lazyWithRetry';
+import { DEFAULT_SYMBOL, SYMBOL_PLACEHOLDER_BILINGUAL, getCurrencySymbol } from '../utils/strategyDefaults';
 import { MarketAnalysisSkeleton } from './SkeletonLoaders';
 import {
     RecommendationTag,
@@ -117,7 +118,7 @@ export {
 } from '../utils/marketAnalysisCache';
 
 const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
-    const [symbol, setSymbol] = useState(propSymbol || 'AAPL');
+    const [symbol, setSymbol] = useState(propSymbol || DEFAULT_SYMBOL);
     const [interval, setInterval] = useState('1d');
     const [activeTab, setActiveTab] = useState('overview');
 
@@ -640,7 +641,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
         setTabError('correlation', null);
         try {
             // 默认添加几个常见股票进行对比
-            const defaultSymbols = ['SPY', 'QQQ', 'AAPL', 'MSFT', 'GOOGL'];
+            const defaultSymbols = ['600519', '000858', '300750', 'SPY', 'AAPL'];
             const symbolsToUse = [searchSymbol, ...defaultSymbols.filter(s => s !== searchSymbol)].slice(0, 5);
             const result = await getCorrelationAnalysis(symbolsToUse, 90);
             if (localKey !== analysisKeyRef.current) return;
@@ -1236,16 +1237,16 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                         <Card title="筹码分布 (VPVR)" variant="borderless" className="analysis-card">
                             <Row gutter={24}>
                                 <Col span={6}>
-                                    <Statistic title="控制点 (POC)" value={volume_analysis.vpvr_analysis.poc} prefix="$" />
+                                    <Statistic title="控制点 (POC)" value={volume_analysis.vpvr_analysis.poc} prefix={getCurrencySymbol(symbol)} />
                                     <div style={{ marginTop: 8 }}>
                                         <Tag color="gold">成交密集区</Tag>
                                     </div>
                                 </Col>
                                 <Col span={6}>
-                                    <Statistic title="价值区域上沿 (VAH)" value={volume_analysis.vpvr_analysis.vah} prefix="$" />
+                                    <Statistic title="价值区域上沿 (VAH)" value={volume_analysis.vpvr_analysis.vah} prefix={getCurrencySymbol(symbol)} />
                                 </Col>
                                 <Col span={6}>
-                                    <Statistic title="价值区域下沿 (VAL)" value={volume_analysis.vpvr_analysis.val} prefix="$" />
+                                    <Statistic title="价值区域下沿 (VAL)" value={volume_analysis.vpvr_analysis.val} prefix={getCurrencySymbol(symbol)} />
                                 </Col>
                                 <Col span={6}>
                                     <Statistic title="总成交量" value={volume_analysis.vpvr_analysis.total_volume} formatter={(v) => new Intl.NumberFormat('en-US', { notation: "compact" }).format(v)} />
@@ -1824,10 +1825,10 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                                 </div>
                             </Col>
                             <Col span={8}>
-                                <Statistic title="目标价" value={metrics.target_price} prefix="$" precision={2} />
+                                <Statistic title="目标价" value={metrics.target_price} prefix={getCurrencySymbol(symbol)} precision={2} />
                             </Col>
                             <Col span={8}>
-                                <Statistic title="52周最高" value={metrics['52w_high']} prefix="$" precision={2} />
+                                <Statistic title="52周最高" value={metrics['52w_high']} prefix={getCurrencySymbol(symbol)} precision={2} />
                             </Col>
                         </Row>
                     </Card>
@@ -2236,7 +2237,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 <div className={embedMode ? 'market-analysis__controls market-analysis__controls--embed' : 'market-analysis__controls'}>
                     {!embedMode && (
                         <Search
-                            placeholder="输入股票代码 (如: AAPL)"
+                            placeholder={`输入股票代码 (如: ${SYMBOL_PLACEHOLDER_BILINGUAL})`}
                             allowClear
                             enterButton="分析"
                             size="large"
