@@ -34,13 +34,15 @@ The DM statistic for ``loss_fn="negative_return"`` is
 ``DM = d_mean / sqrt(hac_var / n)`` and the annualised Information Ratio
 is ``IR = DM * sqrt(periods_per_year / n)``. Holding the *observed*
 per-period Newey-West HAC variance fixed, the two-sided test at level α
-reaches power ``1-β`` when the non-centrality hits
-``z_{1-α/2} + z_{β}``; inverting gives
-``mde_ir = (z_{1-α/2} + z_{β}) * sqrt(periods_per_year / n)``. See
+reaches power ``1-β`` when the non-centrality solves the same two-tail
+forward-power equation used by the diagnostic check:
+``power = Φ(required_ncp - z_{1-α/2}) + Φ(-required_ncp - z_{1-α/2})``.
+The MDE is then ``required_ncp * sqrt(periods_per_year / n)``. See
 :func:`src.backtest.strategy_statistical_tests.minimum_detectable_effect`
-for the full derivation. The inversion is exact (closed-form, no
-simulation); ``--self-check`` re-feeds the MDE IR through the forward
-power calculation to prove it lands back on the requested power.
+for the full derivation. The inversion is an exact deterministic numeric
+solve (not a simulation); ``--self-check`` re-feeds the MDE IR through
+the forward power calculation to prove it lands back on the requested
+power.
 
 Typical use
 -----------
@@ -482,7 +484,7 @@ def render_markdown(result: dict[str, object]) -> str:
         f"{_fmt_pct(float(mde['mde_excess_return_per_period']))}/period |"
     )
     lines.append(
-        f"| Required non-centrality (z_(1-a/2) + z_power) | "
+        f"| Required non-centrality (two-tail power solve) | "
         f"{float(mde['required_ncp']):.4f} |"
     )
     lines.append("")

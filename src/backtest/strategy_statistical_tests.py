@@ -226,7 +226,8 @@ class MinimumDetectableEffect:
       floor: you cannot tell it apart from buy-and-hold on this sample,
       regardless of which direction the point estimate leans.
     * ``required_ncp`` — the non-centrality parameter the ``|DM|``
-      statistic must reach: ``z_{1-α/2} + z_{power}``.
+      statistic must reach, solved from the same two-tail forward-power
+      equation used by :func:`dm_power_for_information_ratio`.
     * ``power``/``alpha`` — the inputs the MDE was solved for.
     * ``n_obs`` — sample size (rebalance periods) used.
     * ``hac_variance`` — the per-period Newey-West HAC variance of the

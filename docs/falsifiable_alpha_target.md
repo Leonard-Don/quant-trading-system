@@ -30,7 +30,7 @@ On this 307-period sample, holding the observed HAC variance structure fixed, th
 | **Information Ratio** | **1.1530** |
 | Annualised excess return | **+14.88%/yr** |
 | Per-rebalance excess return | +0.29%/period |
-| Required non-centrality (z_(1-a/2) + z_power) | 2.8016 |
+| Required non-centrality (two-tail power solve) | 2.8016 |
 
 ## Honest interpretation
 
