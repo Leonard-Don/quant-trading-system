@@ -2,9 +2,21 @@
 
 ## Unreleased
 
-### Features
+### Documentation
 
-- feat(backtest): extend 5y dataset to 2026-05 + re-validate DM/Sharpe/bootstrap
+- docs(readme): reposition as quant research infrastructure + surface strategy-falsification methodology
+  - 重写 `README.md` 顶部：把项目从"量化交易系统"（隐含能赚钱）如实改写为
+    **量化研究基础设施**——回测引擎、实时行情、策略库与一套策略证伪方法学。
+    标题、tagline、`📌 仓库定位` 与 `🎯 这个仓适合谁` 均明确声明这不是交易
+    信号源、不声称产生 alpha。
+  - 新增 `📉 策略证伪：诚实结论` 章节，置于 README 顶部并加入导航。直接指向
+    `src/backtest/strategy_statistical_tests.py`（Diebold-Mariano + Politis-Romano
+    区块自举 + Memmel/Jobson-Korkie Sharpe 检验 + Holm/Bonferroni 校正）与
+    `docs/walkforward_stat_tests_summary.md`，并原样陈述结论：跨 27 个
+    Walk-Forward 窗口，轮动策略相对买入持有的边际在统计上与噪声无法区分
+    （0/27 窗口原始 DM p < 0.05，最小 p = 0.1299，Holm 校正后 0 个通过）。
+  - 给 `✨ 核心能力 → 📊 策略回测` 增加统计检验层交叉引用，并标注策略库
+    "不构成投资建议"。纯文档调整，未改动任何策略、测试或分析代码。
   - `data/etf_backtest/etf_prices_5y.csv` extended from 2020-01-02 → 2024-12-31
     (1212 rows) to 2020-01-02 → 2026-05-15 (1540 rows) via
     `scripts/fetch_etf_history_5y.py --end-date 2026-05-15`. Validated zero
