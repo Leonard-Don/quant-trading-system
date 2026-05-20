@@ -496,6 +496,14 @@ def test_dm_power_for_information_ratio_rejects_non_finite_periods() -> None:
         dm_power_for_information_ratio(0.8, 20, periods_per_year=float("nan"))
 
 
+def test_dm_power_for_information_ratio_rejects_non_finite_ir() -> None:
+    """Forward-power diagnostics should reject impossible true-effect sizes."""
+
+    for information_ratio in (float("nan"), float("inf"), -float("inf")):
+        with pytest.raises(ValueError, match="information_ratio"):
+            dm_power_for_information_ratio(information_ratio, 20)
+
+
 def test_minimum_detectable_effect_from_dm_rejects_non_return_loss() -> None:
     """IR / excess-return inversion is only valid for negative-return DM."""
 

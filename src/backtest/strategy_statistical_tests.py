@@ -1070,8 +1070,11 @@ def dm_power_for_information_ratio(
         )
     if n_obs < 2:
         raise ValueError(f"n_obs must be >= 2; got {n_obs}")
+    ir = float(information_ratio)
+    if not math.isfinite(ir):
+        raise ValueError(f"information_ratio must be finite; got {information_ratio}")
     z_alpha = float(stats.norm.ppf(1.0 - alpha / 2.0))
-    ncp = abs(float(information_ratio)) * math.sqrt(n_obs / periods_per_year)
+    ncp = abs(ir) * math.sqrt(n_obs / periods_per_year)
     return _two_sided_normal_power(ncp, z_alpha)
 
 
