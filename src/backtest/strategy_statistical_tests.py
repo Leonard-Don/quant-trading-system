@@ -946,7 +946,8 @@ def minimum_detectable_effect(
     ValueError
         If ``hac_variance`` is negative/non-finite, ``alpha`` or ``power``
         are outside ``(0, 1)``, ``periods_per_year`` is not positive, or
-        ``n_obs`` is non-finite / less than 2.
+        ``n_obs`` / ``observed_mean_differential`` are non-finite, or
+        ``n_obs`` is less than 2.
     """
 
     if not math.isfinite(periods_per_year) or periods_per_year <= 0.0:
@@ -956,6 +957,12 @@ def minimum_detectable_effect(
     n_obs_value = float(n_obs)
     if not math.isfinite(n_obs_value) or n_obs_value < 2:
         raise ValueError(f"n_obs must be >= 2 to invert the test; got {n_obs}")
+    observed_mean_value = float(observed_mean_differential)
+    if not math.isfinite(observed_mean_value):
+        raise ValueError(
+            "observed_mean_differential must be finite; "
+            f"got {observed_mean_differential}"
+        )
 
     required_ncp = _required_noncentrality(alpha=alpha, power=power)
 
@@ -983,7 +990,7 @@ def minimum_detectable_effect(
         mde_ir = required_ncp * math.sqrt(periods_per_year / n_obs_value)
         # Observed diagnostics. d_mean is the loss differential; for
         # loss_fn="negative_return" the excess return is -d_mean.
-        observed_excess_per_period = -float(observed_mean_differential)
+        observed_excess_per_period = -observed_mean_value
         observed_annual = observed_excess_per_period * periods_per_year
         observed_ir = (
             (observed_excess_per_period / math.sqrt(hv))

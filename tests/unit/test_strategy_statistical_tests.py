@@ -477,6 +477,18 @@ def test_minimum_detectable_effect_rejects_invalid_design_inputs() -> None:
         minimum_detectable_effect(float("inf"), 20)
 
 
+def test_minimum_detectable_effect_rejects_non_finite_observed_differential() -> None:
+    """Observed diagnostics should not leak non-finite values into reports."""
+
+    for observed_mean_differential in (float("nan"), float("inf"), -float("inf")):
+        with pytest.raises(ValueError, match="observed_mean_differential"):
+            minimum_detectable_effect(
+                0.01,
+                20,
+                observed_mean_differential=observed_mean_differential,
+            )
+
+
 def test_minimum_detectable_effect_handles_degenerate_variance() -> None:
     """A zero-variance differential should return a documented neutral MDE."""
 
