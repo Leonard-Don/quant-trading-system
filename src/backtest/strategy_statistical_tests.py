@@ -829,10 +829,11 @@ def _required_noncentrality(*, alpha: float, power: float) -> float:
 
     For a two-sided z-test the rejection region is ``|DM| > z_{1-α/2}``.
     Under H1 the statistic is (asymptotically) ``N(ncp, 1)`` with
-    ``ncp = |true effect| / SE``. Ignoring the negligible far-tail
-    rejection, ``power = P(N(ncp,1) > z_{1-α/2}) = Φ(ncp - z_{1-α/2})``,
-    which inverts to ``ncp = z_{1-α/2} + z_{power}``. This is the
-    textbook two-sided power formula (e.g. Cohen 1988).
+    ``ncp = |true effect| / SE``. The forward power calculation keeps
+    both rejection tails, so the inverse solves the same equation
+    numerically:
+
+    ``power = Φ(ncp - z_{1-α/2}) + Φ(-ncp - z_{1-α/2})``.
     """
 
     if not 0.0 < alpha < 1.0:
@@ -840,8 +841,29 @@ def _required_noncentrality(*, alpha: float, power: float) -> float:
     if not 0.0 < power < 1.0:
         raise ValueError(f"power must be in (0,1); got {power}")
     z_alpha = float(stats.norm.ppf(1.0 - alpha / 2.0))
-    z_power = float(stats.norm.ppf(power))
-    return z_alpha + z_power
+    if power <= alpha:
+        return 0.0
+
+    lower = 0.0
+    upper = max(z_alpha + float(stats.norm.ppf(power)), 1.0)
+    while _two_sided_normal_power(upper, z_alpha) < power:
+        upper *= 2.0
+
+    for _ in range(80):
+        mid = (lower + upper) / 2.0
+        if _two_sided_normal_power(mid, z_alpha) < power:
+            lower = mid
+        else:
+            upper = mid
+    return float(upper)
+
+
+def _two_sided_normal_power(ncp: float, z_alpha: float) -> float:
+    """Power for ``|N(ncp, 1)| > z_alpha``."""
+
+    upper = float(stats.norm.cdf(float(ncp) - z_alpha))
+    lower = float(stats.norm.cdf(-float(ncp) - z_alpha))
+    return float(np.clip(upper + lower, 0.0, 1.0))
 
 
 def minimum_detectable_effect(
@@ -863,7 +885,7 @@ def minimum_detectable_effect(
     Effect**: below it, a strategy is statistically inseparable from its
     benchmark on this sample no matter how the point estimate leans.
 
-    The math is exact (no simulation). The DM statistic for
+    The math is numerically solved (no simulation). The DM statistic for
     ``loss_fn="negative_return"`` is ``DM = d_mean / sqrt(hac_var / n)``
     where ``d_mean`` is the mean loss differential and ``-d_mean`` is the
     per-period excess return. Under H1 with a true per-period excess
@@ -1027,9 +1049,7 @@ def dm_power_for_information_ratio(
     for) and to draw power curves.
 
     Under H1 the non-centrality is ``ncp = |IR| * sqrt(n / periods_per_year)``
-    and ``power = Φ(ncp - z_{1-α/2}) + Φ(-ncp - z_{1-α/2})`` (both tails;
-    the second term is negligible for ncp of practical size but kept for
-    correctness).
+    and ``power = Φ(ncp - z_{1-α/2}) + Φ(-ncp - z_{1-α/2})`` (both tails).
     """
 
     if not 0.0 < alpha < 1.0:
@@ -1042,9 +1062,7 @@ def dm_power_for_information_ratio(
         raise ValueError(f"n_obs must be >= 2; got {n_obs}")
     z_alpha = float(stats.norm.ppf(1.0 - alpha / 2.0))
     ncp = abs(float(information_ratio)) * math.sqrt(n_obs / periods_per_year)
-    upper = float(stats.norm.cdf(ncp - z_alpha))
-    lower = float(stats.norm.cdf(-ncp - z_alpha))
-    return float(np.clip(upper + lower, 0.0, 1.0))
+    return _two_sided_normal_power(ncp, z_alpha)
 
 
 # ---------------------------------------------------------------------------

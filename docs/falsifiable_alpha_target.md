@@ -62,11 +62,12 @@ The reusable power-analysis primitive lives in `src.backtest.strategy_statistica
 
 ## Method
 
-The Diebold-Mariano statistic for the negative-return loss is `DM = d_mean / sqrt(hac_var / n)`, where `d_mean` is the mean loss differential, `-d_mean` is the per-period excess return, and `hac_var` is the per-period Newey-West HAC variance of the differential. The annualised Information Ratio relates to it by `IR = DM * sqrt(periods_per_year / n)`. Under the alternative the two-sided test at level alpha reaches power `1-b` when the non-centrality of `|DM|` hits `z_(1-a/2) + z_b`; inverting:
+The Diebold-Mariano statistic for the negative-return loss is `DM = d_mean / sqrt(hac_var / n)`, where `d_mean` is the mean loss differential, `-d_mean` is the per-period excess return, and `hac_var` is the per-period Newey-West HAC variance of the differential. The annualised Information Ratio relates to it by `IR = DM * sqrt(periods_per_year / n)`. Under the alternative the two-sided test at level alpha reaches power `1-b` when the non-centrality of `|DM|` solves the same two-tail power equation used by the forward check:
 
 ```
-mde_ir = (z_(1-a/2) + z_b) * sqrt(periods_per_year / n)
-mde_excess_return_per_period = (z_(1-a/2) + z_b) * sqrt(hac_var / n)
+power = Phi(required_ncp - z_(1-a/2)) + Phi(-required_ncp - z_(1-a/2))
+mde_ir = required_ncp * sqrt(periods_per_year / n)
+mde_excess_return_per_period = required_ncp * sqrt(hac_var / n)
 ```
 
-The inversion is exact (closed-form, no simulation). It is implemented in `src.backtest.strategy_statistical_tests.minimum_detectable_effect` and round-trip-verified: feeding `mde_ir` back through `dm_power_for_information_ratio` recovers the requested power (80%) to within floating-point tolerance. Regenerate this doc with `python scripts/power_target.py --csv data/etf_backtest/etf_prices_5y.csv --output-md docs/falsifiable_alpha_target.md`.
+The inversion is solved numerically (no simulation). It is implemented in `src.backtest.strategy_statistical_tests.minimum_detectable_effect` and round-trip-verified: feeding `mde_ir` back through `dm_power_for_information_ratio` recovers the requested power (80%) to within floating-point tolerance. Regenerate this doc with `python scripts/power_target.py --csv data/etf_backtest/etf_prices_5y.csv --output-md docs/falsifiable_alpha_target.md`.

@@ -588,16 +588,18 @@ def render_markdown(result: dict[str, object]) -> str:
         "differential. The annualised Information Ratio relates to it by "
         "`IR = DM * sqrt(periods_per_year / n)`. Under the alternative "
         "the two-sided test at level alpha reaches power `1-b` when the "
-        "non-centrality of `|DM|` hits `z_(1-a/2) + z_b`; inverting:"
+        "non-centrality of `|DM|` solves the same two-tail power equation "
+        "used by the forward check:"
     )
     lines.append("")
     lines.append("```")
-    lines.append("mde_ir = (z_(1-a/2) + z_b) * sqrt(periods_per_year / n)")
-    lines.append("mde_excess_return_per_period = (z_(1-a/2) + z_b) * sqrt(hac_var / n)")
+    lines.append("power = Phi(required_ncp - z_(1-a/2)) + Phi(-required_ncp - z_(1-a/2))")
+    lines.append("mde_ir = required_ncp * sqrt(periods_per_year / n)")
+    lines.append("mde_excess_return_per_period = required_ncp * sqrt(hac_var / n)")
     lines.append("```")
     lines.append("")
     lines.append(
-        "The inversion is exact (closed-form, no simulation). It is "
+        "The inversion is solved numerically (no simulation). It is "
         "implemented in "
         "`src.backtest.strategy_statistical_tests.minimum_detectable_effect` "
         "and round-trip-verified: feeding `mde_ir` back through "

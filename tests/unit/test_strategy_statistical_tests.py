@@ -387,15 +387,38 @@ def test_minimum_detectable_effect_inverts_dm_power_formula() -> None:
     )
 
     assert isinstance(result, MinimumDetectableEffect)
-    assert result.required_ncp == pytest.approx(2.8015852, rel=1e-6)
-    assert result.mde_excess_return_per_period == pytest.approx(0.00560317, rel=1e-6)
-    assert result.mde_excess_return_annual == pytest.approx(0.291365, rel=1e-6)
+    assert result.required_ncp == pytest.approx(2.8015818, rel=1e-6)
+    assert result.mde_excess_return_per_period == pytest.approx(
+        0.00560316,
+        rel=1e-6,
+    )
+    assert result.mde_excess_return_annual == pytest.approx(0.2913645, rel=1e-6)
     assert result.mde_ir == pytest.approx(
         result.required_ncp * math.sqrt(52.0 / 100.0),
         rel=1e-12,
     )
     assert result.observed_excess_return_annual == pytest.approx(0.052)
     assert result.observed_ir == pytest.approx(0.360555, rel=1e-6)
+
+    recovered_power = dm_power_for_information_ratio(
+        result.mde_ir,
+        result.n_obs,
+        alpha=result.alpha,
+        periods_per_year=result.periods_per_year,
+    )
+    assert recovered_power == pytest.approx(result.power, abs=1e-6)
+
+
+def test_minimum_detectable_effect_inverts_dm_power_formula_for_wider_alpha() -> None:
+    """Two-sided MDE inversion should include both rejection tails."""
+
+    result = minimum_detectable_effect(
+        hac_variance=0.0004,
+        n_obs=307,
+        alpha=0.10,
+        power=0.80,
+        periods_per_year=52.0,
+    )
 
     recovered_power = dm_power_for_information_ratio(
         result.mde_ir,
