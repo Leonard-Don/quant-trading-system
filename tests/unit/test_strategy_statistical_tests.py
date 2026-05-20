@@ -464,6 +464,8 @@ def test_minimum_detectable_effect_rejects_invalid_design_inputs() -> None:
         minimum_detectable_effect(0.01, 20, periods_per_year=0.0)
     with pytest.raises(ValueError, match="n_obs"):
         minimum_detectable_effect(0.01, 1)
+    with pytest.raises(ValueError, match="hac_variance"):
+        minimum_detectable_effect(-0.01, 20)
 
 
 def test_minimum_detectable_effect_handles_degenerate_variance() -> None:

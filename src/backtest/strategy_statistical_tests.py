@@ -959,6 +959,8 @@ def minimum_detectable_effect(
 
     note = ""
     hv = float(hac_variance)
+    if hv < 0.0:
+        raise ValueError(f"hac_variance must be >= 0; got {hac_variance}")
     if hv <= 1e-30:
         # Degenerate variance — the differential is essentially constant,
         # so any non-zero effect is "infinitely" detectable. Report zeros
