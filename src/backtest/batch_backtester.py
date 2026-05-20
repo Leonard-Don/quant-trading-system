@@ -14,10 +14,6 @@ import json
 import inspect
 from itertools import product
 
-from src.utils.data_validation import normalize_backtest_results
-from src.utils.data_validation import validate_and_fix_backtest_results
-from src.analytics.dashboard import PerformanceAnalyzer
-
 logger = logging.getLogger(__name__)
 
 
@@ -258,6 +254,15 @@ class BayesianParameterOptimizer:
 
 
 def _normalize_metrics(result: Dict[str, Any]) -> Dict[str, Any]:
+    # Deferred imports: src.analytics.dashboard and src.utils.data_validation
+    # both close an import cycle back into src.backtest. Importing them at
+    # call time keeps `import src` independent of import ordering.
+    from src.analytics.dashboard import PerformanceAnalyzer
+    from src.utils.data_validation import (
+        normalize_backtest_results,
+        validate_and_fix_backtest_results,
+    )
+
     validated_result = validate_and_fix_backtest_results(result)
     validated_result.update(PerformanceAnalyzer(validated_result).calculate_metrics())
     normalized_result = normalize_backtest_results(validated_result)
@@ -720,6 +725,7 @@ class WalkForwardAnalyzer:
         train_sharpes = [metrics.get('sharpe_ratio', 0) for metrics in training_results]
         monte_carlo = self._run_monte_carlo_analysis(returns, simulations=monte_carlo_simulations)
         parameter_stability = self._calculate_parameter_stability(selected_parameter_keys)
+        statistical_power = self._calculate_statistical_power_diagnostics(returns)
         overfitting = self._diagnose_overfitting(
             train_returns=train_returns,
             test_returns=returns,
@@ -727,6 +733,7 @@ class WalkForwardAnalyzer:
             test_sharpes=sharpes,
             parameter_stability=parameter_stability,
             monte_carlo=monte_carlo,
+            statistical_power=statistical_power,
         )
         
         return {
@@ -748,8 +755,13 @@ class WalkForwardAnalyzer:
                 'optimization_metric': optimization_metric,
                 'optimization_method': optimization_method,
                 'optimization_budget': optimization_budget,
+                'statistical_power_underpowered': statistical_power.get(
+                    'underpowered',
+                    False,
+                ),
             },
             'monte_carlo': monte_carlo,
+            'statistical_power_diagnostics': statistical_power,
             'overfitting_diagnostics': overfitting,
         }
 
@@ -844,6 +856,88 @@ class WalkForwardAnalyzer:
             'negative_mean_probability': float(np.mean(np.asarray(simulated_means) <= 0)),
         }
 
+    def _calculate_statistical_power_diagnostics(
+        self,
+        returns: List[float],
+        *,
+        alpha: float = 0.05,
+        target_power: float = 0.80,
+    ) -> Dict[str, Any]:
+        """Estimate whether the OOS window sample can detect its observed effect.
+
+        Generic walk-forward results do not always have a benchmark series,
+        so we treat the per-window test return as the excess return over a
+        zero-return null. The same MDE inversion used by the ETF falsification
+        script then answers whether the observed mean is above or below the
+        sample's resolution.
+        """
+
+        finite_returns = np.asarray(returns, dtype=float)
+        finite_returns = finite_returns[np.isfinite(finite_returns)]
+        n_obs = int(finite_returns.size)
+        periods_per_year = 252.0 / max(float(self.test_period), 1.0)
+        if n_obs < 2:
+            return {
+                'available': False,
+                'reason': 'insufficient_windows',
+                'n_obs': n_obs,
+                'alpha': alpha,
+                'target_power': target_power,
+                'periods_per_year': periods_per_year,
+                'underpowered': True,
+            }
+
+        from src.backtest.strategy_statistical_tests import (
+            dm_power_for_information_ratio,
+            minimum_detectable_effect,
+        )
+
+        observed_mean_return = float(np.mean(finite_returns))
+        hac_variance = float(np.var(finite_returns, ddof=1))
+        mde = minimum_detectable_effect(
+            hac_variance,
+            n_obs,
+            observed_mean_differential=-observed_mean_return,
+            alpha=alpha,
+            power=target_power,
+            periods_per_year=periods_per_year,
+        )
+        observed_power = dm_power_for_information_ratio(
+            mde.observed_ir,
+            n_obs,
+            alpha=alpha,
+            periods_per_year=periods_per_year,
+        )
+        underpowered = (
+            abs(mde.observed_ir) < mde.mde_ir
+            if mde.mde_ir > 0.0
+            else False
+        )
+        if underpowered:
+            failure_condition = 'observed_effect_inside_noise_floor'
+        elif mde.note:
+            failure_condition = mde.note
+        else:
+            failure_condition = 'observed_effect_clears_noise_floor'
+
+        return {
+            'available': True,
+            'n_obs': n_obs,
+            'alpha': alpha,
+            'target_power': target_power,
+            'periods_per_year': periods_per_year,
+            'observed_mean_return': observed_mean_return,
+            'observed_ir': mde.observed_ir,
+            'observed_power': observed_power,
+            'mde_ir': mde.mde_ir,
+            'mde_return_per_window': mde.mde_excess_return_per_period,
+            'mde_return_annual': mde.mde_excess_return_annual,
+            'annualized_tracking_error': mde.annualized_tracking_error,
+            'underpowered': underpowered,
+            'failure_condition': failure_condition,
+            'note': mde.note,
+        }
+
     def _calculate_parameter_stability(self, selected_parameter_keys: List[str]) -> float:
         if not selected_parameter_keys:
             return 0.0
@@ -863,6 +957,7 @@ class WalkForwardAnalyzer:
         test_sharpes: List[float],
         parameter_stability: float,
         monte_carlo: Dict[str, Any],
+        statistical_power: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         warnings = []
         average_train_return = float(np.mean(train_returns)) if train_returns else 0.0
@@ -878,6 +973,8 @@ class WalkForwardAnalyzer:
             warnings.append('最优参数在不同训练窗口切换频繁，说明参数稳定性不足')
         if monte_carlo.get('available') and monte_carlo.get('negative_mean_probability', 0) >= 0.35:
             warnings.append('Monte Carlo 模拟中出现负平均收益的概率偏高，结果对样本扰动较敏感')
+        if statistical_power and statistical_power.get('underpowered'):
+            warnings.append('样本外窗口统计功效不足，观测收益仍低于可检测阈值')
 
         if len(warnings) >= 3:
             level = 'high'

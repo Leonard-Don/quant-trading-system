@@ -555,8 +555,9 @@ def _craft_conclusion(
         "from buy-and-hold on this 5y sample. The terminal-period finding "
         "(commit fddfbf8) generalises temporally: the 16-19pp raw spread is "
         "indistinguishable from noise no matter how you slice the window. "
-        "If a real +3pp/yr edge exists you need ~6 years of weekly data to "
-        "detect it at 80% power; this 5y sample is underpowered."
+        "Run `scripts/power_target.py` for the formal Minimum Detectable "
+        "Effect inversion: below that IR / annualised excess-return bar, "
+        "the sample cannot tell a smaller real edge apart from noise."
     )
 
 

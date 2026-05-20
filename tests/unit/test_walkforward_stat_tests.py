@@ -553,3 +553,41 @@ def test_summary_omits_degeneracy_warning_when_sideways_regime() -> None:
     assert summary["blend_degeneracy"] is None
     assert "Degenerate blend comparison" not in render_markdown_summary(df, summary)
     assert "blend ≡" not in _render_terminal_summary(df, summary)
+
+
+def test_all_null_conclusion_links_to_power_target_mde() -> None:
+    """All-null summaries should point to the MDE inversion, not stale heuristics."""
+
+    from scripts.walkforward_stat_tests import _build_summary
+
+    df = pd.DataFrame(
+        {
+            "strategy": ["rotation", "rotation"],
+            "window_id": [0, 1],
+            "start_date": ["2022-01-01", "2022-07-01"],
+            "end_date": ["2024-01-01", "2024-07-01"],
+            "n_obs": [100, 100],
+            "dm_stat": [0.5, -0.2],
+            "dm_pvalue": [0.40, 0.80],
+            "sharpe_z": [0.2, -0.1],
+            "sharpe_pvalue": [0.8, 0.9],
+            "boot_lower": [-0.05, -0.08],
+            "boot_upper": [0.06, 0.04],
+            "boot_pvalue": [0.5, 0.9],
+            "dm_holm_threshold": [0.05, 0.025],
+            "dm_holm_rejected": [False, False],
+            "dm_holm_alpha": [0.05, 0.05],
+        }
+    )
+
+    summary = _build_summary(
+        df,
+        comparison=None,
+        window_years=2.0,
+        step_months=6,
+        alpha=0.05,
+    )
+
+    conclusion = str(summary["honest_conclusion"])
+    assert "Minimum Detectable Effect" in conclusion
+    assert "scripts/power_target.py" in conclusion

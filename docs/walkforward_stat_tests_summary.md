@@ -3,12 +3,20 @@
 - Period: `2020-01-02` → `2026-05-15`
 - Window length: **2.0 year(s)** · Step: **6 month(s)** · alpha = **0.05** (Holm step-down across all tests)
 - Strategies tested vs buy-and-hold: `blend`, `mean_reversion`, `rotation`
-- Total window tests: **27** (per strategy: {'blend': 9, 'mean_reversion': 9, 'rotation': 9})
+- Total window tests: **27 rows** — but only **18 are independent** (per strategy: {'blend': 9, 'mean_reversion': 9, 'rotation': 9}; `blend`'s 9 rows are byte-identical duplicates of `rotation` — see below).
+
+## ⚠️ Degenerate blend comparison
+
+- `blend_regime` = `unknown` (the CLI default) → the blender resolves α=1.00 (pure trend).
+- `blend`'s per-window DM statistic **and** p-value are **byte-identical** to `rotation`'s across all 9 windows. Compare rows in `walkforward_stat_tests.csv`: e.g. window 0 is `dm_stat = 1.0950547684937213` for *both* `rotation` and `blend`.
+- This is the documented α=1.00 contract — `DEFAULT_REGIME_BLEND_WEIGHTS["unknown"] = 1.0` in `src/strategy/etf_strategy_blend.py` makes `EtfStrategyBlend` mathematically equivalent to `EtfRotationStrategy` when no regime is classified. It is pinned by `test_blend_pure_trend_alpha_matches_pure_trend_strategy_output` and `test_etf_strategy_comparison.py` — **this is by design, not a bug** (a caller that has not classified the regime should get pure trend back, not a silent 50/50 mean-reversion bet).
+- **Consequence for this report: the 27 rows are really 18 independent tests + 9 duplicates.** `blend`'s 9 rows are the same test as `rotation`, reported under a second label; they are not independent evidence and they inflate the Holm family size without adding information.
+- For a *non-degenerate* blend test re-run with `--blend-regime sideways` (α=0.5) or any non-trend label.
 
 ## Headline numbers
 
-- Windows with raw DM p < 0.05: **0** of **27**
-- Windows surviving Holm correction (family-wise across all 27 tests): **0**
+- Windows with raw DM p < 0.05: **0** of **27 rows** (0 of the **18 independent** tests).
+- Windows surviving Holm correction: **0**. Note the Holm family is nominally 27 but only 18 distinct — the 9 duplicate `blend` rows make the correction marginally *more* conservative than warranted; it does not change the all-null outcome.
 - Minimum p-value: **0.1299** — strategy `mean_reversion`, window 2020-07-09 → 2022-07-08 (window_id=1)
 
 ## Direction consistency (does strategy beat buy-hold?)
@@ -55,7 +63,9 @@ Fraction of walk-forward windows where the DM statistic is negative (loss-of-str
 
 ## Honest conclusion
 
-Every single one of the 27 walk-forward window tests has raw DM p-value above α=0.05 (minimum p = 0.1299). After Holm correction zero windows reject. There is no walk-forward regime in which the active strategies are statistically distinct from buy-and-hold on this 5y sample. The terminal-period finding (commit fddfbf8) generalises temporally: the 16-19pp raw spread is indistinguishable from noise no matter how you slice the window. If a real +3pp/yr edge exists you need ~6 years of weekly data to detect it at 80% power; this 5y sample is underpowered.
+Every single one of the 27 walk-forward window rows has raw DM p-value above α=0.05 (minimum p = 0.1299); only 18 of those rows are independent tests (`blend` ≡ `rotation` under the default regime). After Holm correction zero windows reject. There is no walk-forward regime in which the active strategies are statistically distinct from buy-and-hold on this 5y sample. The terminal-period finding (commit fddfbf8) generalises temporally: the 16-19pp raw spread is indistinguishable from noise no matter how you slice the window.
+
+How underpowered, precisely? `scripts/power_target.py` inverts this exact HAC variance structure (see `docs/falsifiable_alpha_target.md`): on the 307-period terminal sample the **Minimum Detectable Effect is an Information Ratio of ≈ 1.15** (≈ +14.9 pp/yr excess return) at 80% power. The strategy would need a *true* IR at or above that bar before the DM test could reliably reject the null — below it, the sample cannot tell the strategy apart from buy-and-hold. The bar is high mainly because the strategy's tracking error is large (≈12.9% annualised); a thinner-tracking-error variant would lower the MDE without needing more raw alpha.
 
 ---
 

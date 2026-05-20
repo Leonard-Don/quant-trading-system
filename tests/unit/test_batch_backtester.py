@@ -286,6 +286,42 @@ def test_walk_forward_analyzer_emits_monte_carlo_and_overfitting_diagnostics():
     assert isinstance(result["overfitting_diagnostics"]["warnings"], list)
 
 
+def test_walk_forward_analyzer_emits_statistical_power_diagnostics():
+    analyzer = WalkForwardAnalyzer(train_period=5, test_period=3, step_size=2)
+    dates = pd.date_range("2024-01-01", periods=18, freq="D")
+    data = pd.DataFrame({
+        "open": range(18),
+        "high": range(1, 19),
+        "low": range(18),
+        "close": [10, 11, 12, 13, 14, 9, 8, 7, 15, 16, 17, 18, 10, 9, 8, 7, 11, 12],
+        "volume": [1_000_000] * 18,
+    }, index=dates)
+
+    result = analyzer.analyze(
+        data=data,
+        strategy_factory=lambda parameters=None: _strategy_factory("moving_average", parameters or {}),
+        backtester_factory=lambda: _tunable_backtester_factory(10000),
+        parameter_candidates=[
+            {"edge": 0.0},
+            {"edge": 0.02},
+        ],
+        monte_carlo_simulations=20,
+    )
+
+    diagnostics = result["statistical_power_diagnostics"]
+    assert diagnostics["available"] is True
+    assert diagnostics["target_power"] == 0.80
+    assert diagnostics["alpha"] == 0.05
+    assert diagnostics["failure_condition"] == "observed_effect_inside_noise_floor"
+    assert diagnostics["underpowered"] is True
+    assert diagnostics["mde_ir"] > abs(diagnostics["observed_ir"])
+    assert result["aggregate_metrics"]["statistical_power_underpowered"] is True
+    assert any(
+        "统计功效不足" in warning
+        for warning in result["overfitting_diagnostics"]["warnings"]
+    )
+
+
 def test_walk_forward_analyzer_supports_bayesian_optimization_budget():
     analyzer = WalkForwardAnalyzer(train_period=5, test_period=3, step_size=2)
     dates = pd.date_range("2024-01-01", periods=18, freq="D")

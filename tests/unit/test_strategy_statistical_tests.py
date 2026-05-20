@@ -26,10 +26,14 @@ import pytest
 from src.backtest.strategy_statistical_tests import (
     BlockBootstrapResult,
     DMResult,
+    MinimumDetectableEffect,
     SharpeTestResult,
     bonferroni_correct,
     diebold_mariano_test,
+    dm_power_for_information_ratio,
     holm_correct,
+    minimum_detectable_effect,
+    minimum_detectable_effect_from_dm,
     politis_romano_block_bootstrap,
     results_to_dataframe,
     sharpe_ratio_test,
@@ -363,3 +367,105 @@ def test_results_to_dataframe_round_trips_with_labels() -> None:
     assert next(iter(df.columns)) == "pair"
     assert df.shape[0] == 2
     assert "dm_statistic" in df.columns
+
+
+# ---------------------------------------------------------------------------
+# Power-analysis inversion / Minimum Detectable Effect
+# ---------------------------------------------------------------------------
+
+
+def test_minimum_detectable_effect_inverts_dm_power_formula() -> None:
+    """MDE IR should round-trip through the forward DM power formula."""
+
+    result = minimum_detectable_effect(
+        hac_variance=0.0004,
+        n_obs=100,
+        observed_mean_differential=-0.001,
+        alpha=0.05,
+        power=0.80,
+        periods_per_year=52.0,
+    )
+
+    assert isinstance(result, MinimumDetectableEffect)
+    assert result.required_ncp == pytest.approx(2.8015852, rel=1e-6)
+    assert result.mde_excess_return_per_period == pytest.approx(0.00560317, rel=1e-6)
+    assert result.mde_excess_return_annual == pytest.approx(0.291365, rel=1e-6)
+    assert result.mde_ir == pytest.approx(
+        result.required_ncp * math.sqrt(52.0 / 100.0),
+        rel=1e-12,
+    )
+    assert result.observed_excess_return_annual == pytest.approx(0.052)
+    assert result.observed_ir == pytest.approx(0.360555, rel=1e-6)
+
+    recovered_power = dm_power_for_information_ratio(
+        result.mde_ir,
+        result.n_obs,
+        alpha=result.alpha,
+        periods_per_year=result.periods_per_year,
+    )
+    assert recovered_power == pytest.approx(result.power, abs=1e-6)
+
+
+def test_minimum_detectable_effect_from_dm_uses_negative_return_diagnostics() -> None:
+    """The DM wrapper should carry the observed spread into MDE diagnostics."""
+
+    dm = diebold_mariano_test(
+        [0.03, 0.01, 0.02, 0.04, 0.00, 0.03],
+        [0.00, 0.00, 0.01, 0.00, 0.01, 0.00],
+        loss_fn="negative_return",
+    )
+    result = minimum_detectable_effect_from_dm(
+        dm,
+        alpha=0.10,
+        power=0.75,
+        periods_per_year=12.0,
+    )
+
+    assert result.n_obs == dm.n_obs
+    assert result.hac_variance == dm.hac_variance
+    assert result.observed_excess_return_annual == pytest.approx(
+        -dm.mean_loss_differential * 12.0
+    )
+    assert result.alpha == 0.10
+    assert result.power == 0.75
+
+
+def test_minimum_detectable_effect_rejects_invalid_design_inputs() -> None:
+    """Invalid alpha / power / period count should fail loudly."""
+
+    with pytest.raises(ValueError, match="alpha"):
+        minimum_detectable_effect(0.01, 20, alpha=0.0)
+    with pytest.raises(ValueError, match="power"):
+        minimum_detectable_effect(0.01, 20, power=1.0)
+    with pytest.raises(ValueError, match="periods_per_year"):
+        minimum_detectable_effect(0.01, 20, periods_per_year=0.0)
+    with pytest.raises(ValueError, match="n_obs"):
+        minimum_detectable_effect(0.01, 1)
+
+
+def test_minimum_detectable_effect_handles_degenerate_variance() -> None:
+    """A zero-variance differential should return a documented neutral MDE."""
+
+    result = minimum_detectable_effect(
+        hac_variance=0.0,
+        n_obs=20,
+        observed_mean_differential=-0.01,
+    )
+
+    assert result.note == "degenerate_zero_variance"
+    assert result.mde_ir == 0.0
+    assert result.mde_excess_return_annual == 0.0
+    assert result.annualized_tracking_error == 0.0
+
+
+def test_minimum_detectable_effect_from_dm_rejects_non_return_loss() -> None:
+    """IR / excess-return inversion is only valid for negative-return DM."""
+
+    dm = diebold_mariano_test(
+        [0.01, 0.02, 0.03, 0.04],
+        [0.02, 0.01, 0.02, 0.01],
+        loss_fn="squared_error",
+    )
+
+    with pytest.raises(ValueError, match="negative-return loss"):
+        minimum_detectable_effect_from_dm(dm)
