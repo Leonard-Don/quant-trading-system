@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 
 from src.data.alternative.alt_data_manager import AltDataManager
@@ -116,6 +117,53 @@ def test_alt_data_manager_bootstraps_from_snapshot_store(tmp_path):
     snapshot = reloaded.get_dashboard_snapshot()
     assert snapshot["recent_records"]
     assert snapshot["providers"]["dummy_policy"]["history_count"] == 1
+
+
+def test_alt_data_manager_skips_malformed_snapshot_records(tmp_path, caplog):
+    store = AltDataSnapshotStore(tmp_path / "alt_data")
+    valid_record = AltDataRecord(
+        timestamp=datetime(2026, 5, 21, 0, 0, 0),
+        source="dummy",
+        category=AltDataCategory.POLICY,
+        raw_value={"title": "valid cached policy"},
+        normalized_score=0.3,
+        confidence=0.7,
+    ).to_dict()
+    malformed_record = {
+        **valid_record,
+        "category": "unknown_category",
+        "record_id": "bad-record",
+    }
+    store.save_provider_snapshot(
+        "dummy_policy",
+        {
+            "provider": "dummy_policy",
+            "signal": {
+                "provider": "dummy_policy",
+                "source": "dummy_policy",
+                "category": "policy",
+                "signal": 1,
+                "strength": 0.3,
+                "confidence": 0.7,
+                "record_count": 2,
+                "timestamp": "2026-05-21T00:00:00",
+            },
+            "records": [valid_record, malformed_record],
+            "provider_info": {"last_update": "2026-05-21T00:00:00"},
+            "snapshot_timestamp": "2026-05-21T00:00:00",
+        },
+    )
+    caplog.set_level(logging.WARNING, logger="src.data.alternative.alt_data_manager")
+
+    manager = AltDataManager(
+        providers={"dummy_policy": DummyAltProvider()},
+        snapshot_store=store,
+    )
+
+    records = manager.get_provider("dummy_policy").get_history(limit=10)
+    assert [record.record_id for record in records] == [valid_record["record_id"]]
+    assert manager.latest_signals["dummy_policy"]["record_count"] == 2
+    assert "Skipped malformed alt-data snapshot record for dummy_policy at index 1" in caplog.text
 
 
 def test_alt_data_manager_returns_stale_snapshot_when_provider_fails(tmp_path):

@@ -403,10 +403,17 @@ class AltDataManager:
             provider = self.providers.get(name)
             if provider is None:
                 continue
-            records = [
-                AltDataRecord.from_dict(record_payload)
-                for record_payload in snapshot.get("records", [])
-            ]
+            records = []
+            for index, record_payload in enumerate(snapshot.get("records", [])):
+                try:
+                    records.append(AltDataRecord.from_dict(record_payload))
+                except (KeyError, TypeError, ValueError) as exc:
+                    logger.warning(
+                        "Skipped malformed alt-data snapshot record for %s at index %s: %s",
+                        name,
+                        index,
+                        exc,
+                    )
             provider._history = records[-500:]
             last_update = snapshot.get("provider_info", {}).get("last_update")
             if last_update:
