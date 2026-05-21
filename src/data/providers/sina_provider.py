@@ -184,8 +184,8 @@ class SinaFinanceProvider:
                     cached_df = cache_entry.get("data")
                     if isinstance(cached_df, pd.DataFrame):
                         return cached_df.copy()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Sina in-memory cache layer error (non-fatal): %s", exc)
 
         payload = cls._load_json_cache(cache_path)
         rows = payload.get("data", [])
@@ -200,8 +200,8 @@ class SinaFinanceProvider:
                     "size": stat.st_size,
                     "data": df.copy(),
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Sina in-memory cache layer error (non-fatal): %s", exc)
         logger.debug("Loaded persistent Sina industry list cache with %s industries", len(df))
         return df
 
@@ -220,8 +220,8 @@ class SinaFinanceProvider:
                 ):
                     rows_by_name = cache_entry.get("rows_by_name") or {}
                     return rows_by_name
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Sina in-memory cache layer error (non-fatal): %s", exc)
 
         try:
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -248,8 +248,8 @@ class SinaFinanceProvider:
                     "size": stat.st_size,
                     "rows_by_name": rows_by_name,
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Sina in-memory cache layer error (non-fatal): %s", exc)
 
         return rows_by_name
 
@@ -299,8 +299,8 @@ class SinaFinanceProvider:
                     if rows:
                         logger.debug("Loaded persistent Sina stocks cache for %s with %s stocks", industry_code, len(rows))
                     return rows
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Sina in-memory cache layer error (non-fatal): %s", exc)
 
         try:
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -323,8 +323,8 @@ class SinaFinanceProvider:
                     "size": stat.st_size,
                     "rows_by_code": rows_by_code,
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Sina in-memory cache layer error (non-fatal): %s", exc)
 
         rows = rows_by_code.get(industry_code, [])
         if rows:
@@ -368,8 +368,8 @@ class SinaFinanceProvider:
                         "codes": set(codes),
                     }
                     return codes
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Sina in-memory cache layer error (non-fatal): %s", exc)
 
         try:
             payload = json.loads(cache_path.read_text(encoding="utf-8"))
@@ -393,8 +393,8 @@ class SinaFinanceProvider:
                     "size": stat.st_size,
                     "codes": set(codes),
                 }
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Sina in-memory cache layer error (non-fatal): %s", exc)
 
         return codes
 
