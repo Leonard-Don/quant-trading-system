@@ -1830,7 +1830,8 @@ class SinaIndustryAdapter:
         if page_info:
             try:
                 page_num = int(str(page_info.get_text(strip=True)).split("/")[1])
-            except Exception:
+            except Exception as exc:
+                logger.debug("Could not parse THS page count, defaulting to 1: %s", exc)
                 page_num = 1
 
         table = soup.select_one("table.J-ajax-table") or soup.find("table")
@@ -2022,7 +2023,12 @@ class SinaIndustryAdapter:
             try:
                 self._compute_industry_market_caps(result)
                 self._persist_market_cap_snapshot(result)
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "Industry market-cap computation failed; falling back to estimated caps: %s",
+                    exc,
+                    exc_info=True,
+                )
                 if "total_market_cap" not in result.columns:
                     if "turnover" in result.columns:
                         result["total_market_cap"] = result["turnover"].abs() * 100
@@ -2435,8 +2441,8 @@ class SinaIndustryAdapter:
                                     pe_val = float(pe_str)
                                 if pb_str and pb_str != "0.00":
                                     pb_val = float(pb_str)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        logger.debug("Tencent PE/PB probe failed for %s: %s", sym, exc)
                 pe_list.append(pe_val)
                 pb_list.append(pb_val)
 

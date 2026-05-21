@@ -322,7 +322,8 @@ class AKShareProvider(BaseDataProvider):
 
         try:
             updated_at = datetime.fromisoformat(updated_at_raw) if updated_at_raw else None
-        except Exception:
+        except Exception as exc:
+            logger.debug("Ignoring snapshot with unparseable timestamp %r: %s", updated_at_raw, exc)
             updated_at = None
 
         if updated_at is None:
@@ -1426,7 +1427,8 @@ class AKShareProvider(BaseDataProvider):
             # 简单测试：获取市场行情
             df = self._call_akshare("stock_zh_a_spot_em", ak.stock_zh_a_spot_em)
             return not df.empty
-        except Exception:
+        except Exception as exc:
+            logger.debug("AKShare availability probe failed: %s", exc)
             return False
 
     def _safe_float(self, value: Any) -> float:

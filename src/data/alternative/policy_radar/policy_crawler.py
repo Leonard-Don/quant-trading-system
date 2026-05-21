@@ -372,7 +372,8 @@ class PolicyCrawler(AntiCrawlMixin):
                         ),
                         "ingest_mode": "html",
                     })
-            except Exception:
+            except Exception as exc:
+                logger.warning("Skipped unparseable policy item from %s: %s", source.name, exc)
                 continue
 
         return policies

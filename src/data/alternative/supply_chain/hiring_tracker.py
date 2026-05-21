@@ -262,8 +262,8 @@ class HiringTracker(AntiCrawlMixin):
                         "title": title.get_text(strip=True),
                         "company": company_name,
                     })
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Failed to parse 51job response for %s: %s", company_name, exc)
 
         return jobs
 
