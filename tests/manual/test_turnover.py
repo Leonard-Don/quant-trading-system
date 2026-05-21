@@ -1,7 +1,9 @@
-import sys
 import os
+import sys
+
 sys.path.append(os.path.dirname(os.path.abspath(__name__)))
 from src.data.providers.sina_ths_adapter import create_industry_provider
+
 provider = create_industry_provider()
 df = provider.get_industry_money_flow(days=5)
 print("columns:", df.columns.tolist() if not df.empty else "empty df")

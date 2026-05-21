@@ -21,7 +21,6 @@ import pytest
 from src.data.providers.base_provider import BaseDataProvider
 from src.data.providers.provider_factory import DataProviderFactory
 
-
 # ---------------------------------------------------------------------------
 # Mock providers
 # ---------------------------------------------------------------------------

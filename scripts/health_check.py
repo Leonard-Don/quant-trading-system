@@ -3,13 +3,13 @@
 系统健康检查脚本
 """
 
-import sys
+import importlib
+import json
 import os
 import subprocess
-import importlib
-from pathlib import Path
-import json
+import sys
 from datetime import datetime
+from pathlib import Path
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent

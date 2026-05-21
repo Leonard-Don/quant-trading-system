@@ -137,7 +137,7 @@ class StrategySpec:
 
     label: str
     config: EtfRotationConfig
-    signal_generator: "SignalGenerator"
+    signal_generator: SignalGenerator
     description: str = ""
 
 

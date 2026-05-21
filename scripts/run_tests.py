@@ -2,13 +2,13 @@
 """
 测试运行脚本
 """
-import sys
-import subprocess
 import argparse
 import shutil
-from urllib.error import URLError, HTTPError
-from urllib.request import urlopen
+import subprocess
+import sys
 from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 # 添加项目根目录到路径
 project_root = Path(__file__).parent.parent

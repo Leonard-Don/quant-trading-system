@@ -36,8 +36,9 @@ from __future__ import annotations
 
 import logging
 import statistics
+from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 

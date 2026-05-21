@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, List
 
 import numpy as np
 import pandas as pd
-
 
 ALLOWED_COLUMNS = {"open", "high", "low", "close", "volume", "adj_close"}
 ALLOWED_FUNCTIONS = {
@@ -69,7 +69,7 @@ class FactorExpressionEngine:
                 for _, row in preview.iterrows()
             ],
             diagnostics={
-                "rows": int(len(frame)),
+                "rows": len(frame),
                 "non_null_factor_points": int(series.notna().sum()),
                 "columns": [column for column in frame.columns if column in ALLOWED_COLUMNS],
             },

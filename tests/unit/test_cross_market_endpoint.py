@@ -1,6 +1,6 @@
+import pandas as pd
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-import pandas as pd
 
 from backend.app.api.v1.endpoints import cross_market
 

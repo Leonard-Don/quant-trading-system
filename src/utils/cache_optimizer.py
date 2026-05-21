@@ -4,17 +4,17 @@
 提供智能缓存预热、访问频率追踪和增量数据更新功能
 """
 
-import time
-import logging
 import json
-from datetime import datetime
-from typing import Dict, List, Any, Optional, Callable
-from collections import defaultdict
-from pathlib import Path
+import logging
 import threading
+import time
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
-from .cache import cache_manager, CacheManager
+from .cache import CacheManager, cache_manager
 from .config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
@@ -35,14 +35,14 @@ class AccessTracker:
         self.last_access_times: Dict[str, datetime] = {}
         self.access_patterns: Dict[str, List[float]] = defaultdict(list)  # 访问间隔
         self._lock = threading.RLock()
-        
+
         self._load_persisted_data()
 
     def _load_persisted_data(self):
         """加载持久化的访问数据"""
         if self.persistence_file.exists():
             try:
-                with open(self.persistence_file, "r", encoding="utf-8") as f:
+                with open(self.persistence_file, encoding="utf-8") as f:
                     data = json.load(f)
                     self.access_counts = defaultdict(int, data.get("access_counts", {}))
                     # 恢复时间戳
@@ -84,7 +84,7 @@ class AccessTracker:
         """
         with self._lock:
             now = datetime.now()
-            
+
             # 记录访问间隔
             if key in self.last_access_times:
                 interval = (now - self.last_access_times[key]).total_seconds()
@@ -93,7 +93,7 @@ class AccessTracker:
                 # 只保留最近100次访问间隔
                 if len(patterns) > 100:
                     self.access_patterns[key] = patterns[-100:]
-            
+
             self.access_counts[key] += 1
             self.last_access_times[key] = now
 
@@ -110,20 +110,20 @@ class AccessTracker:
         with self._lock:
             if key not in self.access_counts:
                 return 0.0
-            
+
             self.access_counts[key]
             if key not in self.last_access_times:
                 return 0.0
-            
+
             # 基于访问间隔计算频率
             patterns = self.access_patterns.get(key, [])
             if not patterns:
                 return 0.0
-            
+
             avg_interval = sum(patterns) / len(patterns)
             if avg_interval == 0:
                 return float('inf')
-            
+
             # 转换为每小时访问次数
             return 3600 / avg_interval
 
@@ -147,7 +147,7 @@ class AccessTracker:
                     "frequency_per_hour": round(frequency, 2),
                     "last_access": self.last_access_times.get(key, None)
                 })
-            
+
             # 按访问次数排序
             results.sort(key=lambda x: x["access_count"], reverse=True)
             return results[:top_n]
@@ -181,7 +181,7 @@ class CacheOptimizer:
         self.max_preheat_items = max_preheat_items
         self.preheat_threshold = preheat_threshold
         self.access_tracker = AccessTracker()
-        
+
         # 预热注册表：存储预热函数
         self._preheat_registry: Dict[str, Callable] = {}
         self._preheat_stats = {
@@ -220,21 +220,21 @@ class CacheOptimizer:
         """
         with self._lock:
             tracker = self.access_tracker
-            
+
             # 访问频率分数
             frequency = tracker.get_access_frequency(key)
             freq_score = min(frequency * 10, 50)  # 最高50分
-            
+
             # 最近访问时间分数
             recency_score = 0
             if key in tracker.last_access_times:
                 hours_ago = (datetime.now() - tracker.last_access_times[key]).total_seconds() / 3600
                 recency_score = max(0, 30 - hours_ago)  # 30小时内，越近分数越高
-            
+
             # 访问总次数分数
             count = tracker.access_counts.get(key, 0)
             count_score = min(count / 10, 20)  # 最高20分
-            
+
             return freq_score * 0.5 + recency_score * 0.3 + count_score * 0.2
 
     def get_preheat_candidates(self) -> List[Dict[str, Any]]:
@@ -245,23 +245,23 @@ class CacheOptimizer:
             候选列表，按优先级排序
         """
         hot_keys = self.access_tracker.get_hot_keys(self.max_preheat_items * 2)
-        
+
         candidates = []
         for item in hot_keys:
             key = item["key"]
             frequency = item["frequency_per_hour"]
-            
+
             # 过滤低频访问
             if frequency < self.preheat_threshold:
                 continue
-            
+
             priority = self.calculate_preheat_priority(key)
             candidates.append({
                 **item,
                 "priority": round(priority, 2),
                 "should_preheat": priority > 10  # 优先级超过10才预热
             })
-        
+
         # 按优先级排序
         candidates.sort(key=lambda x: x["priority"], reverse=True)
         return candidates[:self.max_preheat_items]
@@ -286,20 +286,20 @@ class CacheOptimizer:
             预热统计结果
         """
         start_time = time.time()
-        
+
         # 确定要预热的键
         if keys is None:
             candidates = self.get_preheat_candidates()
             keys = [c["key"] for c in candidates if c["should_preheat"]]
-        
+
         if not keys:
             logger.info("No keys to preheat")
             return {"preheated": 0, "failed": 0, "skipped": 0}
-        
+
         logger.info(f"Starting preheat for {len(keys)} keys")
-        
+
         results = {"preheated": 0, "failed": 0, "skipped": 0, "details": []}
-        
+
         def preheat_single(key: str) -> Dict[str, Any]:
             """预热单个键"""
             try:
@@ -307,7 +307,7 @@ class CacheOptimizer:
                 existing = self.cache_manager.get(key)
                 if existing is not None:
                     return {"key": key, "status": "skipped", "reason": "already_cached"}
-                
+
                 # 使用提供的fetcher或注册的处理器
                 fetcher = data_fetcher
                 if fetcher is None:
@@ -316,10 +316,10 @@ class CacheOptimizer:
                         if self._match_pattern(key, pattern):
                             fetcher = handler
                             break
-                
+
                 if fetcher is None:
                     return {"key": key, "status": "failed", "reason": "no_handler"}
-                
+
                 # 获取数据并缓存
                 data = fetcher(key)
                 if data is not None:
@@ -327,18 +327,18 @@ class CacheOptimizer:
                     return {"key": key, "status": "preheated"}
                 else:
                     return {"key": key, "status": "failed", "reason": "fetch_failed"}
-                    
+
             except Exception as e:
                 logger.warning(f"Failed to preheat key {key}: {e}")
                 return {"key": key, "status": "failed", "reason": str(e)}
-        
+
         # 执行预热
         if parallel and len(keys) > 1:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 detail_results = list(executor.map(preheat_single, keys))
         else:
             detail_results = [preheat_single(key) for key in keys]
-        
+
         # 统计结果
         for result in detail_results:
             results["details"].append(result)
@@ -348,22 +348,22 @@ class CacheOptimizer:
                 results["skipped"] += 1
             else:
                 results["failed"] += 1
-        
+
         duration_ms = (time.time() - start_time) * 1000
-        
+
         # 更新统计
         with self._lock:
             self._preheat_stats["total_preheated"] += results["preheated"]
             self._preheat_stats["last_preheat_time"] = datetime.now()
             self._preheat_stats["preheat_duration_ms"] = duration_ms
-        
+
         results["duration_ms"] = round(duration_ms, 2)
         logger.info(
             f"Preheat completed: {results['preheated']} preheated, "
             f"{results['skipped']} skipped, {results['failed']} failed "
             f"in {duration_ms:.0f}ms"
         )
-        
+
         return results
 
     def _match_pattern(self, key: str, pattern: str) -> bool:
@@ -390,7 +390,7 @@ class CacheOptimizer:
     def get_stats(self) -> Dict[str, Any]:
         """获取优化器统计信息"""
         cache_stats = self.cache_manager.get_stats() if self.cache_manager else {}
-        
+
         return {
             "preheat_stats": self._preheat_stats,
             "access_tracker": {
@@ -466,10 +466,10 @@ class IncrementalDataUpdater:
             是否需要更新
         """
         cached_version = self.get_data_version(key)
-        
+
         if cached_version is None:
             return True
-        
+
         if version_fetcher:
             try:
                 remote_version = version_fetcher(key)
@@ -477,7 +477,7 @@ class IncrementalDataUpdater:
             except Exception as e:
                 logger.warning(f"Failed to fetch version for {key}: {e}")
                 return True
-        
+
         return current_version != cached_version
 
     def update_incremental(
@@ -502,24 +502,24 @@ class IncrementalDataUpdater:
             更新后的完整数据
         """
         existing_data = self.cache_manager.get(key)
-        
+
         try:
             # 获取增量数据
             incremental_data = data_fetcher(key, existing_data)
-            
+
             if existing_data is not None and incremental_data is not None:
                 # 合并数据
                 merged_data = merge_func(existing_data, incremental_data)
             else:
                 merged_data = incremental_data if incremental_data is not None else existing_data
-            
+
             # 更新缓存
             if merged_data is not None:
                 self.cache_manager.set(key, merged_data, ttl)
                 self.set_data_version(key, version)
-            
+
             return merged_data
-            
+
         except Exception as e:
             logger.error(f"Failed to update incrementally for {key}: {e}")
             return existing_data
@@ -559,7 +559,7 @@ def schedule_preheat(
         data_fetcher: 数据获取函数
     """
     import atexit
-    
+
     def preheat_task():
         while True:
             time.sleep(interval_seconds)
@@ -567,11 +567,11 @@ def schedule_preheat(
                 cache_optimizer.preheat(data_fetcher)
             except Exception as e:
                 logger.error(f"Scheduled preheat failed: {e}")
-    
+
     thread = threading.Thread(target=preheat_task, daemon=True)
     thread.start()
-    
+
     # 程序退出时持久化数据
     atexit.register(cache_optimizer.persist_tracking_data)
-    
+
     logger.info(f"Scheduled preheat every {interval_seconds} seconds")

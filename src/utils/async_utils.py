@@ -4,11 +4,11 @@
 
 import asyncio
 import concurrent.futures
-from typing import Any, Callable, List
 import functools
+import logging
 import time
 from datetime import datetime
-import logging
+from typing import Any, Callable, List
 
 logger = logging.getLogger(__name__)
 

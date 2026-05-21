@@ -26,9 +26,10 @@ import itertools
 import json
 import logging
 import sys
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 

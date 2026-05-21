@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Dict, List, Optional
 
 from .base_factor import MacroFactor
 from .baseload_mismatch import BaseloadMismatchFactor

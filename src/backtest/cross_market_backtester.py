@@ -20,11 +20,11 @@ from src.data.data_manager import DataManager, get_shared_data_manager
 from src.trading.cross_market import (
     AssetSide,
     AssetUniverse,
+    CointegrationReversionStrategy,
     CrossMarketStrategy,
     ExecutionRouter,
     HedgePortfolioBuilder,
     SpreadZScoreStrategy,
-    CointegrationReversionStrategy,
 )
 
 
@@ -561,8 +561,8 @@ class CrossMarketBacktester(BaseBacktester):
                     "execution_channel": asset.execution_channel,
                     "settlement": asset.settlement,
                     "provider": provider_name,
-                    "raw_rows": int(len(data)),
-                    "valid_rows": int(len(series)),
+                    "raw_rows": len(data),
+                    "valid_rows": len(series),
                     "first_date": series.index[0].strftime("%Y-%m-%d") if len(series) else None,
                     "last_date": series.index[-1].strftime("%Y-%m-%d") if len(series) else None,
                     "avg_daily_volume": liquidity_stats["avg_daily_volume"],
@@ -579,7 +579,7 @@ class CrossMarketBacktester(BaseBacktester):
         tradable_mask = outer_matrix.notna().all(axis=1)
         aligned_price_matrix = outer_matrix.loc[tradable_mask].copy()
         tradable_count = int(tradable_mask.sum())
-        union_count = int(len(outer_matrix))
+        union_count = len(outer_matrix)
         tradable_day_ratio = tradable_count / union_count if union_count else 0.0
         dropped_dates_count = int(union_count - tradable_count)
         common_dates = set(aligned_price_matrix.index.to_list())
@@ -916,7 +916,7 @@ class CrossMarketBacktester(BaseBacktester):
             "method": method,
             "test_statistic": round(float(score), 6),
             "p_value": round(float(p_value), 6),
-            "sample_size": int(len(aligned)),
+            "sample_size": len(aligned),
             "hedge_ratio": round(float(hedge_ratio), 6),
         }
 
@@ -1097,9 +1097,9 @@ class CrossMarketBacktester(BaseBacktester):
         avg_holding_period: float,
         construction_mode: str,
     ) -> str:
-        if turnover >= 10 or avg_holding_period and avg_holding_period < 5:
+        if turnover >= 10 or (avg_holding_period and avg_holding_period < 5):
             return "weekly"
-        if construction_mode == "ols_hedge" or turnover >= 5 or avg_holding_period and avg_holding_period < 12:
+        if construction_mode == "ols_hedge" or turnover >= 5 or (avg_holding_period and avg_holding_period < 12):
             return "biweekly"
         return "monthly"
 

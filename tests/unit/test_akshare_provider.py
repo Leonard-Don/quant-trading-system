@@ -1,8 +1,8 @@
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
-import threading
 from unittest.mock import patch
 
 import pandas as pd
@@ -234,15 +234,14 @@ def test_get_stock_list_by_industry_dedupes_concurrent_live_fetches():
         patch(
             "src.data.providers.akshare_provider.ak.stock_board_industry_cons_em",
             side_effect=_slow_stock_fetch,
-        ),
+        ),ThreadPoolExecutor(max_workers=2) as executor
     ):
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            future_one = executor.submit(provider.get_stock_list_by_industry, "白酒", False)
-            assert started.wait(timeout=1)
-            future_two = executor.submit(provider.get_stock_list_by_industry, "白酒", False)
-            gate.set()
-            first = future_one.result(timeout=1)
-            second = future_two.result(timeout=1)
+        future_one = executor.submit(provider.get_stock_list_by_industry, "白酒", False)
+        assert started.wait(timeout=1)
+        future_two = executor.submit(provider.get_stock_list_by_industry, "白酒", False)
+        gate.set()
+        first = future_one.result(timeout=1)
+        second = future_two.result(timeout=1)
 
     assert call_count == 1
     assert first == second

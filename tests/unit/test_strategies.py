@@ -4,14 +4,14 @@
 
 import pytest
 
-from src.strategy.strategies import (
-    MovingAverageCrossover,
-    RSIStrategy,
-    BollingerBands,
-    TurtleTradingStrategy,
-    MultiFactorStrategy,
-)
 from src.strategy.advanced_strategies import MACDStrategy, MeanReversionStrategy
+from src.strategy.strategies import (
+    BollingerBands,
+    MovingAverageCrossover,
+    MultiFactorStrategy,
+    RSIStrategy,
+    TurtleTradingStrategy,
+)
 
 
 class TestMovingAverageCrossover:

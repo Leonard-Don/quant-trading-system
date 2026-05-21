@@ -5,9 +5,11 @@ This module provides common functions for calculating financial performance metr
 used in various backtesting engines.
 """
 
+from typing import Tuple, Union
+
 import numpy as np
 import pandas as pd
-from typing import Union, Tuple
+
 
 def calculate_returns(equity_curve: Union[pd.Series, np.ndarray]) -> float:
     """
@@ -21,22 +23,22 @@ def calculate_returns(equity_curve: Union[pd.Series, np.ndarray]) -> float:
     """
     if len(equity_curve) < 1:
         return 0.0
-    
+
     if isinstance(equity_curve, pd.Series):
         start_value = equity_curve.iloc[0]
         end_value = equity_curve.iloc[-1]
     else:
         start_value = equity_curve[0]
         end_value = equity_curve[-1]
-        
+
     if start_value == 0:
         return 0.0
-        
+
     return (end_value - start_value) / start_value
 
 def calculate_annualized_return(
-    total_return: float, 
-    n_days: int, 
+    total_return: float,
+    n_days: int,
     trading_days_per_year: int = 252
 ) -> float:
     """
@@ -52,11 +54,11 @@ def calculate_annualized_return(
     """
     if n_days <= 0:
         return 0.0
-        
+
     years = n_days / trading_days_per_year
     if years == 0:
         return 0.0
-        
+
     # Using geometric mean
     return (1 + total_return) ** (1 / years) - 1
 
@@ -72,24 +74,24 @@ def calculate_max_drawdown(equity_curve: Union[pd.Series, np.ndarray]) -> float:
     """
     if len(equity_curve) < 1:
         return 0.0
-        
+
     if isinstance(equity_curve, pd.Series):
         values = equity_curve.values
     else:
         values = equity_curve
-        
+
     values[0]
-    
+
     # Calculate running max
     running_max = np.maximum.accumulate(values)
-    
+
     # Calculate drawdown
     # Avoid division by zero
     with np.errstate(divide='ignore', invalid='ignore'):
         drawdown = (running_max - values) / running_max
         # Handle cases where running_max is 0
         drawdown[running_max == 0] = 0
-        
+
     return np.max(drawdown) if len(drawdown) > 0 else 0.0
 
 
@@ -156,7 +158,7 @@ def calculate_max_drawdown_duration(
 
 
 def calculate_sharpe_ratio(
-    returns: Union[pd.Series, np.ndarray], 
+    returns: Union[pd.Series, np.ndarray],
     risk_free_rate: float = 0.0,
     periods_per_year: int = 252
 ) -> float:
@@ -173,18 +175,18 @@ def calculate_sharpe_ratio(
     """
     if len(returns) < 2:
         return 0.0
-        
+
     # Convert annual risk free rate to periodic
     rf_per_period = (1 + risk_free_rate) ** (1 / periods_per_year) - 1
-    
+
     excess_returns = returns - rf_per_period
     mean_excess_return = np.mean(excess_returns)
     # Use sample standard deviation (ddof=1) — the finance-industry convention
     std_dev = np.std(returns, ddof=1)
-    
+
     if std_dev < 1e-15:
         return 0.0
-        
+
     return (mean_excess_return / std_dev) * np.sqrt(periods_per_year)
 
 def calculate_sortino_ratio(
@@ -205,21 +207,21 @@ def calculate_sortino_ratio(
     """
     if len(returns) < 2:
         return 0.0
-        
+
     mean_return = np.mean(returns)
-    
+
     # Calculate downside deviation
     downside_returns = returns[returns < target_return]
     if len(downside_returns) == 0:
         return 0.0 # No downside risk
-        
+
     # Root Mean Square of the underperformance
     underperformance = np.minimum(returns - target_return, 0.0)
     downside_deviation = np.sqrt(np.mean(underperformance ** 2))
-    
+
     if downside_deviation == 0:
         return 0.0
-        
+
     return (mean_return - target_return) / downside_deviation * np.sqrt(periods_per_year)
 
 def calculate_volatility(
@@ -238,7 +240,7 @@ def calculate_volatility(
     """
     if len(returns) < 2:
         return 0.0
-    
+
     # Use sample standard deviation (ddof=1) for consistency with Sharpe
     return np.std(returns, ddof=1) * np.sqrt(periods_per_year)
 
@@ -261,7 +263,7 @@ def calculate_var(
     """
     if len(returns) < 1:
         return 0.0
-        
+
     # Calculate percentile
     # For 95% confidence, we look at the 5th percentile of worst returns
     percentile = (1 - confidence_level) * 100
@@ -472,5 +474,5 @@ def calculate_calmar_ratio(
     """
     if max_drawdown == 0:
         return 0.0 if annualized_return <= 0 else float('inf') # Or large number
-        
+
     return annualized_return / max_drawdown

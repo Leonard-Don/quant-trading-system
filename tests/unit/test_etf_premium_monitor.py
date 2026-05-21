@@ -15,7 +15,6 @@ from src.data.etf_premium_monitor import (
     run_premium_refresh_loop,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -45,7 +44,7 @@ def _make_fetcher(
     payloads: Dict[str, str],
     *,
     raise_for: Optional[set] = None,
-) -> Callable[[str], "asyncio.Future[Optional[str]]"]:
+) -> Callable[[str], asyncio.Future[Optional[str]]]:
     async def fetcher(code: str) -> Optional[str]:
         if raise_for and code in raise_for:
             raise RuntimeError("simulated network error")

@@ -74,7 +74,6 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any, Optional, Union
 
-
 # Defaults are surfaced module-level so CLIs / endpoints / tests can
 # reference them without instantiating a model. Keep these tracking the
 # docstring "Default parameter rationale" block above.
@@ -147,7 +146,7 @@ class TransactionCostModel:
     def from_overrides(
         cls,
         overrides: Optional[Mapping[str, Any]] = None,
-    ) -> "TransactionCostModel":
+    ) -> TransactionCostModel:
         """Build a model from a partial overrides dict (CLI / API path).
 
         Unknown keys raise ``TypeError`` so a typo in the override block

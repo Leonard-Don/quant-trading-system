@@ -2,14 +2,15 @@
 行业分析模块单元测试
 """
 
-import pytest
-import pandas as pd
-import numpy as np
-from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import Mock, patch, MagicMock
-import sys
 import os
+import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import MagicMock, Mock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
 
 # 添加项目根目录到路径
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -18,18 +19,18 @@ sys.path.insert(0, project_root)
 
 class TestIndustryAnalyzer:
     """测试行业分析器"""
-    
+
     @pytest.fixture
     def mock_provider(self):
         """创建模拟数据提供器"""
         provider = Mock()
-        
+
         # 模拟行业分类数据
         provider.get_industry_classification.return_value = pd.DataFrame({
             "industry_code": ["801080", "801150", "801750"],
             "industry_name": ["电子", "医药生物", "计算机"]
         })
-        
+
         # 模拟资金流向数据
         provider.get_industry_money_flow.return_value = pd.DataFrame({
             "industry_name": ["电子", "医药生物", "计算机"],
@@ -41,7 +42,7 @@ class TestIndustryAnalyzer:
             "market_cap_snapshot_age_hours": [30.0, None, None],
             "market_cap_snapshot_is_stale": [True, False, False],
         })
-        
+
         # 模拟行业成分股数据
         provider.get_stock_list_by_industry.return_value = [
             {"symbol": "000001", "name": "股票A", "change_pct": 3.5, "market_cap": 100000000000, "volume": 1000000},
@@ -66,26 +67,26 @@ class TestIndustryAnalyzer:
             return pd.DataFrame({"close": closes}, index=dates)
 
         provider.get_industry_index.side_effect = _mock_industry_index
-        
+
         return provider
-    
+
     @pytest.fixture
     def analyzer(self, mock_provider):
         """创建行业分析器实例"""
         from src.analytics.industry_analyzer import IndustryAnalyzer
         return IndustryAnalyzer(mock_provider)
-    
+
     def test_initialization(self, analyzer):
         """测试初始化"""
         assert analyzer is not None
         assert analyzer.provider is not None
         assert "momentum" in analyzer.weights
         assert "money_flow" in analyzer.weights
-    
+
     def test_analyze_money_flow(self, analyzer):
         """测试资金流向分析"""
         result = analyzer.analyze_money_flow(days=5)
-        
+
         assert isinstance(result, pd.DataFrame)
         if not result.empty:
             assert "industry_name" in result.columns
@@ -104,20 +105,20 @@ class TestIndustryAnalyzer:
         result = analyzer.analyze_money_flow(days=5)
 
         assert result["flow_strength"].tolist() == pytest.approx([0.05, 0.03, -0.01], rel=1e-6)
-    
+
     def test_calculate_industry_momentum(self, analyzer):
         """测试行业动量计算"""
         result = analyzer.calculate_industry_momentum(lookback=20)
-        
+
         assert isinstance(result, pd.DataFrame)
         if not result.empty:
             assert "industry_name" in result.columns
             assert "weighted_change" in result.columns
-    
+
     def test_rank_industries(self, analyzer):
         """测试行业排名"""
         result = analyzer.rank_industries(top_n=5)
-        
+
         assert isinstance(result, list)
         if result:
             assert "rank" in result[0]
@@ -210,11 +211,11 @@ class TestIndustryAnalyzer:
 
         assert call_count == 1
         assert result_one.equals(result_two)
-    
+
     def test_get_industry_heatmap_data(self, analyzer):
         """测试热力图数据生成"""
         result = analyzer.get_industry_heatmap_data()
-        
+
         assert isinstance(result, dict)
         assert "industries" in result
         assert "max_value" in result
@@ -282,20 +283,20 @@ class TestIndustryAnalyzer:
         assert isinstance(result, list)
         assert len(result) == 3
         assert result[0]["industry_volatility"] >= result[1]["industry_volatility"] >= result[2]["industry_volatility"]
-    
+
     def test_cluster_hot_industries(self, analyzer):
         """测试行业聚类"""
         result = analyzer.cluster_hot_industries(n_clusters=3)
-        
+
         assert isinstance(result, dict)
         assert "clusters" in result
         assert "hot_cluster" in result
         assert "cluster_stats" in result
-    
+
     def test_get_industry_trend(self, analyzer):
         """测试行业趋势分析"""
         result = analyzer.get_industry_trend("电子", days=30)
-        
+
         assert isinstance(result, dict)
         if "error" not in result:
             assert "industry_name" in result
@@ -339,67 +340,67 @@ class TestIndustryAnalyzer:
         assert result["flat_count"] == 0
         top_symbols = {item["symbol"] for item in result["top_gainers"] + result["top_losers"]}
         assert "000001" not in top_symbols
-    
+
     def test_cache_functionality(self, analyzer):
         """测试缓存功能"""
         # 首次调用
         result1 = analyzer.rank_industries(top_n=3)
-        
+
         # 清除缓存
         analyzer._clear_cache()
-        
+
         # 再次调用
         result2 = analyzer.rank_industries(top_n=3)
-        
+
         # 结果应该相同（基于相同的模拟数据）
         assert len(result1) == len(result2)
-        
+
     def test_cache_hit_verification(self, analyzer, mock_provider):
         """验证缓存命中"""
         # 第一次调用
         analyzer.analyze_money_flow(days=5)
-        
+
         # 验证调用了一次提供器
         assert mock_provider.get_industry_money_flow.call_count == 1
-        
+
         # 第二次调用（应该命中缓存）
         analyzer.analyze_money_flow(days=5)
-        
+
         # 验证没有再次调用提供器
         assert mock_provider.get_industry_money_flow.call_count == 1
-        
+
         # 清除缓存后第三次调用
         analyzer._clear_cache()
         analyzer.analyze_money_flow(days=5)
-        
+
         # 验证再次调用了提供器
         assert mock_provider.get_industry_money_flow.call_count == 2
-    
+
     def test_custom_weights(self):
         """测试自定义权重"""
         from src.analytics.industry_analyzer import IndustryAnalyzer
-        
+
         custom_weights = {
             "momentum": 0.5,
             "money_flow": 0.3,
             "volume_change": 0.2,
             "volatility": 0.0,
         }
-        
+
         analyzer = IndustryAnalyzer(weights=custom_weights)
-        
+
         assert analyzer.weights["momentum"] == 0.5
         assert analyzer.weights["money_flow"] == 0.3
 
 
 class TestLeaderStockScorer:
     """测试龙头股评分器"""
-    
+
     @pytest.fixture
     def mock_provider(self):
         """创建模拟数据提供器"""
         provider = Mock()
-        
+
         # 模拟估值数据
         provider.get_stock_valuation.return_value = {
             "symbol": "000001",
@@ -409,7 +410,7 @@ class TestLeaderStockScorer:
             "pb": 2.5,
             "turnover": 3.5,
         }
-        
+
         # 模拟财务数据
         provider.get_stock_financial_data.return_value = {
             "symbol": "000001",
@@ -417,33 +418,33 @@ class TestLeaderStockScorer:
             "revenue_yoy": 25.0,
             "profit_yoy": 20.0,
         }
-        
+
         # 模拟行业成分股
         provider.get_stock_list_by_industry.return_value = [
             {"symbol": "000001", "name": "股票A", "market_cap": 100000000000, "pe_ratio": 20, "change_pct": 2.5, "volume": 1000000, "amount": 500000000},
             {"symbol": "000002", "name": "股票B", "market_cap": 80000000000, "pe_ratio": 25, "change_pct": 1.5, "volume": 800000, "amount": 400000000},
             {"symbol": "000003", "name": "股票C", "market_cap": 50000000000, "pe_ratio": 15, "change_pct": -0.5, "volume": 500000, "amount": 200000000},
         ]
-        
+
         return provider
-    
+
     @pytest.fixture
     def scorer(self, mock_provider):
         """创建龙头股评分器实例"""
         from src.analytics.leader_stock_scorer import LeaderStockScorer
         return LeaderStockScorer(mock_provider)
-    
+
     def test_initialization(self, scorer):
         """测试初始化"""
         assert scorer is not None
         assert scorer.provider is not None
         assert "market_cap" in scorer.weights
         assert "profitability" in scorer.weights
-    
+
     def test_score_stock(self, scorer):
         """测试单只股票评分"""
         result = scorer.score_stock("000001")
-        
+
         assert isinstance(result, dict)
         if "error" not in result:
             assert "symbol" in result
@@ -490,30 +491,30 @@ class TestLeaderStockScorer:
         assert "error" not in result
         assert result["dimension_scores"]["profitability"] == pytest.approx(0.5, rel=0.001)
         assert result["dimension_scores"]["growth"] == pytest.approx(0.5, rel=0.001)
-    
+
     def test_rank_stocks_in_industry(self, scorer):
         """测试行业内股票排名"""
         result = scorer.rank_stocks_in_industry("电子", top_n=5)
-        
+
         assert isinstance(result, list)
         if result:
             assert "symbol" in result[0]
             assert "total_score" in result[0]
             assert "rank" in result[0]
             assert result[0]["rank"] == 1
-    
+
     def test_get_leader_stocks(self, scorer):
         """测试获取龙头股"""
         result = scorer.get_leader_stocks(["电子", "医药生物"], top_per_industry=3)
-        
+
         assert isinstance(result, list)
         if result:
             assert "global_rank" in result[0]
-    
+
     def test_custom_weights(self):
         """测试自定义权重"""
         from src.analytics.leader_stock_scorer import LeaderStockScorer
-        
+
         custom_weights = {
             "market_cap": 0.3,
             "valuation": 0.2,
@@ -522,20 +523,20 @@ class TestLeaderStockScorer:
             "momentum": 0.1,
             "activity": 0.05,
         }
-        
+
         scorer = LeaderStockScorer(weights=custom_weights)
         scorer.set_weights(custom_weights)
-        
+
         # 权重应该被归一化
         assert sum(scorer.weights.values()) == pytest.approx(1.0, rel=0.01)
-    
+
     def test_normalize_function(self, scorer):
         """测试归一化函数"""
         # 测试边界值
         assert scorer._normalize(0, 0, 100) == 0.0
         assert scorer._normalize(100, 0, 100) == 1.0
         assert scorer._normalize(50, 0, 100) == 0.5
-        
+
         # 测试超出范围的值
         assert scorer._normalize(-10, 0, 100) == 0.0
         assert scorer._normalize(150, 0, 100) == 1.0
@@ -560,7 +561,7 @@ class _OfflineIndustryBacktestDataManager:
 
 class TestIndustryBacktester:
     """测试行业回测器"""
-    
+
     @pytest.fixture
     def backtester(self):
         """创建回测器实例"""
@@ -569,13 +570,13 @@ class TestIndustryBacktester:
             data_manager=_OfflineIndustryBacktestDataManager(),
             initial_capital=1000000,
         )
-    
+
     def test_initialization(self, backtester):
         """测试初始化"""
         assert backtester is not None
         assert backtester.initial_capital == 1000000
         assert backtester.commission_rate == 0.001
-    
+
     def test_run_backtest(self, backtester):
         """测试运行回测"""
         result = backtester.run_backtest(
@@ -585,12 +586,12 @@ class TestIndustryBacktester:
             top_industries=3,
             stocks_per_industry=3
         )
-        
+
         assert result is not None
         assert hasattr(result, 'total_return')
         assert hasattr(result, 'sharpe_ratio')
         assert hasattr(result, 'max_drawdown')
-    
+
     def test_compare_with_benchmark(self, backtester):
         """测试与基准对比"""
         result = backtester.run_backtest(
@@ -598,15 +599,15 @@ class TestIndustryBacktester:
             end_date='2023-03-01',
             rebalance_freq='monthly'
         )
-        
+
         comparison = backtester.compare_with_benchmark('000300.SH', result)
-        
+
         assert isinstance(comparison, dict)
         assert "strategy_return" in comparison
         assert "benchmark_return" in comparison
         assert "excess_return" in comparison
         assert "outperform" in comparison
-    
+
     def test_get_trade_history(self, backtester):
         """测试获取交易历史"""
         backtester.run_backtest(
@@ -614,21 +615,21 @@ class TestIndustryBacktester:
             end_date='2023-02-01',
             rebalance_freq='weekly'
         )
-        
+
         trades = backtester.get_trade_history()
-        
+
         assert isinstance(trades, list)
-    
+
     @pytest.mark.skip(reason="Legacy test method missing in newer implementation")
     def test_calculate_max_drawdown(self, backtester):
         """测试最大回撤计算"""
         # 测试模拟资金曲线
         # max_dd = backtester._calculate_max_drawdown(equity_values)
-        
+
         # 最大回撤应该是从120跌到100，回撤约16.67%
         (120 - 100) / 120
         # assert max_dd == pytest.approx(expected_dd, rel=0.01)
-    
+
     @pytest.mark.skip(reason="Legacy test method missing in newer implementation")
     def test_empty_equity_values(self, backtester):
         """测试空资金曲线"""

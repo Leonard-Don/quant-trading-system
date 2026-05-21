@@ -3,14 +3,16 @@
 整合多维度分析结果，给出综合评分和投资建议
 """
 
-import pandas as pd
-from typing import Dict, List, Any
 import logging
+from typing import Any, Dict, List
+
+import pandas as pd
+
+from .fundamental_analyzer import FundamentalAnalyzer
+from .pattern_recognizer import PatternRecognizer
+from .sentiment_analyzer import SentimentAnalyzer
 from .trend_analyzer import TrendAnalyzer
 from .volume_price_analyzer import VolumePriceAnalyzer
-from .sentiment_analyzer import SentimentAnalyzer
-from .pattern_recognizer import PatternRecognizer
-from .fundamental_analyzer import FundamentalAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -147,7 +149,7 @@ class ComprehensiveScorer:
         v_score = fundamental_result.get("valuation", {}).get("score", 50)
         h_score = fundamental_result.get("financial_health", {}).get("score", 50)
         g_score = fundamental_result.get("growth", {}).get("score", 50)
-        
+
         return (v_score + h_score + g_score) / 3
 
     def _calculate_trend_score(self, trend_result: Dict[str, Any]) -> float:
@@ -439,7 +441,7 @@ class ComprehensiveScorer:
             "low": "低",
             "very_low": "极低"
         }
-        
+
         if risk_level in ["high", "very_high"]:
             cn_risk = risk_map.get(risk_level, risk_level)
             warnings.append(f"当前市场风险等级为{cn_risk}，建议谨慎操作")
@@ -488,7 +490,7 @@ class ComprehensiveScorer:
             trend_reason = f"处于{'强' if 'strong' in trend_desc else ''}上升趋势 (强度: {trend_result.get('trend_strength', 0)})"
         elif "bearish" in trend_desc:
             trend_reason = f"处于{'强' if 'strong' in trend_desc else ''}下跌趋势 (强度: {trend_result.get('trend_strength', 0)})"
-        
+
         explanations.append({
             "dimension": "趋势面",
             "score": round(trend_score, 1),
@@ -506,7 +508,7 @@ class ComprehensiveScorer:
             volume_reason = "资金超买，需警惕回调"
         elif money_flow == "oversold":
             volume_reason = "资金超卖，可能反弹"
-        
+
         explanations.append({
             "dimension": "资金面",
             "score": round(volume_score, 1),
@@ -517,12 +519,12 @@ class ComprehensiveScorer:
         fg_index = sentiment_result.get("fear_greed_index", 50)
         sentiment_str = sentiment_result.get("overall_sentiment", "neutral")
         sentiment_map = {
-            "extreme_greed": "极度贪婪", "greed": "贪婪", 
-            "neutral": "中性", 
+            "extreme_greed": "极度贪婪", "greed": "贪婪",
+            "neutral": "中性",
             "fear": "恐慌", "extreme_fear": "极度恐慌"
         }
         sentiment_reason = f"恐慌贪婪指数 {fg_index} ({sentiment_map.get(sentiment_str, '中性')})"
-        
+
         explanations.append({
             "dimension": "情绪面",
             "score": round(sentiment_score, 1),
@@ -544,13 +546,13 @@ class ComprehensiveScorer:
             tech_reasons.append("RSI超买")
         elif rsi < 30:
             tech_reasons.append("RSI超卖")
-        
+
         macd = indicators.get("macd", {})
         if isinstance(macd, dict) and macd.get("histogram", 0) > 0:
             tech_reasons.append("MACD金叉")
         elif isinstance(macd, dict):
             tech_reasons.append("MACD死叉")
-            
+
         explanations.append({
             "dimension": "技术面",
             "score": round(technical_score, 1),

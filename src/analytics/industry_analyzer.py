@@ -9,17 +9,18 @@ top of a provider, no caching / scheduling / HTTP concerns. It is wrapped by
 Layer charter: ``docs/architecture/industry-layering.md``.
 """
 
-import pandas as pd
-import numpy as np
-import json
-import threading
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List, Tuple
 import logging
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
+
 from src.analytics.industry.computations import (
     apply_historical_volatility,
     derive_size_source,
@@ -35,7 +36,6 @@ from src.analytics.industry_stock_details import (
     extract_stock_detail_fields,
     has_meaningful_numeric,
 )
-from src.utils.config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
 _SINGLE_FLIGHT_MISS = object()
@@ -65,7 +65,7 @@ class IndustryAnalyzer:
         hot_industries = analyzer.rank_industries(top_n=10)
         heatmap_data = analyzer.get_industry_heatmap_data()
     """
-    
+
     # 行业热度评分权重
     # 当前实时评分仅使用能稳定拿到的横截面因子：动量、资金流、活跃度。
     DEFAULT_WEIGHTS = {
@@ -74,7 +74,7 @@ class IndustryAnalyzer:
         "volume_change": 0.15, # 成交量变化权重
         "volatility": -0.15,   # 预留：后续接入真实行业波动率后启用
     }
-    
+
     def __init__(self, data_provider=None, weights: Dict[str, float] = None):
         """
         初始化行业分析引擎
@@ -90,24 +90,24 @@ class IndustryAnalyzer:
         self._cache_lock = threading.RLock()
         self._inflight_loads: Dict[str, Dict[str, Any]] = {}
         self._cache_ttl = timedelta(minutes=30)  # 缓存30分钟（行业数据日内变化较慢）
-    
+
     def set_provider(self, provider):
         """设置数据提供器"""
         self.provider = provider
         self._clear_cache()
-    
+
     def _clear_cache(self):
         """清除缓存"""
         with self._cache_lock:
             self._cached_data = {}
-    
+
     def _get_cache_key(self, prefix: str, **kwargs) -> str:
         """生成缓存键"""
         key_parts = [prefix]
         for k, v in sorted(kwargs.items()):
             key_parts.append(f"{k}:{v}")
         return "|".join(key_parts)
-    
+
     def _update_cache(self, key: str, data: Any):
         """更新缓存（跳过空数据，防止数据源故障时缓存空结果）"""
         import pandas as pd
@@ -123,7 +123,7 @@ class IndustryAnalyzer:
                 "data": data,
                 "timestamp": datetime.now()
             }
-        
+
     def _get_from_cache(self, key: str) -> Optional[Any]:
         """从缓存获取数据，如果不命中或过期返回 None"""
         with self._cache_lock:
@@ -366,7 +366,7 @@ class IndustryAnalyzer:
             for col in optional_cols:
                 if col in money_flow_df.columns and col not in momentum_df.columns:
                     merge_cols.append(col)
-            
+
             if len(merge_cols) > 1:
                 merged_df = momentum_df.merge(
                     money_flow_df[merge_cols],
@@ -377,7 +377,7 @@ class IndustryAnalyzer:
                 merged_df = momentum_df.copy()
         else:
             merged_df = momentum_df.copy()
-        
+
         # 确保必要的列存在
         if "change_pct" not in merged_df.columns:
             merged_df["change_pct"] = merged_df.get("weighted_change", 0)
@@ -385,7 +385,7 @@ class IndustryAnalyzer:
             merged_df["main_net_inflow"] = 0
         if "flow_strength" not in merged_df.columns:
             merged_df["flow_strength"] = 0
-        
+
         # 仅对数值列 fillna(0)，保留字符串列（如 leading_stock）的 None
         numeric_cols = merged_df.select_dtypes(include="number").columns
         merged_df[numeric_cols] = merged_df[numeric_cols].fillna(0)
@@ -516,7 +516,7 @@ class IndustryAnalyzer:
                 if col in df.columns:
                     df["main_net_ratio"] = df[col]
                     break
-        
+
         if "main_net_ratio" in df.columns:
             df["main_net_ratio"] = pd.to_numeric(df["main_net_ratio"], errors="coerce").fillna(0)
         else:
@@ -529,7 +529,7 @@ class IndustryAnalyzer:
                 if "领涨" in str(col) or "最大股" in str(col):
                     df["leading_stock"] = df[col]
                     break
-        
+
         if "leading_stock" not in df.columns:
             df["leading_stock"] = None
         else:
@@ -558,7 +558,7 @@ class IndustryAnalyzer:
         else:
             # 即使列已存在，也确保数值类型正确
             df["total_market_cap"] = pd.to_numeric(df["total_market_cap"], errors="coerce").fillna(0)
-        
+
         # [Fallback] 当所有 total_market_cap 为 0 时，使用 main_net_inflow 绝对值估算相对大小
         if (df["total_market_cap"] == 0).all() and "main_net_inflow" in df.columns:
             abs_flow = df["main_net_inflow"].abs()
@@ -567,7 +567,7 @@ class IndustryAnalyzer:
                 df["total_market_cap"] = abs_flow * 1000  # 缩放到合理量级
 
         return self._ensure_industry_volatility(df)
-    
+
     def analyze_money_flow(self, days: int = 5) -> pd.DataFrame:
         """
         分析各行业资金流向趋势
@@ -682,30 +682,30 @@ class IndustryAnalyzer:
                 return self.analyze_money_flow(days=days)
 
         return self._run_singleflight(cache_key, _load_lightweight)
-    
+
     def _try_sina_fallback(self, days: int) -> pd.DataFrame:
         """
         当主数据源失败时，尝试使用新浪财经作为备选数据源
         """
         try:
             from src.data.providers.sina_ths_adapter import SinaIndustryAdapter
-            
+
             # 懒初始化 Sina 适配器
             if not hasattr(self, '_sina_fallback'):
                 self._sina_fallback = SinaIndustryAdapter()
                 logger.info("Initialized Sina fallback adapter")
-            
+
             logger.info(f"Attempting Sina fallback for money flow (days={days})")
             df = self._sina_fallback.get_industry_money_flow(days=days)
-            
+
             if not df.empty:
                 logger.info(f"Sina fallback succeeded: {len(df)} industries")
             return df
-            
+
         except Exception as e:
             logger.warning(f"Sina fallback failed: {e}")
             return pd.DataFrame()
-    
+
     def _momentum_from_money_flow_fallback(
         self, lookback: int, cache_key: Optional[str]
     ) -> pd.DataFrame:
@@ -932,7 +932,7 @@ class IndustryAnalyzer:
         except Exception as e:
             logger.debug(f"Failed to load industry trend series for {industry_name}: {e}")
             return []
-    
+
     def calculate_industry_momentum(
         self,
         lookback: int = 20,
@@ -951,7 +951,7 @@ class IndustryAnalyzer:
         if self.provider is None:
             logger.error("Data provider not set")
             return pd.DataFrame()
-            
+
         # Check cache (only for full industry list)
         cache_key = None
         if industries is None:
@@ -959,22 +959,22 @@ class IndustryAnalyzer:
             cached = self._get_from_cache(cache_key)
             if cached is not None:
                 return cached
-            
+
         # [优化] 尝试使用资金流向数据作为"快速路径"，避免逐个获取行业成分股 (N+1问题)
         try:
             flow_days = max(int(lookback), 1)
             money_flow_df = self.analyze_money_flow(days=flow_days)
             if not money_flow_df.empty and "change_pct" in money_flow_df.columns:
                 logger.info("Using aggregated industry data for momentum calculation (Fast Path)")
-                
+
                 # 确保必要的列存在
                 df = money_flow_df.copy()
                 if "weighted_change" not in df.columns:
                     df["weighted_change"] = df["change_pct"] # 近似值
-                
+
                 if "avg_change" not in df.columns:
                     df["avg_change"] = df["change_pct"]
-                
+
                 if "avg_volume" not in df.columns:
                     # 尝试从成交额/量估算，如果没有则为0
                     df["avg_volume"] = df.get("volume", df.get("turnover", 0))
@@ -985,13 +985,13 @@ class IndustryAnalyzer:
                 if "total_market_cap" not in df.columns:
                     # 更科学的估算：如果有换手率，可以通过 成交额 / 换手率 来精确估算总市值
                     amount = df.get("amount", df.get("turnover", 0))
-                    
+
                     if "turnover_rate" in df.columns:
                         # 避免除以0，单位一致即可（若 turnover_rate 是百分比）
                         df["total_market_cap"] = np.where(df["turnover_rate"] > 0, amount / (df["turnover_rate"] / 100), amount * 100)
                     else:
                         df["total_market_cap"] = amount * 100 # 非常粗略的估算
-                
+
                 if "stock_count" not in df.columns:
                      df["stock_count"] = 0  # 数据源未提供时标记为0
 
@@ -1013,11 +1013,11 @@ class IndustryAnalyzer:
                     )
                     if not historical_vol_df.empty:
                         df = self._apply_historical_volatility(df, historical_vol_df)
-                
+
                 # Update cache
                 if cache_key:
                     self._update_cache(cache_key, df)
-                    
+
                 return df
         except Exception as e:
             logger.warning(f"Fast path momentum calculation failed: {e}")
@@ -1025,25 +1025,25 @@ class IndustryAnalyzer:
             df = self._momentum_from_money_flow_fallback(lookback, cache_key)
             if not df.empty:
                 return df
-        
+
         # [Slow Path] 原始逻辑：逐个行业获取成分股
         logger.info("Falling back to slow path (fetching stocks for each industry)")
-        
+
         # 获取行业分类
         if industries is None:
             industry_df = self.provider.get_industry_classification()
             industries = industry_df["industry_name"].tolist() if not industry_df.empty else []
-        
+
         momentum_data = []
-        
+
         for industry in industries:
             try:
                 # 尝试获取行业成分股来计算行业整体表现
                 stocks = self.provider.get_stock_list_by_industry(industry)
-                
+
                 if not stocks:
                     continue
-                
+
                 # 计算行业内股票的加权平均涨跌幅
                 total_market_cap = sum(s.get("market_cap", 0) for s in stocks)
                 weighted_change = 0
@@ -1051,25 +1051,25 @@ class IndustryAnalyzer:
                 avg_volume = 0
                 stock_changes = []
                 stock_weights = []
-                
+
                 for stock in stocks:
                     change_pct = stock.get("change_pct", 0)
                     market_cap = stock.get("market_cap", 0)
                     volume = stock.get("volume", 0)
                     stock_changes.append(float(change_pct or 0))
                     stock_weights.append(float(market_cap or 0))
-                    
+
                     if total_market_cap > 0:
                         weighted_change += change_pct * (market_cap / total_market_cap)
                     avg_change += change_pct
                     avg_volume += volume
-                
+
                 stock_count = len(stocks)
                 if stock_count > 0:
                     avg_change /= stock_count
                     avg_volume /= stock_count
                 industry_volatility = self._weighted_std(stock_changes, stock_weights)
-                
+
                 momentum_data.append({
                     "industry_name": industry,
                     "stock_count": stock_count,
@@ -1080,20 +1080,20 @@ class IndustryAnalyzer:
                     "industry_volatility_source": "stock_dispersion",
                     "total_market_cap": total_market_cap,
                 })
-                
+
             except Exception as e:
                 logger.warning(f"Error calculating momentum for {industry}: {e}")
                 continue
-        
+
         if not momentum_data:
             # 慢路径无结果时，尝试 Sina 兜底构建动量（资金流表不依赖成分股）
             df = self._momentum_from_money_flow_fallback(lookback, cache_key)
             if not df.empty:
                 return df
             return pd.DataFrame()
-        
+
         df = pd.DataFrame(momentum_data)
-        
+
         # 计算动量得分（归一化）
         if not df.empty and "weighted_change" in df.columns:
             scaler = StandardScaler()
@@ -1107,13 +1107,13 @@ class IndustryAnalyzer:
         if not historical_vol_df.empty:
             df = self._apply_historical_volatility(df, historical_vol_df)
         df = self._ensure_industry_volatility(df)
-        
+
         # Update cache
         if cache_key and not df.empty:
             self._update_cache(cache_key, df)
-            
+
         return df
-    
+
     def cluster_hot_industries(
         self,
         n_clusters: int = 4
@@ -1134,7 +1134,7 @@ class IndustryAnalyzer:
         """
         # 获取动量数据
         momentum_df = self.calculate_industry_momentum()
-        
+
         if momentum_df.empty or len(momentum_df) < 3:
             logger.warning("Not enough data for clustering")
             return {
@@ -1146,10 +1146,10 @@ class IndustryAnalyzer:
                 "silhouette_score": None,
                 "cluster_candidates": {},
             }
-        
+
         # 获取资金流向数据
         money_flow_df = self.analyze_money_flow()
-        
+
         # 合并数据
         if not money_flow_df.empty:
             # 如果 momentum_df 已经包含了 flow_strength (Fast Path情况)，则不需要重复合并
@@ -1162,7 +1162,7 @@ class IndustryAnalyzer:
                     on="industry_name",
                     how="left"
                 )
-            
+
             if "flow_strength" in merged_df.columns:
                 merged_df["flow_strength"] = merged_df["flow_strength"].fillna(0)
         else:
@@ -1170,14 +1170,14 @@ class IndustryAnalyzer:
              if "flow_strength" not in merged_df.columns:
                  merged_df["flow_strength"] = 0.0
 
-        
+
         # 准备聚类特征 (4D: 涨跌幅, 资金强度, PE, PB)
         # 获取最新的估值数据
         valuation_df = money_flow_df[["industry_name", "pe_ttm", "pb"]] if not money_flow_df.empty and "pe_ttm" in money_flow_df.columns else pd.DataFrame()
-        
+
         if not valuation_df.empty:
             merged_df = merged_df.merge(valuation_df, on="industry_name", how="left")
-            
+
         feature_cols = ["weighted_change", "flow_strength"]
         if "pe_ttm" in merged_df.columns:
             # PE/PB 取对数或倒数处理，避免长尾影响；这里简单填充并标准化
@@ -1188,11 +1188,11 @@ class IndustryAnalyzer:
             feature_cols.append("pb_feat")
 
         features = merged_df[feature_cols].fillna(0).values
-        
+
         # 标准化特征
         scaler = StandardScaler()
         features_scaled = scaler.fit_transform(features)
-        
+
         min_clusters = max(2, min(int(n_clusters or 4), len(merged_df) - 1))
         max_clusters = min(max(min_clusters, int(n_clusters or 4) + 2), max(2, len(merged_df) - 1), 8)
         selected_clusters = min_clusters
@@ -1218,7 +1218,7 @@ class IndustryAnalyzer:
         # K-Means 聚类
         kmeans = KMeans(n_clusters=selected_clusters, random_state=42, n_init=10)
         merged_df["cluster"] = kmeans.fit_predict(features_scaled)
-        
+
         # 识别热门行业簇（平均动量最高的簇）
         cluster_stats = {}
         for i in range(selected_clusters):
@@ -1231,10 +1231,10 @@ class IndustryAnalyzer:
                 "avg_flow": float(avg_flow) if pd.notna(avg_flow) else 0.0,
                 "industries": cluster_data["industry_name"].tolist(),
             }
-        
+
         # 找出平均动量最高的簇作为热门簇
         hot_cluster = max(cluster_stats.keys(), key=lambda k: cluster_stats[k]["avg_momentum"])
-        
+
         clean_df = merged_df.replace([np.inf, -np.inf], np.nan).copy()
         for column in (
             "cluster",
@@ -1262,7 +1262,7 @@ class IndustryAnalyzer:
 
         return {
             "clusters": {
-                i: stats["industries"] 
+                i: stats["industries"]
                 for i, stats in cluster_stats.items()
             },
             "hot_cluster": hot_cluster,
@@ -1272,7 +1272,7 @@ class IndustryAnalyzer:
             "silhouette_score": selected_silhouette,
             "cluster_candidates": cluster_candidates,
         }
-    
+
     def _enrich_stock_counts(self, result: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         为排名结果补充成分股数量（仅对缺失的行业异步获取）
@@ -1323,7 +1323,7 @@ class IndustryAnalyzer:
         """
         if self.provider is None:
             return []
-        
+
         # 顶层结果缓存
         cache_key = self._get_cache_key(
             "rank", top_n=top_n, sort_by=sort_by,
@@ -1332,21 +1332,21 @@ class IndustryAnalyzer:
         cached = self._get_from_cache(cache_key)
         if cached is not None:
             return cached
-            
+
         # 获取所有行业列表
         industries_df = self.provider.get_industry_classification()
         if industries_df.empty:
             return []
-        
+
         # 获取行业代码列表（用于获取成分股数据）
         industry_list = industries_df["industry_name"].tolist()
-        
+
         lookback_days = max(int(lookback_days), 1)
-        
+
         # [性能优化] 所有排序类型都优先走快速路径，
         # 直接使用 analyze_money_flow() 的聚合数据，避免逐行业获取成分股
         use_fast_path = hasattr(self.provider, "get_industry_money_flow")
-        
+
         if use_fast_path:
             # 快速路径：直接使用 provider 的行业列表数据（包含涨跌幅）
             df_fast = self.analyze_money_flow(days=lookback_days)
@@ -1354,7 +1354,7 @@ class IndustryAnalyzer:
                 # 确保字段存在
                 if "money_flow" not in df_fast.columns and "main_net_inflow" in df_fast.columns:
                     df_fast["money_flow"] = df_fast["main_net_inflow"]
-                
+
                 # 对 total_score 排序：使用统一行业热度评分
                 if sort_by == "total_score":
                     df_fast["total_score"] = self._calculate_rank_score_series(df_fast)
@@ -1365,7 +1365,7 @@ class IndustryAnalyzer:
                     sort_col = "industry_volatility"
                 else:
                     sort_col = sort_by
-                    
+
                 if sort_col in df_fast.columns:
                     df_fast = df_fast.sort_values(sort_col, ascending=ascending)
                     top_df = df_fast.head(top_n)
@@ -1374,7 +1374,7 @@ class IndustryAnalyzer:
                         industries=top_df["industry_name"].tolist(),
                         preferred_days=lookback_days,
                     )
-                    
+
                     result = []
                     for idx, (_, row) in enumerate(top_df.iterrows(), 1):
                         # 综合得分：如果已计算 total_score 就用它，否则启发式计算
@@ -1383,9 +1383,9 @@ class IndustryAnalyzer:
                         else:
                             change = row.get("change_pct", 0)
                             flow = row.get("main_net_inflow", 0)
-                            flow_score = (flow / 100000000) * 0.5 
+                            flow_score = (flow / 100000000) * 0.5
                             display_score = (change * 0.7) + (flow_score * 0.3)
-                        
+
                         result.append({
                             "rank": idx,
                             "industry_name": row.get("industry_name", ""),
@@ -1410,17 +1410,17 @@ class IndustryAnalyzer:
             lookback=lookback_days,
             industries=industry_list
         )
-        
+
         if momentum_df.empty:
             return []
-        
+
         # 使用公共合并方法
         money_flow_df = self.analyze_money_flow(days=lookback_days)
         merged_df = self._merge_momentum_and_flow(momentum_df, money_flow_df)
-        
+
         # 统一热度评分口径，确保快/慢路径分数量纲一致
         merged_df["total_score"] = self._calculate_rank_score_series(merged_df)
-        
+
         # 确定排序字段
         sort_col = "total_score"
         if sort_by == "change_pct":
@@ -1429,20 +1429,20 @@ class IndustryAnalyzer:
             sort_col = "main_net_inflow"
         elif sort_by == "industry_volatility":
             sort_col = "industry_volatility"
-            
+
         # 排序并取 top_n
         if sort_col in merged_df.columns:
             merged_df = merged_df.sort_values(sort_col, ascending=ascending)
         else:
              merged_df = merged_df.sort_values("total_score", ascending=False)
-             
+
         top_industries = merged_df.head(top_n)
         mini_trend_lookup = self._build_industry_mini_trend_lookup(
             max_days=5,
             industries=top_industries["industry_name"].tolist(),
             preferred_days=lookback_days,
         )
-        
+
         # 构建结果列表
         result = []
         for idx, (_, row) in enumerate(top_industries.iterrows(), 1):
@@ -1466,7 +1466,7 @@ class IndustryAnalyzer:
                 "dividend_yield": float(row.get("dividend_yield")) if pd.notna(row.get("dividend_yield")) and row.get("dividend_yield") != 0 else None,
                 "mini_trend": mini_trend_lookup.get(row.get("industry_name", ""), []),
             })
-        
+
         self._update_cache(cache_key, result)
         return result
 
@@ -1572,7 +1572,7 @@ class IndustryAnalyzer:
             for name, values in trend_lookup.items()
             if name in target_industries
         }
-    
+
     def get_industry_heatmap_data(self, days: int = 5) -> Dict[str, Any]:
         """
         生成热力图可视化数据
@@ -1692,19 +1692,19 @@ class IndustryAnalyzer:
                 ind["size"] = proxy_size
                 ind["sizeSource"] = "estimated"
 
-        
+
         values = [i["value"] for i in industries]
-        
+
         result = {
             "industries": industries,
             "max_value": max(values) if values else 0,
             "min_value": min(values) if values else 0,
             "update_time": datetime.now().isoformat(),
         }
-        
+
         self._update_cache(cache_key, result)
         return result
-    
+
     def get_industry_trend(
         self,
         industry_name: str,
@@ -1722,7 +1722,7 @@ class IndustryAnalyzer:
         """
         if self.provider is None:
             return {"error": "Data provider not set"}
-        
+
         try:
             days = max(int(days), 1)
             update_time = datetime.now().isoformat()
@@ -1772,7 +1772,7 @@ class IndustryAnalyzer:
             )
             expected_count = int(matched_flow_row.get("stock_count", 0) or 0) if matched_flow_row is not None else 0
             expected_count_base = max(expected_count, 1)
-            
+
             if not stocks:
                 # 混合数据源下，行业名称可能能在行业热度数据中找到，但无法稳定映射到成分股。
                 # 此时返回降级趋势数据，避免前端详情弹窗直接 404。
@@ -1808,7 +1808,7 @@ class IndustryAnalyzer:
                         "update_time": update_time,
                     }
                 return {"error": f"No stocks found for industry: {industry_name}"}
-            
+
             detailed_stocks = []
             valid_change_stocks = []
             for stock in stocks:
@@ -1869,18 +1869,18 @@ class IndustryAnalyzer:
 
             industry_volatility = float(fallback_volatility or 0)
             industry_volatility_source = fallback_volatility_source
-            
+
             # 找出涨幅前5的股票
             top_gainers = sorted(valid_change_stocks, key=lambda x: x.get("change_pct", 0), reverse=True)[:5]
-            
+
             # 找出跌幅前5的股票
             top_losers = sorted(valid_change_stocks, key=lambda x: x.get("change_pct", 0))[:5]
-            
+
             # 计算涨跌比
             rise_count = sum(1 for s in valid_change_stocks if s.get("change_pct", 0) > 0)
             fall_count = sum(1 for s in valid_change_stocks if s.get("change_pct", 0) < 0)
             flat_count = sum(1 for s in valid_change_stocks if s.get("change_pct", 0) == 0)
-            
+
             note = None
             degraded = False
             # 如果成分股数量极少（比如只有1只），且不是原本就极小的行业，标记为降级/提示
@@ -1920,7 +1920,7 @@ class IndustryAnalyzer:
                 "note": note,
                 "update_time": update_time,
             }
-            
+
         except Exception as e:
             logger.error(f"Error analyzing industry trend for {industry_name}: {e}")
             return {"error": str(e)}
@@ -1942,11 +1942,11 @@ class IndustryAnalyzer:
         """
         if self.provider is None:
             return {"error": "Data provider not set"}
-        
+
         if periods is None:
             # THS supports 1, 3, 5, 10, 20. For longer ones, we currently rely on the adapter's closest match logic.
             periods = [1, 5, 20]
-        
+
         try:
             industry_names = [str(name).strip() for name in industry_names if str(name).strip()]
             periods = sorted(set(max(int(p), 1) for p in periods))
@@ -1998,7 +1998,7 @@ class IndustryAnalyzer:
             }
             self._update_cache(cache_key, result)
             return result
-            
+
         except Exception as e:
             logger.error(f"Error getting industry rotation: {e}")
             return {"error": str(e)}

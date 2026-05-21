@@ -31,7 +31,7 @@ class MacroHistoryStore:
     def _load(self) -> None:
         try:
             if self.history_file.exists():
-                with open(self.history_file, "r", encoding="utf-8") as handle:
+                with open(self.history_file, encoding="utf-8") as handle:
                     payload = json.load(handle)
                     self.snapshots = payload if isinstance(payload, list) else []
         except Exception as exc:

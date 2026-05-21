@@ -1,6 +1,6 @@
 import pandas as pd
 
-from src.backtest.batch_backtester import BatchBacktester, BacktestTask, WalkForwardAnalyzer
+from src.backtest.batch_backtester import BacktestTask, BatchBacktester, WalkForwardAnalyzer
 
 
 class DummyBacktester:

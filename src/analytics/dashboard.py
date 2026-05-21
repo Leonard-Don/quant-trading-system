@@ -2,8 +2,9 @@
 简化的性能分析模块
 """
 
+from typing import Any, Dict
+
 import pandas as pd
-from typing import Dict, Any
 
 from src.utils.data_validation import normalize_backtest_results
 

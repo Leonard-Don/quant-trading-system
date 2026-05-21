@@ -3,10 +3,11 @@
 分析成交量与价格的关系，判断市场行为和资金流向
 """
 
-import pandas as pd
-import numpy as np
-from typing import Dict, Any
 import logging
+from typing import Any, Dict
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ class VolumePriceAnalyzer:
         self.divergence_lookback = self.config["divergence_lookback"]
         self.volume_thresholds = self.config["volume_thresholds"]
         self.correlation_thresholds = self.config["correlation_thresholds"]
-    
+
     def _merge_config(self, custom_config: Dict[str, Any]) -> Dict[str, Any]:
         """
         合并自定义配置与默认配置
@@ -451,32 +452,32 @@ class VolumePriceAnalyzer:
         volume = df["volume"]
         high = df["high"]
         low = df["low"]
-        
+
         # 确定价格范围
         price_min = low.min()
         price_max = high.max()
-        
+
         if price_min == price_max:
             return {}
 
         # 创建价格直方图
         price_range = price_max - price_min
         bin_size = price_range / bins
-        
-        
+
+
         # 将每一天的成交量分配到对应的价格区间
         # 简化算法：假设当天的成交量均匀分布在当天的High-Low范围内
         # 实际更精确的算法需要Tick数据，这里使用估算
-        
+
         # 初始化bins
         bin_volumes = np.zeros(bins)
         bin_prices = [price_min + i * bin_size for i in range(bins + 1)]
-        
+
         for i in range(len(df)):
             day_high = high.iloc[i]
             day_low = low.iloc[i]
             day_vol = volume.iloc[i]
-            
+
             if day_high == day_low:
                 # 只有单一价格，找到对应bin
                 bin_idx = int((day_high - price_min) / bin_size)
@@ -487,53 +488,53 @@ class VolumePriceAnalyzer:
                 start_bin = int((day_low - price_min) / bin_size)
                 end_bin = int((day_high - price_min) / bin_size)
                 end_bin = min(end_bin, bins - 1)
-                
+
                 # 涉及的bin数量
                 num_bins = end_bin - start_bin + 1
                 vol_per_bin = day_vol / num_bins
-                
+
                 for b in range(start_bin, end_bin + 1):
                     if 0 <= b < bins:
                         bin_volumes[b] += vol_per_bin
-        
+
         # 寻找POC (Point of Control) - 交易最密集的区域
         max_vol_idx = np.argmax(bin_volumes)
         poc_price = bin_prices[max_vol_idx] + bin_size / 2
-        
+
         # 计算价值区域 (Value Area) - 包含70%成交量的区域
         total_volume = np.sum(bin_volumes)
         target_volume = total_volume * 0.7
-        
+
         # 从POC开始向两边扩展
         current_volume = bin_volumes[max_vol_idx]
         left_idx = max_vol_idx
         right_idx = max_vol_idx
-        
+
         while current_volume < target_volume:
             # 尝试左边
             left_vol = 0
             if left_idx > 0:
                 left_vol = bin_volumes[left_idx - 1]
-            
+
             # 尝试右边
             right_vol = 0
             if right_idx < bins - 1:
                 right_vol = bin_volumes[right_idx + 1]
-            
+
             # 哪边大加哪边，如果都没有了就退出
             if left_vol == 0 and right_vol == 0:
                 break
-                
+
             if left_vol >= right_vol:
                 left_idx -= 1
                 current_volume += left_vol
             else:
                 right_idx += 1
                 current_volume += right_vol
-                
+
         vah = bin_prices[right_idx + 1] # Value Area High
         val = bin_prices[left_idx]      # Value Area Low
-        
+
         # 格式化输出
         profile_data = []
         for i in range(bins):
@@ -544,7 +545,7 @@ class VolumePriceAnalyzer:
                 "is_poc": bool(i == max_vol_idx),
                 "in_value_area": bool(left_idx <= i <= right_idx)
             })
-            
+
         return {
             "poc": round(float(poc_price), 2),
             "vah": round(float(vah), 2),

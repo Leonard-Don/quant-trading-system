@@ -4,7 +4,12 @@ import pandas as pd
 import pytest
 
 from src.backtest.cross_market_backtester import CrossMarketBacktester
-from src.trading.cross_market import AssetSide, AssetUniverse, SpreadZScoreStrategy, CointegrationReversionStrategy
+from src.trading.cross_market import (
+    AssetSide,
+    AssetUniverse,
+    CointegrationReversionStrategy,
+    SpreadZScoreStrategy,
+)
 
 
 def _price_frame(values, start="2024-01-01"):

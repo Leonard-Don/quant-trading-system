@@ -30,7 +30,6 @@ import pytest
 
 from src.utils.cache import CacheManager
 
-
 HEATMAP_KEY = "industry_heatmap|days:5"
 
 

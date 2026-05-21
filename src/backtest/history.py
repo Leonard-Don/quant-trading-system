@@ -3,15 +3,15 @@
 保存和管理回测结果历史
 """
 
+import hashlib
 import json
 import logging
+import sqlite3
+import subprocess
+import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-import threading
-import hashlib
-import subprocess
-import sqlite3
+from typing import Any, Dict, List, Optional
 
 from src.utils.config import PROJECT_ROOT
 from src.utils.data_validation import ensure_json_serializable, normalize_backtest_results
@@ -72,7 +72,7 @@ class BacktestHistory:
         if storage_path is None:
             # 使用项目根目录
             storage_path = PROJECT_ROOT / "data" / "backtest_history"
-        
+
         self.storage_path = Path(storage_path)
         self.storage_path.mkdir(parents=True, exist_ok=True)
         self.history_file = self.storage_path / "history.json"
@@ -81,7 +81,7 @@ class BacktestHistory:
         self.history: List[Dict] = []
         self._lock = threading.RLock()
         self._load_history()
-        
+
         logger.info(f"BacktestHistory initialized with {len(self.history)} records")
 
     @staticmethod
@@ -157,7 +157,7 @@ class BacktestHistory:
             changed = False
 
             if not records and self.history_file.exists():
-                with open(self.history_file, 'r', encoding='utf-8') as f:
+                with open(self.history_file, encoding='utf-8') as f:
                     data = json.load(f)
                     records = data if isinstance(data, list) else data.get("history", [])
                 changed = True
@@ -335,10 +335,10 @@ class BacktestHistory:
             else:
                 result = ensure_json_serializable(result)
             record_id = self._generate_id(result)
-            
+
             # 提取关键信息
             metrics = self._merge_metric_sources(result)
-            
+
             record = {
                 "id": record_id,
                 "timestamp": datetime.now().isoformat(),
@@ -354,17 +354,17 @@ class BacktestHistory:
                 "metrics": self._build_summary_metrics(metrics),
                 "result": result.get("result") or result.get("backtest_result") or result,
             }
-            
+
             # 添加到历史记录
             self.history.insert(0, record)
-            
+
             # 限制记录数量
             if len(self.history) > self.max_records:
                 self.history = self.history[:self.max_records]
-            
+
             # 持久化
             self._persist()
-            
+
             logger.info(f"Saved backtest record: {record_id}")
             return record_id
 
@@ -450,7 +450,7 @@ class BacktestHistory:
         with self._lock:
             original_length = len(self.history)
             self.history = [r for r in self.history if r.get("id") != record_id]
-            
+
             if len(self.history) < original_length:
                 self._persist()
                 logger.info(f"Deleted backtest record: {record_id}")
@@ -484,22 +484,22 @@ class BacktestHistory:
                     "strategy_count": 0,
                     "latest_record_at": None,
                 }
-            
+
             strategies = {}
             symbols = {}
             record_types = {}
             total_return = 0
-            
+
             for record in filtered_history:
                 strategy = record.get("strategy", "Unknown")
                 symbol = record.get("symbol", "Unknown")
                 record_type = record.get("record_type", "backtest")
-                
+
                 strategies[strategy] = strategies.get(strategy, 0) + 1
                 symbols[symbol] = symbols.get(symbol, 0) + 1
                 total_return += record.get("metrics", {}).get("total_return", 0)
                 record_types[record_type] = record_types.get(record_type, 0) + 1
-            
+
             return {
                 "total_records": len(filtered_history),
                 "strategies": strategies,

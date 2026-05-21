@@ -3,9 +3,11 @@
 测试股票分析功能
 """
 
+from datetime import datetime, timedelta
+
 from src.analytics.comprehensive_scorer import ComprehensiveScorer
 from src.data.data_manager import DataManager
-from datetime import datetime, timedelta
+
 
 def test_comprehensive_analysis():
     """测试综合分析功能"""

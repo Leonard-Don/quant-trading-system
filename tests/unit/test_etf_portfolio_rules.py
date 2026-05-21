@@ -4,7 +4,6 @@ import pytest
 
 from src.risk.etf_portfolio_rules import EtfRiskRuleConfig, apply_etf_portfolio_risk_rules
 
-
 ETF_METADATA = {
     "518880": {"bucket": "commodity", "category": "gold"},
     "159985": {"bucket": "commodity", "category": "oil"},

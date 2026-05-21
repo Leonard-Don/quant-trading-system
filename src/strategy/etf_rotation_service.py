@@ -21,15 +21,14 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace as dc_replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import pandas as pd
-
-from dataclasses import replace as dc_replace
 
 from scripts import daily_etf_signal
 from src.data.etf_premium_monitor import EtfPremiumMonitor
@@ -386,7 +385,7 @@ class EtfRotationService:
                 codes = [a["code"] for a in self._strategy_config.universe if a.get("code")]
                 try:
                     self._premium_monitor.set_codes(codes)
-                except Exception as exc:  # noqa: BLE001 — never block reload
+                except Exception as exc:
                     logger.warning("Premium monitor universe refresh failed: %s", exc)
             return self._strategy_config
 

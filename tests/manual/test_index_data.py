@@ -1,5 +1,6 @@
 import yfinance as yf
 
+
 def check_index_data(symbol):
     print(f"Checking {symbol}...")
     ticker = yf.Ticker(symbol)

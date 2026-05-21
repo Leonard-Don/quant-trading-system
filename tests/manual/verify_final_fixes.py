@@ -1,12 +1,13 @@
-import sys
-import os
 import asyncio
+import os
+import sys
 
 # Add project root to sys.path
 sys.path.append(os.getcwd())
 
-from src.data.providers.sina_ths_adapter import SinaIndustryAdapter
 from src.analytics.industry_analyzer import IndustryAnalyzer
+from src.data.providers.sina_ths_adapter import SinaIndustryAdapter
+
 
 async def test_merged_stock_list():
     print("--- Testing Merged Stock List ---")
@@ -17,7 +18,7 @@ async def test_merged_stock_list():
     print(f"Found {len(stocks)} stocks for {name}")
     if stocks:
         print(f"Sample: {stocks[0]['name']} ({stocks[0]['symbol']})")
-    
+
     analyzer = IndustryAnalyzer(provider)
     trend = analyzer.get_industry_trend(name)
     print(f"Trend Analysis for {name}:")

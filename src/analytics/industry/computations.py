@@ -97,8 +97,8 @@ def apply_historical_volatility(
 
 
 __all__ = [
+    "apply_historical_volatility",
     "derive_size_source",
     "scale_rank_score",
     "weighted_std",
-    "apply_historical_volatility",
 ]

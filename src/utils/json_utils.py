@@ -23,9 +23,7 @@ class CustomJSONEncoder(json.JSONEncoder):
             return float(obj)
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
-        elif isinstance(obj, (datetime, date)):
-            return obj.isoformat()
-        elif isinstance(obj, pd.Timestamp):
+        elif isinstance(obj, (datetime, date)) or isinstance(obj, pd.Timestamp):
             return obj.isoformat()
         elif pd.isna(obj):
             return None

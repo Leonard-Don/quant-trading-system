@@ -127,4 +127,4 @@ def calculate_bollinger(
     }
 
 
-__all__ = ["calculate_rsi", "calculate_macd", "calculate_bollinger"]
+__all__ = ["calculate_bollinger", "calculate_macd", "calculate_rsi"]

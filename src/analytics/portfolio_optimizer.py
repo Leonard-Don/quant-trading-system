@@ -1,8 +1,9 @@
+import logging
+from typing import Any, Dict
+
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
-from typing import Dict, Any
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +57,7 @@ class PortfolioOptimizer:
             constraints = ({'type': 'eq', 'fun': lambda x: np.sum(x) - 1})
             # Bounds: 0 <= weight <= 1 (no short selling)
             bounds = tuple((0.0, 1.0) for _ in range(num_assets))
-            
+
             # Initial guess: equal distribution
             init_guess = num_assets * [1. / num_assets,]
 
@@ -68,7 +69,7 @@ class PortfolioOptimizer:
 
             if not result.success:
                 logger.warning(f"Optimization failed: {result.message}")
-            
+
             optimal_weights = result.x
             opt_return, opt_volatility = portfolio_performance(optimal_weights)
             opt_sharpe = (opt_return - self.risk_free_rate) / opt_volatility
@@ -78,7 +79,7 @@ class PortfolioOptimizer:
             # Simplified: generate random portfolios to show the cloud + optimal point
             # Or assume we want strictly the frontier line.
             # For UI visualization, a scattering of random portfolios is often used to show the "bullet".
-            
+
             random_portfolios = []
             num_portfolios = 200
             for _ in range(num_portfolios):

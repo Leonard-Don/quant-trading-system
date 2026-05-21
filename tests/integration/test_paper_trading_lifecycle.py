@@ -20,7 +20,6 @@ from fastapi.testclient import TestClient
 
 from backend.app.services.paper_trading import PaperTradingStore
 
-
 PROFILE = "lifecycle-tester"
 HEADERS = {"X-Research-Profile": PROFILE}
 

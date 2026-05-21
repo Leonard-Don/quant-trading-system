@@ -2,21 +2,26 @@
 测试数据管理器模块
 """
 
-import pytest
-import pandas as pd
-import numpy as np
+import os
+import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from unittest.mock import patch
-from concurrent.futures import ThreadPoolExecutor
-import sys
-import os
+
+import numpy as np
+import pandas as pd
+import pytest
 
 # 添加项目根目录到路径
 project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 sys.path.insert(0, project_root)
 
-from src.data.data_manager import DataManager, get_shared_data_manager, reset_shared_data_manager  # noqa: E402
+from src.data.data_manager import (  # noqa: E402
+    DataManager,
+    get_shared_data_manager,
+    reset_shared_data_manager,
+)
 
 
 class TestDataManager:

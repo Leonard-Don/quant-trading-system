@@ -16,7 +16,6 @@ from backend.main import app
 from src.data.realtime_manager import RealTimeQuote, realtime_manager
 from src.utils.cache import cache_manager
 
-
 FAKE_INITIAL_QUOTE = {
     "symbol": "AAPL",
     "price": 200.0,

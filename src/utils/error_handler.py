@@ -2,12 +2,12 @@
 增强的错误处理模块
 """
 
-import traceback
-import sys
-from typing import Any, Dict, Optional, Type, Union, Callable
-from datetime import datetime
 import logging
+import sys
+import traceback
+from datetime import datetime
 from functools import wraps
+from typing import Any, Callable, Dict, Optional, Type, Union
 
 # 模块级别的logger
 logger = logging.getLogger(__name__)
@@ -328,10 +328,10 @@ class RetryHandler:
                     current_delay *= self.backoff_factor
                 else:
                     self.logger.error(
-                        (
+
                             f"All {self.max_retries + 1} attempts failed "
                             f"for {func.__name__}"
-                        )
+
                     )
 
         raise last_exception

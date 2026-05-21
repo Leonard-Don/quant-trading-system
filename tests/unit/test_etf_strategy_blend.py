@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
-from typing import List, Mapping, Optional
+from typing import List, Optional
 
 import numpy as np
 import pandas as pd

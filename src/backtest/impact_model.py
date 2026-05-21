@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, Iterable
-
+from collections.abc import Iterable
+from typing import Any, Dict
 
 SUPPORTED_MARKET_IMPACT_MODELS = {
     "constant",

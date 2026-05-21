@@ -2,16 +2,17 @@
 高级交易策略模块
 统一使用 BaseStrategy 基类
 """
-import pandas as pd
-import numpy as np
 from typing import Optional
+
+import numpy as np
+import pandas as pd
 
 from .strategies import BaseStrategy
 
 
 class MeanReversionStrategy(BaseStrategy):
     """均值回归策略"""
-    
+
     def __init__(self, lookback_period: int = 20, entry_threshold: float = 2.0):
         super().__init__(
             name="MeanReversion",
@@ -23,7 +24,7 @@ class MeanReversionStrategy(BaseStrategy):
 
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         signals = pd.Series(index=data.index, data=0)
-        
+
         lookback = self.parameters["lookback_period"]
         z_threshold = self.parameters["entry_threshold"]
 
@@ -39,7 +40,7 @@ class MeanReversionStrategy(BaseStrategy):
 
 class MomentumStrategy(BaseStrategy):
     """动量策略"""
-    
+
     def __init__(self, fast_window: int = 10, slow_window: int = 30):
         super().__init__(
             name="Momentum",
@@ -63,7 +64,7 @@ class MomentumStrategy(BaseStrategy):
 
 class VWAPStrategy(BaseStrategy):
     """VWAP 策略"""
-    
+
     def __init__(self, period: int = 20):
         super().__init__(
             name="VWAP",
@@ -87,7 +88,7 @@ class VWAPStrategy(BaseStrategy):
 
 class StochasticOscillator(BaseStrategy):
     """随机振荡器策略"""
-    
+
     def __init__(
         self,
         k_period: int = 14,
@@ -107,7 +108,7 @@ class StochasticOscillator(BaseStrategy):
 
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         signals = pd.Series(index=data.index, data=0)
-        
+
         k_period = self.parameters["k_period"]
         d_period = self.parameters["d_period"]
         oversold = self.parameters["oversold"]
@@ -127,7 +128,7 @@ class StochasticOscillator(BaseStrategy):
 
 class MACDStrategy(BaseStrategy):
     """MACD 策略"""
-    
+
     def __init__(self, fast_period: int = 12, slow_period: int = 26, signal_period: int = 9):
         super().__init__(
             name="MACD",
@@ -140,7 +141,7 @@ class MACDStrategy(BaseStrategy):
 
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         signals = pd.Series(index=data.index, data=0)
-        
+
         fast = self.parameters["fast_period"]
         slow = self.parameters["slow_period"]
         signal = self.parameters["signal_period"]
@@ -159,7 +160,7 @@ class MACDStrategy(BaseStrategy):
 
 class ATRTrailingStop(BaseStrategy):
     """ATR 移动止损策略"""
-    
+
     def __init__(self, atr_period: int = 14, atr_multiplier: float = 2.0):
         super().__init__(
             name="ATRTrailingStop",
@@ -210,7 +211,7 @@ class ATRTrailingStop(BaseStrategy):
 
 class CombinedStrategy(BaseStrategy):
     """组合策略"""
-    
+
     def __init__(self, strategies: list, weights: Optional[list] = None):
         super().__init__(
             name="Combined",

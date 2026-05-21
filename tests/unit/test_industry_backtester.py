@@ -1,9 +1,9 @@
 from datetime import datetime
 
 import pandas as pd
+
 import src.analytics.industry_analyzer as industry_analyzer_module
 import src.analytics.leader_stock_scorer as leader_scorer_module
-
 from src.backtest.industry_backtest import IndustryBacktester
 
 

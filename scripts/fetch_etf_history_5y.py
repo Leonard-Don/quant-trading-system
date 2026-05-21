@@ -40,9 +40,10 @@ import argparse
 import logging
 import sys
 import time
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import List, Optional
 
 import pandas as pd
 
@@ -170,7 +171,7 @@ def _print_summary(matrix: pd.DataFrame, failures: List[str], path: Path) -> Non
     print(f"Wrote {path} — {n_rows} rows × {n_cols} ETFs")
     print(f"  Date range:  {matrix.index.min().date()} → {matrix.index.max().date()}")
     print(f"  ETFs:        {list(matrix.columns)}")
-    print("  Per-ETF non-null bars (out of {}):".format(n_rows))
+    print(f"  Per-ETF non-null bars (out of {n_rows}):")
     for code, count in coverage.items():
         gap = n_rows - count
         flag = "" if gap == 0 else f"  [gaps: {gap}]"

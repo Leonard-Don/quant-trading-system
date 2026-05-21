@@ -7,9 +7,10 @@ is testable without sleeping or mocking system time.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -23,7 +24,6 @@ from src.strategy.etf_rotation_service import (
     is_within_trading_hours,
     max_weight_delta,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -288,6 +288,7 @@ def test_service_premium_monitor_injects_overlays_into_plan(tmp_path) -> None:
     both the risk-rule veto and the scoring penalty fire."""
 
     import asyncio
+
     from src.data.etf_premium_monitor import EtfPremiumMonitor
 
     cfg = _config_with_refresh_enabled(tmp_path)
@@ -499,6 +500,7 @@ def test_service_policy_factor_override_rebuilds_live_strategy(
     """A per-call policy override must affect the service-built strategy."""
 
     import json
+
     from scripts import daily_etf_signal
 
     cfg_path = tmp_path / "strategy.json"
@@ -650,6 +652,7 @@ def test_service_premium_auto_block_disables_new_buys_above_threshold(tmp_path) 
     """Premium >= 5% must produce overlay with block_new_buys=True."""
 
     import asyncio
+
     from src.data.etf_premium_monitor import EtfPremiumMonitor
 
     cfg = _config_with_refresh_enabled(tmp_path)
@@ -707,6 +710,7 @@ def test_service_premium_auto_block_inactive_below_threshold(tmp_path) -> None:
     """Premium below the threshold leaves block_new_buys False."""
 
     import asyncio
+
     from src.data.etf_premium_monitor import EtfPremiumMonitor
 
     cfg = _config_with_refresh_enabled(tmp_path)
@@ -771,6 +775,7 @@ def test_service_reload_strategy_config_picks_up_file_edits(tmp_path, monkeypatc
 
 def test_service_reload_strategy_config_propagates_universe_to_monitor(tmp_path, monkeypatch) -> None:
     import json
+
     from src.data.etf_premium_monitor import EtfPremiumMonitor
 
     cfg_path = tmp_path / "strategy.json"

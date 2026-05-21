@@ -17,8 +17,9 @@ for live ``evaluate()``-style inspection, never for backtesting.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, Iterable, List, Mapping, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd

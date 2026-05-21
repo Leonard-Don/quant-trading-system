@@ -33,10 +33,11 @@ import json
 import logging
 import math
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Sequence
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ class ExecutionRecord:
         return out
 
     @classmethod
-    def from_dict(cls, raw: Mapping[str, Any]) -> "ExecutionRecord":
+    def from_dict(cls, raw: Mapping[str, Any]) -> ExecutionRecord:
         return cls(
             code=str(raw["code"]),
             decision=str(raw.get("decision", "executed")),
@@ -581,9 +582,9 @@ __all__ = [
     "EXECUTIONS_PATH_ENV",
     "ExecutionRecord",
     "append_execution",
+    "compare_execution_to_suggestion",
     "compare_recorded_executions_to_audit",
     "compute_decision_breakdown",
-    "compare_execution_to_suggestion",
     "read_audit_entries",
     "read_executions",
 ]

@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from typing import Dict, Iterable, Optional
+from collections.abc import Iterable
+from typing import Dict, Optional
 
 from .base_factor import FactorResult
 

@@ -3,14 +3,15 @@
 多维度评分模型，从热门行业中遴选龙头企业
 """
 
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from typing import Dict, Any, List
-import logging
 import json
+import logging
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any, Dict, List
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +36,7 @@ class LeaderStockScorer:
         
         leaders = scorer.get_leader_stocks(["电子", "医药生物"], top_per_industry=5)
     """
-    
+
     # 统一评分权重（快速评分和完整评分共用）
     DEFAULT_WEIGHTS = {
         "market_cap": 0.20,      # 市值规模
@@ -45,15 +46,15 @@ class LeaderStockScorer:
         "momentum": 0.10,        # 价格动量（涨跌幅）
         "activity": 0.10,        # 交易活跃度（成交额）
     }
-    
+
     # ROE 合理范围
     ROE_MIN = 0
     ROE_MAX = 50  # 超过50%可能有异常
-    
+
     # 增长率合理范围
     GROWTH_MIN = -100
     GROWTH_MAX = 200  # 超过200%可能有异常
-    
+
     _financial_cache: Dict[str, Any] = {}
     _financial_cache_loaded: bool = False
     _financial_cache_path = Path(__file__).resolve().parents[2] / "cache" / "financial_cache.json"
@@ -96,14 +97,14 @@ class LeaderStockScorer:
     def _get_cached_financial_data(self, symbol: str) -> Dict[str, Any]:
         if self.provider is None:
             return {"error": "Data provider not set"}
-        
+
         self.__class__._ensure_financial_cache_loaded()
         now = time.time()
-        
+
         entry = self.__class__._financial_cache.get(symbol)
         if entry and (now - entry.get("ts", 0)) < 86400:
             return entry.get("data", {})
-            
+
         financial = self.provider.get_stock_financial_data(symbol)
         if "error" not in financial:
             self.__class__._financial_cache[symbol] = {
@@ -111,7 +112,7 @@ class LeaderStockScorer:
                 "data": financial
             }
             # 注意：不再逐股持久化到磁盘，由调用方在批处理结束后统一调用 _persist_financial_cache()
-            
+
         return financial
 
     def _get_cached_financial_data_if_available(self, symbol: str) -> Dict[str, Any]:
@@ -123,7 +124,7 @@ class LeaderStockScorer:
         if (time.time() - entry.get("ts", 0)) >= 86400:
             return {"error": "Financial cache expired"}
         return entry.get("data", {})
-    
+
     def __init__(self, data_provider=None, weights: Dict[str, float] = None):
         """
         初始化龙头股评分系统
@@ -181,12 +182,12 @@ class LeaderStockScorer:
             "source": quote.get("source", "unknown"),
             "updated_at": updated_at,
         }
-        
+
     def set_provider(self, provider):
         """设置数据提供器"""
         self.provider = provider
         self._cache = {}
-        
+
     def set_weights(self, weights: Dict[str, float]):
         """
         设置评分权重
@@ -195,12 +196,12 @@ class LeaderStockScorer:
             weights: 权重字典，键为指标名称，值为权重（-1 到 1）
         """
         self.weights.update(weights)
-        
+
         # 确保权重之和为1（归一化）
         total = sum(self.weights.values())
         if total > 0:
             self.weights = {k: v / total for k, v in self.weights.items()}
-    
+
     def score_stock(
         self,
         symbol: str,
@@ -225,7 +226,7 @@ class LeaderStockScorer:
         """
         if self.provider is None:
             return {"symbol": symbol, "error": "Data provider not set"}
-        
+
         try:
             valuation = {}
             if snapshot_data:
@@ -250,7 +251,7 @@ class LeaderStockScorer:
                 valuation = self.provider.get_stock_valuation(symbol)
                 if "error" in valuation:
                     return {"symbol": symbol, "error": valuation["error"]}
-            
+
             # 获取财务数据
             financial = self._get_cached_financial_data(symbol)
             if "error" in financial:
@@ -260,7 +261,7 @@ class LeaderStockScorer:
                     "revenue_yoy": None,
                     "profit_yoy": None,
                 }
-            
+
             # 提取各项指标（统一字段，与 _quick_score 兼容）
             raw_data = {
                 "symbol": symbol,
@@ -276,13 +277,13 @@ class LeaderStockScorer:
                 "change_pct": valuation.get("change_pct", 0),
                 "amount": valuation.get("amount", 0),
             }
-            
+
             # 计算各维度得分
             dimension_scores = self._calculate_dimension_scores(raw_data, industry_stats, score_type=score_type)
-            
+
             # 计算综合得分
             total_score = self._calculate_total_score(dimension_scores, raw_data, score_type=score_type)
-            
+
             return {
                 "symbol": symbol,
                 "name": raw_data["name"],
@@ -290,7 +291,7 @@ class LeaderStockScorer:
                 "dimension_scores": dimension_scores,
                 "raw_data": raw_data,
             }
-            
+
         except Exception as e:
             logger.error(f"Error scoring stock {symbol}: {e}")
             return {"symbol": symbol, "error": str(e)}
@@ -346,7 +347,7 @@ class LeaderStockScorer:
             logger.warning(f"Financial enrichment failed for {symbol}: {e}")
 
         return score_result
-    
+
     def _calculate_dimension_scores(
         self,
         raw_data: Dict[str, Any],
@@ -365,7 +366,7 @@ class LeaderStockScorer:
         - activity: 交易活跃度（成交额）
         """
         scores = {}
-        
+
         # 1. 市值得分（对数标准化，10亿-1万亿）
         market_cap = raw_data.get("market_cap", 0)
         if market_cap > 0:
@@ -373,7 +374,7 @@ class LeaderStockScorer:
             scores["market_cap"] = self._normalize(log_cap, 9, 12)
         else:
             scores["market_cap"] = 0
-        
+
         # 2. 估值得分（PE 在 10-30 之间较优，过高过低都扣分）
         pe = raw_data.get("pe_ttm", raw_data.get("pe_ratio", 0))
         if pe and pe > 0:
@@ -385,7 +386,7 @@ class LeaderStockScorer:
                 scores["valuation"] = max(0, 1 - (pe - 30) / 50)
         else:
             scores["valuation"] = 0.3  # PE 无效或为负给中性分
-        
+
         # 3. 盈利能力得分（ROE，0-25% 正常范围）
         roe = raw_data.get("roe")
         if roe is None or pd.isna(roe):
@@ -393,7 +394,7 @@ class LeaderStockScorer:
         else:
             roe = self._clip_value(roe, self.ROE_MIN, self.ROE_MAX)
             scores["profitability"] = self._normalize(roe, 0, 25)
-        
+
         # 4. 成长性得分（营收增速 + 利润增速 各 50%）
         revenue_yoy = raw_data.get("revenue_yoy")
         profit_yoy = raw_data.get("profit_yoy")
@@ -408,11 +409,11 @@ class LeaderStockScorer:
             profit_yoy = self._clip_value(profit_yoy, self.GROWTH_MIN, self.GROWTH_MAX)
             pft_score = self._normalize(profit_yoy, -20, 50)
         scores["growth"] = rev_score * 0.5 + pft_score * 0.5
-        
+
         # 5. 动量得分（涨跌幅，-5% 到 +5% 标准化）
         change_pct = raw_data.get("change_pct", 0)
         scores["momentum"] = self._normalize(change_pct, -5, 5)
-        
+
         # 6. 交易活跃度得分（成交额，对数标准化）
         amount = raw_data.get("amount", 0)
         if amount > 0:
@@ -422,7 +423,7 @@ class LeaderStockScorer:
             # 用换手率作为后备
             turnover = raw_data.get("turnover", 0)
             scores["activity"] = self._normalize(turnover, 0.5, 10)
-            
+
         if score_type == "hot":
             net_inflow_ratio = raw_data.get("net_inflow_ratio", raw_data.get("main_net_ratio", 0))
             scores["momentum"] = min(1.0, max(0.0, (change_pct + 15) / 30))
@@ -432,9 +433,9 @@ class LeaderStockScorer:
             scores["growth"] = 0.5
             scores["activity"] = 0.5
             scores["score_type"] = "hot"
-        
+
         return scores
-    
+
     def _calculate_total_score(self, dimension_scores: Dict[str, float], raw_data: Dict[str, Any] = None, score_type: str = "core") -> float:
         """
         计算综合得分
@@ -448,21 +449,21 @@ class LeaderStockScorer:
         if score_type == "hot":
             change_pct = float(raw_data.get("change_pct", 0) or 0)
             net_inflow_ratio = float(raw_data.get("net_inflow_ratio", raw_data.get("main_net_ratio", 0)) or 0)
-            
+
             # Exactly mirrors industry.py hot candidate fallback calculation:
             surge_score = min(100, max(0, (change_pct + 15) / 30 * 50 + max(0, min(50, net_inflow_ratio * 5 + 25))))
-            
+
             # hot 评分使用独立的 0-100 动量量尺，不再压缩到 50 分上限
             return round(surge_score, 2)
-            
+
         total = 0
         for dim, weight in self.weights.items():
             score = dimension_scores.get(dim, 0)
             total += weight * score
-        
+
         # 转换为 0-100 分
         return total * 100
-    
+
     def _normalize(self, value: float, min_val: float, max_val: float) -> float:
         """
         将值归一化到 0-1 范围
@@ -479,13 +480,13 @@ class LeaderStockScorer:
             return 0.5
         normalized = (value - min_val) / (max_val - min_val)
         return max(0, min(1, normalized))
-    
+
     def _clip_value(self, value: float, min_val: float, max_val: float) -> float:
         """限制值在合理范围内"""
         if pd.isna(value) or value is None:
             return 0
         return max(min_val, min(max_val, value))
-    
+
     def rank_stocks_in_industry(
         self,
         industry_name: str,
@@ -504,43 +505,43 @@ class LeaderStockScorer:
         """
         if self.provider is None:
             return []
-        
+
         try:
             # 获取行业成分股
             stocks = self.provider.get_stock_list_by_industry(industry_name)
-            
+
             if not stocks:
                 logger.warning(f"No stocks found for industry: {industry_name}")
                 return []
-            
+
             # 计算行业统计（用于相对评分）
             industry_stats = self._calculate_industry_stats(stocks)
-            
+
             # 对每只股票评分
             scored_stocks = []
             for stock in stocks:
                 symbol = stock.get("symbol", "")
                 if not symbol:
                     continue
-                
+
                 score_data = self.score_stock(symbol, industry_stats, score_type=score_type)
                 if "error" not in score_data:
                     scored_stocks.append(score_data)
-            
+
             # 按综合得分排序
             scored_stocks.sort(key=lambda x: x.get("total_score", 0), reverse=True)
-            
+
             # 添加排名
             for idx, stock in enumerate(scored_stocks[:top_n], 1):
                 stock["rank"] = idx
                 stock["industry"] = industry_name
-            
+
             return scored_stocks[:top_n]
-            
+
         except Exception as e:
             logger.error(f"Error ranking stocks in {industry_name}: {e}")
             return []
-    
+
     def _quick_score(
         self,
         stock_data: Dict[str, Any],
@@ -566,7 +567,7 @@ class LeaderStockScorer:
         change_pct = stock_data.get("change_pct", 0)
         amount = stock_data.get("amount", 0)
         net_inflow_ratio = stock_data.get("net_inflow_ratio", 0)
-        
+
         # 构建统一的 raw_data 格式
         raw_data = {
             "market_cap": market_cap,
@@ -580,12 +581,12 @@ class LeaderStockScorer:
             "turnover": 0,
             "net_inflow_ratio": net_inflow_ratio,
         }
-        
+
         # 使用统一评分逻辑
         dimension_scores = self._calculate_dimension_scores(raw_data, industry_stats, score_type=score_type)
-        
+
         total_score = self._calculate_total_score(dimension_scores, raw_data, score_type=score_type)
-        
+
         return {
             "symbol": symbol,
             "name": name,
@@ -608,7 +609,7 @@ class LeaderStockScorer:
     ) -> Dict[str, Any]:
         """使用行业快照数据对个股做轻量评分。"""
         return self._quick_score(stock_data, industry_stats, score_type=score_type)
-    
+
     def _calculate_industry_stats(self, stocks: List[Dict]) -> Dict[str, Any]:
         """
         计算行业统计数据
@@ -621,10 +622,10 @@ class LeaderStockScorer:
         """
         if not stocks:
             return {}
-        
+
         market_caps = [s.get("market_cap", 0) for s in stocks if s.get("market_cap", 0) > 0]
         pe_ratios = [s.get("pe_ratio", 0) for s in stocks if 0 < s.get("pe_ratio", 0) < 500]
-        
+
         return {
             "count": len(stocks),
             "avg_market_cap": np.mean(market_caps) if market_caps else 0,
@@ -632,7 +633,7 @@ class LeaderStockScorer:
             "avg_pe": np.mean(pe_ratios) if pe_ratios else 0,
             "median_pe": np.median(pe_ratios) if pe_ratios else 0,
         }
-    
+
     def get_leader_stocks(
         self,
         hot_industries: List[str],
@@ -650,7 +651,7 @@ class LeaderStockScorer:
             龙头股列表
         """
         all_leaders = []
-        
+
         for industry in hot_industries:
             try:
                 leaders = self.rank_stocks_in_industry(industry, top_n=top_per_industry, score_type=score_type)
@@ -658,16 +659,16 @@ class LeaderStockScorer:
             except Exception as e:
                 logger.error(f"Error getting leaders for {industry}: {e}")
                 continue
-        
+
         # 按综合得分全局排序
         all_leaders.sort(key=lambda x: x.get("total_score", 0), reverse=True)
-        
+
         # 更新全局排名
         for idx, leader in enumerate(all_leaders, 1):
             leader["global_rank"] = idx
-        
+
         return all_leaders
-    
+
     def get_leader_detail(self, symbol: str, score_type: str = "core") -> Dict[str, Any]:
         """
         获取龙头股详细分析
@@ -680,14 +681,14 @@ class LeaderStockScorer:
         """
         if self.provider is None:
             return {"symbol": symbol, "error": "Data provider not set"}
-        
+
         try:
             # 并发获取评分和 K 线数据，进一步压榨加载速度
             import concurrent.futures
-            
+
             end_date = datetime.now()
             start_date = end_date - timedelta(days=60)
-            
+
             with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
                 future_score = executor.submit(self.score_stock, symbol, None, None, score_type)
                 future_hist = executor.submit(self.provider.get_historical_data, symbol, start_date, end_date)
@@ -696,7 +697,7 @@ class LeaderStockScorer:
                     if hasattr(self.provider, "get_latest_quote")
                     else None
                 )
-                
+
                 score_result = future_score.result()
                 hist_data = future_hist.result()
                 quote_data = future_quote.result() if future_quote is not None else {}
@@ -710,27 +711,27 @@ class LeaderStockScorer:
                 for key, value in quote_snapshot.items():
                     if value not in (None, ""):
                         raw_data[key] = value
-            
+
             # 计算技术指标
             tech_analysis = {}
             if not hist_data.empty:
                 closes = hist_data["close"].values
-                
+
                 # 计算简单移动平均
                 if len(closes) >= 20:
                     tech_analysis["ma5"] = round(closes[-5:].mean(), 2)
                     tech_analysis["ma20"] = round(closes[-20:].mean(), 2)
-                    
+
                 # 计算波动率（60日年化）
                 if len(closes) >= 10:
                     returns = pd.Series(closes).pct_change().dropna()
                     tech_analysis["volatility_60d"] = round(returns.std() * np.sqrt(252) * 100, 2)
-                
+
                 # 最新价位
                 tech_analysis["latest_close"] = round(closes[-1], 2)
                 tech_analysis["high_60d"] = round(closes.max(), 2)
                 tech_analysis["low_60d"] = round(closes.min(), 2)
-            
+
             return {
                 **score_result,
                 "technical_analysis": tech_analysis,
@@ -741,11 +742,11 @@ class LeaderStockScorer:
                     .to_dict(orient="records")
                 ) if not hist_data.empty else [],
             }
-            
+
         except Exception as e:
             logger.error(f"Error getting leader detail for {symbol}: {e}")
             return {"symbol": symbol, "error": str(e)}
-    
+
     def optimize_weights(
         self,
         historical_returns: pd.DataFrame,
@@ -763,13 +764,13 @@ class LeaderStockScorer:
         """
         # 简单实现：使用网格搜索
         # 实际应用中可以使用更复杂的优化算法（如遗传算法、贝叶斯优化）
-        
+
         best_weights = self.weights.copy()
         best_score = float('-inf')
-        
+
         # 生成权重组合
         weight_options = [0.1, 0.15, 0.2, 0.25, 0.3]
-        
+
         for mc in weight_options:
             for roe in weight_options:
                 for rg in weight_options:
@@ -777,7 +778,7 @@ class LeaderStockScorer:
                         remaining = 1 - mc - roe - rg - pg
                         if remaining < 0:
                             continue
-                        
+
                         test_weights = {
                             "market_cap": mc,
                             "roe": roe,
@@ -786,18 +787,18 @@ class LeaderStockScorer:
                             "volatility": -remaining * 0.5,
                             "liquidity": remaining * 0.5,
                         }
-                        
+
                         # 评估这组权重的表现
                         # （简化版：这里需要实际的回测逻辑）
                         score = self._evaluate_weights(test_weights, historical_returns, target)
-                        
+
                         if score > best_score:
                             best_score = score
                             best_weights = test_weights
-        
+
         logger.info(f"Optimized weights: {best_weights}, score: {best_score}")
         return best_weights
-    
+
     def _evaluate_weights(
         self,
         weights: Dict[str, float],

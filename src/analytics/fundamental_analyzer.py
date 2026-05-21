@@ -4,7 +4,8 @@
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 from src.data.data_manager import DataManager, get_shared_data_manager
 
 logger = logging.getLogger(__name__)

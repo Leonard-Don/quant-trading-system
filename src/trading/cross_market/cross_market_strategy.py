@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Dict, Iterable, List
+from collections.abc import Iterable
+from typing import Dict, List
 
 import numpy as np
 import pandas as pd

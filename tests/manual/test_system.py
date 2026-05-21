@@ -3,13 +3,13 @@
 系统测试脚本 - 前后端分离版本
 """
 
-import sys
 import os
-import requests
+import sys
 from datetime import datetime, timedelta
 
 import numpy as np
 import pandas as pd
+import requests
 
 # 添加项目根目录到路径
 project_root = os.path.dirname(
@@ -17,9 +17,9 @@ project_root = os.path.dirname(
 )
 sys.path.insert(0, project_root)
 
-from src.strategy.strategies import MovingAverageCrossover  # noqa: E402
-from src.backtest.backtester import Backtester  # noqa: E402
 from src.analytics.dashboard import PerformanceAnalyzer  # noqa: E402
+from src.backtest.backtester import Backtester  # noqa: E402
+from src.strategy.strategies import MovingAverageCrossover  # noqa: E402
 
 
 def build_synthetic_ohlcv(periods: int = 80) -> pd.DataFrame:

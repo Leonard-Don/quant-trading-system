@@ -1,8 +1,9 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 
+from src.analytics.lstm_predictor import TF_AVAILABLE, LSTMPredictor
 from src.analytics.predictor import PricePredictor
-from src.analytics.lstm_predictor import LSTMPredictor, TF_AVAILABLE
+
 
 def create_mock_data(days=100):
     dates = pd.date_range(end=pd.Timestamp.now(), periods=days)

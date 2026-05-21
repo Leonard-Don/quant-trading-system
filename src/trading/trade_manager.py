@@ -1,10 +1,10 @@
 
 import logging
 import math
-from datetime import datetime
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass, asdict
 import uuid
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -43,21 +43,21 @@ class TradeManager:
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(TradeManager, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
             cls._instance.initialized = False
         return cls._instance
 
     def __init__(self):
         if self.initialized:
             return
-        
+
         self.initial_balance = 100000.0
         self.balance = self.initial_balance
         self.positions: Dict[str, Position] = {}
         self.trade_history: List[Trade] = []
         self.initialized = True
         logger.info(f"TradeManager initialized with ${self.initial_balance:,.2f}")
-    
+
     @property
     def cash(self) -> float:
         """Alias for balance (backward compatibility)"""
@@ -66,19 +66,19 @@ class TradeManager:
     def get_portfolio_status(self, current_prices: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
         """Get current portfolio status including positions and total equity"""
         current_prices = current_prices or {}
-        
+
         total_market_value = 0.0
         portfolio_positions = []
-        
+
         for symbol, position in self.positions.items():
             current_price = current_prices.get(symbol, position.avg_price)
             market_value = position.quantity * current_price
-            
+
             # Calculate PnL
             cost_basis = position.quantity * position.avg_price
             unrealized_pnl = market_value - cost_basis
             unrealized_pnl_percent = (unrealized_pnl / cost_basis * 100) if cost_basis > 0 else 0
-            
+
             # Update position details for display
             pos_dict = asdict(position)
             pos_dict.update({
@@ -88,7 +88,7 @@ class TradeManager:
                 "unrealized_pnl_percent": unrealized_pnl_percent
             })
             portfolio_positions.append(pos_dict)
-            
+
             total_market_value += market_value
 
         total_equity = self.balance + total_market_value
@@ -115,21 +115,21 @@ class TradeManager:
         symbol = symbol.upper()
         action = action.upper()
         total_amount = quantity * price
-        
+
         if action == "BUY":
             if total_amount > self.balance:
                 raise ValueError(f"Insufficient funds. Required: ${total_amount:,.2f}, Available: ${self.balance:,.2f}")
-            
+
             # Update Balance
             self.balance -= total_amount
-            
+
             # Update Position
             if symbol in self.positions:
                 pos = self.positions[symbol]
                 new_quantity = pos.quantity + quantity
                 # Calculate new average price (weighted average)
                 new_avg_price = ((pos.quantity * pos.avg_price) + total_amount) / new_quantity
-                
+
                 pos.quantity = new_quantity
                 pos.avg_price = new_avg_price
             else:
@@ -138,29 +138,29 @@ class TradeManager:
                     quantity=quantity,
                     avg_price=price
                 )
-            
+
             trade_pnl = None
 
         elif action == "SELL":
             if symbol not in self.positions:
                 raise ValueError(f"No position found for {symbol}")
-            
+
             pos = self.positions[symbol]
             if quantity > pos.quantity:
                 raise ValueError(f"Insufficient quantity. Owned: {pos.quantity}, Selling: {quantity}")
-            
+
             # Update Balance
             self.balance += total_amount
-            
+
             # Calculate Realized PnL
             cost_basis = quantity * pos.avg_price
             trade_pnl = total_amount - cost_basis
-            
+
             # Update Position
             pos.quantity -= quantity
             if pos.quantity == 0:
                 del self.positions[symbol]
-        
+
         else:
             raise ValueError(f"Invalid action: {action}")
 
@@ -177,9 +177,9 @@ class TradeManager:
             balance_after=self.balance
         )
         self.trade_history.insert(0, trade)  # Newest first
-        
+
         logger.info(f"Trade executed: {action} {quantity} {symbol} @ ${price:,.2f}")
-        
+
         return asdict(trade)
 
     def get_history(self, limit: int = 50) -> List[Dict[str, Any]]:

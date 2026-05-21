@@ -3,12 +3,13 @@
 为每个请求生成唯一ID，便于日志追踪
 """
 
-import uuid
 import logging
+import uuid
 from contextvars import ContextVar
+from typing import Optional
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             # 记录请求错误
             logger.error(
-                f"请求错误: {request.method} {request.url.path} " f"错误={str(e)}",
+                f"请求错误: {request.method} {request.url.path} " f"错误={e!s}",
                 extra={"request_id": request_id},
                 exc_info=True,
             )

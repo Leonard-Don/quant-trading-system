@@ -2,13 +2,13 @@
 增强的动量策略模块
 """
 
-import pandas as pd
-import numpy as np
-
 # from typing import Dict  # 暂时未使用
 import logging
-from sklearn.preprocessing import StandardScaler
+
+import numpy as np
+import pandas as pd
 from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler
 
 from .strategies import BaseStrategy
 

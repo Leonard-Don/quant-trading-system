@@ -44,8 +44,9 @@ label (``"sideways"`` → α=0.5, ``"bear"`` → α=0.4, etc.).
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Mapping, Optional
+from typing import Dict, List, Optional
 
 import pandas as pd
 

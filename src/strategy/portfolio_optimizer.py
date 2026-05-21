@@ -4,11 +4,12 @@
 实现Markowitz均值-方差优化和其他组合优化方法
 """
 
+import logging
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Optional, Any
 from scipy.optimize import minimize
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class PortfolioOptimizer:
     - 风险平价
     - 最小方差组合
     """
-    
+
     def __init__(
         self,
         risk_free_rate: float = 0.02,
@@ -41,13 +42,13 @@ class PortfolioOptimizer:
             'min_weight': 0.0,
             'max_weight': 1.0
         }
-        
+
         # 存储优化结果
         self.optimal_weights = None
         self.expected_return = None
         self.expected_volatility = None
         self.sharpe_ratio = None
-    
+
     def calculate_portfolio_stats(
         self,
         weights: np.ndarray,
@@ -65,13 +66,13 @@ class PortfolioOptimizer:
         """
         mean_returns = returns.mean() * 252  # 年化
         cov_matrix = returns.cov() * 252  # 年化
-        
+
         portfolio_return = np.dot(weights, mean_returns)
         portfolio_volatility = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
         sharpe = (portfolio_return - self.risk_free_rate) / portfolio_volatility
-        
+
         return portfolio_return, portfolio_volatility, sharpe
-    
+
     def optimize_max_sharpe(
         self,
         returns: pd.DataFrame,
@@ -88,17 +89,17 @@ class PortfolioOptimizer:
             优化结果字典
         """
         n_assets = len(returns.columns)
-        
+
         # 目标函数：负夏普比率（因为我们要最小化）
         def neg_sharpe(weights):
             ret, vol, sharpe = self.calculate_portfolio_stats(weights, returns)
             return -sharpe
-        
+
         # 约束条件
         constraints = [
             {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}  # 权重和为1
         ]
-        
+
         # 边界
         if include_short:
             bounds = tuple((-1, 1) for _ in range(n_assets))
@@ -107,10 +108,10 @@ class PortfolioOptimizer:
                 self.constraints['min_weight'],
                 self.constraints['max_weight']
             ) for _ in range(n_assets))
-        
+
         # 初始权重：等权
         init_weights = np.array([1/n_assets] * n_assets)
-        
+
         # 优化
         result = minimize(
             neg_sharpe,
@@ -120,14 +121,14 @@ class PortfolioOptimizer:
             constraints=constraints,
             options={'maxiter': 1000}
         )
-        
+
         if result.success:
             self.optimal_weights = result.x
             ret, vol, sharpe = self.calculate_portfolio_stats(result.x, returns)
             self.expected_return = ret
             self.expected_volatility = vol
             self.sharpe_ratio = sharpe
-            
+
             return {
                 'success': True,
                 'weights': dict(zip(returns.columns, result.x)),
@@ -142,7 +143,7 @@ class PortfolioOptimizer:
                 'error': result.message,
                 'optimization_method': 'max_sharpe'
             }
-    
+
     def optimize_min_variance(
         self,
         returns: pd.DataFrame
@@ -152,21 +153,21 @@ class PortfolioOptimizer:
         """
         n_assets = len(returns.columns)
         cov_matrix = returns.cov() * 252
-        
+
         def portfolio_variance(weights):
             return np.dot(weights.T, np.dot(cov_matrix, weights))
-        
+
         constraints = [
             {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
         ]
-        
+
         bounds = tuple((
             self.constraints['min_weight'],
             self.constraints['max_weight']
         ) for _ in range(n_assets))
-        
+
         init_weights = np.array([1/n_assets] * n_assets)
-        
+
         result = minimize(
             portfolio_variance,
             init_weights,
@@ -174,10 +175,10 @@ class PortfolioOptimizer:
             bounds=bounds,
             constraints=constraints
         )
-        
+
         if result.success:
             ret, vol, sharpe = self.calculate_portfolio_stats(result.x, returns)
-            
+
             return {
                 'success': True,
                 'weights': dict(zip(returns.columns, result.x)),
@@ -192,7 +193,7 @@ class PortfolioOptimizer:
                 'error': result.message,
                 'optimization_method': 'min_variance'
             }
-    
+
     def optimize_risk_parity(
         self,
         returns: pd.DataFrame
@@ -204,28 +205,28 @@ class PortfolioOptimizer:
         """
         n_assets = len(returns.columns)
         cov_matrix = returns.cov() * 252
-        
+
         def risk_budget_objective(weights):
             # 组合波动率
             port_vol = np.sqrt(np.dot(weights.T, np.dot(cov_matrix, weights)))
-            
+
             # 边际风险贡献
             marginal_contrib = np.dot(cov_matrix, weights)
-            
+
             # 风险贡献
             risk_contrib = weights * marginal_contrib / port_vol
-            
+
             # 目标：使所有风险贡献相等
             target_contrib = port_vol / n_assets
             return np.sum((risk_contrib - target_contrib) ** 2)
-        
+
         constraints = [
             {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
         ]
-        
+
         bounds = tuple((0.01, 1) for _ in range(n_assets))  # 最小1%
         init_weights = np.array([1/n_assets] * n_assets)
-        
+
         result = minimize(
             risk_budget_objective,
             init_weights,
@@ -233,15 +234,15 @@ class PortfolioOptimizer:
             bounds=bounds,
             constraints=constraints
         )
-        
+
         if result.success:
             ret, vol, sharpe = self.calculate_portfolio_stats(result.x, returns)
-            
+
             # 计算实际风险贡献
             port_vol = np.sqrt(np.dot(result.x.T, np.dot(cov_matrix, result.x)))
             marginal_contrib = np.dot(cov_matrix, result.x)
             risk_contrib = result.x * marginal_contrib / port_vol
-            
+
             return {
                 'success': True,
                 'weights': dict(zip(returns.columns, result.x)),
@@ -257,7 +258,7 @@ class PortfolioOptimizer:
                 'error': result.message,
                 'optimization_method': 'risk_parity'
             }
-    
+
     def optimize_target_return(
         self,
         returns: pd.DataFrame,
@@ -269,22 +270,22 @@ class PortfolioOptimizer:
         n_assets = len(returns.columns)
         mean_returns = returns.mean() * 252
         cov_matrix = returns.cov() * 252
-        
+
         def portfolio_variance(weights):
             return np.dot(weights.T, np.dot(cov_matrix, weights))
-        
+
         constraints = [
             {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
             {'type': 'eq', 'fun': lambda x: np.dot(x, mean_returns) - target_return}
         ]
-        
+
         bounds = tuple((
             self.constraints['min_weight'],
             self.constraints['max_weight']
         ) for _ in range(n_assets))
-        
+
         init_weights = np.array([1/n_assets] * n_assets)
-        
+
         result = minimize(
             portfolio_variance,
             init_weights,
@@ -292,10 +293,10 @@ class PortfolioOptimizer:
             bounds=bounds,
             constraints=constraints
         )
-        
+
         if result.success:
             ret, vol, sharpe = self.calculate_portfolio_stats(result.x, returns)
-            
+
             return {
                 'success': True,
                 'weights': dict(zip(returns.columns, result.x)),
@@ -311,7 +312,7 @@ class PortfolioOptimizer:
                 'error': result.message,
                 'optimization_method': 'target_return'
             }
-    
+
     def generate_efficient_frontier(
         self,
         returns: pd.DataFrame,
@@ -321,14 +322,14 @@ class PortfolioOptimizer:
         生成有效前沿
         """
         mean_returns = returns.mean() * 252
-        
+
         # 确定收益率范围
         min_ret = mean_returns.min()
         max_ret = mean_returns.max()
         target_returns = np.linspace(min_ret, max_ret, n_points)
-        
+
         frontier = []
-        
+
         for target in target_returns:
             result = self.optimize_target_return(returns, target)
             if result['success']:
@@ -337,9 +338,9 @@ class PortfolioOptimizer:
                     'volatility': result['expected_volatility'],
                     'sharpe': result['sharpe_ratio']
                 })
-        
+
         return frontier
-    
+
     def optimize_strategy_weights(
         self,
         strategy_returns: pd.DataFrame,
@@ -363,7 +364,7 @@ class PortfolioOptimizer:
             return self.optimize_risk_parity(strategy_returns)
         else:
             raise ValueError(f"未知的优化方法: {method}")
-    
+
     def get_correlation_matrix(
         self,
         returns: pd.DataFrame
@@ -372,7 +373,7 @@ class PortfolioOptimizer:
         获取相关性矩阵
         """
         return returns.corr()
-    
+
     def get_covariance_matrix(
         self,
         returns: pd.DataFrame,
@@ -393,7 +394,7 @@ class DynamicRebalancer:
     
     根据市场条件动态调整权重
     """
-    
+
     def __init__(
         self,
         rebalance_threshold: float = 0.05,
@@ -407,7 +408,7 @@ class DynamicRebalancer:
         self.rebalance_threshold = rebalance_threshold
         self.rebalance_frequency = rebalance_frequency
         self.optimizer = PortfolioOptimizer()
-    
+
     def check_rebalance_needed(
         self,
         current_weights: Dict[str, float],
@@ -422,7 +423,7 @@ class DynamicRebalancer:
             if abs(current - target) > self.rebalance_threshold:
                 return True
         return False
-    
+
     def calculate_trades(
         self,
         current_weights: Dict[str, float],
@@ -448,7 +449,7 @@ class StrategyWeightOptimizer:
     专门用于优化多个交易策略的权重分配
     支持基于历史回测收益的权重优化
     """
-    
+
     def __init__(
         self,
         risk_free_rate: float = 0.02,
@@ -469,7 +470,7 @@ class StrategyWeightOptimizer:
         )
         self.optimal_weights = {}
         self.optimization_history = []
-    
+
     def optimize_from_backtest_results(
         self,
         backtest_results: Dict[str, Dict],
@@ -491,22 +492,22 @@ class StrategyWeightOptimizer:
         for name, result in backtest_results.items():
             if 'returns' in result and result['returns'] is not None:
                 returns_dict[name] = result['returns']
-        
+
         if len(returns_dict) < 2:
             logger.warning("需要至少2个策略才能优化权重")
             return {'success': False, 'error': '策略数量不足'}
-        
+
         # 创建收益率 DataFrame
         returns_df = pd.DataFrame(returns_dict)
         returns_df = returns_df.dropna()
-        
+
         if len(returns_df) < 30:
             logger.warning("历史数据不足")
             return {'success': False, 'error': '历史数据不足'}
-        
+
         # 优化
         result = self.optimizer.optimize_strategy_weights(returns_df, method)
-        
+
         if result['success']:
             self.optimal_weights = result['weights']
             self.optimization_history.append({
@@ -514,9 +515,9 @@ class StrategyWeightOptimizer:
                 'weights': result['weights'],
                 'sharpe': result['sharpe_ratio']
             })
-        
+
         return result
-    
+
     def optimize_from_signals(
         self,
         strategy_signals: Dict[str, pd.Series],
@@ -537,7 +538,7 @@ class StrategyWeightOptimizer:
         # 计算每个策略的收益率
         close = price_data['close'] if 'close' in price_data.columns else price_data['Close']
         base_returns = close.pct_change()
-        
+
         strategy_returns = {}
         for name, signals in strategy_signals.items():
             # 策略收益 = 信号 * 基础收益（考虑滞后）
@@ -545,13 +546,13 @@ class StrategyWeightOptimizer:
             strat_returns = strat_returns.dropna()
             if len(strat_returns) > 30:
                 strategy_returns[name] = strat_returns
-        
+
         if len(strategy_returns) < 2:
             return {'success': False, 'error': '有效策略数量不足'}
-        
+
         returns_df = pd.DataFrame(strategy_returns).dropna()
         return self.optimizer.optimize_strategy_weights(returns_df, method)
-    
+
     def get_weighted_signal(
         self,
         strategy_signals: Dict[str, pd.Series]
@@ -570,7 +571,7 @@ class StrategyWeightOptimizer:
             weights = {k: 1.0 / len(strategy_signals) for k in strategy_signals}
         else:
             weights = self.optimal_weights
-        
+
         # 对齐索引
         common_index = None
         for signals in strategy_signals.values():
@@ -578,26 +579,26 @@ class StrategyWeightOptimizer:
                 common_index = signals.index
             else:
                 common_index = common_index.intersection(signals.index)
-        
+
         weighted_signals = pd.Series(0.0, index=common_index)
         total_weight = 0
-        
+
         for name, signals in strategy_signals.items():
             weight = weights.get(name, 0)
             if weight > 0:
                 weighted_signals += signals.loc[common_index] * weight
                 total_weight += weight
-        
+
         if total_weight > 0:
             weighted_signals /= total_weight
-        
+
         # 转换为离散信号
         return pd.Series(
             np.where(weighted_signals > 0.3, 1,
                      np.where(weighted_signals < -0.3, -1, 0)),
             index=common_index
         )
-    
+
     def compare_strategies(
         self,
         strategy_returns: pd.DataFrame
@@ -612,30 +613,30 @@ class StrategyWeightOptimizer:
             策略对比 DataFrame
         """
         metrics = []
-        
+
         for strategy in strategy_returns.columns:
             returns = strategy_returns[strategy].dropna()
-            
+
             if len(returns) < 10:
                 continue
-            
+
             # 计算各种指标
             annual_return = returns.mean() * 252
             annual_vol = returns.std() * np.sqrt(252)
             sharpe = (annual_return - self.optimizer.risk_free_rate) / annual_vol if annual_vol > 0 else 0
-            
+
             # 最大回撤
             cumulative = (1 + returns).cumprod()
             running_max = cumulative.cummax()
             drawdown = (cumulative - running_max) / running_max
             max_drawdown = drawdown.min()
-            
+
             # 胜率
             win_rate = (returns > 0).sum() / len(returns)
-            
+
             # Calmar 比率
             calmar = annual_return / abs(max_drawdown) if max_drawdown != 0 else 0
-            
+
             metrics.append({
                 'strategy': strategy,
                 'annual_return': annual_return,
@@ -646,7 +647,7 @@ class StrategyWeightOptimizer:
                 'calmar_ratio': calmar,
                 'optimal_weight': self.optimal_weights.get(strategy, 0)
             })
-        
+
         return pd.DataFrame(metrics).sort_values('sharpe_ratio', ascending=False)
 
 

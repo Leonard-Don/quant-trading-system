@@ -1,45 +1,40 @@
-from .strategies import (
-    BaseStrategy,
-    MovingAverageCrossover,
-    RSIStrategy,
-    BollingerBands,
-    BuyAndHold,
-)
-
 from .advanced_strategies import (
+    ATRTrailingStop,
     BaseAdvancedStrategy,
+    CombinedStrategy,
+    MACDStrategy,
     MeanReversionStrategy,
     MomentumStrategy,
-    VWAPStrategy,
     StochasticOscillator,
-    MACDStrategy,
-    ATRTrailingStop,
-    CombinedStrategy,
+    VWAPStrategy,
 )
-
+from .lstm_strategy import (
+    DeepLearningEnsemble,
+    LSTMStrategy,
+)
+from .ml_strategies import (
+    EnsembleStrategy,
+    LogisticRegressionStrategy,
+    MLStrategy,
+    RandomForestStrategy,
+)
 from .pairs_trading import (
-    PairsTradingStrategy,
     MultiPairStrategy,
+    PairsTradingStrategy,
 )
-
 from .portfolio_optimizer import (
-    PortfolioOptimizer,
     DynamicRebalancer,
+    PortfolioOptimizer,
     StrategyWeightOptimizer,
     portfolio_optimizer,
     strategy_weight_optimizer,
 )
-
-from .ml_strategies import (
-    MLStrategy,
-    RandomForestStrategy,
-    LogisticRegressionStrategy,
-    EnsembleStrategy,
-)
-
-from .lstm_strategy import (
-    LSTMStrategy,
-    DeepLearningEnsemble,
+from .strategies import (
+    BaseStrategy,
+    BollingerBands,
+    BuyAndHold,
+    MovingAverageCrossover,
+    RSIStrategy,
 )
 
 __all__ = [

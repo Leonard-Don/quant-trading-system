@@ -2,12 +2,12 @@
 基础架构组件
 """
 
-from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, List
-from datetime import datetime
 import logging
-from dataclasses import dataclass, field
 import uuid
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -54,12 +54,10 @@ class BaseComponent(ABC):
     @abstractmethod
     def initialize(self) -> None:
         """初始化组件"""
-        pass
 
     @abstractmethod
     def cleanup(self) -> None:
         """清理资源"""
-        pass
 
     def add_dependency(self, name: str, component: "BaseComponent") -> None:
         """添加依赖组件"""
@@ -118,17 +116,14 @@ class BaseService(BaseComponent):
     @abstractmethod
     async def start(self) -> None:
         """启动服务"""
-        pass
 
     @abstractmethod
     async def stop(self) -> None:
         """停止服务"""
-        pass
 
     @abstractmethod
     async def health_check(self) -> Dict[str, Any]:
         """健康检查"""
-        pass
 
     def is_running(self) -> bool:
         """检查服务是否运行中"""

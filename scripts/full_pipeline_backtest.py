@@ -20,9 +20,10 @@ import argparse
 import json
 import logging
 import sys
+from collections.abc import Iterable
 from dataclasses import replace as dc_replace
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -32,17 +33,25 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from scripts.daily_etf_signal import (  # noqa: E402
-    build_risk_config, build_strategy_config, load_default_holdings,
+    build_risk_config,
+    build_strategy_config,
+    load_default_holdings,
 )
 from src.backtest.portfolio_backtester import PortfolioBacktester  # noqa: E402
 from src.risk.etf_portfolio_rules import apply_etf_portfolio_risk_rules  # noqa: E402
 from src.strategy.etf_mean_reversion_strategy import (  # noqa: E402
-    EtfMeanReversionConfig, EtfMeanReversionRotationConfig, EtfMeanReversionStrategy,
+    EtfMeanReversionConfig,
+    EtfMeanReversionRotationConfig,
+    EtfMeanReversionStrategy,
 )
 from src.strategy.etf_regime_detector import build_detector_config, classify_regime  # noqa: E402
-from src.strategy.etf_rotation_config_loader import StrategyConfig, load_strategy_config  # noqa: E402
+from src.strategy.etf_rotation_config_loader import (  # noqa: E402
+    StrategyConfig,
+    load_strategy_config,
+)
 from src.strategy.etf_rotation_strategy import (  # noqa: E402
-    DEFAULT_REBALANCE_THRESHOLD, EtfRotationStrategy,
+    DEFAULT_REBALANCE_THRESHOLD,
+    EtfRotationStrategy,
 )
 from src.strategy.etf_strategy_blend import EtfStrategyBlend, EtfStrategyBlendConfig  # noqa: E402
 
@@ -124,7 +133,7 @@ class FullPipelineStrategy:
             total_bars += 1
             try:
                 bar_weights, regime_label = self._compute_bar(window, timestamp)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 error_count += 1
                 logger.warning("bar at %s failed (%s); using zero weights", timestamp, exc)
                 continue

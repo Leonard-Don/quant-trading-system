@@ -114,7 +114,7 @@ def test_mr_normalises_gross_cap_with_multi_asset_universe() -> None:
         np.linspace(0.0, 0.30, 215) + np.cumsum(rng.normal(0.0, 0.003, 215))
     )
     dipped = np.concatenate([base, base[-1] * np.linspace(1.0, 0.93, 5)])
-    matrix = pd.DataFrame({code: dipped for code in ("A", "B", "C", "D")}, index=dates)
+    matrix = pd.DataFrame(dict.fromkeys(("A", "B", "C", "D"), dipped), index=dates)
 
     config = EtfMeanReversionRotationConfig(
         assets=[

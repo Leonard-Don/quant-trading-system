@@ -5,7 +5,7 @@
 避免一次性改动全仓库引用。
 """
 
-from typing import Dict, Any
+from typing import Any, Dict
 
 from src.settings import (
     API_HOST,

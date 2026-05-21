@@ -216,11 +216,10 @@ def test_get_cached_stock_list_by_industry_uses_persistent_proxy_snapshot():
 
     with patch.object(
         SinaIndustryAdapter, "_get_cached_sina_stock_nodes", return_value={"new_dzqj"}
+    ), patch.object(
+        SinaFinanceProvider, "_load_persistent_industry_list", return_value=pd.DataFrame()
     ):
-        with patch.object(
-            SinaFinanceProvider, "_load_persistent_industry_list", return_value=pd.DataFrame()
-        ):
-            stocks = adapter.get_cached_stock_list_by_industry("半导体")
+        stocks = adapter.get_cached_stock_list_by_industry("半导体")
 
     assert len(stocks) == 1
     assert stocks[0]["symbol"] == "688981"

@@ -1,12 +1,12 @@
 from datetime import datetime, timedelta
 
 from src.data.alternative.alt_data_manager import AltDataManager
-from src.data.alternative.governance import AltDataSnapshotStore
 from src.data.alternative.base_alt_provider import (
     AltDataCategory,
     AltDataRecord,
     BaseAltDataProvider,
 )
+from src.data.alternative.governance import AltDataSnapshotStore
 from src.data.alternative.people import PeopleLayerProvider
 from src.data.alternative.policy_radar import PolicyExecutionProvider
 

@@ -28,18 +28,18 @@ do a clean linear combination without scale mismatch.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
-from typing import Dict, Iterable, List, Mapping, Optional
+from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 
 from src.strategy.etf_rotation_strategy import (
+    TRADING_DAYS_PER_YEAR,
     EtfAssetConfig,
     EtfOverlay,
-    EtfRotationConfig,
     EtfSignal,
-    TRADING_DAYS_PER_YEAR,
 )
 
 

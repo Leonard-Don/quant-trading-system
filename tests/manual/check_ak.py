@@ -1,4 +1,5 @@
 import akshare as ak
+
 try:
     df = ak.stock_board_industry_name_ths()
     if not df.empty:

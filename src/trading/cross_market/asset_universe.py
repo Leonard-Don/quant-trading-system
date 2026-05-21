@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, List, Optional
 
 
 class AssetClass(str, Enum):

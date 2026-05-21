@@ -3,10 +3,11 @@
 分析市场情绪、波动率和恐慌程度
 """
 
-import pandas as pd
-import numpy as np
-from typing import Dict, Any
 import logging
+from typing import Any, Dict
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ class SentimentAnalyzer:
         self.fear_greed_weights = self.config["fear_greed_weights"]
         self.risk_thresholds = self.config["risk_thresholds"]
         self.analysis_window = self.config["analysis_window"]
-    
+
     def _merge_config(self, custom_config: Dict[str, Any]) -> Dict[str, Any]:
         """
         合并自定义配置与默认配置
@@ -162,7 +163,7 @@ class SentimentAnalyzer:
 
         # 情绪状态
         sentiment = "neutral"
-        
+
         # 动态计算阈值 (如果数据足够)
         if len(hist_vol) > 100:
             high_vol_threshold = hist_vol.rolling(window=100).quantile(0.8).iloc[-1]
@@ -182,7 +183,7 @@ class SentimentAnalyzer:
             sentiment = "complacent"  # 自满 (<20%分位数)
         elif current_vol < low_vol_threshold * 1.3:
             sentiment = "calm"  # 平静
-            
+
         return {
             "sentiment": sentiment,
             "historical_volatility": round(float(current_vol) if not pd.isna(current_vol) else 0, 2),

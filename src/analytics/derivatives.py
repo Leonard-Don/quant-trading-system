@@ -4,12 +4,13 @@
 支持期权定价和希腊字母计算
 """
 
-import numpy as np
-from scipy.stats import norm
-from typing import Dict, Optional, Tuple
+import logging
 from dataclasses import dataclass
 from enum import Enum
-import logging
+from typing import Dict, Optional, Tuple
+
+import numpy as np
+from scipy.stats import norm
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ class BlackScholesModel:
     
     用于计算欧式期权的理论价格和希腊字母
     """
-    
+
     @staticmethod
     def calculate_d1_d2(
         S: float,  # 标的价格
@@ -60,12 +61,12 @@ class BlackScholesModel:
         """计算d1和d2"""
         if T <= 0:
             return 0, 0
-        
+
         d1 = (np.log(S / K) + (r - q + 0.5 * sigma**2) * T) / (sigma * np.sqrt(T))
         d2 = d1 - sigma * np.sqrt(T)
-        
+
         return d1, d2
-    
+
     @classmethod
     def price(cls, contract: OptionContract) -> float:
         """
@@ -83,23 +84,23 @@ class BlackScholesModel:
         r = contract.risk_free_rate
         sigma = contract.volatility
         q = contract.dividend_yield
-        
+
         if T <= 0:
             # 已到期
             if contract.option_type == OptionType.CALL:
                 return max(S - K, 0)
             else:
                 return max(K - S, 0)
-        
+
         d1, d2 = cls.calculate_d1_d2(S, K, T, r, sigma, q)
-        
+
         if contract.option_type == OptionType.CALL:
             price = S * np.exp(-q * T) * norm.cdf(d1) - K * np.exp(-r * T) * norm.cdf(d2)
         else:
             price = K * np.exp(-r * T) * norm.cdf(-d2) - S * np.exp(-q * T) * norm.cdf(-d1)
-        
+
         return price
-    
+
     @classmethod
     def greeks(cls, contract: OptionContract) -> OptionGreeks:
         """
@@ -114,21 +115,21 @@ class BlackScholesModel:
         r = contract.risk_free_rate
         sigma = contract.volatility
         q = contract.dividend_yield
-        
+
         if T <= 0:
             return OptionGreeks(delta=0, gamma=0, theta=0, vega=0, rho=0)
-        
+
         d1, d2 = cls.calculate_d1_d2(S, K, T, r, sigma, q)
-        
+
         # Delta
         if contract.option_type == OptionType.CALL:
             delta = np.exp(-q * T) * norm.cdf(d1)
         else:
             delta = -np.exp(-q * T) * norm.cdf(-d1)
-        
+
         # Gamma (same for calls and puts)
         gamma = np.exp(-q * T) * norm.pdf(d1) / (S * sigma * np.sqrt(T))
-        
+
         # Theta
         term1 = -S * sigma * np.exp(-q * T) * norm.pdf(d1) / (2 * np.sqrt(T))
         if contract.option_type == OptionType.CALL:
@@ -138,16 +139,16 @@ class BlackScholesModel:
             term2 = r * K * np.exp(-r * T) * norm.cdf(-d2)
             term3 = -q * S * np.exp(-q * T) * norm.cdf(-d1)
         theta = (term1 + term2 + term3) / 365  # 每日theta
-        
+
         # Vega
         vega = S * np.exp(-q * T) * norm.pdf(d1) * np.sqrt(T) / 100  # 每1%波动率
-        
+
         # Rho
         if contract.option_type == OptionType.CALL:
             rho = K * T * np.exp(-r * T) * norm.cdf(d2) / 100  # 每1%利率
         else:
             rho = -K * T * np.exp(-r * T) * norm.cdf(-d2) / 100
-        
+
         return OptionGreeks(
             delta=delta,
             gamma=gamma,
@@ -155,7 +156,7 @@ class BlackScholesModel:
             vega=vega,
             rho=rho
         )
-    
+
     @classmethod
     def implied_volatility(
         cls,
@@ -175,29 +176,29 @@ class BlackScholesModel:
             隐含波动率
         """
         sigma = 0.3  # 初始猜测
-        
+
         for _ in range(max_iterations):
             contract.volatility = sigma
             price = cls.price(contract)
             greeks = cls.greeks(contract)
             vega = greeks.vega * 100  # 转回实际vega
-            
+
             if abs(vega) < 1e-10:
                 break
-            
+
             diff = market_price - price
-            
+
             if abs(diff) < tolerance:
                 return sigma
-            
+
             sigma += diff / vega
-            
+
             # 边界检查
             if sigma <= 0:
                 sigma = 0.01
             elif sigma > 5:
                 sigma = 5
-        
+
         return sigma
 
 
@@ -207,10 +208,10 @@ class OptionAnalyzer:
     
     提供期权定价、希腊字母分析和策略评估
     """
-    
+
     def __init__(self):
         self.model = BlackScholesModel()
-    
+
     def analyze_option(
         self,
         underlying_price: float,
@@ -233,24 +234,24 @@ class OptionAnalyzer:
             option_type=OptionType.CALL if option_type.lower() == "call" else OptionType.PUT,
             dividend_yield=dividend_yield
         )
-        
+
         price = self.model.price(contract)
         greeks = self.model.greeks(contract)
-        
+
         # 内在价值
         if contract.option_type == OptionType.CALL:
             intrinsic = max(underlying_price - strike_price, 0)
         else:
             intrinsic = max(strike_price - underlying_price, 0)
-        
+
         time_value = price - intrinsic
-        
+
         # 盈亏平衡点
         if contract.option_type == OptionType.CALL:
             breakeven = strike_price + price
         else:
             breakeven = strike_price - price
-        
+
         return {
             "contract": {
                 "underlying_price": underlying_price,
@@ -274,7 +275,7 @@ class OptionAnalyzer:
             },
             "interpretation": self._interpret_greeks(greeks, contract.option_type)
         }
-    
+
     def _interpret_greeks(self, greeks: OptionGreeks, option_type: OptionType) -> Dict:
         """希腊字母解读"""
         return {
@@ -283,7 +284,7 @@ class OptionAnalyzer:
             "theta": f"每天时间价值衰减${abs(greeks.theta):.4f}",
             "vega": f"波动率变动1%，期权价格变动${greeks.vega:.4f}"
         }
-    
+
     def calculate_payoff(
         self,
         contract: OptionContract,
@@ -295,16 +296,16 @@ class OptionAnalyzer:
         """
         prices = np.linspace(price_range[0], price_range[1], steps)
         payoffs = []
-        
+
         option_cost = self.model.price(contract)
-        
+
         for p in prices:
             if contract.option_type == OptionType.CALL:
                 payoff = max(p - contract.strike_price, 0) - option_cost
             else:
                 payoff = max(contract.strike_price - p, 0) - option_cost
             payoffs.append(payoff)
-        
+
         return {
             "underlying_prices": prices.tolist(),
             "payoffs": payoffs,

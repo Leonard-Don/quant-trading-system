@@ -1,25 +1,27 @@
-import sys
 import os
+import sys
 import unittest
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 
 # Add src to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../')))
 
-from src.analytics.volume_price_analyzer import VolumePriceAnalyzer
 from src.analytics.trend_analyzer import TrendAnalyzer
+from src.analytics.volume_price_analyzer import VolumePriceAnalyzer
+
 
 class TestNewIndicators(unittest.TestCase):
     def setUp(self):
         self.vp_analyzer = VolumePriceAnalyzer()
         self.trend_analyzer = TrendAnalyzer()
-        
+
         # Create mock data
         dates = pd.date_range('2023-01-01', periods=100)
         np.random.seed(42)
         price = np.cumsum(np.random.randn(100)) + 100
-        
+
         self.df = pd.DataFrame({
             'close': price,
             'high': price + 1,
@@ -30,15 +32,15 @@ class TestNewIndicators(unittest.TestCase):
     def test_vpvr_calculation(self):
         print("\nTesting VPVR Calculation...")
         result = self.vp_analyzer._calculate_vpvr(self.df, bins=10)
-        
+
         print(f"POC: {result.get('poc')}")
         print(f"VAH: {result.get('vah')}")
         print(f"VAL: {result.get('val')}")
-        
+
         self.assertIn('poc', result)
         self.assertIn('profile', result)
         self.assertTrue(len(result['profile']) > 0)
-        
+
         # Verify total volume roughly matches
         total_vol_calc = result['total_volume']
         total_vol_actual = self.df['volume'].sum()
@@ -53,16 +55,16 @@ class TestNewIndicators(unittest.TestCase):
             'low': [100],
             'close': [150] # 50% retrace
         })
-        
+
         result = self.trend_analyzer._calculate_fibonacci_levels(df_trend)
         levels = result['levels']
-        
+
         print("Levels:", levels)
-        
+
         self.assertEqual(levels['0.0'], 200.0)
         self.assertEqual(levels['1.0'], 100.0)
         self.assertEqual(levels['0.5'], 150.0)
-        
+
         # Check current position description
         self.assertIn("Fib 0.5", result['current_position'] or result['nearest_level'])
 

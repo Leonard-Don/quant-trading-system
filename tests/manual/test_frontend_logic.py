@@ -1,5 +1,6 @@
-import yfinance as yf
 import pandas as pd
+import yfinance as yf
+
 
 # Simulate backend get_historical_data
 def get_historical_data(symbol):
@@ -23,7 +24,7 @@ def simulate_frontend_logic(data):
         item['date'] = str(index)
         # item['volume'] could be NaN or 0
         priceData.append(item)
-    
+
     # Processed Data mapping
     processedData = []
     for i, item in enumerate(priceData):
@@ -36,9 +37,9 @@ def simulate_frontend_logic(data):
     # Stats calculation
     closes = [d['close'] for d in processedData]
     volumes = [d['volume'] for d in processedData]
-    
+
     print(f"Volume sample: {volumes[:5]}")
-    
+
     # Simulate reduce with potential NaN (if not handled above)
     try:
         avgVolume = sum(volumes) / len(volumes)

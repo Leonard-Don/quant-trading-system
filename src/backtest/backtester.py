@@ -3,37 +3,39 @@ Backtest engine for testing trading strategies
 """
 
 import logging
-import pandas as pd
-import numpy as np
 from dataclasses import dataclass
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+import pandas as pd
+
 from .base_backtester import BaseBacktester
 from .impact_model import (
     estimate_market_impact_rate,
     normalize_market_impact_model,
     summarize_execution_costs,
 )
-from .signal_adapter import SignalAdapter
-from .risk_manager import RiskManager, RiskContext, RiskAction
+from .metrics import (
+    calculate_annualized_return,
+    calculate_calmar_ratio,
+    calculate_cvar,
+    calculate_expectancy,
+    calculate_max_drawdown,
+    calculate_max_drawdown_duration,
+    calculate_omega_ratio,
+    calculate_recovery_factor,
+    calculate_sharpe_ratio,
+    calculate_sortino_ratio,
+    calculate_var,
+    calculate_volatility,
+)
 from .position_sizer import (
     BasePositionSizer,
     FixedFractionSizer,
     SizingContext,
 )
-from .metrics import (
-    calculate_annualized_return,
-    calculate_sharpe_ratio, 
-    calculate_sortino_ratio,
-    calculate_max_drawdown,
-    calculate_max_drawdown_duration,
-    calculate_calmar_ratio,
-    calculate_volatility,
-    calculate_var,
-    calculate_cvar,
-    calculate_omega_ratio,
-    calculate_recovery_factor,
-    calculate_expectancy,
-)
+from .risk_manager import RiskAction, RiskContext, RiskManager
+from .signal_adapter import SignalAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -288,15 +290,11 @@ class SingleAssetExecutionEngine:
             else:
                 if current_position > 0 and avg_cost_basis > 0:
                     unrealized_return = (price - avg_cost_basis) / avg_cost_basis
-                    if stop_loss_pct is not None and unrealized_return <= -stop_loss_pct:
-                        signal = -1
-                    elif (
+                    if (stop_loss_pct is not None and unrealized_return <= -stop_loss_pct) or (
                         current_entry_date is not None
                         and max_holding_days is not None
                         and (data.index[i] - current_entry_date).days >= max_holding_days
-                    ):
-                        signal = -1
-                    elif (
+                    ) or (
                         take_profit_pct is not None
                         and unrealized_return >= take_profit_pct
                     ):
@@ -880,7 +878,7 @@ class Backtester(BaseBacktester):
 
         # Calculate annualized volatility
         volatility = calculate_volatility(returns)
-        
+
         # Calculate Value at Risk (95% confidence)
         var_95 = calculate_var(returns)
 

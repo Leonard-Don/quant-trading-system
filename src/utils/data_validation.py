@@ -3,13 +3,14 @@
 确保前后端数据结构一致性
 """
 
-import pandas as pd
-import numpy as np
-from typing import Dict, Any, List, Optional
 import logging
 import math
-from datetime import datetime
 from copy import deepcopy
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+import pandas as pd
 
 from src.backtest.metrics import (
     calculate_annualized_return,
@@ -145,7 +146,7 @@ class DataStructureValidator:
         except Exception as e:
             logger.error(f"Error validating backtest results: {e}")
             validation_result["is_valid"] = False
-            validation_result["errors"].append(f"Validation error: {str(e)}")
+            validation_result["errors"].append(f"Validation error: {e!s}")
 
         return validation_result
 
@@ -275,7 +276,7 @@ class DataStructureValidator:
 
         except Exception as e:
             validation_result["warnings"].append(
-                f"Error in numerical validation: {str(e)}"
+                f"Error in numerical validation: {e!s}"
             )
 
     def sanitize_for_json(self, data: Any) -> Any:

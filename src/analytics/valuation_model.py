@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 from src.analytics.valuation_support import (
     benchmark_warnings,

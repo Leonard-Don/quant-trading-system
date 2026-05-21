@@ -2,18 +2,20 @@
 机器学习策略模块
 """
 
+import logging
+from typing import Dict, Optional
+
 import numpy as np
 import pandas as pd
-from typing import Dict, Optional
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-import logging
+from sklearn.preprocessing import StandardScaler
+
+from ..utils.config import ML_CONFIG
 
 # from ..core.base import BaseComponent  # 暂时未使用
 from .strategies import BaseStrategy
-from ..utils.config import ML_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -201,17 +203,17 @@ class RandomForestStrategy(MLStrategy):
 
     def __init__(self, n_estimators: int = None, max_depth: int = None, **kwargs):
         super().__init__(**kwargs)
-        
+
         # 使用配置默认值
         rf_config = ML_CONFIG.get("random_forest", {})
         self.n_estimators = n_estimators or rf_config.get("n_estimators", 100)
         self.max_depth = max_depth or rf_config.get("max_depth", 10)
         self.random_state = rf_config.get("random_state", 42)
-        
+
         self.model = RandomForestClassifier(
-            n_estimators=self.n_estimators, 
-            max_depth=self.max_depth, 
-            random_state=self.random_state, 
+            n_estimators=self.n_estimators,
+            max_depth=self.max_depth,
+            random_state=self.random_state,
             n_jobs=-1
         )
 
@@ -221,7 +223,7 @@ class RandomForestStrategy(MLStrategy):
             return None
 
         importance = self.model.feature_importances_
-        
+
         # 使用保存的特征名称
         if hasattr(self, 'feature_names') and self.feature_names:
             feature_map = dict(zip(self.feature_names, importance))
@@ -229,7 +231,7 @@ class RandomForestStrategy(MLStrategy):
             sorted_features = dict(sorted(feature_map.items(), key=lambda x: x[1], reverse=True))
             # 返回前20个最重要的特征
             return dict(list(sorted_features.items())[:20])
-            
+
         # 降级方案
         top_indices = np.argsort(importance)[-10:][::-1]
         return {f"feature_{i}": importance[i] for i in top_indices}

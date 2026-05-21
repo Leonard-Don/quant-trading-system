@@ -2,14 +2,15 @@
 模型比较服务
 支持多种预测模型的对比分析
 """
-import pandas as pd
-import numpy as np
-from typing import Any, Dict, List
 import logging
 from datetime import datetime
+from typing import Any, Dict, List
 
+import numpy as np
+import pandas as pd
+
+from .lstm_predictor import TF_AVAILABLE, lstm_predictor
 from .predictor import PricePredictor
-from .lstm_predictor import lstm_predictor, TF_AVAILABLE
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ class ModelComparator:
     模型比较器
     支持 Random Forest 和 LSTM 模型的对比
     """
-    
+
     def __init__(
         self,
         rf_predictor: PricePredictor | None = None,
@@ -27,7 +28,7 @@ class ModelComparator:
     ):
         self.rf_predictor = rf_predictor or PricePredictor()
         self.lstm_predictor = lstm_predictor_instance or lstm_predictor
-        
+
     def get_available_models(self) -> List[Dict]:
         """获取可用的模型列表"""
         models = [
@@ -45,7 +46,7 @@ class ModelComparator:
             }
         ]
         return models
-    
+
     def train_all_models(self, historical_data: pd.DataFrame, symbol: str) -> Dict:
         """
         训练所有可用模型
@@ -61,7 +62,7 @@ class ModelComparator:
             'symbol': symbol,
             'models': {}
         }
-        
+
         # 训练 Random Forest
         try:
             rf_metrics = self.rf_predictor.train(historical_data, symbol)
@@ -75,7 +76,7 @@ class ModelComparator:
                 'status': 'error',
                 'error': str(e)
             }
-        
+
         # 训练 LSTM
         try:
             lstm_metrics = self.lstm_predictor.train(historical_data, symbol)
@@ -89,13 +90,13 @@ class ModelComparator:
                 'status': 'error',
                 'error': str(e)
             }
-        
+
         return results
-    
+
     def predict_with_model(
-        self, 
-        current_data: pd.DataFrame, 
-        symbol: str, 
+        self,
+        current_data: pd.DataFrame,
+        symbol: str,
         model_type: str = 'random_forest',
         days: int = 5
     ) -> Dict:
@@ -115,11 +116,11 @@ class ModelComparator:
             return self.lstm_predictor.predict(current_data, symbol, days)
         else:
             return self.rf_predictor.predict_next_days(current_data, days, symbol)
-    
+
     def compare_predictions(
-        self, 
-        current_data: pd.DataFrame, 
-        symbol: str, 
+        self,
+        current_data: pd.DataFrame,
+        symbol: str,
         days: int = 5
     ) -> Dict:
         """
@@ -139,7 +140,7 @@ class ModelComparator:
             'generated_at': datetime.now().isoformat(),
             'predictions': {}
         }
-        
+
         # Random Forest 预测
         try:
             rf_pred = self.rf_predictor.predict_next_days(current_data, days, symbol)
@@ -154,7 +155,7 @@ class ModelComparator:
                 'status': 'error',
                 'error': str(e)
             }
-        
+
         # LSTM 预测
         try:
             lstm_pred = self.lstm_predictor.predict(current_data, symbol, days)
@@ -169,17 +170,17 @@ class ModelComparator:
                 'status': 'error',
                 'error': str(e)
             }
-            
+
         # Extract dates from any successful prediction to top level
         # This ensures frontend compatibility (AIPredictionPanel.js expects data.dates)
         if 'random_forest' in results['predictions'] and 'dates' in results['predictions']['random_forest']:
              results['dates'] = results['predictions']['random_forest']['dates']
         elif 'lstm' in results['predictions'] and 'dates' in results['predictions']['lstm']:
              results['dates'] = results['predictions']['lstm']['dates']
-        
+
         # 计算统计对比
         results['comparison'] = self._compute_comparison(results['predictions'])
-        
+
         # Clean NaNs to ensure JSON compatibility
         return self._clean_nans(results)
 
@@ -199,51 +200,51 @@ class ModelComparator:
                 return None
             return obj.item()
         return obj
-    
+
     def _compute_comparison(self, predictions: Dict) -> Dict:
         """计算模型预测对比统计"""
         comparison = {
             'models_compared': list(predictions.keys()),
             'agreement_metrics': {}
         }
-        
+
         try:
             rf_prices = predictions.get('random_forest', {}).get('predicted_prices', [])
             lstm_prices = predictions.get('lstm', {}).get('predicted_prices', [])
-            
+
             if rf_prices and lstm_prices:
                 # 转换为 numpy 数组
                 rf_arr = np.array(rf_prices)
                 lstm_arr = np.array(lstm_prices)
-                
+
                 # 计算平均预测
                 avg_prices = (rf_arr + lstm_arr) / 2
-                
+
                 # 计算模型差异
                 diff = np.abs(rf_arr - lstm_arr)
-                
+
                 comparison['agreement_metrics'] = {
                     'mean_difference': float(np.mean(diff)),
                     'max_difference': float(np.max(diff)),
                     'mean_difference_percent': float(np.mean(diff / avg_prices) * 100),
                     'correlation': float(np.corrcoef(rf_arr, lstm_arr)[0, 1]) if len(rf_arr) > 1 else 1.0
                 }
-                
+
                 # 趋势一致性
                 rf_trend = 'up' if rf_arr[-1] > rf_arr[0] else 'down'
                 lstm_trend = 'up' if lstm_arr[-1] > lstm_arr[0] else 'down'
                 comparison['trend_agreement'] = rf_trend == lstm_trend
-                
+
                 # 集成预测（平均）
                 comparison['ensemble_prediction'] = {
                     'predicted_prices': [float(p) for p in avg_prices],
                     'method': 'simple_average'
                 }
-                
+
         except Exception as e:
             logger.error(f"Error computing comparison: {e}")
             comparison['error'] = str(e)
-        
+
         return comparison
 
 

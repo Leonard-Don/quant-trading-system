@@ -2,13 +2,13 @@
 高级交易策略模块
 """
 
-import numpy as np
-import pandas as pd
-from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
 import logging
 import warnings
+from abc import ABC, abstractmethod
+from typing import Any, Dict, Optional
 
+import numpy as np
+import pandas as pd
 
 from ..utils.performance import timing_decorator
 
@@ -36,7 +36,6 @@ class BaseStrategy(ABC):
         Returns:
             Series with signals (1: buy, -1: sell, 0: hold)
         """
-        pass
 
     def get_positions(self, signals: pd.Series) -> pd.Series:
         """Convert signals to positions"""

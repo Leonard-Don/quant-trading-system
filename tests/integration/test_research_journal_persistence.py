@@ -25,7 +25,6 @@ from fastapi.testclient import TestClient
 
 from backend.app.services.research_journal import ResearchJournalStore
 
-
 PROFILE = "lifecycle-tester"
 
 

@@ -10,15 +10,14 @@ from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps
 from docx import Document
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_ROW_HEIGHT_RULE, WD_TABLE_ALIGNMENT
-from docx.enum.text import WD_BREAK
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK, WD_LINE_SPACING, WD_TAB_ALIGNMENT
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Emu, Pt
 from docxcompose.composer import Composer
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -3380,9 +3379,7 @@ def update_body_content(doc: Document) -> None:
             from docx.text.paragraph import Paragraph
 
             next_para = Paragraph(next_element, test_heading._parent)
-            if next_para.text.strip().startswith("功能测试主要分为三类"):
-                replace_paragraph_text(next_para, intro_text)
-            elif next_para.text.strip() != "表 6.1 主要功能测试结果":
+            if next_para.text.strip().startswith("功能测试主要分为三类") or next_para.text.strip() != "表 6.1 主要功能测试结果":
                 replace_paragraph_text(next_para, intro_text)
             else:
                 intro_para = insert_paragraph_after(test_heading, intro_text)
@@ -3579,11 +3576,7 @@ def set_table_borders(table, top: bool, header_bottom: bool, bottom: bool) -> No
                     node = OxmlElement(f"w:{edge}")
                     tc_borders.append(node)
                 enabled = False
-                if edge == "top" and top and row_idx == 0:
-                    enabled = True
-                elif edge == "bottom" and header_bottom and row_idx == 0:
-                    enabled = True
-                elif edge == "bottom" and bottom and row_idx == len(rows) - 1:
+                if (edge == "top" and top and row_idx == 0) or (edge == "bottom" and header_bottom and row_idx == 0) or (edge == "bottom" and bottom and row_idx == len(rows) - 1):
                     enabled = True
                 if enabled:
                     node.set(qn("w:val"), "single")

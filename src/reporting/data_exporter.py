@@ -3,18 +3,19 @@
 负责生成回测结果的 JSON/CSV/Excel 报告以及可视化图表
 """
 
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from datetime import datetime
-from typing import Dict, Any, Optional, List
+import base64
+import csv
 import json
 import logging
-from pathlib import Path
-import base64
+from datetime import datetime
 from io import BytesIO
-import csv
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
 
 from src.utils.config import PROJECT_ROOT
 from src.utils.data_validation import normalize_backtest_results
@@ -303,8 +304,8 @@ class DataExporter:
 
                 return {
                     "total_trades": len(completed_positions),
-                    "buy_signals": int(len(buy_trades)),
-                    "sell_signals": int(len(sell_trades)),
+                    "buy_signals": len(buy_trades),
+                    "sell_signals": len(sell_trades),
                     "avg_holding_period": round(avg_holding_period, 1),
                     "max_holding_period": max_holding_period,
                     "min_holding_period": min_holding_period,

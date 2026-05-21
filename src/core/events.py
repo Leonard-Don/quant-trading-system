@@ -3,13 +3,13 @@
 """
 
 import asyncio
-from typing import Any, Callable, Dict, List, Optional
-from dataclasses import dataclass, field
-from datetime import datetime
 import logging
-from collections import defaultdict
 import threading
 from abc import ABC, abstractmethod
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Any, Callable, Dict, List, Optional
 
 
 @dataclass
@@ -39,13 +39,11 @@ class EventHandler(ABC):
     @abstractmethod
     async def handle(self, event: Event) -> None:
         """处理事件"""
-        pass
 
     @property
     @abstractmethod
     def event_types(self) -> List[str]:
         """支持的事件类型"""
-        pass
 
     @property
     def priority(self) -> int:
@@ -241,31 +239,26 @@ class EventBus:
 class SystemEvent(Event):
     """系统事件"""
 
-    pass
 
 
 class StrategyEvent(Event):
     """策略事件"""
 
-    pass
 
 
 class BacktestEvent(Event):
     """回测事件"""
 
-    pass
 
 
 class DataEvent(Event):
     """数据事件"""
 
-    pass
 
 
 class ErrorEvent(Event):
     """错误事件"""
 
-    pass
 
 
 # 全局事件总线实例

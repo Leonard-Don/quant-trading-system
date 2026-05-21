@@ -2,11 +2,11 @@
 PDF 报告生成服务
 生成专业的策略回测报告
 """
-import io
 import base64
-from datetime import datetime
-from typing import Dict, Any, List
+import io
 import logging
+from datetime import datetime
+from typing import Any, Dict, List
 
 from src.utils.data_validation import normalize_backtest_results
 
@@ -15,13 +15,17 @@ logger = logging.getLogger(__name__)
 # 尝试导入 PDF 库
 try:
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
-        HRFlowable
-    )
     from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+    from reportlab.platypus import (
+        HRFlowable,
+        Paragraph,
+        SimpleDocTemplate,
+        Spacer,
+        Table,
+        TableStyle,
+    )
     REPORTLAB_AVAILABLE = True
 except ImportError:
     REPORTLAB_AVAILABLE = False
@@ -32,7 +36,7 @@ class PDFGenerator:
     """
     PDF 报告生成器
     """
-    
+
     def __init__(self):
         self.styles = None
         if REPORTLAB_AVAILABLE:
@@ -55,7 +59,7 @@ class PDFGenerator:
         normalized = normalize_backtest_results(backtest_result)
         trades = normalized.get("trades", [])
         return trades if isinstance(trades, list) else []
-    
+
     def _setup_styles(self):
         """设置样式"""
         self.styles = getSampleStyleSheet()
@@ -63,7 +67,7 @@ class PDFGenerator:
         def add_style_if_missing(style):
             if style.name not in self.styles.byName:
                 self.styles.add(style)
-        
+
         # 标题样式
         add_style_if_missing(ParagraphStyle(
             name='ReportTitle',
@@ -73,7 +77,7 @@ class PDFGenerator:
             alignment=TA_CENTER,
             textColor=colors.HexColor('#1e3a5f')
         ))
-        
+
         # 小节标题
         add_style_if_missing(ParagraphStyle(
             name='SectionTitle',
@@ -83,7 +87,7 @@ class PDFGenerator:
             spaceAfter=10,
             textColor=colors.HexColor('#2563eb')
         ))
-        
+
         # 正文
         add_style_if_missing(ParagraphStyle(
             name='BodyText',
@@ -91,7 +95,7 @@ class PDFGenerator:
             fontSize=10,
             spaceAfter=6
         ))
-        
+
         # 指标值
         add_style_if_missing(ParagraphStyle(
             name='MetricValue',
@@ -99,7 +103,7 @@ class PDFGenerator:
             fontSize=12,
             alignment=TA_RIGHT
         ))
-    
+
     def generate_backtest_report(
         self,
         backtest_result: Dict[str, Any],
@@ -121,7 +125,7 @@ class PDFGenerator:
         """
         if not REPORTLAB_AVAILABLE:
             return self._generate_fallback_report(backtest_result, symbol, strategy)
-        
+
         try:
             metrics = self._resolve_metrics(backtest_result)
             trades = self._resolve_trades(backtest_result)
@@ -134,9 +138,9 @@ class PDFGenerator:
                 topMargin=72,
                 bottomMargin=72
             )
-            
+
             story = []
-            
+
             # 标题
             story.append(Paragraph("策略回测报告", self.styles['ReportTitle']))
             story.append(Paragraph(
@@ -144,7 +148,7 @@ class PDFGenerator:
                 self.styles['BodyText']
             ))
             story.append(Spacer(1, 20))
-            
+
             # 基本信息
             story.append(Paragraph("基本信息", self.styles['SectionTitle']))
             info_data = [
@@ -155,7 +159,7 @@ class PDFGenerator:
             if parameters:
                 for key, value in parameters.items():
                     info_data.append([key, str(value)])
-            
+
             info_table = Table(info_data, colWidths=[150, 250])
             info_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#f1f5f9')),
@@ -167,10 +171,10 @@ class PDFGenerator:
             ]))
             story.append(info_table)
             story.append(Spacer(1, 20))
-            
+
             # 核心指标
             story.append(Paragraph("核心指标", self.styles['SectionTitle']))
-                
+
             metrics_data = [
                 ['指标', '数值'],
                 ['总收益率', f"{metrics.get('total_return', 0) * 100:.2f}%"],
@@ -182,7 +186,7 @@ class PDFGenerator:
                 ['初始资金', f"${metrics.get('initial_capital', 0):,.2f}"],
                 ['最终价值', f"${metrics.get('final_value', 0):,.2f}"]
             ]
-            
+
             metrics_table = Table(metrics_data, colWidths=[200, 200])
             metrics_table.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2563eb')),
@@ -197,7 +201,7 @@ class PDFGenerator:
             ]))
             story.append(metrics_table)
             story.append(Spacer(1, 20))
-            
+
             # 风险分析
             if 'risk_metrics' in backtest_result or 'volatility' in metrics:
                 story.append(Paragraph("风险分析", self.styles['SectionTitle']))
@@ -208,7 +212,7 @@ class PDFGenerator:
                     ['CVaR (95%)', f"{metrics.get('cvar_95', 0) * 100:.2f}%"],
                     ['收益标准差', f"{metrics.get('return_std', 0) * 100:.2f}%"]
                 ]
-                
+
                 risk_table = Table(risk_data, colWidths=[200, 200])
                 risk_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#dc2626')),
@@ -222,14 +226,14 @@ class PDFGenerator:
                 ]))
                 story.append(risk_table)
                 story.append(Spacer(1, 20))
-            
+
             # 交易统计
             if trades:
                 story.append(Paragraph("最近交易记录 (最多10条)", self.styles['SectionTitle']))
-                
+
                 trade_headers = ['日期', '操作', '价格', '数量', '金额']
                 trade_data = [trade_headers]
-                
+
                 for trade in trades[-10:]:
                     trade_data.append([
                         str(trade.get('date', 'N/A'))[:10],
@@ -238,7 +242,7 @@ class PDFGenerator:
                         str(trade.get('quantity', trade.get('shares', 0))),
                         f"${trade.get('value', 0):,.2f}"
                     ])
-                
+
                 trade_table = Table(trade_data, colWidths=[80, 60, 80, 60, 100])
                 trade_table.setStyle(TableStyle([
                     ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#059669')),
@@ -249,7 +253,7 @@ class PDFGenerator:
                     ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d1fae5'))
                 ]))
                 story.append(trade_table)
-            
+
             # 页脚
             story.append(Spacer(1, 40))
             story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor('#e2e8f0')))
@@ -264,17 +268,17 @@ class PDFGenerator:
                     spaceBefore=10
                 )
             ))
-            
+
             doc.build(story)
             pdf_content = buffer.getvalue()
             buffer.close()
-            
+
             return pdf_content
-            
+
         except Exception as e:
             logger.error(f"Error generating PDF report: {e}")
             return self._generate_fallback_report(backtest_result, symbol, strategy)
-    
+
     def _generate_fallback_report(
         self,
         backtest_result: Dict,
@@ -283,7 +287,7 @@ class PDFGenerator:
     ) -> bytes:
         """生成简单文本报告作为后备"""
         metrics = self._resolve_metrics(backtest_result)
-            
+
         report = f"""
 ========================================
         策略回测报告
@@ -311,7 +315,7 @@ class PDFGenerator:
 ========================================
 """
         return report.encode('utf-8')
-    
+
     def get_report_base64(
         self,
         backtest_result: Dict,

@@ -1,5 +1,5 @@
-from src.data.alternative.policy_radar.policy_crawler import PolicyCrawler, PolicySource
 from src.data.alternative.policy_radar.official_feeds import OFFICIAL_FEED_ADAPTERS
+from src.data.alternative.policy_radar.policy_crawler import PolicyCrawler, PolicySource
 from src.data.alternative.policy_radar.policy_nlp import PolicyNLPAnalyzer
 from src.data.alternative.policy_radar.policy_signals import PolicySignalProvider
 

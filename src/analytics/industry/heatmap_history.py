@@ -28,7 +28,7 @@ def load_trend_aliases() -> Dict[str, str]:
 
     alias_file = PROJECT_ROOT / "data" / "industry" / "trend_aliases.json"
     try:
-        with open(alias_file, "r", encoding="utf-8") as file:
+        with open(alias_file, encoding="utf-8") as file:
             payload = json.load(file)
             if isinstance(payload, dict):
                 _TREND_ALIAS_CACHE = {
@@ -65,7 +65,7 @@ def load_heatmap_history_trend_lookup(
     cache_key = (preferred_days, max_points)
     if (
         _HEATMAP_HISTORY_TREND_CACHE is not None
-        and _HEATMAP_HISTORY_TREND_CACHE_MTIME == current_mtime
+        and current_mtime == _HEATMAP_HISTORY_TREND_CACHE_MTIME
         and cache_key in _HEATMAP_HISTORY_TREND_CACHE
     ):
         return _HEATMAP_HISTORY_TREND_CACHE[cache_key]
@@ -113,7 +113,7 @@ def load_heatmap_history_trend_lookup(
 
     if (
         _HEATMAP_HISTORY_TREND_CACHE is None
-        or _HEATMAP_HISTORY_TREND_CACHE_MTIME != current_mtime
+        or current_mtime != _HEATMAP_HISTORY_TREND_CACHE_MTIME
     ):
         _HEATMAP_HISTORY_TREND_CACHE = {}
         _HEATMAP_HISTORY_TREND_CACHE_MTIME = current_mtime
@@ -121,4 +121,4 @@ def load_heatmap_history_trend_lookup(
     return filtered_lookup
 
 
-__all__ = ["load_trend_aliases", "load_heatmap_history_trend_lookup"]
+__all__ = ["load_heatmap_history_trend_lookup", "load_trend_aliases"]

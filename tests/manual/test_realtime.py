@@ -5,13 +5,11 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from backend.main import app  # noqa: E402
-from src.data.realtime_manager import realtime_manager  # noqa: E402
-
+from backend.main import app
+from src.data.realtime_manager import realtime_manager
 
 client = TestClient(app)
 

@@ -13,7 +13,6 @@ from backend.app.services.paper_trading import (
     PaperTradingStore,
 )
 
-
 # ---------------------------------------------------------------------------
 # Service-level tests (PaperTradingStore)
 # ---------------------------------------------------------------------------

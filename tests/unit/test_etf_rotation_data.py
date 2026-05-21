@@ -24,7 +24,6 @@ from src.data.etf_rotation import (
     parse_sina_quotes,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures (inline so the tests stay hermetic)
 # ---------------------------------------------------------------------------

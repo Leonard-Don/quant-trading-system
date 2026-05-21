@@ -4,8 +4,8 @@
 """
 
 import logging
-from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -383,7 +383,7 @@ class StrategyValidator:
             try:
                 cleaned_params[rule.name] = rule.type(value)
             except (ValueError, TypeError) as e:
-                return False, f"参数 {rule.name} 类型转换失败: {str(e)}", {}
+                return False, f"参数 {rule.name} 类型转换失败: {e!s}", {}
 
         # 额外的逻辑验证
         validation_error = cls._validate_logic(strategy_name, cleaned_params)

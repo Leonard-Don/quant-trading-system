@@ -4,19 +4,19 @@
 
 import hashlib
 import json
+import logging
+import threading
 
 # import pickle  # 安全考虑：避免使用pickle，改用json序列化
 import time
-import logging
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Callable, List
 from functools import wraps
-import threading
 
 # import os  # 暂时未使用
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional
 
-from .config import PROJECT_ROOT, CACHE_TTL
+from .config import CACHE_TTL, PROJECT_ROOT
 
 
 class CacheManager:
@@ -104,18 +104,18 @@ class CacheManager:
                 cache_file = self.cache_dir / f"{cache_key}.json"
                 if cache_file.exists():
                     try:
-                        with open(cache_file, "r", encoding="utf-8") as f:
+                        with open(cache_file, encoding="utf-8") as f:
                             # 使用安全的json加载
                             entry = json.load(f)
-                            
+
                             # 恢复 datetime 对象
-                            if "expires_at" in entry and entry["expires_at"]:
+                            if entry.get("expires_at"):
                                 try:
                                     entry["expires_at"] = datetime.fromisoformat(entry["expires_at"])
                                 except (ValueError, TypeError):
                                     pass
-                                    
-                            if "created_at" in entry and entry["created_at"]:
+
+                            if entry.get("created_at"):
                                 try:
                                     entry["created_at"] = datetime.fromisoformat(entry["created_at"])
                                 except (ValueError, TypeError):
@@ -183,11 +183,11 @@ class CacheManager:
                 entry = self.memory_cache[cache_key]
                 if not self._is_expired(entry):
                     return True
-            
+
             if self.use_disk:
                 cache_file = self.cache_dir / f"{cache_key}.json"
                 return cache_file.exists()
-            
+
             return False
 
     def __len__(self) -> int:

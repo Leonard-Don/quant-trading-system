@@ -9,12 +9,11 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app.websocket.connection_manager import manager
 from backend.app.services.realtime_journal import realtime_journal_store
+from backend.app.websocket.connection_manager import manager
 from backend.main import app
 from src.data.realtime_manager import realtime_manager
 from src.utils.cache import cache_manager
-
 
 FAKE_QUOTE = {
     "symbol": "AAPL",

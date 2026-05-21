@@ -20,7 +20,6 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-
 WeightMap = Mapping[str, float]
 MetadataMap = Mapping[str, Mapping[str, Any]]
 

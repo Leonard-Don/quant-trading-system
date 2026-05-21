@@ -1,21 +1,23 @@
 
-import pytest
-import pandas as pd
-from unittest.mock import Mock
-import sys
 import os
+import sys
+from unittest.mock import Mock
+
+import pandas as pd
+import pytest
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from src.analytics.industry_analyzer import IndustryAnalyzer
 
+
 class TestIndustryAnalyzerFastPath:
-    
+
     @pytest.fixture
     def mock_provider(self):
         provider = Mock()
-        
+
         # Mock money flow data (Fast Path source)
         provider.get_industry_money_flow.return_value = pd.DataFrame([
             {
@@ -51,7 +53,7 @@ class TestIndustryAnalyzerFastPath:
             return pd.DataFrame({"close": closes}, index=dates)
 
         provider.get_industry_index.side_effect = _mock_industry_index
-        
+
         return provider
 
     @pytest.fixture
@@ -60,26 +62,26 @@ class TestIndustryAnalyzerFastPath:
 
     def test_calculate_industry_momentum_uses_fast_path(self, analyzer, mock_provider):
         """Test that momentum calculation uses fast path and avoids N+1 queries"""
-        
+
         # Call calculate_industry_momentum
         df = analyzer.calculate_industry_momentum()
-        
+
         # Verify result is not empty
         assert not df.empty
         assert len(df) == 2
         assert "momentum_score" in df.columns
         assert "weighted_change" in df.columns
         assert "industry_volatility" in df.columns
-        
+
         # Verify values match aggregated data
         tech_row = df[df["industry_name"] == "Tech"].iloc[0]
         assert tech_row["weighted_change"] == 5.0
         assert tech_row["total_market_cap"] > 0 # Should be estimated
         assert tech_row["industry_volatility"] > 0
-        
+
         # CRITICAL: Verify get_stock_list_by_industry was NOT called
         mock_provider.get_stock_list_by_industry.assert_not_called()
-        
+
         # Verify get_industry_money_flow WAS called
         mock_provider.get_industry_money_flow.assert_called_with(days=20)
 
@@ -108,30 +110,30 @@ class TestIndustryAnalyzerFastPath:
 
     def test_calculate_industry_momentum_fallback(self, analyzer, mock_provider):
         """Test fallback to slow path if fast path fails or returns empty"""
-        
+
         # Setup mock to fail fast path
         mock_provider.get_industry_money_flow.return_value = pd.DataFrame() # Empty
-        
+
         # Mock Sina fallback to also return empty (we're testing slow path fallback)
         analyzer._try_sina_fallback = lambda days: pd.DataFrame()
-        
+
         # Setup mock for slow path
         mock_provider.get_industry_classification.return_value = pd.DataFrame([
             {"industry_name": "Tech", "industry_code": "001"}
         ])
-        
+
         mock_provider.get_stock_list_by_industry.return_value = [
             {"name": "s1", "change_pct": 3.0, "market_cap": 100, "volume": 10}
         ]
-        
+
         # Call
         df = analyzer.calculate_industry_momentum()
-        
+
         # Verify results
         assert not df.empty
         assert len(df) == 1
         assert df.iloc[0]["industry_name"] == "Tech"
-        
+
         # Verify slow path methods WERE called
         mock_provider.get_industry_classification.assert_called()
         mock_provider.get_stock_list_by_industry.assert_called_with("Tech")

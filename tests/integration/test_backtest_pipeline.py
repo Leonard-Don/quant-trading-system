@@ -21,7 +21,6 @@ from src.backtest.backtester import Backtester
 from src.data.data_manager import DataManager
 from src.strategy.strategies import MovingAverageCrossover
 
-
 # ---------------------------------------------------------------------------
 # Synthetic data
 # ---------------------------------------------------------------------------

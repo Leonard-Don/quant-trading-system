@@ -3,10 +3,11 @@
 识别K线形态和图表形态
 """
 
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Any
 import logging
+from typing import Any, Dict, List
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ class PatternRecognizer:
         self.peak_detection_window = self.config["peak_detection_window"]
         self.price_tolerance = self.config["price_tolerance"]
         self.engulfing_ratio = self.config["engulfing_ratio"]
-    
+
     def _merge_config(self, custom_config: Dict[str, Any]) -> Dict[str, Any]:
         """
         合并自定义配置与默认配置
@@ -413,7 +414,7 @@ class PatternRecognizer:
                 # 寻找两顶之间的低点（颈线）
                 trough_val = low.iloc[offset + peak1_idx : offset + peak2_idx].min()
                 trough_idx = low.iloc[offset + peak1_idx : offset + peak2_idx].argmin() + peak1_idx
-                
+
                 return {
                     "pattern": "double_top",
                     "name": "双顶",
@@ -442,7 +443,7 @@ class PatternRecognizer:
                 # 寻找两底之间的高点（颈线）
                 peak_val = high.iloc[offset + trough1_idx : offset + trough2_idx].max()
                 peak_idx = high.iloc[offset + trough1_idx : offset + trough2_idx].argmax() + trough1_idx
-                
+
                 return {
                     "pattern": "double_bottom",
                     "name": "双底",
