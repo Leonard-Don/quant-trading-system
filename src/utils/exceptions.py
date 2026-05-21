@@ -35,4 +35,3 @@ class ConfigError(TradingSystemError):
 
 class NetworkError(TradingSystemError):
     """网络相关异常"""
-
