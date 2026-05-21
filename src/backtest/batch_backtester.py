@@ -4,15 +4,16 @@
 支持并行回测、参数网格搜索和结果聚合
 """
 
-import numpy as np
-import pandas as pd
-from typing import Dict, List, Any, Optional, Callable, Tuple
+import inspect
+import json
+import logging
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-import logging
-import json
-import inspect
 from itertools import product
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -342,7 +343,7 @@ class BatchBacktester:
     - 进度回调
     - 结果排名和聚合
     """
-    
+
     def __init__(
         self,
         max_workers: int = 4,
@@ -359,7 +360,7 @@ class BatchBacktester:
         self.use_processes = use_processes
         self.results: List[BacktestResult] = []
         self.progress_callback: Optional[Callable] = None
-    
+
     def set_progress_callback(self, callback: Callable[[int, int, str], None]):
         """
         设置进度回调函数
@@ -368,7 +369,7 @@ class BatchBacktester:
             callback: 函数签名 (completed, total, current_task) -> None
         """
         self.progress_callback = callback
-    
+
     def run_batch(
         self,
         tasks: List[BacktestTask],
@@ -391,9 +392,9 @@ class BatchBacktester:
         self.results = []
         total = len(tasks)
         completed = 0
-        
+
         executor_class = ProcessPoolExecutor if self.use_processes else ThreadPoolExecutor
-        
+
         with executor_class(max_workers=self.max_workers) as executor:
             # 提交所有任务
             future_to_task = {
@@ -405,7 +406,7 @@ class BatchBacktester:
                     data_fetcher
                 ): task for task in tasks
             }
-            
+
             # 收集结果
             for future in as_completed(future_to_task):
                 task = future_to_task[future]
@@ -424,13 +425,13 @@ class BatchBacktester:
                         success=False,
                         error=str(e)
                     ))
-                
+
                 completed += 1
                 if self.progress_callback:
                     self.progress_callback(completed, total, task.task_id)
-        
+
         return self.results
-    
+
     def _run_single_backtest(
         self,
         task: BacktestTask,
@@ -445,7 +446,7 @@ class BatchBacktester:
             strategy_factory,
             data_fetcher,
         )
-    
+
     def generate_grid_tasks(
         self,
         symbol: str,
@@ -467,11 +468,11 @@ class BatchBacktester:
             任务列表
         """
         from itertools import product
-        
+
         tasks = []
         param_names = list(param_grid.keys())
         param_values = list(param_grid.values())
-        
+
         for i, values in enumerate(product(*param_values)):
             params = dict(zip(param_names, values))
             task = BacktestTask(
@@ -485,9 +486,9 @@ class BatchBacktester:
                 initial_capital=initial_capital
             )
             tasks.append(task)
-        
+
         return tasks
-    
+
     def get_ranked_results(
         self,
         metric: str = 'sharpe_ratio',
@@ -506,21 +507,21 @@ class BatchBacktester:
             排序后的结果列表
         """
         successful = [r for r in self.results if r.success]
-        
+
         def get_metric_value(result):
             return result.metrics.get(metric, float('-inf') if not ascending else float('inf'))
-        
+
         sorted_results = sorted(successful, key=get_metric_value, reverse=not ascending)
-        
+
         if top_n:
             return sorted_results[:top_n]
         return sorted_results
-    
+
     def get_summary(self) -> Dict[str, Any]:
         """获取批量回测汇总"""
         successful = [r for r in self.results if r.success]
         failed = [r for r in self.results if not r.success]
-        
+
         if not successful:
             return {
                 'total_tasks': len(self.results),
@@ -528,15 +529,15 @@ class BatchBacktester:
                 'failed': len(failed),
                 'best_result': None
             }
-        
+
         # 按夏普比率找最佳结果
         best = max(successful, key=lambda r: r.metrics.get('sharpe_ratio', float('-inf')))
-        
+
         # 计算平均指标
         avg_return = np.mean([r.metrics.get('total_return', 0) for r in successful])
         avg_sharpe = np.mean([r.metrics.get('sharpe_ratio', 0) for r in successful])
         avg_time = np.mean([r.execution_time for r in successful])
-        
+
         return {
             'total_tasks': len(self.results),
             'successful': len(successful),
@@ -555,7 +556,7 @@ class BatchBacktester:
                 'final_value': best.metrics.get('final_value'),
             }
         }
-    
+
     def export_results(self, filepath: str, format: str = 'json'):
         """
         导出结果
@@ -580,7 +581,7 @@ class BatchBacktester:
             ]
             with open(filepath, 'w') as f:
                 json.dump(data, f, indent=2)
-                
+
         elif format == 'csv':
             rows = []
             for r in self.results:
@@ -603,7 +604,7 @@ class WalkForwardAnalyzer:
     
     将数据分成多个训练/测试窗口进行滚动回测
     """
-    
+
     def __init__(
         self,
         train_period: int = 252,  # 交易日
@@ -619,7 +620,7 @@ class WalkForwardAnalyzer:
         self.train_period = train_period
         self.test_period = test_period
         self.step_size = step_size
-    
+
     def generate_windows(
         self,
         data: pd.DataFrame
@@ -632,14 +633,14 @@ class WalkForwardAnalyzer:
         """
         windows = []
         n = len(data)
-        
+
         start = 0
         window_id = 0
-        
+
         while start + self.train_period + self.test_period <= n:
             train_end = start + self.train_period
             test_end = train_end + self.test_period
-            
+
             windows.append({
                 'window_id': window_id,
                 'train': data.iloc[start:train_end],
@@ -649,12 +650,12 @@ class WalkForwardAnalyzer:
                 'test_start': data.index[train_end],
                 'test_end': data.index[test_end - 1]
             })
-            
+
             start += self.step_size
             window_id += 1
-        
+
         return windows
-    
+
     def analyze(
         self,
         data: pd.DataFrame,
@@ -671,14 +672,14 @@ class WalkForwardAnalyzer:
         执行Walk-Forward分析
         """
         windows = self.generate_windows(data)
-        
+
         if not windows:
             return {'error': '数据不足以进行Walk-Forward分析'}
-        
+
         results = []
         training_results = []
         selected_parameter_keys = []
-        
+
         for window in windows:
             try:
                 optimization = self._optimize_on_train_window(
@@ -693,13 +694,13 @@ class WalkForwardAnalyzer:
                 )
                 strategy = _create_strategy_instance(strategy_factory, optimization['parameters'])
                 backtester = backtester_factory()
-                
+
                 # 在测试集上评估
                 test_result = backtester.run(strategy, window['test'])
                 normalized_metrics = _normalize_metrics(test_result)
                 training_results.append(optimization['train_metrics'])
                 selected_parameter_keys.append(json.dumps(optimization['parameters'], sort_keys=True, ensure_ascii=False))
-                
+
                 results.append({
                     'window_id': window['window_id'],
                     'train_start': str(window['train_start']),
@@ -714,11 +715,11 @@ class WalkForwardAnalyzer:
                 })
             except Exception as e:
                 logger.error(f"Window {window['window_id']} 分析失败: {e}")
-        
+
         # 汇总结果
         if not results:
             return {'error': '所有窗口分析都失败'}
-        
+
         returns = [r['metrics'].get('total_return', 0) for r in results]
         sharpes = [r['metrics'].get('sharpe_ratio', 0) for r in results]
         train_returns = [metrics.get('total_return', 0) for metrics in training_results]
@@ -735,7 +736,7 @@ class WalkForwardAnalyzer:
             monte_carlo=monte_carlo,
             statistical_power=statistical_power,
         )
-        
+
         return {
             'n_windows': len(results),
             'train_period': self.train_period,
