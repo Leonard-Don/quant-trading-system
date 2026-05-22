@@ -32,29 +32,6 @@ markers = [
 ]
 
 # ---------------------------------------------------------------------------
-# Black
-# ---------------------------------------------------------------------------
-[tool.black]
-line-length = 100
-target-version = ["py39", "py310", "py311", "py312", "py313"]
-extend-exclude = '''
-/(
-    \.venv
-  | venv
-  | build
-  | dist
-  | frontend
-  | \.playwright-cli
-  | cache
-  | data
-  | tmp
-  | output
-  | reports
-  | logs
-)/
-'''
-
-# ---------------------------------------------------------------------------
 # Ruff (lint + format) — replaces flake8 + isort + autopep8
 # ---------------------------------------------------------------------------
 [tool.ruff]
@@ -91,7 +68,7 @@ select = [
     "RUF", # ruff-specific
 ]
 ignore = [
-    "E501",  # line length (black handles)
+    "E501",  # line length (ruff format handles)
     "B008",  # function default arg call (FastAPI Depends pattern)
     "B904",  # raise from (will adopt later)
     "SIM108", # ternary if-else (sometimes hurts readability)
