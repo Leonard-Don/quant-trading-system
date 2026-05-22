@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Dict, Optional
+from typing import Optional
 
 from .base_factor import FactorResult
 
@@ -16,8 +16,8 @@ class FactorCombiner:
     def combine(
         self,
         results: Iterable[FactorResult],
-        weights: Optional[Dict[str, float]] = None,
-    ) -> Dict[str, object]:
+        weights: Optional[dict[str, float]] = None,
+    ) -> dict[str, object]:
         factor_results = list(results)
         if not factor_results:
             return {

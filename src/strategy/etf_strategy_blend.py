@@ -46,7 +46,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional
+from typing import Optional
 
 import pandas as pd
 
@@ -55,7 +55,7 @@ from src.strategy.etf_rotation_strategy import EtfOverlay, EtfSignal
 logger = logging.getLogger(__name__)
 
 
-DEFAULT_REGIME_BLEND_WEIGHTS: Dict[str, float] = {
+DEFAULT_REGIME_BLEND_WEIGHTS: dict[str, float] = {
     # α = trend weight (1.0 = pure trend, 0.0 = pure MR)
     "bull": 1.00,
     "correction": 0.60,
@@ -83,7 +83,7 @@ class EtfStrategyBlendConfig:
     """Blender configuration — defaults are deliberately trend-biased."""
 
     enabled: bool = False
-    regime_blend_weights: Dict[str, float] = field(
+    regime_blend_weights: dict[str, float] = field(
         default_factory=lambda: dict(DEFAULT_REGIME_BLEND_WEIGHTS)
     )
     # Floor / ceiling on alpha to avoid catastrophic single-strategy bets
@@ -142,7 +142,7 @@ class EtfStrategyBlend:
         current_weights: Optional[Mapping[str, float]] = None,
         industry_signals: Optional[Mapping[str, Mapping[str, object]]] = None,
         etf_industry_map: Optional[Mapping[str, str]] = None,
-    ) -> List[EtfSignal]:
+    ) -> list[EtfSignal]:
         # The trend child gets the policy nudge; the MR child intentionally
         # does NOT (mean-reversion already trades against momentum, so a
         # policy boost on the trend leg is the right signal to consume —
@@ -163,15 +163,15 @@ class EtfStrategyBlend:
 
     def _blend(
         self,
-        trend_signals: List[EtfSignal],
-        mr_signals: List[EtfSignal],
-    ) -> List[EtfSignal]:
+        trend_signals: list[EtfSignal],
+        mr_signals: list[EtfSignal],
+    ) -> list[EtfSignal]:
         alpha = self.current_alpha()
         trend_by_code = {s.symbol: s for s in trend_signals}
         mr_by_code = {s.symbol: s for s in mr_signals}
         codes = set(trend_by_code) | set(mr_by_code)
 
-        out: List[EtfSignal] = []
+        out: list[EtfSignal] = []
         for code in codes:
             t = trend_by_code.get(code)
             m = mr_by_code.get(code)
@@ -240,17 +240,17 @@ class EtfStrategyBlend:
 
     @staticmethod
     def build_component_breakdown(
-        trend_signals: List[EtfSignal],
-        mr_signals: List[EtfSignal],
+        trend_signals: list[EtfSignal],
+        mr_signals: list[EtfSignal],
         alpha: float,
-    ) -> Dict[str, Dict[str, object]]:
+    ) -> dict[str, dict[str, object]]:
         """Per-code dict showing each child strategy's raw output + contribution.
 
         Useful for audit logging / dashboards: surfaces *why* the blend
         landed where it did per asset.
         """
 
-        breakdown: Dict[str, Dict[str, object]] = {}
+        breakdown: dict[str, dict[str, object]] = {}
         for sig in trend_signals:
             breakdown.setdefault(sig.symbol, {})["trend"] = {
                 "score": float(sig.score),

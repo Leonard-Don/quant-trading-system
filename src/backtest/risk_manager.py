@@ -24,7 +24,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -63,7 +63,7 @@ class RiskContext:
     daily_return: float = 0.0         # return of the current bar
 
     # Trade history (recent)
-    recent_trade_pnls: List[float] = field(default_factory=list)
+    recent_trade_pnls: list[float] = field(default_factory=list)
 
 
 @dataclass
@@ -72,7 +72,7 @@ class RiskDecision:
     action: RiskAction = RiskAction.NONE
     reason: str = ""
     scale_factor: float = 1.0         # Only used when action == REDUCE_SIZE
-    triggered_rules: List[str] = field(default_factory=list)
+    triggered_rules: list[str] = field(default_factory=list)
 
 
 class RiskManager:
@@ -132,7 +132,7 @@ class RiskManager:
 
         # Internal tracking
         self._peak_unrealized: float = 0.0  # highest unrealized gain since entry
-        self._daily_returns: List[float] = []
+        self._daily_returns: list[float] = []
 
     def reset(self) -> None:
         """Reset internal state between backtests."""
@@ -141,7 +141,7 @@ class RiskManager:
 
     def evaluate(self, ctx: RiskContext) -> RiskDecision:
         """Evaluate all risk rules and return the most restrictive decision."""
-        decisions: List[RiskDecision] = []
+        decisions: list[RiskDecision] = []
 
         # Track daily return for volatility scaling
         self._daily_returns.append(ctx.daily_return)
@@ -298,7 +298,7 @@ class RiskManager:
             return None
 
     @staticmethod
-    def _count_consecutive_losses(pnls: List[float]) -> int:
+    def _count_consecutive_losses(pnls: list[float]) -> int:
         """Count consecutive losses from the end of the PnL list."""
         count = 0
         for pnl in reversed(pnls):
@@ -308,7 +308,7 @@ class RiskManager:
                 break
         return count
 
-    def _merge_decisions(self, decisions: List[RiskDecision]) -> RiskDecision:
+    def _merge_decisions(self, decisions: list[RiskDecision]) -> RiskDecision:
         """Return the most restrictive decision, combining triggered rules."""
         best = max(decisions, key=lambda d: self._ACTION_PRIORITY[d.action])
         all_rules = []
@@ -327,7 +327,7 @@ class RiskManager:
             triggered_rules=all_rules,
         )
 
-    def summary(self) -> Dict[str, Any]:
+    def summary(self) -> dict[str, Any]:
         """Return a dictionary describing the active risk rules."""
         rules = {}
         if self.stop_loss_pct is not None:

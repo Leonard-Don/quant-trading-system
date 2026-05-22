@@ -8,7 +8,7 @@ import logging
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class LeaderStockScorer:
     """
     龙头股评分系统
-    
+
     评分维度:
     - 市值: 规模大小（取对数后标准化）
     - ROE: 盈利能力
@@ -27,13 +27,13 @@ class LeaderStockScorer:
     - 利润增速: 盈利增长
     - 波动率: 稳定性（负向指标）
     - 流动性: 交易活跃度
-    
+
     使用示例:
         from src.data.providers.akshare_provider import AKShareProvider
-        
+
         provider = AKShareProvider()
         scorer = LeaderStockScorer(provider)
-        
+
         leaders = scorer.get_leader_stocks(["电子", "医药生物"], top_per_industry=5)
     """
 
@@ -55,7 +55,7 @@ class LeaderStockScorer:
     GROWTH_MIN = -100
     GROWTH_MAX = 200  # 超过200%可能有异常
 
-    _financial_cache: Dict[str, Any] = {}
+    _financial_cache: dict[str, Any] = {}
     _financial_cache_loaded: bool = False
     _financial_cache_path = Path(__file__).resolve().parents[2] / "cache" / "financial_cache.json"
 
@@ -94,7 +94,7 @@ class LeaderStockScorer:
         except Exception as e:
             logger.warning(f"Failed to persist financial cache: {e}")
 
-    def _get_cached_financial_data(self, symbol: str) -> Dict[str, Any]:
+    def _get_cached_financial_data(self, symbol: str) -> dict[str, Any]:
         if self.provider is None:
             return {"error": "Data provider not set"}
 
@@ -115,7 +115,7 @@ class LeaderStockScorer:
 
         return financial
 
-    def _get_cached_financial_data_if_available(self, symbol: str) -> Dict[str, Any]:
+    def _get_cached_financial_data_if_available(self, symbol: str) -> dict[str, Any]:
         """仅返回当前进程/磁盘缓存中的财务数据，不触发新的网络请求。"""
         self.__class__._ensure_financial_cache_loaded()
         entry = self.__class__._financial_cache.get(symbol)
@@ -125,10 +125,10 @@ class LeaderStockScorer:
             return {"error": "Financial cache expired"}
         return entry.get("data", {})
 
-    def __init__(self, data_provider=None, weights: Dict[str, float] = None):
+    def __init__(self, data_provider=None, weights: dict[str, float] = None):
         """
         初始化龙头股评分系统
-        
+
         Args:
             data_provider: 数据提供器（AKShareProvider 实例）
             weights: 自定义评分权重
@@ -137,7 +137,7 @@ class LeaderStockScorer:
         self.weights = weights or self.DEFAULT_WEIGHTS.copy()
 
     @staticmethod
-    def _normalize_quote_snapshot(quote: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_quote_snapshot(quote: dict[str, Any]) -> dict[str, Any]:
         """统一实时行情字段，兼容 AKShare/Sina 不同返回口径。"""
         if not quote or "error" in quote:
             return {}
@@ -188,10 +188,10 @@ class LeaderStockScorer:
         self.provider = provider
         self._cache = {}
 
-    def set_weights(self, weights: Dict[str, float]):
+    def set_weights(self, weights: dict[str, float]):
         """
         设置评分权重
-        
+
         Args:
             weights: 权重字典，键为指标名称，值为权重（-1 到 1）
         """
@@ -205,17 +205,17 @@ class LeaderStockScorer:
     def score_stock(
         self,
         symbol: str,
-        industry_stats: Dict = None,
-        snapshot_data: Dict[str, Any] = None,
+        industry_stats: dict = None,
+        snapshot_data: dict[str, Any] = None,
         score_type: str = "core"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         计算单只股票的龙头得分
-        
+
         Args:
             symbol: 股票代码
             industry_stats: 行业统计数据（用于相对评分）
-            
+
         Returns:
             股票评分详情：
             - symbol: 股票代码
@@ -298,12 +298,12 @@ class LeaderStockScorer:
 
     def score_stock_from_snapshot(
         self,
-        stock_data: Dict[str, Any],
-        industry_stats: Dict = None,
+        stock_data: dict[str, Any],
+        industry_stats: dict = None,
         enrich_financial: bool = False,
         cached_only: bool = False,
         score_type: str = "core"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         基于已有快照数据进行轻量评分，按需再补财务数据。
 
@@ -350,13 +350,13 @@ class LeaderStockScorer:
 
     def _calculate_dimension_scores(
         self,
-        raw_data: Dict[str, Any],
-        industry_stats: Dict = None,
+        raw_data: dict[str, Any],
+        industry_stats: dict = None,
         score_type: str = "core"
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         计算各维度得分（统一评分体系）
-        
+
         维度:
         - market_cap: 市值规模（对数标准化）
         - valuation: 估值水平（PE 适中得分高）
@@ -436,13 +436,13 @@ class LeaderStockScorer:
 
         return scores
 
-    def _calculate_total_score(self, dimension_scores: Dict[str, float], raw_data: Dict[str, Any] = None, score_type: str = "core") -> float:
+    def _calculate_total_score(self, dimension_scores: dict[str, float], raw_data: dict[str, Any] = None, score_type: str = "core") -> float:
         """
         计算综合得分
-        
+
         Args:
             dimension_scores: 各维度得分（0-1）
-            
+
         Returns:
             综合得分（0-100）
         """
@@ -467,12 +467,12 @@ class LeaderStockScorer:
     def _normalize(self, value: float, min_val: float, max_val: float) -> float:
         """
         将值归一化到 0-1 范围
-        
+
         Args:
             value: 原始值
             min_val: 最小值
             max_val: 最大值
-            
+
         Returns:
             归一化后的值（0-1）
         """
@@ -492,14 +492,14 @@ class LeaderStockScorer:
         industry_name: str,
         top_n: int = 10,
         score_type: str = "core"
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         在指定行业内排名股票
-        
+
         Args:
             industry_name: 行业名称
             top_n: 返回前 N 名
-            
+
         Returns:
             排名后的股票列表
         """
@@ -544,19 +544,19 @@ class LeaderStockScorer:
 
     def _quick_score(
         self,
-        stock_data: Dict[str, Any],
-        industry_stats: Dict = None,
+        stock_data: dict[str, Any],
+        industry_stats: dict = None,
         score_type: str = "core"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         快速评分（使用现有行情数据，与 score_stock 共用统一评分体系）
-        
+
         快速评分无法获取 ROE/增速等财务数据，相关维度给中性分。
-        
+
         Args:
             stock_data: 股票数据（来自 get_stock_list_by_industry）
             industry_stats: 行业统计
-            
+
         Returns:
             评分结果
         """
@@ -597,26 +597,26 @@ class LeaderStockScorer:
             "dimension_scores": dimension_scores,
         }
 
-    def calculate_industry_stats(self, stocks: List[Dict]) -> Dict[str, Any]:
+    def calculate_industry_stats(self, stocks: list[dict]) -> dict[str, Any]:
         """公开的行业统计计算入口，供路由层复用快速评分。"""
         return self._calculate_industry_stats(stocks)
 
     def score_stock_from_industry_snapshot(
         self,
-        stock_data: Dict[str, Any],
-        industry_stats: Dict = None,
+        stock_data: dict[str, Any],
+        industry_stats: dict = None,
         score_type: str = "core"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """使用行业快照数据对个股做轻量评分。"""
         return self._quick_score(stock_data, industry_stats, score_type=score_type)
 
-    def _calculate_industry_stats(self, stocks: List[Dict]) -> Dict[str, Any]:
+    def _calculate_industry_stats(self, stocks: list[dict]) -> dict[str, Any]:
         """
         计算行业统计数据
-        
+
         Args:
             stocks: 行业成分股列表
-            
+
         Returns:
             行业统计
         """
@@ -636,17 +636,17 @@ class LeaderStockScorer:
 
     def get_leader_stocks(
         self,
-        hot_industries: List[str],
+        hot_industries: list[str],
         top_per_industry: int = 5,
         score_type: str = "core"
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         从热门行业中遴选龙头股
-        
+
         Args:
             hot_industries: 热门行业列表
             top_per_industry: 每个行业选取的龙头数量
-            
+
         Returns:
             龙头股列表
         """
@@ -669,13 +669,13 @@ class LeaderStockScorer:
 
         return all_leaders
 
-    def get_leader_detail(self, symbol: str, score_type: str = "core") -> Dict[str, Any]:
+    def get_leader_detail(self, symbol: str, score_type: str = "core") -> dict[str, Any]:
         """
         获取龙头股详细分析
-        
+
         Args:
             symbol: 股票代码
-            
+
         Returns:
             详细分析结果
         """
@@ -751,14 +751,14 @@ class LeaderStockScorer:
         self,
         historical_returns: pd.DataFrame,
         target: str = "total_return"
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         基于历史表现优化权重参数
-        
+
         Args:
             historical_returns: 历史收益数据
             target: 优化目标 ("total_return" | "sharpe" | "max_drawdown")
-            
+
         Returns:
             优化后的权重
         """
@@ -801,7 +801,7 @@ class LeaderStockScorer:
 
     def _evaluate_weights(
         self,
-        weights: Dict[str, float],
+        weights: dict[str, float],
         historical_returns: pd.DataFrame,
         target: str
     ) -> float:

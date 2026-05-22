@@ -4,7 +4,7 @@
 """
 import logging
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -29,7 +29,7 @@ class ModelComparator:
         self.rf_predictor = rf_predictor or PricePredictor()
         self.lstm_predictor = lstm_predictor_instance or lstm_predictor
 
-    def get_available_models(self) -> List[Dict]:
+    def get_available_models(self) -> list[dict]:
         """获取可用的模型列表"""
         models = [
             {
@@ -47,14 +47,14 @@ class ModelComparator:
         ]
         return models
 
-    def train_all_models(self, historical_data: pd.DataFrame, symbol: str) -> Dict:
+    def train_all_models(self, historical_data: pd.DataFrame, symbol: str) -> dict:
         """
         训练所有可用模型
-        
+
         Args:
             historical_data: 历史数据
             symbol: 股票代码
-            
+
         Returns:
             各模型训练指标
         """
@@ -99,16 +99,16 @@ class ModelComparator:
         symbol: str,
         model_type: str = 'random_forest',
         days: int = 5
-    ) -> Dict:
+    ) -> dict:
         """
         使用指定模型进行预测
-        
+
         Args:
             current_data: 当前数据
             symbol: 股票代码
             model_type: 模型类型 ('random_forest' 或 'lstm')
             days: 预测天数
-            
+
         Returns:
             预测结果
         """
@@ -122,15 +122,15 @@ class ModelComparator:
         current_data: pd.DataFrame,
         symbol: str,
         days: int = 5
-    ) -> Dict:
+    ) -> dict:
         """
         比较不同模型的预测结果
-        
+
         Args:
             current_data: 当前数据
             symbol: 股票代码
             days: 预测天数
-            
+
         Returns:
             各模型预测结果对比
         """
@@ -201,7 +201,7 @@ class ModelComparator:
             return obj.item()
         return obj
 
-    def _compute_comparison(self, predictions: Dict) -> Dict:
+    def _compute_comparison(self, predictions: dict) -> dict:
         """计算模型预测对比统计"""
         comparison = {
             'models_compared': list(predictions.keys()),

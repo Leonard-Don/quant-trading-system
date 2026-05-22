@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 
 @dataclass
@@ -18,11 +18,11 @@ class Event:
 
     name: str
     timestamp: datetime = field(default_factory=datetime.now)
-    data: Dict[str, Any] = field(default_factory=dict)
+    data: dict[str, Any] = field(default_factory=dict)
     source: Optional[str] = None
     correlation_id: Optional[str] = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典"""
         return {
             "name": self.name,
@@ -42,7 +42,7 @@ class EventHandler(ABC):
 
     @property
     @abstractmethod
-    def event_types(self) -> List[str]:
+    def event_types(self) -> list[str]:
         """支持的事件类型"""
 
     @property
@@ -54,7 +54,7 @@ class EventHandler(ABC):
 class FunctionEventHandler(EventHandler):
     """函数式事件处理器"""
 
-    def __init__(self, func: Callable, event_types: List[str], priority: int = 100):
+    def __init__(self, func: Callable, event_types: list[str], priority: int = 100):
         self._func = func
         self._event_types = event_types
         self._priority = priority
@@ -67,7 +67,7 @@ class FunctionEventHandler(EventHandler):
             self._func(event)
 
     @property
-    def event_types(self) -> List[str]:
+    def event_types(self) -> list[str]:
         return self._event_types
 
     @property
@@ -79,9 +79,9 @@ class EventBus:
     """事件总线"""
 
     def __init__(self):
-        self._handlers: Dict[str, List[EventHandler]] = defaultdict(list)
-        self._global_handlers: List[EventHandler] = []
-        self._event_history: List[Event] = []
+        self._handlers: dict[str, list[EventHandler]] = defaultdict(list)
+        self._global_handlers: list[EventHandler] = []
+        self._event_history: list[Event] = []
         self._max_history = 1000
         self._lock = threading.RLock()
         self.logger = logging.getLogger(__name__)
@@ -114,7 +114,7 @@ class EventBus:
             self.logger.info(f"Unsubscribed handler for events: {handler.event_types}")
 
     def subscribe_function(
-        self, func: Callable, event_types: List[str], priority: int = 100
+        self, func: Callable, event_types: list[str], priority: int = 100
     ) -> EventHandler:
         """订阅函数"""
         handler = FunctionEventHandler(func, event_types, priority)
@@ -151,7 +151,7 @@ class EventBus:
             await self._handle_event_parallel(event, handlers)
 
     async def _handle_event_parallel(
-        self, event: Event, handlers: List[EventHandler]
+        self, event: Event, handlers: list[EventHandler]
     ) -> None:
         """并行处理事件"""
         tasks = []
@@ -197,7 +197,7 @@ class EventBus:
 
     def get_event_history(
         self, event_type: Optional[str] = None, limit: int = 100
-    ) -> List[Event]:
+    ) -> list[Event]:
         """获取事件历史"""
         with self._lock:
             history = self._event_history.copy()
@@ -207,7 +207,7 @@ class EventBus:
 
             return history[-limit:]
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取统计信息"""
         with self._lock:
             return {
@@ -265,7 +265,7 @@ class ErrorEvent(Event):
 event_bus = EventBus()
 
 
-def on_event(event_types: List[str], priority: int = 100):
+def on_event(event_types: list[str], priority: int = 100):
     """事件处理装饰器"""
 
     def decorator(func: Callable) -> Callable:
@@ -276,14 +276,14 @@ def on_event(event_types: List[str], priority: int = 100):
 
 
 async def emit_event(
-    name: str, data: Dict[str, Any] = None, source: str = None
+    name: str, data: dict[str, Any] = None, source: str = None
 ) -> None:
     """发射事件的便捷函数"""
     event = Event(name=name, data=data or {}, source=source)
     await event_bus.publish(event)
 
 
-def emit_event_sync(name: str, data: Dict[str, Any] = None, source: str = None) -> None:
+def emit_event_sync(name: str, data: dict[str, Any] = None, source: str = None) -> None:
     """同步发射事件的便捷函数"""
     event = Event(name=name, data=data or {}, source=source)
     event_bus.publish_sync(event)

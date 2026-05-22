@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from .base_factor import MacroFactor
 
@@ -15,7 +15,7 @@ class BaseloadMismatchFactor(MacroFactor):
     name = "baseload_mismatch"
     default_threshold = 0.18
 
-    def compute(self, data_context: Dict[str, Any]):
+    def compute(self, data_context: dict[str, Any]):
         supply_signal = data_context.get("signals", {}).get("supply_chain", {})
         macro_signal = data_context.get("signals", {}).get("macro_hf", {})
 

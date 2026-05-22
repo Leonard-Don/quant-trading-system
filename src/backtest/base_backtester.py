@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -59,10 +59,10 @@ class BaseBacktester(ABC):
         self.initial_capital = initial_capital
         self.commission = commission
         self.slippage = slippage
-        self.results: Dict[str, Any] = {}
+        self.results: dict[str, Any] = {}
 
     @abstractmethod
-    def run(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    def run(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """Execute a backtest and return the results dictionary.
 
         Every concrete subclass must implement this method.  The returned
@@ -83,7 +83,7 @@ class BaseBacktester(ABC):
         equity_curve: pd.Series,
         *,
         trading_days_per_year: int = 252,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Compute standard risk/return metrics from an equity curve.
 
         This is designed to be called by any subclass after the simulation
@@ -138,7 +138,7 @@ class BaseBacktester(ABC):
         }
 
     @staticmethod
-    def _empty_metrics() -> Dict[str, Any]:
+    def _empty_metrics() -> dict[str, Any]:
         """Return a zeroed-out metrics dict for edge cases."""
         return {
             "total_return": 0.0,

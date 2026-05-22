@@ -6,7 +6,7 @@ import base64
 import io
 import logging
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any
 
 from src.utils.data_validation import normalize_backtest_results
 
@@ -42,7 +42,7 @@ class PDFGenerator:
         if REPORTLAB_AVAILABLE:
             self._setup_styles()
 
-    def _resolve_metrics(self, backtest_result: Dict[str, Any]) -> Dict[str, Any]:
+    def _resolve_metrics(self, backtest_result: dict[str, Any]) -> dict[str, Any]:
         """Resolve a normalized metric dictionary from supported result shapes."""
         normalized = normalize_backtest_results(backtest_result)
         metrics = normalized.get("metrics", {})
@@ -54,7 +54,7 @@ class PDFGenerator:
 
         return metrics
 
-    def _resolve_trades(self, backtest_result: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _resolve_trades(self, backtest_result: dict[str, Any]) -> list[dict[str, Any]]:
         """Resolve normalized trades for table rendering."""
         normalized = normalize_backtest_results(backtest_result)
         trades = normalized.get("trades", [])
@@ -106,20 +106,20 @@ class PDFGenerator:
 
     def generate_backtest_report(
         self,
-        backtest_result: Dict[str, Any],
+        backtest_result: dict[str, Any],
         symbol: str,
         strategy: str,
-        parameters: Dict = None
+        parameters: dict = None
     ) -> bytes:
         """
         生成回测报告 PDF
-        
+
         Args:
             backtest_result: 回测结果
             symbol: 股票代码
             strategy: 策略名称
             parameters: 策略参数
-            
+
         Returns:
             PDF 文件的字节内容
         """
@@ -281,7 +281,7 @@ class PDFGenerator:
 
     def _generate_fallback_report(
         self,
-        backtest_result: Dict,
+        backtest_result: dict,
         symbol: str,
         strategy: str
     ) -> bytes:
@@ -318,10 +318,10 @@ class PDFGenerator:
 
     def get_report_base64(
         self,
-        backtest_result: Dict,
+        backtest_result: dict,
         symbol: str,
         strategy: str,
-        parameters: Dict = None
+        parameters: dict = None
     ) -> str:
         """生成 Base64 编码的 PDF"""
         pdf_bytes = self.generate_backtest_report(

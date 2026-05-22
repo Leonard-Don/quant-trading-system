@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Optional
 
 
 class AssetClass(str, Enum):
@@ -33,7 +33,7 @@ class AssetSpec:
     lot_size: int = 1
     preferred_provider: str = "yahoo"
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "symbol": self.symbol,
             "asset_class": self.asset_class.value,
@@ -81,14 +81,14 @@ class AssetUniverse:
         },
     }
 
-    def __init__(self, assets: Iterable[Dict[str, object]]):
+    def __init__(self, assets: Iterable[dict[str, object]]):
         self.assets = self._build_specs(list(assets))
 
-    def _build_specs(self, assets: List[Dict[str, object]]) -> List[AssetSpec]:
+    def _build_specs(self, assets: list[dict[str, object]]) -> list[AssetSpec]:
         if len(assets) < 2:
             raise ValueError("At least two assets are required for cross-market backtesting")
 
-        parsed: List[Dict[str, object]] = []
+        parsed: list[dict[str, object]] = []
         for item in assets:
             symbol = str(item.get("symbol", "")).strip().upper()
             if not symbol:
@@ -126,7 +126,7 @@ class AssetUniverse:
         if side_counts[AssetSide.LONG] == 0 or side_counts[AssetSide.SHORT] == 0:
             raise ValueError("Cross-market basket must include both long and short assets")
 
-        normalized: List[AssetSpec] = []
+        normalized: list[AssetSpec] = []
         for side in (AssetSide.LONG, AssetSide.SHORT):
             side_items = [item for item in parsed if item["side"] == side]
             weights = [item["weight"] for item in side_items]
@@ -153,20 +153,20 @@ class AssetUniverse:
 
         return normalized
 
-    def get_assets(self, side: Optional[AssetSide] = None) -> List[AssetSpec]:
+    def get_assets(self, side: Optional[AssetSide] = None) -> list[AssetSpec]:
         if side is None:
             return list(self.assets)
         return [asset for asset in self.assets if asset.side == side]
 
-    def symbols(self) -> List[str]:
+    def symbols(self) -> list[str]:
         return [asset.symbol for asset in self.assets]
 
-    def summary(self) -> Dict[str, object]:
+    def summary(self) -> dict[str, object]:
         by_side = {
             side.value: len(self.get_assets(side))
             for side in AssetSide
         }
-        by_class: Dict[str, int] = {}
+        by_class: dict[str, int] = {}
         for asset in self.assets:
             by_class[asset.asset_class.value] = by_class.get(asset.asset_class.value, 0) + 1
 
@@ -194,5 +194,5 @@ class AssetUniverse:
             },
         }
 
-    def as_dicts(self) -> List[Dict[str, object]]:
+    def as_dicts(self) -> list[dict[str, object]]:
         return [asset.to_dict() for asset in self.assets]

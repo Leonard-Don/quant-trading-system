@@ -2,7 +2,7 @@
 简化的性能分析模块
 """
 
-from typing import Any, Dict
+from typing import Any
 
 import pandas as pd
 
@@ -12,11 +12,11 @@ from src.utils.data_validation import normalize_backtest_results
 class PerformanceAnalyzer:
     """性能分析器"""
 
-    def __init__(self, results: Dict[str, Any]):
+    def __init__(self, results: dict[str, Any]):
         self.results = results
         self.trades = results.get("trades", [])
 
-    def calculate_metrics(self) -> Dict[str, Any]:
+    def calculate_metrics(self) -> dict[str, Any]:
         """计算补充分析指标，不覆盖回测引擎已给出的核心指标。"""
         normalized_results = normalize_backtest_results(self.results)
         metrics = {}

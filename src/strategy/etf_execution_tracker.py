@@ -37,7 +37,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +87,8 @@ class ExecutionRecord:
         _coerce_optional_int(self.suggested_shares, "suggested_shares")
         _coerce_optional_float(self.actual_fill_price, "actual_fill_price")
 
-    def to_dict(self) -> Dict[str, Any]:
-        out: Dict[str, Any] = {
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
             "code": self.code,
             "decision": self.decision,
             "action": self.action,
@@ -237,7 +237,7 @@ def append_execution(
     return target
 
 
-def read_executions(path: Optional[Path] = None) -> List[ExecutionRecord]:
+def read_executions(path: Optional[Path] = None) -> list[ExecutionRecord]:
     """Return executions in chronological order. Empty when file missing.
 
     Malformed lines are logged and skipped, never raised — we treat the
@@ -247,7 +247,7 @@ def read_executions(path: Optional[Path] = None) -> List[ExecutionRecord]:
     target = path or _resolve_executions_path()
     if target is None or not Path(target).is_file():
         return []
-    out: List[ExecutionRecord] = []
+    out: list[ExecutionRecord] = []
     text = Path(target).read_text(encoding="utf-8")
     for line_no, line in enumerate(text.splitlines(), start=1):
         line = line.strip()
@@ -322,7 +322,7 @@ def read_audit_entries(path: Optional[Path] = None) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
-def compute_decision_breakdown(executions: Sequence[ExecutionRecord]) -> Dict[str, Any]:
+def compute_decision_breakdown(executions: Sequence[ExecutionRecord]) -> dict[str, Any]:
     """Tally executions by decision and by code.
 
     Returns counts of executed / modified / skipped — at a glance you can
@@ -330,8 +330,8 @@ def compute_decision_breakdown(executions: Sequence[ExecutionRecord]) -> Dict[st
     it, and which ETFs see the most discretionary divergence.
     """
 
-    by_decision: Dict[str, int] = {"executed": 0, "modified": 0, "skipped": 0}
-    by_code: Dict[str, Dict[str, int]] = {}
+    by_decision: dict[str, int] = {"executed": 0, "modified": 0, "skipped": 0}
+    by_code: dict[str, dict[str, int]] = {}
     for record in executions:
         decision = record.decision
         by_decision[decision] = by_decision.get(decision, 0) + 1
@@ -357,7 +357,7 @@ def compare_execution_to_suggestion(
     audit_entries: Sequence[Mapping[str, Any]],
     *,
     horizon_minutes: float = 1440.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Score each execution against the strategy's suggestion at the same plan.
 
     For every execution we look up the audit entry it responded to (by
@@ -376,8 +376,8 @@ def compare_execution_to_suggestion(
 
     # Index audit entries by parsed run_at so equivalent ISO strings such as
     # ``Z`` and ``+00:00`` join to the same plan.
-    by_run_at: Dict[datetime, Mapping[str, Any]] = {}
-    sorted_entries: List[tuple[datetime, Mapping[str, Any]]] = []
+    by_run_at: dict[datetime, Mapping[str, Any]] = {}
+    sorted_entries: list[tuple[datetime, Mapping[str, Any]]] = []
     for entry in audit_entries:
         run_dt = _parse_iso(entry.get("run_at"))
         if run_dt is None:
@@ -386,8 +386,8 @@ def compare_execution_to_suggestion(
         sorted_entries.append((run_dt, entry))
     sorted_entries.sort(key=lambda item: item[0])
 
-    pairs: List[Dict[str, Any]] = []
-    per_code: Dict[str, List[float]] = {}
+    pairs: list[dict[str, Any]] = []
+    per_code: dict[str, list[float]] = {}
     for record in executions:
         if not record.plan_run_at:
             continue
@@ -511,7 +511,7 @@ def compare_recorded_executions_to_audit(
     executions_path: Optional[Path] = None,
     audit_path: Optional[Path] = None,
     horizon_minutes: float = 1440.0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Load recorded executions plus audit rows and return the comparison report."""
 
     return compare_execution_to_suggestion(
@@ -561,7 +561,7 @@ def _normalised_exposure(action: str, shares: Optional[int], baseline_shares: fl
     return direction * (float(shares) / baseline_shares)
 
 
-def _empty_compare_report(horizon_minutes: float) -> Dict[str, Any]:
+def _empty_compare_report(horizon_minutes: float) -> dict[str, Any]:
     return {
         "n_pairs": 0,
         "user_alpha_mean": None,

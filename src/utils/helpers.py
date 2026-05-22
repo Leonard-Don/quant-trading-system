@@ -4,7 +4,7 @@
 
 import logging
 from datetime import datetime
-from typing import Optional, Tuple
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -23,7 +23,7 @@ def calculate_sharpe_ratio(returns: pd.Series, risk_free_rate: float = 0.0) -> f
 
 def calculate_max_drawdown(
     portfolio_value: pd.Series,
-) -> Tuple[float, datetime, datetime]:
+) -> tuple[float, datetime, datetime]:
     """
     计算最大回撤
 

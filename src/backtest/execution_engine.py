@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -52,16 +52,16 @@ class PortfolioExecutionEngine:
         self.config = config or PortfolioExecutionConfig()
         self.config.market_impact_model = normalize_market_impact_model(self.config.market_impact_model)
 
-    def execute(self, *, price_data: pd.DataFrame, target_weights: pd.DataFrame) -> Dict[str, Any]:
+    def execute(self, *, price_data: pd.DataFrame, target_weights: pd.DataFrame) -> dict[str, Any]:
         prices = price_data.astype(float).copy()
         weights = target_weights.reindex(index=prices.index, columns=prices.columns).fillna(0.0)
         market_context = self._build_market_context(prices)
 
         positions = pd.Series(0.0, index=prices.columns, dtype=float)
         cash = float(self.initial_capital)
-        trades: List[Dict[str, Any]] = []
-        history: List[Dict[str, Any]] = []
-        position_history: List[Dict[str, Any]] = []
+        trades: list[dict[str, Any]] = []
+        history: list[dict[str, Any]] = []
+        position_history: list[dict[str, Any]] = []
 
         for timestamp, price_row in prices.iterrows():
             valid_prices = price_row.replace([np.inf, -np.inf], np.nan).dropna()
@@ -246,7 +246,7 @@ class PortfolioExecutionEngine:
             return float(shares)
         return float(np.trunc(shares))
 
-    def _build_market_context(self, prices: pd.DataFrame) -> Dict[str, pd.DataFrame]:
+    def _build_market_context(self, prices: pd.DataFrame) -> dict[str, pd.DataFrame]:
         returns = prices.pct_change().replace([np.inf, -np.inf], np.nan)
         fallback_volatility = returns.std().replace([np.inf, -np.inf], np.nan).fillna(0.02).clip(lower=0.005)
         rolling_volatility = returns.rolling(20, min_periods=2).std()
@@ -270,8 +270,8 @@ class PortfolioExecutionEngine:
         shares: float,
         timestamp: Any,
         asset: str,
-        market_context: Dict[str, pd.DataFrame],
-    ) -> Dict[str, float | str]:
+        market_context: dict[str, pd.DataFrame],
+    ) -> dict[str, float | str]:
         impact = estimate_market_impact_rate(
             abs(float(price or 0.0) * float(shares or 0.0)),
             market_impact_bps=self.config.market_impact_bps,

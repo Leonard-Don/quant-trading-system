@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,7 @@ class PatternRecognizer:
     """
     形态识别器
     识别常见的K线形态和图表形态
-    
+
     Args:
         config: 可选配置字典，支持以下参数：
             - doji_threshold: 十字星实体比例阈值
@@ -40,10 +40,10 @@ class PatternRecognizer:
         "engulfing_ratio": 1.2            # 吞没形态实体比例要求
     }
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         """
         初始化形态识别器
-        
+
         Args:
             config: 自定义配置，将与默认配置合并
         """
@@ -56,7 +56,7 @@ class PatternRecognizer:
         self.price_tolerance = self.config["price_tolerance"]
         self.engulfing_ratio = self.config["engulfing_ratio"]
 
-    def _merge_config(self, custom_config: Dict[str, Any]) -> Dict[str, Any]:
+    def _merge_config(self, custom_config: dict[str, Any]) -> dict[str, Any]:
         """
         合并自定义配置与默认配置
         """
@@ -71,7 +71,7 @@ class PatternRecognizer:
                 merged[key] = default_value.copy() if isinstance(default_value, dict) else default_value
         return merged
 
-    def recognize_patterns(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def recognize_patterns(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         识别所有形态
 
@@ -100,7 +100,7 @@ class PatternRecognizer:
             "total_patterns": len(candlestick_patterns) + len(chart_patterns)
         }
 
-    def _recognize_candlestick_patterns(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+    def _recognize_candlestick_patterns(self, df: pd.DataFrame) -> list[dict[str, Any]]:
         """
         识别K线形态
         """
@@ -143,7 +143,7 @@ class PatternRecognizer:
         # 只返回最近的5个形态
         return patterns[-5:] if len(patterns) > 5 else patterns
 
-    def _check_doji(self, candle: pd.Series) -> Dict[str, Any]:
+    def _check_doji(self, candle: pd.Series) -> dict[str, Any]:
         """
         检测十字星
         """
@@ -170,7 +170,7 @@ class PatternRecognizer:
 
         return None
 
-    def _check_hammer(self, current: pd.Series, prev: pd.Series) -> Dict[str, Any]:
+    def _check_hammer(self, current: pd.Series, prev: pd.Series) -> dict[str, Any]:
         """
         检测锤子线和上吊线
         """
@@ -214,7 +214,7 @@ class PatternRecognizer:
 
         return None
 
-    def _check_engulfing(self, current: pd.Series, prev: pd.Series) -> Dict[str, Any]:
+    def _check_engulfing(self, current: pd.Series, prev: pd.Series) -> dict[str, Any]:
         """
         检测吞没形态
         """
@@ -261,7 +261,7 @@ class PatternRecognizer:
         candle3: pd.Series,
         candle2: pd.Series,
         candle1: pd.Series
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         检测早晨之星和黄昏之星
         """
@@ -310,7 +310,7 @@ class PatternRecognizer:
         candle3: pd.Series,
         candle2: pd.Series,
         candle1: pd.Series
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         检测红三兵和三只乌鸦
         """
@@ -344,7 +344,7 @@ class PatternRecognizer:
 
         return None
 
-    def _recognize_chart_patterns(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+    def _recognize_chart_patterns(self, df: pd.DataFrame) -> list[dict[str, Any]]:
         """
         识别图表形态
         """
@@ -384,7 +384,7 @@ class PatternRecognizer:
         close: pd.Series,
         high: pd.Series,
         low: pd.Series
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         检测双顶和双底
         """
@@ -464,7 +464,7 @@ class PatternRecognizer:
         close: pd.Series,
         high: pd.Series,
         low: pd.Series
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         检测头肩顶和头肩底
         """
@@ -540,7 +540,7 @@ class PatternRecognizer:
         close: pd.Series,
         high: pd.Series,
         low: pd.Series
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         检测三角形态（上升、下降、对称三角形）
         """
@@ -591,7 +591,7 @@ class PatternRecognizer:
         close: pd.Series,
         high: pd.Series,
         low: pd.Series
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         检测旗形（上升旗形、下降旗形）
         """

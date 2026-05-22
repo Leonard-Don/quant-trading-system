@@ -9,7 +9,7 @@ import time
 from collections import defaultdict
 from functools import wraps
 from threading import Lock
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from fastapi import HTTPException, Request, status
 
@@ -31,7 +31,7 @@ class TokenBucket:
         self.last_refill = time.time()
         self.lock = Lock()
 
-    def consume(self, tokens: int = 1) -> Dict[str, Any]:
+    def consume(self, tokens: int = 1) -> dict[str, Any]:
         """
         消费令牌
 
@@ -86,28 +86,28 @@ class RateLimiter:
         self.refill_rate = requests_per_minute / 60.0
 
         # 客户端令牌桶映射
-        self.buckets: Dict[str, TokenBucket] = {}
-        self.endpoint_rules: List[Dict[str, Any]] = []
-        self.endpoint_stats: Dict[str, Dict[str, Any]] = defaultdict(
+        self.buckets: dict[str, TokenBucket] = {}
+        self.endpoint_rules: list[dict[str, Any]] = []
+        self.endpoint_stats: dict[str, dict[str, Any]] = defaultdict(
             lambda: {"allowed": 0, "blocked": 0, "last_seen": None, "rule_pattern": "default"}
         )
-        self.identity_stats: Dict[str, Dict[str, Any]] = defaultdict(
+        self.identity_stats: dict[str, dict[str, Any]] = defaultdict(
             lambda: {"allowed": 0, "blocked": 0, "last_seen": None}
         )
-        self.recent_blocks: List[Dict[str, Any]] = []
+        self.recent_blocks: list[dict[str, Any]] = []
 
         self.lock = Lock()
         logger.info(
             f"速率限制器初始化: {requests_per_minute} 请求/分钟, " f"突发大小: {self.burst_size}"
         )
 
-    def _make_bucket(self, rule: Dict[str, Any]) -> TokenBucket:
+    def _make_bucket(self, rule: dict[str, Any]) -> TokenBucket:
         return TokenBucket(
             int(rule.get("burst_size") or self.burst_size),
             float(rule.get("requests_per_minute") or self.requests_per_minute) / 60.0,
         )
 
-    def configure_endpoint_rules(self, rules: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def configure_endpoint_rules(self, rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
         normalized_rules = []
         for index, rule in enumerate(rules or []):
             if not isinstance(rule, dict):
@@ -138,7 +138,7 @@ class RateLimiter:
             self.refill_rate = self.requests_per_minute / 60.0
             self.buckets = {}
 
-    def _match_rule(self, endpoint: str) -> Dict[str, Any]:
+    def _match_rule(self, endpoint: str) -> dict[str, Any]:
         with self.lock:
             active_rules = list(self.endpoint_rules)
         for rule in active_rules:
@@ -170,7 +170,7 @@ class RateLimiter:
             return True
         return False
 
-    def get_client_identity(self, request: Request) -> Dict[str, str]:
+    def get_client_identity(self, request: Request) -> dict[str, str]:
         endpoint = request.url.path
         auth_header = request.headers.get("Authorization", "")
         api_key = request.headers.get("X-API-Key", "")
@@ -211,7 +211,7 @@ class RateLimiter:
         identity = self.get_client_identity(request)
         return f"{identity['subject']}:{identity['endpoint']}"
 
-    def evaluate(self, request: Request) -> Dict[str, Any]:
+    def evaluate(self, request: Request) -> dict[str, Any]:
         identity = self.get_client_identity(request)
         endpoint = identity["endpoint"]
         rule = self._match_rule(endpoint)
@@ -259,7 +259,7 @@ class RateLimiter:
             "subject": identity["subject"],
         }
 
-    def status(self) -> Dict[str, Any]:
+    def status(self) -> dict[str, Any]:
         with self.lock:
             endpoint_rows = [
                 {

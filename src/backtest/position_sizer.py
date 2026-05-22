@@ -20,7 +20,6 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List
 
 import numpy as np
 
@@ -38,7 +37,7 @@ class SizingContext:
     signal_strength: float = 1.0      # 0–1 scale from strategy (1 = full conviction)
 
     # Historical info (optional, used by adaptive sizers)
-    recent_returns: List[float] = field(default_factory=list)
+    recent_returns: list[float] = field(default_factory=list)
     recent_win_rate: float = 0.5
     recent_avg_win: float = 0.0
     recent_avg_loss: float = 0.0

@@ -10,7 +10,7 @@ import logging
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -38,11 +38,11 @@ class DataExporter:
 
     def generate_backtest_report(
         self,
-        backtest_results: Dict[str, Any],
+        backtest_results: dict[str, Any],
         symbol: str,
         strategy_name: str,
         include_charts: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """生成详细的回测数据报告"""
         try:
             report_id = f"backtest_{symbol}_{strategy_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -81,10 +81,10 @@ class DataExporter:
             self.logger.error(f"生成回测报告失败: {e}")
             raise
 
-    def _normalize_results(self, results: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_results(self, results: dict[str, Any]) -> dict[str, Any]:
         return normalize_backtest_results(results or {})
 
-    def _extract_portfolio_points(self, results: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _extract_portfolio_points(self, results: dict[str, Any]) -> list[dict[str, Any]]:
         normalized = self._normalize_results(results)
         portfolio_history = normalized.get("portfolio_history") or normalized.get("portfolio") or []
 
@@ -123,17 +123,17 @@ class DataExporter:
 
         return points
 
-    def _extract_portfolio_values(self, results: Dict[str, Any]) -> List[float]:
+    def _extract_portfolio_values(self, results: dict[str, Any]) -> list[float]:
         return [point["total"] for point in self._extract_portfolio_points(results)]
 
-    def _extract_portfolio_dates(self, results: Dict[str, Any], count: int) -> pd.DatetimeIndex:
+    def _extract_portfolio_dates(self, results: dict[str, Any], count: int) -> pd.DatetimeIndex:
         points = self._extract_portfolio_points(results)
         parsed_dates = pd.to_datetime([point.get("date") for point in points], errors="coerce")
         if len(parsed_dates) == count and parsed_dates.notna().all():
             return pd.DatetimeIndex(parsed_dates)
         return pd.date_range(start="2023-01-01", periods=count, freq="D")
 
-    def _extract_return_series(self, results: Dict[str, Any]) -> pd.Series:
+    def _extract_return_series(self, results: dict[str, Any]) -> pd.Series:
         points = self._extract_portfolio_points(results)
         explicit_returns = pd.Series(
             [point.get("returns") for point in points], dtype="float64"
@@ -145,12 +145,12 @@ class DataExporter:
         portfolio_values = pd.Series([point["total"] for point in points], dtype="float64")
         return portfolio_values.pct_change().dropna()
 
-    def _extract_trade_records(self, results: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _extract_trade_records(self, results: dict[str, Any]) -> list[dict[str, Any]]:
         normalized = self._normalize_results(results)
         trades = normalized.get("trades")
         return trades if isinstance(trades, list) else []
 
-    def _generate_summary(self, results: Dict[str, Any]) -> Dict[str, Any]:
+    def _generate_summary(self, results: dict[str, Any]) -> dict[str, Any]:
         """生成报告摘要"""
         try:
             normalized = self._normalize_results(results)
@@ -175,7 +175,7 @@ class DataExporter:
             self.logger.error(f"生成摘要失败: {e}")
             return {"error": str(e)}
 
-    def _extract_performance_metrics(self, results: Dict[str, Any]) -> Dict[str, Any]:
+    def _extract_performance_metrics(self, results: dict[str, Any]) -> dict[str, Any]:
         """提取性能指标"""
         try:
             normalized = self._normalize_results(results)
@@ -203,7 +203,7 @@ class DataExporter:
             self.logger.error(f"提取性能指标失败: {e}")
             return {"error": str(e)}
 
-    def _calculate_risk_metrics(self, results: Dict[str, Any]) -> Dict[str, Any]:
+    def _calculate_risk_metrics(self, results: dict[str, Any]) -> dict[str, Any]:
         """计算风险指标"""
         try:
             returns = self._extract_return_series(results)
@@ -273,7 +273,7 @@ class DataExporter:
         except Exception:
             return 0
 
-    def _analyze_trades(self, results: Dict[str, Any]) -> Dict[str, Any]:
+    def _analyze_trades(self, results: dict[str, Any]) -> dict[str, Any]:
         """分析交易记录"""
         try:
             trades = self._extract_trade_records(results)
@@ -335,8 +335,8 @@ class DataExporter:
             return {"error": str(e)}
 
     def _generate_charts(
-        self, results: Dict[str, Any], symbol: str, strategy: str
-    ) -> Dict[str, str]:
+        self, results: dict[str, Any], symbol: str, strategy: str
+    ) -> dict[str, str]:
         """生成图表"""
         try:
             charts = {}
@@ -376,7 +376,7 @@ class DataExporter:
             return {"error": str(e)}
 
     def _create_portfolio_chart(
-        self, portfolio_value: List[float], symbol: str, strategy: str, dates: Optional[pd.DatetimeIndex] = None
+        self, portfolio_value: list[float], symbol: str, strategy: str, dates: Optional[pd.DatetimeIndex] = None
     ) -> str:
         """创建组合价值图表"""
         try:
@@ -425,7 +425,7 @@ class DataExporter:
             return ""
 
     def _create_drawdown_chart(
-        self, portfolio_value: List[float], symbol: str, strategy: str, dates: Optional[pd.DatetimeIndex] = None
+        self, portfolio_value: list[float], symbol: str, strategy: str, dates: Optional[pd.DatetimeIndex] = None
     ) -> str:
         """创建回撤图表"""
         try:
@@ -475,7 +475,7 @@ class DataExporter:
             return ""
 
     def _create_returns_distribution_chart(
-        self, portfolio_value: List[float], symbol: str, strategy: str
+        self, portfolio_value: list[float], symbol: str, strategy: str
     ) -> str:
         """创建收益分布图表"""
         try:
@@ -521,7 +521,7 @@ class DataExporter:
             self.logger.error(f"创建收益分布图表失败: {e}")
             return ""
 
-    def export_to_csv(self, data: Dict[str, Any], filename: str) -> str:
+    def export_to_csv(self, data: dict[str, Any], filename: str) -> str:
         """导出数据到CSV"""
         try:
             csv_path = self.output_dir / f"{filename}.csv"
@@ -559,7 +559,7 @@ class DataExporter:
             self.logger.error(f"导出CSV失败: {e}")
             raise
 
-    def export_to_excel(self, data: Dict[str, Any], filename: str) -> str:
+    def export_to_excel(self, data: dict[str, Any], filename: str) -> str:
         """导出数据到Excel"""
         try:
             excel_path = self.output_dir / f"{filename}.xlsx"

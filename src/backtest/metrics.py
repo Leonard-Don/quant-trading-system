@@ -5,7 +5,7 @@ This module provides common functions for calculating financial performance metr
 used in various backtesting engines.
 """
 
-from typing import Tuple, Union
+from typing import Union
 
 import numpy as np
 import pandas as pd
@@ -14,10 +14,10 @@ import pandas as pd
 def calculate_returns(equity_curve: Union[pd.Series, np.ndarray]) -> float:
     """
     Calculate total return from equity curve.
-    
+
     Args:
         equity_curve: Series or array of portfolio values
-        
+
     Returns:
         Total return as a decimal (e.g., 0.1 for 10%)
     """
@@ -43,12 +43,12 @@ def calculate_annualized_return(
 ) -> float:
     """
     Calculate annualized return.
-    
+
     Args:
         total_return: Total return as decimal
         n_days: Number of days (or periods) in the backtest
         trading_days_per_year: Number of trading days in a year
-        
+
     Returns:
         Annualized return as decimal
     """
@@ -65,10 +65,10 @@ def calculate_annualized_return(
 def calculate_max_drawdown(equity_curve: Union[pd.Series, np.ndarray]) -> float:
     """
     Calculate maximum drawdown.
-    
+
     Args:
         equity_curve: Series or array of portfolio values
-        
+
     Returns:
         Maximum drawdown as a positive decimal (e.g., 0.2 for 20% drawdown)
     """
@@ -97,7 +97,7 @@ def calculate_max_drawdown(equity_curve: Union[pd.Series, np.ndarray]) -> float:
 
 def calculate_max_drawdown_duration(
     equity_curve: Union[pd.Series, np.ndarray],
-) -> Tuple[int, int]:
+) -> tuple[int, int]:
     """
     Calculate maximum drawdown duration (periods to recover) and the
     longest underwater period (periods from peak to next peak).
@@ -164,12 +164,12 @@ def calculate_sharpe_ratio(
 ) -> float:
     """
     Calculate Sharpe Ratio.
-    
+
     Args:
         returns: Series or array of periodic returns
         risk_free_rate: Annual risk free rate
         periods_per_year: Number of periods per year (default 252 for daily)
-        
+
     Returns:
         Sharpe Ratio
     """
@@ -196,12 +196,12 @@ def calculate_sortino_ratio(
 ) -> float:
     """
     Calculate Sortino Ratio.
-    
+
     Args:
         returns: Series or array of periodic returns
         target_return: Target periodic return (often 0)
         periods_per_year: Number of periods per year
-        
+
     Returns:
         Sortino Ratio
     """
@@ -230,11 +230,11 @@ def calculate_volatility(
 ) -> float:
     """
     Calculate Annualized Volatility.
-    
+
     Args:
         returns: periodic returns
         periods_per_year: (default 252)
-        
+
     Returns:
         Annualized standard deviation
     """
@@ -250,11 +250,11 @@ def calculate_var(
 ) -> float:
     """
     Calculate Value at Risk (VaR).
-    
+
     Args:
         returns: periodic returns
         confidence_level: (default 0.95)
-        
+
     Returns:
         VaR as a positive decimal (e.g. 0.02 means 2% potential loss)
         Note: Returned value is usually negative in raw percentile, 
@@ -464,11 +464,11 @@ def calculate_calmar_ratio(
 ) -> float:
     """
     Calculate Calmar Ratio.
-    
+
     Args:
         annualized_return: Annualized return
         max_drawdown: Maximum drawdown (positive value)
-        
+
     Returns:
         Calmar Ratio
     """

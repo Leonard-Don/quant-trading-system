@@ -5,7 +5,7 @@
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +22,7 @@ class ParameterRule:
     required: bool = False
     description: str = ""
 
-    def validate(self, value: Any) -> Tuple[bool, Optional[str]]:
+    def validate(self, value: Any) -> tuple[bool, Optional[str]]:
         """
         验证参数值
 
@@ -53,7 +53,7 @@ class StrategyValidator:
     """策略验证器"""
 
     # 策略参数规则定义
-    STRATEGY_RULES: Dict[str, List[ParameterRule]] = {
+    STRATEGY_RULES: dict[str, list[ParameterRule]] = {
         "moving_average": [
             ParameterRule(
                 name="fast_period",
@@ -341,8 +341,8 @@ class StrategyValidator:
 
     @classmethod
     def validate_strategy_params(
-        cls, strategy_name: str, parameters: Dict[str, Any]
-    ) -> Tuple[bool, Optional[str], Dict[str, Any]]:
+        cls, strategy_name: str, parameters: dict[str, Any]
+    ) -> tuple[bool, Optional[str], dict[str, Any]]:
         """
         验证策略参数
 
@@ -395,7 +395,7 @@ class StrategyValidator:
 
     @classmethod
     def _validate_logic(
-        cls, strategy_name: str, params: Dict[str, Any]
+        cls, strategy_name: str, params: dict[str, Any]
     ) -> Optional[str]:
         """
         验证参数的逻辑关系
@@ -436,7 +436,7 @@ class StrategyValidator:
         return None
 
     @classmethod
-    def get_strategy_info(cls, strategy_name: str) -> Optional[Dict[str, Any]]:
+    def get_strategy_info(cls, strategy_name: str) -> Optional[dict[str, Any]]:
         """
         获取策略信息
 
@@ -471,7 +471,7 @@ class StrategyValidator:
         return {"name": strategy_name, "parameters": params_info}
 
     @classmethod
-    def get_all_strategies_info(cls) -> List[Dict[str, Any]]:
+    def get_all_strategies_info(cls) -> list[dict[str, Any]]:
         """
         获取所有策略的信息
 

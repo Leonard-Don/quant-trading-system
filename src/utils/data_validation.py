@@ -7,7 +7,7 @@ import logging
 import math
 from copy import deepcopy
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -64,7 +64,7 @@ class DataStructureValidator:
 
         self.required_trade_fields = ["date", "type", "price", "shares"]
 
-    def validate_backtest_results(self, results: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_backtest_results(self, results: dict[str, Any]) -> dict[str, Any]:
         """验证回测结果数据结构"""
         validation_result = {
             "is_valid": True,
@@ -150,7 +150,7 @@ class DataStructureValidator:
 
         return validation_result
 
-    def _convert_portfolio_to_list(self, portfolio_df: pd.DataFrame) -> List[Dict]:
+    def _convert_portfolio_to_list(self, portfolio_df: pd.DataFrame) -> list[dict]:
         """将portfolio DataFrame转换为list格式"""
         try:
             # 确保所有必需字段存在
@@ -179,7 +179,7 @@ class DataStructureValidator:
             logger.error(f"Error converting portfolio to list: {e}")
             return []
 
-    def _validate_portfolio_structure(self, portfolio: List[Dict]) -> Dict[str, Any]:
+    def _validate_portfolio_structure(self, portfolio: list[dict]) -> dict[str, Any]:
         """验证portfolio数据结构"""
         result = {"is_valid": True, "errors": [], "warnings": []}
 
@@ -211,7 +211,7 @@ class DataStructureValidator:
 
         return result
 
-    def _validate_trades_structure(self, trades: List[Dict]) -> Dict[str, Any]:
+    def _validate_trades_structure(self, trades: list[dict]) -> dict[str, Any]:
         """验证trades数据结构"""
         result = {"is_valid": True, "errors": [], "warnings": []}
 
@@ -239,7 +239,7 @@ class DataStructureValidator:
         return result
 
     def _validate_numerical_consistency(
-        self, results: Dict[str, Any], validation_result: Dict[str, Any]
+        self, results: dict[str, Any], validation_result: dict[str, Any]
     ):
         """验证数值一致性"""
         try:
@@ -305,7 +305,7 @@ class DataStructureValidator:
         else:
             return data
 
-    def _dataframe_to_records(self, dataframe: pd.DataFrame) -> List[Dict[str, Any]]:
+    def _dataframe_to_records(self, dataframe: pd.DataFrame) -> list[dict[str, Any]]:
         """Convert DataFrame to records while preserving datetime indexes as a date column."""
         working_df = dataframe.copy()
 
@@ -369,7 +369,7 @@ def _coerce_number(value: Any, target_type):
         return value
 
 
-def normalize_trade_record(trade: Dict[str, Any], copy_data: bool = True) -> Dict[str, Any]:
+def normalize_trade_record(trade: dict[str, Any], copy_data: bool = True) -> dict[str, Any]:
     """Normalize trade aliases so downstream consumers can use one shape."""
     normalized = deepcopy(trade) if copy_data else trade
 
@@ -417,8 +417,8 @@ def normalize_trade_record(trade: Dict[str, Any], copy_data: bool = True) -> Dic
 
 
 def normalize_backtest_metrics(
-    metrics: Dict[str, Any], copy_data: bool = True
-) -> Dict[str, Any]:
+    metrics: dict[str, Any], copy_data: bool = True
+) -> dict[str, Any]:
     """Normalize metric aliases without changing public field names."""
     normalized = deepcopy(metrics) if copy_data else metrics
 
@@ -458,7 +458,7 @@ def _is_valid_number(value: Any) -> bool:
     return np.isfinite(numeric_value)
 
 
-def _is_corrupted_portfolio_row(row: Dict[str, Any], previous_row: Optional[Dict[str, Any]]) -> bool:
+def _is_corrupted_portfolio_row(row: dict[str, Any], previous_row: Optional[dict[str, Any]]) -> bool:
     """Detect a trailing placeholder row produced by an incomplete market bar."""
     if not isinstance(row, dict) or not isinstance(previous_row, dict):
         return False
@@ -485,7 +485,7 @@ def _is_corrupted_portfolio_row(row: Dict[str, Any], previous_row: Optional[Dict
     )
 
 
-def _is_corrupted_trade(trade: Dict[str, Any], corrupted_dates: set[str]) -> bool:
+def _is_corrupted_trade(trade: dict[str, Any], corrupted_dates: set[str]) -> bool:
     """Detect a synthetic trailing SELL created by a corrupted final price bar."""
     if not isinstance(trade, dict):
         return False
@@ -506,8 +506,8 @@ def _is_corrupted_trade(trade: Dict[str, Any], corrupted_dates: set[str]) -> boo
 
 
 def _repair_trailing_corruption(
-    results: Dict[str, Any], copy_data: bool = True
-) -> Dict[str, Any]:
+    results: dict[str, Any], copy_data: bool = True
+) -> dict[str, Any]:
     """
     Repair old backtest snapshots whose final bar was an incomplete market row.
 
@@ -567,7 +567,7 @@ def _repair_trailing_corruption(
     returns_values = returns.iloc[1:] if len(returns) > 1 else pd.Series(dtype="float64")
     max_drawdown = calculate_max_drawdown(totals.values) if len(totals) else 0.0
 
-    completed_trade_pnls: List[float] = []
+    completed_trade_pnls: list[float] = []
     has_open_position = False
     index = 0
     while index < len(cleaned_trades):
@@ -696,8 +696,8 @@ def _repair_trailing_corruption(
 
 
 def normalize_backtest_results(
-    results: Dict[str, Any], copy_data: bool = True
-) -> Dict[str, Any]:
+    results: dict[str, Any], copy_data: bool = True
+) -> dict[str, Any]:
     """Normalize top-level backtest results, nested metrics, and trade aliases."""
     normalized = deepcopy(results) if copy_data else results
 
@@ -744,7 +744,7 @@ def normalize_backtest_results(
     return normalized
 
 
-def validate_and_fix_backtest_results(results: Dict[str, Any]) -> Dict[str, Any]:
+def validate_and_fix_backtest_results(results: dict[str, Any]) -> dict[str, Any]:
     """验证并修复回测结果的便捷函数"""
     results = normalize_backtest_results(results)
     validation = data_validator.validate_backtest_results(results)

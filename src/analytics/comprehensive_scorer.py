@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 import pandas as pd
 
@@ -35,7 +35,7 @@ class ComprehensiveScorer:
         df: pd.DataFrame,
         symbol: str = None,
         include_pattern: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         综合分析
 
@@ -143,7 +143,7 @@ class ComprehensiveScorer:
             "risk_warnings": risk_warnings
         }
 
-    def _calculate_fundamental_score(self, fundamental_result: Dict[str, Any]) -> float:
+    def _calculate_fundamental_score(self, fundamental_result: dict[str, Any]) -> float:
         """计算基本面得分"""
         # 取各个维度的平均分
         v_score = fundamental_result.get("valuation", {}).get("score", 50)
@@ -152,7 +152,7 @@ class ComprehensiveScorer:
 
         return (v_score + h_score + g_score) / 3
 
-    def _calculate_trend_score(self, trend_result: Dict[str, Any]) -> float:
+    def _calculate_trend_score(self, trend_result: dict[str, Any]) -> float:
         """
         计算趋势得分 (0-100)
         """
@@ -194,7 +194,7 @@ class ComprehensiveScorer:
 
         return max(0, min(100, score))
 
-    def _calculate_volume_score(self, volume_result: Dict[str, Any]) -> float:
+    def _calculate_volume_score(self, volume_result: dict[str, Any]) -> float:
         """
         计算量价得分 (0-100)
         """
@@ -239,7 +239,7 @@ class ComprehensiveScorer:
 
         return max(0, min(100, score))
 
-    def _calculate_sentiment_score(self, sentiment_result: Dict[str, Any]) -> float:
+    def _calculate_sentiment_score(self, sentiment_result: dict[str, Any]) -> float:
         """
         计算情绪得分 (0-100)
         """
@@ -265,7 +265,7 @@ class ComprehensiveScorer:
 
         return max(0, min(100, score))
 
-    def _calculate_technical_score(self, trend_result: Dict[str, Any]) -> float:
+    def _calculate_technical_score(self, trend_result: dict[str, Any]) -> float:
         """
         计算技术指标得分 (0-100)
         """
@@ -299,9 +299,9 @@ class ComprehensiveScorer:
     def _generate_recommendation(
         self,
         overall_score: float,
-        trend_result: Dict,
-        volume_result: Dict,
-        sentiment_result: Dict
+        trend_result: dict,
+        volume_result: dict,
+        sentiment_result: dict
     ) -> str:
         """
         生成投资建议
@@ -319,9 +319,9 @@ class ComprehensiveScorer:
 
     def _assess_confidence(
         self,
-        trend_result: Dict,
-        volume_result: Dict,
-        sentiment_result: Dict
+        trend_result: dict,
+        volume_result: dict,
+        sentiment_result: dict
     ) -> str:
         """
         评估置信度
@@ -367,10 +367,10 @@ class ComprehensiveScorer:
 
     def _summarize_key_signals(
         self,
-        trend_result: Dict,
-        volume_result: Dict,
-        sentiment_result: Dict
-    ) -> List[Dict[str, str]]:
+        trend_result: dict,
+        volume_result: dict,
+        sentiment_result: dict
+    ) -> list[dict[str, str]]:
         """
         总结关键信号
         """
@@ -423,10 +423,10 @@ class ComprehensiveScorer:
 
     def _generate_risk_warnings(
         self,
-        trend_result: Dict,
-        volume_result: Dict,
-        sentiment_result: Dict
-    ) -> List[str]:
+        trend_result: dict,
+        volume_result: dict,
+        sentiment_result: dict
+    ) -> list[str]:
         """
         生成风险提示
         """
@@ -476,10 +476,10 @@ class ComprehensiveScorer:
         sentiment_score: float,
         technical_score: float,
         fundamental_score: float,
-        trend_result: Dict,
-        volume_result: Dict,
-        sentiment_result: Dict
-    ) -> List[Dict[str, Any]]:
+        trend_result: dict,
+        volume_result: dict,
+        sentiment_result: dict
+    ) -> list[dict[str, Any]]:
         """生成评分解释"""
         explanations = []
 
@@ -571,10 +571,10 @@ class ComprehensiveScorer:
 
     def _generate_recommendation_reasons(
         self,
-        trend_result: Dict,
-        volume_result: Dict,
-        sentiment_result: Dict
-    ) -> List[str]:
+        trend_result: dict,
+        volume_result: dict,
+        sentiment_result: dict
+    ) -> list[str]:
         """生成推荐原因"""
         reasons = []
 

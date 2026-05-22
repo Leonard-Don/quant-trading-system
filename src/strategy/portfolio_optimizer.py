@@ -5,7 +5,7 @@
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 class PortfolioOptimizer:
     """
     投资组合优化器
-    
+
     支持:
     - 均值-方差优化 (Markowitz)
     - 最大夏普比率组合
@@ -28,11 +28,11 @@ class PortfolioOptimizer:
     def __init__(
         self,
         risk_free_rate: float = 0.02,
-        constraints: Optional[Dict] = None
+        constraints: Optional[dict] = None
     ):
         """
         初始化优化器
-        
+
         Args:
             risk_free_rate: 无风险利率 (年化)
             constraints: 约束条件 {'min_weight': 0.0, 'max_weight': 1.0}
@@ -53,14 +53,14 @@ class PortfolioOptimizer:
         self,
         weights: np.ndarray,
         returns: pd.DataFrame
-    ) -> Tuple[float, float, float]:
+    ) -> tuple[float, float, float]:
         """
         计算组合统计量
-        
+
         Args:
             weights: 权重数组
             returns: 收益率DataFrame
-            
+
         Returns:
             (预期收益率, 波动率, 夏普比率)
         """
@@ -77,14 +77,14 @@ class PortfolioOptimizer:
         self,
         returns: pd.DataFrame,
         include_short: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         最大化夏普比率
-        
+
         Args:
             returns: 日收益率DataFrame，列为资产名称
             include_short: 是否允许做空
-            
+
         Returns:
             优化结果字典
         """
@@ -147,7 +147,7 @@ class PortfolioOptimizer:
     def optimize_min_variance(
         self,
         returns: pd.DataFrame
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         最小化组合方差
         """
@@ -197,10 +197,10 @@ class PortfolioOptimizer:
     def optimize_risk_parity(
         self,
         returns: pd.DataFrame
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         风险平价优化
-        
+
         使每个资产对组合风险的贡献相等
         """
         n_assets = len(returns.columns)
@@ -263,7 +263,7 @@ class PortfolioOptimizer:
         self,
         returns: pd.DataFrame,
         target_return: float
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         给定目标收益率，最小化风险
         """
@@ -317,7 +317,7 @@ class PortfolioOptimizer:
         self,
         returns: pd.DataFrame,
         n_points: int = 50
-    ) -> List[Dict[str, float]]:
+    ) -> list[dict[str, float]]:
         """
         生成有效前沿
         """
@@ -345,14 +345,14 @@ class PortfolioOptimizer:
         self,
         strategy_returns: pd.DataFrame,
         method: str = 'max_sharpe'
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         优化多个策略的权重分配
-        
+
         Args:
             strategy_returns: DataFrame，列为策略名称，行为日期
             method: 优化方法 ('max_sharpe', 'min_variance', 'risk_parity')
-            
+
         Returns:
             优化结果
         """
@@ -391,7 +391,7 @@ class PortfolioOptimizer:
 class DynamicRebalancer:
     """
     动态再平衡器
-    
+
     根据市场条件动态调整权重
     """
 
@@ -411,8 +411,8 @@ class DynamicRebalancer:
 
     def check_rebalance_needed(
         self,
-        current_weights: Dict[str, float],
-        target_weights: Dict[str, float]
+        current_weights: dict[str, float],
+        target_weights: dict[str, float]
     ) -> bool:
         """
         检查是否需要再平衡
@@ -426,10 +426,10 @@ class DynamicRebalancer:
 
     def calculate_trades(
         self,
-        current_weights: Dict[str, float],
-        target_weights: Dict[str, float],
+        current_weights: dict[str, float],
+        target_weights: dict[str, float],
         portfolio_value: float
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """
         计算需要执行的交易量
         """
@@ -445,7 +445,7 @@ class DynamicRebalancer:
 class StrategyWeightOptimizer:
     """
     策略权重优化器
-    
+
     专门用于优化多个交易策略的权重分配
     支持基于历史回测收益的权重优化
     """
@@ -458,7 +458,7 @@ class StrategyWeightOptimizer:
     ):
         """
         初始化策略权重优化器
-        
+
         Args:
             risk_free_rate: 无风险利率
             min_weight: 单策略最小权重
@@ -473,17 +473,17 @@ class StrategyWeightOptimizer:
 
     def optimize_from_backtest_results(
         self,
-        backtest_results: Dict[str, Dict],
+        backtest_results: dict[str, dict],
         method: str = 'max_sharpe'
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         基于回测结果优化策略权重
-        
+
         Args:
             backtest_results: 回测结果字典
                 格式: {strategy_name: {'returns': pd.Series, 'metrics': {...}}}
             method: 优化方法
-            
+
         Returns:
             优化结果
         """
@@ -520,18 +520,18 @@ class StrategyWeightOptimizer:
 
     def optimize_from_signals(
         self,
-        strategy_signals: Dict[str, pd.Series],
+        strategy_signals: dict[str, pd.Series],
         price_data: pd.DataFrame,
         method: str = 'max_sharpe'
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         基于策略信号和价格数据优化权重
-        
+
         Args:
             strategy_signals: 策略信号字典 {strategy_name: signals}
             price_data: 价格数据
             method: 优化方法
-            
+
         Returns:
             优化结果
         """
@@ -555,14 +555,14 @@ class StrategyWeightOptimizer:
 
     def get_weighted_signal(
         self,
-        strategy_signals: Dict[str, pd.Series]
+        strategy_signals: dict[str, pd.Series]
     ) -> pd.Series:
         """
         生成加权组合信号
-        
+
         Args:
             strategy_signals: 策略信号字典
-            
+
         Returns:
             加权组合信号
         """
@@ -605,10 +605,10 @@ class StrategyWeightOptimizer:
     ) -> pd.DataFrame:
         """
         比较各策略的性能指标
-        
+
         Args:
             strategy_returns: 策略收益率 DataFrame
-            
+
         Returns:
             策略对比 DataFrame
         """

@@ -26,7 +26,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ DEFAULT_CONFIG_PATH = Path.home() / ".config" / "etf-rotation" / "strategy.json"
 # ---------------------------------------------------------------------------
 
 
-DEFAULT_UNIVERSE: List[Dict[str, Any]] = [
+DEFAULT_UNIVERSE: list[dict[str, Any]] = [
     {
         "code": "159985", "name": "豆粕ETF华夏", "exchange": "sz",
         "category": "commodity_event",
@@ -83,7 +83,7 @@ DEFAULT_UNIVERSE: List[Dict[str, Any]] = [
 ]
 
 
-DEFAULT_RISK_RULES: Dict[str, Any] = {
+DEFAULT_RISK_RULES: dict[str, Any] = {
     "max_single_weight": 0.30,
     "commodity_resource_bucket_cap": 0.55,
     "min_cash_weight": 0.10,
@@ -95,7 +95,7 @@ DEFAULT_RISK_RULES: Dict[str, Any] = {
 }
 
 
-DEFAULT_STRATEGY_PARAMS: Dict[str, Any] = {
+DEFAULT_STRATEGY_PARAMS: dict[str, Any] = {
     "gross_cap": 0.90,
     "warmup_days": 60,
     "annualized_vol_target": 0.20,
@@ -164,7 +164,7 @@ DEFAULT_ETF_INDUSTRY_MAP: dict[str, str] = {
 }
 
 
-DEFAULT_REFRESH_PARAMS: Dict[str, Any] = {
+DEFAULT_REFRESH_PARAMS: dict[str, Any] = {
     "interval_seconds": 300,
     "trading_hours": [["09:30", "11:30"], ["13:00", "15:00"]],
     "timezone": "Asia/Shanghai",
@@ -173,7 +173,7 @@ DEFAULT_REFRESH_PARAMS: Dict[str, Any] = {
 }
 
 
-DEFAULT_REGIME_PARAMS: Dict[str, Any] = {
+DEFAULT_REGIME_PARAMS: dict[str, Any] = {
     "enabled": True,
     "proxy_code": "510300",
     "ma_long_window": 200,
@@ -239,12 +239,12 @@ DEFAULT_REGIME_PARAMS: Dict[str, Any] = {
 }
 
 
-DEFAULT_PREMIUM_PARAMS: Dict[str, Any] = {
+DEFAULT_PREMIUM_PARAMS: dict[str, Any] = {
     "auto_block_threshold": 0.05,
 }
 
 
-DEFAULT_ORDER_PRICING_PARAMS: Dict[str, Any] = {
+DEFAULT_ORDER_PRICING_PARAMS: dict[str, Any] = {
     "tick_size": 0.001,
     "aggressive_ticks": 2,
     "neutral_ticks": 1,
@@ -259,7 +259,7 @@ DEFAULT_ORDER_PRICING_PARAMS: Dict[str, Any] = {
 }
 
 
-DEFAULT_ENSEMBLE_PARAMS: Dict[str, Any] = {
+DEFAULT_ENSEMBLE_PARAMS: dict[str, Any] = {
     "enabled": False,  # off by default so legacy behaviour is preserved
     "regime_blend_weights": {
         "bull": 1.00,
@@ -319,24 +319,24 @@ class StrategyConfig:
     or stop-loss behaviour.
     """
 
-    universe: List[Dict[str, Any]]
-    risk_rules: Dict[str, Any]
-    strategy: Dict[str, Any]
-    scoring: Dict[str, Any]
-    refresh: Dict[str, Any]
-    regime: Dict[str, Any] = field(default_factory=dict)
-    premium: Dict[str, Any] = field(default_factory=dict)
-    ensemble: Dict[str, Any] = field(default_factory=dict)
-    order_pricing: Dict[str, Any] = field(default_factory=dict)
+    universe: list[dict[str, Any]]
+    risk_rules: dict[str, Any]
+    strategy: dict[str, Any]
+    scoring: dict[str, Any]
+    refresh: dict[str, Any]
+    regime: dict[str, Any] = field(default_factory=dict)
+    premium: dict[str, Any] = field(default_factory=dict)
+    ensemble: dict[str, Any] = field(default_factory=dict)
+    order_pricing: dict[str, Any] = field(default_factory=dict)
     etf_industry_map: dict[str, str] = field(default_factory=dict)
-    manual_overrides: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    manual_overrides: dict[str, dict[str, Any]] = field(default_factory=dict)
     source_path: Optional[Path] = None
     source_mtime: Optional[float] = None
 
-    def asset_metadata(self) -> Dict[str, Dict[str, Any]]:
+    def asset_metadata(self) -> dict[str, dict[str, Any]]:
         """Project the universe into the {symbol: metadata} shape risk rules need."""
 
-        out: Dict[str, Dict[str, Any]] = {}
+        out: dict[str, dict[str, Any]] = {}
         for asset in self.universe:
             code = asset.get("code")
             if not code:
@@ -348,7 +348,7 @@ class StrategyConfig:
         out.setdefault(self.risk_rules.get("cash_symbol", "CASH"), {"category": "cash"})
         return out
 
-    def asset_lookup(self) -> Dict[str, Dict[str, Any]]:
+    def asset_lookup(self) -> dict[str, dict[str, Any]]:
         return {asset["code"]: asset for asset in self.universe if asset.get("code")}
 
 
@@ -375,7 +375,7 @@ def _resolve_config_path(explicit: Optional[Path] = None) -> Optional[Path]:
     return None
 
 
-def _merge_dict(base: Mapping[str, Any], override: Optional[Mapping[str, Any]]) -> Dict[str, Any]:
+def _merge_dict(base: Mapping[str, Any], override: Optional[Mapping[str, Any]]) -> dict[str, Any]:
     """Shallow override for scalar fields, deep for nested dicts."""
 
     merged = dict(base)
@@ -393,9 +393,9 @@ def _merge_dict(base: Mapping[str, Any], override: Optional[Mapping[str, Any]]) 
 
 
 def _merge_universe(
-    base: List[Dict[str, Any]],
-    override: Optional[List[Mapping[str, Any]]],
-) -> List[Dict[str, Any]]:
+    base: list[dict[str, Any]],
+    override: Optional[list[Mapping[str, Any]]],
+) -> list[dict[str, Any]]:
     """Override-by-code: any base asset whose code appears in override is
     deep-merged with the override entry; assets present only in override
     are appended; ``override is None`` keeps the base universe unchanged.
@@ -406,10 +406,10 @@ def _merge_universe(
     if override is None:
         return [dict(asset) for asset in base]
 
-    by_code: Dict[str, Dict[str, Any]] = {
+    by_code: dict[str, dict[str, Any]] = {
         asset["code"]: dict(asset) for asset in base if asset.get("code")
     }
-    ordered_codes: List[str] = [asset["code"] for asset in base if asset.get("code")]
+    ordered_codes: list[str] = [asset["code"] for asset in base if asset.get("code")]
 
     for entry in override:
         code = entry.get("code")
@@ -454,7 +454,7 @@ def load_strategy_config(
         default_scoring = {}
 
     resolved_path = _resolve_config_path(path)
-    raw: Dict[str, Any] = {}
+    raw: dict[str, Any] = {}
     mtime: Optional[float] = None
     if resolved_path is not None:
         try:
@@ -497,7 +497,7 @@ def load_strategy_config(
             "manual_overrides in strategy config is not a mapping; ignoring.",
         )
         raw_manual_overrides = {}
-    manual_overrides: Dict[str, Dict[str, Any]] = {}
+    manual_overrides: dict[str, dict[str, Any]] = {}
     for raw_code, entry in raw_manual_overrides.items():
         if not raw_code or not isinstance(entry, Mapping):
             continue
@@ -507,7 +507,7 @@ def load_strategy_config(
         # Whitelist + coerce known keys. Anything else is silently dropped
         # so a typo in the JSON ("invalidate_price") doesn't pretend to
         # work. The dashboard reads from this normalised view.
-        normalised: Dict[str, Any] = {}
+        normalised: dict[str, Any] = {}
         invalidation = entry.get("invalidation_price")
         if invalidation is not None:
             try:

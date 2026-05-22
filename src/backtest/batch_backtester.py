@@ -10,7 +10,7 @@ import logging
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from itertools import product
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
@@ -119,9 +119,9 @@ class BayesianParameterOptimizer:
 
     def optimize(
         self,
-        parameter_candidates: List[Dict[str, Any]],
-        evaluator: Callable[[Dict[str, Any]], Tuple[Dict[str, Any], float]],
-    ) -> Dict[str, Any]:
+        parameter_candidates: list[dict[str, Any]],
+        evaluator: Callable[[dict[str, Any]], tuple[dict[str, Any], float]],
+    ) -> dict[str, Any]:
         if not parameter_candidates:
             metrics, score = evaluator({})
             return {
@@ -137,7 +137,7 @@ class BayesianParameterOptimizer:
         budget = max(1, min(int(budget), len(candidates)))
         rng = np.random.default_rng(self.random_state)
 
-        observations: List[Dict[str, Any]] = []
+        observations: list[dict[str, Any]] = []
         remaining_indices = list(range(len(candidates)))
         initial_count = min(self.initial_samples, budget, len(candidates))
 
@@ -186,9 +186,9 @@ class BayesianParameterOptimizer:
 
     def _acquisition_score(
         self,
-        candidate: Dict[str, Any],
-        observations: List[Dict[str, Any]],
-        all_candidates: List[Dict[str, Any]],
+        candidate: dict[str, Any],
+        observations: list[dict[str, Any]],
+        all_candidates: list[dict[str, Any]],
     ) -> float:
         if not observations:
             return float("inf")
@@ -211,9 +211,9 @@ class BayesianParameterOptimizer:
 
     def _candidate_distance(
         self,
-        left: Dict[str, Any],
-        right: Dict[str, Any],
-        all_candidates: List[Dict[str, Any]],
+        left: dict[str, Any],
+        right: dict[str, Any],
+        all_candidates: list[dict[str, Any]],
     ) -> float:
         keys = sorted(set(left.keys()) | set(right.keys()))
         if not keys:
@@ -229,7 +229,7 @@ class BayesianParameterOptimizer:
         return float(np.mean(distances))
 
     @staticmethod
-    def _value_distance(left: Any, right: Any, domain: List[Any]) -> float:
+    def _value_distance(left: Any, right: Any, domain: list[Any]) -> float:
         if left == right:
             return 0.0
 
@@ -254,7 +254,7 @@ class BayesianParameterOptimizer:
         return 1.0
 
 
-def _normalize_metrics(result: Dict[str, Any]) -> Dict[str, Any]:
+def _normalize_metrics(result: dict[str, Any]) -> dict[str, Any]:
     # Deferred imports: src.analytics.dashboard and src.utils.data_validation
     # both close an import cycle back into src.backtest. Importing them at
     # call time keeps `import src` independent of import ordering.
@@ -270,7 +270,7 @@ def _normalize_metrics(result: Dict[str, Any]) -> Dict[str, Any]:
     return normalized_result.get('metrics', normalized_result)
 
 
-def _create_strategy_instance(strategy_factory: Callable, parameters: Optional[Dict[str, Any]] = None):
+def _create_strategy_instance(strategy_factory: Callable, parameters: Optional[dict[str, Any]] = None):
     parameters = parameters or {}
     attempts = [
         lambda: strategy_factory(parameters=parameters),
@@ -292,7 +292,7 @@ def _create_strategy_instance(strategy_factory: Callable, parameters: Optional[D
     return strategy_factory()
 
 
-def _score_metric(metrics: Dict[str, Any], metric: str) -> float:
+def _score_metric(metrics: dict[str, Any], metric: str) -> float:
     value = metrics.get(metric)
     if value is None:
         return float('-inf')
@@ -309,7 +309,7 @@ class BacktestTask:
     task_id: str
     symbol: str
     strategy_name: str
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     initial_capital: float = 100000
@@ -325,8 +325,8 @@ class BacktestResult:
     task_id: str
     symbol: str
     strategy_name: str
-    parameters: Dict[str, Any]
-    metrics: Dict[str, float]
+    parameters: dict[str, Any]
+    metrics: dict[str, float]
     success: bool
     error: Optional[str] = None
     execution_time: float = 0
@@ -336,7 +336,7 @@ class BacktestResult:
 class BatchBacktester:
     """
     批量回测管理器
-    
+
     支持:
     - 并行执行多个回测任务
     - 参数网格搜索
@@ -351,20 +351,20 @@ class BatchBacktester:
     ):
         """
         初始化批量回测器
-        
+
         Args:
             max_workers: 最大并行工作线程/进程数
             use_processes: 是否使用进程池（CPU密集型）
         """
         self.max_workers = max_workers
         self.use_processes = use_processes
-        self.results: List[BacktestResult] = []
+        self.results: list[BacktestResult] = []
         self.progress_callback: Optional[Callable] = None
 
     def set_progress_callback(self, callback: Callable[[int, int, str], None]):
         """
         设置进度回调函数
-        
+
         Args:
             callback: 函数签名 (completed, total, current_task) -> None
         """
@@ -372,20 +372,20 @@ class BatchBacktester:
 
     def run_batch(
         self,
-        tasks: List[BacktestTask],
+        tasks: list[BacktestTask],
         backtester_factory: Callable,
         strategy_factory: Callable,
         data_fetcher: Callable
-    ) -> List[BacktestResult]:
+    ) -> list[BacktestResult]:
         """
         批量执行回测任务
-        
+
         Args:
             tasks: 回测任务列表
             backtester_factory: 创建Backtester实例的工厂函数
             strategy_factory: 创建策略实例的工厂函数(name, params) -> Strategy
             data_fetcher: 获取数据的函数(symbol, start, end) -> DataFrame
-            
+
         Returns:
             回测结果列表
         """
@@ -451,19 +451,19 @@ class BatchBacktester:
         self,
         symbol: str,
         strategy_name: str,
-        param_grid: Dict[str, List[Any]],
+        param_grid: dict[str, list[Any]],
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
         initial_capital: float = 100000
-    ) -> List[BacktestTask]:
+    ) -> list[BacktestTask]:
         """
         生成参数网格搜索任务
-        
+
         Args:
             symbol: 股票代码
             strategy_name: 策略名称
             param_grid: 参数网格 {'param1': [v1, v2], 'param2': [v3, v4]}
-            
+
         Returns:
             任务列表
         """
@@ -494,15 +494,15 @@ class BatchBacktester:
         metric: str = 'sharpe_ratio',
         ascending: bool = False,
         top_n: Optional[int] = None
-    ) -> List[BacktestResult]:
+    ) -> list[BacktestResult]:
         """
         获取排名结果
-        
+
         Args:
             metric: 排名指标
             ascending: 是否升序
             top_n: 返回前N个结果
-            
+
         Returns:
             排序后的结果列表
         """
@@ -517,7 +517,7 @@ class BatchBacktester:
             return sorted_results[:top_n]
         return sorted_results
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """获取批量回测汇总"""
         successful = [r for r in self.results if r.success]
         failed = [r for r in self.results if not r.success]
@@ -560,7 +560,7 @@ class BatchBacktester:
     def export_results(self, filepath: str, format: str = 'json'):
         """
         导出结果
-        
+
         Args:
             filepath: 文件路径
             format: 格式 ('json', 'csv')
@@ -601,7 +601,7 @@ class BatchBacktester:
 class WalkForwardAnalyzer:
     """
     Walk-Forward分析器
-    
+
     将数据分成多个训练/测试窗口进行滚动回测
     """
 
@@ -624,10 +624,10 @@ class WalkForwardAnalyzer:
     def generate_windows(
         self,
         data: pd.DataFrame
-    ) -> List[Dict[str, pd.DataFrame]]:
+    ) -> list[dict[str, pd.DataFrame]]:
         """
         生成训练/测试窗口
-        
+
         Returns:
             [{'train': train_data, 'test': test_data, 'window_id': i}, ...]
         """
@@ -661,13 +661,13 @@ class WalkForwardAnalyzer:
         data: pd.DataFrame,
         strategy_factory: Callable,
         backtester_factory: Callable,
-        parameter_grid: Optional[Dict[str, List[Any]]] = None,
-        parameter_candidates: Optional[List[Dict[str, Any]]] = None,
+        parameter_grid: Optional[dict[str, list[Any]]] = None,
+        parameter_candidates: Optional[list[dict[str, Any]]] = None,
         optimization_metric: str = 'sharpe_ratio',
         optimization_method: str = 'grid',
         optimization_budget: Optional[int] = None,
         monte_carlo_simulations: int = 250,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         执行Walk-Forward分析
         """
@@ -768,9 +768,9 @@ class WalkForwardAnalyzer:
 
     def _build_parameter_candidates(
         self,
-        parameter_grid: Optional[Dict[str, List[Any]]] = None,
-        parameter_candidates: Optional[List[Dict[str, Any]]] = None,
-    ) -> List[Dict[str, Any]]:
+        parameter_grid: Optional[dict[str, list[Any]]] = None,
+        parameter_candidates: Optional[list[dict[str, Any]]] = None,
+    ) -> list[dict[str, Any]]:
         if parameter_candidates:
             return [dict(candidate) for candidate in parameter_candidates]
 
@@ -786,15 +786,15 @@ class WalkForwardAnalyzer:
         train_data: pd.DataFrame,
         strategy_factory: Callable,
         backtester_factory: Callable,
-        parameter_grid: Optional[Dict[str, List[Any]]] = None,
-        parameter_candidates: Optional[List[Dict[str, Any]]] = None,
+        parameter_grid: Optional[dict[str, list[Any]]] = None,
+        parameter_candidates: Optional[list[dict[str, Any]]] = None,
         optimization_metric: str = 'sharpe_ratio',
         optimization_method: str = 'grid',
         optimization_budget: Optional[int] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         candidates = self._build_parameter_candidates(parameter_grid, parameter_candidates)
 
-        def evaluate(parameters: Dict[str, Any]) -> Tuple[Dict[str, Any], float]:
+        def evaluate(parameters: dict[str, Any]) -> tuple[dict[str, Any], float]:
             strategy = _create_strategy_instance(strategy_factory, parameters)
             backtester = backtester_factory()
             train_result = backtester.run(strategy, train_data)
@@ -807,8 +807,8 @@ class WalkForwardAnalyzer:
             )
             return optimizer.optimize(candidates, evaluate)
 
-        best_parameters: Dict[str, Any] = {}
-        best_metrics: Optional[Dict[str, Any]] = None
+        best_parameters: dict[str, Any] = {}
+        best_metrics: Optional[dict[str, Any]] = None
         best_score = float('-inf')
 
         for parameters in candidates:
@@ -828,9 +828,9 @@ class WalkForwardAnalyzer:
 
     def _run_monte_carlo_analysis(
         self,
-        returns: List[float],
+        returns: list[float],
         simulations: int = 250,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if simulations <= 0 or len(returns) < 2:
             return {
                 'simulations': 0,
@@ -859,11 +859,11 @@ class WalkForwardAnalyzer:
 
     def _calculate_statistical_power_diagnostics(
         self,
-        returns: List[float],
+        returns: list[float],
         *,
         alpha: float = 0.05,
         target_power: float = 0.80,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Estimate whether the OOS window sample can detect its observed effect.
 
         Generic walk-forward results do not always have a benchmark series,
@@ -939,11 +939,11 @@ class WalkForwardAnalyzer:
             'note': mde.note,
         }
 
-    def _calculate_parameter_stability(self, selected_parameter_keys: List[str]) -> float:
+    def _calculate_parameter_stability(self, selected_parameter_keys: list[str]) -> float:
         if not selected_parameter_keys:
             return 0.0
 
-        counts: Dict[str, int] = {}
+        counts: dict[str, int] = {}
         for key in selected_parameter_keys:
             counts[key] = counts.get(key, 0) + 1
 
@@ -952,14 +952,14 @@ class WalkForwardAnalyzer:
 
     def _diagnose_overfitting(
         self,
-        train_returns: List[float],
-        test_returns: List[float],
-        train_sharpes: List[float],
-        test_sharpes: List[float],
+        train_returns: list[float],
+        test_returns: list[float],
+        train_sharpes: list[float],
+        test_sharpes: list[float],
         parameter_stability: float,
-        monte_carlo: Dict[str, Any],
-        statistical_power: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        monte_carlo: dict[str, Any],
+        statistical_power: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
         warnings = []
         average_train_return = float(np.mean(train_returns)) if train_returns else 0.0
         average_test_return = float(np.mean(test_returns)) if test_returns else 0.0

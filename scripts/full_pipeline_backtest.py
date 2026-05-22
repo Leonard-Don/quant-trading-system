@@ -23,7 +23,7 @@ import sys
 from collections.abc import Iterable
 from dataclasses import replace as dc_replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -109,15 +109,15 @@ class FullPipelineStrategy:
         self._asset_codes = [h.code for h in self._holdings]
         self._risk_config = build_risk_config(strategy_config)
         self._last_regime: Optional[str] = None
-        self._regime_counts: Dict[str, int] = {}
-        self._regime_history: List[Dict[str, Any]] = []
+        self._regime_counts: dict[str, int] = {}
+        self._regime_history: list[dict[str, Any]] = []
 
     @property
-    def regime_history(self) -> List[Dict[str, Any]]:
+    def regime_history(self) -> list[dict[str, Any]]:
         return self._regime_history
 
     @property
-    def regime_counts(self) -> Dict[str, int]:
+    def regime_counts(self) -> dict[str, int]:
         return dict(self._regime_counts)
 
     def generate_signals(self, price_matrix: pd.DataFrame) -> pd.DataFrame:
@@ -166,7 +166,7 @@ class FullPipelineStrategy:
 
     def _compute_bar(
         self, window: pd.DataFrame, timestamp: pd.Timestamp,
-    ) -> tuple[Dict[str, float], str]:
+    ) -> tuple[dict[str, float], str]:
         regime_label = "unknown"
         active_cfg = self._cfg
 
@@ -244,7 +244,7 @@ class FullPipelineStrategy:
 
         # 4. Evaluate strategy
         signals = strategy.evaluate(window)
-        target_weights: Dict[str, float] = {
+        target_weights: dict[str, float] = {
             sig.symbol: float(sig.target_weight) for sig in signals
         }
         for code in self._asset_codes:
@@ -301,7 +301,7 @@ def run_backtest(
     min_rebalance_weight_delta: float = DEFAULT_REBALANCE_THRESHOLD,
     strategy_config: Optional[StrategyConfig] = None,
     max_error_rate: float = DEFAULT_MAX_ERROR_RATE,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     prices = load_price_matrix(prices_csv)
     strat_cfg = strategy_config or load_strategy_config()
     strategy = FullPipelineStrategy(

@@ -5,7 +5,7 @@
 避免一次性改动全仓库引用。
 """
 
-from typing import Any, Dict
+from typing import Any
 
 from src.settings import (
     API_HOST,
@@ -93,7 +93,7 @@ def setup_logging(level: str = LOG_LEVEL, enable_rotation: bool = True) -> None:
     logging.getLogger("yfinance").setLevel(logging.WARNING)
 
 
-def get_config() -> Dict[str, Any]:
+def get_config() -> dict[str, Any]:
     """获取所有配置。
 
     返回值同时保留原有扁平键，方便旧代码继续工作；

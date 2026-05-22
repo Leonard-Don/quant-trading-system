@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -72,7 +72,7 @@ def test_synthesize_price_matrix_default_end_date_is_today() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _make_plan() -> Dict[str, Any]:
+def _make_plan() -> dict[str, Any]:
     return daily_etf_signal.generate_plan()
 
 

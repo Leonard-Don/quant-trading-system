@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -52,17 +52,17 @@ class CrossMarketBacktester(BaseBacktester):
 
     def run(
         self,
-        assets: List[Dict[str, object]],
+        assets: list[dict[str, object]],
         strategy_name: str,
-        template_context: Optional[Dict[str, Any]] = None,
-        allocation_constraints: Optional[Dict[str, Any]] = None,
-        parameters: Optional[Dict[str, Any]] = None,
+        template_context: Optional[dict[str, Any]] = None,
+        allocation_constraints: Optional[dict[str, Any]] = None,
+        parameters: Optional[dict[str, Any]] = None,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
         construction_mode: str = "equal_weight",
         min_history_days: int = 60,
         min_overlap_ratio: float = 0.7,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         if strategy_name not in self.STRATEGIES:
             raise ValueError(f"Unsupported cross-market strategy: {strategy_name}")
         if construction_mode not in {"equal_weight", "ols_hedge"}:
@@ -193,8 +193,8 @@ class CrossMarketBacktester(BaseBacktester):
     def _apply_allocation_constraints(
         self,
         universe: AssetUniverse,
-        allocation_constraints: Dict[str, Any],
-    ) -> tuple[AssetUniverse, Dict[str, Any]]:
+        allocation_constraints: dict[str, Any],
+    ) -> tuple[AssetUniverse, dict[str, Any]]:
         max_single_weight = allocation_constraints.get("max_single_weight")
         min_single_weight = allocation_constraints.get("min_single_weight")
 
@@ -208,9 +208,9 @@ class CrossMarketBacktester(BaseBacktester):
                 "rows": [],
             }
 
-        constrained_assets: List[Dict[str, Any]] = []
-        rows: List[Dict[str, Any]] = []
-        binding_assets: List[str] = []
+        constrained_assets: list[dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
+        binding_assets: list[str] = []
 
         for side in (AssetSide.LONG, AssetSide.SHORT):
             side_assets = universe.get_assets(side)
@@ -270,9 +270,9 @@ class CrossMarketBacktester(BaseBacktester):
     @staticmethod
     def _build_allocation_overlay(
         *,
-        template_context: Dict[str, Any],
-        effective_assets: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        template_context: dict[str, Any],
+        effective_assets: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         base_assets = template_context.get("base_assets") or []
         raw_bias_assets = template_context.get("raw_bias_assets") or []
         base_lookup = {
@@ -283,7 +283,7 @@ class CrossMarketBacktester(BaseBacktester):
             (str(asset.get("symbol", "")).upper(), str(asset.get("side", "")).lower()): asset
             for asset in raw_bias_assets
         }
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         for asset in effective_assets:
             key = (str(asset.get("symbol", "")).upper(), str(asset.get("side", "")).lower())
             base_asset = base_lookup.get(key, {})
@@ -516,11 +516,11 @@ class CrossMarketBacktester(BaseBacktester):
         end_date: Optional[datetime],
         min_history_days: int,
         min_overlap_ratio: float,
-    ) -> Dict[str, Any]:
-        series_map: Dict[str, pd.Series] = {}
-        symbol_alignment: List[Dict[str, Any]] = []
-        liquidity_snapshot: Dict[str, Dict[str, float]] = {}
-        venue_dates: Dict[str, set[pd.Timestamp]] = {}
+    ) -> dict[str, Any]:
+        series_map: dict[str, pd.Series] = {}
+        symbol_alignment: list[dict[str, Any]] = []
+        liquidity_snapshot: dict[str, dict[str, float]] = {}
+        venue_dates: dict[str, set[pd.Timestamp]] = {}
         for asset in universe.get_assets():
             provider_name = "legacy"
             if hasattr(self.data_manager, "get_cross_market_historical_data"):
@@ -626,12 +626,12 @@ class CrossMarketBacktester(BaseBacktester):
         universe: AssetUniverse,
         price_matrix: pd.DataFrame,
         signal_frame: pd.DataFrame,
-        data_alignment: Dict[str, Any],
+        data_alignment: dict[str, Any],
         strategy_name: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         construction_mode: str,
-        constraint_overlay: Dict[str, Any],
-    ) -> Dict[str, Any]:
+        constraint_overlay: dict[str, Any],
+    ) -> dict[str, Any]:
         returns = price_matrix.pct_change().fillna(0.0)
         hedge_portfolio = HedgePortfolioBuilder(universe.get_assets())
         long_assets = hedge_portfolio.long_leg.assets
@@ -805,10 +805,10 @@ class CrossMarketBacktester(BaseBacktester):
         self,
         *,
         price_matrix: pd.DataFrame,
-        long_assets: List[Any],
-        short_assets: List[Any],
-    ) -> Dict[str, Any]:
-        rows: List[Dict[str, Any]] = []
+        long_assets: list[Any],
+        short_assets: list[Any],
+    ) -> dict[str, Any]:
+        rows: list[dict[str, Any]] = []
         long_symbols = [asset.symbol for asset in long_assets]
         short_symbols = [asset.symbol for asset in short_assets]
 
@@ -866,7 +866,7 @@ class CrossMarketBacktester(BaseBacktester):
         }
 
     @staticmethod
-    def _estimate_cointegration(series_a: pd.Series, series_b: pd.Series) -> Optional[Dict[str, Any]]:
+    def _estimate_cointegration(series_a: pd.Series, series_b: pd.Series) -> Optional[dict[str, Any]]:
         aligned = pd.concat(
             [
                 pd.to_numeric(series_a, errors="coerce"),
@@ -921,7 +921,7 @@ class CrossMarketBacktester(BaseBacktester):
         }
 
     @staticmethod
-    def _extract_liquidity_stats(data: pd.DataFrame) -> Dict[str, float]:
+    def _extract_liquidity_stats(data: pd.DataFrame) -> dict[str, float]:
         if data.empty:
             return {"avg_daily_volume": 0.0, "avg_daily_notional": 0.0}
 
@@ -946,12 +946,12 @@ class CrossMarketBacktester(BaseBacktester):
     @staticmethod
     def _build_calendar_diagnostics(
         *,
-        venue_dates: Dict[str, set[pd.Timestamp]],
+        venue_dates: dict[str, set[pd.Timestamp]],
         common_dates: set[pd.Timestamp],
         union_count: int,
         tradable_day_ratio: float,
-    ) -> Dict[str, Any]:
-        rows: List[Dict[str, Any]] = []
+    ) -> dict[str, Any]:
+        rows: list[dict[str, Any]] = []
         max_mismatch_ratio = 0.0
         for venue, dates in venue_dates.items():
             active_dates = len(dates)
@@ -999,7 +999,7 @@ class CrossMarketBacktester(BaseBacktester):
         long_leg_returns: pd.Series,
         short_leg_returns: pd.Series,
         hedge_ratio_series: Optional[pd.Series],
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         paired = pd.DataFrame({"long": long_leg_returns, "short": short_leg_returns}).dropna()
         if len(paired) < 5 or float(paired["short"].var(ddof=0)) == 0:
             return {
@@ -1038,8 +1038,8 @@ class CrossMarketBacktester(BaseBacktester):
             "hedge_ratio_average": round(float(hedge_ratio_series.mean()) if hedge_ratio_series is not None else 1.0, 6),
         }
 
-    def _build_trades(self, signal_frame: pd.DataFrame, portfolio: pd.DataFrame) -> List[Dict[str, Any]]:
-        trades: List[Dict[str, Any]] = []
+    def _build_trades(self, signal_frame: pd.DataFrame, portfolio: pd.DataFrame) -> list[dict[str, Any]]:
+        trades: list[dict[str, Any]] = []
         previous_position = 0
         entry_value: Optional[float] = None
         entry_date: Optional[str] = None
@@ -1113,7 +1113,7 @@ class CrossMarketBacktester(BaseBacktester):
         return series
 
 
-def _portfolio_to_records(portfolio: pd.DataFrame) -> List[Dict[str, Any]]:
+def _portfolio_to_records(portfolio: pd.DataFrame) -> list[dict[str, Any]]:
     records = []
     for idx, row in portfolio.iterrows():
         records.append(
@@ -1129,7 +1129,7 @@ def _portfolio_to_records(portfolio: pd.DataFrame) -> List[Dict[str, Any]]:
     return records
 
 
-def _portfolio_curve(portfolio: pd.DataFrame) -> List[Dict[str, Any]]:
+def _portfolio_curve(portfolio: pd.DataFrame) -> list[dict[str, Any]]:
     return [
         {
             "date": idx.strftime("%Y-%m-%d"),
@@ -1140,8 +1140,8 @@ def _portfolio_curve(portfolio: pd.DataFrame) -> List[Dict[str, Any]]:
     ]
 
 
-def _dataframe_to_records(frame: pd.DataFrame) -> List[Dict[str, Any]]:
-    records: List[Dict[str, Any]] = []
+def _dataframe_to_records(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
     for _, row in frame.iterrows():
         records.append(
             {

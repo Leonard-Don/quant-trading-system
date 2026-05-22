@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 
@@ -33,14 +33,14 @@ from src.utils.cache import CacheManager
 HEATMAP_KEY = "industry_heatmap|days:5"
 
 
-def _synthetic_heatmap_payload(seed: int) -> Dict[str, Any]:
+def _synthetic_heatmap_payload(seed: int) -> dict[str, Any]:
     """Return a deterministic heatmap-shaped dict.
 
     Mirrors ``IndustryAnalyzer.get_industry_heatmap_data`` closely enough
     to exercise serialization (lists of dicts, mixed numeric types)
     without touching any DataFrame or analyzer code.
     """
-    industries: List[Dict[str, Any]] = [
+    industries: list[dict[str, Any]] = [
         {
             "name": f"sector-{i}",
             "value": seed * 10 + i,
@@ -73,7 +73,7 @@ class _RecordingHeatmapBuilder:
     def __init__(self) -> None:
         self.calls = 0
 
-    def compute(self) -> Dict[str, Any]:
+    def compute(self) -> dict[str, Any]:
         self.calls += 1
         return _synthetic_heatmap_payload(seed=self.calls)
 
@@ -84,7 +84,7 @@ def _heatmap_compute_or_get(
     builder: _RecordingHeatmapBuilder,
     *,
     ttl: int,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute-or-fetch boundary mirroring how a heatmap service would use the cache."""
     cached = cache.get(key)
     if cached is not None:

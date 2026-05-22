@@ -3,7 +3,7 @@
 提供统一的技术指标计算和特征准备功能，供多个预测器共用
 """
 import logging
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -18,16 +18,16 @@ class FeatureEngineer:
     def prepare_features(
         df: pd.DataFrame,
         include_volume: bool = True,
-        feature_periods: Optional[List[int]] = None
+        feature_periods: Optional[list[int]] = None
     ) -> pd.DataFrame:
         """
         准备机器学习特征
-        
+
         Args:
             df: 包含 OHLCV 数据的 DataFrame (需要 'close', 'high', 'low', 'volume' 列)
             include_volume: 是否包含成交量特征
             feature_periods: 计算移动均线的周期列表，默认 [5, 10, 20, 50]
-            
+
         Returns:
             带有技术指标特征的 DataFrame
         """
@@ -151,7 +151,7 @@ class FeatureEngineer:
         return obv
 
     @staticmethod
-    def get_feature_names(include_volume: bool = True) -> List[str]:
+    def get_feature_names(include_volume: bool = True) -> list[str]:
         """获取特征名称列表"""
         base_features = [
             'returns', 'log_returns', 'price_change', 'high_low_range', 'close_open_range',

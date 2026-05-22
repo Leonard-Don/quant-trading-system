@@ -6,7 +6,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -40,18 +40,18 @@ class BacktestResult:
     calmar_ratio: float = 0.0
     volatility: float = 0.0
     var_95: float = 0.0
-    diagnostics: Optional[Dict[str, Any]] = None
+    diagnostics: Optional[dict[str, Any]] = None
 
 
 class IndustryBacktester(BaseBacktester):
     """
     行业轮动策略回测器
-    
+
     策略逻辑:
     1. 每个调仓周期，根据行业动量和资金流向选择热门行业
     2. 在热门行业中选择龙头股构建组合
     3. 等权重或市值加权配置
-    
+
     使用示例:
         backtester = IndustryBacktester(data_provider)
         result = backtester.run_backtest(
@@ -114,14 +114,14 @@ class IndustryBacktester(BaseBacktester):
         commission_rate: float = 0.001,
         slippage: float = 0.001,
         benchmark_symbol: str = DEFAULT_BENCHMARK,
-        industry_proxy_map: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        industry_proxy_map: Optional[dict[str, list[dict[str, Any]]]] = None,
         strict_data_validation: bool = True,
         ranking_lookback_days: int = 63,
         min_price_observations: int = 10,
     ):
         """
         初始化回测器
-        
+
         Args:
             industry_analyzer: 行业分析器实例
             leader_scorer: 龙头股评分器实例
@@ -148,12 +148,12 @@ class IndustryBacktester(BaseBacktester):
         self._bootstrap_industry_components()
 
         # 回测状态
-        self._positions: Dict[str, float] = {}
+        self._positions: dict[str, float] = {}
         self._cash: float = initial_capital
-        self._equity_history: List[Tuple[datetime, float]] = []
-        self._trades: List[Dict] = []
-        self._price_cache: Dict[str, pd.Series] = {}
-        self._run_diagnostics: Dict[str, Any] = {}
+        self._equity_history: list[tuple[datetime, float]] = []
+        self._trades: list[dict] = []
+        self._price_cache: dict[str, pd.Series] = {}
+        self._run_diagnostics: dict[str, Any] = {}
 
     def _bootstrap_industry_components(self) -> None:
         """Auto-wire analyzer/scorer from a real market-data provider when possible."""
@@ -220,7 +220,7 @@ class IndustryBacktester(BaseBacktester):
         )
         return all(callable(getattr(provider, method, None)) for method in required_methods)
 
-    def run(self, *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    def run(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         """BaseBacktester-compatible wrapper around ``run_backtest``."""
         result = self.run_backtest(*args, **kwargs)
         return {
@@ -247,7 +247,7 @@ class IndustryBacktester(BaseBacktester):
     ) -> BacktestResult:
         """
         运行回测
-        
+
         Args:
             start_date: 开始日期 (YYYY-MM-DD)
             end_date: 结束日期 (YYYY-MM-DD)
@@ -255,7 +255,7 @@ class IndustryBacktester(BaseBacktester):
             top_industries: 选择的热门行业数量
             stocks_per_industry: 每个行业选择的股票数量
             weight_method: 权重方法 ('equal', 'market_cap')
-            
+
         Returns:
             BacktestResult 对象
         """
@@ -328,7 +328,7 @@ class IndustryBacktester(BaseBacktester):
     ):
         """
         执行调仓
-        
+
         Args:
             date: 调仓日期
             top_industries: 选择的行业数
@@ -462,7 +462,7 @@ class IndustryBacktester(BaseBacktester):
     def _get_price(self, symbol: str, date: datetime) -> float:
         """
         获取股票价格
-        
+
         优先使用真实历史价格；如果没有精确匹配日期，则取最近一个可用收盘价。
         """
         price_series = self._load_price_series(symbol, date)
@@ -497,7 +497,7 @@ class IndustryBacktester(BaseBacktester):
 
     def _calculate_metrics(
         self,
-        daily_returns: List[Tuple[datetime, float]]
+        daily_returns: list[tuple[datetime, float]]
     ) -> BacktestResult:
         """计算回测指标"""
         if not daily_returns:
@@ -578,14 +578,14 @@ class IndustryBacktester(BaseBacktester):
         self,
         benchmark: str = '000300.SH',
         result: BacktestResult = None
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         与基准指数对比
-        
+
         Args:
             benchmark: 基准指数代码
             result: 回测结果
-            
+
         Returns:
             对比结果字典
         """
@@ -612,12 +612,12 @@ class IndustryBacktester(BaseBacktester):
             "outperform": result.total_return > benchmark_return,
         }
 
-    def get_trade_history(self) -> List[Dict]:
+    def get_trade_history(self) -> list[dict]:
         """获取交易历史"""
         return self._trades.copy()
 
-    def _get_hot_industries(self, date: datetime, top_industries: int) -> List[Dict[str, Any]]:
-        hot_industries: List[Dict[str, Any]] = []
+    def _get_hot_industries(self, date: datetime, top_industries: int) -> list[dict[str, Any]]:
+        hot_industries: list[dict[str, Any]] = []
         if self.analyzer:
             try:
                 hot_industries = self.analyzer.rank_industries(top_n=top_industries)
@@ -646,7 +646,7 @@ class IndustryBacktester(BaseBacktester):
         self._run_diagnostics["fallback_defaults_used"] = True
         return self._get_default_hot_industries(top_industries)
 
-    def _get_default_hot_industries(self, top_industries: int) -> List[Dict[str, Any]]:
+    def _get_default_hot_industries(self, top_industries: int) -> list[dict[str, Any]]:
         industries = []
         for index, industry_name in enumerate(list(self.industry_proxy_map.keys())[:top_industries]):
             industries.append({
@@ -660,10 +660,10 @@ class IndustryBacktester(BaseBacktester):
         *,
         date: datetime,
         top_industries: int,
-    ) -> List[Dict[str, Any]]:
-        ranked: List[Dict[str, Any]] = []
+    ) -> list[dict[str, Any]]:
+        ranked: list[dict[str, Any]] = []
         for industry_name, proxies in self.industry_proxy_map.items():
-            proxy_scores: List[float] = []
+            proxy_scores: list[float] = []
             for proxy in proxies:
                 proxy_frame = self._load_symbol_frame(proxy["symbol"], date)
                 score = self._score_proxy_frame(proxy_frame)
@@ -684,14 +684,14 @@ class IndustryBacktester(BaseBacktester):
     def _rank_proxy_constituents(
         self,
         *,
-        hot_industries: List[Dict[str, Any]],
+        hot_industries: list[dict[str, Any]],
         date: datetime,
         stocks_per_industry: int,
-    ) -> List[Dict[str, Any]]:
-        proxies: List[Dict[str, Any]] = []
+    ) -> list[dict[str, Any]]:
+        proxies: list[dict[str, Any]] = []
         for industry in hot_industries:
             industry_name = str(industry.get("industry_name", "")).strip()
-            ranked_candidates: List[Dict[str, Any]] = []
+            ranked_candidates: list[dict[str, Any]] = []
             for index, proxy in enumerate(self.industry_proxy_map.get(industry_name, [])):
                 proxy_frame = self._load_symbol_frame(proxy["symbol"], date)
                 score = self._score_proxy_frame(proxy_frame)

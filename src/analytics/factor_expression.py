@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -32,8 +32,8 @@ ALLOWED_FUNCTIONS = {
 class FactorEvaluationResult:
     expression: str
     latest_value: float | None
-    preview: List[Dict[str, Any]]
-    diagnostics: Dict[str, Any]
+    preview: list[dict[str, Any]]
+    diagnostics: dict[str, Any]
 
 
 class FactorExpressionError(ValueError):
@@ -119,7 +119,7 @@ class FactorExpressionEngine:
                 if node.keywords:
                     raise FactorExpressionError("keyword arguments are not supported")
 
-    def _evaluate_node(self, node: ast.AST, context: Dict[str, pd.Series]) -> Any:
+    def _evaluate_node(self, node: ast.AST, context: dict[str, pd.Series]) -> Any:
         if isinstance(node, ast.Constant):
             if not isinstance(node.value, (int, float)):
                 raise FactorExpressionError("only numeric constants are supported")
@@ -155,7 +155,7 @@ class FactorExpressionEngine:
             return left % right
         raise FactorExpressionError("operator is not supported")
 
-    def _apply_function(self, name: str, args: List[Any], context: Dict[str, pd.Series]) -> Any:
+    def _apply_function(self, name: str, args: list[Any], context: dict[str, pd.Series]) -> Any:
         if name == "rank":
             return self._as_series(args[0], next(iter(context.values())).index).rank(pct=True)
         if name == "zscore":
@@ -192,7 +192,7 @@ class FactorExpressionEngine:
             return np.log(args[0])
         raise FactorExpressionError(f"function is not supported: {name}")
 
-    def _series_window(self, args: List[Any], default_window: int | None = None) -> tuple[pd.Series, int]:
+    def _series_window(self, args: list[Any], default_window: int | None = None) -> tuple[pd.Series, int]:
         if not args:
             raise FactorExpressionError("function requires a series argument")
         index = args[0].index if isinstance(args[0], pd.Series) else None
@@ -203,7 +203,7 @@ class FactorExpressionEngine:
         window = max(1, min(int(raw_window), 756))
         return series, window
 
-    def _combine(self, args: Iterable[Any], reducer: str, context: Dict[str, pd.Series]) -> Any:
+    def _combine(self, args: Iterable[Any], reducer: str, context: dict[str, pd.Series]) -> Any:
         values = list(args)
         if len(values) < 2:
             raise FactorExpressionError(f"{reducer} requires at least two arguments")

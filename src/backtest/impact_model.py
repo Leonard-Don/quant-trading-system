@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
-from typing import Any, Dict
+from typing import Any
 
 SUPPORTED_MARKET_IMPACT_MODELS = {
     "constant",
@@ -29,7 +29,7 @@ def estimate_market_impact_rate(
     impact_coefficient: float = 1.0,
     permanent_impact_bps: float = 0.0,
     reference_notional: float = 100_000.0,
-) -> Dict[str, float | str]:
+) -> dict[str, float | str]:
     notional = max(float(trade_notional or 0.0), 0.0)
     base_rate = max(float(market_impact_bps or 0.0), 0.0) / 10_000.0
     normalized_model = normalize_market_impact_model(model)
@@ -64,7 +64,7 @@ def estimate_market_impact_rate(
     }
 
 
-def summarize_execution_costs(trades: Iterable[Dict[str, Any]]) -> Dict[str, float | int | str | None]:
+def summarize_execution_costs(trades: Iterable[dict[str, Any]]) -> dict[str, float | int | str | None]:
     trade_rows = list(trades or [])
     total_market_impact_cost = 0.0
     total_slippage_cost = 0.0

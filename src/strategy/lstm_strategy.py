@@ -7,7 +7,6 @@ LSTM 神经网络策略模块
 
 import logging
 import warnings
-from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -35,9 +34,9 @@ except ImportError:
 class LSTMStrategy(BaseStrategy):
     """
     LSTM 神经网络策略
-    
+
     使用长短期记忆网络进行价格方向预测
-    
+
     特点：
     - 自动特征工程（技术指标 + 价格模式）
     - 序列数据处理
@@ -58,7 +57,7 @@ class LSTMStrategy(BaseStrategy):
     ):
         """
         初始化 LSTM 策略
-        
+
         Args:
             sequence_length: LSTM 输入序列长度
             lstm_units: LSTM 隐藏单元数
@@ -87,7 +86,7 @@ class LSTMStrategy(BaseStrategy):
         self.model = None
         self.scaler = MinMaxScaler(feature_range=(0, 1))
         self.is_trained = False
-        self.feature_names: List[str] = []
+        self.feature_names: list[str] = []
 
     def _prepare_features(self, data: pd.DataFrame) -> pd.DataFrame:
         """准备 LSTM 特征"""
@@ -171,7 +170,7 @@ class LSTMStrategy(BaseStrategy):
         self,
         features: np.ndarray,
         labels: np.ndarray
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """创建 LSTM 序列数据"""
         X, y = [], []
 
@@ -181,7 +180,7 @@ class LSTMStrategy(BaseStrategy):
 
         return np.array(X), np.array(y)
 
-    def _build_lstm_model(self, input_shape: Tuple[int, int]) -> None:
+    def _build_lstm_model(self, input_shape: tuple[int, int]) -> None:
         """构建 TensorFlow LSTM 模型"""
         if not HAS_TENSORFLOW:
             raise RuntimeError("TensorFlow 不可用")
@@ -231,10 +230,10 @@ class LSTMStrategy(BaseStrategy):
     def train(self, data: pd.DataFrame) -> bool:
         """
         训练 LSTM 模型
-        
+
         Args:
             data: 包含 OHLCV 数据的 DataFrame
-            
+
         Returns:
             训练是否成功
         """
@@ -359,10 +358,10 @@ class LSTMStrategy(BaseStrategy):
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         """
         生成交易信号
-        
+
         Args:
             data: OHLCV 数据
-            
+
         Returns:
             交易信号序列: 1=买入, -1=卖出, 0=持有
         """
@@ -413,7 +412,7 @@ class LSTMStrategy(BaseStrategy):
 
         return signals
 
-    def get_model_summary(self) -> Dict:
+    def get_model_summary(self) -> dict:
         """获取模型摘要"""
         summary = {
             'strategy_type': 'LSTM' if self.use_tensorflow else 'MLP',
@@ -433,7 +432,7 @@ class LSTMStrategy(BaseStrategy):
 class DeepLearningEnsemble(BaseStrategy):
     """
     深度学习集成策略
-    
+
     结合 LSTM 和传统 ML 模型的集成预测
     """
 

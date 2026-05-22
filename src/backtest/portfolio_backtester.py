@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -54,7 +54,7 @@ class PortfolioBacktester(BaseBacktester):
             permanent_impact_bps=permanent_impact_bps,
         )
 
-    def run(self, strategy: Any, data: Any, **kwargs: Any) -> Dict[str, Any]:
+    def run(self, strategy: Any, data: Any, **kwargs: Any) -> dict[str, Any]:
         price_matrix = self._prepare_price_matrix(data)
         if price_matrix.empty:
             return {}

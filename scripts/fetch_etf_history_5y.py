@@ -43,7 +43,7 @@ import time
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 import pandas as pd
 
@@ -115,7 +115,7 @@ def fetch_history_matrix(
     end_date: datetime,
     sleep_between: float = 0.5,
     eastmoney_adjust: str = "hfq",
-) -> tuple[pd.DataFrame, List[str]]:
+) -> tuple[pd.DataFrame, list[str]]:
     """Fetch a wide close-price matrix; return (matrix, list_of_failures)."""
 
     ak = _import_akshare()
@@ -123,7 +123,7 @@ def fetch_history_matrix(
         raise RuntimeError("akshare is not importable in this environment")
 
     frames: dict[str, pd.Series] = {}
-    failures: List[str] = []
+    failures: list[str] = []
 
     with _proxy_blackout():
         for idx, code in enumerate(codes):
@@ -158,7 +158,7 @@ def fetch_history_matrix(
     return matrix, failures
 
 
-def _print_summary(matrix: pd.DataFrame, failures: List[str], path: Path) -> None:
+def _print_summary(matrix: pd.DataFrame, failures: list[str], path: Path) -> None:
     """Render an info block describing what we just wrote to disk."""
 
     if matrix.empty:
@@ -226,7 +226,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[List[str]] = None) -> int:
+def main(argv: Optional[list[str]] = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _build_arg_parser().parse_args(argv)
     start = datetime.fromisoformat(args.start_date)

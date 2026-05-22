@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from .base_factor import MacroFactor
 
@@ -15,7 +15,7 @@ class RateCurvePressureFactor(MacroFactor):
     name = "rate_curve_pressure"
     default_threshold = 0.16
 
-    def compute(self, data_context: Dict[str, Any]):
+    def compute(self, data_context: dict[str, Any]):
         indicators = data_context.get("market_indicators", {}) or {}
         policy_signal = data_context.get("signals", {}).get("policy_radar", {}) or {}
         trade_score = float(

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
-from typing import Dict, List, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -97,7 +97,7 @@ class EtfMeanReversionRotationConfig:
     without restructuring their plumbing.
     """
 
-    assets: List[EtfAssetConfig]
+    assets: list[EtfAssetConfig]
     gross_cap: float = 0.90
     warmup_days: int = 60
     scoring: EtfMeanReversionConfig = field(default_factory=EtfMeanReversionConfig)
@@ -108,7 +108,7 @@ class EtfMeanReversionRotationConfig:
         if self.min_score_full_hold < self.min_score_to_hold:
             raise ValueError("min_score_full_hold must be >= min_score_to_hold")
 
-    def asset_map(self) -> Dict[str, EtfAssetConfig]:
+    def asset_map(self) -> dict[str, EtfAssetConfig]:
         return {asset.symbol: asset for asset in self.assets}
 
 
@@ -134,11 +134,11 @@ class EtfMeanReversionStrategy:
         *,
         overlays: Optional[Mapping[str, EtfOverlay]] = None,
         current_weights: Optional[Mapping[str, float]] = None,
-    ) -> List[EtfSignal]:
+    ) -> list[EtfSignal]:
         prices = self._prepare_prices(price_matrix)
         overlays = overlays or {}
         current_weights = current_weights or {}
-        signals: List[EtfSignal] = []
+        signals: list[EtfSignal] = []
         for symbol in prices.columns:
             if symbol not in self._assets:
                 continue
@@ -191,7 +191,7 @@ class EtfMeanReversionStrategy:
         if not np.isfinite(volatility60):
             volatility60 = 0.0
 
-        reasons: List[str] = []
+        reasons: list[str] = []
         # ---- Long-trend gate ----------------------------------------------
         if scoring.require_above_ma200 and ma200 is not None and latest < ma200:
             if not scoring.allow_below_long_trend:
@@ -339,7 +339,7 @@ class EtfMeanReversionStrategy:
             target = min(target, current_weight)
         return target
 
-    def _normalize_signals(self, signals: Iterable[EtfSignal]) -> List[EtfSignal]:
+    def _normalize_signals(self, signals: Iterable[EtfSignal]) -> list[EtfSignal]:
         signal_list = list(signals)
         gross = sum(max(s.target_weight, 0.0) for s in signal_list)
         if gross <= self.config.gross_cap or gross <= 0:

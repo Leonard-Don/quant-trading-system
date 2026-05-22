@@ -7,7 +7,7 @@
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, Optional, Tuple
+from typing import Optional
 
 import numpy as np
 from scipy.stats import norm
@@ -45,7 +45,7 @@ class OptionGreeks:
 class BlackScholesModel:
     """
     Black-Scholes期权定价模型
-    
+
     用于计算欧式期权的理论价格和希腊字母
     """
 
@@ -57,7 +57,7 @@ class BlackScholesModel:
         r: float,  # 无风险利率
         sigma: float,  # 波动率
         q: float = 0  # 股息率
-    ) -> Tuple[float, float]:
+    ) -> tuple[float, float]:
         """计算d1和d2"""
         if T <= 0:
             return 0, 0
@@ -71,10 +71,10 @@ class BlackScholesModel:
     def price(cls, contract: OptionContract) -> float:
         """
         计算期权价格
-        
+
         Args:
             contract: 期权合约
-            
+
         Returns:
             期权理论价格
         """
@@ -105,7 +105,7 @@ class BlackScholesModel:
     def greeks(cls, contract: OptionContract) -> OptionGreeks:
         """
         计算希腊字母
-        
+
         Returns:
             OptionGreeks对象
         """
@@ -167,11 +167,11 @@ class BlackScholesModel:
     ) -> Optional[float]:
         """
         计算隐含波动率（使用牛顿法）
-        
+
         Args:
             market_price: 市场价格
             contract: 期权合约
-            
+
         Returns:
             隐含波动率
         """
@@ -205,7 +205,7 @@ class BlackScholesModel:
 class OptionAnalyzer:
     """
     期权分析器
-    
+
     提供期权定价、希腊字母分析和策略评估
     """
 
@@ -221,7 +221,7 @@ class OptionAnalyzer:
         volatility: float = 0.3,
         option_type: str = "call",
         dividend_yield: float = 0.0
-    ) -> Dict:
+    ) -> dict:
         """
         分析期权
         """
@@ -276,7 +276,7 @@ class OptionAnalyzer:
             "interpretation": self._interpret_greeks(greeks, contract.option_type)
         }
 
-    def _interpret_greeks(self, greeks: OptionGreeks, option_type: OptionType) -> Dict:
+    def _interpret_greeks(self, greeks: OptionGreeks, option_type: OptionType) -> dict:
         """希腊字母解读"""
         return {
             "delta": f"标的价格变动$1，期权价格变动${abs(greeks.delta):.2f}",
@@ -288,9 +288,9 @@ class OptionAnalyzer:
     def calculate_payoff(
         self,
         contract: OptionContract,
-        price_range: Tuple[float, float],
+        price_range: tuple[float, float],
         steps: int = 50
-    ) -> Dict:
+    ) -> dict:
         """
         计算到期收益曲线
         """

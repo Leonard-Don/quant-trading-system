@@ -30,7 +30,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -114,7 +114,7 @@ class RegimeDecision:
     gross_cap_multiplier: float
     min_score_to_hold_offset: float
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "regime": self.regime,
             "confidence": float(self.confidence),

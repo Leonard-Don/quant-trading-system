@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 SECTOR_HEDGE_MAP = {
     "technology": "XLK",
@@ -33,9 +33,9 @@ def _build_trade_legs(
     sector: str,
     hedge_symbol: str,
     action: str,
-    structural_decay: Dict[str, Any],
-    people_layer: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+    structural_decay: dict[str, Any],
+    people_layer: dict[str, Any],
+) -> list[dict[str, Any]]:
     dominant_failure = structural_decay.get("dominant_failure_label") or "结构性衰败"
     people_risk = people_layer.get("risk_level", "unknown")
 
@@ -97,12 +97,12 @@ def _build_trade_legs(
 
 def build_macro_mispricing_thesis(
     symbol: str,
-    gap: Dict[str, Any],
-    valuation: Dict[str, Any],
-    people_layer: Dict[str, Any],
-    structural_decay: Dict[str, Any],
-    trade_setup: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    gap: dict[str, Any],
+    valuation: dict[str, Any],
+    people_layer: dict[str, Any],
+    structural_decay: dict[str, Any],
+    trade_setup: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
     trade_setup = trade_setup or {}
     symbol_label = symbol or "该标的"
     sector = valuation.get("sector", "")
@@ -176,7 +176,7 @@ def build_macro_mispricing_thesis(
         }
         hedge_leg = None
 
-    kill_conditions: List[str] = [
+    kill_conditions: list[str] = [
         "人的维度风险从 high/fragile 明显修复到 medium 或以下",
         "结构性衰败评分回落到 0.50 以下",
         "内部人交易信号由减持转为中性或增持背书",

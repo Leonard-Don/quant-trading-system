@@ -8,7 +8,7 @@ import logging
 import os
 import pickle
 from datetime import timedelta
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -45,15 +45,15 @@ class LSTMPredictor:
     ):
         """
         初始化 LSTM 预测器
-        
+
         Args:
             sequence_length: 输入序列长度（用多少天的数据预测）
             forecast_days: 预测天数
         """
         self.sequence_length = sequence_length
         self.forecast_days = forecast_days
-        self.models: Dict[str, Any] = {}
-        self.scalers: Dict[str, MinMaxScaler] = {} if TF_AVAILABLE else {}
+        self.models: dict[str, Any] = {}
+        self.scalers: dict[str, MinMaxScaler] = {} if TF_AVAILABLE else {}
         # 使用相对/归一化特征，避免对绝对价格水平的依赖
         self.feature_columns = [
             'returns', 'log_returns', 'high_low_pct',
@@ -113,14 +113,14 @@ class LSTMPredictor:
 
         return data
 
-    def _create_sequences(self, data: np.ndarray, target: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def _create_sequences(self, data: np.ndarray, target: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """
         创建 LSTM 输入序列
-        
+
         Args:
             data: 特征数据数组 (samples, features)
             target: 目标值数组 (samples,)
-            
+
         Returns:
             X: 输入序列 (samples, sequence_length, features)
             y: 目标值 (samples,)
@@ -131,7 +131,7 @@ class LSTMPredictor:
             y.append(target[i + self.sequence_length])
         return np.array(X), np.array(y)
 
-    def _build_model(self, input_shape: Tuple[int, int]) -> Any:
+    def _build_model(self, input_shape: tuple[int, int]) -> Any:
         """
         构建 LSTM 模型
         """
@@ -155,7 +155,7 @@ class LSTMPredictor:
 
         return model
 
-    def train(self, historical_data: pd.DataFrame, symbol: str) -> Dict:
+    def train(self, historical_data: pd.DataFrame, symbol: str) -> dict:
         """
         训练 LSTM 模型（预测下一日收益率）
         """
@@ -237,7 +237,7 @@ class LSTMPredictor:
             logger.error(f"Error training LSTM model for {symbol}: {e}")
             return self._mock_train(symbol)
 
-    def _mock_train(self, symbol: str) -> Dict:
+    def _mock_train(self, symbol: str) -> dict:
         """模拟训练结果（当 TensorFlow 不可用时）"""
         return {
             'symbol': symbol,
@@ -249,7 +249,7 @@ class LSTMPredictor:
             'note': 'TensorFlow not available, using mock mode'
         }
 
-    def predict(self, current_data: pd.DataFrame, symbol: str, days: int = 5) -> Dict:
+    def predict(self, current_data: pd.DataFrame, symbol: str, days: int = 5) -> dict:
         """
         预测未来价格（通过预测收益率再转换为价格）
         """
@@ -342,7 +342,7 @@ class LSTMPredictor:
             logger.error(f"Error predicting with LSTM for {symbol}: {e}")
             return self._mock_predict(current_data, symbol, days)
 
-    def _mock_predict(self, current_data: pd.DataFrame, symbol: str, days: int) -> Dict:
+    def _mock_predict(self, current_data: pd.DataFrame, symbol: str, days: int) -> dict:
         """
         确定性 fallback 预测（基于近期趋势，无随机噪声）
         """

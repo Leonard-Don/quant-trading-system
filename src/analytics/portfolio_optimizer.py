@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,15 +16,15 @@ class PortfolioOptimizer:
     def __init__(self, risk_free_rate: float = 0.02):
         self.risk_free_rate = risk_free_rate
 
-    def optimize_portfolio(self, historical_prices: pd.DataFrame, objective: str = "max_sharpe") -> Dict[str, Any]:
+    def optimize_portfolio(self, historical_prices: pd.DataFrame, objective: str = "max_sharpe") -> dict[str, Any]:
         """
         Optimize portfolio weights.
-        
+
         Args:
             historical_prices: DataFrame where columns are symbol names and index is date.
                                Values should be adjusted close prices.
             objective: "max_sharpe" or "min_volatility"
-            
+
         Returns:
             Dictionary containing optimal weights, portfolio metrics, and efficient frontier data.
         """

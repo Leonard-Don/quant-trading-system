@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 WeightMap = Mapping[str, float]
 MetadataMap = Mapping[str, Mapping[str, Any]]
@@ -40,7 +40,7 @@ class EtfRiskRuleConfig:
     drawdown_cut_threshold: float = 0.08
     drawdown_gross_exposure_multiplier: float = 0.75
     cash_symbol: str = "CASH"
-    commodity_resource_markers: Tuple[str, ...] = (
+    commodity_resource_markers: tuple[str, ...] = (
         "commodity",
         "commodities",
         "resource",
@@ -55,7 +55,7 @@ class EtfRiskRuleConfig:
         "precious_metal",
         "precious_metals",
     )
-    qdii_markers: Tuple[str, ...] = (
+    qdii_markers: tuple[str, ...] = (
         "qdii",
         "cross_border",
         "cross-border",
@@ -82,9 +82,9 @@ class EtfRiskAdjustment:
 class EtfRiskDecision:
     """Adjusted portfolio and explanations emitted by the rule engine."""
 
-    adjusted_weights: Dict[str, float]
-    reasons: List[str] = field(default_factory=list)
-    adjustments: List[EtfRiskAdjustment] = field(default_factory=list)
+    adjusted_weights: dict[str, float]
+    reasons: list[str] = field(default_factory=list)
+    adjustments: list[EtfRiskAdjustment] = field(default_factory=list)
 
 
 def apply_etf_portfolio_risk_rules(
@@ -124,8 +124,8 @@ def apply_etf_portfolio_risk_rules(
 
     _warn_missing_metadata(weights, metadata, cfg)
 
-    reasons: List[str] = []
-    adjustments: List[EtfRiskAdjustment] = []
+    reasons: list[str] = []
+    adjustments: list[EtfRiskAdjustment] = []
 
     _apply_premium_vetoes(weights, current, metadata, premiums, cfg, reasons, adjustments)
     _apply_single_name_cap(weights, metadata, cfg, reasons, adjustments)
@@ -168,7 +168,7 @@ def _prepare_target_weights(
     proposed_weights: WeightMap,
     asset_metadata: MetadataMap,
     config: EtfRiskRuleConfig,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     weights = _normalize_weight_map(proposed_weights)
     cash_symbol = _cash_symbol(weights, asset_metadata, config)
     total = sum(weights.values())
@@ -187,13 +187,13 @@ def _prepare_target_weights(
 
 
 def _apply_premium_vetoes(
-    weights: Dict[str, float],
-    current_weights: Dict[str, float],
+    weights: dict[str, float],
+    current_weights: dict[str, float],
     asset_metadata: MetadataMap,
     premium_percentages: Mapping[str, float],
     config: EtfRiskRuleConfig,
-    reasons: List[str],
-    adjustments: List[EtfRiskAdjustment],
+    reasons: list[str],
+    adjustments: list[EtfRiskAdjustment],
 ) -> None:
     cash_symbol = _cash_symbol(weights, asset_metadata, config)
 
@@ -224,11 +224,11 @@ def _apply_premium_vetoes(
 
 
 def _apply_single_name_cap(
-    weights: Dict[str, float],
+    weights: dict[str, float],
     asset_metadata: MetadataMap,
     config: EtfRiskRuleConfig,
-    reasons: List[str],
-    adjustments: List[EtfRiskAdjustment],
+    reasons: list[str],
+    adjustments: list[EtfRiskAdjustment],
 ) -> None:
     cash_symbol = _cash_symbol(weights, asset_metadata, config)
 
@@ -252,11 +252,11 @@ def _apply_single_name_cap(
 
 
 def _apply_bucket_cap(
-    weights: Dict[str, float],
+    weights: dict[str, float],
     asset_metadata: MetadataMap,
     config: EtfRiskRuleConfig,
-    reasons: List[str],
-    adjustments: List[EtfRiskAdjustment],
+    reasons: list[str],
+    adjustments: list[EtfRiskAdjustment],
 ) -> None:
     cash_symbol = _cash_symbol(weights, asset_metadata, config)
     bucket_symbols = [
@@ -288,11 +288,11 @@ def _apply_bucket_cap(
 
 
 def _apply_cash_floor(
-    weights: Dict[str, float],
+    weights: dict[str, float],
     asset_metadata: MetadataMap,
     config: EtfRiskRuleConfig,
-    reasons: List[str],
-    adjustments: List[EtfRiskAdjustment],
+    reasons: list[str],
+    adjustments: list[EtfRiskAdjustment],
 ) -> None:
     cash_symbol = _cash_symbol(weights, asset_metadata, config)
     current_cash = weights.get(cash_symbol, 0.0)
@@ -325,12 +325,12 @@ def _apply_cash_floor(
 
 
 def _apply_drawdown_cut(
-    weights: Dict[str, float],
+    weights: dict[str, float],
     asset_metadata: MetadataMap,
     portfolio_drawdown: Optional[float],
     config: EtfRiskRuleConfig,
-    reasons: List[str],
-    adjustments: List[EtfRiskAdjustment],
+    reasons: list[str],
+    adjustments: list[EtfRiskAdjustment],
 ) -> None:
     if portfolio_drawdown is None or portfolio_drawdown <= config.drawdown_cut_threshold + EPSILON:
         return
@@ -392,8 +392,8 @@ def _warn_missing_metadata(
         )
 
 
-def _normalize_weight_map(weights: WeightMap) -> Dict[str, float]:
-    normalized: Dict[str, float] = {}
+def _normalize_weight_map(weights: WeightMap) -> dict[str, float]:
+    normalized: dict[str, float] = {}
     for symbol, raw_weight in weights.items():
         weight = _as_fraction(raw_weight)
         normalized[str(symbol)] = max(0.0, weight)
@@ -496,7 +496,7 @@ def _as_fraction(value: float) -> float:
     )
 
 
-def _drop_dust(weights: Dict[str, float]) -> None:
+def _drop_dust(weights: dict[str, float]) -> None:
     for symbol in list(weights):
         if abs(weights[symbol]) < EPSILON:
             weights[symbol] = 0.0

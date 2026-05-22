@@ -1,25 +1,25 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 
 def build_structural_decay(
-    gap: Dict[str, Any],
-    factor: Dict[str, Any],
-    valuation: Dict[str, Any],
-    people_layer: Dict[str, Any],
-    alignment_meta: Dict[str, Any],
-    confidence_meta: Dict[str, Any],
-) -> Dict[str, Any]:
+    gap: dict[str, Any],
+    factor: dict[str, Any],
+    valuation: dict[str, Any],
+    people_layer: dict[str, Any],
+    alignment_meta: dict[str, Any],
+    confidence_meta: dict[str, Any],
+) -> dict[str, Any]:
     score = 0.0
-    components: List[Dict[str, Any]] = []
+    components: list[dict[str, Any]] = []
     category_scores = {
         "people": 0.0,
         "execution": 0.0,
         "valuation": 0.0,
         "evidence": 0.0,
     }
-    evidence: List[str] = []
+    evidence: list[str] = []
 
     def add_component(
         key: str,

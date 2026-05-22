@@ -7,7 +7,7 @@ import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 
 @dataclass
@@ -17,9 +17,9 @@ class ComponentConfig:
     name: str
     version: str = "1.0.0"
     enabled: bool = True
-    parameters: Dict[str, Any] = field(default_factory=dict)
-    dependencies: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict)
+    dependencies: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class BaseComponent(ABC):
@@ -76,7 +76,7 @@ class BaseComponent(ABC):
                 return False
         return True
 
-    def get_info(self) -> Dict[str, Any]:
+    def get_info(self) -> dict[str, Any]:
         """获取组件信息"""
         return {
             "id": self.id,
@@ -122,7 +122,7 @@ class BaseService(BaseComponent):
         """停止服务"""
 
     @abstractmethod
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """健康检查"""
 
     def is_running(self) -> bool:
@@ -137,7 +137,7 @@ class BaseService(BaseComponent):
         end_time = self.stop_time or datetime.now()
         return (end_time - self.start_time).total_seconds()
 
-    def get_service_info(self) -> Dict[str, Any]:
+    def get_service_info(self) -> dict[str, Any]:
         """获取服务信息"""
         info = self.get_info()
         info.update(
@@ -208,7 +208,7 @@ class LifecycleManager:
     """生命周期管理器"""
 
     def __init__(self):
-        self.components: List[BaseComponent] = []
+        self.components: list[BaseComponent] = []
         self.logger = logging.getLogger(__name__)
 
     def register(self, component: BaseComponent) -> None:
@@ -243,7 +243,7 @@ class LifecycleManager:
             except Exception as e:
                 self.logger.error(f"Failed to cleanup {component.name}: {e}")
 
-    def _topological_sort(self) -> List[BaseComponent]:
+    def _topological_sort(self) -> list[BaseComponent]:
         """拓扑排序，处理依赖关系"""
         # 简单的拓扑排序实现
         result = []
@@ -273,6 +273,6 @@ class LifecycleManager:
 
         return result
 
-    def get_component_status(self) -> Dict[str, Dict[str, Any]]:
+    def get_component_status(self) -> dict[str, dict[str, Any]]:
         """获取所有组件状态"""
         return {component.name: component.get_info() for component in self.components}

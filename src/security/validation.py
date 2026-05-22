@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Callable, Dict, List, Union
+from typing import Any, Callable, Union
 
 from ..utils.exceptions import ValidationError
 
@@ -209,9 +209,9 @@ class SecurityValidator:
     def __init__(self):
         self.sanitizer = InputSanitizer()
         self.logger = logging.getLogger(__name__)
-        self.validation_rules: Dict[str, List[ValidationRule]] = {}
+        self.validation_rules: dict[str, list[ValidationRule]] = {}
         self.blocked_ips: set = set()
-        self.suspicious_activities: Dict[str, List[datetime]] = {}
+        self.suspicious_activities: dict[str, list[datetime]] = {}
 
         # 默认验证规则
         self._setup_default_rules()
@@ -259,7 +259,7 @@ class SecurityValidator:
         self.logger.debug(f"Added validation rule: {rule.name} for {field_type}")
 
     def validate_field(
-        self, field_type: str, value: Any, custom_rules: List[ValidationRule] = None
+        self, field_type: str, value: Any, custom_rules: list[ValidationRule] = None
     ) -> bool:
         """验证字段"""
         rules = self.validation_rules.get(field_type, [])
@@ -287,8 +287,8 @@ class SecurityValidator:
         return True
 
     def validate_request_data(
-        self, data: Dict[str, Any], schema: Dict[str, Dict[str, Any]]
-    ) -> Dict[str, Any]:
+        self, data: dict[str, Any], schema: dict[str, dict[str, Any]]
+    ) -> dict[str, Any]:
         """验证请求数据"""
         validated_data = {}
 
@@ -372,7 +372,7 @@ class SecurityValidator:
         self.blocked_ips.discard(ip_address)
         self.logger.info(f"Unblocked IP {ip_address}")
 
-    def get_security_report(self) -> Dict[str, Any]:
+    def get_security_report(self) -> dict[str, Any]:
         """获取安全报告"""
         return {
             "timestamp": datetime.now().isoformat(),
@@ -390,7 +390,7 @@ security_validator = SecurityValidator()
 input_sanitizer = InputSanitizer()
 
 
-def validate_input(field_type: str, custom_rules: List[ValidationRule] = None):
+def validate_input(field_type: str, custom_rules: list[ValidationRule] = None):
     """输入验证装饰器"""
 
     def decorator(func):

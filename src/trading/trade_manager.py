@@ -4,7 +4,7 @@ import math
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -53,8 +53,8 @@ class TradeManager:
 
         self.initial_balance = 100000.0
         self.balance = self.initial_balance
-        self.positions: Dict[str, Position] = {}
-        self.trade_history: List[Trade] = []
+        self.positions: dict[str, Position] = {}
+        self.trade_history: list[Trade] = []
         self.initialized = True
         logger.info(f"TradeManager initialized with ${self.initial_balance:,.2f}")
 
@@ -63,7 +63,7 @@ class TradeManager:
         """Alias for balance (backward compatibility)"""
         return self.balance
 
-    def get_portfolio_status(self, current_prices: Optional[Dict[str, float]] = None) -> Dict[str, Any]:
+    def get_portfolio_status(self, current_prices: Optional[dict[str, float]] = None) -> dict[str, Any]:
         """Get current portfolio status including positions and total equity"""
         current_prices = current_prices or {}
 
@@ -105,7 +105,7 @@ class TradeManager:
             "trade_count": len(self.trade_history)
         }
 
-    def execute_trade(self, symbol: str, action: str, quantity: int, price: float) -> Dict[str, Any]:
+    def execute_trade(self, symbol: str, action: str, quantity: int, price: float) -> dict[str, Any]:
         """Execute a trade (Buy or Sell)"""
         if not math.isfinite(quantity) or quantity <= 0:
             raise ValueError(f"Invalid quantity: {quantity} (must be finite and positive)")
@@ -182,7 +182,7 @@ class TradeManager:
 
         return asdict(trade)
 
-    def get_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def get_history(self, limit: int = 50) -> list[dict[str, Any]]:
         """Get trade history"""
         return [asdict(t) for t in self.trade_history[:limit]]
 

@@ -14,7 +14,7 @@ from functools import wraps
 
 # import os  # 暂时未使用
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 from .config import CACHE_TTL, PROJECT_ROOT
 
@@ -64,7 +64,7 @@ class CacheManager:
             )
             return hashlib.sha256(serialized.encode()).hexdigest()[:16]
 
-    def _is_expired(self, cache_entry: Dict) -> bool:
+    def _is_expired(self, cache_entry: dict) -> bool:
         """检查缓存是否过期"""
         if "expires_at" not in cache_entry:
             return False
@@ -240,7 +240,7 @@ class CacheManager:
             # 重置统计
             self.cache_stats = {"hits": 0, "misses": 0, "sets": 0, "deletes": 0}
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取缓存统计信息"""
         total_requests = self.cache_stats["hits"] + self.cache_stats["misses"]
         hit_rate = (
@@ -303,7 +303,7 @@ class CacheAnalyzer:
         self.cache_manager = cache_manager
         self.logger = logging.getLogger(__name__)
 
-    def get_cache_report(self) -> Dict[str, Any]:
+    def get_cache_report(self) -> dict[str, Any]:
         """获取缓存报告"""
         stats = self.cache_manager.get_stats()
 
@@ -328,8 +328,8 @@ class CacheAnalyzer:
         }
 
     def _get_recommendations(
-        self, stats: Dict, hit_rate: float, memory_usage: float
-    ) -> List[str]:
+        self, stats: dict, hit_rate: float, memory_usage: float
+    ) -> list[str]:
         """获取优化建议"""
         recommendations = []
 

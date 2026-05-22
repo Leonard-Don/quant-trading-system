@@ -5,7 +5,7 @@
 import logging
 import warnings
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class BaseStrategy(ABC):
     """Base class for all trading strategies"""
 
-    def __init__(self, name: str, parameters: Optional[Dict[str, Any]] = None):
+    def __init__(self, name: str, parameters: Optional[dict[str, Any]] = None):
         self.name = name
         self.parameters = parameters or {}
         self.signals = pd.Series()

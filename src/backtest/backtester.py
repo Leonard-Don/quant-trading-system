@@ -4,7 +4,7 @@ Backtest engine for testing trading strategies
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -88,7 +88,7 @@ class SingleAssetExecutionEngine:
         stop_loss_pct: Optional[float],
         take_profit_pct: Optional[float],
         max_holding_days: Optional[int],
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         signal_series = pd.Series(signals, index=data.index)
         signal_mode = self._resolve_signal_mode(signal_series)
         executable_signals = self._apply_execution_lag(signal_series)
@@ -143,7 +143,7 @@ class SingleAssetExecutionEngine:
             return float(shares)
         return float(int(shares))
 
-    def _prepare_execution_context(self, data: pd.DataFrame) -> Dict[str, np.ndarray]:
+    def _prepare_execution_context(self, data: pd.DataFrame) -> dict[str, np.ndarray]:
         prices = pd.to_numeric(data["close"], errors="coerce").replace([np.inf, -np.inf], np.nan)
         returns = prices.pct_change().replace([np.inf, -np.inf], np.nan)
         fallback_volatility = float(returns.std()) if returns.dropna().size else 0.02
@@ -179,8 +179,8 @@ class SingleAssetExecutionEngine:
         price: float,
         shares: float,
         bar_index: int,
-        market_context: Dict[str, np.ndarray],
-    ) -> Dict[str, float | str]:
+        market_context: dict[str, np.ndarray],
+    ) -> dict[str, float | str]:
         trade_notional = abs(float(price or 0.0) * float(shares or 0.0))
         impact = estimate_market_impact_rate(
             trade_notional,
@@ -242,7 +242,7 @@ class SingleAssetExecutionEngine:
         stop_loss_pct: Optional[float],
         take_profit_pct: Optional[float],
         max_holding_days: Optional[int],
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         price_array = data["close"].astype(float).to_numpy()
         signal_array = signals.astype(int).to_numpy()
         bar_count = len(price_array)
@@ -251,8 +251,8 @@ class SingleAssetExecutionEngine:
         holdings_array = np.zeros(bar_count, dtype=float)
         total_array = np.zeros(bar_count, dtype=float)
 
-        trades: List[Dict[str, Any]] = []
-        trade_pnls: List[float] = []
+        trades: list[dict[str, Any]] = []
+        trade_pnls: list[float] = []
         current_position = 0.0
         current_cash = self.initial_capital
         avg_cost_basis = 0.0
@@ -411,7 +411,7 @@ class SingleAssetExecutionEngine:
         sizer: BasePositionSizer,
         risk_mgr: Optional[RiskManager],
         max_holding_days: Optional[int],
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         price_array = data["close"].astype(float).to_numpy()
         signal_array = signals.astype(float).to_numpy()
         bar_count = len(price_array)
@@ -420,8 +420,8 @@ class SingleAssetExecutionEngine:
         holdings_array = np.zeros(bar_count, dtype=float)
         total_array = np.zeros(bar_count, dtype=float)
 
-        trades: List[Dict[str, Any]] = []
-        trade_pnls: List[float] = []
+        trades: list[dict[str, Any]] = []
+        trade_pnls: list[float] = []
         current_position = 0.0
         current_cash = self.initial_capital
         avg_cost_basis = 0.0
@@ -658,7 +658,7 @@ class Backtester(BaseBacktester):
 
     def run(
         self, strategy: Any, data: pd.DataFrame, position_size: float = 1.0
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Run backtest
 
@@ -738,7 +738,7 @@ class Backtester(BaseBacktester):
         signals: pd.Series,
         sizer: BasePositionSizer,
         risk_mgr: Optional[RiskManager],
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Run the execution loop against a precomputed signal series."""
         engine = SingleAssetExecutionEngine(
             initial_capital=self.initial_capital,
@@ -785,7 +785,7 @@ class Backtester(BaseBacktester):
 
     def _calculate_metrics(
         self, portfolio: pd.DataFrame, trades: list
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Calculate performance metrics"""
         total_return = (
             portfolio["total"].iloc[-1] - self.initial_capital
@@ -933,12 +933,12 @@ class Backtester(BaseBacktester):
         return metrics
 
     def _extract_completed_trade_statistics(
-        self, trades: List[Dict[str, Any]], portfolio: pd.DataFrame
-    ) -> tuple[List[float], List[float], bool]:
+        self, trades: list[dict[str, Any]], portfolio: pd.DataFrame
+    ) -> tuple[list[float], list[float], bool]:
         """Match BUY and SELL lots so partial rebalances produce correct trade stats."""
-        open_lots: List[Dict[str, float]] = []
-        completed_trade_pnls: List[float] = []
-        completed_trade_returns: List[float] = []
+        open_lots: list[dict[str, float]] = []
+        completed_trade_pnls: list[float] = []
+        completed_trade_returns: list[float] = []
 
         for trade in trades:
             trade_type = str(trade.get("type", "")).upper()

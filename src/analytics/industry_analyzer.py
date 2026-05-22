@@ -13,7 +13,7 @@ import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -58,19 +58,19 @@ _load_heatmap_history_trend_lookup = load_heatmap_history_trend_lookup
 class IndustryAnalyzer:
     """
     行业分析引擎
-    
+
     核心功能:
     - 分析各行业资金流向趋势
     - 计算行业动量指标
     - K-Means 聚类识别热门行业组
     - 综合排名输出热门行业列表
-    
+
     使用示例:
         from src.data.providers.akshare_provider import AKShareProvider
-        
+
         provider = AKShareProvider()
         analyzer = IndustryAnalyzer(provider)
-        
+
         hot_industries = analyzer.rank_industries(top_n=10)
         heatmap_data = analyzer.get_industry_heatmap_data()
     """
@@ -84,10 +84,10 @@ class IndustryAnalyzer:
         "volatility": -0.15,   # 预留：后续接入真实行业波动率后启用
     }
 
-    def __init__(self, data_provider=None, weights: Dict[str, float] = None):
+    def __init__(self, data_provider=None, weights: dict[str, float] = None):
         """
         初始化行业分析引擎
-        
+
         Args:
             data_provider: 数据提供器（AKShareProvider 实例）
             weights: 自定义评分权重
@@ -95,9 +95,9 @@ class IndustryAnalyzer:
         self.provider = data_provider
         self.weights = weights or self.DEFAULT_WEIGHTS.copy()
         # Cache structure: {key: {"data": data, "timestamp": datetime}}
-        self._cached_data: Dict[str, Dict[str, Any]] = {}
+        self._cached_data: dict[str, dict[str, Any]] = {}
         self._cache_lock = threading.RLock()
-        self._inflight_loads: Dict[str, Dict[str, Any]] = {}
+        self._inflight_loads: dict[str, dict[str, Any]] = {}
         self._cache_ttl = timedelta(minutes=30)  # 缓存30分钟（行业数据日内变化较慢）
 
     def set_provider(self, provider):
@@ -199,7 +199,7 @@ class IndustryAnalyzer:
         """Unified industry heat score. Factor logic lives in industry.scoring."""
         return _calculate_rank_score_series_impl(df, self.weights)
 
-    def build_rank_score_breakdown(self, record: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def build_rank_score_breakdown(self, record: dict[str, Any]) -> list[dict[str, Any]]:
         return _build_rank_score_breakdown(record, self.weights)
 
     _weighted_std = staticmethod(weighted_std)
@@ -225,11 +225,11 @@ class IndustryAnalyzer:
     def _merge_momentum_and_flow(self, momentum_df: pd.DataFrame, money_flow_df: pd.DataFrame) -> pd.DataFrame:
         """
         合并动量数据和资金流向数据的公共逻辑
-        
+
         Args:
             momentum_df: 动量 DataFrame
             money_flow_df: 资金流向 DataFrame
-            
+
         Returns:
             合并后的 DataFrame，包含 change_pct, main_net_inflow, flow_strength 列
         """
@@ -254,10 +254,10 @@ class IndustryAnalyzer:
     def analyze_money_flow(self, days: int = 5) -> pd.DataFrame:
         """
         分析各行业资金流向趋势
-        
+
         Args:
             days: 统计周期（1/5/10 天）
-            
+
         Returns:
             行业资金流向分析结果 DataFrame
         """
@@ -443,7 +443,7 @@ class IndustryAnalyzer:
     def calculate_industry_historical_volatility(
         self,
         lookback: int = 20,
-        industries: List[str] = None
+        industries: list[str] = None
     ) -> pd.DataFrame:
         """
         基于行业指数历史收盘价计算真实区间波动率。
@@ -475,7 +475,7 @@ class IndustryAnalyzer:
         end_date = datetime.now()
         start_date = end_date - timedelta(days=max(int(lookback) * 3, 30))
 
-        def _fetch_volatility(row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        def _fetch_volatility(row: dict[str, Any]) -> Optional[dict[str, Any]]:
             industry_name = row.get("industry_name")
             industry_code = row.get("industry_code")
             if not industry_name or not industry_code:
@@ -525,7 +525,7 @@ class IndustryAnalyzer:
         self,
         industry_name: str,
         days: int = 30
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """加载行业指数趋势序列，用于详情页走势展示。"""
         if self.provider is None or not hasattr(self.provider, "get_industry_classification") or not hasattr(self.provider, "get_industry_index"):
             return []
@@ -619,15 +619,15 @@ class IndustryAnalyzer:
     def calculate_industry_momentum(
         self,
         lookback: int = 20,
-        industries: List[str] = None
+        industries: list[str] = None
     ) -> pd.DataFrame:
         """
         计算行业动量指标
-        
+
         Args:
             lookback: 回看周期（天数）
             industries: 指定行业列表（可选）
-            
+
         Returns:
             行业动量指标 DataFrame
         """
@@ -800,15 +800,15 @@ class IndustryAnalyzer:
     def cluster_hot_industries(
         self,
         n_clusters: int = 4
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         使用 K-Means 聚类识别热门行业组
-        
+
         基于 (收益率, 波动率, 资金流向) 三维特征进行聚类
-        
+
         Args:
             n_clusters: 聚类数量
-            
+
         Returns:
             聚类结果字典，包含:
             - clusters: 各簇的行业列表
@@ -880,7 +880,7 @@ class IndustryAnalyzer:
         max_clusters = min(max(min_clusters, int(n_clusters or 4) + 2), max(2, len(merged_df) - 1), 8)
         selected_clusters = min_clusters
         selected_silhouette = None
-        cluster_candidates: Dict[int, float] = {}
+        cluster_candidates: dict[int, float] = {}
 
         if len(merged_df) >= 4:
             for candidate in range(min_clusters, max_clusters + 1):
@@ -956,7 +956,7 @@ class IndustryAnalyzer:
             "cluster_candidates": cluster_candidates,
         }
 
-    def _enrich_stock_counts(self, result: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _enrich_stock_counts(self, result: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         为排名结果补充成分股数量（仅对缺失的行业异步获取）
         """
@@ -992,15 +992,15 @@ class IndustryAnalyzer:
         sort_by: str = "total_score",
         ascending: bool = False,
         lookback_days: int = 5
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         对行业进行综合排名
-        
+
         Args:
             top_n: 返回排名前 N 的行业
             sort_by: 排序字段 ("total_score" | "change_pct" | "money_flow" | "industry_volatility")
             ascending: 是否升序
-            
+
         Returns:
             排名后的行业列表
         """
@@ -1154,7 +1154,7 @@ class IndustryAnalyzer:
         return result
 
     @staticmethod
-    def _build_relative_trend_points_from_cumulative_changes(cumulative_changes: List[float]) -> List[float]:
+    def _build_relative_trend_points_from_cumulative_changes(cumulative_changes: list[float]) -> list[float]:
         if not cumulative_changes:
             return []
 
@@ -1174,9 +1174,9 @@ class IndustryAnalyzer:
     def _build_industry_mini_trend_lookup(
         self,
         max_days: int = 5,
-        industries: Optional[List[str]] = None,
+        industries: Optional[list[str]] = None,
         preferred_days: Optional[int] = None,
-    ) -> Dict[str, List[float]]:
+    ) -> dict[str, list[float]]:
         max_days = max(2, int(max_days or 5))
         cache_key = self._get_cache_key("industry_mini_trend", max_days=max_days)
         cached = self._get_from_cache(cache_key)
@@ -1232,7 +1232,7 @@ class IndustryAnalyzer:
         for frame in trend_frames[1:]:
             merged_trends = merged_trends.merge(frame, on="industry_name", how="outer")
 
-        network_lookup: Dict[str, List[float]] = {}
+        network_lookup: dict[str, list[float]] = {}
         for _, row in merged_trends.iterrows():
             industry_name = row.get("industry_name", "")
             if industry_name in trend_lookup:
@@ -1256,13 +1256,13 @@ class IndustryAnalyzer:
             if name in target_industries
         }
 
-    def get_industry_heatmap_data(self, days: int = 5) -> Dict[str, Any]:
+    def get_industry_heatmap_data(self, days: int = 5) -> dict[str, Any]:
         """
         生成热力图可视化数据
-        
+
         Args:
             days: 分析周期（默认5天）
-            
+
         Returns:
             热力图数据，包含:
             - industries: 行业数据列表
@@ -1392,14 +1392,14 @@ class IndustryAnalyzer:
         self,
         industry_name: str,
         days: int = 30
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         获取单个行业的趋势分析
-        
+
         Args:
             industry_name: 行业名称
             days: 分析周期
-            
+
         Returns:
             行业趋势分析结果
         """
@@ -1610,16 +1610,16 @@ class IndustryAnalyzer:
 
     def get_industry_rotation(
         self,
-        industry_names: List[str],
-        periods: List[int] = None
-    ) -> Dict[str, Any]:
+        industry_names: list[str],
+        periods: list[int] = None
+    ) -> dict[str, Any]:
         """
         获取行业轮动对比数据
-        
+
         Args:
             industry_names: 要对比的行业列表（2-5个）
             periods: 统计周期列表（天数），默认 [1, 5, 10]
-            
+
         Returns:
             各行业在不同周期的涨跌幅对比数据
         """
@@ -1645,12 +1645,12 @@ class IndustryAnalyzer:
             if cached is not None:
                 return cached
 
-            def build_period_data(period: int) -> Tuple[int, Optional[Dict[str, Any]]]:
+            def build_period_data(period: int) -> tuple[int, Optional[dict[str, Any]]]:
                 money_flow_df = self.analyze_money_flow(days=period)
                 if money_flow_df.empty or "industry_name" not in money_flow_df.columns:
                     return period, None
 
-                period_data: Dict[str, Any] = {"period": period}
+                period_data: dict[str, Any] = {"period": period}
                 for name in industry_names:
                     row = money_flow_df[money_flow_df["industry_name"] == name]
                     if not row.empty:
@@ -1662,7 +1662,7 @@ class IndustryAnalyzer:
                         period_data[f"{name}__flow"] = 0.0
                 return period, period_data
 
-            period_map: Dict[int, Dict[str, Any]] = {}
+            period_map: dict[int, dict[str, Any]] = {}
             max_workers = min(4, len(periods))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = [executor.submit(build_period_data, period) for period in periods]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 from .asset_universe import AssetSpec
 
@@ -40,7 +40,7 @@ class ExecutionRoute:
     lot_size: int
     preferred_provider: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "symbol": self.symbol,
             "side": self.side,
@@ -81,8 +81,8 @@ class ExecutionRouter:
         *,
         initial_capital: float = 100000.0,
         avg_hedge_ratio: float = 1.0,
-        latest_prices: Dict[str, float] | None = None,
-        liquidity_snapshots: Dict[str, Dict[str, float]] | None = None,
+        latest_prices: dict[str, float] | None = None,
+        liquidity_snapshots: dict[str, dict[str, float]] | None = None,
     ):
         self.asset_specs = list(asset_specs)
         self.initial_capital = float(initial_capital)
@@ -90,19 +90,19 @@ class ExecutionRouter:
         self.latest_prices = latest_prices or {}
         self.liquidity_snapshots = liquidity_snapshots or {}
 
-    def build_plan(self) -> Dict[str, Any]:
+    def build_plan(self) -> dict[str, Any]:
         plan = self._build_plan_core(self.initial_capital)
         plan["execution_stress"] = self._build_stress_scenarios()
         return plan
 
-    def _build_plan_core(self, capital: float) -> Dict[str, Any]:
-        effective_weights: List[float] = []
+    def _build_plan_core(self, capital: float) -> dict[str, Any]:
+        effective_weights: list[float] = []
         for asset in self.asset_specs:
             multiplier = self.avg_hedge_ratio if asset.side.value == "short" else 1.0
             effective_weights.append(float(asset.weight) * multiplier)
 
         gross_weight = sum(abs(weight) for weight in effective_weights) or 1.0
-        routes: List[ExecutionRoute] = []
+        routes: list[ExecutionRoute] = []
         for asset, effective_weight in zip(self.asset_specs, effective_weights):
             capital_fraction = float(abs(effective_weight) / gross_weight)
             target_notional = float(capital * capital_fraction)
@@ -158,7 +158,7 @@ class ExecutionRouter:
             key = (route.execution_channel, route.venue, route.currency, route.preferred_provider)
             batches[key].append(route)
 
-        batch_records: List[Dict[str, Any]] = []
+        batch_records: list[dict[str, Any]] = []
         for (execution_channel, venue, currency, provider), batch_routes in batches.items():
             batch_records.append(
                 {
@@ -241,7 +241,7 @@ class ExecutionRouter:
             "margin_summary": self._summarize_margin(routes, capital),
         }
 
-    def _build_stress_scenarios(self) -> Dict[str, Any]:
+    def _build_stress_scenarios(self) -> dict[str, Any]:
         scenarios = []
         for multiplier in (0.5, 1.0, 1.5, 2.0):
             stressed_capital = self.initial_capital * multiplier
@@ -331,8 +331,8 @@ class ExecutionRouter:
         return 1.0
 
     @staticmethod
-    def _allocation_by(routes: List[ExecutionRoute], field: str, total_notional: float) -> List[Dict[str, Any]]:
-        buckets: Dict[str, Dict[str, Any]] = {}
+    def _allocation_by(routes: list[ExecutionRoute], field: str, total_notional: float) -> list[dict[str, Any]]:
+        buckets: dict[str, dict[str, Any]] = {}
         for route in routes:
             key = str(getattr(route, field))
             bucket = buckets.setdefault(
@@ -367,7 +367,7 @@ class ExecutionRouter:
         return allocations
 
     @staticmethod
-    def _summarize_sizing(routes: List[ExecutionRoute]) -> Dict[str, Any]:
+    def _summarize_sizing(routes: list[ExecutionRoute]) -> dict[str, Any]:
         total_target = sum(route.target_notional for route in routes)
         total_fill = sum(route.estimated_fill_notional for route in routes)
         total_residual = sum(route.residual_notional for route in routes)
@@ -388,9 +388,9 @@ class ExecutionRouter:
 
     @staticmethod
     def _summarize_liquidity(
-        routes: List[ExecutionRoute],
-        batch_records: List[Dict[str, Any]],
-    ) -> Dict[str, Any]:
+        routes: list[ExecutionRoute],
+        batch_records: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         route_adv_values = [float(route.adv_usage) for route in routes if route.adv_usage is not None]
         batch_adv_values = [
             float(batch["adv_usage"])
@@ -450,9 +450,9 @@ class ExecutionRouter:
 
     @staticmethod
     def _summarize_margin(
-        routes: List[ExecutionRoute],
+        routes: list[ExecutionRoute],
         capital: float,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         total_margin_requirement = float(sum(route.margin_requirement for route in routes))
         gross_notional = float(sum(route.target_notional for route in routes))
         utilization = total_margin_requirement / capital if capital > 0 else 0.0
@@ -492,10 +492,10 @@ class ExecutionRouter:
 
     def _summarize_concentration(
         self,
-        routes: List[ExecutionRoute],
-        batch_records: List[Dict[str, Any]],
+        routes: list[ExecutionRoute],
+        batch_records: list[dict[str, Any]],
         total_notional: float,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         provider_allocation = self._allocation_by(routes, "preferred_provider", total_notional)
         venue_allocation = self._allocation_by(routes, "venue", total_notional)
         channel_allocation = self._allocation_by(routes, "execution_channel", total_notional)

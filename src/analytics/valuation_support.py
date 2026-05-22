@@ -7,13 +7,13 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Optional
 
 import numpy as np
 import pandas as pd
 
 
-def resolve_current_price(data_manager: Any, symbol: str, fundamentals: Dict[str, Any], logger: Any) -> Dict[str, Any]:
+def resolve_current_price(data_manager: Any, symbol: str, fundamentals: dict[str, Any], logger: Any) -> dict[str, Any]:
     """Resolve a usable spot price without falling back to 52-week extremes."""
     try:
         latest = data_manager.get_latest_price(symbol)
@@ -51,7 +51,7 @@ def build_dcf_scenario_configs(
     base_growth: float,
     base_terminal_growth: float,
     base_fcf_margin: float,
-) -> list[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     return [
         {
             "name": "bear",
@@ -89,9 +89,9 @@ def run_dcf_case(
     revenue_base: float,
     operating_margin: float,
     current_price: float,
-    scenario: Dict[str, Any],
-    equity_bridge: Dict[str, Any],
-) -> Dict[str, Any]:
+    scenario: dict[str, Any],
+    equity_bridge: dict[str, Any],
+) -> dict[str, Any]:
     """Run a single DCF scenario with its own growth, discount and cash conversion assumptions."""
     revenue = float(revenue_base)
     fcf = float(normalized_fcf) * float(scenario["fcf_margin"])
@@ -155,11 +155,11 @@ def run_dcf_case(
 
 
 def monte_carlo_valuation(
-    fundamentals: Dict[str, Any],
+    fundamentals: dict[str, Any],
     current_price: float,
-    dcf_result: Dict[str, Any],
+    dcf_result: dict[str, Any],
     logger: Any,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """基于 DCF 锚点做轻量蒙特卡洛估值分布。"""
     try:
         anchor = dcf_result.get("sensitivity_anchor", {}) or {}
@@ -257,12 +257,12 @@ def monte_carlo_valuation(
 def compute_peer_benchmark(
     *,
     symbol: str,
-    fundamentals: Dict[str, Any],
-    cached_fundamentals: Callable[[str], Dict[str, Any]],
-    static_sector_benchmarks: Dict[str, Dict[str, Any]],
-    default_benchmark: Dict[str, Any],
+    fundamentals: dict[str, Any],
+    cached_fundamentals: Callable[[str], dict[str, Any]],
+    static_sector_benchmarks: dict[str, dict[str, Any]],
+    default_benchmark: dict[str, Any],
     peer_symbols: list[str],
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     sector = fundamentals.get("sector", "")
     industry = fundamentals.get("industry", "")
     static_benchmark = static_sector_benchmarks.get(sector, default_benchmark)
@@ -318,7 +318,7 @@ def compute_peer_benchmark(
     }
 
 
-def benchmark_warnings(benchmark: Dict[str, Any]) -> list[str]:
+def benchmark_warnings(benchmark: dict[str, Any]) -> list[str]:
     if benchmark.get("source_key") == "dynamic_peer_median":
         peers = ", ".join(benchmark.get("peer_symbols", [])[:4])
         return [f"行业基准倍数优先使用同行中位数；本次参考同行包括 {peers or '若干同板块标的'}。"]
@@ -328,10 +328,10 @@ def benchmark_warnings(benchmark: Dict[str, Any]) -> list[str]:
 def build_sensitivity_matrix(
     *,
     symbol: str,
-    overrides: Optional[Dict[str, Any]],
-    anchor: Dict[str, Any],
-    analyze_fn: Callable[[str, Optional[Dict[str, Any]]], Dict[str, Any]],
-) -> list[Dict[str, Any]]:
+    overrides: Optional[dict[str, Any]],
+    anchor: dict[str, Any],
+    analyze_fn: Callable[[str, Optional[dict[str, Any]]], dict[str, Any]],
+) -> list[dict[str, Any]]:
     wacc_anchor = float(anchor.get("wacc") or 0)
     growth_anchor = float(anchor.get("initial_growth") or 0)
     matrix = []
@@ -360,15 +360,15 @@ def build_sensitivity_matrix(
 def cached_peer_benchmark(
     *,
     symbol: str,
-    fundamentals: Dict[str, Any],
-    peer_benchmark_cache: Dict[str, Dict[str, Any]],
+    fundamentals: dict[str, Any],
+    peer_benchmark_cache: dict[str, dict[str, Any]],
     benchmark_cache_ttl: int,
-    cached_fundamentals: Callable[[str], Dict[str, Any]],
-    static_sector_benchmarks: Dict[str, Dict[str, Any]],
-    default_benchmark: Dict[str, Any],
+    cached_fundamentals: Callable[[str], dict[str, Any]],
+    static_sector_benchmarks: dict[str, dict[str, Any]],
+    default_benchmark: dict[str, Any],
     peer_symbols: list[str],
     now: Optional[float] = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     sector = fundamentals.get("sector", "")
     industry = fundamentals.get("industry", "")
     cache_key = f"{sector}::{industry}".strip(":")

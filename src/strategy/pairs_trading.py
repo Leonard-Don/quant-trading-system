@@ -5,7 +5,7 @@
 """
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class PairsTradingStrategy(BaseStrategy):
     """
     配对交易策略
-    
+
     基于两只相关股票的价差进行交易，当价差偏离均值时
     做多被低估的股票，做空被高估的股票
     """
@@ -35,7 +35,7 @@ class PairsTradingStrategy(BaseStrategy):
     ):
         """
         初始化配对交易策略
-        
+
         Args:
             lookback_period: 回看周期，用于计算价差的均值和标准差
             entry_zscore: 入场Z分数阈值
@@ -62,16 +62,16 @@ class PairsTradingStrategy(BaseStrategy):
 
     def find_cointegrated_pairs(
         self,
-        price_data: Dict[str, pd.Series],
+        price_data: dict[str, pd.Series],
         significance_level: float = 0.05
-    ) -> List[Tuple[str, str, float]]:
+    ) -> list[tuple[str, str, float]]:
         """
         查找协整的股票对
-        
+
         Args:
             price_data: 字典，键为股票代码，值为价格序列
             significance_level: 显著性水平
-            
+
         Returns:
             协整对列表: [(symbol1, symbol2, p_value), ...]
         """
@@ -109,7 +109,7 @@ class PairsTradingStrategy(BaseStrategy):
     def _engle_granger_test(self, y1: np.ndarray, y2: np.ndarray) -> float:
         """
         执行Engle-Granger协整检验
-        
+
         Returns:
             p_value: 协整检验的p值，越小表示越可能协整
         """
@@ -152,7 +152,7 @@ class PairsTradingStrategy(BaseStrategy):
     ) -> float:
         """
         计算对冲比率
-        
+
         使用OLS回归计算price2 = alpha + beta * price1中的beta
         """
         X = np.column_stack([np.ones(len(price1)), price1.values])
@@ -168,7 +168,7 @@ class PairsTradingStrategy(BaseStrategy):
     ) -> pd.Series:
         """
         计算价差
-        
+
         spread = price2 - hedge_ratio * price1
         """
         if hedge_ratio is None:
@@ -191,13 +191,13 @@ class PairsTradingStrategy(BaseStrategy):
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         """
         生成交易信号
-        
+
         对于单股票回测，这个方法使用data中的close和另一个参考价格
         对于配对交易，需要使用generate_pair_signals方法
-        
+
         Args:
             data: 必须包含'close'和'pair_close'列
-            
+
         Returns:
             信号序列: 1=买入, -1=卖出, 0=持有
         """
@@ -219,11 +219,11 @@ class PairsTradingStrategy(BaseStrategy):
     ) -> pd.Series:
         """
         生成配对交易信号
-        
+
         Args:
             price1: 第一只股票价格序列
             price2: 第二只股票价格序列
-            
+
         Returns:
             信号序列: 
                 1 = 做多价差（做多stock2，做空stock1）
@@ -273,7 +273,7 @@ class PairsTradingStrategy(BaseStrategy):
         self,
         price1: pd.Series,
         price2: pd.Series
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         获取配对指标
         """
@@ -333,7 +333,7 @@ class PairsTradingStrategy(BaseStrategy):
 class MultiPairStrategy(BaseStrategy):
     """
     多配对组合策略
-    
+
     同时交易多个配对，分散风险
     """
 
@@ -352,12 +352,12 @@ class MultiPairStrategy(BaseStrategy):
         )
         self.max_pairs = max_pairs
         self.correlation_threshold = correlation_threshold
-        self.pairs_strategies: List[PairsTradingStrategy] = []
+        self.pairs_strategies: list[PairsTradingStrategy] = []
 
     def select_pairs(
         self,
-        price_data: Dict[str, pd.Series]
-    ) -> List[Tuple[str, str]]:
+        price_data: dict[str, pd.Series]
+    ) -> list[tuple[str, str]]:
         """
         选择最佳配对
         """
@@ -387,12 +387,12 @@ class MultiPairStrategy(BaseStrategy):
 
     def generate_multi_signals(
         self,
-        price_data: Dict[str, pd.Series],
-        pairs: List[Tuple[str, str]]
-    ) -> Dict[str, pd.Series]:
+        price_data: dict[str, pd.Series],
+        pairs: list[tuple[str, str]]
+    ) -> dict[str, pd.Series]:
         """
         为多个配对生成信号
-        
+
         Returns:
             字典: {(sym1, sym2): signals}
         """

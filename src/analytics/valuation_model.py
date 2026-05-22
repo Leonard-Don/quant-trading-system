@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from src.analytics.valuation_support import (
     benchmark_warnings,
@@ -48,11 +48,11 @@ class ValuationModel:
 
     def __init__(self, data_manager: Optional[DataManager] = None):
         self.data_manager = data_manager or get_shared_data_manager()
-        self._peer_benchmark_cache: Dict[str, Dict[str, Any]] = {}
-        self._fundamental_cache: Dict[str, Dict[str, Any]] = {}
+        self._peer_benchmark_cache: dict[str, dict[str, Any]] = {}
+        self._fundamental_cache: dict[str, dict[str, Any]] = {}
         self._benchmark_cache_ttl = 3600
 
-    def _cached_fundamentals(self, symbol: str) -> Dict[str, Any]:
+    def _cached_fundamentals(self, symbol: str) -> dict[str, Any]:
         normalized_symbol = str(symbol or "").strip().upper()
         cached = self._fundamental_cache.get(normalized_symbol)
         if cached:
@@ -61,7 +61,7 @@ class ValuationModel:
         self._fundamental_cache[normalized_symbol] = fundamentals
         return fundamentals
 
-    def analyze(self, symbol: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def analyze(self, symbol: str, overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         """
         综合估值分析
 
@@ -115,7 +115,7 @@ class ValuationModel:
             logger.error(f"估值分析出错 {symbol}: {e}", exc_info=True)
             return self._empty_result(str(e))
 
-    def _dcf_valuation(self, fundamentals: Dict, current_price: float, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _dcf_valuation(self, fundamentals: dict, current_price: float, overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         """
         DCF 现金流折现估值
 
@@ -255,7 +255,7 @@ class ValuationModel:
             logger.error(f"DCF 估值出错: {e}")
             return {"error": str(e), "intrinsic_value": None}
 
-    def _comparable_valuation(self, symbol: str, fundamentals: Dict, current_price: float) -> Dict[str, Any]:
+    def _comparable_valuation(self, symbol: str, fundamentals: dict, current_price: float) -> dict[str, Any]:
         """
         可比公司估值法
         使用 P/E、EV/EBITDA、EV/Revenue、PEG、P/B 等倍数法
@@ -381,7 +381,7 @@ class ValuationModel:
             logger.error(f"可比估值出错: {e}")
             return {"error": str(e), "fair_value": None}
 
-    def _composite_valuation(self, dcf: Dict, comparable: Dict, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _composite_valuation(self, dcf: dict, comparable: dict, overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         """综合估值：整合 DCF 和可比估值"""
         overrides = overrides or {}
         values = []
@@ -444,7 +444,7 @@ class ValuationModel:
             "range_basis": range_basis,
         }
 
-    def build_sensitivity_analysis(self, symbol: str, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def build_sensitivity_analysis(self, symbol: str, overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
         valuation = self.analyze(symbol, overrides=overrides)
         dcf = valuation.get("dcf", {}) or {}
         anchor = dcf.get("sensitivity_anchor", {}) or {}
@@ -466,7 +466,7 @@ class ValuationModel:
             ),
         }
 
-    def _assess_valuation_status(self, current_price: float, fair_value: Dict) -> Dict[str, Any]:
+    def _assess_valuation_status(self, current_price: float, fair_value: dict) -> dict[str, Any]:
         """评估估值状态"""
         mid = fair_value.get("mid")
         if not mid or mid <= 0:
@@ -493,7 +493,7 @@ class ValuationModel:
             "in_fair_range": fair_value.get("low", 0) <= current_price <= fair_value.get("high", float("inf"))
         }
 
-    def _generate_summary(self, current_price: float, fair_value: Dict, status: Dict) -> str:
+    def _generate_summary(self, current_price: float, fair_value: dict, status: dict) -> str:
         """生成估值摘要"""
         mid = fair_value.get("mid")
         if not mid:
@@ -508,7 +508,7 @@ class ValuationModel:
         else:
             return f"当前价格${current_price:.2f}，{method}公允价值${mid:.2f}，折价{abs(dev_pct):.1f}%（{label}）"
 
-    def _empty_result(self, reason: str) -> Dict[str, Any]:
+    def _empty_result(self, reason: str) -> dict[str, Any]:
         return {
             "symbol": "",
             "company_name": "",

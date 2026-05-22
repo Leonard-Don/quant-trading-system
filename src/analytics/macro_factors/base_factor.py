@@ -7,7 +7,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 
@@ -21,10 +21,10 @@ class FactorResult:
     z_score: float
     signal: int
     confidence: float
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
             "value": round(float(self.value), 4),
@@ -46,15 +46,15 @@ class MacroFactor(ABC):
         self.threshold = threshold if threshold is not None else self.default_threshold
 
     @abstractmethod
-    def compute(self, data_context: Dict[str, Any]) -> FactorResult:
+    def compute(self, data_context: dict[str, Any]) -> FactorResult:
         """从上下文中计算因子。"""
 
     def _build_result(
         self,
         value: float,
-        history: Optional[List[float]] = None,
+        history: Optional[list[float]] = None,
         confidence: float = 0.5,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
     ) -> FactorResult:
         z_score = self._compute_z_score(value, history or [])
         signal = self._to_signal(value)
@@ -75,7 +75,7 @@ class MacroFactor(ABC):
         return 0
 
     @staticmethod
-    def _compute_z_score(value: float, history: List[float]) -> float:
+    def _compute_z_score(value: float, history: list[float]) -> float:
         valid_history = [float(item) for item in history if item is not None]
         if len(valid_history) < 2:
             return 0.0

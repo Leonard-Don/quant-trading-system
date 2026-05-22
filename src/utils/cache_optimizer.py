@@ -12,7 +12,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Optional
 
 from .cache import CacheManager, cache_manager
 from .config import PROJECT_ROOT
@@ -31,9 +31,9 @@ class AccessTracker:
             persistence_file: 持久化文件路径
         """
         self.persistence_file = persistence_file or PROJECT_ROOT / "cache" / "access_stats.json"
-        self.access_counts: Dict[str, int] = defaultdict(int)
-        self.last_access_times: Dict[str, datetime] = {}
-        self.access_patterns: Dict[str, List[float]] = defaultdict(list)  # 访问间隔
+        self.access_counts: dict[str, int] = defaultdict(int)
+        self.last_access_times: dict[str, datetime] = {}
+        self.access_patterns: dict[str, list[float]] = defaultdict(list)  # 访问间隔
         self._lock = threading.RLock()
 
         self._load_persisted_data()
@@ -127,7 +127,7 @@ class AccessTracker:
             # 转换为每小时访问次数
             return 3600 / avg_interval
 
-    def get_hot_keys(self, top_n: int = 20) -> List[Dict[str, Any]]:
+    def get_hot_keys(self, top_n: int = 20) -> list[dict[str, Any]]:
         """
         获取热门访问键
 
@@ -183,7 +183,7 @@ class CacheOptimizer:
         self.access_tracker = AccessTracker()
 
         # 预热注册表：存储预热函数
-        self._preheat_registry: Dict[str, Callable] = {}
+        self._preheat_registry: dict[str, Callable] = {}
         self._preheat_stats = {
             "total_preheated": 0,
             "last_preheat_time": None,
@@ -237,7 +237,7 @@ class CacheOptimizer:
 
             return freq_score * 0.5 + recency_score * 0.3 + count_score * 0.2
 
-    def get_preheat_candidates(self) -> List[Dict[str, Any]]:
+    def get_preheat_candidates(self) -> list[dict[str, Any]]:
         """
         获取预热候选列表
 
@@ -269,10 +269,10 @@ class CacheOptimizer:
     def preheat(
         self,
         data_fetcher: Optional[Callable[[str], Any]] = None,
-        keys: Optional[List[str]] = None,
+        keys: Optional[list[str]] = None,
         parallel: bool = True,
         max_workers: int = 4
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         执行智能预热
 
@@ -300,7 +300,7 @@ class CacheOptimizer:
 
         results = {"preheated": 0, "failed": 0, "skipped": 0, "details": []}
 
-        def preheat_single(key: str) -> Dict[str, Any]:
+        def preheat_single(key: str) -> dict[str, Any]:
             """预热单个键"""
             try:
                 # 检查缓存是否已存在且未过期
@@ -387,7 +387,7 @@ class CacheOptimizer:
         """
         self.access_tracker.record_access(key)
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """获取优化器统计信息"""
         cache_stats = self.cache_manager.get_stats() if self.cache_manager else {}
 
@@ -421,7 +421,7 @@ class IncrementalDataUpdater:
             cache_manager: 缓存管理器实例
         """
         self.cache_manager = cache_manager or cache_manager
-        self._version_store: Dict[str, str] = {}
+        self._version_store: dict[str, str] = {}
         self._lock = threading.RLock()
 
     def get_data_version(self, key: str) -> Optional[str]:

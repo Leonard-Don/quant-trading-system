@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -30,7 +30,7 @@ from src.strategy.etf_rotation_service import (
 # ---------------------------------------------------------------------------
 
 
-def _build_holdings() -> List[EtfHolding]:
+def _build_holdings() -> list[EtfHolding]:
     return [
         EtfHolding(code="510300", name="沪深300ETF", shares=1000,
                    cost_price=5.0, current_price=5.0),
@@ -43,7 +43,7 @@ def _fake_holdings_loader():
     return _build_holdings(), True
 
 
-def _empty_quotes(codes: Sequence[str], use_cache: bool) -> Tuple[Dict[str, EtfQuote], Dict[str, Any]]:
+def _empty_quotes(codes: Sequence[str], use_cache: bool) -> tuple[dict[str, EtfQuote], dict[str, Any]]:
     return {}, {
         "requested": len(codes), "resolved": 0,
         "missing": len(codes), "use_cache": use_cache,

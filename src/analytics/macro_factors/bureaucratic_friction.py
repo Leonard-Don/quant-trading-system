@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from .base_factor import MacroFactor
 
@@ -15,7 +15,7 @@ class BureaucraticFrictionFactor(MacroFactor):
     name = "bureaucratic_friction"
     default_threshold = 0.2
 
-    def compute(self, data_context: Dict[str, Any]):
+    def compute(self, data_context: dict[str, Any]):
         policy_signal = data_context.get("signals", {}).get("policy_radar", {})
         supply_signal = data_context.get("signals", {}).get("supply_chain", {})
 
@@ -63,7 +63,7 @@ class BureaucraticFrictionFactor(MacroFactor):
         )
 
 
-def _industry_dispersion(industry_signals: Dict[str, Dict[str, Any]]) -> float:
+def _industry_dispersion(industry_signals: dict[str, dict[str, Any]]) -> float:
     if not industry_signals:
         return 0.0
     scores = [abs(float(item.get("avg_impact", 0.0))) for item in industry_signals.values()]
@@ -71,10 +71,10 @@ def _industry_dispersion(industry_signals: Dict[str, Dict[str, Any]]) -> float:
 
 
 def _collect_history(
-    data_context: Dict[str, Any],
+    data_context: dict[str, Any],
     category: str,
-    default: List[float],
-) -> List[float]:
+    default: list[float],
+) -> list[float]:
     records = data_context.get("records", [])
     values = [
         float(record.normalized_score)

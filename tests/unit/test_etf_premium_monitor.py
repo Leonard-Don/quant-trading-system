@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Dict, Optional
+from typing import Callable, Optional
 
 import pytest
 
@@ -41,7 +41,7 @@ def _fundgz_payload(
 
 
 def _make_fetcher(
-    payloads: Dict[str, str],
+    payloads: dict[str, str],
     *,
     raise_for: Optional[set] = None,
 ) -> Callable[[str], asyncio.Future[Optional[str]]]:

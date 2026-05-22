@@ -7,20 +7,20 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Dict, List, Optional
+from typing import Optional
 
 from src.utils.config import PROJECT_ROOT
 
 logger = logging.getLogger(__name__)
 
-_TREND_ALIAS_CACHE: Optional[Dict[str, str]] = None
+_TREND_ALIAS_CACHE: Optional[dict[str, str]] = None
 _HEATMAP_HISTORY_TREND_CACHE: Optional[
-    Dict[tuple[int | None, int], Dict[str, List[float]]]
+    dict[tuple[int | None, int], dict[str, list[float]]]
 ] = None
 _HEATMAP_HISTORY_TREND_CACHE_MTIME: float = 0.0
 
 
-def load_trend_aliases() -> Dict[str, str]:
+def load_trend_aliases() -> dict[str, str]:
     """Read & cache the canonical industry-name alias map."""
     global _TREND_ALIAS_CACHE
     if _TREND_ALIAS_CACHE is not None:
@@ -49,7 +49,7 @@ def load_trend_aliases() -> Dict[str, str]:
 def load_heatmap_history_trend_lookup(
     max_points: int = 5,
     preferred_days: Optional[int] = None,
-) -> Dict[str, List[float]]:
+) -> dict[str, list[float]]:
     """Read recent heatmap snapshots and return ``industry → [score, …]`` series."""
     global _HEATMAP_HISTORY_TREND_CACHE, _HEATMAP_HISTORY_TREND_CACHE_MTIME
 
@@ -90,7 +90,7 @@ def load_heatmap_history_trend_lookup(
             selected_snapshots = preferred_matches
 
     selected_snapshots = selected_snapshots[-max(max_points, 2):]
-    trend_lookup: Dict[str, List[float]] = {}
+    trend_lookup: dict[str, list[float]] = {}
     for snapshot in selected_snapshots:
         for industry in snapshot.get("industries") or []:
             industry_name = str(industry.get("name") or "").strip()

@@ -3,7 +3,6 @@
 """
 
 import logging
-from typing import Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -52,7 +51,7 @@ class AdvancedTechnicalIndicators:
         close: pd.Series,
         k_period: int = 14,
         d_period: int = 3,
-    ) -> Tuple[pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series]:
         """随机振荡器 KD指标"""
         lowest_low = low.rolling(window=k_period).min()
         highest_high = high.rolling(window=k_period).max()
@@ -155,7 +154,7 @@ class AdvancedTechnicalIndicators:
     @staticmethod
     def ichimoku_cloud(
         high: pd.Series, low: pd.Series, close: pd.Series
-    ) -> Dict[str, pd.Series]:
+    ) -> dict[str, pd.Series]:
         """一目均衡表（云图）"""
         # 转换线 (Tenkan-sen): 9期最高最低平均
         tenkan_sen = (high.rolling(9).max() + low.rolling(9).min()) / 2
@@ -428,7 +427,7 @@ class MultiIndicatorStrategy(BaseStrategy):
 
     def _calculate_macd(
         self, prices: pd.Series
-    ) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series, pd.Series]:
         """计算MACD"""
         exp1 = prices.ewm(span=self.macd_fast).mean()
         exp2 = prices.ewm(span=self.macd_slow).mean()
@@ -439,7 +438,7 @@ class MultiIndicatorStrategy(BaseStrategy):
 
     def _calculate_bollinger_bands(
         self, prices: pd.Series
-    ) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    ) -> tuple[pd.Series, pd.Series, pd.Series]:
         """计算布林带"""
         sma = prices.rolling(window=self.bb_period).mean()
         std = prices.rolling(window=self.bb_period).std()

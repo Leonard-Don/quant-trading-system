@@ -6,7 +6,7 @@ import os
 import sys
 import types
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any
 
 import pandas as pd
 import pytest
@@ -80,7 +80,7 @@ def _fake_sina_frame() -> pd.DataFrame:
 
 
 def test_fetch_etf_history_prefers_sina_endpoint(monkeypatch) -> None:
-    calls: Dict[str, Any] = {"sina": 0, "em": 0}
+    calls: dict[str, Any] = {"sina": 0, "em": 0}
 
     def fake_sina(symbol: str) -> pd.DataFrame:
         calls["sina"] += 1

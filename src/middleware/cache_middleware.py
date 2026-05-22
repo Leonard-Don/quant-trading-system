@@ -7,7 +7,7 @@ import hashlib
 import logging
 import time
 from threading import Lock
-from typing import Dict, Optional
+from typing import Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -66,7 +66,7 @@ class CacheMiddleware(BaseHTTPMiddleware):
             "/market-data",
         ]
 
-        self.cache: Dict[str, CacheEntry] = {}
+        self.cache: dict[str, CacheEntry] = {}
         self.lock = Lock()
 
         # 统计信息
@@ -162,7 +162,7 @@ class CacheMiddleware(BaseHTTPMiddleware):
             self.cache[cache_key] = CacheEntry(response, self.ttl)
             logger.debug(f"响应已缓存: {cache_key}")
 
-    def get_stats(self) -> Dict:
+    def get_stats(self) -> dict:
         """
         获取缓存统计信息
 

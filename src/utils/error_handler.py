@@ -7,7 +7,7 @@ import sys
 import traceback
 from datetime import datetime
 from functools import wraps
-from typing import Any, Callable, Dict, Optional, Type, Union
+from typing import Any, Callable, Optional, Union
 
 # 模块级别的logger
 logger = logging.getLogger(__name__)
@@ -61,11 +61,11 @@ class ErrorContext:
         """添加上下文信息"""
         self.context_data[key] = value
 
-    def get_context(self) -> Dict[str, Any]:
+    def get_context(self) -> dict[str, Any]:
         """获取所有上下文信息"""
         return self.context_data.copy()
 
-    def record_error(self, error: Exception, context: Optional[Dict] = None) -> None:
+    def record_error(self, error: Exception, context: Optional[dict] = None) -> None:
         """记录错误"""
         error_info = {
             "timestamp": datetime.now().isoformat(),
@@ -90,13 +90,13 @@ class ErrorHandler:
         self.global_context = ErrorContext()
 
     def register_callback(
-        self, error_type: Type[Exception], callback: Callable
+        self, error_type: type[Exception], callback: Callable
     ) -> None:
         """注册错误回调函数"""
         self.error_callbacks[error_type] = callback
 
     def handle_error(
-        self, error: Exception, context: Optional[Dict] = None, reraise: bool = True
+        self, error: Exception, context: Optional[dict] = None, reraise: bool = True
     ) -> Optional[Any]:
         """处理错误"""
         # 记录错误到全局上下文
@@ -134,7 +134,7 @@ class ErrorHandler:
 
         return None
 
-    def create_error_report(self) -> Dict[str, Any]:
+    def create_error_report(self) -> dict[str, Any]:
         """创建错误报告"""
         return {
             "timestamp": datetime.now().isoformat(),
@@ -153,7 +153,7 @@ error_handler = ErrorHandler()
 
 
 def handle_errors(
-    error_types: Union[Type[Exception], tuple] = Exception,
+    error_types: Union[type[Exception], tuple] = Exception,
     context_func: Optional[Callable] = None,
     reraise: bool = True,
     default_return: Any = None,
@@ -216,7 +216,7 @@ class CircuitBreaker:
         self,
         failure_threshold: int = 5,
         recovery_timeout: int = 60,
-        expected_exception: Type[Exception] = Exception,
+        expected_exception: type[Exception] = Exception,
     ):
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
@@ -275,7 +275,7 @@ class CircuitBreaker:
 def circuit_breaker(
     failure_threshold: int = 5,
     recovery_timeout: int = 60,
-    expected_exception: Type[Exception] = Exception,
+    expected_exception: type[Exception] = Exception,
 ):
     """熔断器装饰器"""
     breaker = CircuitBreaker(failure_threshold, recovery_timeout, expected_exception)

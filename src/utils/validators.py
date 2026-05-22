@@ -4,7 +4,7 @@
 
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -42,8 +42,8 @@ def validate_date_range(
 
 
 def validate_strategy_parameters(
-    strategy: str, parameters: Dict[str, Any]
-) -> Dict[str, Any]:
+    strategy: str, parameters: dict[str, Any]
+) -> dict[str, Any]:
     """验证策略参数"""
     validated_params = {}
 
@@ -134,7 +134,7 @@ def validate_backtest_params(
         raise ValidationError("滑点过高（超过10%）")
 
 
-def validate_dataframe(df: pd.DataFrame, required_columns: List[str] = None) -> None:
+def validate_dataframe(df: pd.DataFrame, required_columns: list[str] = None) -> None:
     """验证DataFrame"""
     if df is None or df.empty:
         raise ValidationError("数据不能为空")

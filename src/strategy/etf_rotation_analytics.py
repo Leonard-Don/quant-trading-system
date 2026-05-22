@@ -38,7 +38,7 @@ import logging
 import statistics
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -68,11 +68,11 @@ def _parse_iso(value: object) -> Optional[datetime]:
     return parsed
 
 
-def _spearman_rank(values: Sequence[float]) -> List[float]:
+def _spearman_rank(values: Sequence[float]) -> list[float]:
     """Average-rank (ties get the mean of their slot range)."""
 
     indexed = sorted(enumerate(values), key=lambda kv: kv[1])
-    ranks: List[float] = [0.0] * len(values)
+    ranks: list[float] = [0.0] * len(values)
     i = 0
     while i < len(indexed):
         j = i
@@ -120,7 +120,7 @@ def build_score_return_pairs(
     entries: Sequence[Mapping[str, object]],
     *,
     horizon_minutes: float,
-) -> List[Dict[str, object]]:
+) -> list[dict[str, object]]:
     """Pair each (entry, code, score) with the realised forward return.
 
     For each audit entry E at time T(E), for each code C with a
@@ -144,7 +144,7 @@ def build_score_return_pairs(
 
     # Sort once; the audit log is appended chronologically but we don't
     # trust the input ordering.
-    parsed: List[Tuple[datetime, Mapping[str, object]]] = []
+    parsed: list[tuple[datetime, Mapping[str, object]]] = []
     for entry in entries:
         ts = _parse_iso(entry.get("run_at"))
         if ts is None:
@@ -153,7 +153,7 @@ def build_score_return_pairs(
     parsed.sort(key=lambda kv: kv[0])
 
     horizon = timedelta(minutes=horizon_minutes)
-    pairs: List[Dict[str, object]] = []
+    pairs: list[dict[str, object]] = []
 
     for i, (t_i, entry_i) in enumerate(parsed):
         scores = entry_i.get("score_breakdown") or {}
@@ -253,11 +253,11 @@ def compute_hit_rate(pairs: Sequence[Mapping[str, object]], *, neutral_score: fl
 
 def compute_per_code_metrics(
     pairs: Sequence[Mapping[str, object]],
-) -> Dict[str, Dict[str, Optional[float]]]:
-    by_code: Dict[str, List[Mapping[str, object]]] = {}
+) -> dict[str, dict[str, Optional[float]]]:
+    by_code: dict[str, list[Mapping[str, object]]] = {}
     for pair in pairs:
         by_code.setdefault(str(pair["code"]), []).append(pair)
-    out: Dict[str, Dict[str, Optional[float]]] = {}
+    out: dict[str, dict[str, Optional[float]]] = {}
     for code, code_pairs in by_code.items():
         scores = [_pair_float(p["score"]) for p in code_pairs]
         returns = [_pair_float(p["forward_return"]) for p in code_pairs]
@@ -279,10 +279,10 @@ def summarise_edge(
     entries: Sequence[Mapping[str, object]],
     *,
     horizons_minutes: Sequence[float] = (60.0, 240.0, 1440.0),
-) -> Dict[str, object]:
+) -> dict[str, object]:
     """Top-level edge report — pair counts + IC + hit-rate per horizon."""
 
-    horizons: Dict[str, object] = {}
+    horizons: dict[str, object] = {}
     for horizon in horizons_minutes:
         pairs = build_score_return_pairs(entries, horizon_minutes=horizon)
         horizons[f"horizon_{int(horizon)}min"] = {

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from .base_factor import MacroFactor
 
@@ -20,7 +20,7 @@ class PeopleFragilityFactor(MacroFactor):
     name = "people_fragility"
     default_threshold = 0.22
 
-    def compute(self, data_context: Dict[str, Any]):
+    def compute(self, data_context: dict[str, Any]):
         people_signal = data_context.get("signals", {}).get("people_layer", {}) or {}
         watchlist = people_signal.get("watchlist") or []
         avg_fragility = _safe_float(people_signal.get("avg_fragility_score"))

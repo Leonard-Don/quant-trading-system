@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 import pandas as pd
 
@@ -14,13 +14,13 @@ from .asset_universe import AssetSide, AssetSpec
 @dataclass(frozen=True)
 class HedgePortfolioLeg:
     side: AssetSide
-    assets: List[AssetSpec]
+    assets: list[AssetSpec]
 
     @property
     def total_weight(self) -> float:
         return float(sum(asset.weight for asset in self.assets))
 
-    def weight_map(self) -> Dict[str, float]:
+    def weight_map(self) -> dict[str, float]:
         return {asset.symbol: float(asset.weight) for asset in self.assets}
 
 
@@ -49,14 +49,14 @@ class HedgePortfolioBuilder:
             series = weighted if series is None else series.add(weighted, fill_value=0.0)
         return series if series is not None else pd.Series(index=returns.index, dtype=float)
 
-    def build_leg_returns(self, returns: pd.DataFrame) -> Dict[str, pd.Series]:
+    def build_leg_returns(self, returns: pd.DataFrame) -> dict[str, pd.Series]:
         return {
             "long": self._weighted_returns(returns, self.long_leg.assets),
             "short": self._weighted_returns(returns, self.short_leg.assets),
         }
 
-    def build_asset_contributions(self, returns: pd.DataFrame) -> Dict[str, Dict[str, Any]]:
-        contributions: Dict[str, Dict[str, Any]] = {}
+    def build_asset_contributions(self, returns: pd.DataFrame) -> dict[str, dict[str, Any]]:
+        contributions: dict[str, dict[str, Any]] = {}
         for asset in [*self.long_leg.assets, *self.short_leg.assets]:
             weighted_returns = returns[asset.symbol] * asset.weight
             contributions[asset.symbol] = {
@@ -71,7 +71,7 @@ class HedgePortfolioBuilder:
             }
         return contributions
 
-    def summarize_exposures(self, hedge_ratio_series: pd.Series | None = None) -> Dict[str, Any]:
+    def summarize_exposures(self, hedge_ratio_series: pd.Series | None = None) -> dict[str, Any]:
         hedge_ratio_series = (
             hedge_ratio_series
             if hedge_ratio_series is not None and not hedge_ratio_series.empty

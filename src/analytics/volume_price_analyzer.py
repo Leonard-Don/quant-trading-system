@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,7 @@ class VolumePriceAnalyzer:
     """
     量价分析器
     通过量价关系判断市场强弱和资金流向
-    
+
     Args:
         config: 可选配置字典，支持以下参数：
             - volume_periods: 成交量分析周期配置
@@ -49,10 +49,10 @@ class VolumePriceAnalyzer:
         }
     }
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         """
         初始化量价分析器
-        
+
         Args:
             config: 自定义配置，将与默认配置合并
         """
@@ -63,7 +63,7 @@ class VolumePriceAnalyzer:
         self.volume_thresholds = self.config["volume_thresholds"]
         self.correlation_thresholds = self.config["correlation_thresholds"]
 
-    def _merge_config(self, custom_config: Dict[str, Any]) -> Dict[str, Any]:
+    def _merge_config(self, custom_config: dict[str, Any]) -> dict[str, Any]:
         """
         合并自定义配置与默认配置
         """
@@ -78,7 +78,7 @@ class VolumePriceAnalyzer:
                 merged[key] = default_value.copy() if isinstance(default_value, dict) else default_value
         return merged
 
-    def analyze(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def analyze(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         综合量价分析
 
@@ -145,7 +145,7 @@ class VolumePriceAnalyzer:
             "vpvr_analysis": vpvr_analysis
         }
 
-    def _analyze_volume_trend(self, volume: pd.Series) -> Dict[str, Any]:
+    def _analyze_volume_trend(self, volume: pd.Series) -> dict[str, Any]:
         """
         分析成交量趋势
         """
@@ -181,7 +181,7 @@ class VolumePriceAnalyzer:
             "volume_ratio": round(float(current_vol / vol_20) if not pd.isna(vol_20) and vol_20 > 0 else 1, 2)
         }
 
-    def _calculate_price_volume_correlation(self, close: pd.Series, volume: pd.Series) -> Dict[str, Any]:
+    def _calculate_price_volume_correlation(self, close: pd.Series, volume: pd.Series) -> dict[str, Any]:
         """
         计算价格和成交量的相关性
         """
@@ -208,7 +208,7 @@ class VolumePriceAnalyzer:
             "interpretation": interpretation
         }
 
-    def _analyze_money_flow(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def _analyze_money_flow(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         资金流向分析 (MFI - Money Flow Index)
         """
@@ -251,7 +251,7 @@ class VolumePriceAnalyzer:
             "net_inflow_14d": round(float(positive_mf.iloc[-1] - negative_mf.iloc[-1]) if not pd.isna(positive_mf.iloc[-1]) else 0, 2)
         }
 
-    def _identify_volume_patterns(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def _identify_volume_patterns(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         识别成交量形态
         """
@@ -314,7 +314,7 @@ class VolumePriceAnalyzer:
             "patterns": patterns
         }
 
-    def _analyze_obv(self, close: pd.Series, volume: pd.Series) -> Dict[str, Any]:
+    def _analyze_obv(self, close: pd.Series, volume: pd.Series) -> dict[str, Any]:
         """
         能量潮(OBV)分析
         """
@@ -351,7 +351,7 @@ class VolumePriceAnalyzer:
             "obv_ma20": float(obv_ma20) if not pd.isna(obv_ma20) else 0
         }
 
-    def _analyze_accumulation_distribution(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def _analyze_accumulation_distribution(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         累积/派发线(A/D Line)分析
         """
@@ -382,7 +382,7 @@ class VolumePriceAnalyzer:
             "ad_ma20": float(ad_ma20) if not pd.isna(ad_ma20) else 0
         }
 
-    def _detect_divergence(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def _detect_divergence(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         检测量价背离
         """
@@ -440,10 +440,10 @@ class VolumePriceAnalyzer:
             "divergences": divergences
         }
 
-    def _calculate_vpvr(self, df: pd.DataFrame, bins: int = 24) -> Dict[str, Any]:
+    def _calculate_vpvr(self, df: pd.DataFrame, bins: int = 24) -> dict[str, Any]:
         """
         计算筹码分布 (VPVR)
-        
+
         Args:
             df: 数据框
             bins: 价格分段数量

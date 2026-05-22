@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from .base_factor import MacroFactor
 
@@ -20,7 +20,7 @@ class PolicyExecutionDisorderFactor(MacroFactor):
     name = "policy_execution_disorder"
     default_threshold = 0.18
 
-    def compute(self, data_context: Dict[str, Any]):
+    def compute(self, data_context: dict[str, Any]):
         policy_signal = data_context.get("signals", {}).get("policy_execution", {}) or {}
         departments = policy_signal.get("department_board") or []
         avg_score = _safe_float(policy_signal.get("score"))

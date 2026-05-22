@@ -1,7 +1,7 @@
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import Any, Dict
+from typing import Any
 
 import joblib
 import numpy as np
@@ -128,7 +128,7 @@ class PricePredictor:
         except Exception:
             return True
 
-    def train(self, historical_data: pd.DataFrame, symbol: str) -> Dict[str, Any]:
+    def train(self, historical_data: pd.DataFrame, symbol: str) -> dict[str, Any]:
         """
         Train the model on historical data for a specific symbol.
         Predicts next-day RETURN (not absolute price) to be price-level independent.
@@ -200,7 +200,7 @@ class PricePredictor:
             logger.error(f"Error training prediction model for {symbol}: {e}")
             raise
 
-    def predict_next_days(self, current_data: pd.DataFrame, days: int = 5, symbol: str = "UNKNOWN") -> Dict[str, Any]:
+    def predict_next_days(self, current_data: pd.DataFrame, days: int = 5, symbol: str = "UNKNOWN") -> dict[str, Any]:
         """
         Predict prices for the next 'days' days using recursive prediction.
         Predicts next-day returns, then converts to absolute prices.

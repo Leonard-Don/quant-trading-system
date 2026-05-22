@@ -11,7 +11,7 @@ import subprocess
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from src.utils.config import PROJECT_ROOT
 from src.utils.data_validation import ensure_json_serializable, normalize_backtest_results
@@ -64,7 +64,7 @@ class BacktestHistory:
     def __init__(self, storage_path: str = None, max_records: int = 100):
         """
         初始化回测历史管理器
-        
+
         Args:
             storage_path: 存储路径，默认为项目根目录下的 data/backtest_history
             max_records: 最大保存记录数
@@ -78,14 +78,14 @@ class BacktestHistory:
         self.history_file = self.storage_path / "history.json"
         self.sqlite_file = self.storage_path / "history.sqlite3"
         self.max_records = max_records
-        self.history: List[Dict] = []
+        self.history: list[dict] = []
         self._lock = threading.RLock()
         self._load_history()
 
         logger.info(f"BacktestHistory initialized with {len(self.history)} records")
 
     @staticmethod
-    def _build_summary_metrics(metrics: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_summary_metrics(metrics: dict[str, Any]) -> dict[str, Any]:
         summary = {}
 
         def numeric(*keys: str) -> Any:
@@ -111,7 +111,7 @@ class BacktestHistory:
         return ensure_json_serializable(summary)
 
     @staticmethod
-    def _merge_metric_sources(result: Dict[str, Any]) -> Dict[str, Any]:
+    def _merge_metric_sources(result: dict[str, Any]) -> dict[str, Any]:
         return {
             **(result.get("performance_metrics") or {}),
             **(result.get("metrics") or {}),
@@ -119,7 +119,7 @@ class BacktestHistory:
         }
 
     @staticmethod
-    def _build_record_summary(record: Dict[str, Any]) -> Dict[str, Any]:
+    def _build_record_summary(record: dict[str, Any]) -> dict[str, Any]:
         return ensure_json_serializable({
             "id": record.get("id"),
             "timestamp": record.get("timestamp"),
@@ -199,7 +199,7 @@ class BacktestHistory:
             )
             connection.commit()
 
-    def _load_from_database(self) -> List[Dict[str, Any]]:
+    def _load_from_database(self) -> list[dict[str, Any]]:
         if not self.sqlite_file.exists():
             return []
 
@@ -235,7 +235,7 @@ class BacktestHistory:
 
         return records
 
-    def _repair_records(self, records: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], bool]:
+    def _repair_records(self, records: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
         repaired = []
         changed = False
         for record in records:
@@ -313,18 +313,18 @@ class BacktestHistory:
             )
             connection.commit()
 
-    def _generate_id(self, result: Dict) -> str:
+    def _generate_id(self, result: dict) -> str:
         """生成唯一ID"""
         content = f"{result.get('symbol', '')}_{result.get('strategy', '')}_{datetime.now().isoformat()}"
         return f"bt_{hashlib.sha256(content.encode()).hexdigest()[:12]}"
 
-    def save(self, result: Dict[str, Any]) -> str:
+    def save(self, result: dict[str, Any]) -> str:
         """
         保存回测结果
-        
+
         Args:
             result: 回测结果字典
-            
+
         Returns:
             记录ID
         """
@@ -368,7 +368,7 @@ class BacktestHistory:
             logger.info(f"Saved backtest record: {record_id}")
             return record_id
 
-    def _filter_history(self, symbol: str = None, strategy: str = None, record_type: str = None) -> List[Dict]:
+    def _filter_history(self, symbol: str = None, strategy: str = None, record_type: str = None) -> list[dict]:
         """Return filtered history records without pagination."""
         filtered = self.history
 
@@ -400,15 +400,15 @@ class BacktestHistory:
         record_type: str = None,
         offset: int = 0,
         summary_only: bool = False,
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         获取历史记录
-        
+
         Args:
             limit: 返回记录数量限制
             symbol: 按股票代码过滤
             strategy: 按策略名称过滤
-            
+
         Returns:
             历史记录列表
         """
@@ -421,13 +421,13 @@ class BacktestHistory:
                 return [self._build_record_summary(record) for record in page]
             return page
 
-    def get_by_id(self, record_id: str) -> Optional[Dict]:
+    def get_by_id(self, record_id: str) -> Optional[dict]:
         """
         根据ID获取记录
-        
+
         Args:
             record_id: 记录ID
-            
+
         Returns:
             记录详情或 None
         """
@@ -440,10 +440,10 @@ class BacktestHistory:
     def delete(self, record_id: str) -> bool:
         """
         删除记录
-        
+
         Args:
             record_id: 记录ID
-            
+
         Returns:
             是否删除成功
         """
@@ -464,10 +464,10 @@ class BacktestHistory:
             self._persist()
             logger.info("Cleared all backtest history")
 
-    def get_statistics(self, symbol: str = None, strategy: str = None, record_type: str = None) -> Dict[str, Any]:
+    def get_statistics(self, symbol: str = None, strategy: str = None, record_type: str = None) -> dict[str, Any]:
         """
         获取历史统计信息
-        
+
         Returns:
             统计信息字典
         """

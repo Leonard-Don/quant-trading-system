@@ -7,7 +7,7 @@ API文档生成脚本
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 # 添加项目根目录到Python路径
 project_root = Path(__file__).parent.parent
@@ -16,7 +16,7 @@ sys.path.insert(0, str(project_root))
 from backend.main import app  # noqa: E402
 
 
-def generate_openapi_spec(output_file: Path = None) -> Dict[str, Any]:
+def generate_openapi_spec(output_file: Path = None) -> dict[str, Any]:
     """生成OpenAPI规范"""
     if output_file is None:
         output_file = project_root / "docs" / "openapi.json"
@@ -35,7 +35,7 @@ def generate_openapi_spec(output_file: Path = None) -> Dict[str, Any]:
     return openapi_spec
 
 
-def generate_markdown_docs(openapi_spec: Dict[str, Any], output_file: Path = None):
+def generate_markdown_docs(openapi_spec: dict[str, Any], output_file: Path = None):
     """生成Markdown格式的API文档"""
     if output_file is None:
         output_file = project_root / "docs" / "API_REFERENCE.md"
@@ -222,7 +222,7 @@ curl -X POST "http://localhost:8000/backtest" \\
     print(f"✅ Markdown文档已生成: {output_file}")
 
 
-def generate_postman_collection(openapi_spec: Dict[str, Any], output_file: Path = None):
+def generate_postman_collection(openapi_spec: dict[str, Any], output_file: Path = None):
     """生成Postman集合"""
     if output_file is None:
         output_file = project_root / "docs" / "postman_collection.json"

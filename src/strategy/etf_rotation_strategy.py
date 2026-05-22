@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -187,7 +187,7 @@ class EtfRotationConfig:
       every legacy ETF to be mapped at once.
     """
 
-    assets: List[EtfAssetConfig]
+    assets: list[EtfAssetConfig]
     gross_cap: float = 0.90
     warmup_days: int = 60
     annualized_vol_target: Optional[float] = 0.20
@@ -228,7 +228,7 @@ class EtfRotationConfig:
                 "policy_signal_factor_bullish_threshold must be >= 0"
             )
 
-    def asset_map(self) -> Dict[str, EtfAssetConfig]:
+    def asset_map(self) -> dict[str, EtfAssetConfig]:
         return {asset.symbol: asset for asset in self.assets}
 
 
@@ -257,7 +257,7 @@ class EtfSignal:
     score: float
     raw_weight: float
     target_weight: float
-    reasons: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
     # Multi-timeframe extension (added later, kept at the end for back-compat
     # with positional EtfSignal(...) constructors in existing tests).
     ma200: Optional[float] = None
@@ -352,7 +352,7 @@ class EtfRotationStrategy:
         current_weights: Optional[Mapping[str, float]] = None,
         industry_signals: Optional[Mapping[str, Mapping[str, Any]]] = None,
         etf_industry_map: Optional[Mapping[str, str]] = None,
-    ) -> List[EtfSignal]:
+    ) -> list[EtfSignal]:
         """Evaluate the latest row of a price matrix and return ETF signals.
 
         The returned signals reflect the same-day score (no lag). Callers
@@ -379,8 +379,8 @@ class EtfRotationStrategy:
         current_weights: Mapping[str, float],
         industry_signals: Optional[Mapping[str, Mapping[str, Any]]] = None,
         etf_industry_map: Optional[Mapping[str, str]] = None,
-    ) -> List[EtfSignal]:
-        signals: List[EtfSignal] = []
+    ) -> list[EtfSignal]:
+        signals: list[EtfSignal] = []
         for symbol in prices.columns:
             if symbol not in self._assets:
                 continue
@@ -424,10 +424,10 @@ class EtfRotationStrategy:
 
     def _apply_cross_sectional_scoring(
         self,
-        signals: List[EtfSignal],
+        signals: list[EtfSignal],
         overlays: Mapping[str, EtfOverlay],
         current_weights: Mapping[str, float],
-    ) -> List[EtfSignal]:
+    ) -> list[EtfSignal]:
         """Rebuild ``score`` and ``target_weight`` using cross-sectional Z-scores.
 
         Five features feed the rebuild: ``return20``, ``return60``,
@@ -481,7 +481,7 @@ class EtfRotationStrategy:
         composite = composite + premium
         composite = np.clip(composite, 0.0, 100.0)
 
-        adapted: List[EtfSignal] = []
+        adapted: list[EtfSignal] = []
         for i, sig in enumerate(signals):
             asset = self._assets[sig.symbol]
             new_score = float(composite[i])
@@ -732,7 +732,7 @@ class EtfRotationStrategy:
             bollinger_position=bollinger_position,
         )
 
-    def _normalize_signals(self, signals: Iterable[EtfSignal]) -> List[EtfSignal]:
+    def _normalize_signals(self, signals: Iterable[EtfSignal]) -> list[EtfSignal]:
         signal_list = list(signals)
         gross = sum(max(signal.target_weight, 0.0) for signal in signal_list)
         if gross <= self.config.gross_cap or gross <= 0:
@@ -821,8 +821,8 @@ class EtfRotationStrategy:
         scoring: EtfScoringConfig,
         *,
         ma200: Optional[float] = None,
-    ) -> tuple[float, List[str]]:
-        reasons: List[str] = []
+    ) -> tuple[float, list[str]]:
+        reasons: list[str] = []
         score = 0.0
         if latest > ma20:
             score += scoring.trend_above_ma20_points

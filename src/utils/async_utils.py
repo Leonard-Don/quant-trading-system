@@ -8,7 +8,7 @@ import functools
 import logging
 import time
 from datetime import datetime
-from typing import Any, Callable, List
+from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ class AsyncTaskManager:
             logger.error(f"Async task failed: {e}")
             raise
 
-    async def run_parallel(self, tasks: List[tuple]) -> List[Any]:
+    async def run_parallel(self, tasks: list[tuple]) -> list[Any]:
         """并行运行多个任务"""
 
         async def run_single_task(task_info):

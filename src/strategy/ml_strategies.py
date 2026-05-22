@@ -3,7 +3,7 @@
 """
 
 import logging
-from typing import Dict, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -217,7 +217,7 @@ class RandomForestStrategy(MLStrategy):
             n_jobs=-1
         )
 
-    def get_feature_importance(self) -> Optional[Dict[str, float]]:
+    def get_feature_importance(self) -> Optional[dict[str, float]]:
         """获取特征重要性"""
         if not self.is_trained or self.model is None:
             return None
@@ -246,7 +246,7 @@ class LogisticRegressionStrategy(MLStrategy):
             penalty=regularization, C=C, random_state=42, max_iter=1000
         )
 
-    def get_coefficients(self) -> Optional[Dict[str, float]]:
+    def get_coefficients(self) -> Optional[dict[str, float]]:
         """获取模型系数"""
         if not self.is_trained or self.model is None:
             return None
@@ -285,7 +285,7 @@ class EnsembleStrategy(BaseStrategy):
         if len(self.weights) != len(self.strategies):
             raise ValueError("权重数量必须与策略数量相同")
 
-    def train_all(self, data: pd.DataFrame) -> Dict[str, bool]:
+    def train_all(self, data: pd.DataFrame) -> dict[str, bool]:
         """训练所有策略"""
         results = {}
 
@@ -331,7 +331,7 @@ class EnsembleStrategy(BaseStrategy):
             index=data.index,
         )
 
-    def get_strategy_performance(self, data: pd.DataFrame) -> Dict[str, Dict]:
+    def get_strategy_performance(self, data: pd.DataFrame) -> dict[str, dict]:
         """获取各策略的性能表现"""
         performance = {}
 

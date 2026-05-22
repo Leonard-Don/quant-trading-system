@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 
@@ -17,8 +17,8 @@ from src.strategy.etf_rotation_analytics import (
 
 
 def _entry(
-    run_at: str, *, scores: Dict[str, float], prices: Dict[str, float]
-) -> Dict[str, Any]:
+    run_at: str, *, scores: dict[str, float], prices: dict[str, float]
+) -> dict[str, Any]:
     return {
         "run_at": run_at,
         "score_breakdown": {
@@ -62,7 +62,7 @@ def test_spearman_returns_none_when_insufficient_points() -> None:
 
 
 def test_build_score_return_pairs_joins_with_earliest_post_horizon_entry() -> None:
-    entries: List[Dict[str, Any]] = [
+    entries: list[dict[str, Any]] = [
         _entry("2026-05-15T10:00:00+00:00",
                scores={"510300": 80.0, "159985": 30.0},
                prices={"510300": 5.00, "159985": 2.00}),

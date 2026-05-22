@@ -5,7 +5,7 @@
 """
 
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class SentimentStrategy(BaseStrategy):
     """
     情绪驱动交易策略
-    
+
     基于新闻情绪分数生成交易信号
     """
 
@@ -32,7 +32,7 @@ class SentimentStrategy(BaseStrategy):
     ):
         """
         初始化情绪策略
-        
+
         Args:
             sentiment_threshold: 情绪阈值，超过此值生成信号
             holding_period: 持仓周期（天）
@@ -54,10 +54,10 @@ class SentimentStrategy(BaseStrategy):
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         """
         生成交易信号
-        
+
         Args:
             data: 必须包含 'sentiment_score' 列
-            
+
         Returns:
             信号序列: 1=买入, -1=卖出, 0=持有
         """
@@ -113,11 +113,11 @@ class SentimentStrategy(BaseStrategy):
     ) -> pd.Series:
         """
         使用真实新闻情绪数据生成信号
-        
+
         Args:
             price_data: 价格数据 (OHLCV)
             sentiment_data: 情绪数据，包含 date 和 sentiment_score
-            
+
         Returns:
             交易信号
         """
@@ -135,7 +135,7 @@ class SentimentStrategy(BaseStrategy):
 class SentimentMomentumStrategy(BaseStrategy):
     """
     情绪动量策略
-    
+
     结合情绪趋势和价格动量
     """
 
@@ -194,7 +194,7 @@ class SentimentMomentumStrategy(BaseStrategy):
 class ContrarianSentimentStrategy(BaseStrategy):
     """
     情绪反转策略
-    
+
     在极端情绪时采取反向操作（逆向思维）
     """
 
@@ -249,7 +249,7 @@ class ContrarianSentimentStrategy(BaseStrategy):
 class SentimentAnalysisIntegrator:
     """
     情绪分析集成器
-    
+
     将情绪数据与交易策略集成
     """
 
@@ -262,16 +262,16 @@ class SentimentAnalysisIntegrator:
 
     def create_sentiment_series(
         self,
-        news_data: List[Dict],
+        news_data: list[dict],
         date_range: pd.DatetimeIndex
     ) -> pd.Series:
         """
         从新闻数据创建情绪时间序列
-        
+
         Args:
             news_data: 新闻数据列表
             date_range: 日期范围
-            
+
         Returns:
             情绪分数序列
         """
@@ -310,9 +310,9 @@ class SentimentAnalysisIntegrator:
     def backtest_with_sentiment(
         self,
         price_data: pd.DataFrame,
-        news_data: List[Dict],
+        news_data: list[dict],
         strategy_name: str = 'sentiment'
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         使用情绪数据进行回测
         """

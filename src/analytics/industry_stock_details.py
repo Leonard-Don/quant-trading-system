@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ def coerce_optional_float(value) -> Optional[float]:
         return None
 
 
-def extract_stock_detail_fields(stock: Dict[str, Any]) -> Dict[str, Optional[float]]:
+def extract_stock_detail_fields(stock: dict[str, Any]) -> dict[str, Optional[float]]:
     """统一提取成分股明细字段，保留空值语义。"""
     market_cap = coerce_optional_float(stock.get("market_cap"))
     if market_cap is None and stock.get("mktcap") not in (None, ""):
@@ -82,9 +82,9 @@ def extract_stock_detail_fields(stock: Dict[str, Any]) -> Dict[str, Optional[flo
 
 
 def merge_ranked_stocks_with_provider_details(
-    ranked_stocks: List[Dict[str, Any]],
-    provider_stocks: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    ranked_stocks: list[dict[str, Any]],
+    provider_stocks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     """保留评分排序，同时用 provider 明细补齐行情/基本面字段。"""
     details_by_symbol = {
         normalize_symbol(stock.get("symbol") or stock.get("code") or ""): extract_stock_detail_fields(stock)
@@ -154,9 +154,9 @@ def merge_ranked_stocks_with_provider_details(
 
 
 def backfill_stock_details_with_valuation(
-    stocks: List[Dict[str, Any]],
+    stocks: list[dict[str, Any]],
     provider,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """在成分股明细缺失时，按 symbol 补单股估值数据。"""
     if not stocks or not hasattr(provider, "get_stock_valuation"):
         return stocks
@@ -216,9 +216,9 @@ def backfill_stock_details_with_valuation(
 def build_enriched_industry_stocks(
     provider,
     industry_name: str,
-    ranked_stocks: Optional[List[Dict[str, Any]]] = None,
-    provider_stocks: Optional[List[Dict[str, Any]]] = None,
-) -> List[Dict[str, Any]]:
+    ranked_stocks: Optional[list[dict[str, Any]]] = None,
+    provider_stocks: Optional[list[dict[str, Any]]] = None,
+) -> list[dict[str, Any]]:
     """构造统一口径的行业成分股明细。"""
     raw_provider_stocks = provider_stocks
     if raw_provider_stocks is None:

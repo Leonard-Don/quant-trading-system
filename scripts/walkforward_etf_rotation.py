@@ -29,7 +29,7 @@ import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def load_grid(path: Path) -> Dict[str, List[Any]]:
+def load_grid(path: Path) -> dict[str, list[Any]]:
     """Load a JSON grid file; raise ``ValueError`` if a field is unknown.
 
     Keys starting with ``_`` are ignored so grid files can carry inline
@@ -70,7 +70,7 @@ def load_grid(path: Path) -> Dict[str, List[Any]]:
     if unknown:
         raise ValueError(f"Unknown EtfScoringConfig fields in grid: {sorted(unknown)}")
 
-    normalised: Dict[str, List[Any]] = {}
+    normalised: dict[str, list[Any]] = {}
     for key, value in payload.items():
         if not isinstance(value, list):
             raise ValueError(f"Grid field {key!r} must map to a list of candidate values")
@@ -78,13 +78,13 @@ def load_grid(path: Path) -> Dict[str, List[Any]]:
     return normalised
 
 
-def expand_grid(grid: Dict[str, List[Any]]) -> List[EtfScoringConfig]:
+def expand_grid(grid: dict[str, list[Any]]) -> list[EtfScoringConfig]:
     """Cartesian-expand the grid into a list of concrete scoring configs."""
 
     if not grid:
         return [EtfScoringConfig()]
     keys = list(grid.keys())
-    combos: List[EtfScoringConfig] = []
+    combos: list[EtfScoringConfig] = []
     for values in itertools.product(*(grid[key] for key in keys)):
         kwargs = dict(zip(keys, values))
         combos.append(replace(EtfScoringConfig(), **kwargs))
@@ -103,7 +103,7 @@ def iter_windows(
     *,
     step_days: Optional[int] = None,
     min_train_days: Optional[int] = None,
-) -> Iterable[Tuple[pd.DatetimeIndex, pd.DatetimeIndex]]:
+) -> Iterable[tuple[pd.DatetimeIndex, pd.DatetimeIndex]]:
     """Yield consecutive ``(train_index, test_index)`` slices.
 
     Default ``step_days`` equals ``test_days`` so windows are non-overlapping
@@ -142,7 +142,7 @@ def _run_one(
     commission: float,
     slippage: float,
     min_rebalance_weight_delta: float,
-) -> Optional[Dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     holdings = [h for h in load_default_holdings() if h.code in price_matrix.columns]
     if not holdings:
         return None
@@ -181,13 +181,13 @@ def evaluate_window(
     slippage: float,
     min_rebalance_weight_delta: float,
     objective: str = "sharpe_ratio",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Evaluate every config IS, pick the best, then evaluate it OOS."""
 
     train_prices = prices.loc[train_index]
     test_prices = prices.loc[test_index]
 
-    in_sample: List[Dict[str, Any]] = []
+    in_sample: list[dict[str, Any]] = []
     for idx, config in enumerate(configs):
         metrics = _run_one(
             train_prices,
@@ -249,7 +249,7 @@ def run_walkforward(
     slippage: float = 0.001,
     min_rebalance_weight_delta: float = DEFAULT_REBALANCE_THRESHOLD,
     objective: str = "sharpe_ratio",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     prices = pd.read_csv(prices_csv, index_col=0)
     prices.index = pd.to_datetime(prices.index)
     prices = prices.apply(pd.to_numeric, errors="coerce").ffill().dropna(how="all")
@@ -258,7 +258,7 @@ def run_walkforward(
     configs = expand_grid(grid)
     logger.info("walk-forward: %d configs × windows", len(configs))
 
-    windows: List[Dict[str, Any]] = []
+    windows: list[dict[str, Any]] = []
     for train_index, test_index in iter_windows(
         prices.index, train_days=train_days, test_days=test_days, step_days=step_days,
     ):
@@ -276,7 +276,7 @@ def run_walkforward(
             )
         )
 
-    oos_values: List[float] = []
+    oos_values: list[float] = []
     for window in windows:
         oos = window.get("out_of_sample") or {}
         value = oos.get(objective)

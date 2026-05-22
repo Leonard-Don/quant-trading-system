@@ -10,7 +10,7 @@ import threading
 import time
 from collections import defaultdict, deque
 from datetime import datetime
-from typing import Any, Callable, Dict
+from typing import Any, Callable
 
 import psutil
 
@@ -35,7 +35,7 @@ class PerformanceMetrics:
         with self.lock:
             self.metrics[f"{metric}_count"].append(value)
 
-    def get_stats(self, operation: str) -> Dict[str, float]:
+    def get_stats(self, operation: str) -> dict[str, float]:
         """获取操作统计信息"""
         with self.lock:
             durations = list(self.metrics[f"{operation}_duration"])
@@ -129,7 +129,7 @@ class PerformanceMonitor:
             "start_memory": psutil.Process(os.getpid()).memory_info().rss / 1024 / 1024,
         }
 
-    def stop_monitoring(self, operation_name: str) -> Dict[str, Any]:
+    def stop_monitoring(self, operation_name: str) -> dict[str, Any]:
         """停止监控操作并返回指标"""
         if operation_name not in self.metrics:
             return {}
@@ -153,7 +153,7 @@ class PerformanceMonitor:
         )
         return result
 
-    def get_system_info(self) -> Dict[str, Any]:
+    def get_system_info(self) -> dict[str, Any]:
         """获取系统信息"""
         return {
             "cpu_percent": psutil.cpu_percent(interval=1),

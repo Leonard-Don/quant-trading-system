@@ -8,7 +8,7 @@ import json
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from src.utils.config import PROJECT_ROOT
 
@@ -25,7 +25,7 @@ class MacroHistoryStore:
         self.history_file = self.storage_path / "history.json"
         self.max_records = max_records
         self._lock = threading.RLock()
-        self.snapshots: List[Dict[str, Any]] = []
+        self.snapshots: list[dict[str, Any]] = []
         self._load()
 
     def _load(self) -> None:
@@ -45,7 +45,7 @@ class MacroHistoryStore:
         except Exception as exc:
             logger.error("Failed to persist macro history: %s", exc)
 
-    def _normalize_factor(self, factor: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_factor(self, factor: dict[str, Any]) -> dict[str, Any]:
         return {
             "name": factor.get("name", ""),
             "value": round(float(factor.get("value", 0) or 0), 4),
@@ -55,7 +55,7 @@ class MacroHistoryStore:
             "metadata": factor.get("metadata") or {},
         }
 
-    def _normalize_snapshot(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    def _normalize_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         return {
             "snapshot_timestamp": snapshot.get("snapshot_timestamp") or "",
             "macro_score": round(float(snapshot.get("macro_score", 0) or 0), 4),
@@ -66,7 +66,7 @@ class MacroHistoryStore:
             "data_freshness": snapshot.get("data_freshness") or {},
         }
 
-    def append_snapshot(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+    def append_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         normalized = self._normalize_snapshot(snapshot)
         timestamp = normalized.get("snapshot_timestamp")
         with self._lock:
@@ -78,11 +78,11 @@ class MacroHistoryStore:
             self._persist()
         return dict(normalized)
 
-    def list_snapshots(self, limit: int = 50) -> List[Dict[str, Any]]:
+    def list_snapshots(self, limit: int = 50) -> list[dict[str, Any]]:
         with self._lock:
             return [dict(item) for item in self.snapshots[:limit]]
 
-    def get_previous_snapshot(self, snapshot_timestamp: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    def get_previous_snapshot(self, snapshot_timestamp: Optional[str] = None) -> Optional[dict[str, Any]]:
         with self._lock:
             if not self.snapshots:
                 return None

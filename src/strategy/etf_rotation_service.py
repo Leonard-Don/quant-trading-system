@@ -25,7 +25,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace as dc_replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Optional
 from zoneinfo import ZoneInfo
 
 import pandas as pd
@@ -61,12 +61,12 @@ logger = logging.getLogger(__name__)
 class CachedPlan:
     """One refresh outcome — plan + metadata about how/when it was built."""
 
-    plan: Dict[str, Any]
+    plan: dict[str, Any]
     refreshed_at: datetime
     quote_source: str
     debounced: bool = False
     debounce_max_delta: Optional[float] = None
-    reasons: List[str] = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -83,7 +83,7 @@ class RefreshOutcome:
 # ---------------------------------------------------------------------------
 
 
-def _parse_hhmm(text: str) -> Tuple[int, int]:
+def _parse_hhmm(text: str) -> tuple[int, int]:
     parts = text.strip().split(":")
     if len(parts) != 2:
         raise ValueError(f"Expected HH:MM, got {text!r}")
@@ -143,7 +143,7 @@ def max_weight_delta(prev: Mapping[str, float], curr: Mapping[str, float]) -> fl
     return max(abs(float(curr.get(k, 0.0)) - float(prev.get(k, 0.0))) for k in keys)
 
 
-def audit_state_signature(plan: Mapping[str, Any]) -> Tuple[Any, ...]:
+def audit_state_signature(plan: Mapping[str, Any]) -> tuple[Any, ...]:
     """Compact, hashable fingerprint of a plan's *actionable* state.
 
     Used to gate audit-log writes: two refreshes that produce identical
@@ -198,8 +198,8 @@ def audit_state_signature(plan: Mapping[str, Any]) -> Tuple[Any, ...]:
 # ---------------------------------------------------------------------------
 
 
-HoldingsLoader = Callable[[], Tuple[List[EtfHolding], bool]]
-QuotesFetcher = Callable[[Sequence[str], bool], Tuple[Dict[str, EtfQuote], Dict[str, Any]]]
+HoldingsLoader = Callable[[], tuple[list[EtfHolding], bool]]
+QuotesFetcher = Callable[[Sequence[str], bool], tuple[dict[str, EtfQuote], dict[str, Any]]]
 HistoryFetcher = Callable[..., pd.DataFrame]
 
 
@@ -240,12 +240,12 @@ class EtfRotationService:
         # stop-loss, identical weights, same risk reasons). The first
         # refresh after process start always writes since the prior
         # signature is None and will compare unequal to anything.
-        self._last_audit_signature: Optional[Tuple[Any, ...]] = None
+        self._last_audit_signature: Optional[tuple[Any, ...]] = None
 
     @staticmethod
     def _default_quotes_fetcher(
         codes: Sequence[str], use_cache: bool
-    ) -> Tuple[Dict[str, EtfQuote], Dict[str, Any]]:
+    ) -> tuple[dict[str, EtfQuote], dict[str, Any]]:
         return daily_etf_signal.fetch_live_quotes(list(codes), use_cache=use_cache)
 
     # -----------------------------------------------------------------------
@@ -393,9 +393,9 @@ class EtfRotationService:
         self,
         *,
         active_strategy_config: StrategyConfig,
-        holdings: List[EtfHolding],
+        holdings: list[EtfHolding],
         regime_label: str,
-        ensemble_meta: Dict[str, Any],
+        ensemble_meta: dict[str, Any],
     ):
         """Construct the strategy used for this refresh.
 
@@ -503,10 +503,10 @@ class EtfRotationService:
         use_cache: bool,
         now: datetime,
         enable_policy_signal_factor: Optional[bool] = None,
-    ) -> Tuple[Dict[str, Any], str]:
+    ) -> tuple[dict[str, Any], str]:
         base_holdings, holdings_is_configured = self._holdings_loader()
         codes = [h.code for h in base_holdings]
-        live_quotes: Dict[str, EtfQuote] = {}
+        live_quotes: dict[str, EtfQuote] = {}
         if use_live_quotes and codes:
             live_quotes, _status = self._quotes_fetcher(codes, use_cache)
 
@@ -516,7 +516,7 @@ class EtfRotationService:
             else base_holdings
         )
 
-        quote_map: Optional[Dict[str, EtfQuote]] = None
+        quote_map: Optional[dict[str, EtfQuote]] = None
         quotes_as_of = None
         if live_quotes:
             quote_map = daily_etf_signal.load_default_quotes(holdings)
@@ -571,7 +571,7 @@ class EtfRotationService:
         # different scoring weights from bull markets).
         active_strategy_config = self._strategy_config
         regime_decision = self._classify_regime(price_matrix)
-        regime_scoring_active: Dict[str, Any] = {}
+        regime_scoring_active: dict[str, Any] = {}
         if regime_decision is not None and regime_decision.regime != "unknown":
             adjusted_strategy_params = dict(active_strategy_config.strategy)
             base_gross_cap = float(adjusted_strategy_params.get("gross_cap", 0.90))
@@ -617,7 +617,7 @@ class EtfRotationService:
         # Build the strategy: pure trend by default, or a blender when the
         # ensemble is enabled in strategy.json. The blender's regime label
         # comes from the same classifier as gross-cap adjustment.
-        ensemble_meta: Dict[str, Any] = {"enabled": False}
+        ensemble_meta: dict[str, Any] = {"enabled": False}
         strategy_override = self._build_strategy(
             active_strategy_config=active_strategy_config,
             holdings=holdings,

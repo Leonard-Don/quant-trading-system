@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,7 @@ class TrendAnalyzer:
     def __init__(self):
         self.indicators = {}
 
-    def analyze_trend(self, data: pd.DataFrame) -> Dict[str, Any]:
+    def analyze_trend(self, data: pd.DataFrame) -> dict[str, Any]:
         """
         综合分析入口 - 增强版
         """
@@ -87,7 +87,7 @@ class TrendAnalyzer:
 
     def _calculate_trend_direction(
         self, close: pd.Series
-    ) -> Tuple[str, Dict[str, Any]]:
+    ) -> tuple[str, dict[str, Any]]:
         """
         基于移动均线判断趋势
         """
@@ -129,7 +129,7 @@ class TrendAnalyzer:
 
     def _identify_support_resistance(
         self, df: pd.DataFrame, window: int = 20
-    ) -> Tuple[List[float], List[float]]:
+    ) -> tuple[list[float], list[float]]:
         """
         识别支撑和阻力位
         """
@@ -170,7 +170,7 @@ class TrendAnalyzer:
 
     def _calculate_technical_score(
         self, df: pd.DataFrame
-    ) -> Tuple[float, Dict[str, float]]:
+    ) -> tuple[float, dict[str, float]]:
         """
         计算技术评分 (0-100)
         整合多个技术指标给出综合评分
@@ -398,7 +398,7 @@ class TrendAnalyzer:
 
         return min(100, round(strength, 1))
 
-    def _multi_timeframe_analysis(self, close: pd.Series) -> Dict[str, str]:
+    def _multi_timeframe_analysis(self, close: pd.Series) -> dict[str, str]:
         """
         多时间周期分析
         根据数据长度动态调整分析周期，支持月线、周线等长周期数据
@@ -480,7 +480,7 @@ class TrendAnalyzer:
 
         return timeframes
 
-    def _analyze_momentum(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def _analyze_momentum(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         动量分析
         """
@@ -518,7 +518,7 @@ class TrendAnalyzer:
             ),
         }
 
-    def _analyze_volatility(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def _analyze_volatility(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         波动率分析
         """
@@ -568,7 +568,7 @@ class TrendAnalyzer:
 
     def _calculate_signal_strength(
         self, df: pd.DataFrame, trend: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         计算买卖信号强度
         """
@@ -646,7 +646,7 @@ class TrendAnalyzer:
             "total_indicators": total_signals,
         }
 
-    def _calculate_fibonacci_levels(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def _calculate_fibonacci_levels(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         计算斐波那契回撤位
         """

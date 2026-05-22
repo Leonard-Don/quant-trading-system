@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 from .base_factor import MacroFactor
 
@@ -15,7 +15,7 @@ class FXMismatchFactor(MacroFactor):
     name = "fx_mismatch"
     default_threshold = 0.15
 
-    def compute(self, data_context: Dict[str, Any]):
+    def compute(self, data_context: dict[str, Any]):
         indicators = data_context.get("market_indicators", {}) or {}
         macro_signal = data_context.get("signals", {}).get("macro_hf", {}) or {}
         trade_score = float(macro_signal.get("dimensions", {}).get("trade", {}).get("score", 0.0))

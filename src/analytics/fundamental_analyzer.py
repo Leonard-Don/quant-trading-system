@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
 from src.data.data_manager import DataManager, get_shared_data_manager
 
@@ -20,7 +20,7 @@ class FundamentalAnalyzer:
     def __init__(self, data_manager: Optional[DataManager] = None):
         self.data_manager = data_manager or get_shared_data_manager()
 
-    def analyze(self, symbol: str) -> Dict[str, Any]:
+    def analyze(self, symbol: str) -> dict[str, Any]:
         """
         执行基本面分析
 
@@ -61,7 +61,7 @@ class FundamentalAnalyzer:
             logger.error(f"基本面分析出错 {symbol}: {e}")
             return self._get_empty_result()
 
-    def _assess_valuation(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _assess_valuation(self, data: dict[str, Any]) -> dict[str, Any]:
         """评估估值水平"""
         pe = data.get("pe_ratio", 0)
         peg = data.get("peg_ratio", 0)
@@ -95,7 +95,7 @@ class FundamentalAnalyzer:
 
         return {"score": score, "status": status, "pe": pe, "peg": peg, "pb": pb}
 
-    def _assess_financial_health(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _assess_financial_health(self, data: dict[str, Any]) -> dict[str, Any]:
         """评估财务健康"""
         current_ratio = data.get("current_ratio", 0)
         debt_to_equity = data.get("debt_to_equity", 0)
@@ -127,7 +127,7 @@ class FundamentalAnalyzer:
             "profit_margin": profit_margin,
         }
 
-    def _assess_growth(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _assess_growth(self, data: dict[str, Any]) -> dict[str, Any]:
         """评估增长性"""
         rev_growth = data.get("revenue_growth", 0)
         earn_growth = data.get("earnings_growth", 0)
@@ -176,7 +176,7 @@ class FundamentalAnalyzer:
 
         return "，".join(parts) if parts else "基本面平稳"
 
-    def _get_empty_result(self) -> Dict[str, Any]:
+    def _get_empty_result(self) -> dict[str, Any]:
         return {
             "metrics": {},
             "valuation": {"score": 50, "status": "unknown"},

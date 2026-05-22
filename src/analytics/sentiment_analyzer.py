@@ -4,7 +4,7 @@
 """
 
 import logging
-from typing import Any, Dict
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -16,7 +16,7 @@ class SentimentAnalyzer:
     """
     市场情绪分析器
     通过波动率、恐慌指数等指标判断市场情绪
-    
+
     Args:
         config: 可选配置字典，支持以下参数：
             - volatility_thresholds: 波动率情绪阈值
@@ -53,10 +53,10 @@ class SentimentAnalyzer:
         }
     }
 
-    def __init__(self, config: Dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] = None):
         """
         初始化情绪分析器
-        
+
         Args:
             config: 自定义配置，将与默认配置合并
         """
@@ -66,7 +66,7 @@ class SentimentAnalyzer:
         self.risk_thresholds = self.config["risk_thresholds"]
         self.analysis_window = self.config["analysis_window"]
 
-    def _merge_config(self, custom_config: Dict[str, Any]) -> Dict[str, Any]:
+    def _merge_config(self, custom_config: dict[str, Any]) -> dict[str, Any]:
         """
         合并自定义配置与默认配置
         """
@@ -81,7 +81,7 @@ class SentimentAnalyzer:
                 merged[key] = default_value.copy() if isinstance(default_value, dict) else default_value
         return merged
 
-    def analyze(self, df: pd.DataFrame, symbol: str = None) -> Dict[str, Any]:
+    def analyze(self, df: pd.DataFrame, symbol: str = None) -> dict[str, Any]:
         """
         综合情绪分析
 
@@ -130,7 +130,7 @@ class SentimentAnalyzer:
             "risk_level": risk_level
         }
 
-    def _analyze_volatility_sentiment(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def _analyze_volatility_sentiment(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         基于波动率的情绪分析
         """
@@ -279,7 +279,7 @@ class SentimentAnalyzer:
 
         return round(score, 1)
 
-    def _analyze_market_breadth(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def _analyze_market_breadth(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         市场广度分析
         """
@@ -311,7 +311,7 @@ class SentimentAnalyzer:
             "breadth_ratio": round(float(breadth_ratio), 2)
         }
 
-    def _detect_extreme_sentiment(self, df: pd.DataFrame) -> Dict[str, Any]:
+    def _detect_extreme_sentiment(self, df: pd.DataFrame) -> dict[str, Any]:
         """
         检测极端情绪
         """
@@ -384,7 +384,7 @@ class SentimentAnalyzer:
             "signals": extreme_signals
         }
 
-    def _assess_risk_level(self, df: pd.DataFrame, volatility_sentiment: Dict, fear_greed: float) -> str:
+    def _assess_risk_level(self, df: pd.DataFrame, volatility_sentiment: dict, fear_greed: float) -> str:
         """
         评估风险水平
         """
@@ -428,9 +428,9 @@ class SentimentAnalyzer:
 
     def _determine_overall_sentiment(
         self,
-        volatility_sentiment: Dict,
+        volatility_sentiment: dict,
         fear_greed: float,
-        extreme_sentiment: Dict
+        extreme_sentiment: dict
     ) -> str:
         """
         确定整体情绪

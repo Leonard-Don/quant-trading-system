@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Dict, List, Optional
+from typing import Optional
 
 from .base_factor import MacroFactor
 from .baseload_mismatch import BaseloadMismatchFactor
@@ -22,7 +22,7 @@ class FactorRegistry:
     """负责管理和执行因子。"""
 
     def __init__(self, factors: Optional[Iterable[MacroFactor]] = None):
-        self._factors: Dict[str, MacroFactor] = {}
+        self._factors: dict[str, MacroFactor] = {}
         for factor in factors or []:
             self.register(factor)
 
@@ -32,7 +32,7 @@ class FactorRegistry:
     def get(self, name: str) -> MacroFactor:
         return self._factors[name]
 
-    def all(self) -> List[MacroFactor]:
+    def all(self) -> list[MacroFactor]:
         return list(self._factors.values())
 
     def compute_all(self, data_context):

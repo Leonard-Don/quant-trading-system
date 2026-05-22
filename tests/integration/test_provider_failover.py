@@ -12,7 +12,7 @@ All providers used here are pure in-process subclasses of
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -76,7 +76,7 @@ class _MockProvider(BaseDataProvider):
             return _ohlcv(base=self.marker)
         raise AssertionError(f"unknown behavior: {self.behavior}")
 
-    def get_latest_quote(self, symbol: str) -> Dict[str, Any]:  # pragma: no cover
+    def get_latest_quote(self, symbol: str) -> dict[str, Any]:  # pragma: no cover
         return {"symbol": symbol, "price": self.marker}
 
 

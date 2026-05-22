@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from typing import Dict, List
 
 import numpy as np
 import pandas as pd
@@ -21,8 +20,8 @@ class CrossMarketStrategy(ABC):
     def generate_cross_signals(
         self,
         price_matrix: pd.DataFrame,
-        asset_specs: List[AssetSpec],
-        parameters: Dict[str, float],
+        asset_specs: list[AssetSpec],
+        parameters: dict[str, float],
     ) -> pd.DataFrame:
         """Generate spread, z-score and target position signals."""
 
@@ -44,8 +43,8 @@ class SpreadZScoreStrategy(CrossMarketStrategy):
     def generate_cross_signals(
         self,
         price_matrix: pd.DataFrame,
-        asset_specs: List[AssetSpec],
-        parameters: Dict[str, float],
+        asset_specs: list[AssetSpec],
+        parameters: dict[str, float],
     ) -> pd.DataFrame:
         lookback = int(parameters.get("lookback", 20))
         entry_threshold = float(parameters.get("entry_threshold", 1.5))
@@ -150,8 +149,8 @@ class CointegrationReversionStrategy(SpreadZScoreStrategy):
     def generate_cross_signals(
         self,
         price_matrix: pd.DataFrame,
-        asset_specs: List[AssetSpec],
-        parameters: Dict[str, float],
+        asset_specs: list[AssetSpec],
+        parameters: dict[str, float],
     ) -> pd.DataFrame:
         frame = super().generate_cross_signals(price_matrix, asset_specs, parameters)
         lookback = int(parameters.get("lookback", 20))
