@@ -891,3 +891,177 @@ def test_walkforward_empty_windows_response_is_frontend_safe(
     serialised = json.dumps(payload, allow_nan=False)
     assert "NaN" not in serialised
     assert "undefined" not in serialised
+
+
+# ---------------------------------------------------------------------------
+# Data-safety gate: actionable / non_actionable_reasons contract
+#
+# A plan generated from synthetic (fabricated) price data must be explicitly
+# flagged actionable=False so the client can never mistake a demo plan for a
+# live-tradeable one.  These tests assert that the API contract is honoured
+# regardless of how the plan reaches the response (direct from generate_plan or
+# via the EtfRotationService cache).
+# ---------------------------------------------------------------------------
+
+
+def test_daily_signal_synthetic_plan_is_not_actionable() -> None:
+    """quote_source=synthetic → actionable=False, non_actionable_reasons is populated."""
+
+    client = TestClient(app)
+    response = client.get(_synthetic_path())
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+
+    # actionable must be a bool, not None or missing.
+    assert isinstance(data.get("actionable"), bool), (
+        "actionable must be an explicit bool in the response"
+    )
+    # Synthetic plans are never safe to trade.
+    assert data["actionable"] is False, (
+        "a plan built on fabricated price data must be marked actionable=False"
+    )
+    # non_actionable_reasons must be a non-empty list explaining why.
+    assert isinstance(data.get("non_actionable_reasons"), list)
+    assert len(data["non_actionable_reasons"]) > 0
+    assert any("synthetic" in r for r in data["non_actionable_reasons"])
+
+
+def test_daily_signal_actionable_field_is_always_a_bool(monkeypatch) -> None:
+    """Even on the live path actionable must be a typed bool, never absent."""
+
+    def fake_fetch(codes, *, use_cache=True):
+        from src.data.etf_rotation import EtfQuote
+
+        quote = EtfQuote(
+            code="510300",
+            name="沪深300ETF",
+            current_price=6.0,
+            prev_close=5.5,
+            open_price=5.6,
+            high=6.1,
+            low=5.4,
+            volume=123456,
+            timestamp="2026-05-14T11:00:00+00:00",
+            source="fake-live",
+        )
+        return {"510300": quote}, {
+            "requested": len(codes),
+            "resolved": 1,
+            "missing": max(len(codes) - 1, 0),
+            "use_cache": use_cache,
+            "symbols": [f"{c}.SS" for c in codes],
+        }
+
+    monkeypatch.setattr(daily_etf_signal, "fetch_live_quotes", fake_fetch)
+
+    client = TestClient(app)
+    data = client.get("/etf-rotation/daily-signal").json()["data"]
+
+    # actionable is always a bool — never None, never absent.
+    assert isinstance(data.get("actionable"), bool)
+    # non_actionable_reasons is always a list — even when empty.
+    assert isinstance(data.get("non_actionable_reasons"), list)
+
+
+def test_live_target_plan_has_actionable_field() -> None:
+    """live-target with trigger_refresh must carry actionable in the nested plan."""
+
+    client = TestClient(app)
+    response = client.get("/etf-rotation/live-target?trigger_refresh=true")
+
+    assert response.status_code == 200
+    plan = response.json()["data"]["plan"]
+
+    assert isinstance(plan.get("actionable"), bool), (
+        "live-target plan must expose actionable as an explicit bool"
+    )
+    assert isinstance(plan.get("non_actionable_reasons"), list), (
+        "live-target plan must expose non_actionable_reasons as a list"
+    )
+
+
+def test_live_target_actionable_false_plan_surfaces_reasons() -> None:
+    """When the service caches a plan with actionable=False the endpoint must
+    expose both ``actionable`` and ``non_actionable_reasons`` to the client.
+
+    This test uses an injected stub service so it is independent of whether
+    the real service has access to live price history in CI.
+    """
+
+    non_actionable_plan = {
+        "manual_only": True,
+        "auto_ordering": False,
+        "banner": "手动调仓 — 不自动下单",
+        "total_asset": 100000.0,
+        "current_weights": {"CASH": 1.0},
+        "target_weights": {"CASH": 1.0},
+        "adjusted_weights": {"CASH": 1.0},
+        "suggestions": [],
+        "risk_reasons": [],
+        "actionable": False,
+        "non_actionable_reasons": [
+            "price_history_synthetic: plan was built on a fabricated "
+            "deterministic price matrix, not real market data"
+        ],
+        "data_safety": {
+            "price_matrix_synthetic": True,
+            "price_matrix_stale": False,
+            "price_matrix_age_trading_days": None,
+            "staleness_threshold_trading_days": 3,
+            "override_applied": False,
+            "override_available": True,
+            "reasons": [
+                "price_history_synthetic: plan was built on a fabricated "
+                "deterministic price matrix, not real market data"
+            ],
+        },
+    }
+
+    class StubService:
+        def refresh(self, **kwargs):
+            cached = SimpleNamespace(
+                plan=dict(non_actionable_plan),
+                refreshed_at=datetime(2026, 5, 22, 2, 0, tzinfo=timezone.utc),
+                quote_source="synthetic",
+                debounced=False,
+                debounce_max_delta=None,
+                reasons=[],
+            )
+            return SimpleNamespace(refreshed=True, cached=cached, skipped_reason=None)
+
+        def get_cached_plan(self):
+            return None
+
+        def is_trading_hours(self):
+            return False
+
+    etf_endpoint.install_service(StubService())
+    try:
+        client = TestClient(app)
+        response = client.get("/etf-rotation/live-target?trigger_refresh=true")
+    finally:
+        etf_endpoint.reset_service_for_tests()
+
+    assert response.status_code == 200
+    plan = response.json()["data"]["plan"]
+
+    assert plan["actionable"] is False, (
+        "endpoint must surface actionable=False from the cached plan"
+    )
+    reasons = plan["non_actionable_reasons"]
+    assert isinstance(reasons, list) and len(reasons) > 0
+    assert any("synthetic" in r for r in reasons)
+
+
+def test_post_refresh_plan_has_actionable_field() -> None:
+    """POST /refresh must also carry actionable in the nested plan."""
+
+    client = TestClient(app)
+    response = client.post("/etf-rotation/refresh")
+
+    assert response.status_code == 200
+    plan = response.json()["data"]["plan"]
+
+    assert isinstance(plan.get("actionable"), bool)
+    assert isinstance(plan.get("non_actionable_reasons"), list)

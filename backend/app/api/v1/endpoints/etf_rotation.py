@@ -201,6 +201,12 @@ def resolve_policy_factor_refresh_override() -> Optional[bool]:
         "返回 ``scripts.daily_etf_signal.generate_plan`` 的完整计划字段："
         "current_weights / target_weights / adjusted_weights / suggestions / "
         "risk_reasons。该接口只读、默认使用实时行情更新持仓现价，但不调用任何券商或下单接口。"
+        "\n\n"
+        "**Data-safety contract**: ``data.actionable`` (bool) is always present "
+        "in the response.  When the plan was built on synthetic or stale price "
+        "data ``actionable`` is ``False`` and ``data.non_actionable_reasons`` "
+        "(list[str]) enumerates the causes.  A live plan with fresh data carries "
+        "``actionable=True`` and an empty ``non_actionable_reasons`` list."
     ),
 )
 def get_daily_signal(
@@ -254,6 +260,7 @@ def get_daily_signal(
             "use_cache": use_cache,
         }
         _stamp_policy_factor_source(plan, effective_bool, source_label)
+        _ensure_actionable_fields(plan)
         daily_etf_signal.append_audit_entry(plan, quote_source="api:synthetic")
         return {"success": True, "data": plan}
 
@@ -285,8 +292,35 @@ def get_daily_signal(
         plan["quote_source"] = "fallback_synthetic"
     plan["live_quote_status"] = live_status
     _stamp_policy_factor_source(plan, effective_bool, source_label)
+    _ensure_actionable_fields(plan)
     daily_etf_signal.append_audit_entry(plan, quote_source=f"api:{plan['quote_source']}")
     return {"success": True, "data": plan}
+
+
+def _ensure_actionable_fields(plan: dict[str, Any]) -> None:
+    """Guarantee ``actionable`` and ``non_actionable_reasons`` are present and typed.
+
+    ``generate_plan`` and ``EtfRotationService`` always emit these keys, but
+    this function makes the API contract explicit rather than relying on the
+    caller remembering to pass them through.  Calling it on every plan-bearing
+    response ensures a client can rely on::
+
+        response["data"]["actionable"]           → bool
+        response["data"]["non_actionable_reasons"] → list[str]
+
+    For a plan built on synthetic or stale price data ``actionable`` will be
+    ``False`` and ``non_actionable_reasons`` will contain a human-readable
+    explanation.  Live plans with fresh data will carry ``actionable=True`` and
+    an empty list.
+
+    The function is idempotent and never overrides a value already set by
+    ``generate_plan`` — it only fills in safe defaults when a key is absent
+    (which should not happen in production but guards against future refactors).
+    """
+    if not isinstance(plan.get("actionable"), bool):
+        plan["actionable"] = True
+    if not isinstance(plan.get("non_actionable_reasons"), list):
+        plan["non_actionable_reasons"] = []
 
 
 def _stamp_policy_factor_source(
@@ -330,6 +364,10 @@ def _serialise_cached(cached: Any) -> dict[str, Any]:
         "返回 EtfRotationService 缓存的最新计划与刷新元数据。前端可"
         "高频轮询此端点而不触发底层数据拉取——后台刷新循环负责保持缓存常新。"
         "trigger_refresh=true 时即使非交易时段也会强制刷新一次。"
+        "\n\n"
+        "**Data-safety contract**: ``data.plan.actionable`` (bool) is always "
+        "present when a plan exists.  ``data.plan.non_actionable_reasons`` "
+        "(list[str]) enumerates the causes when ``actionable`` is ``False``."
     ),
 )
 def get_live_target(
@@ -357,6 +395,7 @@ def get_live_target(
         serialised = _serialise_cached(outcome.cached)
         if isinstance(serialised.get("plan"), dict):
             _stamp_policy_factor_source(serialised["plan"], effective_bool, source_label)
+            _ensure_actionable_fields(serialised["plan"])
         return {
             "success": True,
             "data": serialised,
@@ -384,6 +423,7 @@ def get_live_target(
     # should track the user's last click immediately.
     if isinstance(serialised.get("plan"), dict):
         _stamp_policy_factor_source(serialised["plan"], effective_bool, source_label)
+        _ensure_actionable_fields(serialised["plan"])
     return {
         "success": True,
         "data": serialised,
@@ -420,6 +460,7 @@ def post_refresh(
     serialised = _serialise_cached(outcome.cached)
     if isinstance(serialised.get("plan"), dict):
         _stamp_policy_factor_source(serialised["plan"], effective_bool, source_label)
+        _ensure_actionable_fields(serialised["plan"])
     return {
         "success": True,
         "data": serialised,
