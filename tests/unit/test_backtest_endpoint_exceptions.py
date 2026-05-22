@@ -173,7 +173,7 @@ def test_save_advanced_history_record_preserves_value_error_response(monkeypatch
     assert response == {"success": False, "error": "advanced history payload invalid"}
 
 
-def test_generate_report_preserves_http_exception_error_path(monkeypatch):
+def test_generate_report_raises_http_500_with_generic_detail(monkeypatch):
     def raise_report_error(*args, **kwargs):
         raise RuntimeError("report renderer unavailable")
 
@@ -183,7 +183,9 @@ def test_generate_report_preserves_http_exception_error_path(monkeypatch):
         asyncio.run(backtest.generate_report(_report_request()))
 
     assert exc_info.value.status_code == 500
-    assert exc_info.value.detail == "report renderer unavailable"
+    # Raw exception text must NOT be forwarded to the client.
+    assert exc_info.value.detail == "Internal server error"
+    assert "report renderer unavailable" not in str(exc_info.value.detail)
 
 
 def test_generate_report_base64_preserves_runtime_error_response(monkeypatch):

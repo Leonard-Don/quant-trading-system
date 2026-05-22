@@ -80,6 +80,11 @@ class PortCongestionProvider(AntiCrawlMixin):
         计算全球港口拥堵指数
 
         加权综合所有追踪港口的拥堵程度。
+
+        NOTE: this provider is a scaffold — no live AIS or port-API feed is
+        connected.  ``is_scaffold=True`` and the hardcoded ``global_index=50``
+        / ``signal=0`` / ``confidence=0`` indicate placeholder output that
+        must not be used for live trading signals.
         """
         port_statuses = {}
         for port_id in KEY_PORTS:
@@ -95,7 +100,7 @@ class PortCongestionProvider(AntiCrawlMixin):
 
         # 计算全球指数（0-100）
         # 当前为框架值，待接入真实数据后替换
-        global_index = 50.0  # 中性基准
+        global_index = 50.0  # 中性基准（scaffold 硬编码，非真实数据）
 
         result = {
             "global_index": round(global_index, 2),
@@ -109,10 +114,12 @@ class PortCongestionProvider(AntiCrawlMixin):
             },
             "tracked_ports": len(KEY_PORTS),
             "signal": 0,  # -1=看空贸易相关/1=看多
+            "confidence": 0.0,
             "source_mode": "proxy",
             "fallback_reason": "live_ais_or_port_api_not_connected",
             "lag_days": 2,
             "coverage": 0.32,
+            "is_scaffold": True,
             "timestamp": datetime.now().isoformat(),
         }
 

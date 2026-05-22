@@ -421,7 +421,7 @@ async def analyze_fundamental(request: TrendAnalysisRequest):
         }
     except Exception as e:
         logger.error(f"Error in fundamental analysis: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/klines", summary="K线数据")
@@ -559,7 +559,7 @@ async def recognize_patterns(request: TrendAnalysisRequest):
 
     except Exception as e:
         logger.error(f"Error in pattern recognition: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 @router.post("/prediction", summary="AI价格预测")
 async def predict_prices(request: TrendAnalysisRequest):
@@ -692,7 +692,7 @@ async def analyze_correlation(request: CorrelationRequest):
         raise
     except Exception as e:
         logger.error(f"Error in correlation analysis: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 def get_correlation_interpretation(avg_corr: float) -> dict:
@@ -759,7 +759,7 @@ async def compare_model_predictions(request: TrendAnalysisRequest):
         raise
     except Exception as e:
         logger.error(f"Error comparing predictions: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/prediction/lstm", summary="LSTM 模型预测")
@@ -790,7 +790,7 @@ async def predict_with_lstm(request: TrendAnalysisRequest):
         raise
     except Exception as e:
         logger.error(f"Error in LSTM prediction: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/train/all", summary="训练所有模型")
@@ -826,7 +826,7 @@ async def train_all_models(request: TrendAnalysisRequest):
         raise
     except Exception as e:
         logger.error(f"Error training models: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # ==================== 市场分析增强 API ====================
@@ -889,7 +889,7 @@ async def get_technical_indicators(request: TrendAnalysisRequest):
         raise
     except Exception as e:
         logger.error(f"Error getting technical indicators: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/sentiment-history", summary="历史情绪趋势")
@@ -1041,7 +1041,7 @@ async def get_sentiment_history(request: TrendAnalysisRequest, days: int = 30):
         raise
     except Exception as e:
         logger.error(f"Error getting sentiment history: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/industry-comparison", summary="行业对比分析")
@@ -1141,7 +1141,7 @@ async def get_industry_comparison(request: TrendAnalysisRequest):
         raise
     except Exception as e:
         logger.error(f"Error getting industry comparison: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/risk-metrics", summary="风险评估增强")
@@ -1269,4 +1269,4 @@ async def get_risk_metrics(request: TrendAnalysisRequest):
         raise
     except Exception as e:
         logger.error(f"Error calculating risk metrics: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")

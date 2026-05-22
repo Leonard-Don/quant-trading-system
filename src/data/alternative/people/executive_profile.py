@@ -220,6 +220,7 @@ class ExecutiveProfileProvider:
             f"技术决策权评分 {technical_authority_score:.2f}，资本市场压力 {capital_markets_pressure:.2f}。"
         )
 
+        in_catalog = normalized_symbol in EXECUTIVE_PROFILE_CATALOG
         return {
             "symbol": normalized_symbol,
             "company_name": company_name or normalized_symbol,
@@ -239,5 +240,10 @@ class ExecutiveProfileProvider:
             "governance_flags": list(base.get("governance_flags") or []),
             "confidence": round(float(base.get("confidence", 0.35)), 2),
             "source": "curated_people_profiles",
+            # is_scaffold=True: data comes from a hand-curated static catalog,
+            # not a live governance data feed.  Symbols outside the catalog
+            # fall back to heuristic estimates (confidence<=0.35).
+            "is_scaffold": True,
+            "catalog_coverage": in_catalog,
             "summary": summary,
         }

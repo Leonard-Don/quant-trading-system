@@ -49,6 +49,7 @@ class InsiderFlowProvider:
         else:
             label = "内部人交易信号中性"
 
+        in_catalog = normalized_symbol in INSIDER_FLOW_CATALOG
         return {
             "symbol": normalized_symbol,
             "company_name": company_name or normalized_symbol,
@@ -59,5 +60,10 @@ class InsiderFlowProvider:
             "label": label,
             "confidence": round(float(item.get("confidence", 0.3)), 2),
             "source": "curated_insider_flows",
+            # is_scaffold=True: data comes from a hand-curated static snapshot,
+            # not a live SEC Form 4 / regulatory-filing feed.  Symbols outside
+            # the catalog fall back to a neutral zero-signal default.
+            "is_scaffold": True,
+            "catalog_coverage": in_catalog,
             "summary": f"{company_name or normalized_symbol} 近端内部人交易呈 {net_action}，净额 {float(item.get('net_value_musd', 0.0)):.1f}M 美元。",
         }

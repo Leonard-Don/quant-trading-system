@@ -109,6 +109,10 @@ class CustomsDataProvider(AntiCrawlMixin):
 
         进口增速 > 出口增速 → 国内需求强 → 看多相关资产
         出口骤降 → 可能受制裁 → 看空出口依赖型企业
+
+        NOTE: this provider is a scaffold — no live data source is connected.
+        ``is_scaffold=True`` and ``confidence=0`` on error / ``confidence<=0.3``
+        indicate placeholder output that must not be used for live trading.
         """
         data = self.get_category_data(category)
 
@@ -122,6 +126,7 @@ class CustomsDataProvider(AntiCrawlMixin):
                 "fallback_reason": data["error"],
                 "lag_days": 30,
                 "coverage": 0.0,
+                "is_scaffold": True,
             }
 
         # 无数据时返回中性信号
@@ -135,6 +140,7 @@ class CustomsDataProvider(AntiCrawlMixin):
             "fallback_reason": "customs_series_not_parsed",
             "lag_days": 30,
             "coverage": 0.18 if data and data.get("source_accessible") else 0.08,
+            "is_scaffold": True,
             "timestamp": datetime.now().isoformat(),
         }
 

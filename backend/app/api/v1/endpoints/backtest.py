@@ -1033,7 +1033,7 @@ async def generate_report(request: ReportRequest):
         raise
     except _BACKTEST_REPORT_ERRORS as e:
         logger.error(f"Error generating report: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @router.post("/report/base64", summary="生成回测报告 (Base64)")
