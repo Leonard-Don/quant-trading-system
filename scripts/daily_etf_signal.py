@@ -80,6 +80,15 @@ DEFAULT_HOLDINGS_PATH = Path.home() / ".config" / "etf-rotation" / "holdings.jso
 AUDIT_LOG_PATH_ENV = "ETF_AUDIT_LOG_PATH"
 DEFAULT_AUDIT_LOG_PATH = Path.home() / ".config" / "etf-rotation" / "audit.jsonl"
 
+# Price-history staleness budget, in *trading* days. A price matrix whose
+# last bar is older than this many CN trading days behind the plan-build
+# time is treated as stale: the strategy would be scoring yesterday's (or
+# last week's) tape as if it were live. Three trading days absorbs a long
+# weekend plus a public holiday without tripping, while still catching a
+# genuinely stalled feed. Tunable via ``strategy.price_staleness_trading_days``
+# in strategy.json.
+DEFAULT_PRICE_STALENESS_TRADING_DAYS = 3
+
 
 # ---------------------------------------------------------------------------
 # Example seed + configured-holdings loader
@@ -566,6 +575,114 @@ def synthesize_price_matrix(
     return pd.DataFrame(matrix)
 
 
+def _price_matrix_trading_day_age(
+    price_matrix: Optional[pd.DataFrame],
+    *,
+    now: datetime,
+) -> Optional[int]:
+    """Return how many CN trading days the matrix's last bar lags ``now``.
+
+    Uses ``pandas.bdate_range`` (Mon-Fri) as a lightweight trading-calendar
+    proxy — it does not know CN public holidays, so it slightly *over*-counts
+    age across a holiday, which is the safe direction for a staleness gate
+    (fail toward "stale", never toward "fresh"). Returns ``None`` when the
+    matrix is missing/empty or its index carries no usable timestamp.
+    """
+
+    if price_matrix is None or price_matrix.empty:
+        return None
+    try:
+        last_bar = pd.Timestamp(price_matrix.index.max())
+    except (TypeError, ValueError):
+        return None
+    if last_bar is None or pd.isna(last_bar):
+        return None
+
+    reference = pd.Timestamp(now)
+    # Normalise both to tz-naive calendar dates: the staleness budget is
+    # in whole trading days, intraday offset is noise here.
+    if reference.tzinfo is not None:
+        reference = reference.tz_convert("UTC").tz_localize(None)
+    if last_bar.tzinfo is not None:
+        last_bar = last_bar.tz_convert("UTC").tz_localize(None)
+    last_bar = last_bar.normalize()
+    reference = reference.normalize()
+
+    if last_bar >= reference:
+        return 0
+    # Count business days strictly after the last bar, up to and including
+    # the reference date.
+    business_days = pd.bdate_range(start=last_bar, end=reference)
+    return max(0, len(business_days) - 1)
+
+
+def _evaluate_data_safety(
+    *,
+    price_matrix_supplied: bool,
+    price_matrix: Optional[pd.DataFrame],
+    now: datetime,
+    staleness_trading_days: int,
+    allow_synthetic_or_stale: bool,
+) -> dict[str, Any]:
+    """Decide whether the plan's price history is safe to act on.
+
+    Returns a structural ``data_safety`` payload. The plan-level
+    ``actionable`` flag is derived from it: a synthetic matrix (the
+    fabricated fallback) or a stale one (last bar older than
+    ``staleness_trading_days``) makes the plan NON-ACTIONABLE unless the
+    caller passes the explicit ``allow_synthetic_or_stale`` override.
+
+    This is a *hard, structural* gate — distinct from the soft
+    ``source_health`` provenance field which is easy to miss. It never
+    places or blocks orders; it only labels the plan.
+    """
+
+    # "Synthetic" == the caller supplied no real price history, so
+    # generate_plan fell back to synthesize_price_matrix.
+    is_synthetic = not price_matrix_supplied
+
+    age_trading_days = (
+        None if is_synthetic
+        else _price_matrix_trading_day_age(price_matrix, now=now)
+    )
+    is_stale = (
+        age_trading_days is not None
+        and age_trading_days > staleness_trading_days
+    )
+
+    reasons: list[str] = []
+    if is_synthetic:
+        reasons.append(
+            "price_history_synthetic: plan was built on a fabricated "
+            "deterministic price matrix, not real market data"
+        )
+    if is_stale:
+        reasons.append(
+            f"price_history_stale: last price bar is {age_trading_days} "
+            f"trading day(s) old (budget {staleness_trading_days})"
+        )
+
+    blocked = bool(reasons)
+    override_applied = blocked and allow_synthetic_or_stale
+    actionable = not blocked or override_applied
+
+    return {
+        "actionable": actionable,
+        "non_actionable_reasons": [] if actionable else list(reasons),
+        "data_safety": {
+            "price_matrix_synthetic": is_synthetic,
+            "price_matrix_stale": is_stale,
+            "price_matrix_age_trading_days": age_trading_days,
+            "staleness_threshold_trading_days": int(staleness_trading_days),
+            "override_applied": override_applied,
+            "override_available": blocked,
+            # Always carry the raw reasons so the override path can still
+            # show *why* the operator had to opt in.
+            "reasons": list(reasons),
+        },
+    }
+
+
 def _quotes_to_premium_map(quotes: Mapping[str, EtfQuote]) -> dict[str, float]:
     """Extract premium percentages from quotes where NAV is known."""
 
@@ -659,6 +776,7 @@ def generate_plan(
     now: Optional[datetime] = None,
     enable_policy_signal_factor: Optional[bool] = None,
     industry_signals: Optional[Mapping[str, Mapping[str, Any]]] = None,
+    allow_synthetic_or_stale: bool = False,
 ) -> dict[str, Any]:
     """Produce a full manual trade plan for the supplied holdings.
 
@@ -679,11 +797,27 @@ def generate_plan(
     param + CLI flag). When effectively enabled, ``industry_signals`` is
     used when supplied; otherwise the latest policy_radar snapshot is
     auto-loaded from disk.
+
+    Data-safety gate
+    ----------------
+    The plan always carries a hard, structural ``actionable`` boolean plus
+    a ``data_safety`` block. When no ``price_matrix`` is supplied the plan
+    is built on the fabricated synthetic fallback; when the supplied
+    matrix's last bar is older than the staleness budget the history is
+    stale. Either case sets ``actionable=False`` and lists the cause in
+    ``non_actionable_reasons`` — distinct from the soft ``source_health``
+    field. Pass ``allow_synthetic_or_stale=True`` (tests / offline demos)
+    to acknowledge the risk and flip the plan actionable again; the opt-in
+    is recorded in ``data_safety.override_applied``. The gate only
+    *labels* the plan — it never places, blocks, or automates any order;
+    the manual-only contract is unchanged.
     """
 
     holdings_supplied = holdings is not None
     quotes_supplied = quotes is not None
-    price_matrix_supplied = price_matrix is not None
+    # An empty (but non-None) frame carries no usable history — treat it as
+    # "not supplied" so the synthetic/staleness gate cannot be bypassed.
+    price_matrix_supplied = price_matrix is not None and not price_matrix.empty
 
     holdings = list(holdings) if holdings_supplied else load_default_holdings()
     quote_map = dict(quotes) if quotes_supplied else load_default_quotes(holdings)
@@ -932,9 +1066,32 @@ def generate_plan(
             status["invalidated"] = True
         manual_override_status[code] = status
 
+    # Hard data-safety gate. A synthetic (fabricated) or stale price
+    # matrix must NOT silently produce a plan that looks actionable. The
+    # gate sets a structural ``actionable`` flag — distinct from the soft
+    # ``source_health`` field — and refuses to mark a plan actionable
+    # without an explicit operator override. It only labels the plan; no
+    # order is placed or blocked, so the manual-only contract holds.
+    staleness_trading_days = int(
+        active_config.strategy.get(
+            "price_staleness_trading_days",
+            DEFAULT_PRICE_STALENESS_TRADING_DAYS,
+        )
+    )
+    safety = _evaluate_data_safety(
+        price_matrix_supplied=price_matrix_supplied,
+        price_matrix=price_matrix,
+        now=now or datetime.now(timezone.utc),
+        staleness_trading_days=staleness_trading_days,
+        allow_synthetic_or_stale=allow_synthetic_or_stale,
+    )
+
     return {
         "manual_only": True,
         "auto_ordering": False,
+        "actionable": safety["actionable"],
+        "non_actionable_reasons": safety["non_actionable_reasons"],
+        "data_safety": safety["data_safety"],
         "banner": MANUAL_BANNER,
         "total_asset": float(total_asset),
         "current_weights": {k: float(v) for k, v in current_weights.items()},
@@ -1188,11 +1345,35 @@ def _render_source_health_lines(plan: Mapping[str, Any]) -> list[str]:
     return lines
 
 
+def _render_non_actionable_lines(plan: Mapping[str, Any]) -> list[str]:
+    """Render a hard NON-ACTIONABLE banner when the data-safety gate failed.
+
+    Returns an empty list when the plan is actionable so the common path
+    prints nothing extra.
+    """
+
+    if plan.get("actionable", True):
+        return []
+    reasons = plan.get("non_actionable_reasons") or []
+    lines = [
+        "⚠️  本计划不可执行（NON-ACTIONABLE）——价格数据不可信，请勿据此下单：",
+    ]
+    for reason in reasons:
+        lines.append(f"  - {reason}")
+    lines.append(
+        "  （如需在脱机/合成数据上预览，请显式加 --allow-synthetic-or-stale；"
+        "即便如此本系统也不会自动下单。）"
+    )
+    lines.append("")
+    return lines
+
+
 def _render_text(plan: Mapping[str, Any]) -> str:
     lines: list[str] = []
     lines.append(MANUAL_BANNER)
     lines.append("（无自动下单；不调用券商 API。）")
     lines.append("")
+    lines.extend(_render_non_actionable_lines(plan))
     source_lines = _render_source_health_lines(plan)
     if source_lines:
         lines.extend(source_lines)
@@ -1523,6 +1704,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=540,
         help="--use-live-history 时获取多少天历史（默认 540，含 60 日 warmup 余量）。",
     )
+    parser.add_argument(
+        "--allow-synthetic-or-stale",
+        action="store_true",
+        help=(
+            "确认在合成/过期价格数据上生成计划（默认拒绝：此时计划会被标记为"
+            "不可执行 actionable=false）。仅用于脱机演示/测试，不会自动下单。"
+        ),
+    )
     quote_group = parser.add_mutually_exclusive_group()
     quote_group.add_argument(
         "--use-live-quotes",
@@ -1682,6 +1871,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         quotes_as_of=quotes_as_of,
         price_matrix_as_of=price_matrix_as_of,
         enable_policy_signal_factor=args.enable_policy_signal_factor,
+        allow_synthetic_or_stale=args.allow_synthetic_or_stale,
     )
 
     if args.position_cut < 1.0:

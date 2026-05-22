@@ -35,7 +35,13 @@ DEFAULT_REBALANCE_THRESHOLD = 0.03
 
 @dataclass(frozen=True)
 class EtfAssetConfig:
-    """Configuration for one ETF in the rotation universe."""
+    """Configuration for one ETF in the rotation universe.
+
+    Weight fields are **fractions** (``0.30`` = 30%). ``__post_init__``
+    enforces the bounds: a config with ``max_weight=3.5`` or a negative
+    ``base_weight`` is rejected at construction time so a malformed
+    real-money config fails fast instead of silently mis-sizing positions.
+    """
 
     symbol: str
     name: str = ""
@@ -43,6 +49,31 @@ class EtfAssetConfig:
     min_weight: float = 0.0
     max_weight: float = 0.30
     base_weight: float = 0.0
+
+    def __post_init__(self) -> None:
+        for field_name in ("min_weight", "max_weight", "base_weight"):
+            value = getattr(self, field_name)
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise ValueError(
+                    f"EtfAssetConfig.{field_name} for {self.symbol!r} must be "
+                    f"numeric, got {value!r}"
+                )
+            number = float(value)
+            if number != number:  # NaN guard
+                raise ValueError(
+                    f"EtfAssetConfig.{field_name} for {self.symbol!r} is NaN"
+                )
+            if not 0.0 <= number <= 1.0:
+                raise ValueError(
+                    f"EtfAssetConfig.{field_name} for {self.symbol!r} must be a "
+                    f"fraction in [0, 1], got {number}"
+                )
+        if self.min_weight > self.max_weight:
+            raise ValueError(
+                f"EtfAssetConfig for {self.symbol!r}: min_weight "
+                f"({self.min_weight}) must not exceed max_weight "
+                f"({self.max_weight})"
+            )
 
 
 @dataclass(frozen=True)

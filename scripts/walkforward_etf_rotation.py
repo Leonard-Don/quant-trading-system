@@ -131,24 +131,79 @@ def iter_windows(
 
 # ---------------------------------------------------------------------------
 # Per-window evaluation
+#
+# Faithful walk-forward semantics: the strategy must see the *full* price
+# history so its warmup window (``warmup_days``, 60 by default) is
+# satisfied, and the IS/OOS window is sliced out of the produced weights
+# AFTER ``generate_signals``. Running ``generate_signals`` directly on a
+# bare window starves the strategy — with warmup_days=60 and a 63-bar
+# test slice only ~3 bars get live signals — so the reported metrics are
+# not a faithful read of the window. This mirrors the correct behaviour
+# in ``src/backtest/etf_rotation_walkforward.py`` (slice after signals).
 # ---------------------------------------------------------------------------
 
 
-def _run_one(
-    price_matrix: pd.DataFrame,
+class _PrecomputedSignalStrategy:
+    """Adapter that replays a pre-computed full-history weight frame.
+
+    ``PortfolioBacktester.run`` calls ``strategy.generate_signals(window)``
+    itself. To slice the test window *after* signal generation we compute
+    the weights once on the whole price history and wrap them here: each
+    ``generate_signals`` call returns the rows of the precomputed frame
+    that line up with the window the backtester is executing.
+    """
+
+    def __init__(self, full_weights: pd.DataFrame) -> None:
+        self._full_weights = full_weights
+
+    def generate_signals(self, price_matrix: pd.DataFrame) -> pd.DataFrame:
+        # Reindex onto the executed window's index/columns; bars outside
+        # the precomputed frame (shouldn't happen) default to zero weight.
+        sliced = self._full_weights.reindex(
+            index=price_matrix.index,
+            columns=price_matrix.columns,
+        )
+        return sliced.fillna(0.0)
+
+
+def _full_history_weights(
+    prices: pd.DataFrame,
     scoring: EtfScoringConfig,
+) -> Optional[pd.DataFrame]:
+    """Run ``EtfRotationStrategy`` on the FULL price history once.
+
+    Returns the target-weight frame for every bar (warmup bars included,
+    those are zero). ``None`` when no seed holding overlaps the price
+    columns. The caller slices IS/OOS windows out of this frame.
+    """
+
+    holdings = [h for h in load_default_holdings() if h.code in prices.columns]
+    if not holdings:
+        return None
+    base_config = build_strategy_config(holdings)
+    config = replace(base_config, scoring=scoring)
+    strategy = EtfRotationStrategy(config)
+    return strategy.generate_signals(prices)
+
+
+def _run_window(
+    window_prices: pd.DataFrame,
+    full_weights: pd.DataFrame,
     *,
     initial_capital: float,
     commission: float,
     slippage: float,
     min_rebalance_weight_delta: float,
 ) -> Optional[dict[str, Any]]:
-    holdings = [h for h in load_default_holdings() if h.code in price_matrix.columns]
-    if not holdings:
+    """Backtest one IS/OOS window using pre-computed full-history weights.
+
+    ``window_prices`` is the slice the backtester executes on;
+    ``full_weights`` is the strategy output over the *entire* history, so
+    the window's weights are already fully warmed.
+    """
+
+    if window_prices.empty:
         return None
-    base_config = build_strategy_config(holdings)
-    config = replace(base_config, scoring=scoring)
-    strategy = EtfRotationStrategy(config)
     backtester = PortfolioBacktester(
         initial_capital=initial_capital,
         commission=commission,
@@ -157,7 +212,9 @@ def _run_one(
         max_gross_exposure=0.90,
         min_rebalance_weight_delta=min_rebalance_weight_delta,
     )
-    result = backtester.run(strategy, price_matrix)
+    result = backtester.run(
+        _PrecomputedSignalStrategy(full_weights), window_prices
+    )
     if not result:
         return None
     return {
@@ -182,16 +239,28 @@ def evaluate_window(
     min_rebalance_weight_delta: float,
     objective: str = "sharpe_ratio",
 ) -> dict[str, Any]:
-    """Evaluate every config IS, pick the best, then evaluate it OOS."""
+    """Evaluate every config IS, pick the best, then evaluate it OOS.
+
+    Both legs run the strategy on the full ``prices`` history (so its
+    warmup is satisfied) and slice the IS/OOS window out of the produced
+    weights — the test window is never starved of warmup.
+    """
 
     train_prices = prices.loc[train_index]
     test_prices = prices.loc[test_index]
 
     in_sample: list[dict[str, Any]] = []
+    # Cache the full-history weights per config so the OOS leg reuses the
+    # IS leg's computation instead of re-running generate_signals.
+    full_weights_by_config: dict[int, pd.DataFrame] = {}
     for idx, config in enumerate(configs):
-        metrics = _run_one(
+        full_weights = _full_history_weights(prices, config)
+        if full_weights is None:
+            continue
+        full_weights_by_config[idx] = full_weights
+        metrics = _run_window(
             train_prices,
-            config,
+            full_weights,
             initial_capital=initial_capital,
             commission=commission,
             slippage=slippage,
@@ -215,9 +284,9 @@ def evaluate_window(
         }
 
     best = max(in_sample, key=lambda row: row["objective"])
-    oos_metrics = _run_one(
+    oos_metrics = _run_window(
         test_prices,
-        configs[best["config_index"]],
+        full_weights_by_config[best["config_index"]],
         initial_capital=initial_capital,
         commission=commission,
         slippage=slippage,

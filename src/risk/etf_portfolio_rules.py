@@ -30,7 +30,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class EtfRiskRuleConfig:
-    """Configurable caps for ETF rotation portfolio risk rules."""
+    """Configurable caps for ETF rotation portfolio risk rules.
+
+    All numeric fields are **fractions** (``0.30`` = 30%).
+    ``__post_init__`` enforces the bounds so a malformed real-money risk
+    config (negative cash floor, a cap above 100%, a string where a
+    number is expected) is rejected at construction time rather than
+    silently weakening a guardrail deep inside the rule engine.
+    """
 
     max_single_weight: float = 0.30
     commodity_resource_bucket_cap: float = 0.55
@@ -66,6 +73,35 @@ class EtfRiskRuleConfig:
         "us",
         "usa",
     )
+
+    def __post_init__(self) -> None:
+        # Every numeric field here is a fraction in [0, 1]. A value
+        # outside that band is either a units bug (25 vs 0.25) or
+        # nonsense — either way it must not silently weaken a guardrail.
+        fraction_fields = (
+            "max_single_weight",
+            "commodity_resource_bucket_cap",
+            "min_cash_weight",
+            "qdii_premium_veto",
+            "hard_premium_veto",
+            "drawdown_cut_threshold",
+            "drawdown_gross_exposure_multiplier",
+        )
+        for field_name in fraction_fields:
+            value = getattr(self, field_name)
+            if not isinstance(value, (int, float)) or isinstance(value, bool):
+                raise ValueError(
+                    f"EtfRiskRuleConfig.{field_name} must be numeric, "
+                    f"got {value!r}"
+                )
+            number = float(value)
+            if number != number:  # NaN guard
+                raise ValueError(f"EtfRiskRuleConfig.{field_name} is NaN")
+            if not 0.0 <= number <= 1.0:
+                raise ValueError(
+                    f"EtfRiskRuleConfig.{field_name} must be a fraction in "
+                    f"[0, 1], got {number}"
+                )
 
 
 @dataclass(frozen=True)

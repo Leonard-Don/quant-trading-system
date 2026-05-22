@@ -271,6 +271,7 @@ class EtfRotationService:
         use_cache: bool = True,
         force: bool = False,
         enable_policy_signal_factor: Optional[bool] = None,
+        allow_synthetic_or_stale: bool = False,
     ) -> RefreshOutcome:
         """Re-run the plan; respect trading hours and debounce thresholds.
 
@@ -281,6 +282,13 @@ class EtfRotationService:
         ``strategy.policy_signal_factor_enabled`` for this single refresh
         (``None`` honours the config). Surfaced so the dashboard "preview
         with policy on" button can flip the factor without persisting it.
+
+        ``allow_synthetic_or_stale`` forwards the data-safety override to
+        ``generate_plan``: ``False`` (default) leaves a synthetic / stale
+        history plan flagged ``actionable=False``; ``True`` acknowledges
+        the risk (offline demos, tests) and marks it actionable again. It
+        does not place or automate any order — the manual-only contract is
+        unchanged.
         """
 
         with self._lock:
@@ -298,6 +306,7 @@ class EtfRotationService:
                 use_cache=use_cache,
                 now=now,
                 enable_policy_signal_factor=enable_policy_signal_factor,
+                allow_synthetic_or_stale=allow_synthetic_or_stale,
             )
 
             new_signature = audit_state_signature(new_plan)
@@ -503,6 +512,7 @@ class EtfRotationService:
         use_cache: bool,
         now: datetime,
         enable_policy_signal_factor: Optional[bool] = None,
+        allow_synthetic_or_stale: bool = False,
     ) -> tuple[dict[str, Any], str]:
         base_holdings, holdings_is_configured = self._holdings_loader()
         codes = [h.code for h in base_holdings]
@@ -636,6 +646,7 @@ class EtfRotationService:
             price_matrix_as_of=price_matrix_as_of,
             now=now,
             enable_policy_signal_factor=enable_policy_signal_factor,
+            allow_synthetic_or_stale=allow_synthetic_or_stale,
         )
 
         if regime_decision is not None:

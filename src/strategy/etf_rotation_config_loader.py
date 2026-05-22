@@ -425,6 +425,190 @@ def _merge_universe(
     return [by_code[code] for code in ordered_codes]
 
 
+class StrategyConfigError(ValueError):
+    """Raised when a resolved strategy config fails numeric/safety validation.
+
+    A subclass of ``ValueError`` so existing ``except ValueError`` call
+    sites keep catching it, while new code can be specific.
+    """
+
+
+# ---------------------------------------------------------------------------
+# Validation
+#
+# The loader deep-merges user JSON over defaults. Without validation a
+# typo'd or pasted-wrong value (``max_weight: 3.5``, a negative cash
+# floor, a positive ``stop_loss_threshold`` that silently disables the
+# protective stop) flows all the way into a real-money plan. We validate
+# the *resolved* config here, at the single load chokepoint, and raise a
+# specific error naming the offending field and its expected range — fail
+# fast at load time, not deep inside the strategy.
+# ---------------------------------------------------------------------------
+
+
+def _require_number(value: Any, field_path: str) -> float:
+    """Coerce ``value`` to float or raise a specific ``StrategyConfigError``.
+
+    Booleans are rejected: ``True``/``False`` are technically ``int`` in
+    Python but never a valid weight/threshold.
+    """
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise StrategyConfigError(
+            f"{field_path} must be a number, got {value!r}"
+        )
+    number = float(value)
+    if number != number:  # NaN guard
+        raise StrategyConfigError(f"{field_path} must not be NaN")
+    return number
+
+
+def _require_fraction(
+    value: Any,
+    field_path: str,
+    *,
+    low: float = 0.0,
+    high: float = 1.0,
+    low_inclusive: bool = True,
+    high_inclusive: bool = True,
+) -> float:
+    """Validate ``value`` is a number inside the given fractional bounds."""
+
+    number = _require_number(value, field_path)
+    lo_ok = number >= low if low_inclusive else number > low
+    hi_ok = number <= high if high_inclusive else number < high
+    if not (lo_ok and hi_ok):
+        lb = "[" if low_inclusive else "("
+        rb = "]" if high_inclusive else ")"
+        raise StrategyConfigError(
+            f"{field_path} must be a fraction in {lb}{low}, {high}{rb}, "
+            f"got {number}"
+        )
+    return number
+
+
+def _validate_resolved_config(
+    *,
+    universe: list[dict[str, Any]],
+    risk_rules: dict[str, Any],
+    strategy: dict[str, Any],
+) -> None:
+    """Validate weight/risk/stop-loss/threshold fields of a resolved config.
+
+    Raises :class:`StrategyConfigError` (a ``ValueError``) on the first
+    offending field, naming the field and its expected range.
+    """
+
+    # --- universe: per-ETF weight fractions ---
+    for asset in universe:
+        code = asset.get("code", "<no-code>")
+        if "max_weight" in asset:
+            _require_fraction(asset["max_weight"], f"universe[{code}].max_weight")
+        if "base_weight" in asset:
+            _require_fraction(asset["base_weight"], f"universe[{code}].base_weight")
+        if "min_weight" in asset:
+            _require_fraction(asset["min_weight"], f"universe[{code}].min_weight")
+        max_w = asset.get("max_weight")
+        base_w = asset.get("base_weight")
+        if (
+            isinstance(max_w, (int, float)) and not isinstance(max_w, bool)
+            and isinstance(base_w, (int, float)) and not isinstance(base_w, bool)
+            and float(base_w) > float(max_w)
+        ):
+            raise StrategyConfigError(
+                f"universe[{code}].base_weight ({base_w}) must not exceed "
+                f"max_weight ({max_w})"
+            )
+
+    # --- risk_rules: caps + cash floor + premium vetoes are fractions ---
+    for field_name in (
+        "max_single_weight",
+        "commodity_resource_bucket_cap",
+        "min_cash_weight",
+        "qdii_premium_veto",
+        "hard_premium_veto",
+        "drawdown_cut_threshold",
+        "drawdown_gross_exposure_multiplier",
+    ):
+        if field_name in risk_rules:
+            _require_fraction(risk_rules[field_name], f"risk_rules.{field_name}")
+
+    # --- strategy: gross cap, score ramp, warmup, stop-loss ---
+    if "gross_cap" in strategy:
+        _require_fraction(
+            strategy["gross_cap"], "strategy.gross_cap",
+            low=0.0, low_inclusive=False,
+        )
+
+    min_hold = None
+    if "min_score_to_hold" in strategy:
+        min_hold = _require_number(
+            strategy["min_score_to_hold"], "strategy.min_score_to_hold"
+        )
+        if min_hold < 0.0:
+            raise StrategyConfigError(
+                f"strategy.min_score_to_hold must be >= 0, got {min_hold}"
+            )
+    full_hold = None
+    if "min_score_full_hold" in strategy:
+        full_hold = _require_number(
+            strategy["min_score_full_hold"], "strategy.min_score_full_hold"
+        )
+        if full_hold < 0.0:
+            raise StrategyConfigError(
+                f"strategy.min_score_full_hold must be >= 0, got {full_hold}"
+            )
+    if min_hold is not None and full_hold is not None and full_hold < min_hold:
+        raise StrategyConfigError(
+            f"strategy.min_score_full_hold ({full_hold}) must be >= "
+            f"strategy.min_score_to_hold ({min_hold})"
+        )
+
+    if "warmup_days" in strategy:
+        warmup = strategy["warmup_days"]
+        if isinstance(warmup, bool) or not isinstance(warmup, int):
+            raise StrategyConfigError(
+                f"strategy.warmup_days must be a positive integer, "
+                f"got {warmup!r}"
+            )
+        if warmup <= 0:
+            raise StrategyConfigError(
+                f"strategy.warmup_days must be a positive integer, got {warmup}"
+            )
+
+    if "annualized_vol_target" in strategy:
+        vol_target = strategy["annualized_vol_target"]
+        if vol_target is not None:
+            vt = _require_number(
+                vol_target, "strategy.annualized_vol_target"
+            )
+            if vt <= 0.0:
+                raise StrategyConfigError(
+                    f"strategy.annualized_vol_target must be > 0 (or null to "
+                    f"disable), got {vt}"
+                )
+
+    # The protective stop. ``None`` deliberately disables it; ANY numeric
+    # value MUST be strictly negative (it is a loss bound). A positive
+    # value silently disables the stop on a real-money portfolio — reject.
+    if "stop_loss_threshold" in strategy:
+        stop = strategy["stop_loss_threshold"]
+        if stop is not None:
+            stop_num = _require_number(stop, "strategy.stop_loss_threshold")
+            if stop_num >= 0.0:
+                raise StrategyConfigError(
+                    "strategy.stop_loss_threshold must be a negative fraction "
+                    "(e.g. -0.15 for a 15% stop) — a non-negative value "
+                    "silently disables the protective stop. Use null to "
+                    f"disable it intentionally. Got {stop_num}"
+                )
+            if stop_num < -1.0:
+                raise StrategyConfigError(
+                    "strategy.stop_loss_threshold must be a fraction in "
+                    f"[-1, 0); got {stop_num}"
+                )
+
+
 def load_strategy_config(
     path: Optional[Path] = None,
     *,
@@ -490,6 +674,16 @@ def load_strategy_config(
         **DEFAULT_ETF_INDUSTRY_MAP,
         **{str(k): str(v) for k, v in raw_industry_map.items() if k and v},
     }
+
+    # Numeric/safety validation at the single load chokepoint. Runs on
+    # the *resolved* (defaults + overrides) config so a partial user
+    # override that pushes a field out of range is still caught. Raises
+    # StrategyConfigError (a ValueError) naming the offending field.
+    _validate_resolved_config(
+        universe=universe,
+        risk_rules=risk_rules,
+        strategy=strategy,
+    )
 
     raw_manual_overrides = raw.get("manual_overrides") or {}
     if not isinstance(raw_manual_overrides, Mapping):
@@ -562,5 +756,6 @@ __all__ = [
     "DEFAULT_STRATEGY_PARAMS",
     "DEFAULT_UNIVERSE",
     "StrategyConfig",
+    "StrategyConfigError",
     "load_strategy_config",
 ]
