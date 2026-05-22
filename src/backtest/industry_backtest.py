@@ -114,6 +114,36 @@ class IndustryBacktester(BaseBacktester):
             {"symbol": "KRE", "name": "区域银行 ETF", "market_cap": 650_000_000},
             {"symbol": "VFH", "name": "金融先锋 ETF", "market_cap": 600_000_000},
         ],
+        "食品饮料": [
+            {"symbol": "512690", "name": "酒 ETF", "market_cap": 1_000_000_000},
+            {"symbol": "159928", "name": "消费 ETF", "market_cap": 950_000_000},
+            {"symbol": "XLP", "name": "必需消费精选行业 ETF", "market_cap": 900_000_000},
+            {"symbol": "XLY", "name": "可选消费精选行业 ETF", "market_cap": 850_000_000},
+        ],
+        "国防军工": [
+            {"symbol": "512660", "name": "军工 ETF", "market_cap": 950_000_000},
+            {"symbol": "ITA", "name": "航空航天与国防 ETF", "market_cap": 900_000_000},
+            {"symbol": "XAR", "name": "航空航天与国防精选 ETF", "market_cap": 700_000_000},
+        ],
+        "计算机": [
+            {"symbol": "512720", "name": "计算机 ETF", "market_cap": 880_000_000},
+            {"symbol": "IGV", "name": "软件行业 ETF", "market_cap": 900_000_000},
+        ],
+        "房地产": [
+            {"symbol": "512200", "name": "房地产 ETF", "market_cap": 820_000_000},
+            {"symbol": "XLRE", "name": "房地产精选行业 ETF", "market_cap": 800_000_000},
+            {"symbol": "IYR", "name": "美国房地产 ETF", "market_cap": 750_000_000},
+        ],
+        "有色金属": [
+            {"symbol": "512400", "name": "有色金属 ETF", "market_cap": 900_000_000},
+            {"symbol": "XME", "name": "金属与采矿 ETF", "market_cap": 700_000_000},
+            {"symbol": "GDX", "name": "金矿 ETF", "market_cap": 800_000_000},
+        ],
+        "能源": [
+            {"symbol": "XLE", "name": "能源精选行业 ETF", "market_cap": 950_000_000},
+            {"symbol": "XOP", "name": "油气勘探与生产 ETF", "market_cap": 780_000_000},
+            {"symbol": "159930", "name": "能源 ETF", "market_cap": 720_000_000},
+        ],
     }
 
     def __init__(

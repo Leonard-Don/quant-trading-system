@@ -193,3 +193,13 @@ def test_industry_backtester_default_proxy_map_includes_a_share_etfs():
     assert proxy_map["医药生物"][0]["symbol"] == "512010"
     assert proxy_map["新能源"][0]["symbol"] == "516160"
     assert proxy_map["金融"][0]["symbol"] == "512800"
+
+    # Expanded sector coverage (2026-05-22): 4 -> 10 industries.
+    assert proxy_map["食品饮料"][0]["symbol"] == "512690"
+    assert proxy_map["国防军工"][0]["symbol"] == "512660"
+    assert proxy_map["计算机"][0]["symbol"] == "512720"
+    assert proxy_map["房地产"][0]["symbol"] == "512200"
+    assert proxy_map["有色金属"][0]["symbol"] == "512400"
+    assert proxy_map["能源"][0]["symbol"] == "XLE"
+    # Every mapped industry must carry at least one proxy ETF.
+    assert all(proxies for proxies in proxy_map.values())
