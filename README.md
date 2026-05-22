@@ -3,7 +3,7 @@
 # quant-trading-system
 
 **一个基于 FastAPI + React 的量化研究基础设施 —— 回测引擎、实时行情、策略库，外加一套严谨的策略证伪方法学。聚焦 `今日研究`、`策略回测`、`实时行情`、`行业热度` 四个公开工作区。**
-*Quant research infrastructure — backtest engines, realtime data, a strategy library, and a rigorous strategy-falsification methodology. This is a research platform, NOT a money-making trading system.*
+*Quant research infrastructure — backtest engines, realtime data, a strategy library, and a rigorous strategy-falsification methodology.*
 
 **当前版本：`v5.0.0`** · [查看更新日志](docs/CHANGELOG.md)
 
@@ -26,7 +26,7 @@
 
 ## 📌 仓库定位
 
-> **先说清楚这个仓不是什么。** 仓库名里带 `trading`，但它**并不是一个能赚钱的交易系统**，也不声称能产生 alpha。它是一套量化**研究基础设施**：可独立运行的回测引擎、实时行情管线、29 种策略实现，以及——同样重要的——一套用来**证伪**自己策略的形式化统计方法学。请把它当成一个**研究与回测平台**来用，而不是一个交易信号源。
+> 它是一套量化**研究基础设施**：可独立运行的回测引擎、实时行情管线、29 种策略实现，以及一套用来**证伪**自己策略的形式化统计方法学。请把它当成一个**研究与回测平台**来用。
 
 这个仓是一个独立维护的量化研究项目，围绕今日研究与四块核心工作区展开：
 
@@ -199,7 +199,7 @@ quant-trading-system/
 │       ├── schemas/                # Pydantic 请求/响应模型
 │       ├── services/               # 实时提醒、偏好、复盘、交易流
 │       └── websocket/              # WebSocket 路由与连接管理
-├── frontend/                       # React 18 前端 (Create React App)
+├── frontend/                       # React 18 前端 (Vite)
 │   └── src/
 │       ├── components/             # 回测 / 实时 / 行业 / 跨市场等组件 (31 主组件 + 6 子模块)
 │       ├── hooks/                  # 实时偏好、实验工作区等自定义 Hook
@@ -221,8 +221,8 @@ quant-trading-system/
 │   ├── trading/                    # 交易执行与跨市场资产建模
 │   └── utils/                      # 通用工具
 ├── tests/                          # 测试套件
-│   ├── unit/                       # 41 个单元测试
-│   ├── integration/                # 3 个集成测试
+│   ├── unit/                       # 单元测试
+│   ├── integration/                # 集成测试
 │   ├── e2e/                        # Playwright 浏览器 E2E
 │   └── manual/                     # system smoke 脚本
 ├── docs/                           # 项目文档
@@ -328,7 +328,7 @@ python3 ./scripts/health_check.py
 
 ## 🧪 测试验证
 
-项目包含 **97** 个测试文件，覆盖后端单元 / 集成测试、前端组件测试和浏览器 E2E 验证。
+项目覆盖后端单元 / 集成测试、前端组件测试和浏览器 E2E 验证。
 
 ### 后端测试
 
