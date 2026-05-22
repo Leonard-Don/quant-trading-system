@@ -100,7 +100,9 @@ line-ending = "lf"
 # Mypy (loose for now — tighten module-by-module)
 # ---------------------------------------------------------------------------
 [tool.mypy]
-python_version = "3.9"
+# 3.10 floor: CI runs 3.13 and modern deps (e.g. click) use match/case,
+# which mypy cannot parse under a 3.9 target.
+python_version = "3.10"
 ignore_missing_imports = true
 warn_unused_ignores = false
 warn_redundant_casts = true
