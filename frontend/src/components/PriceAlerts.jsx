@@ -126,8 +126,6 @@ const PriceAlerts = ({
     const saveAlertsTimerRef = useRef(null);
     const latestAlertsRef = useRef('');
     const realtimeProfileIdRef = useRef(realtimePreferences.loadRealtimeProfileId());
-    // eslint-disable-next-line no-unused-vars
-    const [triggeredAlerts, setTriggeredAlerts] = useState([]);
     const watchedCondition = Form.useWatch('condition', form) || DEFAULT_CONDITION;
     const selectedCondition = CONDITION_OPTIONS.find((item) => item.value === watchedCondition) || CONDITION_OPTIONS[0];
     const conditionCounts = useMemo(() => alerts.reduce((result, item) => {
@@ -382,7 +380,6 @@ const PriceAlerts = ({
                 : item
         )));
 
-        setTriggeredAlerts((prev) => [...prev, { ...alert, triggerValue }]);
         const historyEntry = buildAlertHitHistoryEntry({
             alert,
             triggerValue,

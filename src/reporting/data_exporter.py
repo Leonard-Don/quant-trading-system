@@ -380,7 +380,7 @@ class DataExporter:
     ) -> str:
         """创建组合价值图表"""
         try:
-            fig, ax = plt.subplots(figsize=(12, 6))
+            _fig, ax = plt.subplots(figsize=(12, 6))
 
             dates = dates if dates is not None else pd.date_range(
                 start="2023-01-01", periods=len(portfolio_value), freq="D"
@@ -429,7 +429,7 @@ class DataExporter:
     ) -> str:
         """创建回撤图表"""
         try:
-            fig, ax = plt.subplots(figsize=(12, 6))
+            _fig, ax = plt.subplots(figsize=(12, 6))
 
             # 计算回撤
             returns = pd.Series(portfolio_value).pct_change().dropna()
@@ -479,7 +479,7 @@ class DataExporter:
     ) -> str:
         """创建收益分布图表"""
         try:
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+            _fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
 
             # 计算日收益率
             returns = pd.Series(portfolio_value).pct_change().dropna() * 100

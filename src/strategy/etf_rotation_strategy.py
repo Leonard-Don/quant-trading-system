@@ -445,7 +445,6 @@ class EtfRotationStrategy:
 
         scoring = self.config.scoring
         # Pull features into parallel arrays.
-        codes = [s.symbol for s in signals]
         ret20 = np.array([s.return20 for s in signals], dtype=float)
         ret60 = np.array([s.return60 for s in signals], dtype=float)
         trend_strength = np.array(

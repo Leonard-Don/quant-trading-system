@@ -5,7 +5,7 @@
 - `tests/unit/` 单元测试
 - `tests/integration/` 集成测试
 - `tests/e2e/` 浏览器端到端回归
-- `tests/manual/` 手工/调试脚本
+- `tests/manual/` system smoke 脚本（由 `scripts/run_tests.py --system` 调用）
 
 ## 运行测试
 

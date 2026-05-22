@@ -224,7 +224,7 @@ quant-trading-system/
 │   ├── unit/                       # 41 个单元测试
 │   ├── integration/                # 3 个集成测试
 │   ├── e2e/                        # Playwright 浏览器 E2E
-│   └── manual/                     # 手动验证脚本
+│   └── manual/                     # system smoke 脚本
 ├── docs/                           # 项目文档
 └── scripts/                        # 启停、检查、文档生成、验证等运维脚本
 ```

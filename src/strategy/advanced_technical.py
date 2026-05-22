@@ -456,8 +456,8 @@ class MultiIndicatorStrategy(BaseStrategy):
 
             # 计算各种指标
             rsi = self._calculate_rsi(close, self.rsi_period)
-            macd, macd_signal, macd_hist = self._calculate_macd(close)
-            bb_upper, bb_middle, bb_lower = self._calculate_bollinger_bands(close)
+            macd, macd_signal, _macd_hist = self._calculate_macd(close)
+            bb_upper, _bb_middle, bb_lower = self._calculate_bollinger_bands(close)
 
             # 计算成交量移动平均
             volume_ma = volume.rolling(window=20).mean()

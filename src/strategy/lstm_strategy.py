@@ -310,8 +310,8 @@ class LSTMStrategy(BaseStrategy):
                 )
 
             # 评估
-            train_loss, train_acc = self.model.evaluate(X_train, y_train, verbose=0)
-            val_loss, val_acc = self.model.evaluate(X_val, y_val, verbose=0)
+            _train_loss, train_acc = self.model.evaluate(X_train, y_train, verbose=0)
+            _val_loss, val_acc = self.model.evaluate(X_val, y_val, verbose=0)
 
             logger.info(f"LSTM 训练完成 - 训练准确率: {train_acc:.3f}, 验证准确率: {val_acc:.3f}")
 

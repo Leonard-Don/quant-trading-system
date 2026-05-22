@@ -4783,7 +4783,7 @@ def export_submission_artifacts(doc_path: Path) -> Path:
     declaration_png = TMP_FRONT_ASSET_DIR / "front_declaration.png"
     front_pdf = TMP_FRONT_ASSET_DIR / "front_pages.pdf"
 
-    cover_render = build_cover_pdf_from_template(template_page_1, front_cover_pdf)
+    build_cover_pdf_from_template(template_page_1, front_cover_pdf)
     declaration_asset, declaration_render = prepare_declaration_page_asset(template_page_2, declaration_png)
     build_front_pdf(front_cover_pdf, declaration_asset, front_pdf)
 

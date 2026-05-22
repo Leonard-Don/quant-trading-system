@@ -810,7 +810,7 @@ class Backtester(BaseBacktester):
         buy_trades = [t for t in trades if t["type"] == "BUY"]
         sell_trades = [t for t in trades if t["type"] == "SELL"]
 
-        completed_trade_pnls, completed_trade_returns, has_open_position = (
+        completed_trade_pnls, _completed_trade_returns, has_open_position = (
             self._extract_completed_trade_statistics(trades, portfolio)
         )
 

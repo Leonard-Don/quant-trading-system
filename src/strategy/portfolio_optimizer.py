@@ -92,7 +92,7 @@ class PortfolioOptimizer:
 
         # 目标函数：负夏普比率（因为我们要最小化）
         def neg_sharpe(weights):
-            ret, vol, sharpe = self.calculate_portfolio_stats(weights, returns)
+            _ret, _vol, sharpe = self.calculate_portfolio_stats(weights, returns)
             return -sharpe
 
         # 约束条件
@@ -654,4 +654,3 @@ class StrategyWeightOptimizer:
 # 全局优化器实例
 portfolio_optimizer = PortfolioOptimizer()
 strategy_weight_optimizer = StrategyWeightOptimizer()
-
