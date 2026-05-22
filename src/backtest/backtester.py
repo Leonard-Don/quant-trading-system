@@ -823,13 +823,16 @@ class Backtester(BaseBacktester):
             len(winning_trades) / total_completed_trades if total_completed_trades > 0 else 0
         )
 
-        # Calculate profit factor (gross profit / gross loss)
+        # Calculate profit factor (gross profit / gross loss).
+        # When there are no losing trades the ratio is undefined; return
+        # None (JSON null) rather than inf — inf is not JSON-serializable
+        # and poisons batch averaging.
         gross_profit = sum(winning_trades) if winning_trades else 0
         gross_loss = abs(sum(losing_trades)) if losing_trades else 0
         profit_factor = (
             gross_profit / gross_loss
             if gross_loss > 0
-            else (float("inf") if gross_profit > 0 else 0)
+            else (None if gross_profit > 0 else 0)
         )
 
         # Calculate best and worst trades
@@ -1079,6 +1082,10 @@ class Backtester(BaseBacktester):
 
         metrics = self.results
 
+        def _fmt_ratio(value: Any) -> str:
+            """Format a ratio that may be None (undefined / unbounded)."""
+            return "n/a" if value is None else f"{value:.2f}"
+
         print("\n" + "=" * 60)
         print("BACKTEST RESULTS")
         print("=" * 60)
@@ -1092,20 +1099,20 @@ class Backtester(BaseBacktester):
         print("-" * 60)
         print(f"Sharpe Ratio:          {metrics['sharpe_ratio']:.2f}")
         print(f"Sortino Ratio:         {metrics['sortino_ratio']:.2f}")
-        print(f"Calmar Ratio:          {metrics['calmar_ratio']:.2f}")
+        print(f"Calmar Ratio:          {_fmt_ratio(metrics['calmar_ratio'])}")
         print(f"Max Drawdown:          {metrics['max_drawdown']:.2%}")
         print(f"Max DD Duration:       {metrics.get('max_drawdown_duration', 0)} bars")
         print(f"Max Underwater:        {metrics.get('max_underwater_period', 0)} bars")
         print(f"Value at Risk (95%):   {metrics['var_95']:.2%}")
         print(f"CVaR / ES (95%):       {metrics.get('cvar_95', 0):.2%}")
-        print(f"Omega Ratio:           {metrics.get('omega_ratio', 0):.2f}")
+        print(f"Omega Ratio:           {_fmt_ratio(metrics.get('omega_ratio'))}")
         print("-" * 60)
         print("TRADE STATISTICS")
         print("-" * 60)
         print(f"Total Trades:          {metrics['num_trades']}")
         print(f"Completed Trades:      {metrics['total_completed_trades']}")
         print(f"Win Rate:              {metrics['win_rate']:.2%}")
-        print(f"Profit Factor:         {metrics['profit_factor']:.2f}")
+        print(f"Profit Factor:         {_fmt_ratio(metrics['profit_factor'])}")
         print(f"Average Trade:         ${metrics['avg_trade']:,.2f}")
         print(f"Best Trade:            ${metrics['best_trade']:,.2f}")
         print(f"Worst Trade:           ${metrics['worst_trade']:,.2f}")

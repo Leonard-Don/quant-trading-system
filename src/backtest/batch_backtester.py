@@ -508,8 +508,14 @@ class BatchBacktester:
         """
         successful = [r for r in self.results if r.success]
 
+        # An undefined ratio (e.g. calmar/omega/profit_factor with a zero
+        # denominator) is reported as None. Treat a missing OR None metric as
+        # the worst-ranked sentinel so sorting never compares None to a float.
         def get_metric_value(result):
-            return result.metrics.get(metric, float('-inf') if not ascending else float('inf'))
+            value = result.metrics.get(metric)
+            if value is None:
+                return float('inf') if ascending else float('-inf')
+            return value
 
         sorted_results = sorted(successful, key=get_metric_value, reverse=not ascending)
 

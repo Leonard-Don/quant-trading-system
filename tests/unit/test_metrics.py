@@ -228,8 +228,9 @@ class TestCalculateCVaR:
 # ---------------------------------------------------------------------------
 class TestCalculateOmegaRatio:
     def test_all_gains(self):
+        """No losses → ratio is undefined; return None (JSON null), not inf."""
         returns = pd.Series([0.01, 0.02, 0.03])
-        assert calculate_omega_ratio(returns) == float("inf")
+        assert calculate_omega_ratio(returns) is None
 
     def test_all_losses(self):
         returns = pd.Series([-0.01, -0.02, -0.03])
@@ -272,7 +273,8 @@ class TestCalculateCalmarRatio:
         assert calculate_calmar_ratio(0.10, 0.05) == pytest.approx(2.0)
 
     def test_zero_drawdown_positive_return(self):
-        assert calculate_calmar_ratio(0.10, 0.0) == float("inf")
+        """Zero drawdown with positive return → undefined; return None, not inf."""
+        assert calculate_calmar_ratio(0.10, 0.0) is None
 
     def test_zero_drawdown_negative_return(self):
         assert calculate_calmar_ratio(-0.10, 0.0) == 0.0
@@ -294,7 +296,8 @@ class TestCalculateRecoveryFactor:
         assert calculate_recovery_factor(2000, 0.1) == pytest.approx(20000)
 
     def test_zero_drawdown(self):
-        assert calculate_recovery_factor(100, 0.0) == float("inf")
+        """Zero drawdown with profit → undefined; return None, not inf."""
+        assert calculate_recovery_factor(100, 0.0) is None
         assert calculate_recovery_factor(-100, 0.0) == 0.0
 
 

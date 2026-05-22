@@ -1,6 +1,11 @@
 import pandas as pd
 
-from src.backtest.batch_backtester import BacktestTask, BatchBacktester, WalkForwardAnalyzer
+from src.backtest.batch_backtester import (
+    BacktestResult,
+    BacktestTask,
+    BatchBacktester,
+    WalkForwardAnalyzer,
+)
 
 
 class DummyBacktester:
@@ -131,6 +136,42 @@ def _data_fetcher(symbol, start_date=None, end_date=None):
 
 def _tunable_backtester_factory(initial_capital=10000, commission=0.001, slippage=0.001):
     return TunableBacktester(initial_capital=initial_capital, commission=commission, slippage=slippage)
+
+
+def _result_with_metric(task_id, calmar_value):
+    """Build a BacktestResult carrying a possibly-None calmar_ratio so the
+    ranking consumer can be exercised without going through normalization."""
+    return BacktestResult(
+        task_id=task_id,
+        symbol="AAPL",
+        strategy_name="buy_and_hold",
+        parameters={},
+        metrics={"sharpe_ratio": 1.0, "calmar_ratio": calmar_value},
+        success=True,
+    )
+
+
+def test_get_ranked_results_tolerates_none_valued_metric():
+    """Ranking by a metric whose value is None (an undefined ratio — e.g.
+    calmar with zero drawdown) must not raise a TypeError from sorting None
+    against floats."""
+    batch = BatchBacktester()
+    batch.results = [
+        _result_with_metric("task-none-a", None),
+        _result_with_metric("task-real", 2.5),
+        _result_with_metric("task-none-b", None),
+    ]
+
+    # Descending: the only defined ratio (2.5) ranks first; None sorts last.
+    ranked = batch.get_ranked_results(metric="calmar_ratio")
+    assert len(ranked) == 3
+    assert ranked[0].task_id == "task-real"
+
+    # Ascending: None is treated as the worst, so the defined ratio still
+    # ranks ahead of the undefined ones.
+    ranked_asc = batch.get_ranked_results(metric="calmar_ratio", ascending=True)
+    assert len(ranked_asc) == 3
+    assert ranked_asc[0].task_id == "task-real"
 
 
 def test_batch_backtester_reads_metrics_from_normalized_top_level_results():

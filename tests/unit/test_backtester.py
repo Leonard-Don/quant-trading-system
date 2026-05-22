@@ -163,6 +163,50 @@ class TestBacktester:
         assert results["max_consecutive_losses"] == 0
         assert results["net_profit"] == 180
 
+    def test_profit_factor_is_none_when_no_losing_trades(self):
+        """All-winning trades make profit_factor undefined; it must be None
+        (JSON null), not inf — inf is not JSON-serializable and poisons
+        batch averaging."""
+        dates = pd.date_range("2024-01-01", periods=5, freq="D")
+        data = pd.DataFrame({"close": [100, 110, 120, 130, 140]}, index=dates)
+        # buy bar 0, sell bar 1 (win), buy bar 2, sell bar 3 (win)
+        strategy = DummyStrategy([1, -1, 1, -1, 0])
+
+        results = Backtester(
+            initial_capital=10000,
+            commission=0,
+            slippage=0,
+            execution_lag=0,
+        ).run(strategy, data)
+
+        assert results["total_completed_trades"] == 2
+        assert results["gross_loss"] == 0
+        assert results["profit_factor"] is None
+
+    def test_metrics_are_json_serializable(self):
+        """The full metrics dict must survive json.dumps even for an
+        all-winning, zero-drawdown run (no inf leaking through)."""
+        import json
+
+        dates = pd.date_range("2024-01-01", periods=5, freq="D")
+        data = pd.DataFrame({"close": [100, 110, 120, 130, 140]}, index=dates)
+        strategy = DummyStrategy([1, -1, 1, -1, 0])
+
+        results = Backtester(
+            initial_capital=10000,
+            commission=0,
+            slippage=0,
+            execution_lag=0,
+        ).run(strategy, data)
+
+        serializable = {
+            key: value
+            for key, value in results.items()
+            if key not in {"portfolio", "trades"}
+        }
+        # json.dumps rejects inf/-inf with allow_nan=False
+        json.dumps(serializable, allow_nan=False, default=str)
+
     def test_consecutive_stats_follow_completed_trade_order(self):
         """连胜连败应按真实成交顺序统计，而不是按盈亏分组"""
         dates = pd.date_range("2024-01-01", periods=7, freq="D")

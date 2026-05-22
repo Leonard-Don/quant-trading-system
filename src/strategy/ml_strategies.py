@@ -21,24 +21,48 @@ logger = logging.getLogger(__name__)
 
 
 class MLStrategy(BaseStrategy):
-    """机器学习基础策略"""
+    """机器学习基础策略
+
+    Out-of-sample backtesting
+    -------------------------
+    ``generate_signals`` performs an *expanding-window walk-forward* internally:
+    the model is fit on history strictly before each prediction segment, then
+    used to predict only the next ``retrain_interval`` bars, then refit. A
+    model therefore never predicts a bar it was trained on, so a single-asset
+    backtest driven by these signals is genuinely out-of-sample.
+
+    A label at row ``j`` is ``future_return.shift(-horizon)`` — it encodes the
+    price ``horizon`` bars ahead — so training rows are additionally truncated
+    by ``prediction_horizon`` to keep label information from leaking into the
+    predicted segment.
+
+    Performance trade-off: the walk-forward refits the model roughly
+    ``(n - min_training_samples) / retrain_interval`` times instead of once.
+    With the default ``retrain_interval`` this is a small, bounded multiple
+    (not a per-bar retrain, which would be prohibitively slow), so a backtest
+    is meaningfully slower than the old single-fit path but is no longer
+    in-sample-inflated.
+    """
 
     def __init__(
         self,
         lookback_period: int = 20,
         prediction_horizon: int = 1,
         min_training_samples: int = 100,
+        retrain_interval: int = 21,
         name: str = "MLStrategy",
         **kwargs,
     ):
         super().__init__(name=name, parameters={
             'lookback_period': lookback_period,
             'prediction_horizon': prediction_horizon,
-            'min_training_samples': min_training_samples
+            'min_training_samples': min_training_samples,
+            'retrain_interval': retrain_interval,
         })
         self.lookback_period = lookback_period
         self.prediction_horizon = prediction_horizon
         self.min_training_samples = min_training_samples
+        self.retrain_interval = max(1, int(retrain_interval))
         self.model = None
         self.scaler = StandardScaler()
         self.is_trained = False
@@ -172,30 +196,86 @@ class MLStrategy(BaseStrategy):
             return False
 
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
-        """生成交易信号"""
-        if not self.is_trained or self.model is None:
-            logger.warning("模型未训练，无法生成信号")
+        """生成交易信号（样本外滚动预测）
+
+        Predictions are produced walk-forward: for each segment the model is
+        fit on history strictly before the segment (and before the label
+        horizon), so no bar is ever predicted by a model that trained on it.
+        Warm-up bars with no trained model yet stay flat (0).
+        """
+        if self.model is None:
+            logger.warning("模型未初始化，无法生成信号")
             return pd.Series(0, index=data.index)
 
         try:
-            # 准备特征
-            features = self._prepare_features(data)
-
-            # 标准化特征
-            features_scaled = self.scaler.transform(features)
-
-            # 预测
-            predictions = self.model.predict(features_scaled)
-
-            # 转换为交易信号
-            # 1 -> 1 (买入), 0 -> -1 (卖出)
-            signals = pd.Series(np.where(predictions == 1, 1, -1), index=data.index)
-
-            return signals
-
+            return self._walk_forward_signals(data)
         except Exception as e:
             logger.error(f"信号生成失败: {e}")
             return pd.Series(0, index=data.index)
+
+    def _walk_forward_signals(self, data: pd.DataFrame) -> pd.Series:
+        """Expanding-window walk-forward signal generation.
+
+        Features at bar ``i`` use only past prices (rolling / shifted), so the
+        full-series feature frame carries no lookahead. Training rows are
+        truncated by ``prediction_horizon`` because a row's label encodes a
+        future price.
+        """
+        signals = pd.Series(0, index=data.index, dtype=int)
+        n = len(data)
+        if n < self.min_training_samples + self.prediction_horizon + 1:
+            return signals
+
+        features = self._prepare_features(data)
+        labels = self._prepare_labels(data)
+        self.feature_names = features.columns.tolist()
+
+        feature_values = features.to_numpy(dtype=float)
+        label_values = labels.to_numpy()
+        horizon = self.prediction_horizon
+        any_fit = False
+
+        for predict_start in range(self.min_training_samples, n, self.retrain_interval):
+            # A training row j carries label information up to j + horizon, so
+            # only rows with j + horizon < predict_start are safe to train on.
+            train_end = predict_start - horizon
+            if train_end < self.min_training_samples:
+                continue
+
+            train_x = feature_values[:train_end]
+            train_y = label_values[:train_end]
+            valid = ~(
+                np.isnan(train_x).any(axis=1) | pd.isna(train_y)
+            )
+            train_x = train_x[valid]
+            train_y = train_y[valid]
+            if len(train_x) < self.min_training_samples:
+                continue
+            # A classifier needs both classes present in the training fold.
+            if len(np.unique(train_y)) < 2:
+                continue
+
+            # Fit the scaler and model on the training fold ONLY — fitting the
+            # scaler on the whole series would leak the test distribution.
+            # The model is refit in place each fold; sklearn classifiers fully
+            # re-fit on ``.fit()``, so each fold is an independent expanding
+            # window with no warm-start carry-over.
+            self.scaler = StandardScaler()
+            train_x_scaled = self.scaler.fit_transform(train_x)
+            self.model.fit(train_x_scaled, train_y)
+            any_fit = True
+
+            predict_end = min(predict_start + self.retrain_interval, n)
+            predict_x = feature_values[predict_start:predict_end]
+            predict_x_scaled = self.scaler.transform(predict_x)
+            predictions = self.model.predict(predict_x_scaled)
+            signals.iloc[predict_start:predict_end] = np.where(
+                predictions == 1, 1, -1
+            )
+
+        if any_fit:
+            self.is_trained = True
+        return signals
 
 
 class RandomForestStrategy(MLStrategy):

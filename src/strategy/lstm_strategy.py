@@ -41,6 +41,23 @@ class LSTMStrategy(BaseStrategy):
     - 自动特征工程（技术指标 + 价格模式）
     - 序列数据处理
     - 支持 TensorFlow LSTM 或 sklearn MLP 降级
+
+    Out-of-sample backtesting
+    -------------------------
+    ``generate_signals`` performs an *expanding-window walk-forward*: for each
+    segment the network is fit on history strictly before the segment, then
+    used to predict only the next ``retrain_interval`` bars, then refit. A bar
+    is therefore never predicted by a model that was trained on it, so a
+    single-asset backtest driven by these signals is genuinely out-of-sample
+    (the internal 80/20 split inside ``train()`` only ever produced a *logged*
+    accuracy number — it never made the backtest itself out-of-sample).
+
+    Performance trade-off: the walk-forward refits the network roughly
+    ``(n - warmup) / retrain_interval`` times. Each refit of a TensorFlow LSTM
+    is expensive, so ``retrain_interval`` defaults to a wide cadence to keep
+    the multiple small; a per-bar retrain would be prohibitively slow. The
+    backtest is slower than the old single-fit path but no longer
+    in-sample-inflated.
     """
 
     def __init__(
@@ -52,6 +69,7 @@ class LSTMStrategy(BaseStrategy):
         batch_size: int = 32,
         prediction_threshold: float = 0.5,
         use_tensorflow: bool = True,
+        retrain_interval: int = 63,
         name: str = "LSTM",
         **kwargs,
     ):
@@ -66,6 +84,7 @@ class LSTMStrategy(BaseStrategy):
             batch_size: 批次大小
             prediction_threshold: 预测阈值
             use_tensorflow: 是否使用 TensorFlow（可用时）
+            retrain_interval: 滚动样本外预测中两次重新训练之间的 bar 数
             name: 策略名称
         """
         super().__init__(name=name, parameters={
@@ -73,7 +92,8 @@ class LSTMStrategy(BaseStrategy):
             'lstm_units': lstm_units,
             'dropout_rate': dropout_rate,
             'epochs': epochs,
-            'batch_size': batch_size
+            'batch_size': batch_size,
+            'retrain_interval': retrain_interval,
         })
         self.sequence_length = sequence_length
         self.lstm_units = lstm_units
@@ -82,6 +102,10 @@ class LSTMStrategy(BaseStrategy):
         self.batch_size = batch_size
         self.prediction_threshold = prediction_threshold
         self.use_tensorflow = use_tensorflow and HAS_TENSORFLOW
+        self.retrain_interval = max(1, int(retrain_interval))
+        # Walk-forward prediction horizon: a label encodes the price this many
+        # bars ahead, so training rows are truncated by it to avoid leakage.
+        self.prediction_horizon = 1
 
         self.model = None
         self.scaler = MinMaxScaler(feature_range=(0, 1))
@@ -172,13 +196,7 @@ class LSTMStrategy(BaseStrategy):
         labels: np.ndarray
     ) -> tuple[np.ndarray, np.ndarray]:
         """创建 LSTM 序列数据"""
-        X, y = [], []
-
-        for i in range(len(features) - self.sequence_length):
-            X.append(features[i:i + self.sequence_length])
-            y.append(labels[i + self.sequence_length])
-
-        return np.array(X), np.array(y)
+        return self._build_sequences(features, labels)
 
     def _build_lstm_model(self, input_shape: tuple[int, int]) -> None:
         """构建 TensorFlow LSTM 模型"""
@@ -357,7 +375,12 @@ class LSTMStrategy(BaseStrategy):
 
     def generate_signals(self, data: pd.DataFrame) -> pd.Series:
         """
-        生成交易信号
+        生成交易信号（样本外滚动预测）
+
+        Predictions are produced walk-forward: for each segment the network is
+        fit on history strictly before the segment (and before the label
+        horizon), so no bar is ever predicted by a model trained on it.
+        Warm-up bars with no trained model yet stay flat (0).
 
         Args:
             data: OHLCV 数据
@@ -365,52 +388,122 @@ class LSTMStrategy(BaseStrategy):
         Returns:
             交易信号序列: 1=买入, -1=卖出, 0=持有
         """
-        if not self.is_trained or self.model is None:
-            logger.warning("模型未训练")
-            return pd.Series(0, index=data.index)
-
         try:
-            features = self._prepare_features(data)
-            features_scaled = self.scaler.transform(features)
-
-            if self.use_tensorflow:
-                return self._predict_lstm(data, features_scaled)
-            else:
-                return self._predict_mlp(data, features_scaled)
-
+            return self._walk_forward_signals(data)
         except Exception as e:
             logger.error(f"信号生成失败: {e}")
             return pd.Series(0, index=data.index)
 
-    def _predict_lstm(self, data: pd.DataFrame, features: np.ndarray) -> pd.Series:
-        """使用 LSTM 预测"""
-        signals = pd.Series(0, index=data.index)
+    def _walk_forward_signals(self, data: pd.DataFrame) -> pd.Series:
+        """Expanding-window walk-forward signal generation.
 
-        for i in range(self.sequence_length, len(features)):
-            sequence = features[i - self.sequence_length:i].reshape(1, self.sequence_length, -1)
-            prob = self.model.predict(sequence, verbose=0)[0, 0]
+        A sequence ending just before bar ``i`` predicts bar ``i``. To predict
+        bar ``i`` the network is trained only on sequences whose predicted bar
+        ``j`` satisfies ``j + horizon < i`` — a label encodes a future price,
+        so this keeps both feature and label information strictly in the past.
+        """
+        signals = pd.Series(0, index=data.index, dtype=int)
+        n = len(data)
+        warmup = self.sequence_length * 5
+        if n < warmup + self.retrain_interval:
+            return signals
 
-            if prob > self.prediction_threshold + 0.1:
-                signals.iloc[i] = 1  # 买入
-            elif prob < self.prediction_threshold - 0.1:
-                signals.iloc[i] = -1  # 卖出
+        features = self._prepare_features(data)
+        feature_values = features.to_numpy(dtype=float)
+        labels = self._prepare_labels(data).to_numpy()
+        horizon = self.prediction_horizon
+        seq_len = self.sequence_length
+        any_fit = False
 
+        for predict_start in range(warmup, n, self.retrain_interval):
+            # Training sequences may only predict bars strictly before
+            # ``predict_start - horizon`` so neither features nor the label
+            # peek into the predicted segment.
+            train_label_end = predict_start - horizon
+            if train_label_end <= seq_len:
+                continue
+
+            # Fit the scaler on the training rows only — fitting on the whole
+            # series would leak the test-set distribution.
+            train_rows = feature_values[:train_label_end]
+            self.scaler = MinMaxScaler(feature_range=(0, 1))
+            train_scaled = self.scaler.fit_transform(train_rows)
+            train_labels = labels[:train_label_end]
+
+            train_x, train_y = self._build_sequences(train_scaled, train_labels)
+            if len(train_x) < seq_len or len(np.unique(train_y)) < 2:
+                continue
+
+            if not self._fit_segment(train_x, train_y):
+                continue
+            any_fit = True
+
+            predict_end = min(predict_start + self.retrain_interval, n)
+            # Predict each bar in the segment from its preceding sequence,
+            # scaled with the training-fold scaler.
+            for bar in range(predict_start, predict_end):
+                window = feature_values[bar - seq_len:bar]
+                window_scaled = self.scaler.transform(window)
+                prob = self._predict_proba(window_scaled)
+                if prob > self.prediction_threshold + 0.1:
+                    signals.iloc[bar] = 1
+                elif prob < self.prediction_threshold - 0.1:
+                    signals.iloc[bar] = -1
+
+        if any_fit:
+            self.is_trained = True
         return signals
 
-    def _predict_mlp(self, data: pd.DataFrame, features: np.ndarray) -> pd.Series:
-        """使用 MLP 预测"""
-        signals = pd.Series(0, index=data.index)
+    def _build_sequences(
+        self, features: np.ndarray, labels: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Build (sequence, label) pairs; a sequence at t predicts bar
+        ``t + sequence_length``."""
+        x, y = [], []
+        for i in range(len(features) - self.sequence_length):
+            x.append(features[i:i + self.sequence_length])
+            y.append(labels[i + self.sequence_length])
+        return np.array(x), np.array(y)
 
-        for i in range(self.sequence_length, len(features)):
-            sequence = features[i - self.sequence_length:i].flatten().reshape(1, -1)
-            prob = self.model.predict_proba(sequence)[0, 1]
+    def _fit_segment(self, train_x: np.ndarray, train_y: np.ndarray) -> bool:
+        """Fit the active backend on one walk-forward training fold."""
+        try:
+            if self.use_tensorflow:
+                input_shape = (self.sequence_length, train_x.shape[2])
+                self._build_lstm_model(input_shape)
+                early_stop = EarlyStopping(
+                    monitor="loss",
+                    patience=5,
+                    restore_best_weights=True,
+                    verbose=0,
+                )
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    self.model.fit(
+                        train_x,
+                        train_y,
+                        epochs=self.epochs,
+                        batch_size=self.batch_size,
+                        callbacks=[early_stop],
+                        verbose=0,
+                    )
+            else:
+                self._build_mlp_model(train_x.shape[1] * train_x.shape[2])
+                flat_x = train_x.reshape(train_x.shape[0], -1)
+                self.model.fit(flat_x, train_y)
+            return True
+        except Exception as e:
+            logger.warning(f"滚动训练某一窗口失败，跳过该窗口: {e}")
+            return False
 
-            if prob > self.prediction_threshold + 0.1:
-                signals.iloc[i] = 1
-            elif prob < self.prediction_threshold - 0.1:
-                signals.iloc[i] = -1
-
-        return signals
+    def _predict_proba(self, window_scaled: np.ndarray) -> float:
+        """Return the up-probability for a single (sequence_length, n_feat)
+        window using the active backend."""
+        if self.use_tensorflow:
+            sequence = window_scaled.reshape(1, self.sequence_length, -1)
+            return float(self.model.predict(sequence, verbose=0)[0, 0])
+        sequence = window_scaled.flatten().reshape(1, -1)
+        return float(self.model.predict_proba(sequence)[0, 1])
 
     def get_model_summary(self) -> dict:
         """获取模型摘要"""

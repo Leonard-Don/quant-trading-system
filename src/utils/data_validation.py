@@ -641,6 +641,9 @@ def _repair_trailing_corruption(
             consecutive_wins = 0
             consecutive_losses = 0
 
+    # calculate_calmar_ratio returns None for an undefined ratio (positive
+    # return with zero drawdown) — guard the float() cast against it.
+    _calmar = calculate_calmar_ratio(annualized_return, max_drawdown)
     repaired_metrics = {
         "initial_capital": float(initial_capital),
         "final_value": final_value,
@@ -650,7 +653,7 @@ def _repair_trailing_corruption(
         "sharpe_ratio": float(calculate_sharpe_ratio(returns_values)),
         "max_drawdown": float(max_drawdown),
         "sortino_ratio": float(calculate_sortino_ratio(returns_values)),
-        "calmar_ratio": float(calculate_calmar_ratio(annualized_return, max_drawdown)),
+        "calmar_ratio": float(_calmar) if _calmar is not None else None,
         "volatility": float(calculate_volatility(returns_values)),
         "var_95": float(calculate_var(returns_values)),
         "num_trades": len(cleaned_trades),

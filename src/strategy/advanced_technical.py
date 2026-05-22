@@ -232,9 +232,12 @@ class IchimokuStrategy(BaseStrategy):
 
             return signals
 
-        except Exception as e:
-            self.logger.error(f"一目均衡表策略信号生成失败: {e}")
-            return pd.Series(0, index=data.index)
+        except Exception:
+            # Do not swallow the error into a silent all-flat series: that is
+            # indistinguishable from "the strategy chose not to trade" and
+            # hides real defects. Log with traceback and re-raise.
+            logger.exception("一目均衡表策略信号生成失败")
+            raise
 
 
 class StochasticStrategy(BaseStrategy):
@@ -286,9 +289,9 @@ class StochasticStrategy(BaseStrategy):
 
             return signals
 
-        except Exception as e:
-            self.logger.error(f"随机振荡器策略信号生成失败: {e}")
-            return pd.Series(0, index=data.index)
+        except Exception:
+            logger.exception("随机振荡器策略信号生成失败")
+            raise
 
 
 class CCIStrategy(BaseStrategy):
@@ -332,9 +335,9 @@ class CCIStrategy(BaseStrategy):
 
             return signals
 
-        except Exception as e:
-            self.logger.error(f"CCI策略信号生成失败: {e}")
-            return pd.Series(0, index=data.index)
+        except Exception:
+            logger.exception("CCI策略信号生成失败")
+            raise
 
 
 class ParabolicSARStrategy(BaseStrategy):
@@ -384,9 +387,9 @@ class ParabolicSARStrategy(BaseStrategy):
 
             return signals
 
-        except Exception as e:
-            self.logger.error(f"抛物线转向策略信号生成失败: {e}")
-            return pd.Series(0, index=data.index)
+        except Exception:
+            logger.exception("抛物线转向策略信号生成失败")
+            raise
 
 
 class MultiIndicatorStrategy(BaseStrategy):
@@ -504,9 +507,9 @@ class MultiIndicatorStrategy(BaseStrategy):
 
             return signals
 
-        except Exception as e:
-            self.logger.error(f"多指标综合策略信号生成失败: {e}")
-            return pd.Series(0, index=data.index)
+        except Exception:
+            logger.exception("多指标综合策略信号生成失败")
+            raise
 
     def get_signal_strength(self, data: pd.DataFrame) -> pd.Series:
         """获取信号强度（0-1之间）"""
@@ -560,6 +563,6 @@ class MultiIndicatorStrategy(BaseStrategy):
 
             return strength
 
-        except Exception as e:
-            self.logger.error(f"计算信号强度失败: {e}")
-            return pd.Series(0.0, index=data.index)
+        except Exception:
+            logger.exception("计算信号强度失败")
+            raise

@@ -5,7 +5,7 @@ This module provides common functions for calculating financial performance metr
 used in various backtesting engines.
 """
 
-from typing import Union
+from typing import Optional, Union
 
 import numpy as np
 import pandas as pd
@@ -310,7 +310,7 @@ def calculate_cvar(
 def calculate_omega_ratio(
     returns: Union[pd.Series, np.ndarray],
     threshold: float = 0.0,
-) -> float:
+) -> Optional[float]:
     """
     Calculate the Omega Ratio.
 
@@ -324,7 +324,9 @@ def calculate_omega_ratio(
 
     Returns:
         Omega Ratio (>1 is good, <1 means losing).
-        Returns 0.0 when there are no losses or insufficient data.
+        Returns 0.0 when there are no gains, and ``None`` when the ratio is
+        undefined (gains but zero losses — an unbounded value that is not
+        JSON-serializable and poisons batch averaging).
     """
     if len(returns) < 1:
         return 0.0
@@ -339,7 +341,7 @@ def calculate_omega_ratio(
     losses = float(np.abs(np.sum(excess[excess < 0])))
 
     if losses == 0:
-        return float("inf") if gains > 0 else 0.0
+        return None if gains > 0 else 0.0
 
     return gains / losses
 
@@ -414,7 +416,7 @@ def calculate_treynor_ratio(
 def calculate_recovery_factor(
     net_profit: float,
     max_drawdown: float,
-) -> float:
+) -> Optional[float]:
     """
     Calculate Recovery Factor.
 
@@ -425,11 +427,12 @@ def calculate_recovery_factor(
         max_drawdown: Maximum drawdown as a positive decimal
 
     Returns:
-        Recovery factor.  Returns inf for profitable zero-drawdown curves and
-        0 for non-profitable zero-drawdown curves.
+        Recovery factor.  Returns ``None`` (undefined) for profitable
+        zero-drawdown curves — an unbounded value is not JSON-serializable —
+        and 0 for non-profitable zero-drawdown curves.
     """
     if max_drawdown == 0:
-        return float("inf") if net_profit > 0 else 0.0
+        return None if net_profit > 0 else 0.0
     return net_profit / max_drawdown
 
 
@@ -461,7 +464,7 @@ def calculate_expectancy(
 def calculate_calmar_ratio(
     annualized_return: float,
     max_drawdown: float
-) -> float:
+) -> Optional[float]:
     """
     Calculate Calmar Ratio.
 
@@ -470,9 +473,12 @@ def calculate_calmar_ratio(
         max_drawdown: Maximum drawdown (positive value)
 
     Returns:
-        Calmar Ratio
+        Calmar Ratio.  Returns 0.0 for a non-positive return with zero
+        drawdown, and ``None`` (undefined) for a positive return with zero
+        drawdown — an unbounded value is not JSON-serializable and poisons
+        batch averaging.
     """
     if max_drawdown == 0:
-        return 0.0 if annualized_return <= 0 else float('inf') # Or large number
+        return 0.0 if annualized_return <= 0 else None
 
     return annualized_return / max_drawdown

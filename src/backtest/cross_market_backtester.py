@@ -639,10 +639,26 @@ class CrossMarketBacktester(BaseBacktester):
         leg_returns = hedge_portfolio.build_leg_returns(returns)
         long_leg_returns = leg_returns["long"]
         short_leg_returns = leg_returns["short"]
-        spread_return = long_leg_returns - short_leg_returns
+
+        # Book the P&L of the SAME basket the signal trades. The strategy's
+        # spread is ``long_leg - hedge_ratio * short_leg``; holding one unit
+        # of that basket earns ``long_return - hedge_ratio * short_return``.
+        # The hedge ratio is time-varying and is lagged one bar — the leg
+        # of the position held during bar t was sized with the hedge ratio
+        # known at t-1 (no future information). In equal_weight mode the
+        # hedge ratio is a constant 1.0, so this reduces to the simple
+        # long-minus-short spread return.
+        hedge_ratio = signal_frame.get("hedge_ratio")
+        if hedge_ratio is None:
+            hedge_ratio = pd.Series(1.0, index=signal_frame.index, dtype=float)
+        lagged_hedge_ratio = hedge_ratio.shift(1).fillna(1.0)
+        spread_return = long_leg_returns - lagged_hedge_ratio * short_leg_returns
 
         positions = signal_frame["position"].shift(1).fillna(0.0)
-        turnover = signal_frame["position"].diff().abs().fillna(signal_frame["position"].abs())
+        # Cost is incurred when the executed (lagged) position changes, so the
+        # turnover stream must be lagged consistently with ``positions``.
+        # Diffing the un-lagged signal position would mistime cost by one bar.
+        turnover = positions.diff().abs().fillna(positions.abs())
         transaction_cost = turnover * (self.commission + self.slippage)
         portfolio_returns = positions * spread_return - transaction_cost
 
@@ -1124,6 +1140,12 @@ def _portfolio_to_records(portfolio: pd.DataFrame) -> list[dict[str, Any]]:
                 "cash": float(row["cash"]),
                 "exposure": float(row["exposure"]),
                 "position": float(row["position"]),
+                # Expose the hedged-spread P&L components so the booked
+                # return is auditable against the strategy's spread basket.
+                "long_leg_return": float(row["long_leg_return"]),
+                "short_leg_return": float(row["short_leg_return"]),
+                "spread_return": float(row["spread_return"]),
+                "transaction_cost": float(row["transaction_cost"]),
             }
         )
     return records

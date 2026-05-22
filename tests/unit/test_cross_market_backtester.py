@@ -472,6 +472,130 @@ def test_cross_market_backtester_returns_hedge_ratio_series_for_ols_mode():
     assert results["hedge_portfolio"]["hedge_ratio"]["average"] > 0
 
 
+def test_ols_hedge_pnl_books_the_hedged_spread_basket_return():
+    """In ols_hedge mode the strategy trades the basket
+    ``long_leg - hedge_ratio * short_leg``. The backtester must book the P&L
+    of *that* basket — ``long_return - hedge_ratio * short_return`` — using
+    the time-varying hedge ratio, lagged consistently with the position.
+    Booking a plain 1:1 ``long_return - short_return`` would leave the
+    ``ols_hedge`` run unhedged.
+    """
+    # Long leg trends up steeply, short leg gently → OLS slope (long on
+    # short) departs materially from 1.0.
+    frames = {
+        "XLU": _price_frame(
+            [100, 101, 103, 105, 108, 112, 115, 118, 121, 124, 127, 130, 133, 136]
+        ),
+        "QQQ": _price_frame(
+            [100, 100, 101, 101, 102, 103, 104, 104, 105, 106, 107, 108, 109, 110]
+        ),
+    }
+    backtester = CrossMarketBacktester(
+        data_manager=DummyDataManager(frames),
+        initial_capital=100000,
+        commission=0.0,
+        slippage=0.0,
+    )
+    results = backtester.run(
+        assets=[
+            {"symbol": "XLU", "asset_class": "ETF", "side": "long"},
+            {"symbol": "QQQ", "asset_class": "ETF", "side": "short"},
+        ],
+        strategy_name="spread_zscore",
+        parameters={"lookback": 5, "entry_threshold": 1.0, "exit_threshold": 0.2},
+        construction_mode="ols_hedge",
+        min_history_days=10,
+    )
+
+    portfolio = pd.DataFrame(results["portfolio"]).set_index("date")
+    spread_rows = pd.DataFrame(results["spread_series"]).set_index("date")
+
+    long_ret = pd.Series(
+        [row["long_leg_return"] for row in results["portfolio"]],
+        index=portfolio.index,
+    )
+    short_ret = pd.Series(
+        [row["short_leg_return"] for row in results["portfolio"]],
+        index=portfolio.index,
+    )
+    hedge_ratio = spread_rows["hedge_ratio"].astype(float)
+
+    # The hedge ratio actually moves away from 1.0 on this data — otherwise
+    # the test could not distinguish a hedged from an unhedged P&L.
+    assert hedge_ratio.max() > 1.2
+
+    expected_spread_return = long_ret - hedge_ratio.shift(1).fillna(1.0) * short_ret
+    booked_spread_return = pd.Series(
+        [row["spread_return"] for row in results["portfolio"]],
+        index=portfolio.index,
+    )
+    naive_spread_return = long_ret - short_ret
+
+    pd.testing.assert_series_equal(
+        booked_spread_return,
+        expected_spread_return,
+        check_names=False,
+        rtol=1e-9,
+        atol=1e-12,
+    )
+    # And it must genuinely differ from the un-hedged 1:1 definition.
+    assert not np.allclose(
+        booked_spread_return.to_numpy(),
+        naive_spread_return.to_numpy(),
+    )
+
+
+def test_transaction_cost_is_lagged_consistently_with_the_position():
+    """The position is .shift(1)-lagged before it earns P&L, so the
+    turnover/cost stream that prices each rebalance must be lagged the same
+    way. An un-lagged ``signal['position'].diff()`` charges cost one bar
+    before the trade is actually executed.
+    """
+    frames = {
+        "XLU": _price_frame(
+            [100, 101, 102, 104, 108, 115, 118, 112, 109, 105, 103, 101]
+        ),
+        "QQQ": _price_frame(
+            [100, 100, 99, 98, 97, 96, 95, 97, 99, 101, 102, 103]
+        ),
+    }
+    commission, slippage = 0.001, 0.001
+    backtester = CrossMarketBacktester(
+        data_manager=DummyDataManager(frames),
+        initial_capital=100000,
+        commission=commission,
+        slippage=slippage,
+    )
+    results = backtester.run(
+        assets=[
+            {"symbol": "XLU", "asset_class": "ETF", "side": "long"},
+            {"symbol": "QQQ", "asset_class": "ETF", "side": "short"},
+        ],
+        strategy_name="spread_zscore",
+        parameters={"lookback": 5, "entry_threshold": 1.0, "exit_threshold": 0.2},
+        min_history_days=10,
+    )
+
+    portfolio = pd.DataFrame(results["portfolio"]).set_index("date")
+    # ``position`` in the portfolio record is the executed (lagged) position.
+    executed_position = portfolio["position"].astype(float)
+    expected_turnover = executed_position.diff().abs().fillna(executed_position.abs())
+    expected_cost = expected_turnover * (commission + slippage)
+
+    booked_cost = pd.Series(
+        [row["transaction_cost"] for row in results["portfolio"]],
+        index=portfolio.index,
+    )
+
+    pd.testing.assert_series_equal(
+        booked_cost,
+        expected_cost,
+        check_names=False,
+        rtol=1e-9,
+        atol=1e-12,
+    )
+
+
 def test_cross_market_backtester_uses_asset_class_aware_fetch_metadata():
     frames = {
         "HG=F": _price_frame([100, 102, 103, 101, 105, 110, 108, 107, 109, 111, 114, 116]),
