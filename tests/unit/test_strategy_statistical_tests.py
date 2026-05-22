@@ -382,6 +382,92 @@ def test_results_to_dataframe_round_trips_with_labels() -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Block bootstrap — insufficient-observations guard (bug fix regression)
+# ---------------------------------------------------------------------------
+
+
+def test_block_bootstrap_too_short_series_yields_insufficient_observations() -> None:
+    """When n_obs <= block_size, the bootstrap is degenerate (every replicate
+    is just a circular rotation of the full series → all-zero centered
+    distribution → p≈0 spuriously).  The fix should detect this condition
+    and return an honest "no signal" result flagged with
+    ``insufficient_observations`` in the note — NOT a p-value of 0.0.
+    """
+
+    # 8 observations with block_size=10 triggers block_size >= n_obs.
+    short_a = [0.01, 0.02, -0.01, 0.03, 0.01, 0.00, -0.02, 0.01]
+    short_b = [0.00, 0.01, -0.02, 0.02, 0.00, 0.01, -0.01, 0.02]
+
+    result = politis_romano_block_bootstrap(
+        short_a, short_b, block_size=10, n_bootstrap=200, seed=0,
+    )
+
+    # Must NOT return a spuriously significant p-value.
+    assert result.p_value_two_sided != pytest.approx(0.0, abs=1e-9), (
+        "p_value_two_sided should NOT be 0.0 for a too-short series; "
+        "that is a false 'maximally significant' result"
+    )
+    assert result.p_value_one_sided != pytest.approx(0.0, abs=1e-9), (
+        "p_value_one_sided should NOT be 0.0 for a too-short series"
+    )
+    # The note must flag the condition.
+    assert "insufficient_observations" in result.note, (
+        f"Expected 'insufficient_observations' in note, got: {result.note!r}"
+    )
+
+
+def test_block_bootstrap_too_few_blocks_yields_insufficient_observations() -> None:
+    """Even when block_size < n_obs, if the number of blocks would be < 3
+    (fewer than ~3 independent chunks) the bootstrap distribution is not
+    meaningful. The fix should catch this too.
+
+    Example: n=20, block_size=9 → n_blocks=ceil(20/9)=3 which is the
+    boundary. n=16, block_size=9 → n_blocks=ceil(16/9)=2 → too few.
+    """
+
+    # 16 observations, block_size=9 → 2 blocks — below the minimum-3 threshold.
+    rng = np.random.default_rng(seed=5)
+    short = rng.normal(0.001, 0.01, size=16).tolist()
+
+    result = politis_romano_block_bootstrap(
+        short, short[::-1], block_size=9, n_bootstrap=200, seed=0,
+    )
+
+    assert "insufficient_observations" in result.note, (
+        f"Expected 'insufficient_observations' in note, got: {result.note!r}"
+    )
+    # p-value must be honest (not spuriously 0).
+    assert result.p_value_two_sided != pytest.approx(0.0, abs=1e-9)
+
+
+def test_block_bootstrap_note_field_exists_on_normal_run() -> None:
+    """The ``note`` field on BlockBootstrapResult is accessible and str."""
+
+    rng = np.random.default_rng(seed=99)
+    a = rng.normal(0.001, 0.01, size=100).tolist()
+    b = rng.normal(0.0, 0.01, size=100).tolist()
+    result = politis_romano_block_bootstrap(a, b, block_size=5, n_bootstrap=100)
+
+    assert isinstance(result.note, str)
+
+
+def test_block_bootstrap_adequate_series_still_works_normally() -> None:
+    """A series long enough for multiple blocks should still produce a valid
+    bootstrap (not be blocked by the guard).  n=60, block_size=5 → 12 blocks.
+    """
+
+    rng = np.random.default_rng(seed=7)
+    a = (rng.normal(0.0, 0.01, size=60) + 0.002).tolist()
+    b = rng.normal(0.0, 0.01, size=60).tolist()
+    result = politis_romano_block_bootstrap(a, b, block_size=5, n_bootstrap=200)
+
+    # No note flag for this healthy case.
+    assert "insufficient_observations" not in result.note
+    # Normal p-value range.
+    assert 0.0 <= result.p_value_two_sided <= 1.0
+
+
 def test_minimum_detectable_effect_inverts_dm_power_formula() -> None:
     """MDE IR should round-trip through the forward DM power formula."""
 

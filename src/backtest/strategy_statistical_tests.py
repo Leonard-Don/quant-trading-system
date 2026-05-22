@@ -128,6 +128,11 @@ class BlockBootstrapResult:
 
     Operates on the return *differential* ``r_a - r_b`` so it tests
     the same null as the DM test but non-parametrically.
+
+    * ``note`` — free-form caveat, e.g. ``"insufficient_observations"``
+      when the series is too short relative to ``block_size`` for the
+      bootstrap distribution to be meaningful.  Downstream consumers
+      should treat any non-empty note as a low-confidence flag.
     """
 
     mean_diff: float
@@ -139,8 +144,9 @@ class BlockBootstrapResult:
     block_size: int
     n_bootstrap: int
     n_obs: int
+    note: str = ""
 
-    def to_dict(self) -> dict[str, Union[float, int]]:
+    def to_dict(self) -> dict[str, Union[float, int, str]]:
         return asdict(self)
 
 
@@ -576,6 +582,43 @@ def politis_romano_block_bootstrap(
     # Number of blocks per replicate — we want output length ~= n. Use
     # ceil so we always produce at least n samples, then truncate.
     n_blocks = math.ceil(n / effective_block)
+
+    # Insufficient-observations guard: when n_blocks < 3 (fewer than 3
+    # independent chunks), every bootstrap replicate is a near-identity
+    # permutation of the full series.  The centred bootstrap distribution
+    # collapses toward all-zero, causing the 2-sided p-value to be
+    # spuriously 0.0 — a false "maximally significant" result that fires
+    # precisely when the sample is too short to conclude anything.
+    #
+    # Threshold rule: require at least 3 blocks so that the empirical
+    # bootstrap distribution has at least 3 distinct support points.  This
+    # catches both the degenerate case (block_size >= n_obs → n_blocks = 1)
+    # and the near-degenerate case (n_blocks = 2, which gives essentially
+    # binary resampling with negligible distributional spread).
+    #
+    # We do NOT silently clamp block_size — that hides the condition and
+    # makes the result look well-supported.  Instead we return an honest
+    # "no signal" result with p=1.0 and flag it via the note field.
+    _MIN_BLOCKS = 3
+    if n_blocks < _MIN_BLOCKS:
+        _note = (
+            f"insufficient_observations: n_obs={n}, block_size={effective_block}, "
+            f"n_blocks={n_blocks} < {_MIN_BLOCKS}; bootstrap distribution is "
+            "degenerate — p-values suppressed"
+        )
+        logger.debug(_note)
+        return BlockBootstrapResult(
+            mean_diff=sample_mean,
+            ci_low=float("nan"),
+            ci_high=float("nan"),
+            ci_level=ci_level,
+            p_value_two_sided=1.0,
+            p_value_one_sided=1.0,
+            block_size=effective_block,
+            n_bootstrap=n_bootstrap,
+            n_obs=n,
+            note=_note,
+        )
 
     boot_means = np.empty(n_bootstrap, dtype=float)
     for i in range(n_bootstrap):

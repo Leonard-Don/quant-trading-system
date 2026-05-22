@@ -1056,12 +1056,20 @@ class StrategyComparator:
                 ra_aligned = ra[-min_len:]
                 rb_aligned = rb[-min_len:]
                 pair_labels.append(f"{label_a}_vs_{label_b}")
+                # h = rebalance_freq_days: the Newey-West bandwidth uses
+                # L = h - 1 autocovariance lags.  For daily data (freq=1)
+                # L=0 is appropriate (i.i.d. variance is fine).  For
+                # weekly data (freq=5) we include 4 lags, which corrects
+                # for the autocorrelation present in rebalance-period
+                # returns (e.g. momentum drift, mean-reversion echo).
+                # Using h=1 for weekly data underestimates the HAC variance
+                # and inflates the DM statistic → spuriously small p-values.
                 dm_results.append(
                     diebold_mariano_test(
                         ra_aligned,
                         rb_aligned,
                         loss_fn="negative_return",
-                        h=1,
+                        h=self._rebalance_freq_days,
                     )
                 )
                 bootstrap_results.append(
