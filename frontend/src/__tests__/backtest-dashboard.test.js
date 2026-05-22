@@ -6,7 +6,6 @@ import BacktestDashboard from '../components/BacktestDashboard';
 
 vi.mock('../components/StrategyForm', () => ({ default: () => <div>StrategyForm</div> }));
 vi.mock('../components/ResultsDisplay', () => ({ default: () => <div>ResultsDisplay</div> }));
-vi.mock('../components/LoadingSpinner', () => ({ default: () => <div>LoadingSpinner</div> }));
 vi.mock('../components/CrossMarketBacktestPanel', () => ({ default: () => <div>CrossMarketBacktestPanel</div> }));
 vi.mock('../components/BacktestHistory', () => ({ default: () => <div>BacktestHistory</div> }));
 vi.mock('../components/StrategyComparison', () => ({ default: () => <div>StrategyComparison</div> }));
