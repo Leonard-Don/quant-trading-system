@@ -253,7 +253,7 @@ async def get_infrastructure_status(user: dict[str, Any] = Depends(get_current_u
 
 
 @router.post("/auth/token", summary="签发本地研究令牌")
-async def create_auth_token(request: TokenRequest):
+async def create_auth_token(request: TokenRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
     token = create_access_token(
         subject=request.subject,
         role=request.role,
@@ -263,6 +263,7 @@ async def create_auth_token(request: TokenRequest):
         "access_token": token,
         "token_type": "Bearer",
         "expires_in_seconds": request.expires_in_seconds,
+        "minted_by": user.get("sub"),
     }
 
 
@@ -310,7 +311,7 @@ async def issue_oauth_token(
 
 
 @router.get("/auth/users", summary="查看本地用户目录")
-async def get_auth_users():
+async def get_auth_users(user: dict[str, Any] = Depends(get_current_user_optional)):
     return {
         "users": list_local_users(),
         "sessions": list_refresh_sessions(limit=100),
@@ -415,8 +416,9 @@ async def oauth_provider_callback(
 ):
     callback_base = str(request.base_url).rstrip("/")
     callback_uri = f"{callback_base}/infrastructure/auth/oauth/providers/{provider_id}/callback"
-    target_origin = request.headers.get("origin") or "*"
     payload: dict[str, Any]
+    target_origin: Optional[str] = None
+
     if error:
         payload = {"success": False, "provider_id": provider_id, "error": error}
     elif not code or not state:
@@ -429,14 +431,48 @@ async def oauth_provider_callback(
                 state=state,
                 redirect_uri=callback_uri,
             )
-            target_origin = exchanged.get("frontend_origin") or target_origin
+            resolved_origin = str(exchanged.get("frontend_origin") or "").strip()
+            if not resolved_origin:
+                # Fail closed: no known origin — do NOT postMessage the token bundle.
+                return HTMLResponse(
+                    content="""<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>OAuth Callback Error</title></head>
+  <body style="font-family: sans-serif; padding: 24px;">
+    <h3>Quant Lab OAuth 回调</h3>
+    <p id="status" style="color: #c00;">
+      登录失败: OAuth provider 未配置 frontend_origin，无法安全回传令牌。
+      请在 OAuth Provider 设置中配置 frontend_origin。
+    </p>
+    <script>
+      (function() {
+        setTimeout(function() { window.close(); }, 3000);
+      })();
+    </script>
+  </body>
+</html>""",
+                )
+            target_origin = resolved_origin
             payload = {"success": True, "provider_id": provider_id, "payload": exchanged}
         except HTTPException as exc:
             payload = {"success": False, "provider_id": provider_id, "error": exc.detail}
         except Exception as exc:
             payload = {"success": False, "provider_id": provider_id, "error": str(exc)}
+
+    # For error/missing-code flows: only postMessage to a known origin.
+    # If target_origin is still None (error paths), we render the status but do NOT
+    # postMessage at all — the opener must handle the window closing silently.
     script_payload = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
-    script_target_origin = json.dumps(target_origin or "*", ensure_ascii=False)
+    if target_origin:
+        script_target_origin = json.dumps(target_origin, ensure_ascii=False)
+        post_message_block = f"""
+        if (window.opener && typeof window.opener.postMessage === 'function') {{
+          window.opener.postMessage({{ type: 'quant-oauth-callback', ...payload }}, {script_target_origin});
+        }}"""
+    else:
+        # No known origin — skip postMessage entirely for error payloads too.
+        post_message_block = ""
+
     return HTMLResponse(
         content=f"""<!doctype html>
 <html>
@@ -447,11 +483,7 @@ async def oauth_provider_callback(
     <script>
       (function() {{
         const payload = {script_payload};
-        const targetOrigin = {script_target_origin};
-        try {{
-          if (window.opener && typeof window.opener.postMessage === 'function') {{
-            window.opener.postMessage({{ type: 'quant-oauth-callback', ...payload }}, targetOrigin || '*');
-          }}
+        try {{{post_message_block}
           document.getElementById('status').textContent = payload.success ? '登录完成，窗口将自动关闭。' : ('登录失败: ' + (payload.error || 'unknown error'));
         }} catch (error) {{
           document.getElementById('status').textContent = '回传结果失败: ' + String(error);
@@ -583,12 +615,13 @@ async def put_record(request: RecordRequest, user: dict[str, Any] = Depends(get_
 async def list_records(
     record_type: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
+    user: dict[str, Any] = Depends(get_current_user_optional),
 ):
     return {"records": persistence_manager.list_records(record_type=record_type, limit=limit)}
 
 
 @router.get("/persistence/diagnostics", summary="查看数据库 / TimescaleDB 接入诊断")
-async def get_persistence_diagnostics():
+async def get_persistence_diagnostics(user: dict[str, Any] = Depends(get_current_user_optional)):
     return persistence_manager.persistence_diagnostics()
 
 
@@ -637,7 +670,7 @@ async def run_persistence_migration(
 
 
 @router.post("/persistence/timeseries", summary="写入时序记录")
-async def put_timeseries(request: TimeSeriesRequest):
+async def put_timeseries(request: TimeSeriesRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
     return persistence_manager.put_timeseries(
         series_name=request.series_name,
         symbol=request.symbol,
