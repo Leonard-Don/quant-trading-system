@@ -611,13 +611,31 @@ async def put_record(request: RecordRequest, user: dict[str, Any] = Depends(get_
     )
 
 
+_AUTH_RECORD_TYPE_PREFIX = "auth_"
+
+
+def _is_auth_record_type(record_type: str) -> bool:
+    """Return True if the record_type belongs to the auth namespace."""
+    return str(record_type or "").startswith(_AUTH_RECORD_TYPE_PREFIX)
+
+
 @router.get("/persistence/records", summary="读取持久化记录")
 async def list_records(
     record_type: Optional[str] = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     user: dict[str, Any] = Depends(get_current_user_optional),
 ):
-    return {"records": persistence_manager.list_records(record_type=record_type, limit=limit)}
+    # Block explicit requests for auth-namespace record types.
+    if record_type is not None and _is_auth_record_type(record_type):
+        raise HTTPException(
+            status_code=403,
+            detail="Auth-namespace record types are not accessible through this endpoint.",
+        )
+    records = persistence_manager.list_records(record_type=record_type, limit=limit)
+    # Strip auth-namespace records from unfiltered dumps so they never leak passively.
+    if record_type is None:
+        records = [r for r in records if not _is_auth_record_type(r.get("record_type", ""))]
+    return {"records": records}
 
 
 @router.get("/persistence/diagnostics", summary="查看数据库 / TimescaleDB 接入诊断")

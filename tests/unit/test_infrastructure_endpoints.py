@@ -322,3 +322,148 @@ class TestOAuthCallbackFailClosed:
         assert response.status_code == 200  # Error page renders OK
         # The callback HTML must carry no token data on the error flow.
         assert "access_token" not in html, f"OAuth callback HTML leaked token data: {html[:200]}"
+
+
+# ===========================================================================
+# 7. GET /persistence/records — auth-namespace record types must be blocked
+#
+# Any authenticated user (including plain 'researcher' role) must NOT be able
+# to read auth_* records via this endpoint — neither by explicit record_type
+# filter nor by the unfiltered dump.
+# ===========================================================================
+
+# Auth record-type prefix and full set drawn from backend.app.core.auth.constants
+_AUTH_RECORD_TYPES = [
+    "auth_user",
+    "auth_policy",
+    "auth_refresh_session",
+    "auth_oauth_provider",
+    "auth_oauth_state",
+]
+
+
+def _build_client_with_records(monkeypatch, records: list[dict]) -> TestClient:
+    """Build a TestClient whose persistence stub returns the given records."""
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
+    mock_pm = MagicMock()
+    mock_pm.list_records.return_value = records
+    mock_pm.put_record.return_value = {"record_id": "stub", "record_type": "stub", "payload": {}}
+    mock_pm.put_timeseries.return_value = {"ok": True}
+    mock_pm.persistence_diagnostics.return_value = {"backend": "stub", "healthy": True}
+    mock_pm.health.return_value = {"healthy": True}
+    monkeypatch.setattr(infrastructure, "persistence_manager", mock_pm)
+    _stub_auth_status(monkeypatch, required=False)
+    app = FastAPI()
+    app.include_router(infrastructure.router, prefix="/infrastructure")
+    return TestClient(app, raise_server_exceptions=False)
+
+
+class TestListRecordsBlocksAuthNamespace:
+    """GET /persistence/records must refuse to serve auth_* record types."""
+
+    @pytest.mark.parametrize("auth_record_type", _AUTH_RECORD_TYPES)
+    def test_explicit_auth_record_type_returns_403(self, monkeypatch, auth_record_type):
+        """Requesting an auth_* record_type explicitly must return HTTP 403."""
+        client = _build_client_with_records(monkeypatch, records=[])
+        response = client.get(
+            "/infrastructure/persistence/records",
+            params={"record_type": auth_record_type},
+        )
+        assert response.status_code == 403, (
+            f"Expected 403 for record_type={auth_record_type!r}, "
+            f"got {response.status_code}. "
+            "Auth-namespace record types must be blocked from the persistence/records endpoint."
+        )
+
+    def test_auth_prefix_rejected_case_sensitive(self, monkeypatch):
+        """A record_type that starts with 'auth_' (any suffix) must be blocked."""
+        client = _build_client_with_records(monkeypatch, records=[])
+        response = client.get(
+            "/infrastructure/persistence/records",
+            params={"record_type": "auth_custom_future_type"},
+        )
+        assert response.status_code == 403, (
+            "Any record_type starting with 'auth_' must be blocked (prefix rule)."
+        )
+
+    def test_unfiltered_dump_excludes_auth_records(self, monkeypatch):
+        """When no record_type filter is given, auth_* records must be stripped from output."""
+        mixed_records = [
+            {"id": "1", "record_type": "auth_user", "record_key": "admin",
+             "payload": {"password_hash": "secret"}, "created_at": "t", "updated_at": "t"},
+            {"id": "2", "record_type": "auth_refresh_session", "record_key": "sess1",
+             "payload": {"token_hash": "secret2"}, "created_at": "t", "updated_at": "t"},
+            {"id": "3", "record_type": "backtest_run", "record_key": "run1",
+             "payload": {"result": "ok"}, "created_at": "t", "updated_at": "t"},
+            {"id": "4", "record_type": "config:default:etf:rotation", "record_key": "v1",
+             "payload": {"cfg": True}, "created_at": "t", "updated_at": "t"},
+        ]
+        client = _build_client_with_records(monkeypatch, records=mixed_records)
+        response = client.get("/infrastructure/persistence/records")
+        assert response.status_code == 200, f"Unfiltered dump must succeed: {response.status_code}"
+        body = response.json()
+        returned_types = {r["record_type"] for r in body["records"]}
+        assert "auth_user" not in returned_types, (
+            "auth_user records must be stripped from unfiltered dump"
+        )
+        assert "auth_refresh_session" not in returned_types, (
+            "auth_refresh_session records must be stripped from unfiltered dump"
+        )
+        # Non-auth records must still appear
+        assert "backtest_run" in returned_types, "Non-auth records must still be returned"
+        assert "config:default:etf:rotation" in returned_types, "Config records must still be returned"
+
+    def test_non_auth_record_type_passes_through(self, monkeypatch):
+        """Requesting a non-auth record_type must succeed (200) — legitimate use must work."""
+        client = _build_client_with_records(
+            monkeypatch,
+            records=[
+                {"id": "r1", "record_type": "backtest_run", "record_key": "k1",
+                 "payload": {}, "created_at": "t", "updated_at": "t"},
+            ],
+        )
+        response = client.get(
+            "/infrastructure/persistence/records",
+            params={"record_type": "backtest_run"},
+        )
+        assert response.status_code == 200, (
+            f"Non-auth record_type must not be blocked, got {response.status_code}"
+        )
+        body = response.json()
+        assert len(body["records"]) == 1
+
+    def test_config_record_type_passes_through(self, monkeypatch):
+        """config: prefixed record types (used by config-versions) must not be blocked."""
+        client = _build_client_with_records(
+            monkeypatch,
+            records=[
+                {"id": "c1", "record_type": "config:default:etf:rotation", "record_key": "v1",
+                 "payload": {}, "created_at": "t", "updated_at": "t"},
+            ],
+        )
+        response = client.get(
+            "/infrastructure/persistence/records",
+            params={"record_type": "config:default:etf:rotation"},
+        )
+        assert response.status_code == 200, (
+            f"config: record types must not be blocked, got {response.status_code}"
+        )
+
+    def test_auth_prefix_not_blocked_in_config_namespace(self, monkeypatch):
+        """A record_type like 'config:auth_settings' must NOT be blocked — prefix check is on the
+        full record_type string, not a substring check."""
+        client = _build_client_with_records(
+            monkeypatch,
+            records=[
+                {"id": "x1", "record_type": "config:auth_settings", "record_key": "v1",
+                 "payload": {}, "created_at": "t", "updated_at": "t"},
+            ],
+        )
+        response = client.get(
+            "/infrastructure/persistence/records",
+            params={"record_type": "config:auth_settings"},
+        )
+        assert response.status_code == 200, (
+            "record_type 'config:auth_settings' starts with 'config:', not 'auth_' — "
+            f"must not be blocked, got {response.status_code}"
+        )
