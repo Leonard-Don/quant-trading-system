@@ -52,6 +52,18 @@ class IndustryBacktester(BaseBacktester):
     2. 在热门行业中选择龙头股构建组合
     3. 等权重或市值加权配置
 
+    防未来数据泄露 (look-ahead leak):
+        ``IndustryAnalyzer.rank_industries`` 与
+        ``LeaderStockScorer.rank_stocks_in_industry`` 没有 as-of 日期概念——
+        它们内部基于 ``datetime.now()`` 拉取 A 股实时资金流/估值快照
+        （akshare/sina 数据源不提供历史时点快照）。在历史回测中调用它们会把
+        “今天”的数据泄露进过去的调仓决策，使回测收益/夏普完全失真。
+        因此 ``run_backtest`` 期间会禁用分析器/评分器排名路径
+        (``_disable_live_ranking``)，调仓只走时点正确的代理 ETF 路径
+        (``_rank_industries_from_proxies`` / ``_rank_proxy_constituents``)，
+        该路径仅使用截至调仓日的历史价格。实时行业热度链路
+        （heatmap/ranking 端点）不受影响。
+
     使用示例:
         backtester = IndustryBacktester(data_provider)
         result = backtester.run_backtest(
@@ -154,6 +166,9 @@ class IndustryBacktester(BaseBacktester):
         self._trades: list[dict] = []
         self._price_cache: dict[str, pd.Series] = {}
         self._run_diagnostics: dict[str, Any] = {}
+        # 回测期间禁用实时分析器/评分器排名路径，避免引入未来数据（look-ahead leak）。
+        # 实时行业热度链路（heatmap/ranking）不受影响——它本就应使用当前数据。
+        self._disable_live_ranking: bool = False
 
     def _bootstrap_industry_components(self) -> None:
         """Auto-wire analyzer/scorer from a real market-data provider when possible."""
@@ -261,6 +276,9 @@ class IndustryBacktester(BaseBacktester):
         """
         # 重置状态
         self._reset()
+        # 历史回测：禁用实时分析器/评分器排名路径，强制走时点正确的代理路径，
+        # 防止未来数据泄露。详见类 docstring。
+        self._disable_live_ranking = True
 
         start = datetime.strptime(start_date, '%Y-%m-%d')
         end = datetime.strptime(end_date, '%Y-%m-%d')
@@ -317,6 +335,12 @@ class IndustryBacktester(BaseBacktester):
             "symbols_missing": [],
             "benchmark_symbol": self.benchmark_symbol,
             "benchmark_data_available": False,
+            # 实时分析器/评分器排名路径是否在本次运行中被禁用（历史回测时为 True，
+            # 用以防止未来数据泄露）。
+            "live_ranking_path_disabled": False,
+            # 本次回测是否产出了时点正确、可信的调仓数据。若代理路径在严格模式下
+            # 无法产出排名，则为 False —— 此时回测结果不可用，不应被解读为策略表现。
+            "backtestable": True,
         }
 
     def _rebalance(
@@ -340,12 +364,15 @@ class IndustryBacktester(BaseBacktester):
         # 获取热门行业
         hot_industries = self._get_hot_industries(date, top_industries)
 
-        # 获取龙头股
+        # 获取龙头股。
+        # 历史回测时跳过实时评分器：rank_stocks_in_industry 内部基于
+        # datetime.now() 拉取实时估值/财务快照，会泄露未来数据。
         target_stocks = []
-        for ind in hot_industries:
-            industry_name = ind.get("industry_name", "")
-
-            if self.scorer:
+        if self.scorer and self._disable_live_ranking:
+            self._run_diagnostics["live_ranking_path_disabled"] = True
+        elif self.scorer:
+            for ind in hot_industries:
+                industry_name = ind.get("industry_name", "")
                 try:
                     leaders = self.scorer.rank_stocks_in_industry(
                         industry_name,
@@ -367,6 +394,14 @@ class IndustryBacktester(BaseBacktester):
         # 计算目标权重
         n_stocks = len(target_stocks)
         if n_stocks == 0:
+            # 选出了热门行业但代理路径在严格模式下无法产出可信成分股，
+            # 本次回测缺少时点正确的选股数据——标记为不可回测。
+            if (
+                self._disable_live_ranking
+                and hot_industries
+                and self.strict_data_validation
+            ):
+                self._run_diagnostics["backtestable"] = False
             return
 
         if weight_method == 'equal':
@@ -618,7 +653,11 @@ class IndustryBacktester(BaseBacktester):
 
     def _get_hot_industries(self, date: datetime, top_industries: int) -> list[dict[str, Any]]:
         hot_industries: list[dict[str, Any]] = []
-        if self.analyzer:
+        # 历史回测时跳过实时分析器排名：它内部基于 datetime.now() 拉取实时
+        # 资金流快照，会把未来数据泄露进过去的调仓决策。
+        if self.analyzer and self._disable_live_ranking:
+            self._run_diagnostics["live_ranking_path_disabled"] = True
+        elif self.analyzer:
             try:
                 hot_industries = self.analyzer.rank_industries(top_n=top_industries)
             except Exception as exc:
@@ -640,6 +679,9 @@ class IndustryBacktester(BaseBacktester):
         if self.strict_data_validation:
             logger.warning("No valid industry ranking data available; skipping rebalance")
             self._run_diagnostics["industry_selection_source"] = "none"
+            # 时点正确的代理路径无数据可用，且严格模式禁止回退到带泄露的分析器
+            # 或启发式默认值——本次回测不可信，明确标记为不可回测。
+            self._run_diagnostics["backtestable"] = False
             return []
 
         self._run_diagnostics["industry_selection_source"] = "default"
