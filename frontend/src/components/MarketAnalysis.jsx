@@ -641,7 +641,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
         setTabError('correlation', null);
         try {
             // 默认添加几个常见股票进行对比
-            const defaultSymbols = ['600519', '000858', '300750', 'SPY', 'AAPL'];
+            const defaultSymbols = [DEFAULT_SYMBOL, '000858.SZ', '300750.SZ', 'SPY', 'AAPL'];
             const symbolsToUse = [searchSymbol, ...defaultSymbols.filter(s => s !== searchSymbol)].slice(0, 5);
             const result = await getCorrelationAnalysis(symbolsToUse, 90);
             if (localKey !== analysisKeyRef.current) return;

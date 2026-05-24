@@ -1601,7 +1601,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
                       aria-label="全局跳转搜索"
                       name="global_jump_search"
                       autoComplete="off"
-                      placeholder="全局搜索并跳转... (例如 600519 / AAPL / BTC-USD / 纳指)"
+                      placeholder="全局搜索并跳转... (例如 600519.SS / AAPL / BTC-USD / 纳指)"
                       prefix={<SearchOutlined />}
                       allowClear
                       size="large"
@@ -1676,7 +1676,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
               autoComplete="off"
               value={watchGroupSymbols}
               onChange={(event) => setWatchGroupSymbols(event.target.value)}
-              placeholder="标的列表，逗号分隔，如 600519, 000858, AAPL"
+              placeholder="标的列表，逗号分隔，如 600519.SS, 000858.SZ, AAPL"
               onPressEnter={addWatchGroup}
             />
             <Button className="realtime-watch-group-add" type="primary" onClick={addWatchGroup}>添加组合</Button>

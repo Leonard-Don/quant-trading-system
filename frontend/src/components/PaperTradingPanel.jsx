@@ -55,7 +55,7 @@ import {
     buildPaperPositionCsvFilename,
     PAPER_POSITION_CSV_COLUMNS,
 } from '../utils/paperOrderExport';
-import { getCurrencySymbol } from '../utils/strategyDefaults';
+import { getCurrencySymbol, SYMBOL_PLACEHOLDER_BILINGUAL } from '../utils/strategyDefaults';
 
 const { Title, Text } = Typography;
 
@@ -769,7 +769,7 @@ const PaperTradingPanel = () => {
                                 name="symbol"
                                 rules={[{ required: true, message: '请输入标的代码' }]}
                             >
-                                <Input placeholder="如 600519 / AAPL" />
+                                <Input placeholder={`如 ${SYMBOL_PLACEHOLDER_BILINGUAL}`} />
                             </Form.Item>
                             <Form.Item
                                 label="数量"

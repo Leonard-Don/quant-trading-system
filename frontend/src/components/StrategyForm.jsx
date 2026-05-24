@@ -32,6 +32,7 @@ import {
 import { readResearchContext } from '../utils/researchContext';
 import {
   DEFAULT_SYMBOL,
+  SYMBOL_PLACEHOLDER_BILINGUAL,
   getCurrencyName,
   getCurrencySymbol,
 } from '../utils/strategyDefaults';
@@ -586,7 +587,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
                 name="symbol"
                 rules={[{ required: true, message: '请输入股票代码' }]}
               >
-                <Input placeholder="输入股票代码 (如: 600519 / AAPL)" />
+                <Input placeholder={`输入股票代码 (如: ${SYMBOL_PLACEHOLDER_BILINGUAL})`} />
               </Form.Item>
 
               <Form.Item
