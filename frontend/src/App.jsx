@@ -32,6 +32,7 @@ import { APP_VERSION } from './generated/version';
 import { useAppUrlState } from './hooks/useAppUrlState';
 import { replaceAppUrl } from './utils/appUrlState';
 import lazyWithRetry from './utils/lazyWithRetry';
+import { normalizePublicView, VIEW_QUERY_KEY } from './utils/publicViews';
 import { buildViewUrlForCurrentState, navigateToAppUrl } from './utils/researchContext';
 
 // 懒加载非核心组件，减少初始包大小
@@ -60,8 +61,6 @@ const LazyLoadFallback = () => (
 const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
-const VIEW_QUERY_KEY = 'view';
-const VALID_VIEWS = new Set(['today', 'backtest', 'realtime', 'industry', 'paper', 'etf']);
 const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry', 'paper', 'etf']);
 const FULL_VIEW_SET = new Set(['realtime']);
 const readViewStateFromLocation = (search = window.location.search, revision = 0) => {
@@ -75,15 +74,8 @@ const readViewStateFromLocation = (search = window.location.search, revision = 0
     };
   }
 
-  if (requestedView && VALID_VIEWS.has(requestedView)) {
-    return {
-      currentView: requestedView,
-      realtimeAuxIntent: null,
-    };
-  }
-
   return {
-    currentView: 'backtest',
+    currentView: normalizePublicView(requestedView),
     realtimeAuxIntent: null,
   };
 };

@@ -1,8 +1,7 @@
 import { pushAppUrl } from './appUrlState.js';
+import { normalizePublicView, VIEW_QUERY_KEY } from './publicViews.js';
 
-const VIEW_QUERY_KEY = 'view';
 const TAB_QUERY_KEY = 'tab';
-const PUBLIC_VIEWS = new Set(['today', 'backtest', 'realtime', 'industry', 'paper', 'etf']);
 
 const RESEARCH_KEYS = ['symbol', 'symbols', 'template', 'draft', 'action', 'source', 'note'];
 const CROSS_MARKET_KEYS = ['template', 'draft', 'action', 'source', 'note'];
@@ -24,11 +23,6 @@ const WORKBENCH_KEYS = [
   'workbench_queue_action',
   'task',
 ];
-
-const normalizePublicView = (view = 'backtest') => {
-  const normalized = String(view || 'backtest').trim();
-  return PUBLIC_VIEWS.has(normalized) ? normalized : 'backtest';
-};
 
 export const readResearchContext = (search = window.location.search) => {
   const params = new URLSearchParams(search);

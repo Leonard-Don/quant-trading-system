@@ -33,6 +33,16 @@ vi.mock('../components/TodayResearchDashboard', () => ({
   default: () => <div>TodayResearchDashboard</div>,
 }));
 
+vi.mock('../components/PaperTradingPanel', () => ({
+  __esModule: true,
+  default: () => <div>PaperTradingPanel</div>,
+}));
+
+vi.mock('../components/EtfRotationDashboard', () => ({
+  __esModule: true,
+  default: () => <div>EtfRotationDashboard</div>,
+}));
+
 vi.mock('../services/api', () => ({
   getStrategies: jest.fn(() => Promise.resolve([])),
   runBacktest: jest.fn(),
@@ -158,6 +168,23 @@ describe('App realtime view routing', () => {
     await waitFor(() => {
       expect(screen.getByText('BacktestDashboard')).toBeInTheDocument();
     });
+  });
+
+  test.each([
+    ['paper', 'PaperTradingPanel'],
+    ['etf', 'EtfRotationDashboard'],
+  ])('routes the %s public workspace without falling back to backtest', async (view, label) => {
+    window.history.replaceState(null, '', `/?view=${view}&symbol=600519&source=legacy`);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    });
+
+    expect(window.location.search).toContain(`view=${view}`);
+    expect(window.location.search).not.toContain('symbol=600519');
+    expect(screen.queryByText('BacktestDashboard')).not.toBeInTheDocument();
   });
 
   test('renders the app shell without a fixed-height inner scroll container', async () => {
