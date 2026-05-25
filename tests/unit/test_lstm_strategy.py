@@ -37,7 +37,7 @@ class TestLSTMWalkForward:
         """generate_signals must self-train walk-forward and emit signals
         without the caller pre-fitting the model."""
         data = _ohlcv()
-        strategy = LSTMStrategy(sequence_length=20, retrain_interval=40)
+        strategy = LSTMStrategy(sequence_length=20, retrain_interval=40, use_tensorflow=False)
 
         signals = strategy.generate_signals(data)
 
@@ -48,7 +48,7 @@ class TestLSTMWalkForward:
     def test_warmup_bars_have_no_signal(self):
         """Before the first trained model exists, bars stay flat (0)."""
         data = _ohlcv()
-        strategy = LSTMStrategy(sequence_length=20, retrain_interval=40)
+        strategy = LSTMStrategy(sequence_length=20, retrain_interval=40, use_tensorflow=False)
 
         signals = strategy.generate_signals(data)
 
@@ -62,7 +62,7 @@ class TestLSTMWalkForward:
         series — the in-sample 'fit-on-everything' path is the defect being
         removed."""
         data = _ohlcv()
-        strategy = LSTMStrategy(sequence_length=20, retrain_interval=40)
+        strategy = LSTMStrategy(sequence_length=20, retrain_interval=40, use_tensorflow=False)
 
         fit_sizes = []
         real_fit_segment = strategy._fit_segment
@@ -88,7 +88,11 @@ class TestLSTMWalkForward:
         than once per predicted bar."""
         data = _ohlcv(n=400)
         retrain_interval = 60
-        strategy = LSTMStrategy(sequence_length=20, retrain_interval=retrain_interval)
+        strategy = LSTMStrategy(
+            sequence_length=20,
+            retrain_interval=retrain_interval,
+            use_tensorflow=False,
+        )
 
         fit_count = []
         real_fit_segment = strategy._fit_segment
@@ -106,7 +110,7 @@ class TestLSTMWalkForward:
         """Below the minimum training size the strategy returns an all-flat
         series rather than raising."""
         data = _ohlcv(n=40)
-        strategy = LSTMStrategy(sequence_length=20, retrain_interval=40)
+        strategy = LSTMStrategy(sequence_length=20, retrain_interval=40, use_tensorflow=False)
 
         signals = strategy.generate_signals(data)
 

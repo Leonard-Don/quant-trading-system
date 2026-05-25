@@ -129,6 +129,27 @@ def test_run_walkforward_without_grid_uses_default_config(tmp_path: Path) -> Non
     )
 
 
+def test_run_walkforward_payload_declares_manual_only_execution_contract(
+    tmp_path: Path,
+) -> None:
+    """Machine-readable output must preserve the no-auto-ordering contract."""
+    csv_path = _write_prices(tmp_path, periods=500)
+
+    result = walkforward_etf_rotation.run_walkforward(
+        csv_path,
+        grid_path=None,
+        train_days=250,
+        test_days=60,
+    )
+
+    assert result["execution_contract"] == {
+        "mode": "manual_only",
+        "not_auto_ordering": True,
+        "broker_api_calls": False,
+        "review_required": True,
+    }
+
+
 def test_credibility_summary_compares_oos_to_equal_weight_benchmark(tmp_path: Path) -> None:
     """The report layer must say whether OOS windows beat a naive benchmark."""
     csv_path = _write_prices(tmp_path, periods=600)

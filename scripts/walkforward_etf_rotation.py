@@ -48,6 +48,13 @@ from src.strategy.etf_rotation_strategy import (  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+EXECUTION_CONTRACT: dict[str, Any] = {
+    "mode": "manual_only",
+    "not_auto_ordering": True,
+    "broker_api_calls": False,
+    "review_required": True,
+}
+
 
 # ---------------------------------------------------------------------------
 # Grid expansion
@@ -368,6 +375,7 @@ def run_walkforward(
     }
     return {
         "summary": summary,
+        "execution_contract": dict(EXECUTION_CONTRACT),
         "configs": [asdict(c) for c in configs],
         "windows": windows,
     }
