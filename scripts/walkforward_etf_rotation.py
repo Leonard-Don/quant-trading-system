@@ -28,6 +28,7 @@ import logging
 import sys
 from collections.abc import Iterable, Sequence
 from dataclasses import asdict, replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
@@ -306,6 +307,14 @@ def evaluate_window(
 # ---------------------------------------------------------------------------
 
 
+def load_price_matrix(prices_csv: Path) -> pd.DataFrame:
+    """Load a wide ETF close-price CSV with a DatetimeIndex."""
+
+    prices = pd.read_csv(prices_csv, index_col=0)
+    prices.index = pd.to_datetime(prices.index)
+    return prices.apply(pd.to_numeric, errors="coerce").ffill().dropna(how="all")
+
+
 def run_walkforward(
     prices_csv: Path,
     grid_path: Optional[Path],
@@ -319,9 +328,7 @@ def run_walkforward(
     min_rebalance_weight_delta: float = DEFAULT_REBALANCE_THRESHOLD,
     objective: str = "sharpe_ratio",
 ) -> dict[str, Any]:
-    prices = pd.read_csv(prices_csv, index_col=0)
-    prices.index = pd.to_datetime(prices.index)
-    prices = prices.apply(pd.to_numeric, errors="coerce").ffill().dropna(how="all")
+    prices = load_price_matrix(prices_csv)
 
     grid = load_grid(grid_path) if grid_path is not None else {}
     configs = expand_grid(grid)
@@ -366,6 +373,207 @@ def run_walkforward(
     }
 
 
+# ---------------------------------------------------------------------------
+# Credibility report helpers
+# ---------------------------------------------------------------------------
+
+
+def _mean(values: Sequence[float]) -> Optional[float]:
+    return (sum(values) / len(values)) if values else None
+
+
+def _fmt_pct(value: Optional[float], *, signed: bool = True) -> str:
+    if value is None:
+        return "n/a"
+    fmt = "+.2f" if signed else ".2f"
+    return f"{value * 100:{fmt}}%"
+
+
+def _fmt_num(value: Optional[float]) -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:.2f}"
+
+
+def _equal_weight_buy_hold_return(
+    prices: pd.DataFrame,
+    start_date: str,
+    end_date: str,
+) -> Optional[float]:
+    """Naive equal-weight buy-and-hold return for one OOS window."""
+
+    window = prices.loc[pd.Timestamp(start_date): pd.Timestamp(end_date)]
+    if len(window) < 2:
+        return None
+    complete = window.dropna(axis=1, how="any")
+    if complete.empty:
+        return None
+    first = complete.iloc[0].replace(0, pd.NA)
+    rel = complete.iloc[-1] / first - 1.0
+    rel = pd.to_numeric(rel, errors="coerce").dropna()
+    if rel.empty:
+        return None
+    return float(rel.mean())
+
+
+def build_credibility_summary(
+    result: dict[str, Any],
+    prices: pd.DataFrame,
+) -> dict[str, Any]:
+    """Summarize whether OOS walk-forward windows beat a naive benchmark."""
+
+    returns: list[float] = []
+    sharpes: list[float] = []
+    drawdowns: list[float] = []
+    trades: list[float] = []
+    benchmark_returns: list[float] = []
+    excess_returns: list[float] = []
+    wins = 0
+    comparable = 0
+
+    for window in result.get("windows", []):
+        oos = window.get("out_of_sample") or {}
+        if not oos:
+            continue
+        ret = oos.get("total_return")
+        if ret is not None:
+            returns.append(float(ret))
+        if oos.get("sharpe_ratio") is not None:
+            sharpes.append(float(oos["sharpe_ratio"]))
+        if oos.get("max_drawdown") is not None:
+            drawdowns.append(float(oos["max_drawdown"]))
+        if oos.get("num_trades") is not None:
+            trades.append(float(oos["num_trades"]))
+
+        test_range = window.get("test_range") or []
+        if len(test_range) == 2 and ret is not None:
+            benchmark = _equal_weight_buy_hold_return(prices, test_range[0], test_range[1])
+            if benchmark is not None:
+                comparable += 1
+                benchmark_returns.append(benchmark)
+                excess = float(ret) - benchmark
+                excess_returns.append(excess)
+                if excess > 0:
+                    wins += 1
+
+    win_rate = (wins / comparable) if comparable else None
+    mean_excess = _mean(excess_returns)
+    mean_return = _mean(returns)
+    mean_sharpe = _mean(sharpes)
+
+    if (
+        win_rate is not None
+        and win_rate >= 0.6
+        and (mean_excess or 0.0) > 0
+        and (mean_sharpe or 0.0) > 0
+    ):
+        verdict = "credible_watchlist"
+    elif (win_rate is not None and win_rate >= 0.4) or (mean_return or 0.0) > 0:
+        verdict = "mixed_watchlist"
+    else:
+        verdict = "not_credible"
+
+    return {
+        "benchmark_name": "equal_weight_buy_hold",
+        "num_windows": int(
+            result.get("summary", {}).get("num_windows", len(result.get("windows", [])))
+        ),
+        "comparable_windows": comparable,
+        "oos_positive_windows": sum(1 for value in returns if value > 0),
+        "oos_win_count_vs_benchmark": wins,
+        "oos_win_rate_vs_benchmark": win_rate,
+        "mean_oos_return": mean_return,
+        "mean_benchmark_return": _mean(benchmark_returns),
+        "mean_oos_excess_return": mean_excess,
+        "min_oos_return": min(returns) if returns else None,
+        "max_oos_return": max(returns) if returns else None,
+        "mean_oos_sharpe": mean_sharpe,
+        "mean_oos_max_drawdown": _mean(drawdowns),
+        "worst_oos_drawdown": max(drawdowns) if drawdowns else None,
+        "avg_trades_per_window": _mean(trades),
+        "verdict": verdict,
+    }
+
+
+def render_walkforward_report(
+    result: dict[str, Any],
+    prices: pd.DataFrame,
+    *,
+    source_label: str,
+    generated_at: Optional[str] = None,
+) -> str:
+    """Render a self-contained Markdown credibility report."""
+
+    generated_at = generated_at or datetime.now().strftime("%Y-%m-%d")
+    summary = build_credibility_summary(result, prices)
+    lines = [
+        "# ETF Rotation Walk-Forward Credibility Report",
+        "",
+        f"- Generated: `{generated_at}`",
+        f"- Price source: `{source_label}`",
+        f"- Windows: {summary['num_windows']} ({summary['comparable_windows']} comparable vs benchmark)",
+        f"- Benchmark: `{summary['benchmark_name']}`",
+        f"- Verdict: **{summary['verdict']}**",
+        "- Execution contract: manual-only; not auto-ordering; no broker API calls.",
+        "",
+        "## Headline",
+        "",
+        f"- Mean OOS return: {_fmt_pct(summary['mean_oos_return'])}",
+        f"- Mean benchmark return: {_fmt_pct(summary['mean_benchmark_return'])}",
+        f"- Mean OOS excess return: {_fmt_pct(summary['mean_oos_excess_return'])}",
+        f"- Win rate vs benchmark: {_fmt_pct(summary['oos_win_rate_vs_benchmark'], signed=False)}",
+        f"- Mean OOS Sharpe: {_fmt_num(summary['mean_oos_sharpe'])}",
+        f"- Worst OOS drawdown: {_fmt_pct(summary['worst_oos_drawdown'], signed=False)}",
+        f"- Avg trades/window: {_fmt_num(summary['avg_trades_per_window'])}",
+        "",
+        "## Window Detail",
+        "",
+        "| Test window | Strategy return | Benchmark return | Excess | Sharpe | Max DD | Trades |",
+        "|---|---:|---:|---:|---:|---:|---:|",
+    ]
+
+    for window in result.get("windows", []):
+        oos = window.get("out_of_sample") or {}
+        test_range = window.get("test_range") or ["n/a", "n/a"]
+        benchmark = None
+        if len(test_range) == 2:
+            benchmark = _equal_weight_buy_hold_return(prices, test_range[0], test_range[1])
+        strategy_return = oos.get("total_return")
+        excess = (
+            float(strategy_return) - benchmark
+            if strategy_return is not None and benchmark is not None
+            else None
+        )
+        lines.append(
+            "| {start} → {end} | {ret} | {bench} | {excess} | {sharpe} | {dd} | {trades} |".format(
+                start=test_range[0],
+                end=test_range[1],
+                ret=_fmt_pct(strategy_return),
+                bench=_fmt_pct(benchmark),
+                excess=_fmt_pct(excess),
+                sharpe=_fmt_num(oos.get("sharpe_ratio")),
+                dd=_fmt_pct(oos.get("max_drawdown"), signed=False),
+                trades=oos.get("num_trades", "n/a"),
+            )
+        )
+
+    lines.extend([
+        "",
+        "## Interpretation",
+        "",
+        "Treat `credible_watchlist` as permission to keep manually tracking the signal, not as evidence of production edge. `mixed_watchlist` means the strategy has some useful regimes but needs sizing discipline and continued audit. `not_credible` means the default scoring layer should not guide real allocation without redesign.",
+        "",
+        "## Caveats",
+        "",
+        "- Equal-weight buy-and-hold is a naive benchmark, not Leonard's exact executed portfolio.",
+        "- Walk-forward windows are historical and do not include future liquidity, premium/discount, tax, or execution constraints beyond the configured commission/slippage parameters.",
+        "- This report evaluates the scoring/backtest layer; live decisions must still use the manual trade plan, premium vetoes, and risk rules.",
+        "- Manual-only remains a hard contract: this project produces suggestions, not orders.",
+        "",
+    ])
+    return "\n".join(lines)
+
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Walk-forward parameter scan for EtfRotationStrategy.",
@@ -393,6 +601,23 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         choices=("sharpe_ratio", "annualized_return", "total_return"),
         default="sharpe_ratio",
     )
+    parser.add_argument(
+        "--output-json",
+        type=Path,
+        default=None,
+        help="Optional path to write the JSON walk-forward payload.",
+    )
+    parser.add_argument(
+        "--output-md",
+        type=Path,
+        default=None,
+        help="Optional path to write a Markdown credibility report.",
+    )
+    parser.add_argument(
+        "--source-label",
+        default="price CSV",
+        help="Human-readable price source label for the Markdown report.",
+    )
     return parser
 
 
@@ -411,7 +636,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         min_rebalance_weight_delta=args.min_rebalance_weight_delta,
         objective=args.objective,
     )
-    print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
+    prices = load_price_matrix(args.prices_csv)
+    result["credibility"] = build_credibility_summary(result, prices)
+
+    payload = json.dumps(result, ensure_ascii=False, indent=2, default=str)
+    if args.output_json is not None:
+        args.output_json.parent.mkdir(parents=True, exist_ok=True)
+        args.output_json.write_text(payload + "\n", encoding="utf-8")
+    else:
+        print(payload)
+
+    if args.output_md is not None:
+        report = render_walkforward_report(
+            result,
+            prices,
+            source_label=args.source_label,
+        )
+        args.output_md.parent.mkdir(parents=True, exist_ok=True)
+        args.output_md.write_text(report, encoding="utf-8")
     return 0
 
 

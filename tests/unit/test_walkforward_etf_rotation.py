@@ -123,7 +123,61 @@ def test_run_walkforward_without_grid_uses_default_config(tmp_path: Path) -> Non
         test_days=60,
     )
     assert len(result["configs"]) == 1
-    assert result["configs"][0]["momentum_return20_multiplier"] == EtfScoringConfig().momentum_return20_multiplier
+    assert (
+        result["configs"][0]["momentum_return20_multiplier"]
+        == EtfScoringConfig().momentum_return20_multiplier
+    )
+
+
+def test_credibility_summary_compares_oos_to_equal_weight_benchmark(tmp_path: Path) -> None:
+    """The report layer must say whether OOS windows beat a naive benchmark."""
+    csv_path = _write_prices(tmp_path, periods=600)
+    result = walkforward_etf_rotation.run_walkforward(
+        csv_path,
+        grid_path=None,
+        train_days=250,
+        test_days=60,
+    )
+    prices = pd.read_csv(csv_path, index_col=0)
+    prices.index = pd.to_datetime(prices.index)
+
+    summary = walkforward_etf_rotation.build_credibility_summary(result, prices)
+
+    assert summary["num_windows"] == result["summary"]["num_windows"]
+    assert summary["benchmark_name"] == "equal_weight_buy_hold"
+    assert 0 <= summary["oos_win_rate_vs_benchmark"] <= 1
+    assert "mean_oos_excess_return" in summary
+    assert summary["verdict"] in {
+        "credible_watchlist",
+        "mixed_watchlist",
+        "not_credible",
+    }
+
+
+def test_render_walkforward_report_surfaces_caveats_and_windows(tmp_path: Path) -> None:
+    """Markdown report should be self-contained enough for manual review."""
+    csv_path = _write_prices(tmp_path, periods=600)
+    result = walkforward_etf_rotation.run_walkforward(
+        csv_path,
+        grid_path=None,
+        train_days=250,
+        test_days=60,
+    )
+    prices = pd.read_csv(csv_path, index_col=0)
+    prices.index = pd.to_datetime(prices.index)
+
+    report = walkforward_etf_rotation.render_walkforward_report(
+        result,
+        prices,
+        source_label="synthetic fixture",
+        generated_at="2026-05-25",
+    )
+
+    assert "# ETF Rotation Walk-Forward Credibility Report" in report
+    assert "equal_weight_buy_hold" in report
+    assert "manual-only" in report
+    assert "not auto-ordering" in report
+    assert "## Window Detail" in report
 
 
 # ---------------------------------------------------------------------------
