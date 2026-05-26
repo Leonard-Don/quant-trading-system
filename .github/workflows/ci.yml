@@ -16,10 +16,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          token: ""
-          persist-credentials: false
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          git init .
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -60,10 +64,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          token: ""
-          persist-credentials: false
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          git init .
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -93,10 +101,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          token: ""
-          persist-credentials: false
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          git init .
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -162,10 +174,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          token: ""
-          persist-credentials: false
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          git init .
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -203,10 +219,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          token: ""
-          persist-credentials: false
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          git init .
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -231,10 +251,14 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          token: ""
-          persist-credentials: false
+        shell: bash
+        working-directory: ${{ github.workspace }}
+        run: |
+          git init .
+          git remote add origin "https://github.com/${{ github.repository }}.git"
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout --detach FETCH_HEAD
+          git config --global --add safe.directory "${GITHUB_WORKSPACE}"
 
       - name: Set up Python
         uses: actions/setup-python@v6
