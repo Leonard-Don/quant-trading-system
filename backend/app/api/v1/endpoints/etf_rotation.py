@@ -1185,11 +1185,6 @@ _strategy_comparison_cache: dict[
 ] = {}
 
 
-def reset_strategy_comparison_cache_for_tests() -> None:
-    """Drop the comparison cache — tests call this between scenarios."""
-
-    _strategy_comparison_cache.clear()
-
 
 @router.post(
     "/strategy-comparison",
