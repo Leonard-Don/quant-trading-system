@@ -266,8 +266,8 @@ describe('EtfRotationDashboard — policy_signal_factor toggle', () => {
     expect(within(list).getByTestId('etf-policy-factor-delta-159985')).toBeInTheDocument();
     expect(within(list).queryByTestId('etf-policy-factor-delta-510300')).not.toBeInTheDocument();
     // The deltas surface as percentages with a sign — boost is +, penalty is -.
-    expect(within(panel).getByText(/\+6\.0% policy boost/)).toBeInTheDocument();
-    expect(within(panel).getByText(/-8\.0% policy penalty/)).toBeInTheDocument();
+    expect(within(panel).getByText(/\+6\.0% 政策加分/)).toBeInTheDocument();
+    expect(within(panel).getByText(/-8\.0% 政策扣分/)).toBeInTheDocument();
   });
 
   test('Δ panel disappears when the toggle is flipped back off', async () => {
@@ -343,8 +343,8 @@ describe('EtfRotationDashboard — policy_signal_factor toggle', () => {
 
     render(<EtfRotationDashboard />);
 
-    // The component renders ``来源：<source>`` as a Tag — assert by full text.
-    expect(await screen.findByText(/来源：preference/)).toBeInTheDocument();
+    // The component renders the localized effective source as a Tag — assert by full text.
+    expect(await screen.findByText(/来源：页面开关/)).toBeInTheDocument();
   });
 
   // Bonus: even before the daily-signal response arrives, the dashboard

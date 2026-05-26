@@ -274,7 +274,7 @@ const EtfWalkforwardPanel = ({
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <Space size={8} wrap align="center">
           <ExperimentOutlined />
-          <Text strong>历史回测 (Walkforward)</Text>
+          <Text strong>历史回测（滚动窗口）</Text>
           {summaryTagLabel ? (
             <Tag color={summaryTagColor} data-testid="etf-walkforward-summary-tag">
               {summaryTagLabel}
@@ -283,14 +283,14 @@ const EtfWalkforwardPanel = ({
           <Tooltip
             title={(
               <Space direction="vertical" size={2}>
-                <div>把 ETF 轮动策略在已提交的历史价格矩阵上滚动 N 个 ``window_months`` 的窗口。</div>
-                <div>每次切窗运行一次完整 backtest，再把窗口收益 / Sharpe / 回撤聚合为稳定性报告。</div>
-                <div>区别于上方 "因子归因" 面板（最近 X 天因子贡献）：walkforward 评估的是策略本身的多窗口稳健性。</div>
-                <div>v0.1 caveats 继承：无交易成本 / 无买卖价差 / 无市场冲击 / next-bar close 全额成交。</div>
+                <div>把 ETF 轮动策略在已提交的历史价格矩阵上，按“窗口月数”滚动切分评估。</div>
+                <div>每次切窗运行一次完整回测，再把窗口收益 / 夏普比率 / 回撤聚合为稳定性报告。</div>
+                <div>区别于上方“因子归因”面板（最近 X 天因子贡献）：滚动回测评估的是策略本身的多窗口稳健性。</div>
+                <div>v0.1 限制：暂未计入交易成本、买卖价差、市场冲击，按下一根 K 线收盘价全额成交。</div>
               </Space>
             )}
           >
-            <Tag>什么是 walkforward？</Tag>
+            <Tag>什么是滚动回测？</Tag>
           </Tooltip>
         </Space>
 
@@ -403,7 +403,7 @@ const EtfWalkforwardPanel = ({
 
         {!loading && !error && !report ? (
           <Empty
-            description="选好参数后点击 “运行回测” 启动 walkforward 分析（默认 14 个窗口，~30s）。"
+            description="选好参数后点击 “运行回测” 启动滚动窗口分析（默认 14 个窗口，约 30 秒）。"
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             data-testid="etf-walkforward-empty"
           />

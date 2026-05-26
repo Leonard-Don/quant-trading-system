@@ -95,7 +95,38 @@ const REGIME_META = {
   sideways: { color: 'processing', label: '盘整 / 波动放大', detail: '在 200 日均线附近横盘但波动率高于历史中位 1.5×。' },
   bear: { color: 'error', label: '熊市 / 趋势走弱', detail: '价格跌破 200 日均线，已开始降仓。' },
   crisis: { color: 'volcano', label: '危机 / 高波动深回撤', detail: '波动率 ≥ 2× 历史中位 或 60 日回撤 ≥ 15%。' },
-  unknown: { color: 'default', label: '数据不足', detail: '历史数据不够长，暂不调整 gross_cap。' },
+  unknown: { color: 'default', label: '数据不足', detail: '历史数据不够长，暂不调整仓位风控。' },
+};
+
+const POLICY_FACTOR_SOURCE_LABELS = {
+  query: 'URL 参数',
+  preference: '页面开关',
+  config: '策略配置',
+};
+
+const POLICY_ADJUSTMENT_LABELS = {
+  bullish: '政策加分',
+  bearish: '政策扣分',
+  neutral: '政策调整',
+};
+
+const SCORE_OVERRIDE_LABELS = {
+  trend_score: '趋势评分',
+  momentum_score: '动量评分',
+  risk_score: '风险评分',
+  premium_score: '溢价评分',
+  volatility_score: '波动评分',
+  liquidity_score: '流动性评分',
+  momentum_return20_multiplier: '20日动量权重',
+  momentum_return60_multiplier: '60日动量权重',
+  momentum_short_uptrend_bonus: '短线上行加分',
+  momentum_short_spike_penalty: '短线急涨扣分',
+  short_reversal_bonus: '短线反转加分',
+  risk_baseline: '风险基准分',
+  risk_volatility_multiplier: '波动风险权重',
+  risk_volatility_penalty_ceiling: '波动扣分上限',
+  trend_above_ma200_points: '站上200日线加分',
+  trend_below_ma200_penalty: '跌破200日线扣分',
 };
 
 const MANUAL_BANNER_ZH = '手动调仓计划：请人工复核后执行；不连接券商接口，也不会自动下单。';
@@ -165,15 +196,39 @@ const formatRiskReason = (value) => {
 const formatQuoteSource = (value) => {
   const text = String(value || '').trim();
   if (!text) return null;
+  const serviceMatch = text.match(/^service:(.+)$/i);
+  if (serviceMatch) return formatQuoteSource(serviceMatch[1]);
+  if (QUOTE_SOURCE_LABELS[text]) return QUOTE_SOURCE_LABELS[text];
   if (text === 'fake-live') return '测试实时行情';
-  if (/^historical?_fallback/i.test(text)) return '历史行情回退';
+  if (/^(history|historical)_fallback(?::.*)?$/i.test(text)) return '历史行情参考';
   if (/^synthetic/i.test(text)) return '模拟行情';
   if (/^realtime_manager$/i.test(text)) return '实时行情服务';
   if (/^yahoo$/i.test(text)) return '雅虎行情';
   if (/^commodity$/i.test(text)) return '商品行情源';
   if (/^us_stock$/i.test(text)) return '美股行情源';
+  if (/debounced/i.test(text)) return '防抖沿用';
   return text;
 };
+
+const formatPolicyFactorSource = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  return POLICY_FACTOR_SOURCE_LABELS[text] || text;
+};
+
+const formatPolicyAdjustmentLabel = (signal) => (
+  POLICY_ADJUSTMENT_LABELS[signal] || POLICY_ADJUSTMENT_LABELS.neutral
+);
+
+const formatScoreOverrideLabel = (key) => SCORE_OVERRIDE_LABELS[key] || '评分参数';
+
+const formatRegimeLabel = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return '未知行情环境';
+  return REGIME_META[text]?.label || '未知行情环境';
+};
+
+const formatDisplayCode = (code) => (code === 'CASH' ? '现金' : code);
 
 const formatPercent = (value) => {
   const number = Number(value);
@@ -469,7 +524,7 @@ const EtfRotationDashboard = () => {
       const response = await getEtfRotationAnalytics();
       setAnalytics(response?.data || null);
     } catch (err) {
-      message.error(err?.userMessage || err?.message || 'Edge 度量加载失败');
+      message.error(err?.userMessage || err?.message || '策略度量加载失败');
     } finally {
       setAnalyticsLoading(false);
     }
@@ -659,7 +714,7 @@ const EtfRotationDashboard = () => {
               key="stop-loss"
               title={
                 <>
-                  <div>触发 per-position 止损</div>
+                  <div>触发单仓止损</div>
                   <div>成本 ¥{row.stopLoss.cost_price?.toFixed(3)} / 当前 ¥{row.stopLoss.current_price?.toFixed(3)}</div>
                   <div>浮亏 {(row.stopLoss.loss_pct * 100).toFixed(2)}%</div>
                   <div>阈值 {(row.stopLoss.threshold * 100).toFixed(0)}%</div>
@@ -679,7 +734,7 @@ const EtfRotationDashboard = () => {
               key="override-invalidated"
               title={
                 <>
-                  <div>你的 override 已破</div>
+                  <div>你的人工确认已破</div>
                   {o.thesis ? <div>当时判断: {o.thesis}</div> : null}
                   <div>失效线 ¥{Number(o.invalidation_price).toFixed(3)}</div>
                   {Number.isFinite(o.current_price) ? (
@@ -691,7 +746,7 @@ const EtfRotationDashboard = () => {
               }
             >
               <Tag color="volcano" data-testid={`etf-override-invalidated-${code}`}>
-                override已破
+                人工确认已破
               </Tag>
             </Tooltip>
           );
@@ -702,7 +757,7 @@ const EtfRotationDashboard = () => {
               key="override-active"
               title={
                 <>
-                  <div>你的 override 仍然有效</div>
+                  <div>你的人工确认仍然有效</div>
                   {o.thesis ? <div>判断: {o.thesis}</div> : null}
                   <div>失效线 ¥{Number(o.invalidation_price).toFixed(3)}</div>
                   {Number.isFinite(o.current_price) ? (
@@ -713,15 +768,15 @@ const EtfRotationDashboard = () => {
               }
             >
               <Tag color="gold" data-testid={`etf-override-active-${code}`}>
-                override
+                人工确认
               </Tag>
             </Tooltip>
           );
         }
-        if (tags.length === 0) return code;
+        if (tags.length === 0) return formatDisplayCode(code);
         return (
           <Space size={4} wrap>
-            <span>{code}</span>
+            <span>{formatDisplayCode(code)}</span>
             {tags}
           </Space>
         );
@@ -821,7 +876,7 @@ const EtfRotationDashboard = () => {
               </Space>
               <Space>
                 {meta?.debounced ? (
-                  <Tooltip title={`权重变化低于阈值，沿用上次建议。max_delta=${meta.debounceMaxDelta}`}>
+                  <Tooltip title={`权重变化低于阈值，沿用上次建议。最大权重变化 ${formatPercent(meta.debounceMaxDelta)}`}>
                     <Tag icon={<PauseCircleOutlined />} color="default">已防抖</Tag>
                   </Tooltip>
                 ) : null}
@@ -854,7 +909,7 @@ const EtfRotationDashboard = () => {
             />
             {regime ? (
               <Space direction="vertical" size={4} style={{ width: '100%' }} data-testid="etf-regime-row">
-                <Text type="secondary">市场状态（regime 探测，影响总仓位上限 + 评分权重）</Text>
+                <Text type="secondary">市场状态（行情环境探测，影响仓位风控 + 评分权重）</Text>
                 <Space size={[8, 4]} wrap>
                   <Tooltip
                     title={
@@ -884,24 +939,24 @@ const EtfRotationDashboard = () => {
                       {(REGIME_META[regime.regime] || REGIME_META.unknown).label}
                     </Tag>
                   </Tooltip>
-                  <Tag>gross_cap × {regime.gross_cap_multiplier?.toFixed(2)}</Tag>
+                  <Tag>仓位风控 × {regime.gross_cap_multiplier?.toFixed(2)}</Tag>
                   {regime.min_score_to_hold_offset > 0 ? (
-                    <Tag color="orange">min_score +{regime.min_score_to_hold_offset.toFixed(0)}</Tag>
+                    <Tag color="orange">持有门槛 +{regime.min_score_to_hold_offset.toFixed(0)}</Tag>
                   ) : null}
                   {regime.scoring_overrides_applied
                     && Object.keys(regime.scoring_overrides_applied).length > 0 ? (
                     <Tooltip
                       title={
                         <>
-                          <div>该 regime 下激活的 scoring 覆盖：</div>
+                          <div>该行情环境下激活的评分覆盖：</div>
                           {Object.entries(regime.scoring_overrides_applied).map(([k, v]) => (
-                            <div key={k}>• {k} = {typeof v === 'number' ? v.toFixed(2) : String(v)}</div>
+                            <div key={k}>• {formatScoreOverrideLabel(k)} = {typeof v === 'number' ? v.toFixed(2) : String(v)}</div>
                           ))}
                         </>
                       }
                     >
                       <Tag color="purple" data-testid="etf-regime-scoring-override">
-                        scoring 覆盖 ×{Object.keys(regime.scoring_overrides_applied).length}
+                        评分覆盖 ×{Object.keys(regime.scoring_overrides_applied).length}
                       </Tag>
                     </Tooltip>
                   ) : null}
@@ -909,15 +964,15 @@ const EtfRotationDashboard = () => {
                     <Tooltip
                       title={
                         <>
-                          <div>多策略融合：trend + mean-reversion</div>
-                          <div>当前 regime: {ensemble.regime}</div>
-                          <div>α_trend = {(ensemble.alpha_trend * 100).toFixed(0)}%</div>
-                          <div>α_mr = {(ensemble.alpha_mean_reversion * 100).toFixed(0)}%</div>
+                          <div>多策略融合：趋势 + 均值回归</div>
+                          <div>当前行情环境: {formatRegimeLabel(ensemble.regime)}</div>
+                          <div>趋势权重 = {(ensemble.alpha_trend * 100).toFixed(0)}%</div>
+                          <div>均值回归权重 = {(ensemble.alpha_mean_reversion * 100).toFixed(0)}%</div>
                           {ensemble.regime_blend_weights ? (
                             <div style={{ marginTop: 4, fontSize: 11 }}>
-                              全 regime 权重表：
+                              全环境权重表：
                               {Object.entries(ensemble.regime_blend_weights).map(([k, v]) => (
-                                <div key={k}>· {k}: trend {(v * 100).toFixed(0)}% / mr {((1 - v) * 100).toFixed(0)}%</div>
+                                <div key={k}>· {formatRegimeLabel(k)}: 趋势 {(v * 100).toFixed(0)}% / 均值回归 {((1 - v) * 100).toFixed(0)}%</div>
                               ))}
                             </div>
                           ) : null}
@@ -945,7 +1000,7 @@ const EtfRotationDashboard = () => {
                     <Space direction="vertical" size={2}>
                       <div>启用后：政策雷达对每个 ETF 行业的多空判断会以一个温和的权重因子参与目标权重计算。</div>
                       <div>默认调整幅度小（±10%），并且会被 ETF 单只仓位上限 / 现金底线等风控规则二次约束。</div>
-                      <div>关闭后：纯趋势/动量/风险/溢价四因子，policy_radar 数据仅作为参考展示。</div>
+                      <div>关闭后：纯趋势/动量/风险/溢价四因子，政策雷达数据仅作为参考展示。</div>
                       <div>偏好持久化在 ~/.config/etf-rotation/ui_preferences.json，不影响 strategy.json。</div>
                     </Space>
                   )}
@@ -982,7 +1037,7 @@ const EtfRotationDashboard = () => {
                       </>
                     )}
                   >
-                    <Tag color="blue">来源：{policyFactorSource}</Tag>
+                    <Tag color="blue">来源：{formatPolicyFactorSource(policyFactorSource)}</Tag>
                   </Tooltip>
                 ) : null}
                 {policyFactorEnabled && policyFactorSummary.applied_count ? (
@@ -996,14 +1051,14 @@ const EtfRotationDashboard = () => {
                   style={{ background: 'var(--color-fill-quaternary, rgba(0,0,0,0.02))' }}
                   title={(
                     <Space size={6}>
-                      <Text strong>Δ vs factor-off</Text>
+                      <Text strong>政策因子影响</Text>
                       <Text type="secondary">（开启后相对关闭状态的权重调整）</Text>
                     </Space>
                   )}
                 >
                   {policyAdjustmentRows.length === 0 ? (
                     <Text type="secondary">
-                      暂无生效调整：policy_radar 信号要么是中性，要么没有 ETF 命中。
+                      暂无生效调整：政策雷达信号要么是中性，要么没有 ETF 命中。
                     </Text>
                   ) : (
                     <ul
@@ -1013,11 +1068,7 @@ const EtfRotationDashboard = () => {
                       {policyAdjustmentRows.map((row) => {
                         const deltaPct = Number(row.delta_weight ?? 0) * 100;
                         const sign = deltaPct >= 0 ? '+' : '';
-                        const label = row.signal === 'bullish'
-                          ? 'policy boost'
-                          : row.signal === 'bearish'
-                            ? 'policy penalty'
-                            : 'policy adjustment';
+                        const label = formatPolicyAdjustmentLabel(row.signal);
                         return (
                           <li
                             key={`${row.code}-policy-delta`}
@@ -1354,7 +1405,7 @@ const EtfRotationDashboard = () => {
                 label: (
                   <Space>
                     <LineChartOutlined />
-                    <Text strong>策略 Edge 度量（IC + 命中率）</Text>
+                    <Text strong>策略胜率/IC 度量</Text>
                     {analytics ? (
                       <Tag color="default">{analytics.n_audit_entries} 条历史</Tag>
                     ) : null}
@@ -1454,7 +1505,7 @@ const EtfRotationDashboard = () => {
                 label: (
                   <Space>
                     <RadarChartOutlined />
-                    <Text strong>政策信号（policy_radar 最新行业影响）</Text>
+                    <Text strong>政策信号（政策雷达最新行业影响）</Text>
                     {policyLoaded && policyAvailable ? (
                       <Tag color="default">Top {topPolicySignals.length}</Tag>
                     ) : null}
@@ -1572,7 +1623,7 @@ const EtfRotationDashboard = () => {
                               <Space direction="vertical" size={2} style={{ width: '100%' }}>
                                 <Space>
                                   <Text strong>{ts}</Text>
-                                  <Tag>{entry.quote_source || '-'}</Tag>
+                                  <Tag>{formatQuoteSource(entry.quote_source) || '-'}</Tag>
                                   {typeof entry.total_asset === 'number'
                                     ? <Text type="secondary">¥{Number(entry.total_asset).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}</Text>
                                     : null}
@@ -1592,7 +1643,7 @@ const EtfRotationDashboard = () => {
                                     <Tag key={code} color="blue">{code} {(Number(w) * 100).toFixed(1)}%</Tag>
                                   ))}
                                   {typeof cash === 'number'
-                                    ? <Tag color="default">CASH {(cash * 100).toFixed(1)}%</Tag>
+                                    ? <Tag color="default">现金 {(cash * 100).toFixed(1)}%</Tag>
                                     : null}
                                 </Space>
                                 {policyAdjustments.length > 0 ? (
@@ -1611,9 +1662,9 @@ const EtfRotationDashboard = () => {
                                         <Tag
                                           key={`${row.code}-policy`}
                                           color={color}
-                                          title={`industry=${row.industry}, avg_impact=${Number(row.avg_impact || 0).toFixed(3)}`}
+                                          title={`行业=${row.industry}, 平均影响=${Number(row.avg_impact || 0).toFixed(3)}`}
                                         >
-                                          {row.code} {sign}{deltaPct.toFixed(1)}% policy {row.signal}
+                                          {row.code} {sign}{deltaPct.toFixed(1)}% {formatPolicyAdjustmentLabel(row.signal)}
                                         </Tag>
                                       );
                                     })}
@@ -1641,7 +1692,7 @@ const EtfRotationDashboard = () => {
                 label: (
                   <Space>
                     <ExperimentOutlined />
-                    <Text strong>历史回测 (Walkforward) · 多窗口稳定性</Text>
+                    <Text strong>历史回测（滚动窗口）· 多窗口稳定性</Text>
                     <Tag color="default" data-testid="etf-walkforward-scope-tag">
                       回放历史价格 · 不同于上方因子归因
                     </Tag>

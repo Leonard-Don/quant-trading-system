@@ -5,6 +5,7 @@ import '@testing-library/jest-dom';
 
 import EtfRotationDashboard from '../components/EtfRotationDashboard';
 import {
+  getEtfRotationAuditLog,
   getEtfRotationDailySignal,
   getEtfRotationLiveTarget,
   getEtfRotationPreferences,
@@ -169,7 +170,7 @@ test('ETF轮动页面将接口里的英文提示和原因统一显示为中文',
   expect(screen.getByTestId('etf-pricing-rec-512400')).toHaveTextContent('中性 ¥2.208');
   expect(pageText).toContain('现金底线已保留');
   expect(pageText).toContain('手动 ETF 轮动信号');
-  expect(pageText).toContain('历史行情回退');
+  expect(pageText).toContain('历史行情参考');
   expect(pageText).toContain('测试实时行情');
   expect(pageText).toContain('逐仓位短线择时');
   expect(pageText).toContain('距20日线');
@@ -248,6 +249,136 @@ test('ETF轮动页面在 live-target 可用时显示实时刷新模式并渲染�
   expect(getEtfRotationDailySignal).not.toHaveBeenCalled();
 });
 
+test('ETF轮动页面不把内部技术字段直接暴露给用户', async () => {
+  const localizedFixture = {
+    ...mixedLanguageFixture,
+    quote_snapshot: {
+      ...mixedLanguageFixture.quote_snapshot,
+      '512400': { current_price: 2.209, source: 'history_fallback:yahoo' },
+    },
+    policy_signal_factor_enabled: true,
+    policy_signal_factor: { enabled: true, source: 'config', applied_count: 1 },
+    regime: {
+      regime: 'bear',
+      gross_cap_multiplier: 1,
+      min_score_to_hold_offset: 5,
+      scoring_overrides_applied: {
+        momentum_return20_multiplier: 120,
+        short_reversal_bonus: 8,
+      },
+    },
+    ensemble: {
+      enabled: true,
+      regime: 'bear',
+      alpha_trend: 0.4,
+      alpha_mean_reversion: 0.6,
+      regime_blend_weights: { bear: 0.4, crisis: 1.0 },
+    },
+    manual_override_status: {
+      '512400': {
+        invalidation_price: 1.975,
+        current_price: 2.209,
+        invalidated: false,
+      },
+    },
+    score_breakdown: {
+      ...mixedLanguageFixture.score_breakdown,
+      '512400': {
+        ...mixedLanguageFixture.score_breakdown['512400'],
+        policy_adjustment: {
+          applied: true,
+          signal: 'bullish',
+          delta_weight: 0.012,
+          industry: '有色金属',
+          avg_impact: 0.18,
+        },
+      },
+    },
+  };
+  getEtfRotationLiveTarget.mockResolvedValue({
+    data: {
+      plan: localizedFixture,
+      refreshed_at: '2026-05-15T02:00:00+00:00',
+      quote_source: 'live',
+      debounced: true,
+      debounce_max_delta: 0.018,
+    },
+  });
+  getEtfRotationAuditLog.mockResolvedValue({
+    data: {
+      entries: [
+        {
+          run_at: '2026-05-15T02:00:00+00:00',
+          quote_source: 'service:live_quotes_synthetic_history',
+          total_asset: 31500,
+          adjusted_weights: { '512400': 0.22, CASH: 0.18 },
+        },
+      ],
+    },
+  });
+
+  const { container } = render(<EtfRotationDashboard />);
+
+  await waitFor(() => {
+    expect(screen.getByTestId('etf-weight-table')).toBeInTheDocument();
+  });
+
+  const pageText = container.textContent;
+  expect(pageText).toContain('仓位风控 × 1.00');
+  expect(pageText).toContain('持有门槛 +5');
+  expect(pageText).toContain('评分覆盖 ×2');
+  expect(pageText).toContain('来源：策略配置');
+  expect(pageText).toContain('人工确认');
+  expect(pageText).toContain('历史行情参考');
+  expect(pageText).toContain('政策信号（政策雷达最新行业影响）');
+  expect(pageText).toContain('历史回测（滚动窗口）· 多窗口稳定性');
+  expect(pageText).toContain('策略胜率/IC 度量');
+  expect(pageText).toContain('政策加分');
+
+  [
+    'gross_cap',
+    'min_score',
+    'momentum_return20_multiplier',
+    'short_reversal_bonus',
+    'service:live_quotes_synthetic_history',
+    'bear',
+    'crisis',
+    'scoring 覆盖',
+    '来源：config',
+    'history_fallback:yahoo',
+    'override',
+    'policy_radar',
+    'Walkforward',
+    'Edge',
+    'CASH',
+    'policy boost',
+    'policy penalty',
+  ].forEach((rawSnippet) => {
+    expect(pageText).not.toContain(rawSnippet);
+  });
+
+  const user = userEvent.setup();
+  await user.hover(screen.getByTestId('etf-regime-scoring-override'));
+  expect(await screen.findByText(/20日动量权重 = 120\.00/)).toBeInTheDocument();
+  expect(screen.getByText(/短线反转加分 = 8\.00/)).toBeInTheDocument();
+  expect(screen.queryByText(/momentum_return20_multiplier/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/short_reversal_bonus/)).not.toBeInTheDocument();
+
+  await user.hover(screen.getByTestId('etf-ensemble-tag'));
+  expect(await screen.findByText(/当前行情环境: 熊市 \/ 趋势走弱/)).toBeInTheDocument();
+  expect(screen.getByText(/熊市 \/ 趋势走弱: 趋势 40%/)).toBeInTheDocument();
+  expect(screen.queryByText(/当前行情环境: bear/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/crisis: 趋势/)).not.toBeInTheDocument();
+
+  await user.hover(screen.getByText('已防抖'));
+  expect(await screen.findByText(/最大权重变化 1\.80%/)).toBeInTheDocument();
+  expect(screen.queryByText(/max_delta/)).not.toBeInTheDocument();
+
+  await user.click(screen.getByText('信号历史（最近 40 次刷新）'));
+  expect(await screen.findByText('实时报价 / 合成历史')).toBeInTheDocument();
+  expect(screen.queryByText('service:live_quotes_synthetic_history')).not.toBeInTheDocument();
+});
+
 test('ETF轮动页面默认折叠 walkforward，展开后才加载面板且不自动请求', async () => {
   const liveTargetEnvelope = {
     data: {
@@ -267,7 +398,7 @@ test('ETF轮动页面默认折叠 walkforward，展开后才加载面板且不�
   expect(screen.queryByTestId('etf-walkforward-panel')).not.toBeInTheDocument();
 
   const user = userEvent.setup();
-  await user.click(screen.getByText('历史回测 (Walkforward) · 多窗口稳定性'));
+  await user.click(screen.getByText('历史回测（滚动窗口）· 多窗口稳定性'));
 
   expect(await screen.findByTestId('etf-walkforward-panel')).toBeInTheDocument();
   expect(screen.getByTestId('etf-walkforward-cache-checkbox')).toBeInTheDocument();
@@ -335,7 +466,7 @@ test('政策因子开关默认显示为关闭，Δ 面板不渲染', async () =>
   expect(screen.getByTestId('etf-policy-factor-state-tag')).toHaveTextContent('已关闭');
 });
 
-test('manual_override 失效线被破时在价格表里显示 override已破 红色徽标', async () => {
+test('manual_override 失效线被破时在价格表里显示人工确认已破红色徽标', async () => {
   const planWithInvalidatedOverride = {
     ...mixedLanguageFixture,
     manual_override_status: {
@@ -348,7 +479,7 @@ test('manual_override 失效线被破时在价格表里显示 override已破 红
         note: '2026-05-19 早盘 1.96 已破',
       },
       '510300': {
-        // Override exists but holding the line — should show "override" (gold) not "override已破".
+        // Override exists but holding the line — should show "人工确认" (gold) not "人工确认已破".
         invalidation_price: 4.50,
         thesis: '长期持有',
         current_price: 5.017,
@@ -373,12 +504,12 @@ test('manual_override 失效线被破时在价格表里显示 override已破 红
   await waitFor(() => {
     expect(screen.getByTestId('etf-override-invalidated-512400')).toBeInTheDocument();
   });
-  expect(screen.getByTestId('etf-override-invalidated-512400')).toHaveTextContent('override已破');
+  expect(screen.getByTestId('etf-override-invalidated-512400')).toHaveTextContent('人工确认已破');
 
-  // The still-valid override for 510300 renders the lighter "override" pill,
-  // not the red "override已破" one.
+  // The still-valid override for 510300 renders the lighter "人工确认" pill,
+  // not the red "人工确认已破" one.
   expect(screen.getByTestId('etf-override-active-510300')).toBeInTheDocument();
-  expect(screen.getByTestId('etf-override-active-510300')).toHaveTextContent('override');
+  expect(screen.getByTestId('etf-override-active-510300')).toHaveTextContent('人工确认');
   expect(screen.queryByTestId('etf-override-invalidated-510300')).not.toBeInTheDocument();
 });
 

@@ -134,7 +134,7 @@ describe('EtfWalkforwardPanel', () => {
 
     expect(screen.getByTestId('etf-walkforward-panel')).toBeInTheDocument();
     // Header + scope-distinguishing tooltip tag.
-    expect(screen.getByText('历史回测 (Walkforward)')).toBeInTheDocument();
+    expect(screen.getByText('历史回测（滚动窗口）')).toBeInTheDocument();
     // Controls visible.
     expect(screen.getByTestId('etf-walkforward-range-picker')).toBeInTheDocument();
     expect(screen.getByTestId('etf-walkforward-window-months')).toBeInTheDocument();
