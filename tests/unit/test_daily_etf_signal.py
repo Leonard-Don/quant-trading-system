@@ -35,7 +35,7 @@ def test_default_quotes_cover_every_holding() -> None:
     holdings = daily_etf_signal.load_default_holdings()
     quotes = daily_etf_signal.load_default_quotes(holdings)
     assert set(quotes.keys()) == {h.code for h in holdings}
-    for code, quote in quotes.items():
+    for _code, quote in quotes.items():
         assert quote.current_price is not None and quote.current_price > 0
 
 
@@ -113,6 +113,27 @@ def test_generate_plan_suggestions_have_only_manual_actions() -> None:
         # Manual plan only — no broker / order routing fields.
         for forbidden in ("broker", "order_id", "venue", "submitted"):
             assert forbidden not in suggestion
+
+
+def test_generate_plan_includes_manual_only_execution_contract() -> None:
+    """The machine-readable payload must repeat the manual-only promise.
+
+    ``manual_only`` / ``auto_ordering`` are kept for backwards compatibility;
+    the nested contract gives frontend/API consumers one stable block to inspect
+    before rendering any execution affordance.
+    """
+
+    plan = _make_plan()
+
+    assert plan["execution_contract"] == {
+        "mode": "manual_only",
+        "manual_only": True,
+        "auto_ordering": False,
+        "broker_routing": False,
+        "broker_submission": False,
+        "order_transport": "none",
+        "operator_review_required": True,
+    }
 
 
 def test_generate_plan_adjusted_weights_respect_cash_floor() -> None:
@@ -656,7 +677,7 @@ def test_generate_plan_emits_score_breakdown_for_audit() -> None:
     score_breakdown = plan.get("score_breakdown") or {}
     # Should have at least the seed codes' scores.
     assert {"159985", "510300"}.issubset(set(score_breakdown))
-    for code, sb in score_breakdown.items():
+    for _code, sb in score_breakdown.items():
         assert "score" in sb
         assert "latest_price" in sb
         assert isinstance(sb["score"], float)
@@ -1111,7 +1132,7 @@ def test_append_audit_entry_includes_policy_signal_factor_block(tmp_path) -> Non
     assert entry["policy_signal_factor"].get("enabled") is True
     # score_breakdown carries the per-ETF metadata path; even when None it's
     # an explicit key so dashboards know to look for it.
-    for code, breakdown in entry.get("score_breakdown", {}).items():
+    for _code, breakdown in entry.get("score_breakdown", {}).items():
         assert "policy_adjustment" in breakdown
         # When OFF / no mapping the value must be None (not absent) — keep
         # the JSON shape stable across runs.

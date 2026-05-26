@@ -73,6 +73,15 @@ from src.strategy.etf_rotation_strategy import (  # noqa: E402
 logger = logging.getLogger(__name__)
 
 MANUAL_BANNER = "手动调仓计划：请人工复核后执行；不连接券商接口，也不会自动下单。"
+MANUAL_EXECUTION_CONTRACT: dict[str, Any] = {
+    "mode": "manual_only",
+    "manual_only": True,
+    "auto_ordering": False,
+    "broker_routing": False,
+    "broker_submission": False,
+    "order_transport": "none",
+    "operator_review_required": True,
+}
 
 HOLDINGS_PATH_ENV = "ETF_HOLDINGS_PATH"
 DEFAULT_HOLDINGS_PATH = Path.home() / ".config" / "etf-rotation" / "holdings.json"
@@ -88,6 +97,12 @@ DEFAULT_AUDIT_LOG_PATH = Path.home() / ".config" / "etf-rotation" / "audit.jsonl
 # genuinely stalled feed. Tunable via ``strategy.price_staleness_trading_days``
 # in strategy.json.
 DEFAULT_PRICE_STALENESS_TRADING_DAYS = 3
+
+
+def manual_execution_contract() -> dict[str, Any]:
+    """Return a fresh copy of the ETF manual-only execution contract."""
+
+    return dict(MANUAL_EXECUTION_CONTRACT)
 
 
 # ---------------------------------------------------------------------------
@@ -1089,6 +1104,7 @@ def generate_plan(
     return {
         "manual_only": True,
         "auto_ordering": False,
+        "execution_contract": manual_execution_contract(),
         "actionable": safety["actionable"],
         "non_actionable_reasons": safety["non_actionable_reasons"],
         "data_safety": safety["data_safety"],

@@ -31,6 +31,15 @@ PLAN_KEYS = {
 }
 
 DEFAULT_SEED_CODES = {"159985", "512400", "510300", "518680", "513130"}
+EXPECTED_EXECUTION_CONTRACT = {
+    "mode": "manual_only",
+    "manual_only": True,
+    "auto_ordering": False,
+    "broker_routing": False,
+    "broker_submission": False,
+    "order_transport": "none",
+    "operator_review_required": True,
+}
 
 
 def _synthetic_path(query: str = "") -> str:
@@ -61,6 +70,15 @@ def test_daily_signal_is_manual_only_and_no_auto_ordering() -> None:
     assert isinstance(data["banner"], str) and data["banner"]
     assert "手动" in data["banner"]
     assert "自动下单" in data["banner"]
+
+
+def test_daily_signal_exposes_manual_only_execution_contract() -> None:
+    client = TestClient(app)
+
+    response = client.get(_synthetic_path())
+
+    assert response.status_code == 200
+    assert response.json()["data"]["execution_contract"] == EXPECTED_EXECUTION_CONTRACT
 
 
 def test_daily_signal_covers_seed_codes() -> None:
@@ -1052,6 +1070,51 @@ def test_live_target_actionable_false_plan_surfaces_reasons() -> None:
     reasons = plan["non_actionable_reasons"]
     assert isinstance(reasons, list) and len(reasons) > 0
     assert any("synthetic" in r for r in reasons)
+
+
+def test_live_target_stamps_execution_contract_on_cached_legacy_plan() -> None:
+    """Cached plans from older service instances still get the API contract.
+
+    This guards route-surface consumers: every plan-bearing ETF HTTP response
+    must include the nested manual-only execution contract even when the cached
+    payload predates the field.
+    """
+
+    legacy_plan = {
+        "total_asset": 100000.0,
+        "current_weights": {"CASH": 1.0},
+        "target_weights": {"CASH": 1.0},
+        "adjusted_weights": {"CASH": 1.0},
+        "suggestions": [],
+        "risk_reasons": [],
+    }
+
+    class StubService:
+        def get_cached_plan(self):
+            return SimpleNamespace(
+                plan=dict(legacy_plan),
+                refreshed_at=datetime(2026, 5, 22, 2, 0, tzinfo=timezone.utc),
+                quote_source="legacy-cache",
+                debounced=False,
+                debounce_max_delta=None,
+                reasons=[],
+            )
+
+        def is_trading_hours(self):
+            return False
+
+    etf_endpoint.install_service(StubService())  # type: ignore[arg-type]
+    try:
+        client = TestClient(app)
+        response = client.get("/etf-rotation/live-target")
+    finally:
+        etf_endpoint.reset_service_for_tests()
+
+    assert response.status_code == 200
+    plan = response.json()["data"]["plan"]
+    assert plan["manual_only"] is True
+    assert plan["auto_ordering"] is False
+    assert plan["execution_contract"] == EXPECTED_EXECUTION_CONTRACT
 
 
 def test_post_refresh_plan_has_actionable_field() -> None:

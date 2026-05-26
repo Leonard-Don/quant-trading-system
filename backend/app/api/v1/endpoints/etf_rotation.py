@@ -260,6 +260,7 @@ def get_daily_signal(
         }
         _stamp_policy_factor_source(plan, effective_bool, source_label)
         _ensure_actionable_fields(plan)
+        _ensure_manual_execution_contract(plan)
         daily_etf_signal.append_audit_entry(plan, quote_source="api:synthetic")
         return {"success": True, "data": plan}
 
@@ -292,6 +293,7 @@ def get_daily_signal(
     plan["live_quote_status"] = live_status
     _stamp_policy_factor_source(plan, effective_bool, source_label)
     _ensure_actionable_fields(plan)
+    _ensure_manual_execution_contract(plan)
     daily_etf_signal.append_audit_entry(plan, quote_source=f"api:{plan['quote_source']}")
     return {"success": True, "data": plan}
 
@@ -320,6 +322,22 @@ def _ensure_actionable_fields(plan: dict[str, Any]) -> None:
         plan["actionable"] = True
     if not isinstance(plan.get("non_actionable_reasons"), list):
         plan["non_actionable_reasons"] = []
+
+
+def _ensure_manual_execution_contract(plan: dict[str, Any]) -> None:
+    """Guarantee every ETF plan-bearing response is manual-only.
+
+    Generated plans include this field, but cached legacy/stubbed plans may not.
+    The endpoint layer is the final HTTP guardrail: it restates the manual-only
+    top-level booleans and exposes a stable nested contract for consumers.
+    """
+
+    existing = plan.get("execution_contract")
+    contract = dict(existing) if isinstance(existing, dict) else {}
+    contract.update(daily_etf_signal.manual_execution_contract())
+    plan["manual_only"] = True
+    plan["auto_ordering"] = False
+    plan["execution_contract"] = contract
 
 
 def _stamp_policy_factor_source(
@@ -395,6 +413,7 @@ def get_live_target(
         if isinstance(serialised.get("plan"), dict):
             _stamp_policy_factor_source(serialised["plan"], effective_bool, source_label)
             _ensure_actionable_fields(serialised["plan"])
+            _ensure_manual_execution_contract(serialised["plan"])
         return {
             "success": True,
             "data": serialised,
@@ -423,6 +442,7 @@ def get_live_target(
     if isinstance(serialised.get("plan"), dict):
         _stamp_policy_factor_source(serialised["plan"], effective_bool, source_label)
         _ensure_actionable_fields(serialised["plan"])
+        _ensure_manual_execution_contract(serialised["plan"])
     return {
         "success": True,
         "data": serialised,
@@ -460,6 +480,7 @@ def post_refresh(
     if isinstance(serialised.get("plan"), dict):
         _stamp_policy_factor_source(serialised["plan"], effective_bool, source_label)
         _ensure_actionable_fields(serialised["plan"])
+        _ensure_manual_execution_contract(serialised["plan"])
     return {
         "success": True,
         "data": serialised,
