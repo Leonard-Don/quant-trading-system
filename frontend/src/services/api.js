@@ -803,6 +803,33 @@ export const postEtfRotationWalkforward = async ({
   return response.data;
 };
 
+export const postEtfRotationBacktest = async (payload = {}) => {
+  const response = await api.post(
+    '/etf-rotation/backtest',
+    payload,
+    withTimeoutProfile('long'),
+  );
+  return response.data;
+};
+
+export const postEtfRotationStrategyComparison = async (payload = {}) => {
+  const response = await api.post(
+    '/etf-rotation/strategy-comparison',
+    payload,
+    withTimeoutProfile('long'),
+  );
+  return response.data;
+};
+
+export const postEtfRotationOptimizeParameters = async (payload = {}) => {
+  const response = await api.post(
+    '/etf-rotation/optimize-parameters',
+    payload,
+    withTimeoutProfile('long'),
+  );
+  return response.data;
+};
+
 export const getEtfRotationAuditLog = async ({ limit = 200, since = null } = {}) => {
   const params = { limit };
   if (since) params.since = since;

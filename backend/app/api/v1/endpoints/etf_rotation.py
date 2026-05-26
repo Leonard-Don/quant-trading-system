@@ -88,7 +88,6 @@ router = APIRouter()
 # (and the conftest isolation fixture) can monkeypatch the constructor or
 # inject a fake before the first call.
 _service: Optional[EtfRotationService] = None
-_service_lock_module_init = False
 
 
 def _get_service() -> EtfRotationService:
