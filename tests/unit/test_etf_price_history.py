@@ -185,6 +185,12 @@ def test_fetch_etf_history_trims_to_requested_window(monkeypatch) -> None:
         ("600519", "sh600519"),  # 6* → SH
         ("000001", "sz000001"),  # 0* → SZ
         ("sh510300", "sh510300"),  # already prefixed
+        ("SH510300", "sh510300"),  # uppercase prefix normalized
+        ("SZ159985", "sz159985"),  # uppercase prefix normalized
+        ("BJ830799", "bj830799"),  # uppercase prefix normalized
+        (" SH510300 ", "sh510300"),  # uppercase prefix normalized after trim
+        (" SZ159985 ", "sz159985"),  # uppercase prefix normalized after trim
+        (" BJ830799 ", "bj830799"),  # uppercase prefix normalized after trim
     ],
 )
 def test_sina_symbol_mapping(code: str, expected: str) -> None:

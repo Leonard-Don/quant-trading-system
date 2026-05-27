@@ -28,10 +28,11 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Iterator, List, Optional, Sequence
+from typing import Optional
 
 import pandas as pd
 
@@ -57,7 +58,7 @@ def _proxy_blackout() -> Iterator[None]:
 
     import urllib.request
 
-    original_env: Dict[str, Optional[str]] = {
+    original_env: dict[str, Optional[str]] = {
         var: os.environ.get(var) for var in _PROXY_ENV_VARS
     }
     original_no_proxy = os.environ.get("NO_PROXY"), os.environ.get("no_proxy")
@@ -67,7 +68,7 @@ def _proxy_blackout() -> Iterator[None]:
         os.environ[var] = ""
     os.environ["NO_PROXY"] = "*"
     os.environ["no_proxy"] = "*"
-    urllib.request.getproxies = lambda: {}
+    urllib.request.getproxies = dict
 
     try:
         yield
@@ -101,8 +102,9 @@ def _import_akshare():
 # Sina uses ``shXXXXXX`` / ``szXXXXXX`` prefixed symbols.
 def _sina_symbol(code: str) -> str:
     code = code.strip()
-    if code.startswith(("sh", "sz", "bj")):
-        return code
+    normalized_code = code.lower()
+    if normalized_code.startswith(("sh", "sz", "bj")):
+        return normalized_code
     # SH: 5* (510/511/512/...) and 6*; SZ: 0*/1*/3*. ETFs in CN follow this.
     prefix = "sh" if code[:1] in {"5", "6"} or code.startswith("11") else "sz"
     return f"{prefix}{code}"
@@ -168,8 +170,8 @@ def fetch_etf_history(
     start_str = start_date.strftime("%Y%m%d")
     end_str = end_date.strftime("%Y%m%d")
 
-    frames: Dict[str, pd.Series] = {}
-    failures: List[str] = []
+    frames: dict[str, pd.Series] = {}
+    failures: list[str] = []
 
     with _proxy_blackout():
         for code in codes:
