@@ -12,6 +12,7 @@
   --app-header-content-height: 64px;
   --app-header-height: calc(var(--app-header-content-height) + var(--app-safe-top));
   --app-sider-width: 220px;
+  --app-sider-collapsed-width: 64px;
   --app-content-pad-inline: clamp(16px, 2vw, 28px);
   --app-content-pad-block: clamp(16px, 2vw, 28px);
 
@@ -5171,10 +5172,10 @@ a {
   transition: margin-left 0.2s;
 }
 
-/* 侧边栏折叠时调整 */
+/* 桌面折叠侧边栏仍是 fixed rail，内容区必须保留 64px gutter。 */
 .app-main-shell>.app-main-sider.ant-layout-sider-collapsed~.app-main-body {
-  margin-left: 0;
-  width: 100%;
+  margin-left: var(--app-sider-collapsed-width);
+  width: calc(100% - var(--app-sider-collapsed-width));
 }
 
 /* 实时行情卡片：防止 Source/标签/指标在窄列中横向溢出。 */
@@ -5802,7 +5803,8 @@ a {
     z-index: 1001;
   }
 
-  .app-main-shell>.app-main-body {
+  .app-main-shell>.app-main-body,
+  .app-main-shell>.app-main-sider.ant-layout-sider-collapsed~.app-main-body {
     margin-left: 0;
     width: 100%;
   }
