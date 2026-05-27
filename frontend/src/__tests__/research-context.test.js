@@ -122,4 +122,17 @@ describe('researchContext retained routing', () => {
     expect(url).not.toContain('symbol=600519');
     expect(readResearchContext('?view=ETF').view).toBe('etf');
   });
+
+  it('accepts legacy alerts deep links as realtime public view aliases', () => {
+    expect(readResearchContext('?view=alerts').view).toBe('realtime');
+
+    const url = buildViewUrlForCurrentState(
+      'alerts',
+      '?view=alerts&tab=index&symbol=600519'
+    );
+
+    expect(url).toContain('view=realtime');
+    expect(url).toContain('tab=index');
+    expect(url).not.toContain('symbol=600519');
+  });
 });
