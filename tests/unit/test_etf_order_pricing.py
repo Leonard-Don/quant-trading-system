@@ -64,6 +64,18 @@ def test_missing_reference_price_returns_no_hints() -> None:
     ) is None
 
 
+def test_invalid_numeric_inputs_return_no_hints_instead_of_crashing() -> None:
+    assert build_pricing_hints(
+        action="buy", reference_price="bad", shares=100, estimated_amount=500.0,
+    ) is None
+    assert build_pricing_hints(
+        action="buy", reference_price=float("nan"), shares=100, estimated_amount=500.0,
+    ) is None
+    assert build_pricing_hints(
+        action="buy", reference_price=5.0, shares="bad", estimated_amount=500.0,
+    ) is None
+
+
 def test_zero_shares_returns_no_hints() -> None:
     assert build_pricing_hints(
         action="buy", reference_price=5.0, shares=0, estimated_amount=0.0,

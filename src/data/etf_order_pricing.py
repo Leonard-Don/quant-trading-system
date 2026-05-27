@@ -184,9 +184,9 @@ def _decide_batches(
 def build_pricing_hints(
     *,
     action: str,
-    reference_price: Optional[float],
-    shares: int,
-    estimated_amount: float,
+    reference_price: Any,
+    shares: Any,
+    estimated_amount: Any,
     config: Optional[PricingConfig] = None,
 ) -> Optional[PricingHints]:
     """Return three limit-price levels + batching plan for one suggestion.
@@ -198,12 +198,15 @@ def build_pricing_hints(
 
     if action not in {"buy", "sell"}:
         return None
-    if reference_price is None or reference_price <= 0 or shares <= 0:
+
+    ref = _positive_float(reference_price, 0.0)
+    share_count = _positive_int(shares, 0)
+    notional = _positive_float(estimated_amount, 0.0)
+    if ref <= 0 or share_count <= 0:
         return None
 
     cfg = config or PricingConfig()
     tick = float(cfg.tick_size)
-    ref = float(reference_price)
 
     # Direction convention:
     #   buy: aggressive = pay up to fill, passive = bid below market
@@ -227,8 +230,8 @@ def build_pricing_hints(
     if recommended not in levels:
         recommended = "neutral"
 
-    batches = _decide_batches(shares, estimated_amount, cfg)
-    per_batch = _split_shares(shares, batches)
+    batches = _decide_batches(share_count, notional, cfg)
+    per_batch = _split_shares(share_count, batches)
 
     notes: list[str] = []
     notes.append(
