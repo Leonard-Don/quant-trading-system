@@ -111,4 +111,15 @@ describe('researchContext retained routing', () => {
     expect(url).not.toContain('task=rw_123');
     expect(readResearchContext('?view=pricing').view).toBe('backtest');
   });
+
+  it('accepts case variants for public view deep links before sanitizing stale params', () => {
+    const url = buildViewUrlForCurrentState(
+      'ETF',
+      '?view=ETF&symbol=600519&source=legacy'
+    );
+
+    expect(url).toContain('view=etf');
+    expect(url).not.toContain('symbol=600519');
+    expect(readResearchContext('?view=ETF').view).toBe('etf');
+  });
 });
