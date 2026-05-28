@@ -13,6 +13,7 @@ from .circuit_breaker import (
 )
 from .commodity_provider import CommodityProvider
 from .provider_factory import DataProviderFactory
+from .tushare_provider import TushareProvider
 from .twelvedata_provider import TwelveDataProvider
 from .us_stock_provider import USStockProvider
 from .yahoo_provider import YahooFinanceProvider
@@ -26,6 +27,7 @@ __all__ = [
     "CommodityProvider",
     "DataProviderError",
     "DataProviderFactory",
+    "TushareProvider",
     "TwelveDataProvider",
     "USStockProvider",
     "YahooFinanceProvider",

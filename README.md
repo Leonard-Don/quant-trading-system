@@ -70,6 +70,7 @@
 
 ```bash
 cp .env.example .env
+# 可选：填入 TUSHARE_TOKEN 后，后端会启用 Tushare 作为 A股/ETF 盘后、历史和交易日历数据源
 ./scripts/start_system.sh
 ```
 

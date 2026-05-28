@@ -120,7 +120,7 @@ exclude = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["akshare.*", "ta.*", "yfinance.*", "twelvedata.*", "alpha_vantage.*"]
+module = ["akshare.*", "ta.*", "tushare.*", "yfinance.*", "twelvedata.*", "alpha_vantage.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------

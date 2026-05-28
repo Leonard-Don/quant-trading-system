@@ -3,21 +3,23 @@
 负责创建、管理和切换数据提供器
 """
 
-import pandas as pd
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List, Type
 import logging
 import os
 import re
+from datetime import datetime, timezone
+from typing import Any, ClassVar, Optional
 
+import pandas as pd
+
+from ..market_depth import resolve_market_depth
+from .akshare_provider import AKShareProvider
+from .alphavantage_provider import AlphaVantageProvider
 from .base_provider import BaseDataProvider, DataProviderError
 from .commodity_provider import CommodityProvider
-from .yahoo_provider import YahooFinanceProvider
-from .alphavantage_provider import AlphaVantageProvider
+from .tushare_provider import TushareProvider
 from .twelvedata_provider import TwelveDataProvider
-from .akshare_provider import AKShareProvider
 from .us_stock_provider import USStockProvider
-from ..market_depth import resolve_market_depth
+from .yahoo_provider import YahooFinanceProvider
 
 logger = logging.getLogger(__name__)
 
@@ -38,16 +40,17 @@ class DataProviderFactory:
     """
 
     # 注册的提供器类
-    PROVIDER_CLASSES: Dict[str, Type[BaseDataProvider]] = {
+    PROVIDER_CLASSES: ClassVar[dict[str, type[BaseDataProvider]]] = {
         "commodity": CommodityProvider,
         "yahoo": YahooFinanceProvider,
         "alphavantage": AlphaVantageProvider,
         "twelvedata": TwelveDataProvider,
         "akshare": AKShareProvider,
+        "tushare": TushareProvider,
         "us_stock": USStockProvider,
     }
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Optional[dict[str, Any]] = None):
         """
         初始化数据提供器工厂
 
@@ -59,27 +62,35 @@ class DataProviderFactory:
                 - fallback_enabled: 是否启用故障转移
         """
         self.config = config or self._get_default_config()
-        self.providers: Dict[str, BaseDataProvider] = {}
+        self.providers: dict[str, BaseDataProvider] = {}
         self.fallback_enabled = self.config.get("fallback_enabled", True)
-        self.provider_events: List[Dict[str, Any]] = []
-        self._last_fetch_source_health: Dict[str, Any] = {}
+        self.provider_events: list[dict[str, Any]] = []
+        self._last_fetch_source_health: dict[str, Any] = {}
 
         # 初始化所有配置的提供器
         self._initialize_providers()
 
-    def _get_default_config(self) -> Dict[str, Any]:
+    def _get_default_config(self) -> dict[str, Any]:
         """获取默认配置"""
         return {
             "default": "yahoo",
-            "providers": ["us_stock", "commodity", "yahoo", "alphavantage", "twelvedata"],
+            "providers": [
+                "us_stock",
+                "commodity",
+                "tushare",
+                "yahoo",
+                "alphavantage",
+                "twelvedata",
+            ],
             "api_keys": {
+                "tushare": os.getenv("TUSHARE_TOKEN") or os.getenv("TS_TOKEN"),
                 "alphavantage": os.getenv("ALPHAVANTAGE_API_KEY"),
                 "twelvedata": os.getenv("TWELVEDATA_API_KEY"),
             },
             "fallback_enabled": True,
         }
 
-    def get_cross_market_provider_order(self, asset_class: str) -> List[str]:
+    def get_cross_market_provider_order(self, asset_class: str) -> list[str]:
         asset_class = str(asset_class or "").strip().upper()
         mapping = {
             "US_STOCK": ["us_stock", "yahoo", "alphavantage", "twelvedata"],
@@ -106,7 +117,7 @@ class DataProviderFactory:
         text = re.sub(r"(?i)(authorization|bearer)\s+[^\s,;]+", r"\1 [REDACTED]", text)
         return text[:240] + "…" if len(text) > 240 else text
 
-    def _provider_capabilities(self, provider: BaseDataProvider) -> Dict[str, bool]:
+    def _provider_capabilities(self, provider: BaseDataProvider) -> dict[str, bool]:
         """Describe declared provider capabilities without probing upstream APIs."""
         return {
             "historical_data": True,
@@ -123,7 +134,7 @@ class DataProviderFactory:
         ok: bool,
         reason: Optional[str] = None,
         provider: Optional[BaseDataProvider] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         provider_class = self.PROVIDER_CLASSES.get(name)
         requires_api_key = bool(
             getattr(provider or provider_class, "requires_api_key", False)
@@ -154,7 +165,7 @@ class DataProviderFactory:
             "checked_at": self._utc_checked_at(),
         })
 
-    def get_source_health_report(self) -> Dict[str, Any]:
+    def get_source_health_report(self) -> dict[str, Any]:
         """Return a normalized, non-invasive source health/freshness report.
 
         The report is designed for dashboards and API responses: it explains which
@@ -164,7 +175,7 @@ class DataProviderFactory:
         """
         configured = list(self.config.get("providers", []))
         event_by_provider = {event["provider"]: event for event in self.provider_events}
-        sources: List[Dict[str, Any]] = []
+        sources: list[dict[str, Any]] = []
 
         for name in configured:
             provider = self.providers.get(name)
@@ -196,7 +207,7 @@ class DataProviderFactory:
             "last_fetch": self._last_fetch_source_health or None,
         }
 
-    def get_last_fetch_source_health(self) -> Dict[str, Any]:
+    def get_last_fetch_source_health(self) -> dict[str, Any]:
         """Return the most recent fetch attempt chain, if any."""
         return self._last_fetch_source_health.copy() if self._last_fetch_source_health else {}
 
@@ -206,9 +217,9 @@ class DataProviderFactory:
         symbol: str,
         interval: str,
         status: str,
-        attempts: List[Dict[str, Any]],
+        attempts: list[dict[str, Any]],
         selected_source: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         selected_index = next(
             (
                 index
@@ -235,7 +246,7 @@ class DataProviderFactory:
         return report.copy()
 
     def _attach_source_health(
-        self, data: pd.DataFrame, report: Dict[str, Any]
+        self, data: pd.DataFrame, report: dict[str, Any]
     ) -> pd.DataFrame:
         """Attach request-scoped source health to a returned DataFrame."""
         if isinstance(data, pd.DataFrame):
@@ -288,7 +299,7 @@ class DataProviderFactory:
 
         return self.providers[name]
 
-    def get_sorted_providers(self) -> List[BaseDataProvider]:
+    def get_sorted_providers(self) -> list[BaseDataProvider]:
         """获取按优先级排序的提供器列表"""
         return sorted(self.providers.values(), key=lambda p: p.priority)
 
@@ -339,7 +350,7 @@ class DataProviderFactory:
             return self._attach_source_health(data, report)
 
         errors = []
-        attempts: List[Dict[str, Any]] = []
+        attempts: list[dict[str, Any]] = []
         for p in self.get_sorted_providers():
             try:
                 logger.debug(f"Trying provider: {p.name}")
@@ -436,7 +447,7 @@ class DataProviderFactory:
         logger.error(f"All cross-market providers failed for {symbol} ({asset_class}): {errors}")
         return pd.DataFrame(), ""
 
-    def get_latest_quote(self, symbol: str, provider: Optional[str] = None) -> Dict[str, Any]:
+    def get_latest_quote(self, symbol: str, provider: Optional[str] = None) -> dict[str, Any]:
         """
         获取最新报价（带故障转移）
         """
@@ -456,7 +467,7 @@ class DataProviderFactory:
 
         return {"symbol": symbol, "error": "All providers failed"}
 
-    def get_fundamental_data(self, symbol: str, provider: Optional[str] = None) -> Dict[str, Any]:
+    def get_fundamental_data(self, symbol: str, provider: Optional[str] = None) -> dict[str, Any]:
         """
         获取基本面数据（带故障转移）
         """
@@ -476,7 +487,7 @@ class DataProviderFactory:
 
         return {"symbol": symbol, "error": "All providers failed"}
 
-    def get_order_book(self, symbol: str, levels: int = 10) -> Dict[str, Any]:
+    def get_order_book(self, symbol: str, levels: int = 10) -> dict[str, Any]:
         """
         获取市场深度，优先真实 Level 2，再退回 quote-proxy / synthetic。
         """
@@ -487,19 +498,19 @@ class DataProviderFactory:
             quote_loader=lambda probe_symbol: self.get_latest_quote(probe_symbol),
         )
 
-    def get_market_depth_capabilities(self, symbol: str, levels: int = 10) -> Dict[str, Any]:
+    def get_market_depth_capabilities(self, symbol: str, levels: int = 10) -> dict[str, Any]:
         """
         返回市场深度能力探测结果，供前端/诊断面板直接使用。
         """
         return self.get_order_book(symbol, levels=levels)
 
-    def get_available_providers(self) -> List[Dict[str, Any]]:
+    def get_available_providers(self) -> list[dict[str, Any]]:
         """获取所有可用的提供器信息"""
         return [p.get_provider_info() for p in self.providers.values()]
 
-    def get_provider_runtime_status(self) -> Dict[str, Any]:
+    def get_provider_runtime_status(self) -> dict[str, Any]:
         """Return non-invasive provider status and circuit-breaker snapshots."""
-        status: Dict[str, Any] = {}
+        status: dict[str, Any] = {}
         for name, provider in self.providers.items():
             circuit_loader = getattr(provider, "get_circuit_status", None)
             status[name] = {
@@ -508,7 +519,7 @@ class DataProviderFactory:
             }
         return status
 
-    def check_all_providers(self) -> Dict[str, bool]:
+    def check_all_providers(self) -> dict[str, bool]:
         """检查所有提供器的可用性"""
         return {name: p.is_available() for name, p in self.providers.items()}
 
@@ -517,7 +528,7 @@ class DataProviderFactory:
 _default_factory: Optional[DataProviderFactory] = None
 
 
-def get_data_factory(config: Optional[Dict[str, Any]] = None) -> DataProviderFactory:
+def get_data_factory(config: Optional[dict[str, Any]] = None) -> DataProviderFactory:
     """
     获取数据提供器工厂（单例模式）
 
