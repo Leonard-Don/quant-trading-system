@@ -276,14 +276,16 @@ def on_event(event_types: list[str], priority: int = 100):
 
 
 async def emit_event(
-    name: str, data: dict[str, Any] = None, source: str = None
+    name: str, data: Optional[dict[str, Any]] = None, source: Optional[str] = None
 ) -> None:
     """发射事件的便捷函数"""
     event = Event(name=name, data=data or {}, source=source)
     await event_bus.publish(event)
 
 
-def emit_event_sync(name: str, data: dict[str, Any] = None, source: str = None) -> None:
+def emit_event_sync(
+    name: str, data: Optional[dict[str, Any]] = None, source: Optional[str] = None
+) -> None:
     """同步发射事件的便捷函数"""
     event = Event(name=name, data=data or {}, source=source)
     event_bus.publish_sync(event)
