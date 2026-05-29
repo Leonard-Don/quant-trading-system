@@ -467,3 +467,102 @@ class TestListRecordsBlocksAuthNamespace:
             "record_type 'config:auth_settings' starts with 'config:', not 'auth_' — "
             f"must not be blocked, got {response.status_code}"
         )
+
+
+# ===========================================================================
+# 8. POST /auth/token — a bearer-authenticated non-admin must not mint an
+#    elevated (admin) token. Anonymous dev-mode mint (auth_method="optional",
+#    AUTH_REQUIRED=false) stays unrestricted — that is intentional and is
+#    covered by TestPostAuthTokenRequiresAuth above.
+# ===========================================================================
+
+def _build_client_as_user(
+    monkeypatch, *, role: str, auth_method: str = "bearer", auth_required: bool = True
+) -> TestClient:
+    """Client whose auth dependency resolves to a fixed authenticated user."""
+    monkeypatch.setenv("AUTH_REQUIRED", "true" if auth_required else "false")
+    _stub_persistence(monkeypatch)
+    _stub_auth_status(monkeypatch, required=auth_required)
+    monkeypatch.setattr(infrastructure, "create_access_token", lambda **kw: "stub_token")
+    app = FastAPI()
+    app.include_router(infrastructure.router, prefix="/infrastructure")
+    app.dependency_overrides[infrastructure.get_current_user_optional] = lambda: {
+        "sub": role,
+        "role": role,
+        "auth_method": auth_method,
+    }
+    return TestClient(app, raise_server_exceptions=False)
+
+
+class TestAuthTokenRejectsRoleEscalation:
+    """A bearer-authenticated non-admin must not mint a more-privileged token."""
+
+    def test_bearer_researcher_cannot_mint_admin_token(self, monkeypatch):
+        client = _build_client_as_user(monkeypatch, role="researcher")
+        response = client.post(
+            "/infrastructure/auth/token",
+            json={"subject": "attacker", "role": "admin", "expires_in_seconds": 3600},
+        )
+        assert response.status_code == 403, (
+            f"Expected 403, got {response.status_code}. A bearer-authenticated "
+            "researcher must not mint an admin token (privilege escalation)."
+        )
+
+    def test_admin_can_mint_admin_token(self, monkeypatch):
+        client = _build_client_as_user(monkeypatch, role="admin")
+        response = client.post(
+            "/infrastructure/auth/token",
+            json={"subject": "ops", "role": "admin", "expires_in_seconds": 3600},
+        )
+        assert response.status_code == 200
+
+    def test_bearer_researcher_can_mint_non_elevated_token(self, monkeypatch):
+        client = _build_client_as_user(monkeypatch, role="researcher")
+        response = client.post(
+            "/infrastructure/auth/token",
+            json={"subject": "teammate", "role": "researcher", "expires_in_seconds": 3600},
+        )
+        assert response.status_code == 200
+
+
+# ===========================================================================
+# 9. POST /persistence/records — auth-namespace writes must be blocked
+#    (mirror of the GET guard; closes the auth_user-forgery backdoor)
+# ===========================================================================
+
+class TestPutRecordBlocksAuthNamespace:
+    """POST /persistence/records must refuse to WRITE auth_* record types."""
+
+    @pytest.mark.parametrize("auth_record_type", _AUTH_RECORD_TYPES)
+    def test_writing_auth_record_returns_403(self, monkeypatch, auth_record_type):
+        client = _build_client(monkeypatch, auth_required=False)  # blocked even in dev
+        response = client.post(
+            "/infrastructure/persistence/records",
+            json={
+                "record_type": auth_record_type,
+                "record_key": "admin",
+                "payload": {"role": "admin", "password_hash": "forged"},
+            },
+        )
+        assert response.status_code == 403, (
+            f"Expected 403 for record_type={auth_record_type!r}, got {response.status_code}. "
+            "Auth-namespace records must not be writable via the generic persistence endpoint "
+            "(they would let a caller forge an admin user)."
+        )
+
+    def test_writing_non_auth_record_succeeds(self, monkeypatch):
+        client = _build_client(monkeypatch, auth_required=False)
+        response = client.post(
+            "/infrastructure/persistence/records",
+            json={"record_type": "backtest_run", "record_key": "k1", "payload": {"x": 1}},
+        )
+        assert response.status_code == 200
+
+    def test_config_namespace_write_not_blocked(self, monkeypatch):
+        """'config:auth_settings' starts with 'config:', not 'auth_' — must pass."""
+        client = _build_client(monkeypatch, auth_required=False)
+        response = client.post(
+            "/infrastructure/persistence/records",
+            json={"record_type": "config:auth_settings", "record_key": "v1", "payload": {}},
+        )
+        assert response.status_code == 200

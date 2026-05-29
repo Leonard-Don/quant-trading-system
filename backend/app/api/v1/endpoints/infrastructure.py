@@ -232,6 +232,10 @@ def _diff_payloads(left: Any, right: Any, path: str = "") -> list[dict[str, Any]
     return [{"path": path or "$", "change": "modified", "before": left, "after": right}]
 
 
+# Roles a non-admin caller must never be able to self-mint into.
+_ELEVATED_ROLES = {"admin", "service"}
+
+
 def _require_admin_or_bootstrap(user: dict[str, Any]) -> None:
     current_auth = auth_status()
     if current_auth.get("bootstrap_required"):
@@ -254,6 +258,15 @@ async def get_infrastructure_status(user: dict[str, Any] = Depends(get_current_u
 
 @router.post("/auth/token", summary="签发本地研究令牌")
 async def create_auth_token(request: TokenRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
+    # Privilege-escalation guard: a bearer-authenticated non-admin must not mint a
+    # token more privileged than itself. Anonymous dev-mode minting
+    # (auth_method="optional" when AUTH_REQUIRED=false) stays unrestricted by design.
+    if (
+        user.get("auth_method") == "bearer"
+        and str(user.get("role") or "").strip().lower() != "admin"
+        and str(request.role or "").strip().lower() in _ELEVATED_ROLES
+    ):
+        raise HTTPException(status_code=403, detail="Only an admin may mint an elevated-role token.")
     token = create_access_token(
         subject=request.subject,
         role=request.role,
@@ -602,6 +615,14 @@ async def update_rate_limits(
 
 @router.post("/persistence/records", summary="写入持久化记录")
 async def put_record(request: RecordRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
+    # Mirror the GET guard: the generic persistence endpoint must not be a backdoor
+    # for writing auth-namespace records (e.g. forging an admin auth_user). Auth
+    # records are managed only through the dedicated /auth/* endpoints.
+    if _is_auth_record_type(request.record_type):
+        raise HTTPException(
+            status_code=403,
+            detail="Auth-namespace record types must be managed through the dedicated /auth endpoints.",
+        )
     payload = {**request.payload, "_meta": {**(request.payload.get("_meta") or {}), "updated_by": user.get("sub")}}
     return persistence_manager.put_record(
         record_type=request.record_type,
