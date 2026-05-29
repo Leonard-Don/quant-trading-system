@@ -238,7 +238,7 @@ quant-trading-system/
 | 后端框架 | FastAPI + Uvicorn | 异步 RESTful API，自动 OpenAPI 文档 |
 | 前端框架 | React 18 + Ant Design 5 | 懒加载、响应式布局、主题支持 |
 | 实时通信 | WebSocket | 实时行情与交易流广播 |
-| 数据获取 | yfinance · AKShare · Sina · TwelveData · AlphaVantage 等 8 源 | 多 provider 聚合与故障回退 |
+| 数据获取 | yfinance · Tushare · AKShare · THS/Sina · Tencent 等多源 | 多 provider 聚合与故障回退 |
 | 任务队列 | Celery + Redis | 异步回测任务与后台调度 |
 | 时序数据库 | TimescaleDB (PostgreSQL) | 行情数据持久化与高效时序查询 |
 | 图表可视化 | Recharts + Ant Design Charts + Lightweight Charts | K 线 / 热力图 / 雷达图 / 走势线 |
@@ -248,11 +248,22 @@ quant-trading-system/
 
 ### 数据提供器
 
+#### 当前核心行情源分工
+
+| 场景 | 主用数据源 | 补充 / 兜底 | 定位 |
+|------|------------|-------------|------|
+| 实时行情 | Yahoo Finance | Sina / AKShare 单股接口 | 面向实时面板与跨市场资产，优先保留日内可更新能力 |
+| 行业热度 | THS | AKShare / Tushare / Sina | THS 提供行业热度主底座，AKShare 补元数据，Tushare 补盘后资金流与板块状态，Sina 做低可用兜底 |
+| 龙头股 | THS / Sina | AKShare / Tencent / Tushare | THS/Sina 给领涨股线索，AKShare/Tencent 补成分股和估值，Tushare `dc_index` 在其他源缺失时补盘后领涨股 |
+| A 股 / ETF 历史 | Tushare Pro | AKShare / Sina | Tushare 作为付费盘后与历史研究源，不作为实时行情源 |
+
 | 提供器 | 覆盖市场 | 说明 |
 |--------|----------|------|
-| Yahoo Finance | 美股、指数 | 全球主要市场历史行情与基本面 |
-| AKShare | A 股、行业 | 沪深行情、行业分类、资金流向 |
-| Sina / Sina THS | A 股、行业 | 新浪财经实时行情与同花顺行业数据 |
+| Yahoo Finance | 美股、指数、跨市场资产 | 全球主要市场行情；当前实时面板的主行情源 |
+| Tushare Pro | A 股、ETF、行业盘后 | 公司授权 / 付费数据源；用于 A 股/ETF 历史、交易日历、市场情绪、行业盘后资金流与板块状态 |
+| AKShare | A 股、行业 | 沪深行情、行业分类、行业元数据、成分股与估值补充 |
+| Sina / Sina THS | A 股、行业 | 新浪财经实时行情与同花顺行业热度主数据 |
+| Tencent Finance | A 股单股 | 单股 PE/PB、市值、换手率等估值字段兜底 |
 | TwelveData | 全球 | 多市场行情 API |
 | AlphaVantage | 美股 | 日线 / 周线 / 月线及技术指标 |
 | US Stock Provider | 美股 | 美国市场专用适配器 |

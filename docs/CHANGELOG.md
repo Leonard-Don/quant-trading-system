@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+### Data
+
+- data(industry): promote Tushare into the THS-first industry adapter as the
+  fifth industry/leader source. Industry heat now keeps THS as the live primary
+  source, uses AKShare for metadata, fills missing after-close money flow,
+  market cap, turnover and leading-stock fields from Tushare `moneyflow_ind_ths`
+  + `dc_index`, then falls through to Sina/Tencent fallbacks only where needed.
+- data(tushare): add Tushare after-close fallbacks for industry money flow and
+  heatmap data. `IndustryAnalyzer.analyze_money_flow()` now tries the primary
+  provider, stale cache, Tushare `moneyflow_ind_ths` + `dc_index`, and only then
+  the existing Sina fallback.
+- realtime(tushare): expose `/realtime/market-mood` from
+  `TushareProvider.get_market_mood()` and let the realtime market overview panel
+  prefer that EOD mood snapshot when available.
+- data(tushare): wire `TushareProvider` in as the final fallback for the ETF
+  history matrix loader. `fetch_etf_history()` still prefers AkShare
+  Sina/Eastmoney, but when both are unavailable and `TUSHARE_TOKEN`/`TS_TOKEN`
+  is set it now pulls ETF `fund_daily` closes through the shared provider.
+- data(etf): extend tracked `data/etf_backtest/etf_prices_5y.csv` from
+  2026-05-15 to 2026-05-28 with 9 Tushare-sourced trading days. Validation:
+  Tushare and the existing CSV matched exactly on the 2026-05-12 → 2026-05-15
+  overlap for all five ETFs before appending.
+
+### Tests
+
+- test(tushare): make the Tushare fallback tests hermetic and deterministic. A
+  new autouse fixture in `tests/conftest.py` blanks `TUSHARE_TOKEN`/`TS_TOKEN`
+  and resets the class-level `SinaIndustryAdapter._circuit_breakers` around every
+  test. Fixes the flaky
+  `test_get_stock_list_by_industry_uses_tushare_leader_final_fallback`: the real
+  `.env` token leaked into `os.environ` via
+  `etf_price_history._get_tushare_token()`, so later unit tests issued live API
+  calls and tripped the shared `tushare_dc_index` breaker, which then
+  short-circuited the leader fallback to an empty result on whichever test ran
+  next inside the ~60s recovery window.
+
 ### Documentation
 
 - docs(readme): reposition as quant research infrastructure + surface strategy-falsification methodology

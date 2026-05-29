@@ -3,14 +3,16 @@
 The rotation script's default ``synthesize_price_matrix`` produces a
 deterministic noise walk so the strategy is hermetic in tests and demos.
 For *real* signal generation we need real history. This module wraps two
-akshare endpoints and returns a wide-form close-price matrix suitable
-for ``EtfRotationStrategy``:
+akshare endpoints plus an optional Tushare fallback and returns a wide-form
+close-price matrix suitable for ``EtfRotationStrategy``:
 
 1. ``fund_etf_hist_sina`` — primary. Sina serves the full history in one
    shot, no date range needed. Tolerant of CN broker networks and the
    most reliable endpoint in practice.
 2. ``fund_etf_hist_em`` — fallback for codes Sina doesn't recognise.
    Eastmoney requires explicit start/end dates and ``qfq`` adjustment.
+3. ``TushareProvider.get_historical_data`` — token-gated final fallback
+   using ``fund_daily`` for ETF/fund ts_codes.
 
 Design choices:
 
@@ -32,11 +34,13 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+_TUSHARE_ENV_FILES = (_PROJECT_ROOT / ".env",)
 
 _PROXY_ENV_VARS = (
     "HTTP_PROXY",
@@ -99,6 +103,35 @@ def _import_akshare():
     return ak
 
 
+def _get_tushare_token(env_files: Sequence[Path] = _TUSHARE_ENV_FILES) -> str:
+    token = str(os.getenv("TUSHARE_TOKEN") or os.getenv("TS_TOKEN") or "").strip()
+    if token:
+        return token
+
+    try:
+        from dotenv import load_dotenv
+    except ImportError:
+        return ""
+
+    for env_file in env_files:
+        if env_file.exists():
+            load_dotenv(env_file, override=False)
+
+    return str(os.getenv("TUSHARE_TOKEN") or os.getenv("TS_TOKEN") or "").strip()
+
+
+def _create_tushare_provider() -> Any | None:
+    token = _get_tushare_token()
+    if not token:
+        return None
+    try:
+        from .providers.tushare_provider import TushareProvider
+    except ImportError as exc:
+        logger.debug("Tushare provider unavailable; ETF fallback disabled: %s", exc)
+        return None
+    return TushareProvider(api_key=token)
+
+
 # Sina uses ``shXXXXXX`` / ``szXXXXXX`` prefixed symbols.
 def _sina_symbol(code: str) -> str:
     code = code.strip()
@@ -132,6 +165,30 @@ def _fetch_one_eastmoney(
     return _normalize_etf_history(raw)
 
 
+def _fetch_one_tushare(
+    provider: Any,
+    code: str,
+    start_date: Optional[datetime],
+    end_date: Optional[datetime],
+) -> Optional[pd.Series]:
+    raw = provider.get_historical_data(
+        code,
+        start_date=start_date,
+        end_date=end_date,
+        interval="1d",
+    )
+    if raw is None or raw.empty or "close" not in raw.columns:
+        return None
+
+    series = raw["close"].copy()
+    series.index = pd.to_datetime(series.index, errors="coerce")
+    series = series[series.index.notna()]
+    series = pd.to_numeric(series, errors="coerce").dropna().sort_index()
+    if series.empty:
+        return None
+    return series
+
+
 def fetch_etf_history(
     codes: Sequence[str],
     *,
@@ -159,7 +216,8 @@ def fetch_etf_history(
         return pd.DataFrame()
 
     ak = _import_akshare()
-    if ak is None:
+    tushare_provider = _create_tushare_provider()
+    if ak is None and tushare_provider is None:
         return pd.DataFrame()
 
     if end_date is None:
@@ -173,41 +231,54 @@ def fetch_etf_history(
     frames: dict[str, pd.Series] = {}
     failures: list[str] = []
 
-    with _proxy_blackout():
-        for code in codes:
-            series: Optional[pd.Series] = None
-            sina_err: Optional[str] = None
-            eastmoney_err: Optional[str] = None
+    for code in codes:
+        series: Optional[pd.Series] = None
+        sina_err: Optional[str] = None
+        eastmoney_err: Optional[str] = None
+        tushare_err: Optional[str] = None
 
-            if hasattr(ak, "fund_etf_hist_sina"):
-                try:
-                    series = _fetch_one_sina(ak, code)
-                except Exception as exc:
-                    sina_err = repr(exc)
-                    logger.debug("Sina history failed for %s: %s", code, exc)
+        if ak is not None:
+            with _proxy_blackout():
+                if hasattr(ak, "fund_etf_hist_sina"):
+                    try:
+                        series = _fetch_one_sina(ak, code)
+                    except Exception as exc:
+                        sina_err = repr(exc)
+                        logger.debug("Sina history failed for %s: %s", code, exc)
 
-            if series is None and hasattr(ak, "fund_etf_hist_em"):
-                try:
-                    series = _fetch_one_eastmoney(ak, code, start_str, end_str, adjust)
-                except Exception as exc:
-                    eastmoney_err = repr(exc)
-                    logger.debug("Eastmoney history failed for %s: %s", code, exc)
+                if series is None and hasattr(ak, "fund_etf_hist_em"):
+                    try:
+                        series = _fetch_one_eastmoney(ak, code, start_str, end_str, adjust)
+                    except Exception as exc:
+                        eastmoney_err = repr(exc)
+                        logger.debug("Eastmoney history failed for %s: %s", code, exc)
 
-            if series is None or series.empty:
-                logger.warning(
-                    "akshare returned no usable history for %s (sina=%s, eastmoney=%s)",
-                    code, sina_err or "skipped", eastmoney_err or "skipped",
-                )
-                failures.append(code)
-                continue
+        if series is None and tushare_provider is not None:
+            try:
+                series = _fetch_one_tushare(tushare_provider, code, start_date, end_date)
+            except Exception as exc:
+                tushare_err = repr(exc)
+                logger.debug("Tushare history failed for %s: %s", code, exc)
 
-            # Trim to the requested window so the strategy isn't fed pre-2010 data.
-            if start_date is not None:
-                series = series[series.index >= pd.Timestamp(start_date)]
-            if end_date is not None:
-                series = series[series.index <= pd.Timestamp(end_date)]
+        if series is None or series.empty:
+            logger.warning(
+                "ETF history sources returned no usable history for %s "
+                "(sina=%s, eastmoney=%s, tushare=%s)",
+                code,
+                sina_err or "skipped",
+                eastmoney_err or "skipped",
+                tushare_err or "skipped",
+            )
+            failures.append(code)
+            continue
 
-            frames[code] = series
+        # Trim to the requested window so the strategy isn't fed pre-2010 data.
+        if start_date is not None:
+            series = series[series.index >= pd.Timestamp(start_date)]
+        if end_date is not None:
+            series = series[series.index <= pd.Timestamp(end_date)]
+
+        frames[code] = series
 
     if not frames:
         logger.warning("ETF history fetch returned no data (failures=%s)", failures)

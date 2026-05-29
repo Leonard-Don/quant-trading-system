@@ -106,6 +106,86 @@ class TestIndustryAnalyzer:
 
         assert result["flow_strength"].tolist() == pytest.approx([0.05, 0.03, -0.01], rel=1e-6)
 
+    def test_analyze_money_flow_uses_tushare_after_close_fallback(self, analyzer, mock_provider):
+        """主源无资金流时，应先尝试 Tushare 盘后行业资金流，再考虑 Sina 兜底。"""
+        class FakeTushareFallback:
+            def get_industry_moneyflow(self, trade_date):
+                return pd.DataFrame({
+                    "name": ["电子", "计算机"],
+                    "pct_change": [1.45, -0.62],
+                    "net_amount": [1_250_000_000, -320_000_000],
+                    "net_amount_rate": [2.6, -1.3],
+                })
+
+            def get_dc_board_status(self, trade_date, idx_type="行业板块"):
+                return pd.DataFrame({
+                    "name": ["电子", "计算机"],
+                    "pct_change": [1.52, -0.71],
+                    "total_mv": [2_600_000_000_000, 1_400_000_000_000],
+                    "turnover_rate": [2.8, 3.1],
+                    "up_num": [84, 22],
+                    "down_num": [18, 66],
+                    "leading": ["立讯精密", "同花顺"],
+                    "leading_pct": [4.6, 2.2],
+                })
+
+        mock_provider.get_industry_money_flow.return_value = pd.DataFrame()
+        analyzer._tushare_fallback = FakeTushareFallback()
+        analyzer._try_sina_fallback = MagicMock(return_value=pd.DataFrame())
+        analyzer._clear_cache()
+
+        result = analyzer.analyze_money_flow(days=5)
+
+        assert result["industry_name"].tolist() == ["电子", "计算机"]
+        electronic = result.iloc[0]
+        assert electronic["main_net_inflow"] == 1_250_000_000
+        assert electronic["main_net_ratio"] == 2.6
+        assert electronic["change_pct"] == 1.52
+        assert electronic["total_market_cap"] == 2_600_000_000_000
+        assert electronic["stock_count"] == 102
+        assert electronic["market_cap_source"] == "tushare_dc_board"
+        assert "tushare_moneyflow_ind_ths" in electronic["data_sources"]
+        assert "tushare_dc_index" in electronic["data_sources"]
+        analyzer._try_sina_fallback.assert_not_called()
+
+    def test_heatmap_uses_tushare_fallback_money_flow_metadata(self, analyzer, mock_provider):
+        """热力图应保留 Tushare 盘后兜底带来的市值来源和数据源标记。"""
+        class FakeTushareFallback:
+            def get_industry_moneyflow(self, trade_date):
+                return pd.DataFrame({
+                    "name": ["电子"],
+                    "pct_change": [1.45],
+                    "net_amount": [1_250_000_000],
+                    "net_amount_rate": [2.6],
+                })
+
+            def get_dc_board_status(self, trade_date, idx_type="行业板块"):
+                return pd.DataFrame({
+                    "name": ["电子"],
+                    "pct_change": [1.52],
+                    "total_mv": [2_600_000_000_000],
+                    "turnover_rate": [2.8],
+                    "up_num": [84],
+                    "down_num": [18],
+                    "leading": ["立讯精密"],
+                    "leading_pct": [4.6],
+                })
+
+        mock_provider.get_industry_money_flow.return_value = pd.DataFrame()
+        analyzer._tushare_fallback = FakeTushareFallback()
+        analyzer._try_sina_fallback = MagicMock(return_value=pd.DataFrame())
+        analyzer._clear_cache()
+
+        result = analyzer.get_industry_heatmap_data(days=5)
+
+        assert result["industries"]
+        first = result["industries"][0]
+        assert first["name"] == "电子"
+        assert first["marketCapSource"] == "tushare_dc_board"
+        assert first["sizeSource"] == "live"
+        assert "tushare_moneyflow_ind_ths" in first["dataSources"]
+        assert "tushare_dc_index" in first["dataSources"]
+
     def test_calculate_industry_momentum(self, analyzer):
         """测试行业动量计算"""
         result = analyzer.calculate_industry_momentum(lookback=20)

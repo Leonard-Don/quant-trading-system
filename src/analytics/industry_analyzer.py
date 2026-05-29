@@ -283,8 +283,10 @@ class IndustryAnalyzer:
                     if stale is not None:
                         logger.info(f"Using stale cached money flow data for days={days}")
                         return stale
-                    # 尝试 Sina 回退
-                    money_flow_df = self._try_sina_fallback(days)
+                    # 盘后数据源优先使用 Tushare；若仍为空，再尝试 Sina 回退。
+                    money_flow_df = self._try_tushare_money_flow_fallback(days)
+                    if money_flow_df.empty:
+                        money_flow_df = self._try_sina_fallback(days)
                     if money_flow_df.empty:
                         return pd.DataFrame()
 
@@ -308,16 +310,18 @@ class IndustryAnalyzer:
                 if stale is not None:
                     logger.info(f"Using stale cached money flow data for days={days} after error")
                     return stale
-                # 尝试 Sina 回退
+                # 盘后 Tushare 回退优先于 Sina 回退
                 try:
-                    money_flow_df = self._try_sina_fallback(days)
+                    money_flow_df = self._try_tushare_money_flow_fallback(days)
+                    if money_flow_df.empty:
+                        money_flow_df = self._try_sina_fallback(days)
                     if not money_flow_df.empty:
                         money_flow_df = self._normalize_money_flow_dataframe(money_flow_df, days=days)
                         if not money_flow_df.empty:
                             self._update_cache(cache_key, money_flow_df)
                             return money_flow_df
                 except Exception as e2:
-                    logger.error(f"Sina fallback also failed: {e2}")
+                    logger.error(f"Money flow fallback chain also failed: {e2}")
                 return pd.DataFrame()
 
         return self._run_singleflight(cache_key, _load_money_flow)
@@ -366,6 +370,223 @@ class IndustryAnalyzer:
 
         return self._run_singleflight(cache_key, _load_lightweight)
 
+    def _get_tushare_fallback_provider(self):
+        """Lazy-load the Tushare provider for after-close industry fallbacks."""
+        if hasattr(self, "_tushare_fallback"):
+            return self._tushare_fallback
+
+        try:
+            from src.data.providers.tushare_provider import TushareProvider
+
+            self._tushare_fallback = TushareProvider()
+            logger.info("Initialized Tushare after-close fallback provider")
+            return self._tushare_fallback
+        except Exception as exc:
+            logger.warning("Tushare fallback provider initialization failed: %s", exc)
+            self._tushare_fallback = None
+            return None
+
+    @staticmethod
+    def _coerce_tushare_numeric(value: Any, default: Optional[float] = None) -> Optional[float]:
+        try:
+            if value is None or pd.isna(value):
+                return default
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _normalize_tushare_columns(frame: Optional[pd.DataFrame]) -> pd.DataFrame:
+        if frame is None or frame.empty:
+            return pd.DataFrame()
+        result = frame.copy()
+        result.columns = [str(column).strip().lower() for column in result.columns]
+        return result
+
+    @staticmethod
+    def _tushare_first_value(row: pd.Series, candidates: list[str]) -> Any:
+        for candidate in candidates:
+            if candidate in row.index:
+                value = row.get(candidate)
+                if value is not None and not pd.isna(value):
+                    return value
+        return None
+
+    @classmethod
+    def _tushare_name_from_row(cls, row: pd.Series) -> str:
+        value = cls._tushare_first_value(
+            row,
+            ["industry_name", "name", "industry", "板块名称", "行业名称", "名称"],
+        )
+        return str(value or "").strip()
+
+    @staticmethod
+    def _append_tushare_source(record: dict[str, Any], source: str) -> None:
+        sources = record.setdefault("data_sources", [])
+        if not isinstance(sources, list):
+            sources = [sources]
+            record["data_sources"] = sources
+        if source not in sources:
+            sources.append(source)
+
+    @classmethod
+    def _normalize_tushare_industry_money_flow(
+        cls,
+        moneyflow_df: Optional[pd.DataFrame],
+        board_df: Optional[pd.DataFrame],
+    ) -> pd.DataFrame:
+        """Map Tushare after-close industry frames into the analyzer contract."""
+        moneyflow = cls._normalize_tushare_columns(moneyflow_df)
+        board = cls._normalize_tushare_columns(board_df)
+        if moneyflow.empty and board.empty:
+            return pd.DataFrame()
+
+        records: dict[str, dict[str, Any]] = {}
+
+        for _, row in moneyflow.iterrows():
+            industry_name = cls._tushare_name_from_row(row)
+            if not industry_name:
+                continue
+            record = records.setdefault(industry_name, {"industry_name": industry_name})
+            change_pct = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(row, ["change_pct", "pct_change", "涨跌幅"])
+            )
+            if change_pct is not None:
+                record["change_pct"] = change_pct
+
+            net_amount = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(
+                    row,
+                    [
+                        "main_net_inflow",
+                        "net_amount",
+                        "net_mf_amount",
+                        "net_main_amount",
+                        "主力净流入-净额",
+                        "净额",
+                    ],
+                ),
+                0.0,
+            )
+            if net_amount is not None and abs(net_amount) < 1e8 and abs(net_amount) > 0:
+                net_amount *= 10000
+            record["main_net_inflow"] = net_amount or 0.0
+
+            net_ratio = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(
+                    row,
+                    [
+                        "main_net_ratio",
+                        "net_amount_rate",
+                        "net_mf_ratio",
+                        "net_main_rate",
+                        "主力净流入-净占比",
+                    ],
+                )
+            )
+            if net_ratio is not None:
+                record["main_net_ratio"] = net_ratio
+                record["flow_strength"] = max(min(net_ratio / 100.0, 1.0), -1.0)
+
+            cls._append_tushare_source(record, "tushare_moneyflow_ind_ths")
+
+        for _, row in board.iterrows():
+            industry_name = cls._tushare_name_from_row(row)
+            if not industry_name:
+                continue
+            record = records.setdefault(industry_name, {"industry_name": industry_name})
+            board_change = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(row, ["change_pct", "pct_change", "涨跌幅"])
+            )
+            if board_change is not None:
+                record["change_pct"] = board_change
+
+            total_mv = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(row, ["total_market_cap", "total_mv", "总市值"])
+            )
+            if total_mv is not None and total_mv > 0:
+                if total_mv < 1e10:
+                    total_mv *= 10000
+                record["total_market_cap"] = total_mv
+                record["market_cap_source"] = "tushare_dc_board"
+
+            turnover_rate = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(row, ["turnover_rate", "换手率"]),
+                0.0,
+            )
+            record["turnover_rate"] = turnover_rate or 0.0
+
+            up_num = cls._coerce_tushare_numeric(cls._tushare_first_value(row, ["up_num", "上涨家数"]), 0.0) or 0.0
+            down_num = cls._coerce_tushare_numeric(cls._tushare_first_value(row, ["down_num", "下跌家数"]), 0.0) or 0.0
+            if up_num or down_num:
+                record["stock_count"] = int(up_num + down_num)
+
+            leading = cls._tushare_first_value(row, ["leading_stock", "leading", "领涨股"])
+            if leading:
+                record["leading_stock"] = str(leading).strip()
+            leading_pct = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(row, ["leading_stock_change", "leading_pct", "领涨股涨跌幅"])
+            )
+            if leading_pct is not None:
+                record["leading_stock_change"] = leading_pct
+
+            cls._append_tushare_source(record, "tushare_dc_index")
+
+        if not records:
+            return pd.DataFrame()
+
+        result = pd.DataFrame(records.values())
+        if "market_cap_source" not in result.columns:
+            result["market_cap_source"] = "unknown"
+        result["market_cap_source"] = result["market_cap_source"].fillna("unknown")
+        return result
+
+    def _candidate_tushare_trade_dates(self, provider) -> list[Any]:
+        today = datetime.now()
+        candidates: list[Any] = [today]
+        calendar_loader = getattr(provider, "get_trade_calendar", None)
+        if not callable(calendar_loader):
+            return candidates
+
+        try:
+            start = today - timedelta(days=10)
+            open_days = calendar_loader(start_date=start, end_date=today, exchange="SSE")
+            for day in reversed(open_days or []):
+                if day not in candidates:
+                    candidates.append(day)
+        except Exception as exc:
+            logger.debug("Tushare trade calendar lookup failed for fallback dates: %s", exc)
+        return candidates
+
+    def _try_tushare_money_flow_fallback(self, days: int) -> pd.DataFrame:
+        """
+        当主资金流源为空时，使用 Tushare 盘后行业资金流和东方财富板块状态兜底。
+        """
+        provider = self._get_tushare_fallback_provider()
+        if provider is None:
+            return pd.DataFrame()
+
+        try:
+            for trade_date in self._candidate_tushare_trade_dates(provider):
+                moneyflow_df = provider.get_industry_moneyflow(trade_date)
+                board_loader = getattr(provider, "get_dc_board_status", None)
+                board_df = (
+                    board_loader(trade_date, idx_type="行业板块")
+                    if callable(board_loader)
+                    else pd.DataFrame()
+                )
+                normalized_df = self._normalize_tushare_industry_money_flow(moneyflow_df, board_df)
+                if not normalized_df.empty:
+                    logger.info(
+                        "Tushare after-close money flow fallback succeeded: %s industries (days=%s)",
+                        len(normalized_df),
+                        days,
+                    )
+                    return normalized_df
+        except Exception as exc:
+            logger.warning("Tushare after-close money flow fallback failed: %s", exc)
+        return pd.DataFrame()
+
     def _try_sina_fallback(self, days: int) -> pd.DataFrame:
         """
         当主数据源失败时，尝试使用新浪财经作为备选数据源
@@ -393,11 +614,13 @@ class IndustryAnalyzer:
         self, lookback: int, cache_key: Optional[str]
     ) -> pd.DataFrame:
         """
-        从 Sina 兜底的资金流数据构建动量，用于快/慢路径均失败时的第三层兜底。
+        从盘后/备用资金流数据构建动量，用于快/慢路径均失败时的第三层兜底。
         """
         try:
             flow_days = max(int(lookback), 1)
-            money_flow_df = self._try_sina_fallback(flow_days)
+            money_flow_df = self._try_tushare_money_flow_fallback(flow_days)
+            if money_flow_df.empty:
+                money_flow_df = self._try_sina_fallback(flow_days)
             if money_flow_df.empty or "change_pct" not in money_flow_df.columns:
                 return pd.DataFrame()
             df = money_flow_df.copy()

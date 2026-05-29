@@ -11,6 +11,7 @@ from backend.app.services.realtime_alerts import realtime_alerts_store
 from backend.app.services.realtime_journal import realtime_journal_store
 from backend.app.services.realtime_preferences import realtime_preferences_store
 from backend.app.services.runtime_state import get_data_manager
+from src.data.providers.tushare_provider import TushareProvider
 from src.data.realtime_manager import realtime_manager
 
 router = APIRouter()
@@ -138,6 +139,84 @@ def _number_or_none(value: Any) -> Optional[float]:
         return numeric
     except (TypeError, ValueError):
         return None
+
+
+def _int_or_zero(value: Any) -> int:
+    numeric = _number_or_none(value)
+    return int(numeric) if numeric is not None else 0
+
+
+def _format_tushare_as_of(value: Any) -> Optional[str]:
+    digits = "".join(ch for ch in str(value or "") if ch.isdigit())
+    if len(digits) >= 8:
+        return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+    return None
+
+
+def _build_market_mood_payload(raw: dict[str, Any]) -> dict[str, Any]:
+    stock_count = _int_or_zero(raw.get("stock_count"))
+    rise_count = _int_or_zero(raw.get("rise_count"))
+    fall_count = _int_or_zero(raw.get("fall_count"))
+    flat_count = _int_or_zero(raw.get("flat_count"))
+    rise_ratio = _number_or_none(raw.get("rise_ratio"))
+    if rise_ratio is None and stock_count > 0:
+        rise_ratio = rise_count / stock_count
+    median_pct = _number_or_none(raw.get("market_median_pct_chg")) or 0.0
+
+    if stock_count <= 0:
+        label = "待观察"
+        detail = "Tushare 盘后情绪样本不足"
+    elif rise_ratio is not None and rise_ratio >= 0.62 and median_pct >= -0.05:
+        label = "偏强"
+        detail = f"上涨 {rise_count} / 下跌 {fall_count} / 平 {flat_count}；涨跌中位数 {median_pct:.2f}%"
+    elif rise_ratio is not None and rise_ratio <= 0.38 and median_pct <= 0.05:
+        label = "偏弱"
+        detail = f"上涨 {rise_count} / 下跌 {fall_count} / 平 {flat_count}；涨跌中位数 {median_pct:.2f}%"
+    else:
+        label = "中性"
+        detail = f"上涨 {rise_count} / 下跌 {fall_count} / 平 {flat_count}；涨跌中位数 {median_pct:.2f}%"
+
+    payload = dict(raw)
+    payload.update({
+        "label": label,
+        "detail": detail,
+        "source": raw.get("source") or "tushare",
+        "mode": raw.get("mode") or "eod_snapshot",
+        "as_of": _format_tushare_as_of(raw.get("trade_date")),
+    })
+    return payload
+
+
+def _load_tushare_market_mood(
+    provider: TushareProvider,
+    *,
+    trade_date: Optional[str],
+    include_bj: bool,
+) -> dict[str, Any]:
+    if trade_date:
+        return provider.get_market_mood(trade_date, include_bj=include_bj)
+
+    today = datetime.now()
+    raw = provider.get_market_mood(today, include_bj=include_bj)
+    if _int_or_zero(raw.get("stock_count")) > 0:
+        return raw
+
+    calendar_loader = getattr(provider, "get_trade_calendar", None)
+    if callable(calendar_loader):
+        try:
+            open_days = calendar_loader(
+                start_date=today - timedelta(days=10),
+                end_date=today,
+                exchange="SSE",
+            )
+            for day in reversed(open_days or []):
+                raw = provider.get_market_mood(day, include_bj=include_bj)
+                if _int_or_zero(raw.get("stock_count")) > 0:
+                    return raw
+        except Exception:
+            pass
+
+    return raw
 
 
 def _load_replay_frame(
@@ -402,6 +481,24 @@ async def get_realtime_summary():
         "active_symbols": len(manager.active_connections),
     }
     return {"success": True, "data": summary}
+
+
+@router.get("/market-mood", summary="获取 Tushare 盘后市场情绪")
+async def get_market_mood(trade_date: Optional[str] = None, include_bj: bool = True):
+    try:
+        provider = TushareProvider()
+        raw = await run_in_threadpool(
+            _load_tushare_market_mood,
+            provider,
+            trade_date=trade_date,
+            include_bj=include_bj,
+        )
+        return {"success": True, "data": _build_market_mood_payload(raw)}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Tushare market mood unavailable: {type(exc).__name__}",
+        ) from exc
 
 
 @router.get("/metadata", summary="获取实时标的元数据")

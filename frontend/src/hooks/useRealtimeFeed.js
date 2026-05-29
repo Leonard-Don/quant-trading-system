@@ -43,6 +43,9 @@ export const useRealtimeFeed = ({
   const [isBrowserOnline, setIsBrowserOnline] = useState(
     typeof navigator !== 'undefined' ? navigator.onLine : true,
   );
+  const [marketMood, setMarketMood] = useState(null);
+  const [marketMoodLoading, setMarketMoodLoading] = useState(false);
+  const [marketMoodError, setMarketMoodError] = useState('');
 
   const isInitializedRef = useRef(false);
   const shownMessagesRef = useRef(new Set());
@@ -281,6 +284,26 @@ export const useRealtimeFeed = ({
     }
   }, [clearMissingQuoteRequests, pushTransportDecision, subscribedSymbols]);
 
+  const fetchMarketMood = useCallback(async () => {
+    setMarketMoodLoading(true);
+    try {
+      const response = await api.get('/realtime/market-mood');
+      const payload = response?.data?.data;
+      if (response?.data?.success && payload?.label) {
+        setMarketMood(payload);
+        setMarketMoodError('');
+      }
+    } catch (error) {
+      setMarketMoodError(error?.message || 'market mood unavailable');
+    } finally {
+      setMarketMoodLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchMarketMood();
+  }, [fetchMarketMood]);
+
   const scheduleSymbolFallbackFetch = useCallback((symbols = [], options = {}) => {
     const targetSymbols = (Array.isArray(symbols) ? symbols : [symbols])
       .filter(Boolean)
@@ -467,8 +490,12 @@ export const useRealtimeFeed = ({
     lastMarketUpdateAt,
     loading,
     manualReconnect,
+    marketMood,
+    marketMoodError,
+    marketMoodLoading,
     quotes,
     reconnectAttempts,
+    refreshMarketMood: fetchMarketMood,
     refreshCurrentTab,
     removeQuote,
     setIsAutoUpdate,

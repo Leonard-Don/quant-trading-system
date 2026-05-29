@@ -66,6 +66,7 @@ export const useRealtimeDerivedState = ({
   lastMarketUpdateAt,
   freshnessNow,
   getQuoteFreshness,
+  marketMood,
   quotes,
   reconnectAttempts,
 }) => useMemo(() => {
@@ -78,12 +79,35 @@ export const useRealtimeDerivedState = ({
     .filter((symbol) => quotes[symbol])
     .sort((left, right) => Math.abs(Number(quotes[right]?.change_percent || 0)) - Math.abs(Number(quotes[left]?.change_percent || 0)))[0] || null;
 
-  const marketSentiment = (() => {
+  const marketMoodSentiment = (() => {
+    if (!marketMood || typeof marketMood !== 'object') {
+      return null;
+    }
+    const label = typeof marketMood.label === 'string' ? marketMood.label.trim() : '';
+    if (!label) {
+      return null;
+    }
+    const detail = typeof marketMood.detail === 'string' && marketMood.detail.trim()
+      ? marketMood.detail.trim()
+      : 'Tushare 盘后情绪快照已更新';
+    return {
+      label,
+      detail,
+      source: marketMood.source || 'tushare',
+      mode: marketMood.mode || 'eod_snapshot',
+      asOf: marketMood.as_of || marketMood.asOf || null,
+    };
+  })();
+
+  const marketSentiment = marketMoodSentiment || (() => {
     const activeCount = risingCount + fallingCount;
     if (!activeCount) {
       return {
         label: '待观察',
         detail: '当前分组还没有足够的涨跌样本',
+        source: 'quotes',
+        mode: 'realtime_sample',
+        asOf: null,
       };
     }
 
@@ -92,17 +116,26 @@ export const useRealtimeDerivedState = ({
       return {
         label: '偏强',
         detail: `上涨 ${risingCount} / 下跌 ${fallingCount}`,
+        source: 'quotes',
+        mode: 'realtime_sample',
+        asOf: null,
       };
     }
     if (breadth <= 0.34) {
       return {
         label: '偏弱',
         detail: `上涨 ${risingCount} / 下跌 ${fallingCount}`,
+        source: 'quotes',
+        mode: 'realtime_sample',
+        asOf: null,
       };
     }
     return {
       label: '中性',
       detail: `上涨 ${risingCount} / 下跌 ${fallingCount}${flatCount > 0 ? ` / 平 ${flatCount}` : ''}`,
+      source: 'quotes',
+      mode: 'realtime_sample',
+      asOf: null,
     };
   })();
 
@@ -196,6 +229,7 @@ export const useRealtimeDerivedState = ({
 
   return {
     currentTabQuotes,
+    fallingCount,
     flatCount,
     freshnessSummary,
     loadedQuotesCount,
@@ -228,6 +262,7 @@ export const useRealtimeDerivedState = ({
   lastConnectionIssue,
   lastMarketUpdateAt,
   getQuoteFreshness,
+  marketMood,
   quotes,
   reconnectAttempts,
 ]);

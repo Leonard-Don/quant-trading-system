@@ -215,8 +215,12 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     lastMarketUpdateAt,
     loading,
     manualReconnect,
+    marketMood,
+    marketMoodError,
+    marketMoodLoading,
     quotes,
     reconnectAttempts,
+    refreshMarketMood,
     refreshCurrentTab,
     removeQuote,
     setIsAutoUpdate,
@@ -986,6 +990,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     lastMarketUpdateAt,
     freshnessNow,
     getQuoteFreshness,
+    marketMood,
     quotes,
     reconnectAttempts,
   });
@@ -1312,7 +1317,9 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       tone: 'negative',
     },
   ];
-  const overviewSummary = `当前分组 ${getCategoryLabel(activeTab)} 已加载 ${currentTabSymbols.length} 个标的；全局盘面 ${marketSentiment.label}，${marketSentiment.detail}`;
+  const overviewSummary = marketSentiment.source === 'tushare'
+    ? `Tushare 盘后${marketSentiment.asOf ? ` ${marketSentiment.asOf}` : ''}：${marketSentiment.detail}`
+    : `当前分组 ${getCategoryLabel(activeTab)} 已加载 ${currentTabSymbols.length} 个标的；全局盘面 ${marketSentiment.label}，${marketSentiment.detail}`;
 
   return (
     <div className="realtime-panel-shell app-page-shell app-page-shell--wide realtime-page-shell">
@@ -1627,9 +1634,28 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
             <div className="realtime-block-title">市场概览</div>
             <div className="realtime-block-subtitle">先看覆盖面、涨跌分布与情绪状态，再进入主看盘区处理细节。</div>
             <div className="realtime-overview-brief">
-              <div className="realtime-overview-brief__label">市场情绪</div>
+              <div className="realtime-overview-brief__label">
+                市场情绪
+                {marketSentiment.source === 'tushare' && (
+                  <Tag color="blue" style={{ marginLeft: 8 }}>Tushare 盘后</Tag>
+                )}
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<SyncOutlined spin={marketMoodLoading} />}
+                  onClick={refreshMarketMood}
+                  style={{ marginLeft: 4, paddingInline: 4 }}
+                >
+                  更新
+                </Button>
+              </div>
               <div className="realtime-overview-brief__value">{marketSentiment.label}</div>
               <div className="realtime-overview-brief__detail">{overviewSummary}</div>
+              {marketMoodError && marketSentiment.source !== 'tushare' && (
+                <div className="realtime-overview-brief__detail">
+                  Tushare 盘后情绪暂不可用，已使用当前分组样本。
+                </div>
+              )}
             </div>
             <div className="realtime-overview-stats realtime-overview-stats--compact">
               {overviewPrimaryStats.map((item) => (

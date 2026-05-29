@@ -11,6 +11,15 @@ from src.data.providers.sina_provider import SinaFinanceProvider
 from src.data.providers.sina_ths_adapter import SinaIndustryAdapter
 
 
+@pytest.fixture(autouse=True)
+def _disable_live_tushare_provider(monkeypatch):
+    monkeypatch.setattr(
+        SinaIndustryAdapter,
+        "_create_tushare_provider",
+        staticmethod(lambda: None),
+    )
+
+
 def test_attach_industry_codes_before_market_cap_fallback():
     adapter = SinaIndustryAdapter()
     SinaIndustryAdapter._ths_catalog_shared_cache = pd.DataFrame(
@@ -549,6 +558,140 @@ def test_get_stock_list_by_industry_fast_mode_uses_persistent_leader_before_aksh
     assert stocks[0]["pe_ratio"] == 18.2
     adapter.get_stock_valuation.assert_called_once_with("002714", cached_only=True)
     adapter._get_ths_industry_summary.assert_not_called()
+    adapter.akshare.get_stock_list_by_industry.assert_not_called()
+
+
+def test_get_industry_money_flow_enriches_with_tushare_as_fifth_source():
+    adapter = SinaIndustryAdapter()
+    adapter.sina = MagicMock()
+    adapter.sina.get_industry_money_flow.side_effect = AssertionError(
+        "Sina market-cap fallback should not run when Tushare fills board metadata"
+    )
+    adapter._attach_industry_codes = MagicMock(
+        side_effect=lambda df: df.assign(industry_code="881001")
+    )
+    adapter._get_ths_flow_data = MagicMock(
+        return_value=pd.DataFrame(
+            [
+                {
+                    "行业": "电子",
+                    "industry_name": "电子",
+                    "涨跌幅": "0.00%",
+                    "净额": 0,
+                    "流入": 0,
+                    "流出": 0,
+                    "公司家数": 0,
+                }
+            ]
+        )
+    )
+    adapter._enrich_with_akshare = MagicMock(side_effect=lambda df, **kwargs: df)
+    adapter._candidate_tushare_trade_dates = MagicMock(return_value=["2024-01-03"])
+    adapter._persist_market_cap_snapshot = MagicMock()
+
+    class _FakeTushare:
+        def get_industry_moneyflow(self, trade_date):
+            assert trade_date == "2024-01-03"
+            return pd.DataFrame(
+                [
+                    {
+                        "industry": "电子",
+                        "net_amount": 120000.0,
+                        "net_amount_rate": 4.2,
+                    }
+                ]
+            )
+
+        def get_dc_board_status(self, trade_date, idx_type="行业板块"):
+            assert trade_date == "2024-01-03"
+            assert idx_type == "行业板块"
+            return pd.DataFrame(
+                [
+                    {
+                        "name": "电子",
+                        "pct_change": 1.8,
+                        "leading": "中芯国际",
+                        "leading_code": "688981.SH",
+                        "leading_pct": 6.6,
+                        "total_mv": 32000000.0,
+                        "turnover_rate": 2.7,
+                        "up_num": 42,
+                        "down_num": 8,
+                    }
+                ]
+            )
+
+    adapter.tushare = _FakeTushare()
+
+    result = adapter.get_industry_money_flow(days=5)
+
+    assert len(result) == 1
+    row = result.iloc[0]
+    assert row["industry_name"] == "电子"
+    assert row["change_pct"] == 1.8
+    assert row["main_net_inflow"] == 120000.0 * 10000
+    assert row["main_net_ratio"] == 4.2
+    assert row["flow_strength"] == pytest.approx(0.042)
+    assert row["total_market_cap"] == 32000000.0 * 10000
+    assert row["turnover_rate"] == 2.7
+    assert row["stock_count"] == 50
+    assert row["leading_stock"] == "中芯国际"
+    assert row["leading_stock_code"] == "688981"
+    assert row["leading_stock_change"] == 6.6
+    assert row["market_cap_source"] == "tushare_dc_board"
+    assert "ths" in row["data_sources"]
+    assert "tushare_moneyflow_ind_ths" in row["data_sources"]
+    assert "tushare_dc_index" in row["data_sources"]
+    adapter.sina.get_industry_money_flow.assert_not_called()
+
+
+def test_get_stock_list_by_industry_uses_tushare_leader_final_fallback():
+    adapter = SinaIndustryAdapter()
+    adapter.sina = MagicMock()
+    adapter.sina.get_industry_list.return_value = pd.DataFrame()
+    adapter.akshare = MagicMock()
+    adapter.akshare.get_stock_list_by_industry.side_effect = AssertionError(
+        "fast mode should not call live akshare"
+    )
+    adapter._normalize_to_ths_industry_name = MagicMock(return_value="养殖业")
+    adapter._resolve_sina_industry_code = MagicMock(return_value=None)
+    adapter._build_symbol_cache_industry_fallback = MagicMock(return_value=[])
+    adapter.get_cached_stock_list_by_industry = MagicMock(return_value=[])
+    adapter._get_ths_industry_summary = MagicMock(return_value=pd.DataFrame())
+    adapter._candidate_tushare_trade_dates = MagicMock(return_value=["2024-01-03"])
+    adapter.get_stock_valuation = MagicMock(
+        return_value={"market_cap": 87654321.0, "pe_ttm": 16.8, "pb": 2.7, "amount": 12345.0}
+    )
+
+    class _FakeTushare:
+        def get_dc_board_status(self, trade_date, idx_type="行业板块"):
+            assert trade_date == "2024-01-03"
+            assert idx_type == "行业板块"
+            return pd.DataFrame(
+                [
+                    {
+                        "name": "养殖业",
+                        "leading": "牧原股份",
+                        "leading_code": "002714.SZ",
+                        "leading_pct": 3.2,
+                    }
+                ]
+            )
+
+    adapter.tushare = _FakeTushare()
+
+    with patch.object(SinaFinanceProvider, "_get_persistent_industry_list_lookup", return_value={}):
+        stocks = adapter.get_stock_list_by_industry("养殖业", fast_mode=True)
+
+    assert len(stocks) == 1
+    assert stocks[0]["symbol"] == "002714"
+    assert stocks[0]["name"] == "牧原股份"
+    assert stocks[0]["change_pct"] == 3.2
+    assert stocks[0]["market_cap"] == 87654321.0
+    assert stocks[0]["pe_ratio"] == 16.8
+    assert stocks[0]["pb_ratio"] == 2.7
+    assert stocks[0]["source"] == "tushare_dc_index"
+    adapter.get_stock_valuation.assert_called_once_with("002714", cached_only=True)
     adapter.akshare.get_stock_list_by_industry.assert_not_called()
 
 

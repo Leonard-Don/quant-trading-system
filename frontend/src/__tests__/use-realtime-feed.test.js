@@ -40,18 +40,37 @@ describe('useRealtimeFeed', () => {
     });
     webSocketService.connect.mockResolvedValue(undefined);
     webSocketService.requestSnapshot.mockReturnValue(true);
-    api.get.mockResolvedValue({
-      data: {
-        success: true,
+    api.get.mockImplementation((url) => {
+      if (url === '/realtime/market-mood') {
+        return Promise.resolve({
+          data: {
+            success: true,
+            data: {
+              label: '偏强',
+              detail: '上涨 3300 / 下跌 1600 / 平 200；涨跌中位数 0.38%',
+              source: 'tushare',
+              mode: 'eod_snapshot',
+              as_of: '2026-05-28',
+              rise_count: 3300,
+              fall_count: 1600,
+              flat_count: 200,
+            },
+          },
+        });
+      }
+      return Promise.resolve({
         data: {
-          '^GSPC': {
-            symbol: '^GSPC',
-            price: 5100,
-            change_percent: 1.2,
-            timestamp: '2026-04-02T10:00:00.000Z',
+          success: true,
+          data: {
+            '^GSPC': {
+              symbol: '^GSPC',
+              price: 5100,
+              change_percent: 1.2,
+              timestamp: '2026-04-02T10:00:00.000Z',
+            },
           },
         },
-      },
+      });
     });
   });
 
@@ -108,6 +127,24 @@ describe('useRealtimeFeed', () => {
       _clientReceivedAt: expect.any(Number),
       _marketTimestampMs: new Date('2026-04-02T10:00:00.000Z').getTime(),
     }));
+  });
+
+  test('loads tushare market mood snapshot for the realtime panel', async () => {
+    const { result } = renderHook(() => useRealtimeFeed({
+      activeTab: 'index',
+      messageApi,
+      resolveSymbolsByCategory: () => ['^GSPC'],
+      subscribedSymbols: ['^GSPC'],
+    }));
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/realtime/market-mood'));
+    await waitFor(() => expect(result.current.marketMood).toEqual(expect.objectContaining({
+      label: '偏强',
+      source: 'tushare',
+      mode: 'eod_snapshot',
+      as_of: '2026-05-28',
+    })));
+    expect(result.current.marketMoodError).toBe('');
   });
 
   test('prefers websocket snapshot on manual refresh when connected', async () => {

@@ -60,7 +60,24 @@ def test_fetch_etf_history_empty_codes_returns_empty() -> None:
 
 def test_fetch_etf_history_returns_empty_when_akshare_missing(monkeypatch) -> None:
     monkeypatch.setattr(etf_price_history, "_import_akshare", lambda: None)
+    monkeypatch.setattr(
+        etf_price_history,
+        "_create_tushare_provider",
+        lambda: None,
+        raising=False,
+    )
     assert etf_price_history.fetch_etf_history(["510300"]).empty
+
+
+def test_get_tushare_token_loads_env_file_for_standalone_scripts(monkeypatch, tmp_path) -> None:
+    monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
+    monkeypatch.delenv("TS_TOKEN", raising=False)
+    env_file = tmp_path / ".env"
+    env_file.write_text("TUSHARE_TOKEN=local-token\n", encoding="utf-8")
+
+    token = etf_price_history._get_tushare_token(env_files=(env_file,))
+
+    assert token == "local-token"
 
 
 # ---------------------------------------------------------------------------
@@ -143,9 +160,76 @@ def test_fetch_etf_history_returns_empty_when_both_endpoints_fail(monkeypatch) -
         __version__="fake-1.0",
     )
     monkeypatch.setattr(etf_price_history, "_import_akshare", lambda: fake_ak)
+    monkeypatch.setattr(
+        etf_price_history,
+        "_create_tushare_provider",
+        lambda: None,
+        raising=False,
+    )
 
     matrix = etf_price_history.fetch_etf_history(["510300", "159985"])
     assert matrix.empty
+
+
+def test_fetch_etf_history_falls_back_to_tushare_when_akshare_fails(monkeypatch) -> None:
+    def failing(*_: Any, **__: Any) -> pd.DataFrame:
+        raise RuntimeError("network down")
+
+    fake_ak = types.SimpleNamespace(
+        fund_etf_hist_sina=failing,
+        fund_etf_hist_em=failing,
+        __version__="fake-1.0",
+    )
+
+    class FakeTushareProvider:
+        def __init__(self) -> None:
+            self.calls: list[dict[str, Any]] = []
+
+        def get_historical_data(
+            self,
+            symbol: str,
+            *,
+            start_date: datetime | None = None,
+            end_date: datetime | None = None,
+            interval: str = "1d",
+        ) -> pd.DataFrame:
+            self.calls.append({
+                "symbol": symbol,
+                "start_date": start_date,
+                "end_date": end_date,
+                "interval": interval,
+            })
+            return pd.DataFrame(
+                {"close": [4.92, 4.94]},
+                index=pd.to_datetime(["2026-05-13", "2026-05-14"]),
+            )
+
+    fake_tushare = FakeTushareProvider()
+    start = datetime(2026, 5, 1)
+    end = datetime(2026, 5, 15)
+    monkeypatch.setattr(etf_price_history, "_import_akshare", lambda: fake_ak)
+    monkeypatch.setattr(
+        etf_price_history,
+        "_create_tushare_provider",
+        lambda: fake_tushare,
+        raising=False,
+    )
+
+    matrix = etf_price_history.fetch_etf_history(
+        ["510300"],
+        start_date=start,
+        end_date=end,
+    )
+
+    assert list(matrix.columns) == ["510300"]
+    assert list(matrix.index.strftime("%Y-%m-%d")) == ["2026-05-13", "2026-05-14"]
+    assert matrix.iloc[-1]["510300"] == pytest.approx(4.94)
+    assert fake_tushare.calls == [{
+        "symbol": "510300",
+        "start_date": start,
+        "end_date": end,
+        "interval": "1d",
+    }]
 
 
 def test_fetch_etf_history_trims_to_requested_window(monkeypatch) -> None:

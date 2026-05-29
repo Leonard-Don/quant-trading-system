@@ -109,6 +109,48 @@ def test_realtime_summary_endpoint_returns_cache_and_websocket_stats(client):
     get_market_summary.assert_called_once_with()
 
 
+def test_realtime_market_mood_endpoint_returns_tushare_eod_snapshot(client):
+    class FakeTushareProvider:
+        def get_market_mood(self, trade_date, include_bj=True):
+            assert str(trade_date) == "20260528"
+            assert include_bj is False
+            return {
+                "trade_date": "20260528",
+                "include_bj": False,
+                "stock_count": 5100,
+                "rise_count": 3300,
+                "fall_count": 1600,
+                "flat_count": 200,
+                "rise_ratio": 0.6471,
+                "fall_ratio": 0.3137,
+                "flat_ratio": 0.0392,
+                "market_median_pct_chg": 0.38,
+                "limit_up_count": 72,
+                "limit_down_count": 9,
+                "blowup_count": 18,
+                "blowup_rate": 0.2,
+                "source": "tushare",
+                "mode": "eod_snapshot",
+            }
+
+    with patch(
+        "backend.app.api.v1.endpoints.realtime.TushareProvider",
+        return_value=FakeTushareProvider(),
+    ):
+        response = client.get("/realtime/market-mood?trade_date=20260528&include_bj=false")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["data"]["label"] == "偏强"
+    assert payload["data"]["source"] == "tushare"
+    assert payload["data"]["mode"] == "eod_snapshot"
+    assert payload["data"]["as_of"] == "2026-05-28"
+    assert payload["data"]["rise_count"] == 3300
+    assert payload["data"]["fall_count"] == 1600
+    assert "上涨 3300 / 下跌 1600 / 平 200" in payload["data"]["detail"]
+
+
 def test_realtime_metadata_endpoint_returns_dynamic_symbol_payload(client):
     with patch.object(realtime_manager, "get_quote_dict", return_value={"symbol": "AAPL", "source": "test"}), \
          patch.object(realtime_manager.provider_factory, "get_fundamental_data", return_value={

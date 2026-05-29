@@ -95,6 +95,45 @@ def _isolate_etf_rotation_external_state(monkeypatch, tmp_path):
     reset_preferences_store_for_tests()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_tushare_and_circuit_breaker_state(monkeypatch):
+    """Keep the Tushare-backed fallbacks hermetic and free of cross-test bleed.
+
+    Two pieces of shared state made the Tushare fallback tests (e.g.
+    ``test_get_stock_list_by_industry_uses_tushare_leader_final_fallback`` and the
+    money-flow siblings) flaky once the whole suite ran together:
+
+    1. ``etf_price_history._get_tushare_token()`` loads the developer's real
+       ``.env`` into ``os.environ`` (process-wide, ``override=False``). Once any
+       ETF test triggered it, later "unit" tests that built a real
+       ``TushareProvider`` issued live, latency-variable API calls against the
+       paid endpoint. Forcing both token vars empty keeps unit tests offline and
+       off the paid quota; a test that genuinely needs a token still sets its own
+       (its ``monkeypatch`` runs after this autouse setup, so it wins).
+    2. ``SinaIndustryAdapter._circuit_breakers`` is *class-level* state. A failing
+       Tushare call in one test trips the ``tushare_dc_index`` breaker OPEN, and
+       because it persists across tests for the ~60s recovery window, a later
+       test exercising the Tushare leader fallback got short-circuited to an empty
+       result. Reset the registry around every test so trips never leak.
+    """
+
+    monkeypatch.setenv("TUSHARE_TOKEN", "")
+    monkeypatch.setenv("TS_TOKEN", "")
+
+    try:
+        from src.data.providers.sina_ths_adapter import SinaIndustryAdapter
+    except ImportError:
+        yield
+        return
+
+    saved_breakers = SinaIndustryAdapter._circuit_breakers
+    SinaIndustryAdapter._circuit_breakers = {}
+    try:
+        yield
+    finally:
+        SinaIndustryAdapter._circuit_breakers = saved_breakers
+
+
 @pytest.fixture
 def sample_data():
     """生成测试用的样本数据"""

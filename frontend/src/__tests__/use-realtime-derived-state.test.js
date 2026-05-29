@@ -34,6 +34,9 @@ describe('useRealtimeDerivedState', () => {
     expect(result.current.marketSentiment).toEqual({
       label: '中性',
       detail: '上涨 1 / 下跌 1',
+      source: 'quotes',
+      mode: 'realtime_sample',
+      asOf: null,
     });
     expect(result.current.freshnessSummary).toEqual({
       fresh: 1,
@@ -48,5 +51,42 @@ describe('useRealtimeDerivedState', () => {
     expect(result.current.lastClientRefreshLabel).not.toBe('--');
     expect(result.current.lastMarketUpdateLabel).not.toBe('--');
     expect(result.current.realtimeActionPosture.title).toBeDefined();
+  });
+
+  test('prefers tushare market mood snapshot when available', () => {
+    const { result } = renderHook(() => useRealtimeDerivedState({
+      alertHitHistory: [],
+      anomalyFeed: [],
+      currentTabSymbols: ['^GSPC'],
+      filteredReviewSnapshots: [],
+      getQuoteFreshness: () => ({ state: 'fresh' }),
+      hasEverConnected: true,
+      hasExperiencedFallback: false,
+      isAutoUpdate: true,
+      isConnected: true,
+      lastClientRefreshAt: '2026-04-09T08:01:00.000Z',
+      lastConnectionIssue: '',
+      lastMarketUpdateAt: '2026-04-09T08:00:30.000Z',
+      freshnessNow: Date.now(),
+      marketMood: {
+        label: '偏强',
+        detail: '上涨 3300 / 下跌 1600 / 平 200；涨跌中位数 0.38%',
+        source: 'tushare',
+        mode: 'eod_snapshot',
+        as_of: '2026-05-28',
+      },
+      quotes: {
+        '^GSPC': { symbol: '^GSPC', change: -10, change_percent: -1.2 },
+      },
+      reconnectAttempts: 0,
+    }));
+
+    expect(result.current.marketSentiment).toEqual({
+      label: '偏强',
+      detail: '上涨 3300 / 下跌 1600 / 平 200；涨跌中位数 0.38%',
+      source: 'tushare',
+      mode: 'eod_snapshot',
+      asOf: '2026-05-28',
+    });
   });
 });

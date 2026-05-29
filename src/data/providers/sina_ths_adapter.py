@@ -1,6 +1,6 @@
 """
 同花顺主导的行业数据适配器（THS-first Adapter）
-将 THS 作为行业热度主数据源，AKShare / Sina / 腾讯仅作为补充与兜底。
+将 THS 作为行业热度主数据源，AKShare / Tushare / Sina / 腾讯仅作为补充与兜底。
 """
 
 import copy
@@ -17,7 +17,7 @@ import akshare as ak
 import time
 from collections import Counter
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 
@@ -284,6 +284,7 @@ class SinaIndustryAdapter:
     数据来源：
     - 同花顺（THS）：行业目录、行业热度、涨跌幅、资金流向、行业指数、领涨股
     - AKShare：行业补充元数据、成分股、财务和历史行情
+    - Tushare：盘后行业资金流、东方财富板块状态、领涨股和市场情绪兜底
     - 新浪财经（Sina Finance）：行业列表、成分股、实时行情兜底
     - 腾讯财经：单股估值核心字段兜底
 
@@ -776,8 +777,19 @@ class SinaIndustryAdapter:
         self.__class__._ensure_symbol_cache_loaded()
         self.sina = SinaFinanceProvider()
         self.akshare = AKShareProvider()
+        self.tushare = self._create_tushare_provider()
         self._industry_cache: Dict[str, pd.DataFrame] = {}
         logger.info("SinaIndustryAdapter initialized")
+
+    @staticmethod
+    def _create_tushare_provider():
+        try:
+            from .tushare_provider import TushareProvider
+
+            return TushareProvider()
+        except Exception as exc:
+            logger.warning("Tushare industry fallback initialization failed: %s", exc)
+            return None
 
     @classmethod
     def _call_with_circuit(cls, breaker_key: str, fn, *args, **kwargs):
@@ -1150,6 +1162,362 @@ class SinaIndustryAdapter:
             result["valuation_quality"] = "unavailable"
         return result
 
+    @staticmethod
+    def _coerce_tushare_numeric(value: Any, default: Optional[float] = None) -> Optional[float]:
+        try:
+            if value is None or pd.isna(value):
+                return default
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _normalize_tushare_columns(frame: Optional[pd.DataFrame]) -> pd.DataFrame:
+        if frame is None or frame.empty:
+            return pd.DataFrame()
+        result = frame.copy()
+        result.columns = [str(column).strip().lower() for column in result.columns]
+        return result
+
+    @staticmethod
+    def _tushare_first_value(row: pd.Series, candidates: List[str]) -> Any:
+        for candidate in candidates:
+            if candidate in row.index:
+                value = row.get(candidate)
+                if value is not None and not pd.isna(value):
+                    return value
+        return None
+
+    @classmethod
+    def _tushare_name_from_row(cls, row: pd.Series) -> str:
+        value = cls._tushare_first_value(
+            row,
+            ["industry_name", "name", "industry", "板块名称", "行业名称", "名称"],
+        )
+        return str(value or "").strip()
+
+    @staticmethod
+    def _append_tushare_record_source(record: Dict[str, Any], source: str) -> None:
+        sources = record.setdefault("data_sources", [])
+        if not isinstance(sources, list):
+            sources = [sources]
+            record["data_sources"] = sources
+        if source not in sources:
+            sources.append(source)
+
+    @classmethod
+    def _normalize_tushare_industry_snapshot(
+        cls,
+        moneyflow_df: Optional[pd.DataFrame],
+        board_df: Optional[pd.DataFrame],
+    ) -> pd.DataFrame:
+        moneyflow = cls._normalize_tushare_columns(moneyflow_df)
+        board = cls._normalize_tushare_columns(board_df)
+        if moneyflow.empty and board.empty:
+            return pd.DataFrame()
+
+        records: Dict[str, Dict[str, Any]] = {}
+
+        for _, row in moneyflow.iterrows():
+            industry_name = cls._tushare_name_from_row(row)
+            if not industry_name:
+                continue
+            record = records.setdefault(industry_name, {"industry_name": industry_name})
+
+            change_pct = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(row, ["change_pct", "pct_change", "涨跌幅"])
+            )
+            if change_pct is not None:
+                record["change_pct"] = change_pct
+
+            net_amount = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(
+                    row,
+                    [
+                        "main_net_inflow",
+                        "net_amount",
+                        "net_mf_amount",
+                        "net_main_amount",
+                        "主力净流入-净额",
+                        "净额",
+                    ],
+                ),
+                0.0,
+            )
+            if net_amount is not None and 0 < abs(net_amount) < 1e8:
+                net_amount *= 10000
+            record["main_net_inflow"] = net_amount or 0.0
+
+            net_ratio = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(
+                    row,
+                    [
+                        "main_net_ratio",
+                        "net_amount_rate",
+                        "net_mf_ratio",
+                        "net_main_rate",
+                        "主力净流入-净占比",
+                    ],
+                )
+            )
+            if net_ratio is not None:
+                record["main_net_ratio"] = net_ratio
+                record["flow_strength"] = max(min(net_ratio / 100.0, 1.0), -1.0)
+
+            cls._append_tushare_record_source(record, "tushare_moneyflow_ind_ths")
+
+        for _, row in board.iterrows():
+            industry_name = cls._tushare_name_from_row(row)
+            if not industry_name:
+                continue
+            record = records.setdefault(industry_name, {"industry_name": industry_name})
+
+            board_change = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(row, ["change_pct", "pct_change", "涨跌幅"])
+            )
+            if board_change is not None:
+                record["change_pct"] = board_change
+
+            total_mv = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(row, ["total_market_cap", "total_mv", "总市值"])
+            )
+            if total_mv is not None and total_mv > 0:
+                if total_mv < 1e10:
+                    total_mv *= 10000
+                record["total_market_cap"] = total_mv
+                record["market_cap_source"] = "tushare_dc_board"
+
+            turnover_rate = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(row, ["turnover_rate", "换手率"]),
+                0.0,
+            )
+            record["turnover_rate"] = turnover_rate or 0.0
+
+            up_num = (
+                cls._coerce_tushare_numeric(
+                    cls._tushare_first_value(row, ["up_num", "上涨家数"]),
+                    0.0,
+                )
+                or 0.0
+            )
+            down_num = (
+                cls._coerce_tushare_numeric(
+                    cls._tushare_first_value(row, ["down_num", "下跌家数"]),
+                    0.0,
+                )
+                or 0.0
+            )
+            if up_num or down_num:
+                record["stock_count"] = int(up_num + down_num)
+
+            leading = cls._tushare_first_value(row, ["leading_stock", "leading", "领涨股"])
+            if leading:
+                record["leading_stock"] = str(leading).strip()
+
+            leading_code = cls._normalize_stock_symbol(
+                cls._tushare_first_value(
+                    row,
+                    ["leading_stock_code", "leading_code", "领涨股代码"],
+                )
+            )
+            if leading_code:
+                record["leading_stock_code"] = leading_code
+
+            leading_pct = cls._coerce_tushare_numeric(
+                cls._tushare_first_value(
+                    row,
+                    ["leading_stock_change", "leading_pct", "领涨股涨跌幅"],
+                )
+            )
+            if leading_pct is not None:
+                record["leading_stock_change"] = leading_pct
+
+            cls._append_tushare_record_source(record, "tushare_dc_index")
+
+        if not records:
+            return pd.DataFrame()
+
+        result = pd.DataFrame(records.values())
+        if "market_cap_source" not in result.columns:
+            result["market_cap_source"] = "unknown"
+        result["market_cap_source"] = result["market_cap_source"].fillna("unknown")
+        return result
+
+    def _candidate_tushare_trade_dates(self, provider) -> List[Any]:
+        today = datetime.now()
+        candidates: List[Any] = [today]
+        calendar_loader = getattr(provider, "get_trade_calendar", None)
+        if callable(calendar_loader):
+            try:
+                start = today - timedelta(days=10)
+                open_days = calendar_loader(start_date=start, end_date=today, exchange="SSE")
+                for day in reversed(open_days or []):
+                    if day not in candidates:
+                        candidates.append(day)
+            except Exception as exc:
+                logger.debug("Tushare trade calendar lookup failed for industry fallback: %s", exc)
+        return candidates[:4]
+
+    def _load_tushare_industry_snapshot(self, include_moneyflow: bool = True) -> pd.DataFrame:
+        provider = getattr(self, "tushare", None)
+        if provider is None:
+            return pd.DataFrame()
+
+        moneyflow_loader = getattr(provider, "get_industry_moneyflow", None)
+        board_loader = getattr(provider, "get_dc_board_status", None)
+        if not callable(moneyflow_loader) and not callable(board_loader):
+            return pd.DataFrame()
+
+        for trade_date in self._candidate_tushare_trade_dates(provider):
+            moneyflow_df = pd.DataFrame()
+            board_df = pd.DataFrame()
+
+            if include_moneyflow and callable(moneyflow_loader):
+                try:
+                    moneyflow_df = moneyflow_loader(trade_date)
+                except Exception as exc:
+                    logger.debug(
+                        "Tushare industry moneyflow failed for %s: %s",
+                        trade_date,
+                        exc,
+                    )
+
+            if callable(board_loader):
+                try:
+                    board_df = board_loader(trade_date, idx_type="行业板块")
+                except Exception as exc:
+                    logger.debug("Tushare dc_index failed for %s: %s", trade_date, exc)
+
+            normalized = self._normalize_tushare_industry_snapshot(moneyflow_df, board_df)
+            if not normalized.empty:
+                logger.info(
+                    "Loaded Tushare after-close industry snapshot for %s with %s rows",
+                    trade_date,
+                    len(normalized),
+                )
+                return normalized
+
+        return pd.DataFrame()
+
+    @staticmethod
+    def _is_blank(value: Any) -> bool:
+        if value is None:
+            return True
+        if isinstance(value, float) and pd.isna(value):
+            return True
+        return str(value).strip() in {"", "nan", "None"}
+
+    @classmethod
+    def _is_missing_or_zero(cls, value: Any) -> bool:
+        try:
+            if value is None or pd.isna(value):
+                return True
+            return abs(float(value)) <= 1e-12
+        except (TypeError, ValueError):
+            return cls._is_blank(value)
+
+    def _enrich_with_tushare(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Use paid Tushare after-close data to fill missing industry fields."""
+        if df is None or df.empty:
+            return df
+
+        snapshot = self._load_tushare_industry_snapshot(include_moneyflow=True)
+        if snapshot.empty:
+            return df
+
+        result = df.copy()
+        snapshot = snapshot.copy()
+        snapshot["match_key"] = snapshot["industry_name"].apply(self._normalize_industry_join_key)
+        snapshot = snapshot.drop_duplicates(subset=["match_key"], keep="first")
+        enrichment_by_key = {
+            str(row.get("match_key") or "").strip(): row for _, row in snapshot.iterrows()
+        }
+
+        for column, default in {
+            "change_pct": 0.0,
+            "main_net_inflow": 0.0,
+            "main_net_ratio": 0.0,
+            "flow_strength": 0.0,
+            "total_market_cap": 0.0,
+            "turnover_rate": 0.0,
+            "stock_count": 0,
+            "leading_stock": "",
+            "leading_stock_code": "",
+            "leading_stock_change": 0.0,
+        }.items():
+            if column not in result.columns:
+                result[column] = default
+        if "market_cap_source" not in result.columns:
+            result["market_cap_source"] = "unknown"
+
+        matched_indices: List[Any] = []
+        for idx, row in result.iterrows():
+            match_key = self._normalize_industry_join_key(row.get("industry_name", ""))
+            enrichment = enrichment_by_key.get(match_key)
+            if enrichment is None:
+                continue
+
+            changed = False
+
+            def fill_numeric(column: str, min_value: float | None = None) -> None:
+                nonlocal changed
+                if column not in enrichment.index:
+                    return
+                value = self._coerce_tushare_numeric(enrichment.get(column))
+                if value is None:
+                    return
+                if min_value is not None and value <= min_value:
+                    return
+                if self._is_missing_or_zero(result.at[idx, column]):
+                    result.at[idx, column] = value
+                    changed = True
+
+            fill_numeric("change_pct")
+            fill_numeric("main_net_inflow")
+            fill_numeric("main_net_ratio")
+            fill_numeric("flow_strength")
+            fill_numeric("turnover_rate")
+            fill_numeric("stock_count")
+            fill_numeric("leading_stock_change")
+
+            cap_value = self._coerce_tushare_numeric(enrichment.get("total_market_cap"), 0.0) or 0.0
+            current_cap = self._coerce_tushare_numeric(result.at[idx, "total_market_cap"], 0.0) or 0.0
+            current_source = str(result.at[idx, "market_cap_source"] or "unknown").strip()
+            should_fill_cap = current_cap <= 1 or current_source in {
+                "",
+                "unknown",
+                "estimated",
+                "estimated_from_flow",
+                "estimated_from_turnover",
+                "constant_fallback",
+            }
+            if cap_value > 1 and should_fill_cap:
+                result.at[idx, "total_market_cap"] = cap_value
+                result.at[idx, "market_cap_source"] = str(
+                    enrichment.get("market_cap_source") or "tushare_dc_board"
+                )
+                changed = True
+
+            for column in ("leading_stock", "leading_stock_code"):
+                if column in enrichment.index and self._is_blank(result.at[idx, column]):
+                    value = str(enrichment.get(column) or "").strip()
+                    if value:
+                        result.at[idx, column] = value
+                        changed = True
+
+            if changed:
+                matched_indices.append(idx)
+                for source in enrichment.get("data_sources", []) or []:
+                    self._append_data_source(
+                        result,
+                        pd.Series(result.index == idx, index=result.index),
+                        str(source),
+                    )
+
+        if matched_indices:
+            logger.info("Tushare enriched %s industry rows", len(matched_indices))
+        return result
+
     @classmethod
     def _get_cached_sina_stock_nodes(cls) -> frozenset[str]:
         now = time.time()
@@ -1461,7 +1829,16 @@ class SinaIndustryAdapter:
 
     @staticmethod
     def _normalize_stock_symbol(symbol: Any) -> str:
-        normalized = re.sub(r"^(sh|sz|bj)", "", str(symbol or "").strip(), flags=re.IGNORECASE)
+        text = str(symbol or "").strip().upper().replace("_", ".")
+        suffix_match = re.fullmatch(r"(\d{6})\.(SH|SZ|BJ)", text)
+        if suffix_match:
+            return suffix_match.group(1)
+
+        prefix_match = re.fullmatch(r"(SH|SZ|BJ)(\d{6})", text)
+        if prefix_match:
+            return prefix_match.group(2)
+
+        normalized = re.sub(r"^(SH|SZ|BJ)", "", text, flags=re.IGNORECASE)
         return normalized if re.fullmatch(r"\d{6}", normalized) else ""
 
     def _get_cached_sina_industry_codes(self, industry_name: str) -> List[str]:
@@ -1632,6 +2009,64 @@ class SinaIndustryAdapter:
             ]
 
         return []
+
+    def _build_tushare_leading_stock_fallback(self, industry_name: str) -> List[Dict[str, Any]]:
+        snapshot = self._load_tushare_industry_snapshot(include_moneyflow=False)
+        if snapshot.empty:
+            return []
+
+        match_key = self._normalize_industry_join_key(industry_name)
+        snapshot = snapshot.copy()
+        snapshot["match_key"] = snapshot["industry_name"].apply(self._normalize_industry_join_key)
+        matched = snapshot[snapshot["match_key"] == match_key]
+        if matched.empty:
+            return []
+
+        row = matched.iloc[0]
+        leader_name = str(row.get("leading_stock") or "").strip()
+        leader_symbol = self._normalize_stock_symbol(row.get("leading_stock_code"))
+        if not leader_name or not leader_symbol:
+            return []
+
+        try:
+            change_pct = float(row.get("leading_stock_change") or row.get("change_pct") or 0)
+        except (TypeError, ValueError):
+            change_pct = 0.0
+
+        valuation_snapshot: Dict[str, Any] = {}
+        try:
+            candidate = self.get_stock_valuation(leader_symbol, cached_only=True)
+            if isinstance(candidate, dict) and "error" not in candidate:
+                valuation_snapshot = candidate
+        except Exception as exc:
+            logger.warning(
+                "Failed to hydrate Tushare leader fallback valuation for %s: %s",
+                leader_symbol,
+                exc,
+            )
+
+        logger.debug(
+            "Using Tushare dc_index leader fallback for %s (%s)",
+            industry_name,
+            leader_symbol,
+        )
+        return [
+            {
+                "symbol": leader_symbol,
+                "code": leader_symbol,
+                "name": leader_name,
+                "change_pct": change_pct,
+                "market_cap": float(valuation_snapshot.get("market_cap") or 0),
+                "amount": float(valuation_snapshot.get("amount") or 0),
+                "pe_ratio": float(
+                    valuation_snapshot.get("pe_ttm") or valuation_snapshot.get("pe_ratio") or 0
+                ),
+                "pb_ratio": float(
+                    valuation_snapshot.get("pb") or valuation_snapshot.get("pb_ratio") or 0
+                ),
+                "source": "tushare_dc_index",
+            }
+        ]
 
     def get_symbol_by_name(self, name: str) -> str:
         """根据股票名称获取股票代码，如果找不到则返回原名称"""
@@ -1947,7 +2382,7 @@ class SinaIndustryAdapter:
 
     def get_industry_money_flow(self, days: int = 5, lightweight: bool = False) -> pd.DataFrame:
         """
-        获取行业资金流向（三层架构：THS主 + AKShare辅 + Sina底）
+        获取行业资金流向（五源架构：THS主 + AKShare辅 + Tushare盘后 + Sina底 + Tencent估值）
         """
         # ========== 第一步：获取 THS 核心数据 ==========
         ths_df = self._get_ths_flow_data(days)
@@ -1968,7 +2403,14 @@ class SinaIndustryAdapter:
             except Exception as e:
                 logger.warning(f"Failed to enrich with AKShare metadata: {e}")
 
-            # ========== 第三步：Sina & 启发式辅助（市值兜底） ==========
+            # ========== 第三步：Tushare 盘后增强（资金流、板块状态、市值、领涨股） ==========
+            try:
+                result = self._enrich_with_tushare(result)
+                self._persist_market_cap_snapshot(result)
+            except Exception as e:
+                logger.warning(f"Failed to enrich with Tushare after-close data: {e}")
+
+            # ========== 第四步：Sina & 启发式辅助（市值兜底） ==========
             total_market_caps = self._numeric_series_or_default(result, "total_market_cap", 0.0)
             if "total_market_cap" not in result.columns or total_market_caps.max() <= 1:
                 self._apply_persistent_market_cap_snapshot(result)
@@ -2054,6 +2496,12 @@ class SinaIndustryAdapter:
                 self._persist_market_cap_snapshot(result)
             except Exception as e:
                 logger.warning(f"AKShare enrichment in Sina-only mode failed: {e}")
+
+            try:
+                result = self._enrich_with_tushare(result)
+                self._persist_market_cap_snapshot(result)
+            except Exception as e:
+                logger.warning(f"Tushare enrichment in Sina-only mode failed: {e}")
 
             self._apply_persistent_market_cap_snapshot(result)
 
@@ -2773,6 +3221,18 @@ class SinaIndustryAdapter:
             except Exception as e:
                 logger.warning(f"Final THS leader fallback failed: {e}")
 
+        if not merged_stocks:
+            try:
+                tushare_leader_rows = self._build_tushare_leading_stock_fallback(
+                    ths_industry_name
+                )
+                for stock in tushare_leader_rows:
+                    symbol = str(stock.get("symbol") or stock.get("code") or "").strip()
+                    if symbol:
+                        merged_stocks[symbol] = stock
+            except Exception as e:
+                logger.warning(f"Final Tushare leader fallback failed: {e}")
+
         result = list(merged_stocks.values())
         if result:
             self.__class__._update_symbol_cache_from_pairs(
@@ -3077,12 +3537,15 @@ def create_industry_provider():
     创建行业数据提供器
 
     始终返回 SinaIndustryAdapter，因为该适配器内部已实现了
-    对 THS、AKShare、Sina 的三层数据融合和能力回退机制。
+    对 THS、AKShare、Tushare、Sina、Tencent 的五源数据融合和能力回退机制。
 
     Returns:
         可用的数据提供器实例
     """
-    logger.info("Initializing THS-first industry provider (THS + AKShare + Sina + Tencent)")
+    logger.info(
+        "Initializing THS-first industry provider "
+        "(THS + AKShare + Tushare + Sina + Tencent)"
+    )
     return SinaIndustryAdapter()
 
 
