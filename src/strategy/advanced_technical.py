@@ -168,7 +168,9 @@ class AdvancedTechnicalIndicators:
         # 先行带B (Senkou Span B): 52期最高最低平均，向前移26期
         senkou_span_b = ((high.rolling(52).max() + low.rolling(52).min()) / 2).shift(26)
 
-        # 滞后线 (Chikou Span): 收盘价向后移26期
+        # 滞后线 (Chikou Span): 收盘价向后移26期。
+        # 注意：这是一条“显示用”滞后线，chikou_span.iloc[i] == close.iloc[i+26]，
+        # 含未来信息，仅供画图/事后分析，严禁用于第 i 根 K 线的实时多空判定（会前视）。
         chikou_span = close.shift(-26)
 
         return {
@@ -209,8 +211,8 @@ class IchimokuStrategy(BaseStrategy):
                         ichimoku["tenkan_sen"].iloc[i] > ichimoku["kijun_sen"].iloc[i]
                     ),  # 转换线在基准线上方
                     (
-                        ichimoku["chikou_span"].iloc[i] > close.iloc[i - 26]
-                    ),  # 滞后线在26期前价格上方
+                        close.iloc[i] > close.iloc[i - 26]
+                    ),  # 滞后线确认：当前收盘价高于26期前（仅用截至 i 的信息，不窥探未来）
                 ]
 
                 # 空头信号条件
@@ -221,8 +223,8 @@ class IchimokuStrategy(BaseStrategy):
                         ichimoku["tenkan_sen"].iloc[i] < ichimoku["kijun_sen"].iloc[i]
                     ),  # 转换线在基准线下方
                     (
-                        ichimoku["chikou_span"].iloc[i] < close.iloc[i - 26]
-                    ),  # 滞后线在26期前价格下方
+                        close.iloc[i] < close.iloc[i - 26]
+                    ),  # 滞后线确认：当前收盘价低于26期前（仅用截至 i 的信息，不窥探未来）
                 ]
 
                 if all(bullish_conditions):

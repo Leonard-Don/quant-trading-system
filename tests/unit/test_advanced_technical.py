@@ -70,6 +70,29 @@ class TestIchimokuStrategyBehaviour:
         assert (signals == -1).any(), "clean downtrend must produce a sell signal"
         assert not (signals == 1).any()
 
+    def test_signals_do_not_depend_on_future_prices(self):
+        """No look-ahead: a bar-i signal may use only information available at
+        bar i. Two price series that share an identical history but diverge in
+        the future must therefore produce identical signals over that shared
+        history. The old code computed ``chikou_span = close.shift(-26)`` and
+        then read ``chikou_span.iloc[i]`` (== ``close.iloc[i + 26]``) inside the
+        bar-i decision, so mutating only the future tail silently rewrote past
+        signals — a forward peek of 26 bars that this test pins out."""
+        n = 120
+        cutoff = n - 26  # the final 26 closes are "the future" for bar cutoff-1
+
+        base_close = np.linspace(100.0, 220.0, n)
+        altered_close = base_close.copy()
+        # Identical history [0:cutoff], radically different future [cutoff:].
+        altered_close[cutoff:] = np.linspace(80.0, 20.0, n - cutoff)
+
+        base = IchimokuStrategy(name="Ichimoku").generate_signals(_ohlcv(base_close))
+        altered = IchimokuStrategy(name="Ichimoku").generate_signals(
+            _ohlcv(altered_close)
+        )
+
+        pd.testing.assert_series_equal(base.iloc[:cutoff], altered.iloc[:cutoff])
+
     def test_internal_error_is_surfaced_not_swallowed(self):
         """A missing 'close' column is a real defect. The strategy must
         re-raise it (KeyError) — not return a silent all-zero series, and
