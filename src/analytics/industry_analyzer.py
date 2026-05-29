@@ -45,6 +45,7 @@ from src.analytics.industry_stock_details import (
     extract_stock_detail_fields,
     has_meaningful_numeric,
 )
+from src.data.providers import _tushare_normalize
 
 logger = logging.getLogger(__name__)
 _SINGLE_FLIGHT_MISS = object()
@@ -386,48 +387,14 @@ class IndustryAnalyzer:
             self._tushare_fallback = None
             return None
 
-    @staticmethod
-    def _coerce_tushare_numeric(value: Any, default: Optional[float] = None) -> Optional[float]:
-        try:
-            if value is None or pd.isna(value):
-                return default
-            return float(value)
-        except (TypeError, ValueError):
-            return default
-
-    @staticmethod
-    def _normalize_tushare_columns(frame: Optional[pd.DataFrame]) -> pd.DataFrame:
-        if frame is None or frame.empty:
-            return pd.DataFrame()
-        result = frame.copy()
-        result.columns = [str(column).strip().lower() for column in result.columns]
-        return result
-
-    @staticmethod
-    def _tushare_first_value(row: pd.Series, candidates: list[str]) -> Any:
-        for candidate in candidates:
-            if candidate in row.index:
-                value = row.get(candidate)
-                if value is not None and not pd.isna(value):
-                    return value
-        return None
-
-    @classmethod
-    def _tushare_name_from_row(cls, row: pd.Series) -> str:
-        value = cls._tushare_first_value(
-            row,
-            ["industry_name", "name", "industry", "板块名称", "行业名称", "名称"],
-        )
-        return str(value or "").strip()
-
-    @staticmethod
-    def _append_tushare_source(record: dict[str, Any], source: str) -> None:
-        sources = record.setdefault("data_sources", [])
-        if not isinstance(sources, list):
-            sources = [sources]
-            record["data_sources"] = sources
-        if source not in sources:
-            sources.append(source)
+    # Tushare frame-normalization leaf helpers are shared with SinaIndustryAdapter
+    # (src/data/providers/_tushare_normalize.py). Exposed under their historical
+    # method names via staticmethod aliases so existing call sites are unchanged.
+    _coerce_tushare_numeric = staticmethod(_tushare_normalize.coerce_numeric)
+    _normalize_tushare_columns = staticmethod(_tushare_normalize.normalize_columns)
+    _tushare_first_value = staticmethod(_tushare_normalize.first_value)
+    _tushare_name_from_row = staticmethod(_tushare_normalize.name_from_row)
+    _append_tushare_source = staticmethod(_tushare_normalize.append_source)
 
     @classmethod
     def _normalize_tushare_industry_money_flow(
