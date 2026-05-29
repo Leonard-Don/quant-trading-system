@@ -15,6 +15,11 @@ license = { file = "LICENSE" }
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Hermetic by default: block real network so an un-mocked provider call fails
+# loudly instead of silently hitting a live (paid) API. Loopback stays allowed
+# for in-process TestClient/ASGI. A test that genuinely needs the network can
+# opt back in with @pytest.mark.enable_socket.
+addopts = "--disable-socket --allow-hosts=127.0.0.1,::1"
 norecursedirs = [
     "tests/manual",
     "tests/e2e",

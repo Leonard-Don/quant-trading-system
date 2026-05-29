@@ -2,6 +2,7 @@
 pytest配置文件
 """
 
+import copy
 import os
 import sys
 from pathlib import Path
@@ -95,43 +96,103 @@ def _isolate_etf_rotation_external_state(monkeypatch, tmp_path):
     reset_preferences_store_for_tests()
 
 
-@pytest.fixture(autouse=True)
-def _isolate_tushare_and_circuit_breaker_state(monkeypatch):
-    """Keep the Tushare-backed fallbacks hermetic and free of cross-test bleed.
+# Class-level mutable caches on the data-provider classes. These persist across
+# tests (the classes are module singletons), so without isolation a cache or
+# tripped circuit breaker written by one test silently changes another's result
+# — exactly the bug behind the flaky
+# ``test_get_stock_list_by_industry_uses_tushare_leader_final_fallback``. We
+# snapshot-and-restore them around every test rather than reset-to-empty, so the
+# pre-test state (whatever it was) is preserved and any in-test mutation is
+# discarded. Only data caches are listed — never paths, locks, or TTL constants.
+# Add new caches here when you add them to a provider class.
+_PROVIDER_CACHE_ATTRS: dict[tuple[str, str], tuple[str, ...]] = {
+    ("src.data.providers.sina_ths_adapter", "SinaIndustryAdapter"): (
+        "_circuit_breakers",
+        "_stock_name_to_symbol_cache", "_stock_name_cache_time", "_stock_name_cache_loaded",
+        "_ths_catalog_shared_cache", "_ths_catalog_shared_cache_time",
+        "_ths_summary_shared_cache", "_ths_summary_shared_cache_time",
+        "_ths_js_content_cache", "_ths_hexin_v_cache", "_ths_hexin_v_cache_time",
+        "_sina_cached_stock_nodes", "_sina_cached_stock_nodes_time",
+        "_candidate_industry_names_cache", "_cached_sina_industry_codes_cache",
+        "_sina_industry_list_shared_cache", "_sina_industry_list_shared_cache_time",
+        "_history_cache", "_history_cache_loaded",
+        "_market_cap_snapshot_payload_cache", "_market_cap_snapshot_payload_cache_meta",
+        "_akshare_valuation_snapshot_cache", "_akshare_valuation_snapshot_cache_time",
+        "_akshare_valuation_snapshot_failure_at",
+    ),
+    ("src.data.providers.sina_provider", "SinaFinanceProvider"): (
+        "_json_cache_memory",
+        "_persistent_industry_list_frame_cache",
+        "_persistent_industry_list_lookup_cache",
+        "_persistent_industry_stocks_rows_cache",
+        "_persistent_industry_stock_codes_cache",
+    ),
+    ("src.data.providers.akshare_provider", "AKShareProvider"): (
+        "_shared_industry_meta_cache", "_shared_industry_meta_cache_time",
+        "_shared_industry_stock_snapshot", "_shared_industry_stock_snapshot_time",
+    ),
+    ("src.analytics.leader_stock_scorer", "LeaderStockScorer"): (
+        "_financial_cache", "_financial_cache_loaded",
+    ),
+}
 
-    Two pieces of shared state made the Tushare fallback tests (e.g.
-    ``test_get_stock_list_by_industry_uses_tushare_leader_final_fallback`` and the
-    money-flow siblings) flaky once the whole suite ran together:
+
+def _resolve_provider_cache_targets():
+    """Yield (class, attr-names) only for provider classes already imported.
+
+    We read ``sys.modules`` rather than importing — a class that isn't loaded
+    cannot leak, so there's nothing to isolate and no reason to force its
+    (sometimes heavy, e.g. akshare) import on every test.
+    """
+    for (module_name, class_name), attrs in _PROVIDER_CACHE_ATTRS.items():
+        module = sys.modules.get(module_name)
+        if module is None:
+            continue
+        cls = getattr(module, class_name, None)
+        if cls is not None:
+            yield cls, attrs
+
+
+@pytest.fixture(autouse=True)
+def _isolate_provider_class_caches(monkeypatch):
+    """Keep provider class-level caches and the real Tushare token from bleeding
+    across tests — the two shared-state problems behind the flaky Tushare
+    fallback tests.
 
     1. ``etf_price_history._get_tushare_token()`` loads the developer's real
        ``.env`` into ``os.environ`` (process-wide, ``override=False``). Once any
        ETF test triggered it, later "unit" tests that built a real
-       ``TushareProvider`` issued live, latency-variable API calls against the
-       paid endpoint. Forcing both token vars empty keeps unit tests offline and
-       off the paid quota; a test that genuinely needs a token still sets its own
-       (its ``monkeypatch`` runs after this autouse setup, so it wins).
-    2. ``SinaIndustryAdapter._circuit_breakers`` is *class-level* state. A failing
-       Tushare call in one test trips the ``tushare_dc_index`` breaker OPEN, and
-       because it persists across tests for the ~60s recovery window, a later
-       test exercising the Tushare leader fallback got short-circuited to an empty
-       result. Reset the registry around every test so trips never leak.
+       ``TushareProvider`` issued live, latency-variable calls against the paid
+       endpoint. Blanking both token vars keeps unit tests offline and off the
+       paid quota; a test that needs a token still sets its own (its
+       ``monkeypatch`` runs after this autouse setup, so it wins).
+    2. The data-provider classes carry ~30 class-level caches (catalogs, symbol
+       maps, valuation snapshots, circuit breakers …) that persist across tests.
+       Snapshot them on setup and restore on teardown so a cache written — or a
+       breaker tripped — by one test never changes another's outcome. Replaces
+       the per-test hand-rolled save/restore boilerplate scattered through the
+       provider test files.
     """
 
     monkeypatch.setenv("TUSHARE_TOKEN", "")
     monkeypatch.setenv("TS_TOKEN", "")
 
-    try:
-        from src.data.providers.sina_ths_adapter import SinaIndustryAdapter
-    except ImportError:
-        yield
-        return
+    snapshots: list[tuple[type, str, object]] = []
+    for cls, attrs in _resolve_provider_cache_targets():
+        for attr in attrs:
+            if not hasattr(cls, attr):
+                continue
+            try:
+                saved = copy.copy(getattr(cls, attr))
+            except Exception:
+                saved = getattr(cls, attr)
+            snapshots.append((cls, attr, saved))
 
-    saved_breakers = SinaIndustryAdapter._circuit_breakers
-    SinaIndustryAdapter._circuit_breakers = {}
     try:
         yield
     finally:
-        SinaIndustryAdapter._circuit_breakers = saved_breakers
+        for cls, attr, saved in snapshots:
+            setattr(cls, attr, saved)
 
 
 @pytest.fixture
