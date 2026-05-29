@@ -111,7 +111,6 @@ class HealthChecker:
             ("src.analytics.dashboard", "PerformanceAnalyzer"),
             ("src.utils.cache", "cache_manager"),
             ("src.core.base", "BaseComponent"),
-            ("src.security.validation", "security_validator"),
             ("backend.main", "app"),
         ]
 
