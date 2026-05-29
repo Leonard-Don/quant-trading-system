@@ -165,7 +165,9 @@ const useIndustryRanking = ({
                 return;
             }
             if (clustersAbortRef.current !== currentAbort) return;
-            console.error('Failed to load clusters:', err);
+            if (!silent) {
+                console.error('Failed to load clusters:', err);
+            }
             setClusterError(err.userMessage || '加载聚类分析失败');
             if (!silent) {
                 message.error('加载聚类分析失败');

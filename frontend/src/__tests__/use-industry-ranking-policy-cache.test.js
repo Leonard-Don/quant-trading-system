@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 
 import useIndustryRanking from '../components/industry/useIndustryRanking';
 import { getHotIndustries, getIndustryClusters } from '../services/api';
@@ -94,5 +94,30 @@ describe('useIndustryRanking policy_signal cache identity', () => {
 
         await waitFor(() => expect(result.current.hotIndustries).toEqual(bootstrapRows));
         expect(getHotIndustries).not.toHaveBeenCalled();
+    });
+
+    test('keeps silent cluster prefetch failures out of the console', async () => {
+        getHotIndustries.mockResolvedValue([]);
+        getIndustryClusters.mockRejectedValue(new Error('prefetch network race'));
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const message = { error: vi.fn() };
+
+        try {
+            const { result } = renderHook(() => useIndustryRanking(baseProps({
+                activeTab: 'heatmap',
+                heatmapIndustriesLength: 0,
+                message,
+            })));
+
+            await act(async () => {
+                await result.current.loadClusters(true);
+            });
+
+            expect(consoleErrorSpy).not.toHaveBeenCalled();
+            expect(message.error).not.toHaveBeenCalled();
+            expect(result.current.clusterError).toBe('加载聚类分析失败');
+        } finally {
+            consoleErrorSpy.mockRestore();
+        }
     });
 });
