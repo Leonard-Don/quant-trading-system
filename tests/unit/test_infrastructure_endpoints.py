@@ -206,11 +206,13 @@ class TestPostAuthTokenRequiresAuth:
         )
 
     def test_anonymous_mint_allowed_when_auth_not_required(self, monkeypatch):
-        """Local dev (AUTH_REQUIRED=false) convenience mint must still work."""
-        # Stub create_access_token so we don't need a real AUTH_SECRET
+        """Local dev (AUTH_REQUIRED=false): minting an own-level researcher token still works."""
         monkeypatch.setattr(infrastructure, "create_access_token", lambda **kw: "stub_token")
         client = _build_client(monkeypatch, auth_required=False)
-        response = client.post("/infrastructure/auth/token", json=self._VALID_PAYLOAD)
+        response = client.post(
+            "/infrastructure/auth/token",
+            json={"subject": "me", "role": "researcher", "expires_in_seconds": 3600},
+        )
         assert response.status_code == 200
 
 
@@ -566,3 +568,29 @@ class TestPutRecordBlocksAuthNamespace:
             json={"record_type": "config:auth_settings", "record_key": "v1", "payload": {}},
         )
         assert response.status_code == 200
+
+
+
+class TestAuthTokenAnonymousEscalationBlocked:
+    """Anonymous (dev-mode, AUTH_REQUIRED=false) callers must not mint elevated roles."""
+
+    def test_anonymous_cannot_mint_admin_token(self, monkeypatch):
+        monkeypatch.setattr(infrastructure, "create_access_token", lambda **kw: "stub_token")
+        client = _build_client(monkeypatch, auth_required=False)
+        response = client.post(
+            "/infrastructure/auth/token",
+            json={"subject": "evil", "role": "admin", "expires_in_seconds": 3600},
+        )
+        assert response.status_code in (401, 403), (
+            f"Expected 401/403, got {response.status_code}. Anonymous callers must not "
+            "mint an admin token even when AUTH_REQUIRED=false."
+        )
+
+    def test_anonymous_cannot_mint_service_token(self, monkeypatch):
+        monkeypatch.setattr(infrastructure, "create_access_token", lambda **kw: "stub_token")
+        client = _build_client(monkeypatch, auth_required=False)
+        response = client.post(
+            "/infrastructure/auth/token",
+            json={"subject": "evil", "role": "service", "expires_in_seconds": 3600},
+        )
+        assert response.status_code in (401, 403)

@@ -258,12 +258,14 @@ async def get_infrastructure_status(user: dict[str, Any] = Depends(get_current_u
 
 @router.post("/auth/token", summary="签发本地研究令牌")
 async def create_auth_token(request: TokenRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
-    # Privilege-escalation guard: a bearer-authenticated non-admin must not mint a
-    # token more privileged than itself. Anonymous dev-mode minting
-    # (auth_method="optional" when AUTH_REQUIRED=false) stays unrestricted by design.
+    # Privilege-escalation guard: only an admin may mint an elevated-role token.
+    # This must apply to EVERY non-admin caller regardless of how they
+    # authenticated — including the anonymous path (auth_method="optional",
+    # role="researcher") that is the default when AUTH_REQUIRED is off. Gating on
+    # auth_method=="bearer" left that default anonymous path able to mint admin.
+    # Minting a non-elevated (researcher) token stays open for local research.
     if (
-        user.get("auth_method") == "bearer"
-        and str(user.get("role") or "").strip().lower() != "admin"
+        str(user.get("role") or "").strip().lower() != "admin"
         and str(request.role or "").strip().lower() in _ELEVATED_ROLES
     ):
         raise HTTPException(status_code=403, detail="Only an admin may mint an elevated-role token.")
