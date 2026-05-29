@@ -495,10 +495,19 @@ async def get_market_mood(trade_date: Optional[str] = None, include_bj: bool = T
         )
         return {"success": True, "data": _build_market_mood_payload(raw)}
     except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail=f"Tushare market mood unavailable: {type(exc).__name__}",
-        ) from exc
+        fallback = {
+            "trade_date": trade_date or datetime.now().strftime("%Y%m%d"),
+            "include_bj": include_bj,
+            "stock_count": 0,
+            "rise_count": 0,
+            "fall_count": 0,
+            "flat_count": 0,
+            "source": "tushare",
+            "mode": "eod_snapshot_unavailable",
+            "unavailable": True,
+            "error": f"Tushare market mood unavailable: {type(exc).__name__}",
+        }
+        return {"success": True, "data": _build_market_mood_payload(fallback)}
 
 
 @router.get("/metadata", summary="获取实时标的元数据")

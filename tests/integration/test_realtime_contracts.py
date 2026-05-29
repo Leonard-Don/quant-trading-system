@@ -151,6 +151,27 @@ def test_realtime_market_mood_endpoint_returns_tushare_eod_snapshot(client):
     assert "上涨 3300 / 下跌 1600 / 平 200" in payload["data"]["detail"]
 
 
+def test_realtime_market_mood_endpoint_degrades_when_tushare_unavailable(client):
+    class BrokenTushareProvider:
+        def get_market_mood(self, trade_date, include_bj=True):
+            raise RuntimeError("upstream unavailable")
+
+    with patch(
+        "backend.app.api.v1.endpoints.realtime.TushareProvider",
+        return_value=BrokenTushareProvider(),
+    ):
+        response = client.get("/realtime/market-mood?trade_date=20260528")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["data"]["label"] == "待观察"
+    assert payload["data"]["mode"] == "eod_snapshot_unavailable"
+    assert payload["data"]["unavailable"] is True
+    assert payload["data"]["stock_count"] == 0
+    assert payload["data"]["as_of"] == "2026-05-28"
+
+
 def test_realtime_metadata_endpoint_returns_dynamic_symbol_payload(client):
     with patch.object(realtime_manager, "get_quote_dict", return_value={"symbol": "AAPL", "source": "test"}), \
          patch.object(realtime_manager.provider_factory, "get_fundamental_data", return_value={
