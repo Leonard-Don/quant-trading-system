@@ -1,4 +1,4 @@
-import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Button, Space, Tabs, Typography, Tag } from 'antd';
 import { ArrowUpOutlined, ArrowDownOutlined, BellOutlined, DollarOutlined } from '@ant-design/icons';
 import {

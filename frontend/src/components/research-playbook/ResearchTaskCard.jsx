@@ -1,4 +1,3 @@
-import React from 'react';
 import { Button, Card, Checkbox, Space, Tag, Typography } from 'antd';
 
 import { STATUS_LABELS } from './playbookViewModels';

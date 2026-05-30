@@ -1,4 +1,3 @@
-import React from 'react';
 import { Button, Card, Col, Input, InputNumber, Row, Select } from 'antd';
 
 function ResearchToolsPanel({

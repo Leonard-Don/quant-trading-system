@@ -3,8 +3,7 @@
  * entries inside TodayResearchDashboard (Feature G).
  */
 
-import React from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 if (typeof window.matchMedia !== 'function') {

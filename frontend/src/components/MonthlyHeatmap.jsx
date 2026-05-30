@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { Tooltip } from 'antd';
 import dayjs from '../utils/dayjs';
 

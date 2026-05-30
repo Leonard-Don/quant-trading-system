@@ -8,6 +8,7 @@ import js from '@eslint/js';
 import globals from 'globals';
 import reactPlugin from 'eslint-plugin-react';
 import reactHooks from 'eslint-plugin-react-hooks';
+import unusedImports from 'eslint-plugin-unused-imports';
 
 export default [
   { ignores: ['build/**', 'coverage/**', 'node_modules/**'] },
@@ -21,7 +22,7 @@ export default [
       globals: { ...globals.browser, ...globals.es2021, process: 'readonly' },
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
-    plugins: { react: reactPlugin, 'react-hooks': reactHooks },
+    plugins: { react: reactPlugin, 'react-hooks': reactHooks, 'unused-imports': unusedImports },
     settings: { react: { version: 'detect' } },
     rules: {
       // Real bugs — hard errors.
@@ -36,7 +37,19 @@ export default [
       'react/react-in-jsx-scope': 'off',
       // Pre-existing debt — surfaced as warnings to burn down, not a hard gate
       // (mirrors the Python ruff-baseline stance). Tighten to 'error' once clean.
-      'no-unused-vars': 'warn',
+      // unused-imports auto-removes dead imports on --fix and its var check
+      // tolerates the conventional `_`-prefixed throwaways + unused caught errors.
+      'no-unused-vars': 'off',
+      'unused-imports/no-unused-imports': 'warn',
+      'unused-imports/no-unused-vars': ['warn', {
+        vars: 'all',
+        varsIgnorePattern: '^_',
+        args: 'after-used',
+        argsIgnorePattern: '^_',
+        // Catching an error purely to drive a fallback UI (without inspecting it)
+        // is a pervasive, legitimate pattern here; don't flag those.
+        caughtErrors: 'none',
+      }],
       'no-empty': 'warn',
       'no-irregular-whitespace': 'warn',
       'no-unsafe-finally': 'warn',

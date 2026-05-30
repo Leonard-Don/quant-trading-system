@@ -8,7 +8,6 @@
  * subpanels.
  */
 
-import React from 'react';
 import { Slider, Tag, Typography } from 'antd';
 import { BgColorsOutlined, BarChartOutlined } from '@ant-design/icons';
 

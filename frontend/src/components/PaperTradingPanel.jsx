@@ -7,7 +7,7 @@
  * polling (backend doesn't push prices in v0).
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     App as AntdApp,
     Button,

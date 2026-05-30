@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import {
   Card,
   Tag,

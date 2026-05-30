@@ -1,4 +1,3 @@
-import React from 'react';
 import { Card, Table, Empty, Button, Radio, Select, Tooltip, Tag } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import { activateOnEnterOrSpace } from './industryShared';

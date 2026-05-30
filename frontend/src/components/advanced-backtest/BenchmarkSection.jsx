@@ -1,4 +1,3 @@
-import React from 'react';
 import { Alert, Card, Empty, Space, Table } from 'antd';
 import {
   Bar,

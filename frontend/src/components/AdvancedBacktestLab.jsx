@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Col, Row, Segmented, Space, Tag } from 'antd';
 
 import useAdvancedBacktestLab from '../hooks/useAdvancedBacktestLab';

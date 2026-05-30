@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, Tag, Space, Radio, Select, Checkbox, Button, Row, Col, Empty, InputNumber } from 'antd';
 import { NotificationOutlined, StarFilled, BranchesOutlined } from '@ant-design/icons';
 import { normalizeIndustryAlertThresholds } from './industryShared';

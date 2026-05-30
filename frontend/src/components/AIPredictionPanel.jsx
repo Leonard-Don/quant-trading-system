@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, Spin, Alert, Typography, Row, Col, Statistic, Tag, Button, Tooltip as AntTooltip, message, Space } from 'antd';
 import { RobotOutlined, ArrowUpOutlined, ArrowDownOutlined, ExperimentOutlined, ReloadOutlined } from '@ant-design/icons';
 import { ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';

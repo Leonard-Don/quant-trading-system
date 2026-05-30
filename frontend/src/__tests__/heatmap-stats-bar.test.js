@@ -1,5 +1,4 @@
-import React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 if (typeof window.matchMedia !== 'function') {

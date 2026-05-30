@@ -1,4 +1,3 @@
-import React from 'react';
 import { Alert, Card, Col, Row, Statistic, Table, Tag, Typography } from 'antd';
 
 const { Text } = Typography;

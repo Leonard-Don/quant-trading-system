@@ -13,7 +13,6 @@
  * `tests/unit/test_industry_rotation_endpoint_exceptions.py`.
  */
 
-import React from 'react';
 import { render, screen, within } from '@testing-library/react';
 import { Table } from 'antd';
 import '@testing-library/jest-dom';

@@ -1,4 +1,3 @@
-import React from 'react';
 import { Alert, Card, Col, Empty, Row, Space, Table, Tag } from 'antd';
 import {
   CartesianGrid,

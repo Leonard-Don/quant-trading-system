@@ -1,4 +1,4 @@
-import React, { memo, useMemo } from 'react';
+import { memo, useMemo } from 'react';
 
 const DEFAULT_WIDTH = 88;
 const DEFAULT_HEIGHT = 28;

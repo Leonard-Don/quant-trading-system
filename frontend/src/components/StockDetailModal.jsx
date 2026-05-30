@@ -1,4 +1,3 @@
-import React from 'react';
 import { Alert, Modal, Spin, Empty, Tag, Row, Col, Progress, Button, Tooltip } from 'antd';
 import { ReloadOutlined, StarFilled } from '@ant-design/icons';
 import {

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, Button, Space, Radio, Select, Tag, Row, Col } from 'antd';
 import { StarFilled } from '@ant-design/icons';
 

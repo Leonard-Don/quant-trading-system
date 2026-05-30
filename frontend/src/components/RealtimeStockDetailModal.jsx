@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Row, Col, Tag, Empty, Typography, Button } from 'antd';
 import {
     ClockCircleOutlined,
@@ -529,7 +529,7 @@ const sanitizeCompareSymbols = (symbols = [], availableTargets = [], displaySymb
     }).slice(0, 3);
 };
 
-// eslint-disable-next-line no-unused-vars
+ 
 const getFollowThroughSummary = (event = {}, quote = null) => {
     const currentPrice = quote?.price === null || quote?.price === undefined || Number.isNaN(Number(quote?.price))
         ? null

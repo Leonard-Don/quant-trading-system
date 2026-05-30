@@ -1,4 +1,4 @@
-import React, { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert, Badge, Button, Card, Col, Collapse, Empty, message, Row, Space, Spin, Statistic, Switch, Table, Tag, Timeline, Tooltip, Typography,
 } from 'antd';
@@ -448,11 +448,11 @@ const EtfRotationDashboard = () => {
           return true;
         } catch (innerErr) {
           // fall through to legacy endpoint
-          // eslint-disable-next-line no-console
+           
           console.warn('live-target bootstrap failed, falling back to daily-signal', innerErr);
         }
       } else {
-        // eslint-disable-next-line no-console
+         
         console.warn('live-target unavailable, falling back to daily-signal', err);
       }
       return false;
@@ -493,7 +493,7 @@ const EtfRotationDashboard = () => {
         const latest = await getEtfRotationLiveTarget({ triggerRefresh: false });
         applyResponse(latest, 'live-target');
       } catch (innerErr) {
-        // eslint-disable-next-line no-console
+         
         console.warn('reload-config post-fetch failed', innerErr);
       }
       return response;
@@ -537,7 +537,7 @@ const EtfRotationDashboard = () => {
       setPolicySignal(response?.data || null);
     } catch (err) {
       // Degrade silently: policy radar is informational only, never fail loud.
-      // eslint-disable-next-line no-console
+       
       console.warn('policy-radar signal fetch failed', err);
       setPolicySignal(null);
     } finally {
@@ -563,7 +563,7 @@ const EtfRotationDashboard = () => {
         applyResponse(refreshed, 'live-target');
         setEndpoint('live-target');
       } catch (innerErr) {
-        // eslint-disable-next-line no-console
+         
         console.warn('live-target re-fetch after toggle failed; falling back', innerErr);
         const fallback = await getEtfRotationDailySignal({ quote_source: 'live', use_cache: false });
         applyResponse(fallback, 'daily-signal');
@@ -596,11 +596,11 @@ const EtfRotationDashboard = () => {
         // confirms the endpoint is reachable.
         const effective = response?.data?.effective?.policy_signal_factor_enabled;
         if (typeof effective !== 'boolean') {
-          // eslint-disable-next-line no-console
+           
           console.warn('preferences endpoint returned unexpected shape', response);
         }
       } catch (err) {
-        // eslint-disable-next-line no-console
+         
         console.warn('preferences pre-warm failed', err);
       }
     })();
@@ -630,7 +630,7 @@ const EtfRotationDashboard = () => {
     if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     pollTimerRef.current = setInterval(() => {
       fetchLiveTarget({ trigger: false }).catch((err) => {
-        // eslint-disable-next-line no-console
+         
         console.warn('live-target poll failed', err);
       });
     }, POLL_INTERVAL_MS);

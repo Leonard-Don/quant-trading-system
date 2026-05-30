@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, Tag, Button, Space } from 'antd';
 import { StarFilled, BranchesOutlined } from '@ant-design/icons';
 import { activateOnEnterOrSpace } from './industryShared';

@@ -1,4 +1,4 @@
-import React, { Suspense, useMemo } from 'react';
+import { Suspense, useMemo } from 'react';
 import { Card, Spin, Space, Tabs, Tag, Typography } from 'antd';
 import { BarChartOutlined, HistoryOutlined, ExperimentOutlined, PieChartOutlined, GlobalOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import StrategyForm from './StrategyForm';

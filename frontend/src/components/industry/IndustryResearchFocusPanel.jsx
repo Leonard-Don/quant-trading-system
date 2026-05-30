@@ -1,4 +1,3 @@
-import React from 'react';
 import { Card, Tag, Button, Space, Row, Col, Progress } from 'antd';
 import { BranchesOutlined, StarFilled } from '@ant-design/icons';
 

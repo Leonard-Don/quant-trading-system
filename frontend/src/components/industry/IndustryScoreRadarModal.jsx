@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { Modal, Row, Col, Statistic, Tag, Empty } from 'antd';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { clampNumeric, formatIndustryAlertMoneyFlow, getIndustryScoreTone } from './industryShared';

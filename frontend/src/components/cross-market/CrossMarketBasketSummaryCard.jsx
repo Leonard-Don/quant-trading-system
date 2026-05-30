@@ -1,4 +1,3 @@
-import React from 'react';
 import { Card, Col, Row, Tag, Typography } from 'antd';
 
 const { Text } = Typography;

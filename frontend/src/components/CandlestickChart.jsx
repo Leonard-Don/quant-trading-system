@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Card, Space, Button, Spin, Popover, Checkbox, Divider, Radio } from 'antd';
 import { ReloadOutlined, RiseOutlined, FallOutlined, LineChartOutlined, SettingOutlined } from '@ant-design/icons';
 import { createChart, ColorType, CrosshairMode, CandlestickSeries, HistogramSeries, LineSeries } from 'lightweight-charts';

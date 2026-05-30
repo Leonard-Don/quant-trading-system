@@ -1,4 +1,3 @@
-import React from 'react';
 import { Card, Tag, Space, Tooltip } from 'antd';
 import { RiseOutlined, FundOutlined, StarFilled, ClockCircleOutlined } from '@ant-design/icons';
 

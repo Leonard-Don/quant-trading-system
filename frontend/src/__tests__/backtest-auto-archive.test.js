@@ -7,8 +7,7 @@
  * 3. A failure on the journal write does NOT propagate (best-effort)
  */
 
-import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { render, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom';
 
 import App from '../App';

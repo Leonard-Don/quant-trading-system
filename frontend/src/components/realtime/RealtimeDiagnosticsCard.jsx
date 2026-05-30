@@ -1,4 +1,3 @@
-import React from 'react';
 import { Card, Button, Space, Typography } from 'antd';
 import { DownOutlined, RightOutlined } from '@ant-design/icons';
 

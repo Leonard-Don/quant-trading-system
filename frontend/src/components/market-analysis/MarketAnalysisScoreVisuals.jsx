@@ -5,7 +5,6 @@
  * dependencies on the host component.
  */
 
-import React from 'react';
 import { Progress, Tag } from 'antd';
 import {
     PolarAngleAxis,

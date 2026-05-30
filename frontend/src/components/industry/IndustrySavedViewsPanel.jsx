@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, Button, Empty, Input, Space, Tag } from 'antd';
 import { SaveOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import { buildSavedIndustryViewLabel } from './industryShared';

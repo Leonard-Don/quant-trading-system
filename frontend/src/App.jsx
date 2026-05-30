@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { App as AntdApp, Layout, Typography, Menu, Space, Button, Tooltip, Spin, Grid } from 'antd';
 import {
   DashboardOutlined,

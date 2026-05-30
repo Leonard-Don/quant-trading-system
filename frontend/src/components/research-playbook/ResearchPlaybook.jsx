@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button, Card, Col, Empty, Row, Space, Typography } from 'antd';
 
 import ResearchSummaryBanner from './ResearchSummaryBanner';

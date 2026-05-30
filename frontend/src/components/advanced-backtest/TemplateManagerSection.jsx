@@ -1,4 +1,3 @@
-import React from 'react';
 import { Alert, Button, Card, Col, Input, Row, Select, Space, Table, Tag } from 'antd';
 
 import { ADVANCED_TEMPLATE_CATEGORY_LABELS } from '../../utils/advancedExperimentTemplates';

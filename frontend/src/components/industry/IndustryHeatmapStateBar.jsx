@@ -1,4 +1,3 @@
-import React from 'react';
 import { Button, Tag } from 'antd';
 import { activateOnEnterOrSpace } from './industryShared';
 

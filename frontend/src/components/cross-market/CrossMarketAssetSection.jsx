@@ -7,7 +7,6 @@
  * panel owns the assets state and the asset_class option list.
  */
 
-import React from 'react';
 import { Button, Card, Col, Input, InputNumber, Row, Select, Space } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 
