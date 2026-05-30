@@ -1296,6 +1296,7 @@ const IndustryHeatmap = ({
         loadData,
         onLegendRangeChange,
         policyOverlayMap,
+        policyColorMode,
     ]);
 
     // 计算资金流入 TOP3（用于图例横幅，来自内存数据无需新 API）

@@ -1330,7 +1330,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 </Col>
             </Row>
         );
-    }, [loadingTab.volume, errorTab.volume, volumeData]);
+    }, [loadingTab.volume, errorTab.volume, volumeData, symbol]);
 
     // 4. Sentiment Content
     const sentimentContent = useMemo(() => {
@@ -1835,7 +1835,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                 </Col>
             </Row>
         );
-    }, [loadingTab.fundamental, errorTab.fundamental, fundamentalData]);
+    }, [loadingTab.fundamental, errorTab.fundamental, fundamentalData, symbol]);
 
     // 7. Industry Comparison Content
     const industryContent = useMemo(() => {
