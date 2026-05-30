@@ -5606,3 +5606,14 @@ a {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ===== 17. ETF轮动 顶部窄状态块：响应式两列网格 ===== */
+/* 市场状态 / 政策信号因子 / 数据源健康度 / 溢价监控 在宽屏并排两列，
+   窄屏自动回落单列，缩短页面纵向高度。纯布局，不改任何块内逻辑。 */
+.etf-rotation-dashboard .etf-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  align-items: start;
+  width: 100%;
+}

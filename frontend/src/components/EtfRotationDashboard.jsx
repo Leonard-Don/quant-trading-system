@@ -907,6 +907,7 @@ const EtfRotationDashboard = () => {
               description={`本页使用实时行情刷新当前持仓市值和权重；只展示目标权重和手动买卖建议，不连接券商、不自动下单。${liveStatus.error ? ` 行情错误：${liveStatus.error}` : ''}`}
               data-testid="etf-manual-only-banner"
             />
+            <div className="etf-status-grid">
             {regime ? (
               <Space direction="vertical" size={4} style={{ width: '100%' }} data-testid="etf-regime-row">
                 <Text type="secondary">市场状态（行情环境探测，影响仓位风控 + 评分权重）</Text>
@@ -1137,6 +1138,7 @@ const EtfRotationDashboard = () => {
                 </Space>
               </Space>
             ) : null}
+            </div>
           </Space>
         </Card>
 
