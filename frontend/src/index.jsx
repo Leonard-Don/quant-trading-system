@@ -9,7 +9,9 @@ const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(
   <React.StrictMode>
     <ThemeProvider>
-      <AntdApp>
+      {/* Drop toasts below the ~64px fixed header so they stop covering the page
+          title, and cap stacking so repeated failures don't pile up. */}
+      <AntdApp message={{ top: 72, maxCount: 3 }}>
         <App />
       </AntdApp>
     </ThemeProvider>
