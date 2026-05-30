@@ -2762,12 +2762,12 @@ a {
 }
 
 .backtest-data-health-panel {
-  padding: 16px 18px;
+  padding: 12px 16px;
 }
 
 .backtest-data-health-panel .workspace-section__header {
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .backtest-data-health-panel .workspace-section__description {
@@ -2783,15 +2783,15 @@ a {
 }
 
 .backtest-data-health-panel__summary .summary-strip__item {
-  padding: 11px 14px;
-  border-radius: 14px;
+  padding: 8px 12px;
+  border-radius: 12px;
 }
 
 .backtest-data-health-panel__sources {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 7px;
 }
 
 .backtest-data-health-panel__source-tag.ant-tag {
@@ -2800,8 +2800,8 @@ a {
 }
 
 .backtest-data-health-panel__alert.ant-alert {
-  margin-top: 10px;
-  padding: 10px 14px;
+  margin-top: 7px;
+  padding: 9px 14px;
   align-items: center;
 }
 
@@ -2818,8 +2818,8 @@ a {
 .backtest-data-health-panel__readiness {
   display: grid;
   gap: 6px;
-  margin-top: 10px;
-  padding: 10px 12px;
+  margin-top: 7px;
+  padding: 9px 12px;
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 8px;
   background: rgba(15, 23, 42, 0.62);
