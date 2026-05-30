@@ -370,7 +370,7 @@ code {
 }
 
 .industry-page-shell .app-page-hero {
-  padding: 16px 18px;
+  padding: 12px 16px;
   border-radius: 8px;
 }
 
@@ -443,7 +443,7 @@ code {
   grid-template-columns: minmax(0, 1.35fr) minmax(300px, 0.95fr);
   gap: 12px;
   align-items: stretch;
-  margin-top: 10px;
+  margin-top: 6px;
 }
 
 .industry-hero-metrics {
@@ -453,12 +453,12 @@ code {
 }
 
 .industry-hero-metrics .app-page-metric-card {
-  min-height: 54px;
+  min-height: 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
+  padding: 6px 11px;
   border-radius: 8px;
 }
 
