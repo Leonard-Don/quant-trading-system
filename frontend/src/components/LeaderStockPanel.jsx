@@ -710,8 +710,11 @@ const LeaderStockPanel = ({
             setDetailData(null);
             setDetailError(err.userMessage || '当前股票详情暂不可用');
         } finally {
-            if (detailRequestIdRef.current !== requestId) return;
-            setDetailLoading(false);
+            // No `return` in finally: it would swallow an in-flight exception.
+            // Same effect — only clear loading when this is still the live request.
+            if (detailRequestIdRef.current === requestId) {
+                setDetailLoading(false);
+            }
         }
     }, [message]);
 
