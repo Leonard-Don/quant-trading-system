@@ -238,6 +238,11 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Lint frontend
+        # Fails on error-level findings (e.g. react-hooks/rules-of-hooks, no-undef).
+        # The ~200 pre-existing warnings are surfaced but non-blocking by design.
+        run: npm run lint
+
       - name: Run frontend regression suite
         run: |
           CI=1 npm test -- --reporter=basic --pool=forks --poolOptions.forks.singleFork=true src/__tests__
