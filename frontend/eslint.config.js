@@ -35,12 +35,12 @@ export default [
       'react/jsx-uses-vars': 'error',
       'react/jsx-uses-react': 'off',
       'react/react-in-jsx-scope': 'off',
-      // Pre-existing debt — surfaced as warnings to burn down, not a hard gate
-      // (mirrors the Python ruff-baseline stance). Tighten to 'error' once clean.
-      // unused-imports auto-removes dead imports on --fix and its var check
-      // tolerates the conventional `_`-prefixed throwaways + unused caught errors.
+      // The tree is clean (0 warnings), so dead imports are now an enforced gate:
+      // they auto-fix via `--fix`, so there is no reason to merge them. The var
+      // check stays a warning (WIP-tolerant) and tolerates `_`-prefixed throwaways
+      // + unused caught errors.
       'no-unused-vars': 'off',
-      'unused-imports/no-unused-imports': 'warn',
+      'unused-imports/no-unused-imports': 'error',
       'unused-imports/no-unused-vars': ['warn', {
         vars: 'all',
         varsIgnorePattern: '^_',
@@ -55,7 +55,8 @@ export default [
       // (U+3000) spaces are legitimate CJK typography inside JSX text.
       'no-empty': ['warn', { allowEmptyCatch: true }],
       'no-irregular-whitespace': ['warn', { skipJSXText: true }],
-      'no-unsafe-finally': 'warn',
+      // A return/throw in finally swallows in-flight exceptions — a real bug class.
+      'no-unsafe-finally': 'error',
     },
   },
   {
