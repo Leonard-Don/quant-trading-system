@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import hmac
 import json
+import os
+import time
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -235,11 +238,73 @@ def _diff_payloads(left: Any, right: Any, path: str = "") -> list[dict[str, Any]
 # Roles a non-admin caller must never be able to self-mint into.
 _ELEVATED_ROLES = {"admin", "service"}
 
+# Loopback peers trusted to bootstrap the first admin without a credential — i.e.
+# a developer working on the box itself.
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1"}
 
-def _require_admin_or_bootstrap(user: dict[str, Any]) -> None:
+
+def _request_is_loopback(request: Request) -> bool:
+    """True when the request's TCP peer is the local host (loopback)."""
+    client = request.client
+    return client is not None and client.host in _LOOPBACK_HOSTS
+
+
+def _request_has_bootstrap_credential(request: Request) -> bool:
+    """True when the request carries the bootstrap credential via X-API-Key.
+
+    Either BOOTSTRAP_API_KEY or API_KEY is accepted, compared in constant time.
+    """
+    provided = request.headers.get("x-api-key") or ""
+    if not provided:
+        return False
+    for env_name in ("BOOTSTRAP_API_KEY", "API_KEY"):
+        configured = os.getenv(env_name)
+        if configured and hmac.compare_digest(configured, provided):
+            return True
+    return False
+
+
+def _bootstrap_deadline_passed() -> bool:
+    """True when BOOTSTRAP_DEADLINE_EPOCH is set and already elapsed.
+
+    An unset or unparseable value leaves the window open — the loopback/credential
+    gate below is the primary control; the deadline is an optional extra cutoff.
+    """
+    raw = str(os.getenv("BOOTSTRAP_DEADLINE_EPOCH", "")).strip()
+    if not raw:
+        return False
+    try:
+        deadline = float(raw)
+    except ValueError:
+        return False
+    return time.time() > deadline
+
+
+def _bootstrap_bypass_allowed(request: Request) -> bool:
+    """Whether the open-bootstrap admin bypass may be used for this request.
+
+    The bypass lets a developer create the first admin before any admin exists. To
+    stop a remote anonymous caller from seizing that first admin if the backend is
+    exposed before setup, require proof of local control — a loopback peer or the
+    bootstrap credential — and refuse once the optional deadline has passed.
+    """
+    if _bootstrap_deadline_passed():
+        return False
+    return _request_is_loopback(request) or _request_has_bootstrap_credential(request)
+
+
+def _require_admin_or_bootstrap(user: dict[str, Any], request: Request) -> None:
     current_auth = auth_status()
     if current_auth.get("bootstrap_required"):
-        return
+        if _bootstrap_bypass_allowed(request):
+            return
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "First-admin bootstrap is restricted to a loopback peer or a request "
+                "carrying the bootstrap credential (X-API-Key)."
+            ),
+        )
     if str(user.get("role") or "") != "admin":
         raise HTTPException(status_code=403, detail="Admin role required")
 
@@ -344,8 +409,12 @@ async def get_oauth_providers():
 
 
 @router.post("/auth/oauth/providers", summary="创建或更新 OAuth Provider")
-async def save_oauth_provider(request: OAuthProviderRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
-    _require_admin_or_bootstrap(user)
+async def save_oauth_provider(
+    request: OAuthProviderRequest,
+    http_request: Request,
+    user: dict[str, Any] = Depends(get_current_user_optional),
+):
+    _require_admin_or_bootstrap(user, http_request)
     try:
         provider = upsert_oauth_provider(
             provider_id=request.provider_id,
@@ -380,8 +449,11 @@ async def save_oauth_provider(request: OAuthProviderRequest, user: dict[str, Any
 
 
 @router.post("/auth/oauth/providers/sync-env", summary="从环境变量同步 OAuth Provider")
-async def sync_oauth_providers_from_env(user: dict[str, Any] = Depends(get_current_user_optional)):
-    _require_admin_or_bootstrap(user)
+async def sync_oauth_providers_from_env(
+    http_request: Request,
+    user: dict[str, Any] = Depends(get_current_user_optional),
+):
+    _require_admin_or_bootstrap(user, http_request)
     providers = sync_env_oauth_providers(updated_by=user.get("sub") or "env_sync")
     return {
         "synced_count": len(providers),
@@ -512,8 +584,12 @@ async def oauth_provider_callback(
 
 
 @router.post("/auth/sessions/{session_id}/revoke", summary="撤销 refresh session")
-async def revoke_auth_session(session_id: str, user: dict[str, Any] = Depends(get_current_user_optional)):
-    _require_admin_or_bootstrap(user)
+async def revoke_auth_session(
+    session_id: str,
+    http_request: Request,
+    user: dict[str, Any] = Depends(get_current_user_optional),
+):
+    _require_admin_or_bootstrap(user, http_request)
     session = revoke_refresh_session(session_id, revoked_by=user.get("sub") or "system")
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -524,8 +600,12 @@ async def revoke_auth_session(session_id: str, user: dict[str, Any] = Depends(ge
 
 
 @router.post("/auth/users", summary="创建或更新本地用户")
-async def save_auth_user(request: AuthUserRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
-    _require_admin_or_bootstrap(user)
+async def save_auth_user(
+    request: AuthUserRequest,
+    http_request: Request,
+    user: dict[str, Any] = Depends(get_current_user_optional),
+):
+    _require_admin_or_bootstrap(user, http_request)
     try:
         saved = upsert_local_user(
             subject=request.subject,
@@ -547,8 +627,12 @@ async def save_auth_user(request: AuthUserRequest, user: dict[str, Any] = Depend
 
 
 @router.post("/auth/policy", summary="更新认证策略")
-async def save_auth_policy(request: AuthPolicyRequest, user: dict[str, Any] = Depends(get_current_user_optional)):
-    _require_admin_or_bootstrap(user)
+async def save_auth_policy(
+    request: AuthPolicyRequest,
+    http_request: Request,
+    user: dict[str, Any] = Depends(get_current_user_optional),
+):
+    _require_admin_or_bootstrap(user, http_request)
     current_auth = auth_status()
     if request.required and current_auth.get("enabled_users", 0) <= 0:
         raise HTTPException(status_code=400, detail="Enable at least one local user before requiring authentication")
@@ -669,9 +753,10 @@ async def get_persistence_diagnostics(user: dict[str, Any] = Depends(get_current
 @router.post("/persistence/bootstrap", summary="初始化 PostgreSQL / TimescaleDB 持久化结构")
 async def bootstrap_persistence(
     request: PersistenceBootstrapRequest,
+    http_request: Request,
     user: dict[str, Any] = Depends(get_current_user_optional),
 ):
-    _require_admin_or_bootstrap(user)
+    _require_admin_or_bootstrap(user, http_request)
     try:
         result = persistence_manager.bootstrap_postgres(enable_timescale_schema=request.enable_timescale_schema)
     except RuntimeError as exc:
@@ -690,9 +775,10 @@ async def preview_persistence_migration(sqlite_path: Optional[str] = Query(defau
 @router.post("/persistence/migration/run", summary="执行 SQLite fallback -> PostgreSQL 迁移")
 async def run_persistence_migration(
     request: PersistenceMigrationRequest,
+    http_request: Request,
     user: dict[str, Any] = Depends(get_current_user_optional),
 ):
-    _require_admin_or_bootstrap(user)
+    _require_admin_or_bootstrap(user, http_request)
     if not request.include_records and not request.include_timeseries:
         raise HTTPException(status_code=400, detail="At least one of include_records or include_timeseries must be true")
     result = persistence_manager.migrate_sqlite_fallback_to_postgres(

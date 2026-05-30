@@ -594,3 +594,158 @@ class TestAuthTokenAnonymousEscalationBlocked:
             json={"subject": "evil", "role": "service", "expires_in_seconds": 3600},
         )
         assert response.status_code in (401, 403)
+
+
+# ===========================================================================
+# 10. Open bootstrap window — the first-admin bypass must require proof of
+#     local control.
+#
+# _require_admin_or_bootstrap lets ANY caller through an admin-gated endpoint
+# while no enabled admin exists yet (bootstrap_required=true). If the backend is
+# exposed beyond localhost before first-admin setup, a remote anonymous caller
+# could seize the first admin. The bypass must instead require proof of local
+# control — a loopback peer or the bootstrap credential — and honour the optional
+# BOOTSTRAP_DEADLINE_EPOCH cutoff. POST /auth/users is the representative endpoint
+# (it is literally how the first admin is created).
+# ===========================================================================
+
+# TEST-NET-3 documentation address (RFC 5737) — guaranteed not to be loopback.
+_REMOTE_HOST = "203.0.113.7"
+
+_FIRST_ADMIN_PAYLOAD: dict[str, Any] = {
+    "subject": "root",
+    "password": "hunter2hunter2",
+    "role": "admin",
+    "enabled": True,
+}
+
+
+def _build_bootstrap_client(monkeypatch, *, client_host: str = _REMOTE_HOST) -> TestClient:
+    """Client for the OPEN bootstrap window (no enabled admin exists yet).
+
+    AUTH_REQUIRED=false mirrors the local-research default — the posture in which
+    the bootstrap bypass is reachable by an anonymous caller. ``client_host`` sets
+    the simulated TCP peer so we can distinguish loopback from remote callers, and
+    the bootstrap env vars start cleared so each test sets only what it needs.
+    """
+    monkeypatch.setenv("AUTH_REQUIRED", "false")
+    for var in ("BOOTSTRAP_API_KEY", "API_KEY", "BOOTSTRAP_DEADLINE_EPOCH"):
+        monkeypatch.delenv(var, raising=False)
+    _stub_persistence(monkeypatch)
+
+    # Bootstrap window OPEN: no enabled admin exists yet.
+    monkeypatch.setattr(infrastructure, "list_local_users", list)
+    monkeypatch.setattr(infrastructure, "list_refresh_sessions", lambda **kw: [])
+    monkeypatch.setattr(infrastructure, "get_auth_policy", lambda: {"required": False})
+    monkeypatch.setattr(infrastructure, "list_oauth_providers", list)
+    monkeypatch.setattr(
+        infrastructure,
+        "auth_status",
+        lambda: {"required": False, "bootstrap_required": True, "enabled_users": 0},
+    )
+    # save_auth_user calls upsert_local_user on the success path — stub it so a
+    # permitted request reaches a clean 200 without a real persistence backend.
+    monkeypatch.setattr(
+        infrastructure,
+        "upsert_local_user",
+        lambda **kw: {
+            "subject": kw.get("subject"),
+            "role": kw.get("role"),
+            "enabled": kw.get("enabled", True),
+        },
+    )
+    app = FastAPI()
+    app.include_router(infrastructure.router, prefix="/infrastructure")
+    return TestClient(app, raise_server_exceptions=False, client=(client_host, 50000))
+
+
+class TestBootstrapWindowRequiresLocalControl:
+    """During the open bootstrap window the first-admin bypass must be gated."""
+
+    def test_remote_anonymous_without_credential_is_rejected(self, monkeypatch):
+        """The core vulnerability: a remote anonymous caller must NOT seize the first admin."""
+        client = _build_bootstrap_client(monkeypatch, client_host=_REMOTE_HOST)
+        response = client.post("/infrastructure/auth/users", json=_FIRST_ADMIN_PAYLOAD)
+        assert response.status_code in (401, 403), (
+            f"Expected 401/403, got {response.status_code}. During the bootstrap window a "
+            "remote anonymous caller without the bootstrap credential must NOT be able to "
+            "create the first admin."
+        )
+
+    def test_remote_caller_with_bootstrap_credential_succeeds(self, monkeypatch):
+        """A remote caller presenting BOOTSTRAP_API_KEY via X-API-Key is allowed."""
+        client = _build_bootstrap_client(monkeypatch, client_host=_REMOTE_HOST)
+        monkeypatch.setenv("BOOTSTRAP_API_KEY", "bootstrap-secret-key")
+        response = client.post(
+            "/infrastructure/auth/users",
+            json=_FIRST_ADMIN_PAYLOAD,
+            headers={"X-API-Key": "bootstrap-secret-key"},
+        )
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code} ({response.text}). A caller presenting "
+            "the bootstrap credential must be allowed to create the first admin."
+        )
+
+    def test_remote_caller_with_api_key_credential_succeeds(self, monkeypatch):
+        """API_KEY is also accepted as the bootstrap credential when set."""
+        client = _build_bootstrap_client(monkeypatch, client_host=_REMOTE_HOST)
+        monkeypatch.setenv("API_KEY", "shared-api-key")
+        response = client.post(
+            "/infrastructure/auth/users",
+            json=_FIRST_ADMIN_PAYLOAD,
+            headers={"X-API-Key": "shared-api-key"},
+        )
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code} ({response.text})."
+        )
+
+    def test_remote_caller_with_wrong_credential_is_rejected(self, monkeypatch):
+        """A wrong X-API-Key must not unlock the bypass (credential is validated, not just present)."""
+        client = _build_bootstrap_client(monkeypatch, client_host=_REMOTE_HOST)
+        monkeypatch.setenv("BOOTSTRAP_API_KEY", "bootstrap-secret-key")
+        response = client.post(
+            "/infrastructure/auth/users",
+            json=_FIRST_ADMIN_PAYLOAD,
+            headers={"X-API-Key": "wrong-key"},
+        )
+        assert response.status_code in (401, 403), (
+            f"Expected 401/403, got {response.status_code}. A wrong credential must not unlock "
+            "the bootstrap bypass."
+        )
+
+    def test_loopback_caller_without_credential_succeeds(self, monkeypatch):
+        """A loopback developer must still create the first admin without friction."""
+        client = _build_bootstrap_client(monkeypatch, client_host="127.0.0.1")
+        response = client.post("/infrastructure/auth/users", json=_FIRST_ADMIN_PAYLOAD)
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code} ({response.text}). A loopback developer "
+            "must still be able to create the first admin without a credential."
+        )
+
+    def test_loopback_ipv6_caller_without_credential_succeeds(self, monkeypatch):
+        """The IPv6 loopback (::1) is also trusted."""
+        client = _build_bootstrap_client(monkeypatch, client_host="::1")
+        response = client.post("/infrastructure/auth/users", json=_FIRST_ADMIN_PAYLOAD)
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code} ({response.text})."
+        )
+
+    def test_bypass_refused_once_deadline_passed_even_on_loopback(self, monkeypatch):
+        """Once BOOTSTRAP_DEADLINE_EPOCH has passed, the bypass is closed for everyone."""
+        client = _build_bootstrap_client(monkeypatch, client_host="127.0.0.1")
+        monkeypatch.setenv("BOOTSTRAP_DEADLINE_EPOCH", "1000000000")  # 2001-09-09, long past
+        response = client.post("/infrastructure/auth/users", json=_FIRST_ADMIN_PAYLOAD)
+        assert response.status_code in (401, 403), (
+            f"Expected 401/403, got {response.status_code}. Once the bootstrap deadline has "
+            "passed, the bypass must be refused even for a loopback caller."
+        )
+
+    def test_future_deadline_still_allows_loopback_bypass(self, monkeypatch):
+        """A not-yet-reached deadline must not close the window early (guards comparison direction)."""
+        client = _build_bootstrap_client(monkeypatch, client_host="127.0.0.1")
+        monkeypatch.setenv("BOOTSTRAP_DEADLINE_EPOCH", "4102444800")  # 2100-01-01, far future
+        response = client.post("/infrastructure/auth/users", json=_FIRST_ADMIN_PAYLOAD)
+        assert response.status_code == 200, (
+            f"Expected 200, got {response.status_code} ({response.text}). A future deadline must "
+            "not prematurely close the bootstrap window."
+        )
