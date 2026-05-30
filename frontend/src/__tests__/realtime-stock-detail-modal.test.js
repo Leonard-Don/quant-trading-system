@@ -46,7 +46,6 @@ vi.mock('../services/api', () => ({
 }));
 
 vi.mock('@ant-design/icons', () => {
-  const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
 
   return {
@@ -58,7 +57,6 @@ vi.mock('@ant-design/icons', () => {
 });
 
 vi.mock('antd', () => {
-  const React = require('react');
 
   const Modal = ({ open, title, children }) => (
     open ? (

@@ -42,7 +42,6 @@ vi.mock('../services/tradeWebsocket', () => ({
 }));
 
 vi.mock('@ant-design/icons', () => {
-  const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
 
   return {
@@ -55,7 +54,6 @@ vi.mock('@ant-design/icons', () => {
 });
 
 vi.mock('antd', () => {
-  const React = require('react');
 
   const Card = ({ title, children }) => (
     <section>

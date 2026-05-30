@@ -13,7 +13,6 @@ vi.mock('../services/api', () => ({
 }));
 
 vi.mock('recharts', () => {
-  const React = require('react');
   const Mock = ({ children }) => <div>{children}</div>;
 
   return {
@@ -30,7 +29,6 @@ vi.mock('recharts', () => {
 });
 
 vi.mock('@ant-design/icons', () => {
-  const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
 
   return {
@@ -43,7 +41,6 @@ vi.mock('@ant-design/icons', () => {
 });
 
 vi.mock('antd', () => {
-  const React = require('react');
 
   const Card = ({ title, extra, children }) => (
     <section>

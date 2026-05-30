@@ -77,7 +77,6 @@ vi.mock('../components/RealtimeStockDetailModal', () => ({
 }));
 
 vi.mock('@ant-design/icons', () => {
-  const React = require('react');
   const MockIcon = ({ children }) => <span>{children}</span>;
 
   return {

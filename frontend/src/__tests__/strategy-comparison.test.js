@@ -16,7 +16,6 @@ vi.mock('../utils/strategyComparisonReport', () => ({
 }));
 
 vi.mock('recharts', () => {
-  const React = require('react');
   const MockChart = ({ children }) => <div>{children}</div>;
   return {
     ResponsiveContainer: ({ children }) => <div>{children}</div>,
@@ -37,7 +36,6 @@ vi.mock('recharts', () => {
 });
 
 vi.mock('antd', () => {
-  const React = require('react');
   const mockMessage = {
     warning: jest.fn(),
     success: jest.fn(),

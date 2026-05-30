@@ -28,7 +28,6 @@ vi.mock('antd/es/_util/responsiveObserver', () => ({
 }));
 
 vi.mock('recharts', () => {
-  const React = require('react');
   const passthrough = ({ children }) => <div>{children}</div>;
   return {
     ResponsiveContainer: passthrough,

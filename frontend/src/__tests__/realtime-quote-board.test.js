@@ -20,7 +20,6 @@ class MockResizeObserver {
 global.ResizeObserver = MockResizeObserver;
 
 vi.mock('@ant-design/icons', () => {
-  const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
 
   return {
@@ -32,7 +31,6 @@ vi.mock('@ant-design/icons', () => {
 });
 
 vi.mock('antd', () => {
-  const React = require('react');
 
   return {
     Card: ({ children, className, style, loading, styles, ...rest }) => (

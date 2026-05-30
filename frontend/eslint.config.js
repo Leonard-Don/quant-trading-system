@@ -44,14 +44,17 @@ export default [
       'unused-imports/no-unused-vars': ['warn', {
         vars: 'all',
         varsIgnorePattern: '^_',
-        args: 'after-used',
-        argsIgnorePattern: '^_',
+        // Unused function args / props (common in mock component stubs and
+        // fixed-signature callbacks) are low-signal — don't flag them.
+        args: 'none',
         // Catching an error purely to drive a fallback UI (without inspecting it)
         // is a pervasive, legitimate pattern here; don't flag those.
         caughtErrors: 'none',
       }],
-      'no-empty': 'warn',
-      'no-irregular-whitespace': 'warn',
+      // Empty catch (swallow-and-fallback) is intentional here; full-width
+      // (U+3000) spaces are legitimate CJK typography inside JSX text.
+      'no-empty': ['warn', { allowEmptyCatch: true }],
+      'no-irregular-whitespace': ['warn', { skipJSXText: true }],
       'no-unsafe-finally': 'warn',
     },
   },

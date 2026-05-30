@@ -12,7 +12,7 @@ import '@testing-library/jest-dom';
 
 import App from '../App';
 
-let onSubmitFromBacktestDashboard = null;
+let _onSubmitFromBacktestDashboard = null;
 let onAutoExecuteFromBacktestDashboard = null;
 
 vi.mock('../components/ErrorBoundary', () => ({
@@ -28,7 +28,7 @@ vi.mock('../components/PaperTradingPanel', () => ({ __esModule: true, default: (
 vi.mock('../components/BacktestDashboard', () => ({
   __esModule: true,
   default: ({ onSubmit, onAutoExecuteToPaperTrading }) => {
-    onSubmitFromBacktestDashboard = onSubmit;
+    _onSubmitFromBacktestDashboard = onSubmit;
     onAutoExecuteFromBacktestDashboard = onAutoExecuteToPaperTrading;
     return <div>BacktestDashboard</div>;
   },
@@ -54,7 +54,6 @@ vi.mock('../contexts/ThemeContext', () => ({
 vi.mock('../generated/version', () => ({ APP_VERSION: 'test' }));
 
 vi.mock('@ant-design/icons', () => {
-  const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
   return {
     DashboardOutlined: MockIcon,
@@ -70,7 +69,6 @@ vi.mock('@ant-design/icons', () => {
 });
 
 vi.mock('antd', () => {
-  const React = require('react');
   const AntdApp = ({ children }) => <div>{children}</div>;
   AntdApp.useApp = () => ({
     message: {
@@ -120,7 +118,7 @@ const RESULT_WITH_TRADES = {
 
 describe('App auto-execute backtest to paper', () => {
   beforeEach(() => {
-    onSubmitFromBacktestDashboard = null;
+    _onSubmitFromBacktestDashboard = null;
     onAutoExecuteFromBacktestDashboard = null;
     mockRunBacktest.mockReset();
     mockGetRealtimeQuote.mockReset();

@@ -26,7 +26,6 @@ vi.mock('../components/MonthlyHeatmap', () => ({ default: () => <div>MonthlyHeat
 vi.mock('../components/RiskRadar', () => ({ default: () => <div>RiskRadar</div> }));
 vi.mock('../components/ReturnHistogram', () => ({ default: () => <div>ReturnHistogram</div> }));
 vi.mock('recharts', () => {
-  const React = require('react');
   const MockChart = ({ children }) => <div>{children}</div>;
   const MockElement = () => null;
   return {

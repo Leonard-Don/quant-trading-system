@@ -22,7 +22,6 @@ vi.mock('../components/AdvancedBacktestLab', () => ({
 }));
 
 vi.mock('antd', () => {
-  const React = require('react');
   return {
     Card: ({ children, title, extra }) => (
       <div>

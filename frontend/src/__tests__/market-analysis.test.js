@@ -58,7 +58,6 @@ vi.mock('recharts', () => {
 });
 
 vi.mock('@ant-design/icons', () => {
-  const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
 
   return {
@@ -84,7 +83,6 @@ vi.mock('@ant-design/icons', () => {
 });
 
 vi.mock('antd', () => {
-  const React = require('react');
 
   const passthrough = ({ children }) => <div>{children}</div>;
   const Card = ({ title, children, extra }) => (

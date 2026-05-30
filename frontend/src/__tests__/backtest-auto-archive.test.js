@@ -62,7 +62,6 @@ vi.mock('../contexts/ThemeContext', () => ({
 vi.mock('../generated/version', () => ({ APP_VERSION: 'test' }));
 
 vi.mock('@ant-design/icons', () => {
-  const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
   return {
     DashboardOutlined: MockIcon,
@@ -78,7 +77,6 @@ vi.mock('@ant-design/icons', () => {
 });
 
 vi.mock('antd', () => {
-  const React = require('react');
   const AntdApp = ({ children }) => <div>{children}</div>;
   AntdApp.useApp = () => ({
     message: {

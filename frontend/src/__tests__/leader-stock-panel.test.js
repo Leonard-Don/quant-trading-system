@@ -50,7 +50,6 @@ vi.mock('../components/StockDetailModal', () => ({ default: () => null }));
 vi.mock('../components/common/MiniSparkline', () => ({ default: () => <div data-testid="mini-sparkline" /> }));
 
 vi.mock('@ant-design/icons', () => {
-  const React = require('react');
   const MockIcon = () => <span data-testid="icon" />;
   return {
     CrownOutlined: MockIcon,
@@ -60,7 +59,6 @@ vi.mock('@ant-design/icons', () => {
 });
 
 vi.mock('antd', () => {
-  const React = require('react');
 
   const Card = ({ title, extra, children }) => (
     <section>
