@@ -5,6 +5,7 @@ API请求限流中间件
 
 import hashlib
 import logging
+import os
 import time
 from collections import defaultdict
 from functools import wraps
@@ -14,6 +15,24 @@ from typing import Any, Optional
 from fastapi import HTTPException, Request, status
 
 logger = logging.getLogger(__name__)
+
+# Hosts that are always treated as loopback / local.
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
+
+
+def _parse_trusted_proxies(raw: Optional[str]) -> frozenset:
+    """Parse the ``TRUSTED_PROXY_IPS`` allowlist.
+
+    Loopback is always trusted: in this single-tenant local-research
+    deployment the only legitimate proxy sits on the loopback interface.
+    Additional proxies are supplied as a comma/semicolon-separated list.
+    """
+    proxies = set(LOOPBACK_HOSTS)
+    for token in (raw or "").replace(";", ",").split(","):
+        token = token.strip().lower()
+        if token:
+            proxies.add(token)
+    return frozenset(proxies)
 
 
 class TokenBucket:
@@ -96,6 +115,10 @@ class RateLimiter:
         )
         self.recent_blocks: list[dict[str, Any]] = []
 
+        # Proxies whose forwarding headers we trust. Loopback is always
+        # included; additional proxies come from TRUSTED_PROXY_IPS.
+        self.trusted_proxies = _parse_trusted_proxies(os.getenv("TRUSTED_PROXY_IPS"))
+
         self.lock = Lock()
         logger.info(
             f"速率限制器初始化: {requests_per_minute} 请求/分钟, " f"突发大小: {self.burst_size}"
@@ -157,18 +180,42 @@ class RateLimiter:
             "enabled": True,
         }
 
-    def is_local_request(self, request: Request) -> bool:
+    def _peer_host(self, request: Request) -> Optional[str]:
+        """The immediate peer address, i.e. who actually opened the socket."""
+        if request.client and request.client.host:
+            return str(request.client.host).strip()
+        return None
+
+    def _forwarded_client(self, request: Request) -> Optional[str]:
+        """The client address as claimed by forwarding headers (untrusted)."""
         forwarded_for = request.headers.get("X-Forwarded-For", "")
         if forwarded_for:
-            client_host = forwarded_for.split(",")[0].strip().lower()
-            if client_host in {"127.0.0.1", "::1", "localhost"}:
-                return True
-        real_ip = str(request.headers.get("X-Real-IP") or "").strip().lower()
-        if real_ip in {"127.0.0.1", "::1", "localhost"}:
-            return True
-        if request.client and str(request.client.host).strip().lower() in {"127.0.0.1", "::1", "localhost"}:
-            return True
-        return False
+            first_hop = forwarded_for.split(",")[0].strip()
+            if first_hop:
+                return first_hop
+        real_ip = str(request.headers.get("X-Real-IP") or "").strip()
+        if real_ip:
+            return real_ip
+        return None
+
+    def _resolve_client_ip(self, request: Request) -> Optional[str]:
+        """Effective client address.
+
+        Forwarding headers are honoured only when the immediate peer is a
+        trusted proxy; otherwise the real peer address is authoritative. This
+        prevents a remote client from spoofing its identity (or "local"
+        status) via ``X-Forwarded-For`` / ``X-Real-IP``.
+        """
+        peer = self._peer_host(request)
+        if peer is not None and peer.lower() in self.trusted_proxies:
+            forwarded = self._forwarded_client(request)
+            if forwarded:
+                return forwarded
+        return peer
+
+    def is_local_request(self, request: Request) -> bool:
+        client_ip = self._resolve_client_ip(request)
+        return bool(client_ip) and client_ip.strip().lower() in LOOPBACK_HOSTS
 
     def get_client_identity(self, request: Request) -> dict[str, str]:
         endpoint = request.url.path
@@ -185,16 +232,9 @@ class RateLimiter:
             digest = hashlib.sha256(user_hint.encode("utf-8")).hexdigest()[:16]
             return {"identity_type": "user", "subject": f"user:{digest}", "endpoint": endpoint}
 
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return {"identity_type": "ip", "subject": f"ip:{forwarded_for.split(',')[0].strip()}", "endpoint": endpoint}
-
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return {"identity_type": "ip", "subject": f"ip:{real_ip}", "endpoint": endpoint}
-
-        if request.client:
-            return {"identity_type": "ip", "subject": f"ip:{request.client.host}", "endpoint": endpoint}
+        client_ip = self._resolve_client_ip(request)
+        if client_ip:
+            return {"identity_type": "ip", "subject": f"ip:{client_ip}", "endpoint": endpoint}
 
         return {"identity_type": "unknown", "subject": "unknown", "endpoint": endpoint}
 
