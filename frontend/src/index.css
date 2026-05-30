@@ -369,10 +369,6 @@ code {
   max-width: 900px;
 }
 
-.app-page-hero__aside {
-  min-width: 250px;
-}
-
 .industry-page-shell .app-page-hero {
   padding: 16px 18px;
   border-radius: 8px;
@@ -541,18 +537,6 @@ code {
   padding-inline: 2px;
 }
 
-.app-page-hero--pricing {
-  background:
-    radial-gradient(circle at top right, rgba(56, 189, 248, 0.16), transparent 34%),
-    linear-gradient(135deg, rgba(15, 23, 42, 0.94) 0%, rgba(30, 41, 59, 0.92) 60%, rgba(17, 94, 89, 0.88) 100%);
-}
-
-.app-page-hero--workbench {
-  background:
-    radial-gradient(circle at top right, rgba(129, 140, 248, 0.14), transparent 32%),
-    linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.93) 56%, rgba(67, 56, 202, 0.88) 100%);
-}
-
 .app-page-hero--cross-market {
   background:
     radial-gradient(circle at top right, rgba(34, 197, 94, 0.14), transparent 32%),
@@ -563,12 +547,6 @@ code {
   background:
     radial-gradient(circle at top right, rgba(251, 191, 36, 0.16), transparent 34%),
     linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(51, 65, 85, 0.92) 58%, rgba(194, 65, 12, 0.86) 100%);
-}
-
-.app-page-hero--godeye {
-  background:
-    radial-gradient(circle at top right, rgba(34, 197, 94, 0.16), transparent 32%),
-    linear-gradient(135deg, rgba(15, 23, 42, 0.95) 0%, rgba(30, 41, 59, 0.93) 54%, rgba(8, 145, 178, 0.88) 100%);
 }
 
 .app-page-context-rail {
@@ -635,49 +613,6 @@ code {
   color: var(--text-secondary);
 }
 
-.godeye-hero-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.9fr);
-  gap: 18px;
-  margin-top: 18px;
-}
-
-.godeye-hero-brief {
-  padding: 16px 18px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(148, 163, 184, 0.12);
-}
-
-.godeye-hero-list {
-  display: grid;
-  gap: 12px;
-}
-
-.godeye-hero-list__item {
-  display: grid;
-  gap: 4px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.12);
-  background: rgba(15, 23, 42, 0.18);
-}
-
-.godeye-hero-list__label {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--text-muted);
-}
-
-.godeye-hero-list__value {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.godeye-page-shell .app-page-section-block .ant-row,
-.workbench-page-shell .app-page-section-block > .ant-row,
 .industry-page-shell .app-page-section-block > .ant-row {
   margin-top: 0;
 }
@@ -763,10 +698,6 @@ code {
 
 .industry-scan-insight-shell .ant-tabs-tab {
   padding-block: 10px !important;
-}
-
-.industry-scan-insight-shell__loading {
-  max-width: 100%;
 }
 
 .industry-heatmap-card .ant-card-head {
@@ -1088,12 +1019,10 @@ code {
   background: color-mix(in srgb, var(--accent-primary-soft) 55%, transparent) !important;
 }
 
-.industry-interactive-chip.ant-tag,
 .industry-state-tag.ant-tag {
   transition: transform 0.16s ease, box-shadow 0.16s ease, filter 0.16s ease;
 }
 
-.industry-interactive-chip.ant-tag:hover,
 .industry-state-tag.ant-tag:hover {
   transform: translateY(-1px);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
@@ -1388,36 +1317,6 @@ h6 {
 
 .text-muted {
   color: var(--text-muted) !important;
-}
-
-.text-success {
-  color: var(--accent-success) !important;
-}
-
-.text-warning {
-  color: var(--accent-warning) !important;
-}
-
-.text-danger {
-  color: var(--accent-danger) !important;
-}
-
-.text-accent {
-  color: var(--accent-primary) !important;
-}
-
-.bg-glass {
-  background: var(--glass-bg);
-  backdrop-filter: var(--glass-blur);
-  border: 1px solid var(--border-color);
-}
-
-.logo-gradient {
-  background: var(--gradient-primary);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-weight: 700;
 }
 
 /* Ant Design 图标通用颜色适配 */
@@ -1974,10 +1873,6 @@ a {
 }
 
 /* 11. 版本号标签优化 (在 Header 中) */
-.logo-gradient+span {
-  padding: 3px 10px !important;
-  white-space: nowrap;
-}
 
 /* 12. Card 标题区域 */
 .ant-card-head-title {
@@ -2103,11 +1998,6 @@ a {
 }
 
 /* 25. 全局文字溢出处理 */
-.text-ellipsis {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* 26. 确保 Header 内元素垂直居中 */
 .ant-layout-header>div {
@@ -2125,15 +2015,6 @@ a {
    ============================================================================= */
 
 /* ===== 1. Sticky 操作按钮 - 解决长表单滚动问题 ===== */
-.sticky-action-bar {
-  position: sticky;
-  bottom: 0;
-  background: var(--bg-secondary);
-  padding: 16px 24px;
-  margin: 0 -24px -24px;
-  border-top: 1px solid var(--border-color);
-  z-index: 10;
-}
 
 /* ===== 2. 高级微动画 ===== */
 @keyframes fadeInUp {
@@ -2182,20 +2063,7 @@ a {
   }
 }
 
-.animate-fade-in {
-  animation: fadeInUp 0.4s ease-out;
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s ease-in-out infinite;
-}
-
-.animate-float {
-  animation: float 3s ease-in-out infinite;
-}
-
 /* ===== 3. 卡片悬浮增强 ===== */
-.app-interactive-card.ant-card,
 .realtime-quote-card.ant-card,
 .realtime-hero-card.ant-card,
 .realtime-board-card.ant-card {
@@ -2205,7 +2073,6 @@ a {
     transform 0.24s cubic-bezier(0.4, 0, 0.2, 1) !important;
 }
 
-.app-interactive-card.ant-card:hover,
 .realtime-quote-card.ant-card:hover,
 .realtime-hero-card.ant-card:hover,
 .realtime-board-card.ant-card:hover {
@@ -2217,24 +2084,6 @@ a {
 }
 
 /* 卡片渐变边框效果 */
-.card-gradient-border {
-  position: relative;
-  border: none !important;
-}
-
-.card-gradient-border::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  padding: 1px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.3), rgba(129, 140, 248, 0.3));
-  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  pointer-events: none;
-}
 
 /* ===== 4. 按钮增强 ===== */
 .ant-btn-primary {
@@ -2266,29 +2115,25 @@ a {
 }
 
 /* 成功按钮 */
-.ant-btn-success,
-.btn-success {
+.ant-btn-success {
   background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
   border: none !important;
   color: #fff !important;
 }
 
-.ant-btn-success:hover,
-.btn-success:hover {
+.ant-btn-success:hover {
   opacity: 0.9;
   box-shadow: 0 0 20px rgba(16, 185, 129, 0.4) !important;
 }
 
 /* 危险按钮 */
-.ant-btn-danger,
-.btn-danger {
+.ant-btn-danger {
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
   border: none !important;
   color: #fff !important;
 }
 
-.ant-btn-danger:hover,
-.btn-danger:hover {
+.ant-btn-danger:hover {
   opacity: 0.9;
   box-shadow: 0 0 20px rgba(239, 68, 68, 0.4) !important;
 }
@@ -2456,16 +2301,6 @@ a {
   background: var(--accent-primary) !important;
 }
 
-.loading-skeleton {
-  background: linear-gradient(90deg,
-      var(--bg-tertiary) 25%,
-      var(--bg-secondary) 50%,
-      var(--bg-tertiary) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  border-radius: 4px;
-}
-
 /* ===== 13. 空状态增强 ===== */
 .ant-empty {
   padding: 40px 0;
@@ -2481,24 +2316,6 @@ a {
 }
 
 /* ===== 14. 滚动条增强 ===== */
-.custom-scrollbar::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: var(--bg-primary);
-  border-radius: 4px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted);
-}
 
 /* ===== 15. 响应式布局增强 ===== */
 @media (max-width: 768px) {
@@ -2522,33 +2339,6 @@ a {
 }
 
 /* ===== 16. 状态徽章增强 ===== */
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.status-badge.online {
-  background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.status-badge.offline {
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-}
-
-.status-badge.warning {
-  background: rgba(245, 158, 11, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.3);
-}
 
 /* ===== 17. 进度指示器 ===== */
 .ant-progress-inner {
@@ -2632,29 +2422,6 @@ a {
   overflow-y: auto;
 }
 
-.trade-type-selector {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 16px;
-}
-
-.trade-type-btn {
-  flex: 1;
-  height: 44px !important;
-  font-weight: 600 !important;
-  font-size: 15px !important;
-}
-
-.trade-type-btn.buy-active {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
-  border-color: #10b981 !important;
-}
-
-.trade-type-btn.sell-active {
-  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
-  border-color: #ef4444 !important;
-}
-
 /* ===== 23. 市场分析优化 ===== */
 .analysis-card {
   min-height: 300px;
@@ -2672,20 +2439,6 @@ a {
 /* ===== 24. 回测结果优化 ===== */
 .backtest-results {
   animation: fadeInUp 0.4s ease-out;
-}
-
-.backtest-metric {
-  background: var(--glass-bg);
-  border-radius: 10px;
-  padding: 16px;
-  text-align: center;
-  border: 1px solid var(--border-color);
-  transition: all 0.2s ease;
-}
-
-.backtest-metric:hover {
-  border-color: rgba(56, 189, 248, 0.3);
-  transform: translateY(-2px);
 }
 
 /* ===== 25. 回测工作台统一布局 ===== */
@@ -4912,32 +4665,6 @@ a {
 }
 
 /* ===== 25. Logo和品牌增强 ===== */
-.logo-container {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px;
-}
-
-.logo-icon {
-  width: 40px;
-  height: 40px;
-  background: var(--gradient-primary);
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
-}
-
-.logo-text {
-  font-size: 20px;
-  font-weight: 700;
-  background: var(--gradient-primary);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
 
 /* ===== 26. Popconfirm 增强 ===== */
 .ant-popconfirm {
@@ -4955,26 +4682,6 @@ a {
 }
 
 /* ===== 27. 全局文字渐变效果 ===== */
-.text-gradient {
-  background: var(--gradient-primary);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.text-gradient-success {
-  background: linear-gradient(135deg, #10b981 0%, #34d399 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
-
-.text-gradient-danger {
-  background: linear-gradient(135deg, #ef4444 0%, #f87171 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
 
 /* ===== 28. 工具提示增强 ===== */
 .ant-tooltip {
@@ -4986,9 +4693,6 @@ a {
 }
 
 /* ===== 29. 页面过渡效果 ===== */
-.page-transition {
-  animation: fadeInUp 0.3s ease-out;
-}
 
 /* ===== 30. 焦点可见性增强 (无障碍) ===== */
 .ant-btn:focus-visible,
@@ -5011,84 +4715,12 @@ a {
 }
 
 /* ===== 32. 数值变化动画 ===== */
-.value-change-up {
-  color: var(--accent-success) !important;
-  animation: fadeInUp 0.3s ease-out;
-}
-
-.value-change-down {
-  color: var(--accent-danger) !important;
-  animation: fadeInUp 0.3s ease-out;
-}
 
 /* ===== 33. 策略对比页面优化 ===== */
-.comparison-chart {
-  min-height: 400px;
-  background: var(--glass-bg);
-  border-radius: 12px;
-  padding: 20px;
-  border: 1px solid var(--border-color);
-}
-
-.comparison-table .ant-table-row.highlight {
-  background: rgba(56, 189, 248, 0.05);
-}
 
 /* ===== 34. 系统监控特定样式 ===== */
-.monitor-card {
-  height: 100%;
-}
-
-.monitor-card .ant-card-body {
-  height: calc(100% - 57px);
-  display: flex;
-  flex-direction: column;
-}
-
-.health-indicator {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  display: inline-block;
-  margin-right: 8px;
-}
-
-.health-indicator.healthy {
-  background: #10b981;
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
-}
-
-.health-indicator.warning {
-  background: #f59e0b;
-  box-shadow: 0 0 8px rgba(245, 158, 11, 0.5);
-}
-
-.health-indicator.critical {
-  background: #ef4444;
-  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
-}
 
 /* ===== 35. 组合优化页面 ===== */
-.portfolio-pie-chart {
-  min-height: 300px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.weight-bar {
-  height: 8px;
-  border-radius: 4px;
-  background: var(--bg-tertiary);
-  overflow: hidden;
-}
-
-.weight-bar-fill {
-  height: 100%;
-  border-radius: 4px;
-  background: var(--gradient-primary);
-  transition: width 0.5s ease;
-}
 
 /* =============================================================================
    溢出控制与布局优化 - Overflow Control & Layout Optimization
@@ -5331,11 +4963,6 @@ a {
     flex-direction: column;
   }
 
-  .app-page-hero__aside {
-    min-width: 0;
-    width: 100%;
-  }
-
   .app-page-context-rail__header {
     flex-direction: column;
   }
@@ -5344,8 +4971,7 @@ a {
     justify-content: flex-start;
   }
 
-  .app-page-context-rail__grid,
-  .godeye-hero-grid {
+  .app-page-context-rail__grid {
     grid-template-columns: 1fr;
   }
 
@@ -5635,12 +5261,6 @@ a {
     padding-right: 6px;
   }
 
-  .workbench-detail-column .workbench-detail-panel {
-    position: sticky;
-    top: calc(var(--app-header-height) + 10px);
-    max-height: calc(100dvh - var(--app-header-height) - 10px - var(--app-content-pad-block) - var(--app-safe-bottom));
-    overflow: auto;
-  }
 }
 
 /* ===== 5. 响应式Tab标签页 ===== */
@@ -5703,7 +5323,6 @@ a {
 
 /* ===== 8. 饼图和散点图容器 ===== */
 
-.portfolio-pie-chart,
 .pie-chart-container {
   padding: 10px;
   min-height: 320px;
@@ -5735,27 +5354,8 @@ a {
 /* ===== 10. 大型文本容器 ===== */
 
 /* 长文本自动省略 */
-.text-truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
 
 /* 多行文本限制 */
-.text-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.text-clamp-3 {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
 
 /* ===== 11. 进度条和仪表盘 ===== */
 
@@ -5825,7 +5425,6 @@ a {
 
 @media (prefers-reduced-motion: reduce) {
   .ant-card,
-  .app-interactive-card.ant-card,
   .realtime-quote-card.ant-card,
   .realtime-hero-card.ant-card,
   .realtime-board-card.ant-card,
@@ -5835,16 +5434,10 @@ a {
     transition: none !important;
   }
 
-  .app-interactive-card.ant-card:hover,
   .realtime-quote-card.ant-card:hover,
   .realtime-hero-card.ant-card:hover,
   .realtime-board-card.ant-card:hover {
     transform: none !important;
-  }
-
-  .animate-pulse-glow,
-  .animate-float {
-    animation: none !important;
   }
 
   .industry-heatmap-skeleton-block {
