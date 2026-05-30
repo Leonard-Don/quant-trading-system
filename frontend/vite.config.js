@@ -38,6 +38,34 @@ export default defineConfig({
     // Keep CRA's default output dir so deployment / Nginx configs need no change.
     outDir: "build",
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        // Split the heavy, rarely-changing vendor libs out of the app entry
+        // chunk into long-cacheable bundles. App code churns on every deploy;
+        // react/antd/recharts do not — so a returning user re-downloads only
+        // the small app chunk, and these load in parallel. Also clears the
+        // single >500 kB entry chunk the default config produced.
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          // Only carve out two clean, non-cyclic groups; everything else (recharts,
+          // d3, lightweight-charts, misc) is left to Rollup's default algorithm so
+          // its lazy route/shared chunks — and the isolated CandlestickChart chunk —
+          // are preserved and no first-load regression is introduced.
+          //
+          // React ecosystem is a pure leaf (imports nothing app-side), so isolating
+          // it can't create a cycle. The whole React runtime stays together because
+          // antd/recharts import react-is at module-init; a foreign-chunk react-is
+          // is what previously dead-locked the mount.
+          if (/[\\/](react|react-dom|react-is|scheduler|prop-types|use-sync-external-store|object-assign)[\\/]/.test(id))
+            return "react-vendor";
+          // Keep ALL of antd's family (antd + @ant-design/* + rc-*) in one chunk so
+          // antd<->icons / antd<->rc never split across chunks (that was a cycle).
+          if (id.includes("antd") || id.includes("@ant-design") || /[\\/]rc-[a-z-]+[\\/]/.test(id))
+            return "antd-vendor";
+          return undefined;
+        },
+      },
+    },
   },
   resolve: {
     alias: {
