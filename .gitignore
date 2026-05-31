@@ -78,8 +78,10 @@ reports/*.html
 .env.*.local
 
 # Node.js / React
+node_modules/
 frontend/node_modules/
 frontend/build/
+.vite/
 frontend/.pnp
 frontend/.pnp.js
 frontend/coverage/
