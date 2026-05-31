@@ -71,6 +71,16 @@ from src.strategy.market_regime_classifier import (
 )
 from src.strategy.strategy_recommender import recommend_strategy
 
+from ._etf_rotation_cache import (
+    _ATTRIBUTION_CACHE_TTL,
+    _STRATEGY_COMPARISON_CACHE_TTL,
+    _WALKFORWARD_CACHE_TTL,
+    _attribution_cache,
+    _strategy_comparison_cache,
+    _walkforward_cache,
+    reset_attribution_cache_for_tests as reset_attribution_cache_for_tests,
+    reset_walkforward_cache_for_tests as reset_walkforward_cache_for_tests,
+)
 from ._etf_rotation_helpers import (
     _ensure_actionable_fields,
     _ensure_manual_execution_contract,
@@ -616,16 +626,6 @@ def post_preferences(
 # ---------------------------------------------------------------------------
 
 
-_ATTRIBUTION_CACHE_TTL = 300.0  # 5 minutes
-_attribution_cache: dict[tuple[int, str, int, int], tuple[float, dict[str, Any]]] = {}
-
-
-def reset_attribution_cache_for_tests() -> None:
-    """Drop the attribution cache — tests call this between scenarios."""
-
-    _attribution_cache.clear()
-
-
 def _fetch_attribution_prices(
     audit_path: Path, period_days: int,
 ) -> Any:
@@ -879,23 +879,6 @@ def post_backtest(
 # ---------------------------------------------------------------------------
 
 
-_WALKFORWARD_CACHE_TTL = 3600.0  # 1 hour
-# Cache key is the full set of params the analyzer reads + the price-matrix
-# mtime/size so a new CSV invalidates everything in-flight.
-_walkforward_cache: dict[
-    tuple[
-        str, str, int, int, int, bool, int, float, str, int, int,
-    ],
-    tuple[float, dict[str, Any]],
-] = {}
-
-
-def reset_walkforward_cache_for_tests() -> None:
-    """Drop the walkforward cache — tests call this between scenarios."""
-
-    _walkforward_cache.clear()
-
-
 @router.post(
     "/walkforward",
     summary="多窗口滚动回放 ETF 轮动策略并返回稳定性报告",
@@ -1071,16 +1054,6 @@ def post_walkforward(
 # pairwise spreads, and a regime breakdown. Cached for 1 hour, keyed on every
 # parameter that materially affects the result + the price CSV mtime/size.
 # ---------------------------------------------------------------------------
-
-
-_STRATEGY_COMPARISON_CACHE_TTL = 3600.0  # 1 hour
-_strategy_comparison_cache: dict[
-    tuple[
-        str, str, str, int, bool, int, float, str, str, int, int,
-    ],
-    tuple[float, dict[str, Any]],
-] = {}
-
 
 
 @router.post(
