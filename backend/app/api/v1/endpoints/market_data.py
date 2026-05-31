@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter
+from fastapi.concurrency import run_in_threadpool
 
 from backend.app.core.error_handler import AppException
 from backend.app.schemas.base import MarketDataRequest
@@ -45,12 +46,14 @@ async def get_market_data(request: MarketDataRequest):
 
     try:
         # 获取数据
-        data = data_manager.get_historical_data(
-            symbol=request.symbol,
-            start_date=start_date,
-            end_date=end_date,
-            interval=request.interval,
-            period=request.period,
+        data = await run_in_threadpool(
+            lambda: data_manager.get_historical_data(
+                symbol=request.symbol,
+                start_date=start_date,
+                end_date=end_date,
+                interval=request.interval,
+                period=request.period,
+            )
         )
 
         if data.empty:

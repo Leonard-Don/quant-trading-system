@@ -3,6 +3,7 @@ from datetime import datetime
 
 import pandas as pd
 from fastapi import APIRouter, Body, HTTPException
+from fastapi.concurrency import run_in_threadpool
 
 from backend.app.core.error_handler import AppException
 from backend.app.services.runtime_state import get_data_manager
@@ -12,6 +13,37 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 data_manager = get_data_manager()
 optimizer = PortfolioOptimizer()
+
+
+def _optimize_portfolio_sync(symbols, start_date, end_date, objective):
+    """Run the blocking data-fetch + optimization off the event loop.
+
+    References the module-level ``data_manager``/``optimizer`` singletons at
+    call time so test monkeypatches on them are honored.
+    """
+    # Fetch data for all symbols
+    # DataManager.get_historical_data retrieves one by one.
+    # Ideally DataManager should support batch fetch. Here we loop.
+    price_data = {}
+    for symbol in symbols:
+        df = data_manager.get_historical_data(symbol, start_date=start_date, end_date=end_date)
+        if not df.empty:
+            # Assuming 'close' is adjusted close
+            price_data[symbol] = df["close"]
+        else:
+            logger.warning(f"No data for {symbol}, skipping in optimization")
+
+    if len(price_data) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Insufficient data for optimization (need at least 2 valid assets)",
+        )
+
+    # Create combined DataFrame
+    combined_df = pd.DataFrame(price_data)
+
+    # Optimize
+    return optimizer.optimize_portfolio(combined_df, objective)
 
 
 @router.post("/optimize", summary="投资组合优化")
@@ -47,29 +79,11 @@ async def optimize_portfolio(
 
             start_date = end_date - relativedelta(months=3)
 
-        # Fetch data for all symbols
-        # DataManager.get_historical_data retrieves one by one.
-        # Ideally DataManager should support batch fetch. Here we loop.
-        price_data = {}
-        for symbol in symbols:
-            df = data_manager.get_historical_data(symbol, start_date=start_date, end_date=end_date)
-            if not df.empty:
-                # Assuming 'close' is adjusted close
-                price_data[symbol] = df["close"]
-            else:
-                logger.warning(f"No data for {symbol}, skipping in optimization")
-
-        if len(price_data) < 2:
-            raise HTTPException(
-                status_code=400,
-                detail="Insufficient data for optimization (need at least 2 valid assets)",
-            )
-
-        # Create combined DataFrame
-        combined_df = pd.DataFrame(price_data)
-
-        # Optimize
-        result = optimizer.optimize_portfolio(combined_df, objective)
+        # Offload the blocking per-symbol fetch loop + optimization to a
+        # threadpool so this async handler does not stall the event loop.
+        result = await run_in_threadpool(
+            _optimize_portfolio_sync, symbols, start_date, end_date, objective
+        )
 
         if not result["success"]:
             raise AppException(

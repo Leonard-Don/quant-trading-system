@@ -3,6 +3,7 @@ from datetime import datetime
 
 import psutil
 from fastapi import APIRouter
+from fastapi.concurrency import run_in_threadpool
 
 from backend.app.core.config import config
 from backend.app.core.error_handler import AppException
@@ -45,6 +46,22 @@ STRATEGIES = {
 }
 
 
+def _sample_system_resources() -> dict:
+    """Sample CPU/memory usage off the event loop.
+
+    ``psutil.cpu_percent(interval=0.1)`` blocks for 100ms; gather it together
+    with the virtual-memory snapshot in a worker thread so concurrent requests
+    are not stalled. Returns the values consumed by ``get_system_status``.
+    """
+    memory = psutil.virtual_memory()
+    cpu_percent = psutil.cpu_percent(interval=0.1)
+    return {
+        "cpu_percent": cpu_percent,
+        "memory_percent": memory.percent,
+        "memory_available_gb": round(memory.available / (1024**3), 2),
+    }
+
+
 @router.get("/status", summary="系统状态检查", deprecated=True)
 async def get_system_status(detailed: bool = False):
     """
@@ -56,8 +73,7 @@ async def get_system_status(detailed: bool = False):
     try:
         if not detailed:
             # 轻量级检查 (原 /status 逻辑)
-            memory = psutil.virtual_memory()
-            cpu_percent = psutil.cpu_percent(interval=0.1)
+            system_info = await run_in_threadpool(_sample_system_resources)
 
             return {
                 "status": "healthy",
@@ -69,11 +85,7 @@ async def get_system_status(detailed: bool = False):
                     "data_manager": "healthy",
                     "cache": "healthy",
                 },
-                "system_info": {
-                    "cpu_percent": cpu_percent,
-                    "memory_percent": memory.percent,
-                    "memory_available_gb": round(memory.available / (1024**3), 2),
-                },
+                "system_info": system_info,
                 "version": config["app_version"],
             }
         else:
@@ -198,13 +210,18 @@ async def check_dependencies():
     overall_status = "healthy"
 
     # 1. 检查 yfinance API 连通性
-    try:
+    def _probe_yfinance():
         start = time.time()
         import yfinance as yf
 
         ticker = yf.Ticker("AAPL")
         info = ticker.info
         elapsed = round((time.time() - start) * 1000, 2)
+        return info, elapsed
+
+    try:
+        # yfinance.info 触发同步 HTTP 请求，放到线程池避免阻塞事件循环
+        info, elapsed = await run_in_threadpool(_probe_yfinance)
         dependencies["yfinance_api"] = {
             "status": "healthy" if info else "degraded",
             "response_time_ms": elapsed,
@@ -240,30 +257,33 @@ async def check_dependencies():
         dependencies["cache_system"] = {"status": "degraded", "error": str(e)}
 
     # 3. 检查 ML 模型状态
-    try:
+    def _scan_ml_models():
         import os
 
         model_path = os.path.join(os.path.dirname(__file__), "../../../../src/analytics/model_data")
         model_path = os.path.abspath(model_path)
         if os.path.exists(model_path):
             model_files = [f for f in os.listdir(model_path) if f.endswith(".joblib")]
-            dependencies["ml_models"] = {
+            return {
                 "status": "healthy",
                 "cached_models": len(model_files) // 2,  # 每个模型有2个文件
                 "model_files": model_files[:10],  # 只显示前10个
             }
-        else:
-            dependencies["ml_models"] = {
-                "status": "healthy",
-                "cached_models": 0,
-                "message": "无缓存模型，将在首次预测时训练",
-            }
+        return {
+            "status": "healthy",
+            "cached_models": 0,
+            "message": "无缓存模型，将在首次预测时训练",
+        }
+
+    try:
+        # 目录扫描属于阻塞 I/O，放到线程池执行
+        dependencies["ml_models"] = await run_in_threadpool(_scan_ml_models)
     except (OSError, RuntimeError) as e:
         dependencies["ml_models"] = {"status": "degraded", "error": str(e)}
 
     # 4. 检查磁盘空间
     try:
-        disk = psutil.disk_usage("/")
+        disk = await run_in_threadpool(psutil.disk_usage, "/")
         disk_status = "healthy" if disk.percent < 90 else "warning"
         if disk.percent >= 90:
             overall_status = "warning"

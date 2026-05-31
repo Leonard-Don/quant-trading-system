@@ -1,6 +1,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from backend.app.core.error_handler import AppException
@@ -38,7 +39,7 @@ async def get_portfolio():
     try:
         return {
             "success": True,
-            "data": resolve_trade_portfolio()
+            "data": await run_in_threadpool(resolve_trade_portfolio)
         }
     except TRADING_OPERATION_EXCEPTIONS as e:
         raise AppException(
@@ -54,12 +55,16 @@ async def execute_trade(trade_request: TradeRequest):
 
         # 如果未提供价格，优先复用实时缓存中的最新价，保持与前端实时参考价一致。
         if price is None:
-            realtime_quote = realtime_manager.get_quote_dict(trade_request.symbol, use_cache=True) or {}
+            realtime_quote = await run_in_threadpool(
+                lambda: realtime_manager.get_quote_dict(trade_request.symbol, use_cache=True)
+            ) or {}
             if "price" in realtime_quote and realtime_quote["price"] is not None:
                 price = realtime_quote["price"]
 
             if price is None:
-                quote = data_manager.get_latest_price(trade_request.symbol)
+                quote = await run_in_threadpool(
+                    data_manager.get_latest_price, trade_request.symbol
+                )
                 if quote and "price" in quote:
                     price = quote["price"]
 
@@ -73,10 +78,11 @@ async def execute_trade(trade_request: TradeRequest):
             price=price
         )
 
+        stream_payload = await run_in_threadpool(build_trade_stream_payload)
         await trade_ws_manager.broadcast({
             "type": "trade_executed",
             "data": {
-                **build_trade_stream_payload(),
+                **stream_payload,
                 "trade": trade_result,
             },
         })
@@ -111,10 +117,11 @@ async def reset_account():
     """重置模拟账户"""
     try:
         trade_manager.reset_account()
+        stream_payload = await run_in_threadpool(build_trade_stream_payload)
         await trade_ws_manager.broadcast({
             "type": "account_reset",
             "data": {
-                **build_trade_stream_payload(),
+                **stream_payload,
                 "message": "账户已重置",
             },
         })

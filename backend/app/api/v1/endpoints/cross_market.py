@@ -6,6 +6,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
+from fastapi.concurrency import run_in_threadpool
 
 from backend.app.core.error_handler import AppException
 from backend.app.schemas.cross_market import (
@@ -28,6 +29,36 @@ def _parse_date(date_str: str | None) -> datetime | None:
     if not date_str:
         return None
     return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+
+
+def _run_cross_market_backtest_sync(request_dict: dict) -> dict:
+    """Build the cross-market backtester and run it (heavy, synchronous)."""
+    request = CrossMarketBacktestRequest.model_validate(request_dict)
+    start_date = _parse_date(request.start_date)
+    end_date = _parse_date(request.end_date)
+
+    backtester = CrossMarketBacktester(
+        data_manager=_get_data_manager(),
+        initial_capital=request.initial_capital,
+        commission=request.commission,
+        slippage=request.slippage,
+    )
+    return backtester.run(
+        assets=[asset.model_dump() for asset in request.assets],
+        template_context=request.template_context.model_dump() if request.template_context else None,
+        allocation_constraints=(
+            request.allocation_constraints.model_dump(exclude_none=True)
+            if request.allocation_constraints
+            else None
+        ),
+        strategy_name=request.strategy,
+        parameters=request.parameters,
+        start_date=start_date,
+        end_date=end_date,
+        construction_mode=request.construction_mode,
+        min_history_days=request.min_history_days,
+        min_overlap_ratio=request.min_overlap_ratio,
+    )
 
 
 @router.get("/templates", summary="Get cross-market demo templates")
@@ -257,27 +288,8 @@ async def run_cross_market_backtest(request: CrossMarketBacktestRequest):
         if start_date and end_date and start_date >= end_date:
             raise HTTPException(status_code=400, detail="Start date must be before end date")
 
-        backtester = CrossMarketBacktester(
-            data_manager=_get_data_manager(),
-            initial_capital=request.initial_capital,
-            commission=request.commission,
-            slippage=request.slippage,
-        )
-        results = backtester.run(
-            assets=[asset.model_dump() for asset in request.assets],
-            template_context=request.template_context.model_dump() if request.template_context else None,
-            allocation_constraints=(
-                request.allocation_constraints.model_dump(exclude_none=True)
-                if request.allocation_constraints
-                else None
-            ),
-            strategy_name=request.strategy,
-            parameters=request.parameters,
-            start_date=start_date,
-            end_date=end_date,
-            construction_mode=request.construction_mode,
-            min_history_days=request.min_history_days,
-            min_overlap_ratio=request.min_overlap_ratio,
+        results = await run_in_threadpool(
+            _run_cross_market_backtest_sync, request.model_dump()
         )
         return {"success": True, "data": results, "error": None}
     except HTTPException:
