@@ -1,0 +1,56 @@
+# Build context trimming for the backend image (context = repo root).
+# Keep: backend/, src/, scripts/, requirements.txt, pyproject.toml, VERSION.
+
+.git
+.github
+.gitignore
+
+# Python envs / caches
+.venv
+venv
+env
+ENV
+**/__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.benchmarks
+.coverage
+.coverage.*
+htmlcov
+
+# Frontend (built by its own Dockerfile)
+frontend
+node_modules
+
+# Docs / tests / samples not needed at runtime
+docs
+tests
+*.md
+!README.md
+
+# Runtime/generated state (bind-mounted by compose, never baked into the image)
+data
+cache
+logs
+output
+outputs
+reports
+tmp
+metrics
+profiles
+backups
+
+# Local config & secrets (provided at runtime via env_file / env)
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.vscode
+.idea
+.claude
+.agents
+.DS_Store

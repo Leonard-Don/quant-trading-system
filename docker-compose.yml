@@ -1,0 +1,124 @@
+# Docker Compose stack for quant-trading-system.
+#
+# Quick start:
+#   cp .env.example .env          # required: compose reads it via env_file
+#   docker compose up --build     # backend + redis + celery worker + frontend
+#   docker compose --profile db up --build   # also start TimescaleDB
+#
+# Endpoints (defaults):
+#   frontend  -> http://localhost:3000
+#   backend   -> http://localhost:8000  (Swagger at /docs)
+#
+# The frontend image bakes VITE_API_URL at build time (browser -> backend
+# directly; CORS already allows http://localhost:3000). For a non-localhost
+# host, rebuild with VITE_API_URL=https://api.your-host.
+
+name: quant-trading-system
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ENVIRONMENT: production
+      API_HOST: 0.0.0.0
+      API_PORT: "8000"
+      API_RELOAD: "false"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      # Persist research archive / paper-trading state / logs / provider cache
+      # on the host. data/ holds real user state — keep it bind-mounted.
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./cache:/app/cache
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  celery-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      ENVIRONMENT: production
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_WORKER_POOL: solo
+      CELERY_WORKER_CONCURRENCY: "1"
+    command:
+      - celery
+      - -A
+      - backend.app.core.task_queue:celery_app
+      - worker
+      - --loglevel=info
+      - --concurrency=1
+      - --pool=solo
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./cache:/app/cache
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+
+  # Optional time-series database. Off by default (the app runs with
+  # file-based persistence). Enable with: docker compose --profile db up
+  # and wire DATABASE_URL in .env to use it.
+  timescaledb:
+    image: timescale/timescaledb:2.17.2-pg16
+    profiles: ["db"]
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${TIMESCALE_DB:-quant_research}
+      POSTGRES_USER: ${TIMESCALE_USER:-quant}
+      POSTGRES_PASSWORD: ${TIMESCALE_PASSWORD:-quant_dev_password}
+    ports:
+      - "${TIMESCALE_PORT:-5432}:5432"
+    volumes:
+      - tsdb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${TIMESCALE_USER:-quant} -d ${TIMESCALE_DB:-quant_research}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis_data:
+  tsdb_data:

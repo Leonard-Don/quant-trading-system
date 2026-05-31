@@ -420,6 +420,7 @@ GitHub Actions 会在每次 push 到 `main` 或 PR 时自动运行：
 | [更新日志](docs/CHANGELOG.md) | 版本发布记录与变更说明 |
 | [API 参考](docs/API_REFERENCE.md) | 接口契约与使用示例 |
 | [部署指南](docs/DEPLOYMENT.md) | 生产环境部署流程 |
+| [Docker 部署](docs/DOCKER.md) | `docker compose` 一键拉起后端/前端/Redis/Celery |
 | [测试指南](docs/TESTING_GUIDE.md) | 测试编写与运行说明 |
 | [项目结构](docs/PROJECT_STRUCTURE.md) | 目录结构与模块说明 |
 | [性能优化](docs/PERFORMANCE_OPTIMIZATION.md) | 性能调优建议 |
