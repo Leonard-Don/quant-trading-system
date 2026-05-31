@@ -28,6 +28,7 @@ from .metrics import (
     calculate_sortino_ratio,
     calculate_var,
     calculate_volatility,
+    infer_periods_per_year,
 )
 from .position_sizer import (
     BasePositionSizer,
@@ -726,6 +727,7 @@ class Backtester(BaseBacktester):
             "impact_coefficient": self.execution_config.impact_coefficient,
             "permanent_impact_bps": self.execution_config.permanent_impact_bps,
             "execution_lag": execution.get("execution_lag", self.execution_config.execution_lag),
+            "periods_per_year": results.get("periods_per_year"),
         }
 
         self.results = results
@@ -791,15 +793,22 @@ class Backtester(BaseBacktester):
             portfolio["total"].iloc[-1] - self.initial_capital
         ) / self.initial_capital
 
+        # Infer the true bar periodicity from the portfolio's DatetimeIndex so
+        # weekly/monthly/intraday backtests are annualized correctly instead of
+        # being treated as daily (252) regardless of frequency.
+        periods_per_year = infer_periods_per_year(portfolio.index)
+
         # Calculate annualized return
         days = len(portfolio)
-        annualized_return = calculate_annualized_return(total_return, days)
+        annualized_return = calculate_annualized_return(
+            total_return, days, trading_days_per_year=periods_per_year
+        )
 
-        # Get daily returns series
+        # Get periodic returns series
         returns = portfolio["returns"].dropna()
 
         # Calculate Sharpe ratio
-        sharpe_ratio = calculate_sharpe_ratio(returns)
+        sharpe_ratio = calculate_sharpe_ratio(returns, periods_per_year=periods_per_year)
 
         # Calculate max drawdown
         portfolio_values = portfolio["total"].values
@@ -874,13 +883,15 @@ class Backtester(BaseBacktester):
         expectancy = calculate_expectancy(completed_trade_pnls)
 
         # Calculate Sortino ratio (downside deviation)
-        sortino_ratio = calculate_sortino_ratio(returns)
+        sortino_ratio = calculate_sortino_ratio(
+            returns, periods_per_year=periods_per_year
+        )
 
         # Calculate Calmar ratio (annual return / max drawdown)
         calmar_ratio = calculate_calmar_ratio(annualized_return, max_drawdown)
 
         # Calculate annualized volatility
-        volatility = calculate_volatility(returns)
+        volatility = calculate_volatility(returns, periods_per_year=periods_per_year)
 
         # Calculate Value at Risk (95% confidence)
         var_95 = calculate_var(returns)
@@ -931,6 +942,7 @@ class Backtester(BaseBacktester):
             "total_completed_trades": total_completed_trades,
             "has_open_position": has_open_position,  # 标记是否有未平仓头寸
             "execution_costs": execution_costs,
+            "periods_per_year": periods_per_year,  # inferred annualization factor
         }
 
         return metrics

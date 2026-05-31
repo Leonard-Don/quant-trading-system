@@ -11,6 +11,67 @@ import numpy as np
 import pandas as pd
 
 
+def infer_periods_per_year(index: pd.Index) -> float:
+    """
+    Infer the annualization factor (periods per year) from an index.
+
+    The single-asset backtester historically annualized every metric as if the
+    data were daily (252 periods/year). For weekly, monthly or intraday data
+    that inflates annualized return and mis-scales Sharpe/Sortino/volatility.
+    This helper inspects the index spacing and returns an appropriate
+    periods-per-year estimate.
+
+    Mapping (based on the median spacing between consecutive timestamps):
+        ~1 day   -> ~252 (trading days/year)
+        ~7 days  -> ~52  (weeks/year)
+        ~30 days -> ~12  (months/year)
+        intraday -> ~252 * (1 day / median_delta), i.e. 252 trading sessions
+                    scaled by how many bars fit in a day.
+
+    Args:
+        index: A pandas Index. Only a DatetimeIndex with >= 3 points carries
+            usable timing information.
+
+    Returns:
+        Estimated periods per year. Falls back to 252.0 (the safe daily
+        default) for non-datetime indices, indices with fewer than 3 points,
+        or degenerate spacing (zero/NaN median delta).
+    """
+    default = 252.0
+
+    if not isinstance(index, pd.DatetimeIndex):
+        return default
+
+    if len(index) < 3:
+        return default
+
+    # Median spacing is robust to gaps (weekends, holidays, missing bars).
+    deltas = index.to_series().diff().dropna()
+    if deltas.empty:
+        return default
+
+    median_delta = deltas.median()
+    median_seconds = median_delta.total_seconds()
+
+    if not np.isfinite(median_seconds) or median_seconds <= 0:
+        return default
+
+    seconds_per_day = 86400.0
+    median_days = median_seconds / seconds_per_day
+
+    if median_days >= 20:
+        # ~Monthly or coarser: 12 calendar months per year.
+        return 365.25 / median_days
+    if median_days >= 4:
+        # ~Weekly: weeks per year.
+        return 365.25 / median_days
+    if median_days >= 0.8:
+        # ~Daily: anchor on the trading-day convention (252/year), not 365.
+        return 252.0
+    # Intraday: number of trading sessions (252) times bars-per-day.
+    return 252.0 * (seconds_per_day / median_seconds)
+
+
 def calculate_returns(equity_curve: Union[pd.Series, np.ndarray]) -> float:
     """
     Calculate total return from equity curve.

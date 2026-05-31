@@ -26,6 +26,7 @@ from src.backtest.metrics import (
     calculate_treynor_ratio,
     calculate_var,
     calculate_volatility,
+    infer_periods_per_year,
 )
 
 
@@ -307,3 +308,45 @@ class TestCalculateExpectancy:
 
     def test_empty_expectancy(self):
         assert calculate_expectancy([]) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# infer_periods_per_year
+# ---------------------------------------------------------------------------
+class TestInferPeriodsPerYear:
+    def test_daily_index(self):
+        """A daily DatetimeIndex should infer ≈252 trading days/year."""
+        idx = pd.date_range("2024-01-01", periods=100, freq="D")
+        assert infer_periods_per_year(idx) == pytest.approx(252.0, rel=0.02)
+
+    def test_weekly_index(self):
+        """A weekly (7-day spacing) index should infer ≈52 periods/year."""
+        idx = pd.date_range("2024-01-01", periods=104, freq="7D")
+        assert infer_periods_per_year(idx) == pytest.approx(52.0, rel=0.05)
+
+    def test_monthly_index(self):
+        """A ~30-day-spaced index should infer ≈12 periods/year."""
+        idx = pd.date_range("2024-01-01", periods=36, freq="30D")
+        assert infer_periods_per_year(idx) == pytest.approx(12.0, rel=0.05)
+
+    def test_intraday_index(self):
+        """An hourly index should infer ≈ 252 * 24 periods/year."""
+        idx = pd.date_range("2024-01-01", periods=100, freq="h")
+        assert infer_periods_per_year(idx) == pytest.approx(252.0 * 24, rel=0.02)
+
+    def test_non_datetime_index_defaults_to_252(self):
+        """A plain integer index has no time information → safe default 252."""
+        idx = pd.RangeIndex(start=0, stop=100)
+        assert infer_periods_per_year(idx) == 252.0
+
+    def test_short_index_defaults_to_252(self):
+        """Fewer than 3 points cannot establish a median spacing → default 252."""
+        idx = pd.date_range("2024-01-01", periods=2, freq="7D")
+        assert infer_periods_per_year(idx) == 252.0
+
+    def test_zero_delta_index_defaults_to_252(self):
+        """A degenerate index with a zero/NaN median delta must not blow up."""
+        idx = pd.DatetimeIndex(
+            ["2024-01-01", "2024-01-01", "2024-01-01", "2024-01-01"]
+        )
+        assert infer_periods_per_year(idx) == 252.0

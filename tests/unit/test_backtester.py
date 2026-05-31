@@ -410,6 +410,75 @@ class TestBacktester:
         assert len(prepared) == 3
         assert prepared.loc[dates[1], "volume"] == 0
 
+    def test_weekly_bars_annualize_with_52_periods_not_252(self):
+        """Weekly-indexed backtests must annualize assuming ~52 periods/year.
+
+        With 104 weekly bars (~2 years), a +20% total return annualizes to
+        ~9.5% (sqrt(1.2)-1). The legacy daily-252 assumption treats 104 bars
+        as 104/252≈0.41 years and massively inflates the figure to ~63%.
+        """
+        from src.backtest.metrics import calculate_annualized_return
+
+        n = 104
+        dates = pd.date_range("2024-01-01", periods=n, freq="7D")
+        # Smooth monotonic rise from 100 to 120 → +20% total return, buy & hold.
+        prices = np.linspace(100.0, 120.0, n)
+        data = pd.DataFrame({"close": prices}, index=dates)
+
+        results = Backtester(
+            initial_capital=10000,
+            commission=0,
+            slippage=0,
+            execution_lag=0,
+        ).run(BuyAndHold(), data)
+
+        total_return = results["total_return"]
+        assert total_return == pytest.approx(0.2, rel=1e-6)
+
+        # Correct (weekly) annualization: ~52 periods/year.
+        expected_weekly = calculate_annualized_return(
+            total_return, n, trading_days_per_year=52
+        )
+        # Wrong (legacy) annualization that assumes daily 252 bars.
+        wrong_daily = calculate_annualized_return(
+            total_return, n, trading_days_per_year=252
+        )
+
+        assert results["annualized_return"] == pytest.approx(expected_weekly, rel=0.02)
+        # And it must NOT match the inflated daily-252 assumption.
+        assert abs(results["annualized_return"] - wrong_daily) > 0.1
+        # ~104 bars / 52 ≈ 2 years → annualized return well below total return.
+        assert results["annualized_return"] < total_return
+
+        # The inferred periodicity should be surfaced for transparency.
+        assert results["execution_diagnostics"]["periods_per_year"] == pytest.approx(
+            52.0, rel=0.05
+        )
+
+    def test_daily_bars_still_annualize_with_252_periods(self):
+        """Daily-indexed backtests must keep the existing 252-periods behavior."""
+        from src.backtest.metrics import calculate_annualized_return
+
+        n = 252
+        dates = pd.date_range("2024-01-01", periods=n, freq="D")
+        prices = np.linspace(100.0, 120.0, n)
+        data = pd.DataFrame({"close": prices}, index=dates)
+
+        results = Backtester(
+            initial_capital=10000,
+            commission=0,
+            slippage=0,
+            execution_lag=0,
+        ).run(BuyAndHold(), data)
+
+        expected_daily = calculate_annualized_return(
+            results["total_return"], n, trading_days_per_year=252
+        )
+        assert results["annualized_return"] == pytest.approx(expected_daily, rel=1e-6)
+        assert results["execution_diagnostics"]["periods_per_year"] == pytest.approx(
+            252.0, rel=0.02
+        )
+
     def test_prepare_market_data_drops_non_positive_close_bars(self):
         """close<=0 的bar应被丢弃，避免后续除零或负价格污染组合估值。"""
         dates = pd.date_range("2024-01-01", periods=4, freq="D")
