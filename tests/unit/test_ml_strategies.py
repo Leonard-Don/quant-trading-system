@@ -149,6 +149,68 @@ class TestWalkForwardIsOutOfSample:
         assert (signals == 0).all()
 
 
+class TestTrainSplitTemporalIntegrity:
+    """``train()`` reports a validation score. That split must respect time:
+    the validation segment must be strictly later than the training segment
+    (no shuffled future bars in the train set), and the ``StandardScaler``
+    must be fit on the TRAINING segment only — fitting it on the full sample
+    leaks the validation distribution into the scaling and inflates the
+    reported ``val_score``.
+    """
+
+    def test_train_split_is_chronological_and_scaler_fit_on_train_only(self):
+        data = _ohlcv()
+        strategy = LogisticRegressionStrategy(min_training_samples=120)
+
+        # Reconstruct exactly what train() sees so we can assert on the split.
+        features = strategy._prepare_features(data)
+        labels = strategy._prepare_labels(data)
+        valid = ~(features.isna().any(axis=1) | labels.isna())
+        features = features[valid]
+        labels = labels[valid]
+
+        n = len(features)
+        split = int(n * 0.8)
+        train_features = features.iloc[:split]
+
+        # Spy on the model fit to capture the rows train() actually trained on,
+        # so we can prove they are the chronological head, not a shuffle.
+        captured = {}
+        real_fit = strategy.model.fit
+
+        def spy_fit(X, y, *args, **kwargs):
+            captured["n_train"] = len(X)
+            return real_fit(X, y, *args, **kwargs)
+
+        strategy.model.fit = spy_fit
+
+        assert strategy.train(data) is True
+
+        # 1) The training fold must be the chronological head (positional 80%
+        #    split, shuffle=False), so exactly ``split`` rows are used.
+        assert captured["n_train"] == split, (
+            "train() did not use a positional chronological split"
+        )
+
+        # 2) The scaler must be fit on the TRAIN segment only. If it were fit
+        #    on the full sample, scaler.mean_ would equal the full-sample
+        #    feature means; it must instead equal the train-segment means.
+        train_means = train_features.to_numpy(dtype=float).mean(axis=0)
+        full_means = features.to_numpy(dtype=float).mean(axis=0)
+
+        assert strategy.scaler.mean_ == pytest.approx(train_means), (
+            "scaler was not fit on the training segment only"
+        )
+        # And it must NOT match the full-sample means (guards against a
+        # degenerate case where train and full happen to coincide).
+        assert not np.allclose(train_means, full_means), (
+            "test fixture is degenerate: train and full means coincide"
+        )
+        assert not np.allclose(strategy.scaler.mean_, full_means), (
+            "scaler leaked validation rows into its fit (full-sample means)"
+        )
+
+
 class TestBackwardCompatibility:
     def test_train_then_introspect_still_works(self):
         """train() must still fit the model so coefficient/importance

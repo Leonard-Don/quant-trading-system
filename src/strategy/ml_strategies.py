@@ -171,13 +171,18 @@ class MLStrategy(BaseStrategy):
                 logger.warning("清理后的训练数据不足")
                 return False
 
-            # 标准化特征
-            features_scaled = self.scaler.fit_transform(features)
-
-            # 分割训练和验证集
-            X_train, X_val, y_train, y_val = train_test_split(
-                features_scaled, labels, test_size=0.2, random_state=42, stratify=labels
+            # 先按时间顺序划分训练/验证集，再标准化。
+            # 这是一个时间序列：必须 shuffle=False 做位置切分，验证集严格晚于
+            # 训练集，否则未来的 K 线会泄漏进训练集、虚高 val_score。
+            # 不再使用 stratify（它隐含 shuffle=True 会打乱时间顺序）——
+            # 对回测有效性而言，时间完整性优先于类别均衡。
+            X_train_raw, X_val_raw, y_train, y_val = train_test_split(
+                features, labels, test_size=0.2, shuffle=False
             )
+
+            # 标准化：仅在训练段上 fit，避免验证段统计量泄漏进缩放参数。
+            X_train = self.scaler.fit_transform(X_train_raw)
+            X_val = self.scaler.transform(X_val_raw)
 
             # 训练模型
             self.model.fit(X_train, y_train)
