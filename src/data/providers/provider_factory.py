@@ -303,6 +303,38 @@ class DataProviderFactory:
         """获取按优先级排序的提供器列表"""
         return sorted(self.providers.values(), key=lambda p: p.priority)
 
+    # Matches A-share / ETF symbols: 6-digit codes with an optional Yahoo-style
+    # ``.SS``/``.SH``/``.SZ``/``.BJ`` suffix, or the ``SH``/``SZ``/``BJ`` prefix
+    # form. US/global tickers (AAPL, ^GSPC, BTC-USD, GC=F) never match.
+    _A_SHARE_SYMBOL_RE: ClassVar = re.compile(
+        r"^(?:\d{6}(?:\.(?:SS|SH|SZ|BJ))?|(?:SH|SZ|BJ)\d{6})$",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _is_a_share_symbol(cls, symbol: str) -> bool:
+        """True for Shanghai/Shenzhen/Beijing stocks and ETFs."""
+        return bool(cls._A_SHARE_SYMBOL_RE.match(str(symbol or "").strip()))
+
+    def _ordered_providers_for_symbol(self, symbol: str) -> list[BaseDataProvider]:
+        """Priority-sorted providers, but Tushare first for A-share/ETF symbols.
+
+        Tushare carries a deliberately low global priority (45 — it is a paid,
+        rate-limited, after-close source), so US/global symbols keep the normal
+        Yahoo-first order. For A-share/ETF *historical* data, however, Tushare is
+        the authoritative source and is both faster (~0.1s vs ~0.85s via the
+        Yahoo ``.SS``/``.SZ`` path) and more complete, so we try it first and let
+        the existing fall-through cover the rare case where it returns empty or
+        is unavailable (e.g. indices, or a missing token — both fail cheaply).
+        """
+        ordered = self.get_sorted_providers()
+        if not self._is_a_share_symbol(symbol):
+            return ordered
+        tushare = next((p for p in ordered if p.name == "tushare"), None)
+        if tushare is None:
+            return ordered
+        return [tushare, *(p for p in ordered if p is not tushare)]
+
     def get_historical_data(
         self,
         symbol: str,
@@ -351,7 +383,7 @@ class DataProviderFactory:
 
         errors = []
         attempts: list[dict[str, Any]] = []
-        for p in self.get_sorted_providers():
+        for p in self._ordered_providers_for_symbol(symbol):
             try:
                 logger.debug(f"Trying provider: {p.name}")
                 data = p.get_historical_data(symbol, start_date, end_date, interval)
