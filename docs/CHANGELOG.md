@@ -15,11 +15,14 @@
   attribution research module, and all ETF-only scripts, CLIs, fixtures, docs
   and tests. The public-summary exporter drops its `etf_rotation` /
   `regime_recommendation` sections.
+- Also removed the now-orphaned transaction-cost model
+  (`src/backtest/transaction_costs.py`): once the ETF backtest engines were
+  deleted nothing consumed it anymore (it was only re-exported from the
+  `src.backtest` package barrel).
 - The generic statistical-falsification engine
-  (`src/backtest/strategy_statistical_tests.py`) and the transaction-cost
-  model (`src/backtest/transaction_costs.py`) are **kept** as reusable
-  infrastructure — the former is still consumed by the generic
-  `WalkForwardAnalyzer` power diagnostics.
+  (`src/backtest/strategy_statistical_tests.py`) is **kept** — it still powers
+  the generic `WalkForwardAnalyzer` statistical-power diagnostics exposed via
+  the live `/backtest` walk-forward endpoint.
 
 ### Data
 
