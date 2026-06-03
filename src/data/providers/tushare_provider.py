@@ -59,9 +59,16 @@ class TushareProvider(BaseDataProvider):
         if not raw:
             return ""
 
-        suffix_match = re.fullmatch(r"(\d{6})\.(SH|SZ|BJ)", raw)
+        suffix_match = re.fullmatch(r"(\d{6})\.(SH|SS|SZ|BJ)", raw)
         if suffix_match:
-            return f"{suffix_match.group(1)}.{suffix_match.group(2)}"
+            code, exchange = suffix_match.group(1), suffix_match.group(2)
+            # Yahoo / this system uses ``.SS`` for the Shanghai exchange, while
+            # Tushare's ``ts_code`` uses ``.SH``. Map it so Shanghai stocks and
+            # ETFs (e.g. ``600519.SS`` / ``510300.SS``) resolve instead of
+            # silently returning an empty frame.
+            if exchange == "SS":
+                exchange = "SH"
+            return f"{code}.{exchange}"
 
         prefix_match = re.fullmatch(r"(SH|SZ|BJ)(\d{6})", raw)
         if prefix_match:
