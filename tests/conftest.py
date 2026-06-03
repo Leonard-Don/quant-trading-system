@@ -5,7 +5,6 @@ pytest配置文件
 import copy
 import os
 import sys
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -18,83 +17,6 @@ sys.path.insert(0, project_root)
 from src.backtest.backtester import Backtester  # noqa: E402
 from src.data.data_manager import DataManager  # noqa: E402
 from src.strategy.strategies import MovingAverageCrossover, RSIStrategy  # noqa: E402
-
-
-@pytest.fixture(autouse=True)
-def _isolate_etf_rotation_external_state(monkeypatch, tmp_path):
-    """Keep ETF rotation tests independent of the developer's local config.
-
-    The CLI/API auto-load ``~/.config/etf-rotation/holdings.json`` and call
-    ``realtime_manager`` for live quotes by default. Both must be neutralised
-    in unit tests so the same suite passes on a fresh checkout and a fully
-    configured workstation. Individual tests can monkeypatch the helpers
-    back to a real implementation when they want to exercise that path.
-    """
-
-    monkeypatch.delenv("ETF_HOLDINGS_PATH", raising=False)
-    monkeypatch.delenv("ETF_AUDIT_LOG_PATH", raising=False)
-    monkeypatch.delenv("ETF_STRATEGY_CONFIG_PATH", raising=False)
-    monkeypatch.setenv("ETF_PREFERENCES_PATH", str(tmp_path / "etf_preferences.json"))
-
-    # Neutralise the strategy.json loader so the dev workstation's live
-    # config (with real manual_overrides, holdings, etc.) never bleeds
-    # into a "should be a fresh default" unit-test path. Tests that want
-    # to exercise specific config can still pass `path=` explicitly to
-    # ``load_strategy_config``.
-    try:
-        from src.strategy import etf_rotation_config_loader as _cfg_loader
-        monkeypatch.setattr(
-            _cfg_loader,
-            "DEFAULT_CONFIG_PATH",
-            Path("/nonexistent/etf-rotation/strategy.json"),
-        )
-    except ImportError:
-        pass
-
-    try:
-        from scripts import daily_etf_signal
-    except ImportError:
-        # Skip the isolation when daily_etf_signal isn't on the path —
-        # tests that don't touch it shouldn't care.
-        return
-
-    monkeypatch.setattr(
-        daily_etf_signal,
-        "DEFAULT_HOLDINGS_PATH",
-        Path("/nonexistent/etf-rotation/holdings.json"),
-    )
-    monkeypatch.setattr(
-        daily_etf_signal,
-        "DEFAULT_AUDIT_LOG_PATH",
-        Path("/nonexistent/etf-rotation/audit.jsonl"),
-    )
-
-    def _empty_quote_fetch(codes, *, use_cache=True):
-        return {}, {
-            "requested": len(codes) if codes else 0,
-            "resolved": 0,
-            "missing": len(codes) if codes else 0,
-            "use_cache": use_cache,
-            "offline": True,
-        }
-
-    monkeypatch.setattr(daily_etf_signal, "fetch_live_quotes", _empty_quote_fetch)
-
-    # Reset the EtfRotationService singleton between tests so each test
-    # starts with no cached plan (the FastAPI lifespan hook installs one
-    # in production, but in unit tests we want isolation).
-    try:
-        from backend.app.api.v1.endpoints import etf_rotation as etf_endpoint
-    except ImportError:
-        return
-    etf_endpoint.reset_service_for_tests()
-    etf_endpoint.reset_preferences_for_tests()
-    try:
-        from src.strategy.etf_rotation_preferences import reset_preferences_store_for_tests
-    except ImportError:
-        return
-    reset_preferences_store_for_tests()
-
 
 # Class-level mutable caches on the data-provider classes. These persist across
 # tests (the classes are module singletons), so without isolation a cache or
@@ -159,13 +81,13 @@ def _isolate_provider_class_caches(monkeypatch):
     across tests — the two shared-state problems behind the flaky Tushare
     fallback tests.
 
-    1. ``etf_price_history._get_tushare_token()`` loads the developer's real
-       ``.env`` into ``os.environ`` (process-wide, ``override=False``). Once any
-       ETF test triggered it, later "unit" tests that built a real
-       ``TushareProvider`` issued live, latency-variable calls against the paid
-       endpoint. Blanking both token vars keeps unit tests offline and off the
-       paid quota; a test that needs a token still sets its own (its
-       ``monkeypatch`` runs after this autouse setup, so it wins).
+    1. Any helper that loads the developer's real ``.env`` into ``os.environ``
+       (process-wide, ``override=False``) can leak a live Tushare token into
+       "unit" tests that build a real ``TushareProvider``, turning them into
+       live, latency-variable calls against the paid endpoint. Blanking both
+       token vars keeps unit tests offline and off the paid quota; a test that
+       needs a token still sets its own (its ``monkeypatch`` runs after this
+       autouse setup, so it wins).
     2. The data-provider classes carry ~30 class-level caches (catalogs, symbol
        maps, valuation snapshots, circuit breakers …) that persist across tests.
        Snapshot them on setup and restore on teardown so a cache written — or a

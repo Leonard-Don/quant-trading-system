@@ -135,13 +135,3 @@ def test_deprecated_routes_have_compatibility_exit_plan():
 def test_route_surface_registry_has_no_stale_entries():
     route_keys = {route["key"] for route in _routes()}
     assert set(ROUTE_SURFACE_REGISTRY) <= route_keys
-
-
-def test_etf_advanced_engines_now_have_frontend_service_entries():
-    frontend_text = _frontend_text()
-    assert "postEtfRotationBacktest" in frontend_text
-    assert "postEtfRotationStrategyComparison" in frontend_text
-    assert "postEtfRotationOptimizeParameters" in frontend_text
-    assert "POST /etf-rotation/backtest" not in ROUTE_SURFACE_REGISTRY
-    assert "POST /etf-rotation/strategy-comparison" not in ROUTE_SURFACE_REGISTRY
-    assert "POST /etf-rotation/optimize-parameters" not in ROUTE_SURFACE_REGISTRY

@@ -3,9 +3,8 @@
 导出 quant-trading-system 公开摘要 (Phase F1).
 
 把 runtime 私有缓存（``cache/alt_data/providers/*.json``、
-``~/.config/etf-rotation/audit.jsonl``、``data/paper_trading/*.json``、
-``data/industry/heatmap_history.json``）蒸馏为一份小而稳定、可安全提交到
-版本库的 ``data/public/quant_summary.json``。
+``data/paper_trading/*.json``、``data/industry/heatmap_history.json``）蒸馏为
+一份小而稳定、可安全提交到版本库的 ``data/public/quant_summary.json``。
 
 下游消费者
 ==========
@@ -15,7 +14,6 @@ sibling 项目 ``cn-altdata-brief`` 在 GitHub Actions 里直接 ``git clone``
 
 - policy_radar 当前 industry 信号 top-N（已按 |avg_impact| 排序）
 - 行业热度榜单（top-10 行业的最新 score / change% / 关联政策信号）
-- ETF rotation 默认开关 / universe 大小 / 最近一次审计条目数
 - paper_trading 已激活的 profile 列表
 
 它不需要直接访问 ``cache/``（被 ``.gitignore`` 排除），也不需要拉起后端
@@ -57,16 +55,9 @@ DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "data" / "public" / "quant_summary.json"
 DEFAULT_VERSION_PATH = PROJECT_ROOT / "VERSION"
 DEFAULT_HEATMAP_HISTORY_PATH = PROJECT_ROOT / "data" / "industry" / "heatmap_history.json"
 DEFAULT_PAPER_TRADING_DIR = PROJECT_ROOT / "data" / "paper_trading"
-DEFAULT_AUDIT_LOG_PATH = Path.home() / ".config" / "etf-rotation" / "audit.jsonl"
 # Ensure ``src.*`` imports resolve when invoked via ``python scripts/...``.
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
-
-# Prefer the 5-year price matrix if it has been fetched (power-analysis
-# need); fall back to the legacy 4-year file shipped in the repo.
-from src.data.etf_price_history import resolve_default_price_csv  # noqa: E402
-
-DEFAULT_BACKTEST_PRICE_CSV = resolve_default_price_csv(PROJECT_ROOT)
 
 # Stable schema version. Bumps when the *shape* of any output field
 # changes in a breaking way. Additive fields do NOT bump.
@@ -398,211 +389,6 @@ def _enrich_industry_heat_with_policy_signal(
     return new_block
 
 
-def _build_etf_rotation_section(
-    audit_log_path: Path,
-    *,
-    backtest_price_csv_path: Path = DEFAULT_BACKTEST_PRICE_CSV,
-) -> dict[str, Any]:
-    """Static config defaults + the most recent audit log line metadata.
-
-    We only read the *last* line of the audit log so an unbounded log
-    file doesn't blow up the script. The audit log line carries plenty
-    of structured fields (score_breakdown, adjusted_weights, etc.) — we
-    keep none of them; only the run timestamp surfaces.
-    """
-    # Pull config defaults lazily so the script is importable in test
-    # environments that don't have the strategy chain installed.
-    try:
-        from src.strategy.etf_rotation_config_loader import (
-            DEFAULT_STRATEGY_PARAMS,
-            DEFAULT_UNIVERSE,
-        )
-
-        policy_signal_default = bool(
-            DEFAULT_STRATEGY_PARAMS.get("policy_signal_factor_enabled", False)
-        )
-        universe_size = len(DEFAULT_UNIVERSE)
-    except ImportError as exc:
-        logger.warning("etf_rotation_config_loader import failed: %s", exc)
-        policy_signal_default = False
-        universe_size = 0
-
-    # Count strategy classes (concrete BaseStrategy subclasses across the
-    # strategy library). We import each module and inspect __mro__ to
-    # avoid hard-coding a count that drifts when strategies are added.
-    strategies_count = _count_strategy_classes()
-
-    audit_line_count = 0
-    latest_audit_at: str | None = None
-    latest_audit_run_at: str | None = None
-    if audit_log_path.exists():
-        try:
-            with audit_log_path.open("r", encoding="utf-8") as handle:
-                last_payload: dict[str, Any] | None = None
-                for line in handle:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    audit_line_count += 1
-                    try:
-                        last_payload = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-            if isinstance(last_payload, dict):
-                # The exporter publishes timestamps only — never the
-                # weights / prices / risk reasons body.
-                latest_audit_at = (
-                    last_payload.get("recorded_at")
-                    or last_payload.get("ts")
-                )
-                latest_audit_run_at = last_payload.get("run_at")
-        except OSError as exc:
-            logger.warning("Failed to read audit log %s: %s", audit_log_path, exc)
-
-    return {
-        "policy_signal_factor_enabled_default": policy_signal_default,
-        "config_default_universe_size": universe_size,
-        "available_strategies_count": strategies_count,
-        "latest_audit_log_entry_count": audit_line_count,
-        "latest_audit_at": str(latest_audit_at) if latest_audit_at else None,
-        "latest_audit_run_at": str(latest_audit_run_at) if latest_audit_run_at else None,
-        "regime_recommendation": _build_regime_recommendation_section(
-            backtest_price_csv_path
-        ),
-    }
-
-
-def _build_regime_recommendation_section(
-    price_csv_path: Path,
-    *,
-    lookback_days: int = 90,
-) -> dict[str, Any]:
-    """Publish the current market-regime recommendation without raw prices.
-
-    The sibling ``cn-altdata-brief`` project only needs the label,
-    confidence, recommendation and a few rounded feature values. We never
-    include the source CSV path or any raw price rows, so the committed public
-    summary stays portable and does not leak workstation-local paths.
-    """
-
-    base: dict[str, Any] = {
-        "available": False,
-        "lookback_days": int(lookback_days),
-    }
-    if not price_csv_path.is_file():
-        return {**base, "unavailable_reason": "price_matrix_missing"}
-
-    try:
-        import pandas as pd
-
-        from src.strategy.market_regime_classifier import MarketRegimeClassifier
-        from src.strategy.strategy_recommender import recommend_strategy
-    except ImportError as exc:
-        logger.warning("Cannot build regime recommendation: %s", exc)
-        return {**base, "unavailable_reason": "classifier_unavailable"}
-
-    try:
-        frame = pd.read_csv(price_csv_path, index_col=0)
-        frame.index = pd.to_datetime(frame.index)
-        prices = (
-            frame.apply(pd.to_numeric, errors="coerce")
-            .sort_index()
-            .ffill()
-            .dropna(how="all")
-        )
-    except (OSError, ValueError) as exc:
-        logger.warning("Cannot read regime price matrix: %s", exc)
-        return {**base, "unavailable_reason": "price_matrix_unreadable"}
-
-    regime = MarketRegimeClassifier().classify(prices, lookback_days=lookback_days)
-    recommendation = recommend_strategy(regime)
-    features = regime.features or {}
-    return {
-        "available": True,
-        "lookback_days": int(regime.lookback_days),
-        "as_of": regime.as_of,
-        "regime_name": regime.regime_name,
-        "confidence": _round_optional_float(regime.confidence, digits=3),
-        "recommended_strategy": recommendation.strategy_name,
-        "config_overrides": dict(recommendation.config_overrides),
-        "n_assets_used": int(regime.n_assets_used),
-        "features": {
-            "trend_r2": _round_optional_float(features.get("trend_r2"), digits=4),
-            "trend_slope": _round_optional_float(features.get("trend_slope"), digits=6),
-            "realized_vol": _round_optional_float(features.get("realized_vol"), digits=4),
-            "return_skew": _round_optional_float(features.get("return_skew"), digits=4),
-            "drawdown_ratio": _round_optional_float(features.get("drawdown_ratio"), digits=4),
-            "avg_pairwise_correlation": _round_optional_float(
-                features.get("avg_pairwise_correlation"), digits=4
-            ),
-        },
-        "rationale": recommendation.rationale,
-    }
-
-
-def _count_strategy_classes() -> int:
-    """Count concrete BaseStrategy subclasses available in ``src.strategy``.
-
-    Skipped gracefully (returns 0) if the strategy chain can't be imported
-    in this environment (e.g. tests with stubbed deps). The count is a
-    headline number for downstream consumers; precision matters less than
-    determinism, so we exclude abstract bases (``BaseStrategy``, ``MLStrategy``)
-    and any class with abstract methods.
-    """
-    import importlib
-    import inspect
-
-    strategy_modules = (
-        "src.strategy.strategies",
-        "src.strategy.advanced_strategies",
-        "src.strategy.advanced_technical",
-        "src.strategy.momentum_strategy",
-        "src.strategy.pairs_trading",
-        "src.strategy.sentiment_strategy",
-        "src.strategy.ml_strategies",
-        "src.strategy.lstm_strategy",
-        "src.strategy.etf_mean_reversion_strategy",
-        "src.strategy.etf_rotation_strategy",
-    )
-    seen: set[str] = set()
-    try:
-        base_module = importlib.import_module("src.strategy.strategies")
-    except ImportError as exc:
-        logger.warning("Cannot count strategies — base import failed: %s", exc)
-        return 0
-    base_cls = getattr(base_module, "BaseStrategy", None)
-    if base_cls is None:
-        return 0
-    for module_name in strategy_modules:
-        try:
-            module = importlib.import_module(module_name)
-        except ImportError as exc:
-            logger.warning("Skipping strategy module %s: %s", module_name, exc)
-            continue
-        for _name, member in inspect.getmembers(module, inspect.isclass):
-            if not _name.endswith("Strategy"):
-                continue
-            # Concrete strategy: inherits from BaseStrategy (or is the ETF
-            # rotation/blend wrapper class) AND has no remaining abstract
-            # methods. We accept ``EtfMeanReversionStrategy`` /
-            # ``EtfRotationStrategy`` even though they don't inherit from
-            # ``BaseStrategy``; they're first-class strategies users invoke.
-            is_strategy_subclass = base_cls is not None and issubclass(member, base_cls)
-            is_etf_wrapper = _name in {
-                "EtfMeanReversionStrategy",
-                "EtfRotationStrategy",
-            }
-            if not (is_strategy_subclass or is_etf_wrapper):
-                continue
-            if _name in {"BaseStrategy", "MLStrategy"}:
-                # Abstract; not a user-facing strategy.
-                continue
-            if getattr(member, "__abstractmethods__", None):
-                continue
-            seen.add(f"{module_name}.{_name}")
-    return len(seen)
-
-
 def _build_paper_trading_section(profiles_dir: Path) -> dict[str, Any]:
     """List active paper_trading profile names (no cash/position detail).
 
@@ -634,8 +420,6 @@ def build_public_summary(
     version_path: Path = DEFAULT_VERSION_PATH,
     heatmap_history_path: Path = DEFAULT_HEATMAP_HISTORY_PATH,
     paper_trading_dir: Path = DEFAULT_PAPER_TRADING_DIR,
-    audit_log_path: Path = DEFAULT_AUDIT_LOG_PATH,
-    backtest_price_csv_path: Path = DEFAULT_BACKTEST_PRICE_CSV,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Build the public quant summary dict from on-disk runtime artifacts.
@@ -682,12 +466,6 @@ def build_public_summary(
             )
         payload["industry_heat"] = industry_heat_section
 
-    # --- etf_rotation (always present — has static defaults to publish)
-    payload["etf_rotation"] = _build_etf_rotation_section(
-        audit_log_path,
-        backtest_price_csv_path=backtest_price_csv_path,
-    )
-
     # --- paper_trading (always present — file-presence based)
     payload["paper_trading"] = _build_paper_trading_section(paper_trading_dir)
 
@@ -702,7 +480,6 @@ def build_public_summary(
     payload["providers"] = _build_providers_envelope(
         policy_radar_section=policy_radar_section,
         industry_heat_section=industry_heat_section,
-        etf_rotation_section=payload["etf_rotation"],
         paper_trading_section=payload["paper_trading"],
     )
 
@@ -713,7 +490,6 @@ def _build_providers_envelope(
     *,
     policy_radar_section: dict[str, Any] | None,
     industry_heat_section: dict[str, Any] | None,
-    etf_rotation_section: dict[str, Any],
     paper_trading_section: dict[str, Any],
 ) -> dict[str, Any]:
     """Build the ``providers`` envelope matching the sibling-project contract.
@@ -728,8 +504,6 @@ def _build_providers_envelope(
     * ``industry_heat.top_industries_by_score[]`` rows: ``industry``,
       ``heat_score``, ``policy_signal`` (string: bullish/bearish/neutral),
       ``policy_impact`` (float), ``mentions`` (int).
-    * ``etf_rotation``: ``audit_count``, ``strategy_count``,
-      ``last_refresh_at``.
 
     The flat per-section blocks above keep their richer / source-shape
     fields (``industry_name``, ``score``, ``change_pct``, ``stock_count``,
@@ -807,21 +581,6 @@ def _build_providers_envelope(
             "top_industries_by_score": heat_rows,
         }
 
-    # etf_rotation: canonical key names (audit_count / strategy_count /
-    # last_refresh_at) that cn-altdata-brief's adapter reads. The richer
-    # flat block (``latest_audit_at`` / ``available_strategies_count`` /
-    # regime recommendation) is preserved separately.
-    envelope["etf_rotation"] = {
-        "audit_count": _coerce_int(
-            etf_rotation_section.get("latest_audit_log_entry_count")
-        ),
-        "strategy_count": _coerce_int(
-            etf_rotation_section.get("available_strategies_count")
-        ),
-        "last_refresh_at": etf_rotation_section.get("latest_audit_at")
-        or etf_rotation_section.get("latest_audit_run_at"),
-    }
-
     # paper_trading: just lift the existing section — no rename needed.
     envelope["paper_trading"] = paper_trading_section
 
@@ -858,8 +617,6 @@ def export_public_summary(
     version_path: Path = DEFAULT_VERSION_PATH,
     heatmap_history_path: Path = DEFAULT_HEATMAP_HISTORY_PATH,
     paper_trading_dir: Path = DEFAULT_PAPER_TRADING_DIR,
-    audit_log_path: Path = DEFAULT_AUDIT_LOG_PATH,
-    backtest_price_csv_path: Path = DEFAULT_BACKTEST_PRICE_CSV,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """One-shot: build the summary and atomic-write it to disk."""
@@ -868,8 +625,6 @@ def export_public_summary(
         version_path=version_path,
         heatmap_history_path=heatmap_history_path,
         paper_trading_dir=paper_trading_dir,
-        audit_log_path=audit_log_path,
-        backtest_price_csv_path=backtest_price_csv_path,
         generated_at=generated_at,
     )
     write_public_summary_atomic(payload, output_path)
@@ -885,8 +640,8 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Distill cache/alt_data/providers/*.json + data/industry/* + "
-            "data/paper_trading/* + ~/.config/etf-rotation/audit.jsonl into "
-            "the small, sanitized, committable data/public/quant_summary.json."
+            "data/paper_trading/* into the small, sanitized, committable "
+            "data/public/quant_summary.json."
         )
     )
     parser.add_argument(
@@ -914,18 +669,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Paper trading profiles directory (default: data/paper_trading/)",
     )
     parser.add_argument(
-        "--audit-log",
-        type=Path,
-        default=DEFAULT_AUDIT_LOG_PATH,
-        help=f"ETF rotation audit log (default: {DEFAULT_AUDIT_LOG_PATH})",
-    )
-    parser.add_argument(
-        "--backtest-price-csv",
-        type=Path,
-        default=DEFAULT_BACKTEST_PRICE_CSV,
-        help="ETF rotation historical price matrix for regime recommendation.",
-    )
-    parser.add_argument(
         "--print",
         action="store_true",
         help="Print the JSON to stdout instead of writing to disk.",
@@ -940,8 +683,6 @@ def main(argv: list[str] | None = None) -> int:
         args.providers_dir,
         heatmap_history_path=args.heatmap_history,
         paper_trading_dir=args.paper_trading_dir,
-        audit_log_path=args.audit_log,
-        backtest_price_csv_path=args.backtest_price_csv,
     )
     if args.print:
         json.dump(payload, sys.stdout, ensure_ascii=False, indent=2, sort_keys=True)

@@ -19,7 +19,6 @@ from fastapi.responses import JSONResponse
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(__file__)), "src"))
 
 from backend.app.api.v1.api import api_router
-from backend.app.api.v1.endpoints import etf_rotation as etf_rotation_endpoint
 from backend.app.core.config import APP_VERSION, config, setup_logging
 from backend.app.core.error_handler import register_exception_handlers
 from backend.app.core.rate_limit_state import rate_limiter
@@ -30,11 +29,8 @@ from src.data.alternative import (
     start_alt_data_scheduler,
     stop_alt_data_scheduler,
 )
-from src.data.etf_premium_monitor import EtfPremiumMonitor, run_premium_refresh_loop
 from src.data.realtime_manager import realtime_manager
 from src.middleware.request_id import RequestIDMiddleware
-from src.strategy.etf_rotation_config_loader import load_strategy_config
-from src.strategy.etf_rotation_service import EtfRotationService
 
 # 配置日志
 setup_logging()
@@ -115,54 +111,6 @@ async def cancel_background_tasks(tasks: list[asyncio.Task]) -> None:
             logger.warning("Background task %s exited with error during shutdown: %s", task.get_name(), result)
 
 
-async def etf_rotation_refresh_loop(service: EtfRotationService) -> None:
-    """Keep the EtfRotationService cache fresh during trading hours.
-
-    Sleeps between ``interval_seconds`` (per strategy.json). Outside trading
-    hours each refresh call short-circuits to the cached plan, so the loop
-    is effectively idle then. Exits cleanly when the asyncio task is cancelled.
-    """
-
-    cfg_refresh = service._strategy_config.refresh  # private but stable
-    interval = max(int(cfg_refresh.get("interval_seconds", 300)), 30)
-    if not cfg_refresh.get("enabled", False):
-        logger.info("ETF rotation refresh loop disabled in strategy.json")
-        return
-
-    logger.info("Starting ETF rotation refresh loop (interval=%ss)", interval)
-    try:
-        # Build an initial plan so /live-target returns immediately.
-        try:
-            outcome = service.refresh(
-                force=True,
-                enable_policy_signal_factor=etf_rotation_endpoint.resolve_policy_factor_refresh_override(),
-            )
-            logger.info(
-                "ETF rotation initial refresh complete (source=%s, refreshed=%s)",
-                outcome.cached.quote_source, outcome.refreshed,
-            )
-        except Exception as exc:
-            logger.exception("ETF rotation initial refresh failed: %s", exc)
-
-        while True:
-            await asyncio.sleep(interval)
-            try:
-                outcome = service.refresh(
-                    enable_policy_signal_factor=etf_rotation_endpoint.resolve_policy_factor_refresh_override(),
-                )
-                if outcome.refreshed:
-                    logger.debug(
-                        "ETF rotation refresh: source=%s, max_delta=%s",
-                        outcome.cached.quote_source,
-                        outcome.cached.debounce_max_delta,
-                    )
-            except Exception as exc:
-                logger.exception("ETF rotation periodic refresh failed: %s", exc)
-    except asyncio.CancelledError:
-        logger.info("ETF rotation refresh loop stopped")
-        raise
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
@@ -192,38 +140,6 @@ async def lifespan(app: FastAPI):
             name="cache-warmup",
         )
     )
-
-    # ETF rotation: build service singleton + start refresh loop. The loop
-    # itself checks the strategy.json `refresh.enabled` flag and exits
-    # immediately when disabled, so this is safe to always wire up.
-    etf_strategy_cfg = load_strategy_config()
-    etf_premium_monitor = EtfPremiumMonitor(
-        codes=[asset["code"] for asset in etf_strategy_cfg.universe if asset.get("code")],
-        max_age_seconds=int(etf_strategy_cfg.refresh.get("premium_max_age_seconds", 300)),
-    )
-    etf_service = EtfRotationService(
-        strategy_config=etf_strategy_cfg,
-        premium_monitor=etf_premium_monitor,
-    )
-    etf_rotation_endpoint.install_service(etf_service)
-    background_tasks.append(
-        start_background_task(
-            etf_rotation_refresh_loop(etf_service),
-            name="etf-rotation-refresh",
-        )
-    )
-    if etf_strategy_cfg.refresh.get("enabled", False):
-        background_tasks.append(
-            start_background_task(
-                run_premium_refresh_loop(
-                    etf_premium_monitor,
-                    interval_seconds=int(
-                        etf_strategy_cfg.refresh.get("premium_interval_seconds", 60)
-                    ),
-                ),
-                name="etf-premium-monitor",
-            )
-        )
 
     try:
         yield

@@ -19,25 +19,6 @@ const { chromium } = require('playwright');
 const FRONTEND = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 const failures = [];
-const ETF_SIGNAL_PLAN = {
-    manual_only: true,
-    auto_ordering: false,
-    banner: '手动调仓计划：请人工复核后执行；不连接券商接口，也不会自动下单。',
-    total_asset: 32000,
-    current_weights: { '159985': 0.074, '512400': 0.324, '510300': 0.219, '518680': 0.320, '513130': 0.062 },
-    target_weights: { '159985': 0.05, '512400': 0.22, '510300': 0.28, '518680': 0.20, '513130': 0.07 },
-    adjusted_weights: { '159985': 0.05, '512400': 0.22, '510300': 0.28, '518680': 0.20, '513130': 0.07, CASH: 0.18 },
-    suggestions: [
-        { code: '512400', name: '有色金属ETF南方', action: 'sell', shares: 1500, estimated_amount: 3313.5, current_weight: 0.324, target_weight: 0.22, reason: 'delta_-0.1040' },
-        { code: '510300', name: '沪深300ETF华泰柏瑞', action: 'buy', shares: 500, estimated_amount: 2508.5, current_weight: 0.219, target_weight: 0.28, reason: 'delta_+0.0610' },
-    ],
-    risk_reasons: ['Cash floor target maintained', 'Manual-only ETF rotation signal'],
-};
-const ETF_SIGNAL_FIXTURE = {
-    success: true,
-    data: ETF_SIGNAL_PLAN,
-    ...ETF_SIGNAL_PLAN,
-};
 const log = (...args) => console.log(...args);
 const fail = (label, detail) => {
     failures.push({ label, detail });
@@ -68,45 +49,6 @@ const collectConsoleErrors = (page, label) => {
 (async () => {
     const browser = await chromium.launch();
     const context = await browser.newContext();
-
-    // ---------------------- ETF: browser-visible rotation dashboard ----------------------
-    {
-        const page = await context.newPage();
-        const drainConsole = collectConsoleErrors(page, 'ETF轮动');
-        const fulfillEtfSignalFixture = (route) => route.fulfill({
-            status: 200,
-            contentType: 'application/json; charset=utf-8',
-            body: JSON.stringify(ETF_SIGNAL_FIXTURE),
-        });
-        await page.route('**/etf-rotation/daily-signal**', fulfillEtfSignalFixture);
-        await page.route('**/etf-rotation/live-target**', fulfillEtfSignalFixture);
-        await page.goto(`${FRONTEND}/?view=etf`);
-        await page.waitForSelector('[data-testid="etf-rotation-dashboard"]', { timeout: 30000 }).catch(() => null);
-        await page.waitForFunction(
-            () => /512400/.test(document.body.innerText) && /510300/.test(document.body.innerText),
-            { timeout: 10000 },
-        ).catch(() => null);
-        const dashboard = await page.$('[data-testid="etf-rotation-dashboard"]');
-        if (dashboard) ok('ETF 轮动工作区已渲染 (?view=etf)');
-        else fail('ETF 轮动工作区未渲染', 'data-testid="etf-rotation-dashboard" 不存在');
-
-        const bodyText = await page.locator('body').innerText().catch(() => '');
-        const fixtureText = JSON.stringify(ETF_SIGNAL_PLAN);
-        if (/无自动下单|手动执行|手动调仓计划/.test(bodyText)) ok('ETF 手动执行/无自动下单提示已显示');
-        else fail('ETF manual-only 提示', '页面没有显示手动执行/无自动下单提示');
-        const rawEnglishEtfCopy = new RegExp(
-            'Manual trade plan|No broker API|delta_|Cash floor target maintained|Manual-only ETF rotation signal',
-        ).test(bodyText);
-        if (!rawEnglishEtfCopy) ok('ETF 页面未泄露英文/内部原因码');
-        else fail('ETF 中文文案一致性', '页面仍出现英文提示或内部原因码');
-        if ((/512400/.test(bodyText) && /510300/.test(bodyText)) || (/512400/.test(fixtureText) && /510300/.test(fixtureText))) ok('ETF 权重和建议表包含核心标的');
-        else fail('ETF 标的展示', '未找到 512400/510300');
-        if (/卖出|买入/.test(bodyText) || /"sell"|"buy"/.test(fixtureText)) ok('ETF 买卖建议已渲染');
-        else fail('ETF 买卖建议', '未渲染买入/卖出动作');
-
-        drainConsole();
-        await page.close();
-    }
 
     // ---------------------- C: paper trading mount ----------------------
     {

@@ -9,16 +9,6 @@ This document mirrors `backend/app/api/v1/route_surface_registry.py` and explain
 - Deprecated compatibility routes should not gain new UI entries. Remove them only after a compatibility window and log review.
 - Product-grade engines should have at least one frontend service helper even if no large UI panel exists yet.
 
-## Advanced ETF engines now exposed through frontend service helpers
-
-These backend engines were present and are now reachable through the frontend service barrel:
-
-- `POST /etf-rotation/backtest` → `postEtfRotationBacktest(payload)`
-- `POST /etf-rotation/strategy-comparison` → `postEtfRotationStrategyComparison(payload)`
-- `POST /etf-rotation/optimize-parameters` → `postEtfRotationOptimizeParameters(payload)`
-
-All three use the `long` timeout profile because they synchronously run research engines over committed historical price matrices.
-
 ## API-only / ops surfaces
 
 - `POST /analysis/comprehensive`: aggregate API for notebooks/scripts; UI should prefer narrower analysis panel endpoints.

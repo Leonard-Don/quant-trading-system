@@ -57,7 +57,6 @@
 | 这个仓实际长什么样 | [本地体验](#-本地体验) + [界面预览](#-界面预览) |
 | 怎么最快启动 | [快速开始](#-快速开始) |
 | 提供了哪些接口与模块 | [API 文档](#-api-文档) + [项目结构](docs/PROJECT_STRUCTURE.md) |
-| ETF 轮动是否值得继续跟踪 | [ETF Rotation Walk-Forward Credibility Report](docs/etf_rotation_walkforward_credibility.md) |
 | 最近版本改了什么 | [更新日志](docs/CHANGELOG.md) + [Release Notes](docs/releases/v5.0.0.md) |
 
 ---

@@ -114,13 +114,13 @@ describe('researchContext retained routing', () => {
 
   it('accepts case variants for public view deep links before sanitizing stale params', () => {
     const url = buildViewUrlForCurrentState(
-      'ETF',
-      '?view=ETF&symbol=600519&source=legacy'
+      'INDUSTRY',
+      '?view=INDUSTRY&symbol=600519&source=legacy'
     );
 
-    expect(url).toContain('view=etf');
+    expect(url).toContain('view=industry');
     expect(url).not.toContain('symbol=600519');
-    expect(readResearchContext('?view=ETF').view).toBe('etf');
+    expect(readResearchContext('?view=INDUSTRY').view).toBe('industry');
   });
 
   it('accepts legacy alerts deep links as realtime public view aliases', () => {
