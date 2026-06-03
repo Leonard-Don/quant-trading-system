@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Removed
+
+- feat(etf)!: remove the entire ETF rotation board. Deletes the
+  `/etf-rotation/*` API surface, the front-end `?view=etf` dashboard and its
+  tiles (`EtfRotationDashboard`, `EtfRegimeTile`, `EtfWalkforwardPanel`,
+  `EtfPolicyFactorAttributionPanel`), the `src/backtest` ETF engines
+  (`EtfRotationBacktester`, `EtfRotationWalkforwardAnalyzer`,
+  `StrategyComparator`, the now-orphaned `ParameterOptimizer`), the
+  `src/strategy` ETF family (rotation / mean-reversion / blend / regime
+  classifier + recommender), the ETF data/risk helpers, the policy-factor
+  attribution research module, and all ETF-only scripts, CLIs, fixtures, docs
+  and tests. The public-summary exporter drops its `etf_rotation` /
+  `regime_recommendation` sections.
+- The generic statistical-falsification engine
+  (`src/backtest/strategy_statistical_tests.py`) and the transaction-cost
+  model (`src/backtest/transaction_costs.py`) are **kept** as reusable
+  infrastructure — the former is still consumed by the generic
+  `WalkForwardAnalyzer` power diagnostics.
+
 ### Data
 
 - data(industry): promote Tushare into the THS-first industry adapter as the

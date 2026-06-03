@@ -95,6 +95,3 @@ different angles. If the conclusions agree (e.g. all three reject, or
 all three fail to reject), the claim is robust; if they disagree (e.g.
 DM rejects but Memmel doesn't), inspect the loss function, sample size,
 and autocorrelation regime before going to print.
-
-See `docs/sample_strategy_comparison.md` for a worked example on real
-ETF data (the 2026-Q2 refresh).

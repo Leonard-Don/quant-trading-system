@@ -563,6 +563,22 @@ Return provider registry and circuit-breaker state without probing remotes.
 
 ---
 
+#### GET /realtime/market-mood
+
+**获取 Tushare 盘后市场情绪**
+
+**请求参数: **
+
+- `trade_date` （可选）: 无描述
+- `include_bj` （可选）: 无描述
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
 #### GET /realtime/metadata
 
 **获取实时标的元数据**
@@ -1576,6 +1592,11 @@ Return provider registry and circuit-breaker state without probing remotes.
 
 **签发本地研究令牌**
 
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
 **请求体: **
 
 参考模型: `TokenRequest`
@@ -1634,9 +1655,15 @@ Return provider registry and circuit-breaker state without probing remotes.
 
 **查看本地用户目录**
 
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
 **响应: **
 
 - **200**: Successful Response
+- **422**: Validation Error
 
 ---
 
@@ -1929,6 +1956,8 @@ Return provider registry and circuit-breaker state without probing remotes.
 
 - `record_type` （可选）: 无描述
 - `limit` （可选）: 无描述
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
 
 **响应: **
 
@@ -1941,9 +1970,15 @@ Return provider registry and circuit-breaker state without probing remotes.
 
 **查看数据库 / TimescaleDB 接入诊断**
 
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
+
 **响应: **
 
 - **200**: Successful Response
+- **422**: Validation Error
 
 ---
 
@@ -2005,6 +2040,11 @@ Return provider registry and circuit-breaker state without probing remotes.
 #### POST /infrastructure/persistence/timeseries
 
 **写入时序记录**
+
+**请求参数: **
+
+- `authorization` （可选）: 无描述
+- `x-api-key` （可选）: 无描述
 
 **请求体: **
 
@@ -2319,249 +2359,6 @@ Return provider registry and circuit-breaker state without probing remotes.
 **请求参数: **
 
 - `order_id` （必需）: 无描述
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-### ETF Rotation
-
-#### GET /etf-rotation/daily-signal
-
-**获取每日 ETF 轮动手动调仓建议**
-
-返回 ``scripts.daily_etf_signal.generate_plan`` 的完整计划字段：current_weights / target_weights / adjusted_weights / suggestions / risk_reasons。该接口只读、默认使用实时行情更新持仓现价，但不调用任何券商或下单接口。
-
-**请求参数: **
-
-- `threshold_weight` （可选）: 低于该权重差异的标的不会触发买卖建议（仅生成 hold）。未传时使用 strategy.json -> strategy.rebalance_threshold 的配置值。
-- `quote_source` （可选）: live=用实时行情刷新持仓现价；synthetic=使用截图种子的确定性行情。
-- `use_cache` （可选）: live 模式下是否允许使用实时行情缓存；手动刷新可传 false。
-- `enable_policy_signal_factor` （可选）: 可选：覆盖 strategy.json -> strategy.policy_signal_factor_enabled。true=本次调用启用 policy_radar 影响 ETF 权重；false=本次关闭；省略=沿用配置值（默认关闭）。
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### GET /etf-rotation/live-target
-
-**读取最近一次后台刷新的 ETF 轮动目标仓位**
-
-返回 EtfRotationService 缓存的最新计划与刷新元数据。前端可高频轮询此端点而不触发底层数据拉取——后台刷新循环负责保持缓存常新。trigger_refresh=true 时即使非交易时段也会强制刷新一次。
-
-**请求参数: **
-
-- `trigger_refresh` （可选）: true=阻塞触发一次刷新（即使非交易时段）；false=仅读缓存。
-- `enable_policy_signal_factor` （可选）: 可选：trigger_refresh=true 时覆盖 strategy.policy_signal_factor_enabled；省略=沿用配置。
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### POST /etf-rotation/refresh
-
-**强制刷新 ETF 轮动信号缓存**
-
-即使在非交易时段也立即重新计算一次 plan，并写入审计日志。
-
-**请求参数: **
-
-- `use_cache` （可选）: 无描述
-- `enable_policy_signal_factor` （可选）: 可选：覆盖 strategy.policy_signal_factor_enabled；true=本次启用；false=本次关闭；省略=沿用配置。
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### GET /etf-rotation/analytics
-
-**策略 Edge 度量：IC + 命中率 + 每标的拆解**
-
-从审计日志计算策略的信息系数（Spearman 相关）和命中率，用于回答 “策略到底有没有 alpha” 这个问题。默认三档前瞻期：1 小时 / 4 小时 / 1 个交易日。60 日滚动 IC > 0.05 是行业经验上 “有可测量 edge” 的门槛。
-
-**请求参数: **
-
-- `horizons` （可选）: 逗号分隔的前瞻分钟数列表，默认 60,240,1440
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### GET /etf-rotation/audit-log
-
-**读取 ETF 轮动信号审计日志**
-
-返回 JSON Lines 审计日志的最近 N 行（默认 200）。可选 ``since`` 参数（ISO timestamp）过滤更新时间。完全只读；日志位置 = ``ETF_AUDIT_LOG_PATH`` env / ``~/.config/etf-rotation/audit.jsonl``。
-
-**请求参数: **
-
-- `limit` （可选）: 无描述
-- `since` （可选）: 无描述
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### POST /etf-rotation/reload-config
-
-**重载 strategy.json，不重启 backend 即可应用**
-
-重新读取 ``ETF_STRATEGY_CONFIG_PATH`` / ``~/.config/etf-rotation/strategy.json``，同步到 EtfRotationService 与 EtfPremiumMonitor，下次刷新自动生效。返回值是重载后的完整配置摘要（universe / risk_rules / strategy / refresh / regime / premium）。
-
-**请求参数: **
-
-- `refresh_after` （可选）: 无描述
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### GET /etf-rotation/preferences
-
-**读取 ETF 轮动 UI 偏好（per-installation, 持久化到 JSON 文件）**
-
-返回当前用户在仪表盘里设置的偏好，目前只包含 ``policy_signal_factor_enabled``。``preference`` 反映文件里的原值（``null`` = 未设置），``effective`` 是把 config 默认折算进去之后“现在到底开没开”的真实状态。``source`` ∈ {{config, preference}} 解释 effective 是哪一档赢了。
-
-**响应: **
-
-- **200**: Successful Response
-
----
-
-#### POST /etf-rotation/preferences
-
-**更新 ETF 轮动 UI 偏好**
-
-POST 一个 JSON ``{policy_signal_factor_enabled: bool | null}``——``true``/``false`` 持久化（覆盖 config 默认），``null`` 清除该偏好（回退到 config 默认）。写入采用 temp-file + rename 原子模式，保证并发读不会读到半截 JSON。
-
-**请求体: **
-
-JSON格式请求体
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### GET /etf-rotation/policy-factor-attribution
-
-**读取 policy_signal_factor 的 30 日实证归因报告**
-
-对启用了 policy_signal_factor 的历史调仓做归因回放：保留审计日志里的最终 ``adjusted_weights`` 作为 *factor-on*，并按每个 ETF 的 ``policy_adjustment.weight_before / weight_after`` 比例缩放最终权重，得到一个 post-overlay 的 *factor-off* proxy。两条权重路径在下一条审计 rebalance 之前持有（按 ETF 收盘价计算 mark-to-market），差值即 policy_signal_factor 对该窗口 P&L 的边际贡献。
-
-返回结构（``AttributionReport.to_dict()``）包含：聚合 on/off/contribution（逐窗口复利）、命中率、top winner/loser ETF、以及逐次调仓的拆解。结果按 ``period_days`` 缓存 5 分钟；审计日志 size/mtime 变化会自动打破缓存。
-
-**注意**：不计交易成本、不计调仓滞后；off leg 是比例 proxy，不是重新跑一遍完整策略 —— 详见模块顶部 docstring。
-
-**请求参数: **
-
-- `period_days` （可选）: 窗口长度（天），默认 30。
-- `refresh` （可选）: true=绕过 5 分钟缓存强制重算。
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### POST /etf-rotation/backtest
-
-**历史回放 ETF 轮动策略并返回业绩指标**
-
-在已提交的历史价格矩阵（默认 ``data/etf_backtest/etf_prices_4y.csv``）上回放 ``EtfRotationStrategy``：根据指定的 ``period_start`` / ``period_end`` 窗口逐周（默认）调仓，输出 ``BacktestReport`` —— 总收益 / Sharpe / 最大回撤 / Calmar / 平均换手 / 命中率 / 等权 buy-and-hold 对照。
-
-``enable_policy_signal_factor`` 用于 A/B 测试因子开关；``strategy_config_overrides`` 接受一个 partial 的 strategy 块（如 ``min_score_to_hold``）。**不计算交易成本、不模拟买卖价差、不建模冲击成本** —— 详见 BacktestReport.caveats。调用预期同步，3 个月窗口 < 30s。
-
-**请求体: **
-
-JSON格式请求体
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### POST /etf-rotation/walkforward
-
-**多窗口滚动回放 ETF 轮动策略并返回稳定性报告**
-
-把 ``EtfRotationBacktester`` 在已提交的历史价格矩阵（默认 ``data/etf_backtest/etf_prices_4y.csv``）上滚动多次，每次切一个 ``window_months`` 长的子窗口（默认 3 个月），按 ``step_months`` 步进 （默认 1 个月）。返回 ``WalkforwardReport`` —— 每个窗口的 BacktestReport 原样保留，并汇总：median/mean/std 窗口收益、正收益窗口比例、平均与最差 MaxDD、平均 Sharpe、平均 buy-hold 对照、0-1 的 ``consistency_score``。
-
-请求体（全部可选除明确标注）：``{period_start: ISO 日期, period_end: ISO 日期, window_months: int=3, step_months: int=1, enable_policy_signal_factor: bool=false, rebalance_freq_days: int=5, initial_capital: float=100000, strategy_config_overrides: object}``。``period_start`` / ``period_end`` 必填 —— 没有外层边界 walkforward 无从滚动。
-
-缓存 1 小时；缓存 key 包含所有窗口参数 + 价格 CSV 的 mtime/size，新 CSV 自动让全部 in-flight 缓存失效。同步执行，~13 个窗口实测 ~60s。**全部继承 v0.1 backtest 的简化**：无交易成本 / 无买卖价差 / 无冲击 / next-bar close 全额成交 / 无幸存者偏差；额外 walkforward 警示：重叠窗口在 ``aggregate_return_pct`` 上会双计重叠部分，看 ``median_window_return_pct`` 更稳。
-
-**请求体: **
-
-JSON格式请求体
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### POST /etf-rotation/strategy-comparison
-
-**同窗口对照回放 rotation / mean_reversion / blend 三大 ETF 策略**
-
-在已提交的历史价格矩阵（默认 ``data/etf_backtest/etf_prices_4y.csv``）上，让 ``EtfRotationStrategy`` / ``EtfMeanReversionStrategy`` / ``EtfStrategyBlend``（或任意子集，通过 ``strategies`` 字段筛选）在 **同一个** 窗口 / 同一份价格 / 同一个 rebalance 节奏下回放，返回 ``ComparisonReport``：每个策略的完整 ``BacktestReport`` + Sharpe / 总收益 / Calmar / MaxDD / 换手 单项冠军 + trending/choppy 区间分析（哪个策略在哪种 regime 占优）+ 全部有序两两的 return / sharpe / MaxDD 差值（A vs B = A 减 B，两个方向都返回）。
-
-请求体（全部可选除明确标注）：``{period_start: ISO 日期 (必填), period_end: ISO 日期 (必填), strategies: list[str] 或逗号分隔 str，默认全 3 个；enable_policy_signal_factor: bool=false（仅 rotation + blend 的 trend leg 消费，mean_reversion 按约定忽略 —— 避免反趋势策略对政策利好做二次叠加），rebalance_freq_days: int=5, initial_capital: float=100000, blend_regime: str=unknown (bull/correction/sideways/bear/crisis/unknown), strategy_config_overrides: object, refresh: bool=false}``。
-
-缓存 1 小时；缓存 key 包含所有比较参数 + 价格 CSV 的 mtime/size，新 CSV 自动让 in-flight 缓存失效；响应里带 ``cached: bool`` + ``cache_age_seconds``。同步执行，3 策略 × 15 个月窗口实测 ~10s。**全部继承 v0.1 backtest 简化**：无交易成本 / 无买卖价差 / 无冲击 / next-bar close 全额成交 / 无幸存者偏差 —— 比较是内部 apples-to-apples，但绝对收益不是 cost-adjusted 的活盘预测。
-
-**请求体: **
-
-JSON格式请求体
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### GET /etf-rotation/regime-recommendation
-
-**基于市场状态分类返回推荐策略**
-
-对 ``data/etf_backtest/etf_prices_4y.csv`` 的最近 lookback_days 行做5 特征分类（trend R² / 波动率 / 偏度 / 回撤比 / 跨资产相关性）；每只 ETF 先在 lookback 起点归一化为 1.0，再构造等权市场代理，避免高价格基金支配信号。映射到 6 个 regime 之一，并返回对应的推荐策略 + config 覆盖。确定性、无 ML 模型；同样输入永远同样输出。
-
-实证锚点（commit ``a54b986`` 多策略比较）：2024-01-01 → 2025-04-30 窗口下，choppy 上半场 (R²=0.370) 是 rotation 胜出 (+5.48%)，trending 下半场 (R²=0.792) 是 mean_reversion 胜出 (+6.17%)。本端点把那张表落地成运行时建议。
-
-**请求参数: **
-
-- `lookback_days` （可选）: 计算窗口长度（交易日，默认 90）。
-- `trend_r2_threshold` （可选）: 可选：覆盖 trending 判定的 R² 阈值（默认 0.55）。
-- `vol_high_threshold` （可选）: 可选：覆盖 high-vol 阈值（年化波动率，默认 0.25）。
 
 **响应: **
 

@@ -16,14 +16,12 @@ sibling project ``cn-altdata-brief`` consumes. These tests verify:
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 
 from scripts import export_public_summary
-from src.data.etf_price_history import resolve_default_price_csv
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -137,66 +135,10 @@ def sample_paper_trading_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
-def sample_audit_log(tmp_path: Path) -> Path:
-    """A minimal audit log file with three lines, last one carrying timestamps."""
-    audit_path = tmp_path / "audit.jsonl"
-    audit_path.write_text(
-        "\n".join(
-            [
-                json.dumps({"run_at": "2026-05-15T10:00:00+00:00", "weights": {"x": 1}}),
-                json.dumps({"run_at": "2026-05-16T10:00:00+00:00", "weights": {"x": 1}}),
-                json.dumps(
-                    {
-                        "run_at": "2026-05-17T10:00:00+00:00",
-                        "recorded_at": "2026-05-17T10:00:05+00:00",
-                        # Sensitive payload that must NOT appear in the summary.
-                        "adjusted_weights": {"159985": 0.5, "510300": 0.5},
-                        "prices_at_decision": {"159985": 2.0, "510300": 4.9},
-                    }
-                ),
-            ]
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    return audit_path
-
-
-@pytest.fixture()
-def sample_backtest_price_csv(tmp_path: Path) -> Path:
-    """A small deterministic price matrix for regime recommendation export."""
-    path = tmp_path / "etf_prices.csv"
-    start = date(2026, 1, 2)
-    rows = ["date,510300,512400,159915"]
-    for idx in range(120):
-        current = start + timedelta(days=idx)
-        rows.append(
-            ",".join(
-                [
-                    current.isoformat(),
-                    f"{10.0 * (1.0015 ** idx):.6f}",
-                    f"{5.0 * (1.0010 ** idx):.6f}",
-                    f"{3.0 * (1.0008 ** idx):.6f}",
-                ]
-            )
-        )
-    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
-    return path
-
-
-@pytest.fixture()
-def empty_audit_log(tmp_path: Path) -> Path:
-    """A path that doesn't exist — the audit-log absent branch."""
-    return tmp_path / "no-audit.jsonl"
-
-
-@pytest.fixture()
 def full_payload(
     sample_providers_dir: Path,
     sample_heatmap_history: Path,
     sample_paper_trading_dir: Path,
-    sample_audit_log: Path,
-    sample_backtest_price_csv: Path,
     tmp_path: Path,
 ) -> dict[str, Any]:
     """The full payload built against the rich-input fixture set."""
@@ -207,8 +149,6 @@ def full_payload(
         version_path=version_path,
         heatmap_history_path=sample_heatmap_history,
         paper_trading_dir=sample_paper_trading_dir,
-        audit_log_path=sample_audit_log,
-        backtest_price_csv_path=sample_backtest_price_csv,
         generated_at="2026-05-17T00:00:00+00:00",
     )
 
@@ -226,7 +166,6 @@ def test_schema_required_keys_present(full_payload: dict[str, Any]) -> None:
         "source_codebase_version",
         "policy_radar",
         "industry_heat",
-        "etf_rotation",
         "paper_trading",
     }
     assert required.issubset(full_payload.keys()), (
@@ -280,82 +219,10 @@ def test_paper_trading_lists_profile_names_only(
     assert "600519" not in serialized
 
 
-def test_etf_rotation_audit_metadata_only_no_weights(
-    full_payload: dict[str, Any],
-) -> None:
-    """latest_audit_at + count surface; weights / prices stay private."""
-    etf = full_payload["etf_rotation"]
-    assert etf["latest_audit_log_entry_count"] == 3
-    assert etf["latest_audit_at"] == "2026-05-17T10:00:05+00:00"
-    assert etf["latest_audit_run_at"] == "2026-05-17T10:00:00+00:00"
-    assert etf["policy_signal_factor_enabled_default"] is False
-    assert etf["config_default_universe_size"] >= 5
-    assert etf["available_strategies_count"] > 0
-    serialized = json.dumps(full_payload, ensure_ascii=False)
-    # Sensitive audit body must not leak into the summary.
-    assert "adjusted_weights" not in serialized
-    assert "prices_at_decision" not in serialized
-
-
-def test_etf_rotation_regime_recommendation_exported_without_raw_prices(
-    full_payload: dict[str, Any],
-) -> None:
-    """Public summary includes the R1 regime recommendation, not raw price rows."""
-    rec = full_payload["etf_rotation"]["regime_recommendation"]
-    assert rec["available"] is True
-    assert rec["lookback_days"] == 90
-    assert rec["regime_name"] in {
-        "trending_low_vol",
-        "trending_high_vol",
-        "choppy_low_vol",
-        "choppy_high_vol",
-        "bear_high_vol",
-        "bear_low_vol",
-        "unknown",
-    }
-    assert rec["recommended_strategy"] in {
-        "rotation",
-        "mean_reversion",
-        "blend",
-        "cash",
-        "unchanged",
-    }
-    assert 0.0 <= rec["confidence"] <= 1.0
-    assert rec["n_assets_used"] == 3
-    assert set(rec["features"]) == {
-        "trend_r2",
-        "trend_slope",
-        "realized_vol",
-        "return_skew",
-        "drawdown_ratio",
-        "avg_pairwise_correlation",
-    }
-    serialized = json.dumps(rec, ensure_ascii=False)
-    assert "510300" not in serialized
-    assert "etf_prices" not in serialized
-
-
-def test_missing_regime_price_matrix_reports_reason_without_path(
-    full_payload: dict[str, Any],
-    tmp_path: Path,
-) -> None:
-    """Missing price CSV should degrade gracefully and avoid local path leakage."""
-    rec = export_public_summary._build_regime_recommendation_section(
-        tmp_path / "missing.csv"
-    )
-    assert rec == {
-        "available": False,
-        "lookback_days": 90,
-        "unavailable_reason": "price_matrix_missing",
-    }
-    assert str(tmp_path) not in json.dumps(rec, ensure_ascii=False)
-
-
 def test_missing_provider_key_absent_no_synthetic_data(
     tmp_path: Path,
     sample_heatmap_history: Path,
     sample_paper_trading_dir: Path,
-    empty_audit_log: Path,
 ) -> None:
     """When policy_radar.json is missing the key is absent — no fake fallback."""
     empty_providers = tmp_path / "empty_providers"
@@ -365,7 +232,6 @@ def test_missing_provider_key_absent_no_synthetic_data(
         version_path=tmp_path / "no-version",
         heatmap_history_path=sample_heatmap_history,
         paper_trading_dir=sample_paper_trading_dir,
-        audit_log_path=empty_audit_log,
         generated_at="2026-05-17T00:00:00+00:00",
     )
     assert "policy_radar" not in payload, "policy_radar must not be invented"
@@ -374,18 +240,12 @@ def test_missing_provider_key_absent_no_synthetic_data(
     # But no industry should carry policy_signal — there's no policy_radar.
     for row in payload["industry_heat"]["top_industries_by_score"]:
         assert "policy_signal" not in row
-    # ETF rotation block is always present; latest_audit_* are null when
-    # the log is missing.
-    assert payload["etf_rotation"]["latest_audit_log_entry_count"] == 0
-    assert payload["etf_rotation"]["latest_audit_at"] is None
-    assert payload["etf_rotation"]["latest_audit_run_at"] is None
 
 
 def test_missing_industry_heatmap_history_drops_section(
     tmp_path: Path,
     sample_providers_dir: Path,
     sample_paper_trading_dir: Path,
-    empty_audit_log: Path,
 ) -> None:
     """When heatmap_history.json is missing, industry_heat is omitted entirely."""
     payload = export_public_summary.build_public_summary(
@@ -393,7 +253,6 @@ def test_missing_industry_heatmap_history_drops_section(
         version_path=tmp_path / "no-version",
         heatmap_history_path=tmp_path / "no-heatmap.json",
         paper_trading_dir=sample_paper_trading_dir,
-        audit_log_path=empty_audit_log,
         generated_at="2026-05-17T00:00:00+00:00",
     )
     assert "industry_heat" not in payload
@@ -434,8 +293,6 @@ def test_export_is_deterministic_for_fixed_generated_at(
     sample_providers_dir: Path,
     sample_heatmap_history: Path,
     sample_paper_trading_dir: Path,
-    sample_audit_log: Path,
-    sample_backtest_price_csv: Path,
     tmp_path: Path,
 ) -> None:
     """Same input + same generated_at → byte-identical output."""
@@ -446,8 +303,6 @@ def test_export_is_deterministic_for_fixed_generated_at(
         version_path=version_path,
         heatmap_history_path=sample_heatmap_history,
         paper_trading_dir=sample_paper_trading_dir,
-        audit_log_path=sample_audit_log,
-        backtest_price_csv_path=sample_backtest_price_csv,
         generated_at="2026-05-17T00:00:00+00:00",
     )
     second = export_public_summary.build_public_summary(
@@ -455,8 +310,6 @@ def test_export_is_deterministic_for_fixed_generated_at(
         version_path=version_path,
         heatmap_history_path=sample_heatmap_history,
         paper_trading_dir=sample_paper_trading_dir,
-        audit_log_path=sample_audit_log,
-        backtest_price_csv_path=sample_backtest_price_csv,
         generated_at="2026-05-17T00:00:00+00:00",
     )
     assert first == second
@@ -467,7 +320,6 @@ def test_industry_heat_rejects_test_fixture_snapshot(
     tmp_path: Path,
     sample_providers_dir: Path,
     sample_paper_trading_dir: Path,
-    empty_audit_log: Path,
 ) -> None:
     """A history file whose newest snapshot is a fixture row (e.g. 测试行业)
     must NOT poison the public summary — the exporter falls back to the
@@ -509,7 +361,6 @@ def test_industry_heat_rejects_test_fixture_snapshot(
         version_path=tmp_path / "no-version",
         heatmap_history_path=history_path,
         paper_trading_dir=sample_paper_trading_dir,
-        audit_log_path=empty_audit_log,
         generated_at="2026-05-18T00:00:00+00:00",
     )
     heat = payload["industry_heat"]["top_industries_by_score"]
@@ -533,9 +384,9 @@ def test_providers_envelope_matches_sibling_contract(
     """
     assert "providers" in full_payload, "providers envelope missing"
     providers = full_payload["providers"]
-    # All four sibling-project sections present.
+    # The sibling-project sections present.
     assert set(providers).issuperset(
-        {"policy_radar", "industry_heat", "etf_rotation", "paper_trading"}
+        {"policy_radar", "industry_heat", "paper_trading"}
     )
 
     # policy_radar rows carry canonical industry/avg_impact/mentions/signal.
@@ -571,13 +422,6 @@ def test_providers_envelope_matches_sibling_contract(
     assert baijiu["policy_impact"] == 0.0
     assert baijiu["mentions"] == 0
 
-    # etf_rotation canonical keys are present (sibling project reads
-    # audit_count / strategy_count / last_refresh_at).
-    rotation = providers["etf_rotation"]
-    assert "audit_count" in rotation
-    assert "strategy_count" in rotation
-    assert "last_refresh_at" in rotation
-
 
 def test_industry_heat_names_overlap_policy_radar_when_both_present(
     full_payload: dict[str, Any],
@@ -603,8 +447,6 @@ def test_industry_heat_names_overlap_policy_radar_when_both_present(
 def test_policy_alias_rows_reserved_for_cross_source_overlap(
     sample_providers_dir: Path,
     sample_paper_trading_dir: Path,
-    sample_audit_log: Path,
-    sample_backtest_price_csv: Path,
     tmp_path: Path,
 ) -> None:
     """The real heatmap may say 电网设备 while policy_radar says 电网.
@@ -647,8 +489,6 @@ def test_policy_alias_rows_reserved_for_cross_source_overlap(
         sample_providers_dir,
         heatmap_history_path=heatmap_history,
         paper_trading_dir=sample_paper_trading_dir,
-        audit_log_path=sample_audit_log,
-        backtest_price_csv_path=sample_backtest_price_csv,
         generated_at="2026-05-18T00:00:00+00:00",
     )
 
@@ -659,24 +499,6 @@ def test_policy_alias_rows_reserved_for_cross_source_overlap(
     assert by_name["电网"]["policy_signal"]["signal"] == "neutral"
     policy_names = {row["industry"] for row in payload["policy_radar"]["top_industries"]}
     assert {row["industry_name"] for row in heat_rows} & policy_names
-
-
-def test_default_price_csv_prefers_5y_when_present(tmp_path: Path) -> None:
-    """Backtest defaults should use the 5y matrix once it has been fetched."""
-    data_dir = tmp_path / "data" / "etf_backtest"
-    data_dir.mkdir(parents=True)
-    legacy = data_dir / "etf_prices_4y.csv"
-    five_year = data_dir / "etf_prices_5y.csv"
-    legacy.write_text("date,510300\n2026-01-01,1\n", encoding="utf-8")
-    five_year.write_text("date,510300\n2026-01-01,2\n", encoding="utf-8")
-
-    assert resolve_default_price_csv(tmp_path) == five_year
-
-
-def test_default_price_csv_falls_back_to_4y_path(tmp_path: Path) -> None:
-    """Legacy hard-coded 4y semantics stay intact when 5y is absent."""
-    expected = tmp_path / "data" / "etf_backtest" / "etf_prices_4y.csv"
-    assert resolve_default_price_csv(tmp_path) == expected
 
 
 def test_sensitive_internal_fields_excluded(full_payload: dict[str, Any]) -> None:

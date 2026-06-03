@@ -37,11 +37,6 @@ vi.mock('../components/PaperTradingPanel', () => ({
   default: () => <div>PaperTradingPanel</div>,
 }));
 
-vi.mock('../components/EtfRotationDashboard', () => ({
-  __esModule: true,
-  default: () => <div>EtfRotationDashboard</div>,
-}));
-
 vi.mock('../services/api', () => ({
   getStrategies: jest.fn(() => Promise.resolve([])),
   runBacktest: jest.fn(),
@@ -169,7 +164,6 @@ describe('App realtime view routing', () => {
 
   test.each([
     ['paper', 'PaperTradingPanel'],
-    ['etf', 'EtfRotationDashboard'],
   ])('routes the %s public workspace without falling back to backtest', async (view, label) => {
     window.history.replaceState(null, '', `/?view=${view}&symbol=600519&source=legacy`);
 

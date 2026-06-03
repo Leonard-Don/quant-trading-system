@@ -2,7 +2,6 @@ from .backtester import Backtester
 from .base_backtester import BaseBacktester
 from .batch_backtester import BatchBacktester, WalkForwardAnalyzer
 from .cross_market_backtester import CrossMarketBacktester
-from .etf_rotation_backtest import BacktestReport, EtfRotationBacktester
 from .execution_engine import PortfolioExecutionConfig, PortfolioExecutionEngine
 from .portfolio_backtester import PortfolioBacktester
 from .position_sizer import (
@@ -29,7 +28,6 @@ BacktestEngine = Backtester
 
 __all__ = [
     "BacktestEngine",
-    "BacktestReport",
     "Backtester",
     "BaseBacktester",
     "BasePositionSizer",
@@ -37,7 +35,6 @@ __all__ = [
     "CostBreakdown",
     "CrossMarketBacktester",
     "EqualRiskSizer",
-    "EtfRotationBacktester",
     "FixedFractionSizer",
     "KellyCriterionSizer",
     "NormalizedSingleAssetSignals",

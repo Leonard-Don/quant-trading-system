@@ -1,7 +1,0 @@
-{
-  "_comment": "Example walk-forward grid. Run: scripts/walkforward_etf_rotation.py --prices-csv data/etf_prices.csv --grid-json scripts/etf_scoring_grid.example.json. Only fields you list here are varied; everything else stays at the production EtfScoringConfig defaults.",
-  "momentum_return20_multiplier": [200.0, 250.0, 300.0],
-  "momentum_short_spike_threshold": [0.06, 0.08, 0.10],
-  "risk_volatility_multiplier": [25.0, 35.0, 45.0],
-  "premium_hard_threshold": [0.04, 0.05, 0.06]
-}

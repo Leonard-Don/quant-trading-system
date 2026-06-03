@@ -42,7 +42,6 @@ const IndustryDashboard = lazyWithRetry(() => import('./components/IndustryDashb
 const BacktestDashboard = lazyWithRetry(() => import('./components/BacktestDashboard'));
 const TodayResearchDashboard = lazyWithRetry(() => import('./components/TodayResearchDashboard'));
 const PaperTradingPanel = lazyWithRetry(() => import('./components/PaperTradingPanel'));
-const EtfRotationDashboard = lazyWithRetry(() => import('./components/EtfRotationDashboard'));
 
 // 懒加载占位组件
 const LazyLoadFallback = () => (
@@ -61,7 +60,7 @@ const LazyLoadFallback = () => (
 const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
-const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry', 'paper', 'etf']);
+const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry', 'paper']);
 const FULL_VIEW_SET = new Set(['realtime']);
 const readViewStateFromLocation = (search = window.location.search, revision = 0) => {
   const params = new URLSearchParams(search);
@@ -211,11 +210,6 @@ function App() {
       key: 'paper',
       icon: <ThunderboltOutlined />,
       label: '纸面账户',
-    },
-    {
-      key: 'etf',
-      icon: <FundOutlined />,
-      label: 'ETF轮动',
     }
   ];
 
@@ -297,8 +291,6 @@ function App() {
 
       case 'paper':
         return <Suspense fallback={<LazyLoadFallback />}><PaperTradingPanel /></Suspense>;
-      case 'etf':
-        return <Suspense fallback={<LazyLoadFallback />}><EtfRotationDashboard /></Suspense>;
       case 'backtest':
       default:
         return (
