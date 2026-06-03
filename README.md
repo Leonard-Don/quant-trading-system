@@ -202,18 +202,18 @@ quant-trading-system/
 │       └── websocket/              # WebSocket 路由与连接管理
 ├── frontend/                       # React 18 前端 (Vite)
 │   └── src/
-│       ├── components/             # 回测 / 实时 / 行业 / 跨市场等组件 (31 主组件 + 6 子模块)
+│       ├── components/             # 回测 / 实时 / 行业 / 跨市场等组件 (32 主组件 + 7 子模块)
 │       ├── hooks/                  # 实时偏好、实验工作区等自定义 Hook
 │       ├── services/               # API 与 WebSocket 客户端
 │       ├── contexts/               # React Context 状态管理
 │       ├── i18n/                   # 国际化支持
 │       └── utils/                  # 路由、快照对比、格式化工具
 ├── src/                            # 核心算法库
-│   ├── analytics/                  # 行业分析、估值、趋势、信号、定价等 (26 模块)
+│   ├── analytics/                  # 行业分析、估值、趋势、信号、定价等 (20 模块)
 │   ├── backtest/                   # 主回测 / 跨市场 / 批量 / 组合 / 风控 / 执行引擎 (14 模块)
 │   ├── core/                       # 基础类、事件系统
 │   ├── data/                       # 数据管理器、实时管理器、数据提供器、另类数据
-│   │   └── providers/              # 8 大数据提供器 (Yahoo / AKShare / Sina / TwelveData 等)
+│   │   └── providers/              # 多源数据提供器 (Yahoo / AKShare / Sina / TwelveData 等)
 │   ├── middleware/                 # 请求中间件
 │   ├── reporting/                  # 报告生成
 │   ├── security/                   # 安全与加密
@@ -360,7 +360,7 @@ pytest tests/unit/test_backtester.py tests/unit/test_realtime_manager.py -q
 ```bash
 cd frontend
 
-# 完整测试套件（30 个测试文件）
+# 完整测试套件（58 个测试文件）
 CI=1 npm test -- --runInBand --watchAll=false
 
 # 按模块测试
