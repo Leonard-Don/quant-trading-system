@@ -699,8 +699,9 @@ const IndustryDashboard = () => {
                                         const d = payload[0]?.payload;
                                         return (
                                             <div style={{
-                                                background: 'rgba(0,0,0,0.75)',
-                                                color: '#fff',
+                                                background: 'var(--bg-secondary)',
+                                                color: 'var(--text-primary)',
+                                                border: '1px solid var(--border-color)',
                                                 padding: '6px 10px',
                                                 borderRadius: 4,
                                                 fontSize: 12
@@ -1124,10 +1125,10 @@ const IndustryDashboard = () => {
                                 <BranchesOutlined />
                             </span>
                             <div>
-                                <Title level={3} style={{ margin: 0, color: '#f8fafc' }}>
+                                <Title level={3} style={{ margin: 0, color: 'var(--text-primary)' }}>
                                     行业轮动大屏
                                 </Title>
-                                <Paragraph className="industry-hero-description" style={{ margin: '2px 0 0', color: 'rgba(226, 232, 240, 0.78)', maxWidth: 720, fontSize: 12.5 }}>
+                                <Paragraph className="industry-hero-description" style={{ margin: '2px 0 0', color: 'var(--text-secondary)', maxWidth: 720, fontSize: 12.5 }}>
                                     左侧先完成行业扫描与切换，右侧只保留当前焦点、龙头线索和下一步动作。
                                 </Paragraph>
                             </div>

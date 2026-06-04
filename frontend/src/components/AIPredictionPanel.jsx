@@ -319,13 +319,13 @@ const AIPredictionPanel = ({ symbol }) => {
                     <YAxis domain={['auto', 'auto']} tick={{ fill: '#64748b', fontSize: 12 }} axisLine={{ stroke: 'rgba(148, 163, 184, 0.24)' }} tickLine={false} />
                     <Tooltip
                         contentStyle={{
-                            backgroundColor: 'rgba(15, 23, 42, 0.92)',
-                            border: '1px solid rgba(148, 163, 184, 0.2)',
+                            backgroundColor: 'var(--bg-secondary)',
+                            border: '1px solid var(--border-color)',
                             borderRadius: 16,
-                            boxShadow: '0 18px 34px rgba(15, 23, 42, 0.18)',
+                            boxShadow: 'var(--shadow-lg)',
                         }}
-                        itemStyle={{ color: '#f8fafc' }}
-                        labelStyle={{ color: '#cbd5e1' }}
+                        itemStyle={{ color: 'var(--text-primary)' }}
+                        labelStyle={{ color: 'var(--text-secondary)' }}
                     />
                     <Legend wrapperStyle={{ paddingTop: 8 }} />
 

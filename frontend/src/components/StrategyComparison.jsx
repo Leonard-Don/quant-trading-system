@@ -515,11 +515,11 @@ const StrategyComparison = ({ strategies }) => {
                                     return (
                                         <Col xs={24} sm={12} xl={6} key={item.strategy}>
                                             <div style={{
-                                                background: 'rgba(255,255,255,0.05)',
+                                                background: 'var(--bg-tertiary)',
                                                 borderRadius: 12,
                                                 padding: 16,
                                                 textAlign: 'center',
-                                                border: item.rank === 1 ? '2px solid #ffd700' : '1px solid rgba(255,255,255,0.1)',
+                                                border: item.rank === 1 ? '2px solid #ffd700' : '1px solid var(--border-color)',
                                                 height: '100%',
                                             }}>
                                                 <div style={{
@@ -529,14 +529,14 @@ const StrategyComparison = ({ strategies }) => {
                                                 }}>
                                                     {rankStyle.label}
                                                 </div>
-                                                <div style={{ color: '#fff', fontWeight: 600, fontSize: 16, marginBottom: 8 }}>
+                                                <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 16, marginBottom: 8 }}>
                                                     {item.strategyName}
                                                 </div>
                                                 <Progress
                                                     percent={item.scores.overall_score}
                                                     strokeColor={rankStyle.bg}
-                                                    trailColor="rgba(255,255,255,0.1)"
-                                                    format={(pct) => <span style={{ color: '#fff', fontWeight: 600 }}>{pct}</span>}
+                                                    trailColor="var(--bg-tertiary)"
+                                                    format={(pct) => <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{pct}</span>}
                                                 />
                                                 <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
                                                     <Tag color="green" style={{ margin: 0 }}>收益 {item.scores.return_score}</Tag>
@@ -579,10 +579,10 @@ const StrategyComparison = ({ strategies }) => {
                                             { metric: '年化', ...Object.fromEntries(dataSource.map(d => [d.strategy, Math.min(100, Math.max(0, (d.annualized_return + 0.3) * 150))])) }
                                         ]}
                                     >
-                                        <PolarGrid stroke="rgba(255,255,255,0.3)" />
+                                        <PolarGrid stroke="var(--border-color)" />
                                         <PolarAngleAxis
                                             dataKey="metric"
-                                            tick={{ fill: '#fff', fontSize: 13, fontWeight: 'bold' }}
+                                            tick={{ fill: 'var(--text-secondary)', fontSize: 13, fontWeight: 'bold' }}
                                         />
                                         <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
                                         {dataSource.map((entry, index) => (
@@ -596,8 +596,8 @@ const StrategyComparison = ({ strategies }) => {
                                                 strokeWidth={3}
                                             />
                                         ))}
-                                        <Legend wrapperStyle={{ color: '#fff', paddingTop: 20 }} />
-                                        <Tooltip contentStyle={{ background: 'rgba(0,0,0,0.8)', border: 'none', borderRadius: 8 }} />
+                                        <Legend wrapperStyle={{ color: 'var(--text-secondary)', paddingTop: 20 }} />
+                                        <Tooltip contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)', borderRadius: 8 }} labelStyle={{ color: 'var(--text-primary)' }} />
                                     </RadarChart>
                                 </ResponsiveContainer>
                             </div>
@@ -609,18 +609,18 @@ const StrategyComparison = ({ strategies }) => {
                         <Card title="收益与风险对比" className="workspace-chart-card workspace-panel">
                             <ResponsiveContainer width="100%" height={380} minWidth={320} minHeight={380}>
                                 <BarChart data={chartData} margin={{ top: 20, right: 30, left: 30, bottom: 20 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                                    <XAxis dataKey="name" tick={{ fill: '#fff', fontSize: 11 }} />
+                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
+                                    <XAxis dataKey="name" tick={{ fill: 'var(--text-secondary)', fontSize: 11 }} />
                                     <YAxis
                                         unit="%"
-                                        tick={{ fill: '#fff', fontSize: 11 }}
+                                        tick={{ fill: 'var(--text-secondary)', fontSize: 11 }}
                                         domain={['auto', 'auto']}
                                     />
                                     <Tooltip
-                                        contentStyle={{ background: 'rgba(0,0,0,0.9)', border: '1px solid #00f5d4', borderRadius: 8 }}
-                                        labelStyle={{ color: '#00f5d4' }}
+                                        contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid #00f5d4', borderRadius: 8 }}
+                                        labelStyle={{ color: 'var(--text-primary)' }}
                                     />
-                                    <Legend wrapperStyle={{ color: '#fff', paddingTop: 10 }} />
+                                    <Legend wrapperStyle={{ color: 'var(--text-secondary)', paddingTop: 10 }} />
                                     <Bar dataKey="总收益率" name="总收益率 (%)" radius={[4, 4, 0, 0]}>
                                         {chartData.map((entry, index) => (
                                             <Cell key={`cell-${index}`} fill={parseFloat(entry['总收益率']) >= 0 ? '#00f5d4' : '#ff6b6b'} />
@@ -641,13 +641,14 @@ const StrategyComparison = ({ strategies }) => {
                                     layout="vertical"
                                     margin={{ top: 10, right: 50, left: 100, bottom: 10 }}
                                 >
-                                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
-                                    <XAxis type="number" tick={{ fill: '#fff' }} />
-                                    <YAxis type="category" dataKey="name" tick={{ fill: '#fff', fontSize: 12 }} width={120} />
+                                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
+                                    <XAxis type="number" tick={{ fill: 'var(--text-secondary)' }} />
+                                    <YAxis type="category" dataKey="name" tick={{ fill: 'var(--text-secondary)', fontSize: 12 }} width={120} />
                                     <Tooltip
-                                        contentStyle={{ background: 'rgba(0,0,0,0.9)', border: '1px solid #fee440', borderRadius: 8 }}
+                                        contentStyle={{ background: 'var(--bg-secondary)', border: '1px solid #fee440', borderRadius: 8 }}
+                                        labelStyle={{ color: 'var(--text-primary)' }}
                                     />
-                                    <Legend wrapperStyle={{ color: '#fff' }} />
+                                    <Legend wrapperStyle={{ color: 'var(--text-secondary)' }} />
                                     <Bar dataKey="夏普比率" fill="#fee440" radius={[0, 4, 4, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
