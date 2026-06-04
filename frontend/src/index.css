@@ -2458,6 +2458,17 @@ a {
   backdrop-filter: blur(18px);
 }
 
+/* Light theme: these surface cards hardcoded a dark slate gradient, leaving
+   them dark while the rest of the page went light. Flip them to a light
+   surface so the theme is consistent. */
+[data-theme='light'] .backtest-hero,
+[data-theme='light'] .workspace-section,
+[data-theme='light'] .workspace-panel {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94) 0%, rgba(248, 250, 252, 0.82) 100%);
+  border-color: rgba(100, 116, 139, 0.18);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+}
+
 .backtest-hero {
   padding: 20px 24px;
   position: relative;
