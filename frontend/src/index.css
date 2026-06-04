@@ -2469,6 +2469,59 @@ a {
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
 }
 
+/* Signature reveal for the backtest net-value curve. The chart sweeps in
+   left-to-right, then a live marker lands on the latest net-value point:
+   a radar ripple, a breathing halo, and the final value floating beside it. */
+@keyframes backtest-chart-reveal {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+.backtest-chart-reveal {
+  animation: backtest-chart-reveal 1.1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes backtest-endpoint-breathe {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.14); }
+}
+
+.backtest-chart-endpoint__halo {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: backtest-endpoint-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes backtest-endpoint-ripple {
+  0% { opacity: 0.55; transform: scale(0.6); }
+  100% { opacity: 0; transform: scale(2.6); }
+}
+
+.backtest-chart-endpoint__ripple {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: backtest-endpoint-ripple 2.4s ease-out infinite;
+}
+
+@keyframes backtest-endpoint-label {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.backtest-chart-endpoint__label {
+  transform-box: fill-box;
+  animation: backtest-endpoint-label 0.5s ease-out 0.9s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backtest-chart-reveal,
+  .backtest-chart-endpoint__halo,
+  .backtest-chart-endpoint__ripple,
+  .backtest-chart-endpoint__label {
+    animation: none;
+  }
+}
+
 .backtest-hero {
   padding: 20px 24px;
   position: relative;
