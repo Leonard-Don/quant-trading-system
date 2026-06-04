@@ -1303,3 +1303,102 @@ def test_sina_ths_adapter_circuit_short_circuits_after_repeated_failures():
         assert SinaIndustryAdapter.get_circuit_status()["unit_test_fetch"]["state"] == "open"
     finally:
         SinaIndustryAdapter._circuit_breakers = original_breakers
+
+
+def test_valuation_prefers_tushare_for_live_detail():
+    adapter = SinaIndustryAdapter()
+    adapter.tushare = MagicMock()
+    adapter.tushare.get_stock_valuation.return_value = {
+        "symbol": "600519", "name": "", "market_cap": 2.11e12,
+        "pe_ttm": 28.5, "pb": 9.2, "turnover": 0.45, "amount": 0.0,
+        "change_pct": 0.0, "source": "tushare",
+    }
+    adapter.akshare = MagicMock()
+
+    val = adapter.get_stock_valuation("600519")
+
+    assert val["source"] == "tushare"
+    assert val["pe_ttm"] == 28.5
+    adapter.tushare.get_stock_valuation.assert_called_once_with("600519")
+    adapter.akshare.get_stock_valuation.assert_not_called()
+
+
+def test_valuation_skips_tushare_when_cached_only():
+    adapter = SinaIndustryAdapter()
+    adapter.tushare = MagicMock()
+    adapter.akshare = MagicMock()
+    adapter.akshare.get_stock_valuation.return_value = {"symbol": "600519", "pe_ttm": 1.0}
+
+    adapter.get_stock_valuation("600519", cached_only=True)
+
+    adapter.tushare.get_stock_valuation.assert_not_called()
+    adapter.akshare.get_stock_valuation.assert_called()
+
+
+def test_valuation_falls_back_to_akshare_when_tushare_errors():
+    adapter = SinaIndustryAdapter()
+    adapter.tushare = MagicMock()
+    adapter.tushare.get_stock_valuation.return_value = {"symbol": "600519", "error": "empty_daily_basic"}
+    adapter.akshare = MagicMock()
+    adapter.akshare.get_stock_valuation.return_value = {"symbol": "600519", "pe_ttm": 12.3, "market_cap": 5e11}
+
+    val = adapter.get_stock_valuation("600519")
+
+    assert val["pe_ttm"] == 12.3
+    adapter.akshare.get_stock_valuation.assert_called()
+
+
+def test_financial_data_prefers_tushare():
+    adapter = SinaIndustryAdapter()
+    adapter.tushare = MagicMock()
+    adapter.tushare.get_stock_financial_data.return_value = {
+        "roe": 31.2, "revenue_yoy": 18.0, "profit_yoy": 19.5, "source": "tushare",
+    }
+    adapter.akshare = MagicMock()
+
+    fin = adapter.get_stock_financial_data("600519")
+
+    assert fin["roe"] == 31.2
+    adapter.tushare.get_stock_financial_data.assert_called_once_with("600519")
+    adapter.akshare.get_stock_financial_data.assert_not_called()
+
+
+def test_historical_data_prefers_tushare_for_ashare():
+    adapter = SinaIndustryAdapter()
+    ts_df = pd.DataFrame(
+        {"open": [10.0, 10.5], "high": [10.8, 11.0], "low": [9.9, 10.4],
+         "close": [10.5, 10.9], "volume": [1000.0, 1200.0]},
+        index=pd.to_datetime(["2024-01-02", "2024-01-03"]),
+    )
+    ts_df.index.name = "date"
+    adapter.tushare = MagicMock()
+    adapter.tushare.get_historical_data.return_value = ts_df
+    adapter.akshare = MagicMock()
+
+    with patch.object(SinaIndustryAdapter, "_ensure_history_cache_loaded", lambda: None), \
+         patch.object(SinaIndustryAdapter, "_persist_history_cache", lambda: None):
+        SinaIndustryAdapter._history_cache = {}
+        out = adapter.get_historical_data("600519")
+
+    assert not out.empty
+    assert list(out["close"]) == [10.5, 10.9]
+    adapter.akshare.get_historical_data.assert_not_called()
+
+
+def test_latest_quote_prefers_sina_realtime():
+    adapter = SinaIndustryAdapter()
+    SinaIndustryAdapter._circuit_breakers = {}
+    adapter.sina = MagicMock()
+    adapter.sina.get_stock_realtime.return_value = pd.DataFrame([{
+        "name": "贵州茅台", "price": 1680.0, "pre_close": 1650.0,
+        "high": 1690.0, "low": 1640.0, "open": 1655.0,
+        "bid": 1679.0, "ask": 1681.0, "volume": 1000, "amount": 1.0e9,
+        "date": "2024-01-03", "time": "15:00:00",
+    }])
+    adapter.akshare = MagicMock()
+
+    q = adapter.get_latest_quote("600519")
+
+    assert q["source"] == "sina_realtime"
+    assert q["current_price"] == 1680.0
+    adapter.akshare.get_latest_quote.assert_not_called()
