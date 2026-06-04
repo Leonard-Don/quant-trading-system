@@ -218,6 +218,7 @@ quant-trading-system/
 │   │   └── providers/              # 多源数据提供器 (Yahoo / AKShare / Sina / TwelveData 等)
 │   ├── middleware/                 # 请求中间件
 │   ├── reporting/                  # 报告生成
+│   ├── research/                    # 研究流水线库 (NormalizedFrame / FeatureSet / DataHandler / ModelRun)，契约测试覆盖、尚未接入运行时
 │   ├── settings/                   # 分层配置管理 (base / data / trading / api / performance / gui)
 │   ├── strategy/                   # 29 个策略实现（12 个已接入引擎）+ 策略验证器
 │   ├── trading/                    # 交易执行与跨市场资产建模
