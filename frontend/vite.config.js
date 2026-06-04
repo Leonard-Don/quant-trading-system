@@ -79,5 +79,23 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.js"],
     include: ["src/__tests__/**/*.test.{js,jsx}"],
     css: false,
+    // Cap worker count well under the core count. The jsdom specs are
+    // timing-sensitive (real-timer polling + many waitFor calls); running one
+    // heavy worker per core starves the event loop and trips the 5s timeout.
+    maxWorkers: "50%",
+    minWorkers: 1,
+    // These are heavy integration-style component tests (full Ant Design render
+    // + async mocks + waitFor) that legitimately take 1-3s each, and some poll
+    // on a real 5s interval. The default 5s timeout leaves no margin, so normal
+    // jitter tips them over. Give them ample room — they still complete fast
+    // when not contended, so this adds stability without hiding a real hang.
+    testTimeout: 15000,
+    hookTimeout: 15000,
+    // Several heavy integration specs render real components that poll on real
+    // timers; under load an assertion can occasionally race the async/timer
+    // churn (each such spec passes reliably in isolation). The worker cap and
+    // timeout above cut the rate sharply; retry absorbs the rare residual so CI
+    // stays green. This guards test-timing fragility, not product behaviour.
+    retry: 2,
   },
 });

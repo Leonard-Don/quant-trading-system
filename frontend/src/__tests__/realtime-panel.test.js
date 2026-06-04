@@ -1679,6 +1679,13 @@ describe('RealTimePanel', () => {
   });
 
   test('does not repeatedly refetch the same unresolved symbols on every quote update', async () => {
+    // Fake timers so the feed's real-timer fallback/grace fetches can't fire on
+    // the wall clock between mockClear() and the assertion. The quote update
+    // renders synchronously inside act(), so the waitFor below passes on its
+    // first check without advancing time — keeping api.get deterministically
+    // untouched (this test was flaky on real timers).
+    jest.useFakeTimers();
+
     await renderRealtimePanel();
 
     await waitFor(() => {
@@ -1702,6 +1709,8 @@ describe('RealTimePanel', () => {
     });
 
     expect(api.get).not.toHaveBeenCalled();
+
+    jest.useRealTimers();
   });
 
   test('restores persisted watchlist and active tab from local storage', async () => {
