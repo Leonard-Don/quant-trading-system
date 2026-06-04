@@ -122,6 +122,13 @@ class TushareProvider(BaseDataProvider):
         except (TypeError, ValueError):
             return default
 
+    @staticmethod
+    def _latest_row(frame: pd.DataFrame, date_col: str) -> pd.Series:
+        """Return the most recent row of a Tushare frame by its date column."""
+        if date_col in getattr(frame, "columns", []):
+            frame = frame.sort_values(date_col, ascending=False)
+        return frame.iloc[0]
+
     @classmethod
     def _is_supported_ts_code(cls, ts_code: str) -> bool:
         return bool(re.fullmatch(r"\d{6}\.(SH|SZ|BJ)", ts_code or ""))
@@ -240,6 +247,75 @@ class TushareProvider(BaseDataProvider):
             "as_of": as_of_iso,
             "source": self.name,
             "mode": "eod_snapshot",
+        }
+
+    def get_stock_valuation(self, symbol: str) -> dict[str, Any]:
+        """Per-stock EOD valuation (PE/PB/市值/换手率) from Tushare ``daily_basic``.
+
+        Returns the same display shape the AKShare/Tencent valuation produces
+        (``market_cap`` in raw yuan), so it can be wired in as a primary source
+        for the leader-detail view where the AKShare/EastMoney spot scrape is
+        frequently blocked or slow. EOD figures — acceptable for research detail.
+        """
+        ts_code = self.normalize_symbol(symbol)
+        if not self._is_supported_ts_code(ts_code):
+            return {"symbol": symbol, "error": "unsupported_tushare_symbol", "source": self.name}
+
+        try:
+            pro = self._get_pro_client()
+            end = datetime.now()
+            start = end - timedelta(days=21)
+            frame = pro.daily_basic(
+                ts_code=ts_code,
+                start_date=self._format_tushare_date(start),
+                end_date=self._format_tushare_date(end),
+            )
+        except Exception as exc:  # noqa: BLE001 - any client error degrades to fallback
+            return {
+                "symbol": symbol,
+                "error": f"tushare_daily_basic_failed: {type(exc).__name__}",
+                "source": self.name,
+            }
+
+        if frame is None or getattr(frame, "empty", True):
+            return {"symbol": symbol, "error": "empty_daily_basic", "source": self.name}
+
+        row = self._latest_row(frame, "trade_date")
+        total_mv = self._to_float(row.get("total_mv"))  # 万元
+        return {
+            "symbol": str(symbol),
+            "name": "",
+            "market_cap": total_mv * 10000.0,  # 万元 -> 元
+            "pe_ttm": self._to_float(row.get("pe_ttm")),
+            "pb": self._to_float(row.get("pb")),
+            "turnover": self._to_float(row.get("turnover_rate")),
+            "amount": 0.0,
+            "change_pct": 0.0,
+            "source": self.name,
+        }
+
+    def get_stock_financial_data(self, symbol: str) -> dict[str, Any]:
+        """Per-stock financials (ROE / 营收同比 / 净利同比) from ``fina_indicator``."""
+        ts_code = self.normalize_symbol(symbol)
+        neutral = {"roe": 0.0, "revenue_yoy": 0.0, "profit_yoy": 0.0}
+        if not self._is_supported_ts_code(ts_code):
+            return {**neutral, "error": "unsupported_tushare_symbol", "source": self.name}
+
+        try:
+            pro = self._get_pro_client()
+            frame = pro.fina_indicator(ts_code=ts_code)
+        except Exception as exc:  # noqa: BLE001 - any client error degrades to fallback
+            return {**neutral, "error": f"tushare_fina_indicator_failed: {type(exc).__name__}", "source": self.name}
+
+        if frame is None or getattr(frame, "empty", True):
+            return {**neutral, "error": "empty_fina_indicator", "source": self.name}
+
+        row = self._latest_row(frame, "end_date")
+        return {
+            "roe": self._to_float(row.get("roe")),
+            "revenue_yoy": self._to_float(row.get("or_yoy")),
+            "profit_yoy": self._to_float(row.get("netprofit_yoy")),
+            "source": self.name,
         }
 
     def is_available(self) -> bool:

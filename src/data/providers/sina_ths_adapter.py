@@ -3212,30 +3212,11 @@ class SinaIndustryAdapter:
         return result
 
     def get_latest_quote(self, symbol: str) -> Dict[str, Any]:
-        """获取单股最新报价，优先 AKShare，失败则降级到 Sina 实时行情。"""
-        try:
-            quote = self.akshare.get_latest_quote(symbol)
-            if "error" not in quote:
-                return {
-                    "symbol": symbol,
-                    "name": quote.get("name", ""),
-                    "current_price": quote.get("price"),
-                    "previous_close": quote.get("prev_close"),
-                    "change": quote.get("change"),
-                    "change_percent": quote.get("change_percent"),
-                    "high": quote.get("high"),
-                    "low": quote.get("low"),
-                    "open": quote.get("open"),
-                    "volume": quote.get("volume"),
-                    "amount": quote.get("amount"),
-                    "source": "akshare_realtime",
-                    "updated_at": quote.get("timestamp").isoformat()
-                    if getattr(quote.get("timestamp"), "isoformat", None)
-                    else quote.get("timestamp"),
-                }
-        except Exception as e:
-            logger.warning(f"AKShare latest quote failed for {symbol}: {e}")
+        """获取单股最新报价。
 
+        优先新浪实时：单股一次请求、稳定且真正实时，避开 AKShare/东方财富那条会拉
+        全市场现货、被拦截时又无超时(挂起数十秒)的路径。新浪不可用时降级 AKShare。
+        """
         try:
             prefix = (
                 "sh" if symbol.startswith("6") else "sz" if symbol.startswith(("0", "3")) else "bj"
@@ -3271,7 +3252,30 @@ class SinaIndustryAdapter:
                     "updated_at": updated_at,
                 }
         except Exception as e:
-            logger.warning(f"Sina latest quote failed for {symbol}: {e}")
+            logger.warning(f"Sina latest quote failed for {symbol}: {e}, falling back to AKShare")
+
+        try:
+            quote = self.akshare.get_latest_quote(symbol)
+            if "error" not in quote:
+                return {
+                    "symbol": symbol,
+                    "name": quote.get("name", ""),
+                    "current_price": quote.get("price"),
+                    "previous_close": quote.get("prev_close"),
+                    "change": quote.get("change"),
+                    "change_percent": quote.get("change_percent"),
+                    "high": quote.get("high"),
+                    "low": quote.get("low"),
+                    "open": quote.get("open"),
+                    "volume": quote.get("volume"),
+                    "amount": quote.get("amount"),
+                    "source": "akshare_realtime",
+                    "updated_at": quote.get("timestamp").isoformat()
+                    if getattr(quote.get("timestamp"), "isoformat", None)
+                    else quote.get("timestamp"),
+                }
+        except Exception as e:
+            logger.warning(f"AKShare latest quote failed for {symbol}: {e}")
 
         return {"symbol": symbol, "error": "Quote not found"}
 
@@ -3323,8 +3327,22 @@ class SinaIndustryAdapter:
 
     def get_stock_valuation(self, symbol: str, cached_only: bool = False) -> Dict[str, Any]:
         """
-        获取股票估值数据（优先 AKShare，失败则使用新浪实时行情降级）
+        获取股票估值数据。
+
+        实时明细(cached_only=False)优先走 Tushare daily_basic：单股一次调用、稳定，
+        避开 AKShare/东方财富现货被拦截或拉全市场的慢路径；Tushare 不可用时再降级到
+        AKShare → 新浪实时 + 腾讯。列表路径(cached_only=True)沿用 AKShare 进程内缓存。
         """
+        # Tushare EOD valuation as the primary source for live detail fetches.
+        if not cached_only and self.tushare is not None:
+            try:
+                ts_val = self.tushare.get_stock_valuation(symbol)
+            except Exception as exc:  # noqa: BLE001 - degrade to AKShare/Sina chain
+                ts_val = None
+                logger.warning(f"Tushare valuation failed for {symbol}: {exc}, falling back")
+            if isinstance(ts_val, dict) and "error" not in ts_val:
+                return ts_val
+
         try:
             try:
                 val = self.akshare.get_stock_valuation(symbol, cached_only=cached_only)
@@ -3399,8 +3417,19 @@ class SinaIndustryAdapter:
 
     def get_stock_financial_data(self, symbol: str) -> Dict[str, Any]:
         """
-        获取股票财务数据（优先 AKShare，失败则返回中性默认值）
+        获取股票财务数据（优先 Tushare fina_indicator，再 AKShare，失败返回中性默认值）
         """
+        # Tushare fina_indicator (ROE / 营收同比 / 净利同比) as the primary source —
+        # AKShare/同花顺 financials are frequently blocked.
+        if self.tushare is not None:
+            try:
+                ts_fin = self.tushare.get_stock_financial_data(symbol)
+            except Exception as exc:  # noqa: BLE001 - degrade to AKShare default
+                ts_fin = None
+                logger.warning(f"Tushare financial data failed for {symbol}: {exc}, falling back")
+            if isinstance(ts_fin, dict) and "error" not in ts_fin:
+                return ts_fin
+
         try:
             return self.akshare.get_stock_financial_data(symbol)
         except Exception as e:
@@ -3444,12 +3473,24 @@ class SinaIndustryAdapter:
                     logger.warning(f"Error decoding history cache for {symbol}: {e}")
 
         df = pd.DataFrame()
-        try:
-            df = self.akshare.get_historical_data(symbol, start_date, end_date)
-        except Exception as e:
-            logger.warning(
-                f"AKShare historical data failed for {symbol}: {e}, falling back to Sina Daily"
-            )
+        # Tushare daily bars first for A-shares: one reliable call that returns
+        # the same date-indexed OHLCV frame, avoiding the AKShare/EastMoney
+        # historical scrape (frequently blocked, no timeout → hangs ~60s).
+        if self.tushare is not None:
+            try:
+                ts_hist = self.tushare.get_historical_data(symbol, start_date, end_date)
+                if ts_hist is not None and not ts_hist.empty and "close" in ts_hist.columns:
+                    df = ts_hist
+            except Exception as exc:  # noqa: BLE001 - degrade to AKShare/Sina chain
+                logger.warning(f"Tushare historical failed for {symbol}: {exc}, falling back")
+
+        if df.empty:
+            try:
+                df = self.akshare.get_historical_data(symbol, start_date, end_date)
+            except Exception as e:
+                logger.warning(
+                    f"AKShare historical data failed for {symbol}: {e}, falling back to Sina Daily"
+                )
 
         if df.empty:
             try:

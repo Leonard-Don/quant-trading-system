@@ -213,3 +213,88 @@ def test_provider_factory_knows_tushare_and_skips_missing_token(monkeypatch):
     assert source["requires_api_key"] is True
     assert source["status"] == "skipped"
     assert source["reason"] == "missing_api_key"
+
+
+class _StockFundamentalsPro:
+    """Fake Tushare pro client exposing daily_basic + fina_indicator."""
+
+    def __init__(self):
+        self.daily_basic_calls: list[dict] = []
+        self.fina_indicator_calls: list[dict] = []
+
+    def daily_basic(self, **kwargs):
+        self.daily_basic_calls.append(kwargs)
+        ts_code = kwargs.get("ts_code", "600519.SH")
+        # Most-recent row deliberately listed second to prove the method sorts.
+        return pd.DataFrame(
+            [
+                {
+                    "ts_code": ts_code,
+                    "trade_date": "20240102",
+                    "close": 1650.0,
+                    "turnover_rate": 0.40,
+                    "pe": 29.5,
+                    "pe_ttm": 28.0,
+                    "pb": 9.0,
+                    "total_mv": 207000000.0,  # 万元
+                    "circ_mv": 206000000.0,
+                },
+                {
+                    "ts_code": ts_code,
+                    "trade_date": "20240103",
+                    "close": 1680.0,
+                    "turnover_rate": 0.45,
+                    "pe": 30.1,
+                    "pe_ttm": 28.5,
+                    "pb": 9.2,
+                    "total_mv": 211000000.0,  # 万元
+                    "circ_mv": 210000000.0,
+                },
+            ]
+        )
+
+    def fina_indicator(self, **kwargs):
+        self.fina_indicator_calls.append(kwargs)
+        ts_code = kwargs.get("ts_code", "600519.SH")
+        return pd.DataFrame(
+            [
+                {"ts_code": ts_code, "end_date": "20231231", "roe": 31.2, "or_yoy": 18.0, "netprofit_yoy": 19.5},
+                {"ts_code": ts_code, "end_date": "20230930", "roe": 24.0, "or_yoy": 16.0, "netprofit_yoy": 17.0},
+            ]
+        )
+
+
+def test_get_stock_valuation_maps_latest_daily_basic_to_display_shape():
+    provider = TushareProvider(config={"pro_client": _StockFundamentalsPro()})
+
+    val = provider.get_stock_valuation("600519")
+
+    assert "error" not in val
+    # Picks the most recent trade_date (20240103), not the first row.
+    assert val["pe_ttm"] == 28.5
+    assert val["pb"] == 9.2
+    assert val["turnover"] == 0.45
+    # total_mv is in 万元; market_cap is normalized to raw yuan to match the
+    # AKShare/Tencent valuation shape the scorer consumes.
+    assert val["market_cap"] == 211000000.0 * 10000
+    assert val["source"] == "tushare"
+
+
+def test_get_stock_valuation_rejects_non_ashare_symbol():
+    provider = TushareProvider(config={"pro_client": _StockFundamentalsPro()})
+
+    val = provider.get_stock_valuation("AAPL")
+
+    assert "error" in val
+
+
+def test_get_stock_financial_data_maps_latest_fina_indicator():
+    provider = TushareProvider(config={"pro_client": _StockFundamentalsPro()})
+
+    fin = provider.get_stock_financial_data("600519")
+
+    assert "error" not in fin
+    assert fin["roe"] == 31.2
+    assert fin["revenue_yoy"] == 18.0
+    assert fin["profit_yoy"] == 19.5
+    assert fin["source"] == "tushare"
