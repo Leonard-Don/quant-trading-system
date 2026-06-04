@@ -4,6 +4,7 @@ import {
   Brush,
   CartesianGrid,
   ComposedChart,
+  Customized,
   Legend,
   Line,
   ResponsiveContainer,
@@ -41,6 +42,11 @@ const palette = {
   axis: 'rgba(148, 163, 184, 0.85)',
   grid: 'rgba(148, 163, 184, 0.12)',
 };
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined'
+  && typeof window.matchMedia === 'function'
+  && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const buildAxisDomain = (values = []) => {
   const finiteValues = values.filter((value) => Number.isFinite(value));
@@ -132,6 +138,102 @@ const PerformanceChart = ({ data }) => {
     () => buildAxisDomain(chartData.map((item) => item.price)),
     [chartData]
   );
+
+  const reduceMotion = useMemo(() => prefersReducedMotion(), []);
+  const revealKey = chartData.length
+    ? `${chartData.length}:${chartData[chartData.length - 1]?.portfolio_value}`
+    : 'empty';
+  // Signature reveal: the curve sweeps in left-to-right (CSS clip-path on the
+  // wrapper), and a live marker lands on the latest net-value point — a radar
+  // ripple, a breathing halo, the core dot, and the final value floating beside
+  // it. We read the net-value series' last pixel coordinate from the chart's own
+  // computed geometry (via <Customized>), so the marker tracks the curve exactly.
+  // Honors prefers-reduced-motion.
+  const renderEndpointGlow = (chartProps) => {
+    // Place the marker from the axis scales rather than the series' rendered
+    // points: under a Brush, recharts nulls out trailing point coordinates, so
+    // reading the last datapoint through the scales is what stays correct.
+    const xMap = chartProps?.xAxisMap || {};
+    const yMap = chartProps?.yAxisMap || {};
+    const xAxis = xMap[Object.keys(xMap)[0]];
+    const yAxis = yMap.left || yMap[Object.keys(yMap)[0]];
+    const last = chartData[chartData.length - 1];
+    if (!xAxis?.scale || !yAxis?.scale || !last) {
+      return <g />;
+    }
+    // A band scale leaves the very last category unplaced under a Brush, so walk
+    // back to the last datapoint the scale can position; the dot sits on the
+    // curve's tail while the label still reports the true final net value.
+    const half = typeof xAxis.scale.bandwidth === 'function'
+      ? xAxis.scale.bandwidth() / 2
+      : 0;
+    let cx = null;
+    let cy = null;
+    for (let i = chartData.length - 1; i >= 0; i -= 1) {
+      const px = xAxis.scale(chartData[i].dateLabel);
+      if (Number.isFinite(px)) {
+        cx = px + half;
+        cy = yAxis.scale(chartData[i].portfolio_value);
+        break;
+      }
+    }
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) {
+      return <g />;
+    }
+    const valueText = Number.isFinite(last.portfolio_value)
+      ? formatChartCurrency(last.portfolio_value)
+      : null;
+    const pillW = valueText ? Math.round(valueText.length * 7.2) + 18 : 0;
+    const labelBelow = cy < 48;
+    const labelY = labelBelow ? cy + 12 : cy - 32;
+    return (
+      <g>
+        {reduceMotion ? null : (
+          <circle
+            cx={cx}
+            cy={cy}
+            r={9}
+            fill="none"
+            stroke={palette.portfolio}
+            strokeWidth={1.5}
+            className="backtest-chart-endpoint__ripple"
+          />
+        )}
+        <circle
+          cx={cx}
+          cy={cy}
+          r={17}
+          fill="url(#portfolioEndpointHalo)"
+          className={reduceMotion ? undefined : 'backtest-chart-endpoint__halo'}
+        />
+        <circle cx={cx} cy={cy} r={6} fill={palette.portfolio} stroke="#fff" strokeWidth={1.8} />
+        <circle cx={cx} cy={cy} r={2.4} fill="#fff" />
+        {valueText ? (
+          <g className={reduceMotion ? undefined : 'backtest-chart-endpoint__label'}>
+            <rect
+              x={cx - pillW}
+              y={labelY}
+              width={pillW}
+              height={20}
+              rx={6}
+              fill="rgba(2, 8, 23, 0.88)"
+              stroke="rgba(56, 189, 248, 0.5)"
+            />
+            <text
+              x={cx - 9}
+              y={labelY + 14}
+              textAnchor="end"
+              fontSize={12}
+              fontWeight={600}
+              fill="#f8fafc"
+            >
+              {valueText}
+            </text>
+          </g>
+        ) : null}
+      </g>
+    );
+  };
 
   const chartSummary = useMemo(() => {
     if (chartData.length === 0) {
@@ -256,7 +358,10 @@ const PerformanceChart = ({ data }) => {
           </span>
         </div>
 
-        <div className="backtest-chart-canvas">
+        <div
+          key={revealKey}
+          className={`backtest-chart-canvas${reduceMotion ? '' : ' backtest-chart-reveal'}`}
+        >
           <ResponsiveContainer width="100%" height={440}>
             <ComposedChart data={chartData} margin={{ top: 12, right: 24, left: 0, bottom: 0 }}>
               <defs>
@@ -265,6 +370,10 @@ const PerformanceChart = ({ data }) => {
                   <stop offset="70%" stopColor={palette.portfolio} stopOpacity={0.12} />
                   <stop offset="100%" stopColor={palette.portfolio} stopOpacity={0.02} />
                 </linearGradient>
+                <radialGradient id="portfolioEndpointHalo" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor={palette.portfolio} stopOpacity={0.55} />
+                  <stop offset="100%" stopColor={palette.portfolio} stopOpacity={0} />
+                </radialGradient>
               </defs>
               <CartesianGrid stroke={palette.grid} strokeDasharray="4 4" vertical={false} />
               <XAxis
@@ -310,6 +419,7 @@ const PerformanceChart = ({ data }) => {
                   fillOpacity={1}
                   dot={false}
                   activeDot={{ r: 4, stroke: '#fff', strokeWidth: 1.5 }}
+                  isAnimationActive={false}
                 />
               ) : (
                 <Line
@@ -321,6 +431,7 @@ const PerformanceChart = ({ data }) => {
                   strokeWidth={2.6}
                   dot={false}
                   activeDot={{ r: 4, stroke: '#fff', strokeWidth: 1.5 }}
+                  isAnimationActive={false}
                 />
               )}
 
@@ -367,6 +478,8 @@ const PerformanceChart = ({ data }) => {
                   shape={(props) => <SignalMarker {...props} />}
                 />
               ) : null}
+
+              <Customized component={renderEndpointGlow} />
 
               <Brush
                 dataKey="dateLabel"
