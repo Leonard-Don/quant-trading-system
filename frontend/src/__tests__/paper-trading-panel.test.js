@@ -18,7 +18,7 @@ if (typeof window.matchMedia !== 'function') {
 
 import { App as AntdApp } from 'antd';
 
-import PaperTradingPanel from '../components/PaperTradingPanel';
+import PaperTradingPanel, { computeMarkToMarket } from '../components/PaperTradingPanel';
 
 const mockGetAccount = jest.fn();
 const mockListOrders = jest.fn();
@@ -684,6 +684,22 @@ describe('PaperTradingPanel', () => {
         expect(archived.title).toContain('AAPL 纸面持仓');
     });
 
+    it('archives positions under the realtime research profile so the dashboard reads them back', async () => {
+        // The 今日研究 dashboard reads the journal keyed by loadRealtimeProfileId().
+        // The archive write must target the SAME profile, else the snapshot lands
+        // in the "default" profile file and never surfaces on the dashboard.
+        window.localStorage.setItem('realtime-panel:profile-id', 'rtp-paper-archive');
+        mockCreateJournalEntry.mockResolvedValue({ success: true });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+
+        fireEvent.click(screen.getByTestId('paper-snapshot-positions'));
+
+        await waitFor(() => expect(mockCreateJournalEntry).toHaveBeenCalledTimes(1));
+        expect(mockCreateJournalEntry.mock.calls[0][1]).toBe('rtp-paper-archive');
+    });
+
     it('disables the archive button when there are no positions', async () => {
         mockGetAccount.mockResolvedValue({
             success: true,
@@ -720,5 +736,33 @@ describe('PaperTradingPanel', () => {
         // sessionStorage entry must be drained after consumption so a refresh
         // doesn't re-apply a stale prefill
         expect(window.sessionStorage.getItem('paper-trading-prefill')).toBeNull();
+    });
+});
+
+describe('computeMarkToMarket', () => {
+    it('carries a position at cost basis when no live quote is available', () => {
+        const positions = [{ symbol: '600519.SS', quantity: 5, avg_cost: 1450 }];
+        const { positions: enriched, marketValue, unrealized } = computeMarkToMarket(positions, {});
+
+        // A missing tick must NOT collapse the position to 0 — that bug dragged
+        // 持仓市值 to 0, 总权益 to cash-only, and 总收益率 to a false -72.5%.
+        // Carry the position at cost basis (avg_cost × quantity) instead.
+        expect(marketValue).toBe(7250); // 5 × 1450
+        expect(unrealized).toBe(0);
+        expect(enriched[0].market_value).toBe(7250);
+        // The live mark is genuinely unknown → 现价 / 浮动盈亏 stay null ("—").
+        expect(enriched[0].last_price).toBeNull();
+        expect(enriched[0].unrealized_pnl).toBeNull();
+    });
+
+    it('marks to market and computes unrealized PnL when a live quote exists', () => {
+        const positions = [{ symbol: 'AAPL', quantity: 10, avg_cost: 150 }];
+        const { positions: enriched, marketValue, unrealized } =
+            computeMarkToMarket(positions, { AAPL: { price: 165 } });
+
+        expect(marketValue).toBe(1650);
+        expect(unrealized).toBe(150); // (165 − 150) × 10
+        expect(enriched[0].last_price).toBe(165);
+        expect(enriched[0].unrealized_pnl).toBe(150);
     });
 });

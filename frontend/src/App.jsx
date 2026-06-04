@@ -30,6 +30,7 @@ import {
 import { useTheme } from './contexts/ThemeContext';
 import { APP_VERSION } from './generated/version';
 import { useAppUrlState } from './hooks/useAppUrlState';
+import { loadRealtimeProfileId } from './hooks/useRealtimePreferences';
 import { replaceAppUrl } from './utils/appUrlState';
 import lazyWithRetry from './utils/lazyWithRetry';
 import { normalizePublicView, VIEW_QUERY_KEY } from './utils/publicViews';
@@ -162,7 +163,10 @@ function App() {
         // outcome here.
         const journalEntry = buildBacktestJournalEntry(formData, result.data);
         if (journalEntry) {
-          createResearchJournalEntry(journalEntry).catch((archiveError) => {
+          // Write under the same profile the 今日研究 dashboard reads
+          // (loadRealtimeProfileId); otherwise the entry lands in the "default"
+          // profile file and the 回测快照 counter never sees it.
+          createResearchJournalEntry(journalEntry, loadRealtimeProfileId()).catch((archiveError) => {
             console.warn('Auto-archive to research journal failed:', archiveError);
           });
         }

@@ -56,6 +56,7 @@ import {
     PAPER_POSITION_CSV_COLUMNS,
 } from '../utils/paperOrderExport';
 import { getCurrencySymbol, SYMBOL_PLACEHOLDER_BILINGUAL } from '../utils/strategyDefaults';
+import { loadRealtimeProfileId } from '../hooks/useRealtimePreferences';
 
 const { Title, Text } = Typography;
 
@@ -77,7 +78,7 @@ const formatSideLabel = (side) => {
     return side || '—';
 };
 
-const computeMarkToMarket = (positions, quoteMap) => {
+export const computeMarkToMarket = (positions, quoteMap) => {
     let unrealized = 0;
     let marketValue = 0;
     const enriched = positions.map((position) => {
@@ -85,11 +86,18 @@ const computeMarkToMarket = (positions, quoteMap) => {
         const lastPrice = typeof quote?.price === 'number' && Number.isFinite(quote.price)
             ? quote.price
             : null;
-        const value = lastPrice != null ? lastPrice * position.quantity : null;
+        // When no live tick is available, carry the position at cost basis
+        // (avg_cost × quantity) rather than letting it collapse to 0. A missing
+        // quote must not masquerade as a near-total loss in 持仓市值 / 总权益 /
+        // 总收益率. 现价 and 浮动盈亏 stay null below ("—"): the live mark is
+        // genuinely unknown, so we don't fabricate a 0 PnL.
+        const value = lastPrice != null
+            ? lastPrice * position.quantity
+            : position.avg_cost * position.quantity;
         const pnl = lastPrice != null
             ? (lastPrice - position.avg_cost) * position.quantity
             : null;
-        if (value != null) marketValue += value;
+        if (Number.isFinite(value)) marketValue += value;
         if (pnl != null) unrealized += pnl;
         return {
             ...position,
@@ -388,8 +396,11 @@ const PaperTradingPanel = () => {
 
         setSnapshotting(true);
         try {
+            // Archive under the same profile the 今日研究 dashboard reads, so the
+            // snapshot actually surfaces there instead of the "default" profile.
+            const profileId = loadRealtimeProfileId();
             const results = await Promise.allSettled(
-                entries.map((entry) => createResearchJournalEntry(entry)),
+                entries.map((entry) => createResearchJournalEntry(entry, profileId)),
             );
             const fulfilled = results.filter((r) => r.status === 'fulfilled').length;
             if (fulfilled === entries.length) {
