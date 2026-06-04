@@ -173,6 +173,29 @@ describe('App backtest auto-archive', () => {
     expect(archived.title).toContain('MovingAverageCrossover');
   });
 
+  test('archives under the realtime research profile so the dashboard reads it back', async () => {
+    // The 今日研究 dashboard reads the journal keyed by loadRealtimeProfileId().
+    // If the auto-archive write omits that profile it lands in the "default"
+    // profile file and the 回测快照 counter never sees it (stays 0).
+    window.localStorage.setItem('realtime-panel:profile-id', 'rtp-backtest-archive');
+    mockRunBacktest.mockResolvedValueOnce({ success: true, data: RESULT });
+    mockCreateResearchJournalEntry.mockResolvedValueOnce({ success: true });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(onSubmitFromBacktestDashboard).toBeInstanceOf(Function);
+    });
+
+    await onSubmitFromBacktestDashboard(FORM);
+
+    await waitFor(() => {
+      expect(mockCreateResearchJournalEntry).toHaveBeenCalledTimes(1);
+    });
+
+    expect(mockCreateResearchJournalEntry.mock.calls[0][1]).toBe('rtp-backtest-archive');
+  });
+
   test('journal failure does not raise to the user-facing flow', async () => {
     mockRunBacktest.mockResolvedValueOnce({ success: true, data: RESULT });
     mockCreateResearchJournalEntry.mockRejectedValueOnce(new Error('journal down'));
