@@ -86,8 +86,8 @@ function ApiStatusIndicator() {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
           <Space size={6}>
-            <CloudServerOutlined style={{ color: isActive ? '#38bdf8' : '#8c8c8c' }} />
-            <span style={{ fontWeight: 600, color: '#e2e8f0', fontSize: 13 }}>
+            <CloudServerOutlined style={{ color: isActive ? 'var(--accent-primary)' : 'var(--text-muted)' }} />
+            <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 13 }}>
               {source.name}
             </span>
             {isActive && (
@@ -106,7 +106,7 @@ function ApiStatusIndicator() {
         </div>
 
         {source.status_detail && (
-          <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 6, paddingLeft: 20 }}>
+          <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6, paddingLeft: 20 }}>
             {source.status_detail}
           </div>
         )}
@@ -120,8 +120,8 @@ function ApiStatusIndicator() {
                 lineHeight: '16px',
                 padding: '0 4px',
                 margin: 0,
-                borderColor: source[cap] ? 'rgba(82, 196, 26, 0.3)' : 'rgba(255,255,255,0.1)',
-                color: source[cap] ? '#52c41a' : '#64748b',
+                borderColor: source[cap] ? 'rgba(82, 196, 26, 0.3)' : 'var(--border-color)',
+                color: source[cap] ? '#52c41a' : 'var(--text-muted)',
                 background: source[cap] ? 'rgba(82, 196, 26, 0.06)' : 'transparent',
               }}
             >
@@ -137,15 +137,15 @@ function ApiStatusIndicator() {
     <div style={{ width: 320 }}>
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid rgba(255,255,255,0.06)'
+        marginBottom: 12, paddingBottom: 8, borderBottom: '1px solid var(--border-color)'
       }}>
-        <span style={{ fontWeight: 700, color: '#f1f5f9', fontSize: 14 }}>
+        <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 14 }}>
           数据源状态
         </span>
         <Tooltip title="刷新状态">
           <ReloadOutlined
             spin={loading}
-            style={{ color: '#38bdf8', cursor: 'pointer', fontSize: 13 }}
+            style={{ color: 'var(--accent-primary)', cursor: 'pointer', fontSize: 13 }}
             onClick={(e) => { e.stopPropagation(); fetchStatus(); }}
           />
         </Tooltip>
@@ -165,8 +165,8 @@ function ApiStatusIndicator() {
       )}
       {healthData.data_sources_contributing && healthData.data_sources_contributing.length > 0 && (
         <div style={{
-          fontSize: 10, color: '#94a3b8', marginTop: 4, padding: '4px 8px',
-          background: 'rgba(255,255,255,0.02)', borderRadius: 4,
+          fontSize: 10, color: 'var(--text-secondary)', marginTop: 4, padding: '4px 8px',
+          background: 'var(--bg-tertiary)', borderRadius: 4,
         }}>
           数据来源: {healthData.data_sources_contributing.join(' + ').toUpperCase()}
           {healthData.data_source_mode === 'sina_fallback' && ' (兜底)'}
@@ -174,7 +174,7 @@ function ApiStatusIndicator() {
       )}
 
       {lastChecked && (
-        <div style={{ fontSize: 10, color: '#64748b', marginTop: 8, textAlign: 'right' }}>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, textAlign: 'right' }}>
           上次检查: {lastChecked.toLocaleTimeString()}
         </div>
       )}
@@ -190,8 +190,8 @@ function ApiStatusIndicator() {
       overlayStyle={{ maxWidth: 360 }}
       styles={{
         body: {
-          background: '#1e293b',
-          border: '1px solid rgba(255,255,255,0.08)',
+          background: 'var(--bg-secondary)',
+          border: '1px solid var(--border-color)',
           borderRadius: 12,
           padding: 16,
         }
@@ -207,8 +207,8 @@ function ApiStatusIndicator() {
           cursor: 'pointer',
           padding: '2px 8px',
           borderRadius: 4,
-          background: 'rgba(255,255,255,0.02)',
-          border: '1px solid rgba(255,255,255,0.05)',
+          background: 'var(--bg-tertiary)',
+          border: '1px solid var(--border-color)',
           transition: 'all 0.2s',
           marginTop: 2,
         }}

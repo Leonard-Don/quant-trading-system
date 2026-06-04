@@ -5670,3 +5670,68 @@ a {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ============================================================
+   Light theme completion. These surfaces hardcoded dark slate
+   values that never flipped with [data-theme='light'], leaving
+   dark elements on a light page. Flip them to the light palette.
+   Hero/banner text has no hardcoded color (it inherits --text-*),
+   so flipping only the backgrounds is enough.
+   ============================================================ */
+
+/* App-wide form controls — were a dark slate fill on a light page. */
+[data-theme='light'] .ant-input,
+[data-theme='light'] .ant-input-number,
+[data-theme='light'] .ant-select-selector,
+[data-theme='light'] .ant-picker,
+[data-theme='light'] .ant-input-affix-wrapper {
+  background: var(--bg-secondary) !important;
+}
+
+/* Every modal footer. */
+[data-theme='light'] .ant-modal-footer {
+  background: var(--bg-secondary) !important;
+}
+
+/* Root backdrop. */
+[data-theme='light'] .app-root-layout {
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, 0.05), transparent 28%),
+    linear-gradient(180deg, #f1f5f9 0%, #e2e8f0 100%);
+}
+
+/* Custom net-value chart tooltip — dark bg + (now-dark) text was invisible. */
+[data-theme='light'] .backtest-chart-tooltip {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: var(--border-color);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+}
+
+/* Hero / lane banners — match the light surface used by .backtest-hero,
+   keeping a faint brand tint on the branded heroes. */
+[data-theme='light'] .app-page-hero,
+[data-theme='light'] .app-page-context-rail,
+[data-theme='light'] .industry-scan-insight-shell,
+[data-theme='light'] .backtest-chart-shell,
+[data-theme='light'] .workspace-panel.workspace-panel--emphasis {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96) 0%, rgba(248, 250, 252, 0.86) 100%);
+  border-color: rgba(100, 116, 139, 0.18);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+}
+
+[data-theme='light'] .app-page-hero--cross-market,
+[data-theme='light'] .advanced-lab-hero {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(236, 254, 255, 0.9) 58%, rgba(8, 145, 178, 0.12) 100%);
+  border-color: rgba(8, 145, 178, 0.2);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+}
+
+[data-theme='light'] .app-page-hero--industry {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.96) 0%, rgba(255, 247, 237, 0.9) 58%, rgba(194, 65, 12, 0.12) 100%);
+  border-color: rgba(194, 65, 12, 0.18);
+}
+
+[data-theme='light'] .advanced-lab-hero__lane,
+[data-theme='light'] .cross-market-hero-lane {
+  background: rgba(15, 23, 42, 0.05);
+}
