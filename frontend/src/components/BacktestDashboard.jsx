@@ -1,5 +1,5 @@
 import { Suspense, useMemo } from 'react';
-import { Card, Spin, Space, Tabs, Tag, Typography } from 'antd';
+import { Card, Spin, Tabs, Tag, Typography } from 'antd';
 import { BarChartOutlined, HistoryOutlined, ExperimentOutlined, PieChartOutlined, GlobalOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import StrategyForm from './StrategyForm';
 import ResultsDisplay from './ResultsDisplay';
@@ -98,8 +98,6 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results, onS
                 label: '成交事件',
                 value: `${results.num_trades || 0} 笔`,
             });
-        } else {
-            items.push({ label: '体验风格', value: '量化工作台' });
         }
         return items;
     }, [activeMeta.label, activeTab, loading, results, strategies.length]);
@@ -160,17 +158,17 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results, onS
         {
             step: '01',
             title: '先整理左侧实验输入',
-            description: '在同一块控制台里完成标的、策略、区间和成本设置，再决定要不要保存成本地配置。',
+            description: '在一处配好标的、策略、区间与成本。',
         },
         {
             step: '02',
             title: '点击运行后右侧直接接结果',
-            description: '首轮结果会直接进入右侧工作区；后续重跑时，旧结果会先保留，新的分析完成后自动替换。',
+            description: '运行后结果即时进入右侧；重跑时旧结果先保留、完成后自动替换。',
         },
         {
             step: '03',
             title: '把工作流延伸到历史或高级实验',
-            description: '右侧结果区会继续承接历史记录、报告导出和高级实验联动，减少页面切换带来的割裂感。',
+            description: '结果区直通历史记录、报告导出与高级实验，少切页面。',
         },
     ];
 
@@ -362,17 +360,6 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results, onS
                         </div>
                     ))}
                 </div>
-                <Space wrap>
-                    <Tag color="geekblue">模块统一体验升级</Tag>
-                    <Tag color={loading ? 'processing' : 'default'}>
-                        {loading ? '回测运行中' : '状态稳定'}
-                    </Tag>
-                    {results ? (
-                        <Tag color={Number(results.total_return || 0) >= 0 ? 'success' : 'error'}>
-                            最新收益 {(Number(results.total_return || 0) * 100).toFixed(2)}%
-                        </Tag>
-                    ) : null}
-                </Space>
             </div>
 
             <div className="backtest-workspace__content">
