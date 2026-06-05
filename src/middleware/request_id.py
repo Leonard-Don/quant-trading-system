@@ -96,22 +96,3 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         finally:
             # 清理上下文变量
             _request_id_ctx_var.set(None)
-
-
-class RequestIDFilter(logging.Filter):
-    """
-    日志过滤器，将request_id添加到日志记录中
-    """
-
-    def filter(self, record):
-        """
-        为日志记录添加request_id字段
-
-        Args:
-            record: 日志记录
-
-        Returns:
-            True（总是返回True以不过滤任何日志）
-        """
-        record.request_id = get_request_id() or "N/A"
-        return True

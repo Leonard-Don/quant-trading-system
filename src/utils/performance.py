@@ -92,28 +92,6 @@ def timing_decorator(func: Callable) -> Callable:
         return sync_wrapper
 
 
-def memory_usage_decorator(func: Callable) -> Callable:
-    """内存使用监控装饰器"""
-
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        process = psutil.Process(os.getpid())
-        memory_before = process.memory_info().rss / 1024 / 1024  # MB
-
-        result = func(*args, **kwargs)
-
-        memory_after = process.memory_info().rss / 1024 / 1024  # MB
-        memory_diff = memory_after - memory_before
-
-        logger.info(
-            f"{func.__name__} 内存使用: {memory_before: .2f}MB -> "
-            f"{memory_after: .2f}MB (差异: {memory_diff: +.2f}MB)"
-        )
-        return result
-
-    return wrapper
-
-
 class PerformanceMonitor:
     """性能监控器"""
 
@@ -168,26 +146,3 @@ class PerformanceMonitor:
 
 # 全局性能监控器实例
 performance_monitor = PerformanceMonitor()
-
-
-def optimize_dataframe_operations():
-    """DataFrame操作优化建议"""
-    tips = [
-        "使用 .loc 和 .iloc 进行索引操作",
-        "避免在循环中修改DataFrame",
-        "使用向量化操作替代循环",
-        "合理使用 .copy() 避免不必要的数据复制",
-        "使用 .query() 进行复杂条件筛选",
-        "考虑使用 .eval() 进行数学表达式计算",
-    ]
-    return tips
-
-
-def cache_performance_stats():
-    """缓存性能统计"""
-    return {
-        "cache_hits": 0,  # 这里应该从实际缓存系统获取
-        "cache_misses": 0,
-        "cache_hit_rate": 0.0,
-        "cache_size": 0,
-    }

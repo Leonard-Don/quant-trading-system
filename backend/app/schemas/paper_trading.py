@@ -43,24 +43,3 @@ class PaperPosition(BaseModel):
     avg_cost: float
     opened_at: str
     updated_at: str
-
-
-class PaperOrderRecord(BaseModel):
-    id: str
-    symbol: str
-    side: Literal["BUY", "SELL"]
-    quantity: float
-    fill_price: float
-    commission: float
-    submitted_at: str
-    note: str = ""
-
-
-class PaperAccountResponse(BaseModel):
-    profile_id: str
-    initial_capital: float
-    cash: float
-    positions: list[PaperPosition]
-    orders_count: int
-    created_at: str
-    updated_at: str
