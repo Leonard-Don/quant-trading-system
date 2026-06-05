@@ -731,11 +731,6 @@ export const restoreConfigVersion = async (payload) => {
 };
 
 
-export const getPortfolio = async () => {
-  const response = await api.get('/trade/portfolio');
-  return response.data;
-};
-
 export const getRealtimeQuote = async (symbol) => {
   const response = await api.get(`/realtime/quote/${encodeURIComponent(symbol)}`);
   return response.data;
@@ -916,29 +911,9 @@ export const updateResearchJournalEntryStatus = async (entryId, status, profileI
   return response.data;
 };
 
-export const executeTrade = async (symbol, action, quantity, price = null) => {
-  const response = await api.post('/trade/execute', {
-    symbol,
-    action,
-    quantity,
-    price
-  });
-  return response.data;
-};
-
-export const getTradeHistory = async (limit = 50) => {
-  const response = await api.get(`/trade/history?limit=${limit}`);
-  return response.data;
-};
-
 // 事件 API
 export const getEventSummary = async (symbol) => {
   const response = await api.post('/events/summary', { symbol });
-  return response.data;
-};
-
-export const resetAccount = async () => {
-  const response = await api.post('/trade/reset');
   return response.data;
 };
 
@@ -1177,29 +1152,47 @@ export const getPolicyRadarRecords = async ({ industry, timeframe = '7d', limit 
   return response.data;
 };
 
-export const getPaperAccount = async () => {
-  const response = await api.get('/paper/account');
+// Paper-trading client fns. Each accepts an optional `profileId`; when present
+// we send `X-Realtime-Profile` so the call scopes to the same per-browser
+// realtime identity the workbench uses (mirrors getRealtimeAlerts). Omitting it
+// (the default) sends no header → backend resolves the "default" profile, which
+// keeps existing PaperTradingPanel callers behaving exactly as before.
+const paperProfileConfig = (profileId) => (
+  profileId
+    ? { headers: { 'X-Realtime-Profile': profileId } }
+    : undefined
+);
+
+export const getPaperAccount = async (profileId) => {
+  const response = await api.get('/paper/account', paperProfileConfig(profileId));
   return response.data;
 };
 
-export const submitPaperOrder = async (order) => {
-  const response = await api.post('/paper/orders', order);
+export const submitPaperOrder = async (order, profileId) => {
+  const response = await api.post('/paper/orders', order, paperProfileConfig(profileId));
   return response.data;
 };
 
-export const listPaperOrders = async ({ limit = 100 } = {}) => {
-  const response = await api.get('/paper/orders', { params: { limit } });
+export const listPaperOrders = async ({ limit = 100 } = {}, profileId) => {
+  const config = { params: { limit } };
+  if (profileId) {
+    config.headers = { 'X-Realtime-Profile': profileId };
+  }
+  const response = await api.get('/paper/orders', config);
   return response.data;
 };
 
-export const resetPaperAccount = async ({ initialCapital } = {}) => {
+export const resetPaperAccount = async ({ initialCapital } = {}, profileId) => {
   const body = initialCapital != null ? { initial_capital: initialCapital } : {};
-  const response = await api.post('/paper/reset', body);
+  const response = await api.post('/paper/reset', body, paperProfileConfig(profileId));
   return response.data;
 };
 
-export const cancelPaperOrder = async (orderId) => {
-  const response = await api.delete(`/paper/orders/${encodeURIComponent(orderId)}`);
+export const cancelPaperOrder = async (orderId, profileId) => {
+  const response = await api.delete(
+    `/paper/orders/${encodeURIComponent(orderId)}`,
+    paperProfileConfig(profileId),
+  );
   return response.data;
 };
 
