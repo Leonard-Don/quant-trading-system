@@ -10,9 +10,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from backend.app.services.trade_stream import build_trade_stream_payload
 from backend.app.websocket.connection_manager import manager
-from backend.app.websocket.trade_connection_manager import trade_ws_manager
 from src.data.realtime_manager import realtime_manager
 
 router = APIRouter()
@@ -248,58 +246,3 @@ async def websocket_quotes(websocket: WebSocket):
             logger.error("WebSocket error: %s", e, exc_info=True)
     finally:
         manager.disconnect(websocket)
-
-
-@router.websocket("/ws/trades")
-async def websocket_trades(websocket: WebSocket):
-    """
-    WebSocket端点用于实时交易通知
-    """
-    if not _is_authorized_websocket(websocket):
-        await websocket.close(code=1008, reason="Unauthorized trade websocket")
-        return
-
-    await trade_ws_manager.connect(websocket)
-
-    try:
-        if not await trade_ws_manager.send_personal_message(websocket, {
-            "type": "connected",
-            "channel": "trades",
-        }):
-            return
-        if not await trade_ws_manager.send_personal_message(websocket, {
-            "type": "trade_snapshot",
-            "data": build_trade_stream_payload(),
-        }):
-            return
-
-        while True:
-            data = await websocket.receive_json()
-            action = str(data.get("action", "")).lower()
-
-            if action == "ping":
-                if not await trade_ws_manager.send_personal_message(websocket, {
-                    "type": "pong",
-                }):
-                    return
-            elif action == "snapshot":
-                if not await trade_ws_manager.send_personal_message(websocket, {
-                    "type": "trade_snapshot",
-                    "data": build_trade_stream_payload(),
-                }):
-                    return
-            else:
-                if not await trade_ws_manager.send_personal_message(websocket, {
-                    "type": "error",
-                    "message": f"Unknown action: {action}",
-                }):
-                    return
-    except WebSocketDisconnect:
-        logger.info("Trade WebSocket client disconnected")
-    except Exception as e:
-        if _is_expected_websocket_teardown(e):
-            logger.info("Trade WebSocket closed during teardown: %s", e)
-        else:
-            logger.error("Trade WebSocket error: %s", e, exc_info=True)
-    finally:
-        trade_ws_manager.disconnect(websocket)
