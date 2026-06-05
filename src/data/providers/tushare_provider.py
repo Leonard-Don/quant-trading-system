@@ -329,6 +329,37 @@ class TushareProvider(BaseDataProvider):
         except Exception:
             return False
 
+    def health_check(self) -> dict[str, Any]:
+        """Report whether Tushare is actually usable, with a classified reason.
+
+        Distinguishes ``ok`` / ``token_missing`` / ``token_invalid`` /
+        ``rate_limited`` / ``error`` so a configured-but-dead token (or a
+        per-minute rate limit) is surfaced instead of silently degrading A-share
+        data to the slow AKShare fallback.
+        """
+        try:
+            self._get_pro_client()
+        except RuntimeError as exc:
+            msg = str(exc)
+            reason = "token_missing" if "token missing" in msg.lower() else "init_error"
+            return {"ok": False, "reason": reason, "detail": msg}
+
+        try:
+            today = datetime.now()
+            start = today - timedelta(days=7)
+            self.get_trade_calendar(start_date=start, end_date=today, exchange="SSE")
+            return {"ok": True, "reason": "ok", "detail": "tushare reachable"}
+        except Exception as exc:  # noqa: BLE001 - classify any client error
+            msg = str(exc)
+            low = msg.lower()
+            if "您的token" in msg or "token" in low:
+                reason = "token_invalid"
+            elif "每分钟" in msg or "频率" in msg or "积分" in msg or "rate" in low or "limit" in low:
+                reason = "rate_limited"
+            else:
+                reason = "error"
+            return {"ok": False, "reason": reason, "detail": f"{type(exc).__name__}: {msg}"}
+
     # ------------------------------------------------------------------
     # Tushare-specific helpers for A-share research workflows
     # ------------------------------------------------------------------
