@@ -49,6 +49,10 @@ env/
 htmlcov/
 .tox/
 .nox/
+.benchmarks/
+
+# ruff
+.ruff_cache/
 
 # mypy
 .mypy_cache/
