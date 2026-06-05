@@ -298,3 +298,43 @@ def test_get_stock_financial_data_maps_latest_fina_indicator():
     assert fin["revenue_yoy"] == 18.0
     assert fin["profit_yoy"] == 19.5
     assert fin["source"] == "tushare"
+
+
+class _BadTokenPro:
+    def trade_cal(self, **kwargs):
+        raise Exception("您的token不对，请确认。")
+
+
+class _RateLimitedPro:
+    def trade_cal(self, **kwargs):
+        raise Exception("抱歉，您每分钟最多访问该接口500次")
+
+
+def test_health_check_ok_when_reachable():
+    provider = TushareProvider(config={"pro_client": _FakeTusharePro()})
+    hc = provider.health_check()
+    assert hc["ok"] is True
+    assert hc["reason"] == "ok"
+
+
+def test_health_check_flags_invalid_token():
+    provider = TushareProvider(config={"pro_client": _BadTokenPro()})
+    hc = provider.health_check()
+    assert hc["ok"] is False
+    assert hc["reason"] == "token_invalid"
+
+
+def test_health_check_flags_rate_limit():
+    provider = TushareProvider(config={"pro_client": _RateLimitedPro()})
+    hc = provider.health_check()
+    assert hc["ok"] is False
+    assert hc["reason"] == "rate_limited"
+
+
+def test_health_check_flags_missing_token(monkeypatch):
+    monkeypatch.delenv("TUSHARE_TOKEN", raising=False)
+    monkeypatch.delenv("TS_TOKEN", raising=False)
+    provider = TushareProvider(api_key="")
+    hc = provider.health_check()
+    assert hc["ok"] is False
+    assert hc["reason"] == "token_missing"
