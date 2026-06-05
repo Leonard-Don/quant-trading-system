@@ -16,14 +16,24 @@ Last audited: 2026-06-05 (commit base `0ce5161`).
 
 ## 1. Trade vs Paper — two parallel simulated trading layers
 
-### Verdict
+> **✅ RESOLVED (2026-06-05) — consolidated and retired.** The parallelism
+> described in this section has been eliminated. `TradePanel` was re-pointed at
+> the persistent `/paper/*` engine (scoped to the realtime profile, poll-after-
+> action replacing the trade WebSocket). `/trade/*` was first reduced to a
+> deprecated compat shim, then **fully removed** along with its ephemeral engine
+> (`src/trading/trade_manager.py`), the `/ws/trades` WebSocket stack
+> (`trade_connection_manager.py`, `trade_stream.py`), the frontend
+> `tradeWebsocket.js`, and their tests/registry entries. There is now a **single
+> simulated-trading engine** (`backend/app/services/paper_trading.py`). The
+> analysis below is retained as historical context for how the decision was made.
 
-`/trade/*` and `/paper/*` are **two independent simulated-trading
-implementations that coexist today**. Both are wired to the frontend, both have
-tests, and they share no state. They are **not** a built-but-dead pair — neither
-is a deletion candidate right now. The real issue is *unintentional parallelism*
-(two account models, two reset flows, two storage strategies) that should be
-consolidated over time, not removed.
+### Verdict (historical)
+
+`/trade/*` and `/paper/*` *were* **two independent simulated-trading
+implementations that coexisted**. Both were wired to the frontend, both had
+tests, and they shared no state. They were **not** a built-but-dead pair. The
+real issue was *unintentional parallelism* (two account models, two reset flows,
+two storage strategies) — now consolidated onto `/paper/*`.
 
 ### Side-by-side map
 
@@ -201,7 +211,7 @@ be wanted later.
 
 | Subsystem | Status | Action recommended (future) | Actioned here |
 |-----------|--------|------------------------------|---------------|
-| `/trade/*` (global, ephemeral) | Live (frontend + tests), parallel to `/paper/*` | Consolidate into `/paper/*`, then deprecate + remove | None — documented only |
-| `/paper/*` (per-profile, persisted) | Live, the more capable design | Keep; absorb `/trade/*` behaviours | None |
+| `/trade/*` (global, ephemeral) | **Removed (2026-06-05)** — engine + WS stack + routes deleted | — | ✅ Consolidated into `/paper/*` and retired |
+| `/paper/*` (per-profile, persisted) | Live — the single simulated-trading engine | Keep | ✅ Now the sole trading layer (absorbed the `/trade/*` UI) |
 | Auth / OAuth / users | Built, **not enforced** (anonymous by default) | **Decided 2026-06-05: single-user tool → keep as non-enforced opt-in, not deleted** (`get_current_user_optional` is load-bearing) | None — documented only |
 | `SECURITY.md` | Accurate (reporting policy only; no false auth claim) | No change needed | None |

@@ -15,7 +15,6 @@ from backend.app.api.v1.endpoints import (
     research_journal,
     strategies,
     system,
-    trading,
 )
 
 api_router = APIRouter()
@@ -31,7 +30,6 @@ api_router.include_router(analysis.router, prefix="/analysis", tags=["Analysis"]
 api_router.include_router(
     optimization.router, prefix="/optimization", tags=["Optimization"]
 )
-api_router.include_router(trading.router, prefix="/trade", tags=["Trading"])
 api_router.include_router(industry.router, prefix="/industry", tags=["Industry Analysis"])
 api_router.include_router(events.router, prefix="/events", tags=["Events"])
 api_router.include_router(cross_market.router, prefix="/cross-market", tags=["Cross Market"])
