@@ -6,7 +6,6 @@ from .cross_market import (
     CrossMarketStrategy,
     SpreadZScoreStrategy,
 )
-from .trade_manager import TradeManager, trade_manager
 
 __all__ = [
     'AssetClass',
@@ -15,6 +14,4 @@ __all__ = [
     'AssetUniverse',
     'CrossMarketStrategy',
     'SpreadZScoreStrategy',
-    'TradeManager',
-    'trade_manager',
 ]

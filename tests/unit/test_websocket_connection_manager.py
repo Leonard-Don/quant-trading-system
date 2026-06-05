@@ -3,7 +3,6 @@ import asyncio
 import pytest
 
 from backend.app.websocket.connection_manager import ConnectionManager
-from backend.app.websocket.trade_connection_manager import TradeConnectionManager
 
 
 class DummyWebSocket:
@@ -156,29 +155,3 @@ async def test_connection_manager_unsubscribe_keeps_other_symbols_subscribed(mon
     assert "TSLA" in manager.active_connections
     assert manager.subscriptions[websocket] == {"TSLA"}
     assert unsubscribed_symbols == ["AAPL"]
-
-
-@pytest.mark.asyncio
-async def test_trade_connection_manager_send_personal_message_disconnects_failed_socket():
-    manager = TradeConnectionManager()
-    websocket = DummyWebSocket(
-        RuntimeError('WebSocket is not connected. Need to call "accept" first.')
-    )
-    manager.active_connections.add(websocket)
-
-    delivered = await manager.send_personal_message(websocket, {"type": "trade_snapshot"})
-
-    assert delivered is False
-    assert websocket not in manager.active_connections
-
-
-@pytest.mark.asyncio
-async def test_trade_connection_manager_send_personal_message_returns_true_for_active_socket():
-    manager = TradeConnectionManager()
-    websocket = DummyWebSocket()
-    manager.active_connections.add(websocket)
-
-    delivered = await manager.send_personal_message(websocket, {"type": "connected"})
-
-    assert delivered is True
-    assert websocket.messages == [{"type": "connected"}]

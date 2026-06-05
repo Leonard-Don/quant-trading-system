@@ -23,11 +23,92 @@ import {
     ArrowDownOutlined,
     BellOutlined
 } from '@ant-design/icons';
-import { getPortfolio, executeTrade, getTradeHistory, getRealtimeQuote, resetAccount } from '../services/api';
-import tradeWebSocketService from '../services/tradeWebsocket';
+import {
+    getPaperAccount,
+    submitPaperOrder,
+    listPaperOrders,
+    resetPaperAccount,
+    getRealtimeQuote,
+} from '../services/api';
+import { loadRealtimeProfileId } from '../hooks/useRealtimePreferences';
 import { buildAlertDraftFromTradePlan } from '../utils/realtimeSignals';
 
 const { Text } = Typography;
+
+// The /trade account historically opened at $100k. The paper realtime profile
+// defaults to $10k, so on first use (an empty, never-funded account) we seed it
+// to $100k to preserve the prior starting balance. We only do this when the
+// account is genuinely uninitialized — see maybeSeedStartingCapital — so we
+// never wipe a live account on remount.
+const STARTING_CAPITAL = 100000;
+const REFRESH_INTERVAL_MS = 8000;
+
+// Adapt the paper account ({ cash, initial_capital, positions:[{symbol,
+// quantity, avg_cost}], orders_count }) into the portfolio shape the panel's
+// render code expects. Positions are marked to market with whatever live quote
+// we have (currently the active symbol's), falling back to avg_cost — a missing
+// quote must not masquerade as a total loss.
+const adaptPaperAccount = (account, quoteBySymbol = {}) => {
+    if (!account) {
+        return null;
+    }
+    const initialCapital = Number(account.initial_capital || 0);
+    const cash = Number(account.cash || 0);
+    const positions = (account.positions || []).map((position) => {
+        const avgPrice = Number(position.avg_cost || 0);
+        const quantity = Number(position.quantity || 0);
+        const liveQuote = quoteBySymbol[position.symbol];
+        const livePrice = liveQuote && Number.isFinite(Number(liveQuote.price))
+            ? Number(liveQuote.price)
+            : null;
+        const currentPrice = livePrice != null ? livePrice : avgPrice;
+        const marketValue = currentPrice * quantity;
+        const costBasis = avgPrice * quantity;
+        const unrealizedPnl = marketValue - costBasis;
+        const unrealizedPnlPercent = costBasis > 0 ? (unrealizedPnl / costBasis) * 100 : 0;
+        return {
+            symbol: position.symbol,
+            quantity,
+            avg_price: avgPrice,
+            current_price: currentPrice,
+            market_value: marketValue,
+            unrealized_pnl: unrealizedPnl,
+            unrealized_pnl_percent: unrealizedPnlPercent,
+        };
+    });
+    const positionsValue = positions.reduce((sum, item) => sum + Number(item.market_value || 0), 0);
+    const totalEquity = cash + positionsValue;
+    const totalPnl = totalEquity - initialCapital;
+    const totalPnlPercent = initialCapital > 0 ? (totalPnl / initialCapital) * 100 : 0;
+    return {
+        balance: cash,
+        initial_capital: initialCapital,
+        total_equity: totalEquity,
+        total_pnl: totalPnl,
+        total_pnl_percent: totalPnlPercent,
+        trade_count: Number(account.orders_count || 0),
+        positions,
+        pending_orders: account.pending_orders || [],
+    };
+};
+
+// Map paper order records ({ side, submitted_at, fill_price,
+// effective_fill_price }) into the history rows the table renders
+// ({ action, timestamp, price, total_amount }).
+const adaptPaperOrders = (orders = []) => orders.map((order) => {
+    const fillPrice = Number(order.effective_fill_price ?? order.fill_price ?? 0);
+    const quantity = Number(order.quantity || 0);
+    return {
+        id: order.id,
+        symbol: order.symbol,
+        action: order.side,
+        quantity,
+        price: fillPrice,
+        total_amount: fillPrice * quantity,
+        timestamp: order.submitted_at,
+        pnl: null,
+    };
+});
 const formatCurrency = (value) => `$${Number(value || 0).toFixed(2)}`;
 const formatOptionalCurrency = (value) => (
     value === null || value === undefined || Number.isNaN(Number(value))
@@ -55,8 +136,8 @@ const hasFinitePositiveNumber = (value) => value !== null && value !== undefined
 const DEFAULT_RISK_PERCENT = 2;
 
 const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = null, onCreateAlertFromPlan = null }) => {
-    const [portfolio, setPortfolio] = useState(null);
-    const [history, setHistory] = useState([]);
+    const [rawAccount, setRawAccount] = useState(null);
+    const [rawOrders, setRawOrders] = useState([]);
     const [loading, setLoading] = useState(false);
     const [action, setAction] = useState('BUY');
     const [symbol, setSymbol] = useState(defaultSymbol || 'AAPL');
@@ -66,56 +147,49 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
     const [quoteLoading, setQuoteLoading] = useState(false);
     const [riskPercent, setRiskPercent] = useState(DEFAULT_RISK_PERCENT);
     const currentQuoteRequestRef = useRef(0);
+    // Resolve the realtime profile once per mount so the paper account scopes to
+    // the same per-browser identity the rest of the realtime workbench uses.
+    const profileIdRef = useRef(loadRealtimeProfileId());
 
+    // Mark held positions to market with the active symbol's live quote when we
+    // have it; everything else carries at avg_cost inside adaptPaperAccount.
+    const quoteBySymbol = currentQuote?.symbol && Number.isFinite(Number(currentQuote.price))
+        ? { [currentQuote.symbol]: currentQuote }
+        : {};
+    const portfolio = adaptPaperAccount(rawAccount, quoteBySymbol);
+    const history = adaptPaperOrders(rawOrders);
+
+    // Poll-after-action replaces the old trade WebSocket live-push: this is a
+    // single-user local tool, so we just re-fetch account + orders. A light
+    // interval keeps the view fresh while the modal is open (mirrors the quote
+    // cadence RealTimePanel already polls at).
     useEffect(() => {
         if (!visible) {
             return undefined;
         }
 
-        let snapshotReceived = false;
-        const applyTradeSnapshot = (event) => {
-            snapshotReceived = true;
-            const payload = event?.data || {};
-            if (payload.portfolio) {
-                setPortfolio(payload.portfolio);
+        let cancelled = false;
+
+        const load = async () => {
+            await maybeSeedStartingCapital();
+            if (cancelled) {
+                return;
             }
-            if (Array.isArray(payload.history)) {
-                setHistory(payload.history);
-            }
+            await refreshAccountAndOrders();
         };
 
-        const handleSocketError = () => {
-            if (!snapshotReceived) {
-                fetchPortfolio();
-                fetchHistory();
-            }
-        };
+        load();
 
-        const removeSnapshotListener = tradeWebSocketService.addListener('trade_snapshot', applyTradeSnapshot);
-        const removeTradeListener = tradeWebSocketService.addListener('trade_executed', applyTradeSnapshot);
-        const removeResetListener = tradeWebSocketService.addListener('account_reset', applyTradeSnapshot);
-        const removeErrorListener = tradeWebSocketService.addListener('error', handleSocketError);
-
-        tradeWebSocketService.connect().catch(() => {
-            fetchPortfolio();
-            fetchHistory();
-        });
-
-        const fallbackTimer = window.setTimeout(() => {
-            if (!snapshotReceived) {
-                fetchPortfolio();
-                fetchHistory();
-            }
-        }, 1200);
+        const intervalId = window.setInterval(() => {
+            refreshAccountAndOrders();
+        }, REFRESH_INTERVAL_MS);
 
         return () => {
-            window.clearTimeout(fallbackTimer);
-            removeSnapshotListener();
-            removeTradeListener();
-            removeResetListener();
-            removeErrorListener();
-            tradeWebSocketService.disconnect();
+            cancelled = true;
+            window.clearInterval(intervalId);
         };
+        // refreshAccountAndOrders / maybeSeedStartingCapital are stable closures
+        // over the per-mount profile ref; re-running only on visibility is intended.
     }, [visible]);
 
     useEffect(() => {
@@ -143,29 +217,47 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
         }
     }, [visible, symbol]);
 
-    // Fetch data
-    const fetchPortfolio = async () => {
+    // Fetch data — paper account + order history, scoped to the realtime profile.
+    const refreshAccountAndOrders = async () => {
         setLoading(true);
         try {
-            const response = await getPortfolio();
-            if (response.success) {
-                setPortfolio(response.data);
+            const [accountResp, ordersResp] = await Promise.all([
+                getPaperAccount(profileIdRef.current).catch(() => null),
+                listPaperOrders({ limit: 50 }, profileIdRef.current).catch(() => null),
+            ]);
+            if (accountResp?.success) {
+                setRawAccount(accountResp.data || null);
+            }
+            if (ordersResp?.success) {
+                setRawOrders(ordersResp.data?.orders || []);
             }
         } catch (error) {
-            message.error('无法获取投资组合数据');
+            message.error('无法获取纸面账户数据');
         } finally {
             setLoading(false);
         }
     };
 
-    const fetchHistory = async () => {
+    // Seed a ~$100k starting balance on first use only. The paper realtime
+    // profile defaults to $10k; the legacy /trade account opened at $100k. We
+    // reset to STARTING_CAPITAL exclusively when the account is genuinely
+    // uninitialized (never funded + no positions + no orders) so an existing
+    // account is never wiped on remount.
+    const maybeSeedStartingCapital = async () => {
         try {
-            const response = await getTradeHistory();
-            if (response.success) {
-                setHistory(response.data);
+            const response = await getPaperAccount(profileIdRef.current);
+            if (!response?.success) {
+                return;
+            }
+            const account = response.data || {};
+            const isUninitialized = !account.initial_capital
+                && (account.positions || []).length === 0
+                && Number(account.orders_count || 0) === 0;
+            if (isUninitialized) {
+                await resetPaperAccount({ initialCapital: STARTING_CAPITAL }, profileIdRef.current);
             }
         } catch (error) {
-            console.error(error);
+            // best-effort seed; the regular refresh still loads whatever exists
         }
     };
 
@@ -205,21 +297,39 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
             return;
         }
 
+        // The paper engine fills at an explicit price. Use the typed limit price
+        // when present, otherwise the live quote acts as the market fill price.
+        const fillPrice = hasFinitePositiveNumber(price)
+            ? Number(price)
+            : (hasFinitePositiveNumber(currentQuote?.price) ? Number(currentQuote.price) : null);
+        if (!hasFinitePositiveNumber(fillPrice)) {
+            message.warning('暂无可用成交价，请填写价格或等待行情同步');
+            return;
+        }
+
         setLoading(true);
         try {
-            const response = await executeTrade(symbol, action, quantity, price);
+            const response = await submitPaperOrder(
+                {
+                    symbol,
+                    side: action,
+                    quantity,
+                    fill_price: fillPrice,
+                    order_type: 'MARKET',
+                },
+                profileIdRef.current,
+            );
             if (response.success) {
                 message.success(`交易成功: ${action} ${quantity} ${symbol}`);
-                if (!tradeWebSocketService.getStatus().isConnected) {
-                    fetchPortfolio();
-                    fetchHistory();
-                }
+                // Poll-after-action: re-fetch account + orders.
+                await refreshAccountAndOrders();
                 if (onSuccess) onSuccess();
-                // Optional: Close modal on success?
-                // onClose();
             }
         } catch (error) {
-            message.error(`交易失败: ${error.response?.data?.detail || error.message}`);
+            const detail = error.response?.data?.detail
+                || error.userMessage
+                || error.message;
+            message.error(`交易失败: ${detail}`);
         } finally {
             setLoading(false);
         }
@@ -227,12 +337,10 @@ const TradePanel = ({ defaultSymbol, visible, onClose, onSuccess, planDraft = nu
 
     const handleReset = async () => {
         try {
-            await resetAccount();
+            // Preserve the panel's ~$100k starting balance on reset.
+            await resetPaperAccount({ initialCapital: STARTING_CAPITAL }, profileIdRef.current);
             message.success('账户已重置');
-            if (!tradeWebSocketService.getStatus().isConnected) {
-                fetchPortfolio();
-                fetchHistory();
-            }
+            await refreshAccountAndOrders();
         } catch (error) {
             message.error('重置失败');
         }

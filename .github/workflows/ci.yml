@@ -143,7 +143,6 @@ jobs:
             src/data/data_manager.py \
             src/data/providers/provider_factory.py \
             src/trading/__init__.py \
-            src/trading/trade_manager.py \
             src/trading/cross_market/__init__.py \
             src/trading/cross_market/cross_market_strategy.py \
             src/trading/cross_market/execution_router.py \
@@ -153,7 +152,6 @@ jobs:
             backend/app/services/realtime_alerts.py \
             backend/app/services/realtime_journal.py \
             backend/app/services/runtime_state.py \
-            backend/app/services/trade_stream.py \
             backend/app/services/backtest/__init__.py \
             backend/app/services/industry/__init__.py
 
