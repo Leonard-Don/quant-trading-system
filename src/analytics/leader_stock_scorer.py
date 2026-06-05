@@ -712,6 +712,14 @@ class LeaderStockScorer:
                     if value not in (None, ""):
                         raw_data[key] = value
 
+            # Tushare valuation carries no stock name; backfill the display name
+            # from the realtime quote so the detail shows e.g. 贵州茅台, not 600519.
+            if not score_result.get("name"):
+                quote_name = (quote_data or {}).get("name", "")
+                if quote_name:
+                    score_result["name"] = quote_name
+                    score_result.setdefault("raw_data", {}).setdefault("name", quote_name)
+
             # 计算技术指标
             tech_analysis = {}
             if not hist_data.empty:
