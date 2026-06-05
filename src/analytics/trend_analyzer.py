@@ -398,12 +398,12 @@ class TrendAnalyzer:
 
         return min(100, round(strength, 1))
 
-    def _multi_timeframe_analysis(self, close: pd.Series) -> dict[str, str]:
+    def _multi_timeframe_analysis(self, close: pd.Series) -> dict[str, dict[str, Any]]:
         """
         多时间周期分析
         根据数据长度动态调整分析周期，支持月线、周线等长周期数据
         """
-        timeframes = {}
+        timeframes: dict[str, dict[str, Any]] = {}
         data_len = len(close)
 
         # 根据数据长度动态设置周期

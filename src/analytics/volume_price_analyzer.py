@@ -49,7 +49,7 @@ class VolumePriceAnalyzer:
         }
     }
 
-    def __init__(self, config: dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         初始化量价分析器
 
@@ -67,7 +67,7 @@ class VolumePriceAnalyzer:
         """
         合并自定义配置与默认配置
         """
-        merged = {}
+        merged: dict[str, Any] = {}
         for key, default_value in self.DEFAULT_CONFIG.items():
             if key in custom_config:
                 if isinstance(default_value, dict):

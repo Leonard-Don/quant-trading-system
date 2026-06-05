@@ -284,7 +284,7 @@ def resolve_market_depth(
             "provider_level2": "Provider exposes native Level 2 order book.",
             "provider_quote_proxy": "No native Level 2 feed found; built depth ladder from provider quote fields.",
             "synthetic_quote_proxy": "No provider depth feed is configured; returned synthetic quote-derived depth for continuity.",
-        }.get(best_payload.get("mode"), "Market depth diagnostics unavailable."),
+        }.get(str(best_payload.get("mode") or ""), "Market depth diagnostics unavailable."),
         "is_synthetic": best_payload.get("mode") != "provider_level2",
         "provider_candidates": provider_candidates,
         "provider_count": len(provider_candidates),

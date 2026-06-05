@@ -33,7 +33,7 @@ class ComprehensiveScorer:
     def comprehensive_analysis(
         self,
         df: pd.DataFrame,
-        symbol: str = None,
+        symbol: str | None = None,
         include_pattern: bool = True
     ) -> dict[str, Any]:
         """
@@ -67,7 +67,7 @@ class ComprehensiveScorer:
         fundamental_result = self.fundamental_analyzer.analyze(symbol)
 
         # 5. 形态识别（可选）
-        pattern_result = {"candlestick_patterns": [], "chart_patterns": []}
+        pattern_result: dict[str, Any] = {"candlestick_patterns": [], "chart_patterns": []}
         if include_pattern:
             try:
                 pattern_result = self.pattern_recognizer.recognize_patterns(df)

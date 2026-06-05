@@ -6,7 +6,7 @@ import json
 import logging
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from src.utils.config import PROJECT_ROOT
 
@@ -56,7 +56,7 @@ class RealtimePreferencesStore:
         normalized_profile = self._normalize_profile_id(profile_id)
         return self.storage_path / f"{normalized_profile}.json"
 
-    def _normalize_symbols(self, symbols: list[str]) -> list[str]:
+    def _normalize_symbols(self, symbols: Iterable[Any]) -> list[str]:
         normalized: list[str] = []
         seen = set()
         for symbol in symbols:

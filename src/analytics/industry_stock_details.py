@@ -40,7 +40,7 @@ def coerce_optional_float(value) -> Optional[float]:
         return None
 
 
-def extract_stock_detail_fields(stock: dict[str, Any]) -> dict[str, Optional[float]]:
+def extract_stock_detail_fields(stock: dict[str, Any]) -> dict[str, Optional[str | float]]:
     """统一提取成分股明细字段，保留空值语义。"""
     market_cap = coerce_optional_float(stock.get("market_cap"))
     if market_cap is None and stock.get("mktcap") not in (None, ""):
