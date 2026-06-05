@@ -235,57 +235,5 @@ class EventBus:
             }
 
 
-# 预定义事件类型
-class SystemEvent(Event):
-    """系统事件"""
-
-
-
-class StrategyEvent(Event):
-    """策略事件"""
-
-
-
-class BacktestEvent(Event):
-    """回测事件"""
-
-
-
-class DataEvent(Event):
-    """数据事件"""
-
-
-
-class ErrorEvent(Event):
-    """错误事件"""
-
-
-
 # 全局事件总线实例
 event_bus = EventBus()
-
-
-def on_event(event_types: list[str], priority: int = 100):
-    """事件处理装饰器"""
-
-    def decorator(func: Callable) -> Callable:
-        event_bus.subscribe_function(func, event_types, priority)
-        return func
-
-    return decorator
-
-
-async def emit_event(
-    name: str, data: Optional[dict[str, Any]] = None, source: Optional[str] = None
-) -> None:
-    """发射事件的便捷函数"""
-    event = Event(name=name, data=data or {}, source=source)
-    await event_bus.publish(event)
-
-
-def emit_event_sync(
-    name: str, data: Optional[dict[str, Any]] = None, source: Optional[str] = None
-) -> None:
-    """同步发射事件的便捷函数"""
-    event = Event(name=name, data=data or {}, source=source)
-    event_bus.publish_sync(event)

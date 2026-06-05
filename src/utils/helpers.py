@@ -60,23 +60,6 @@ def calculate_win_rate(trades: pd.Series) -> float:
     return len(winning_trades) / len(trades)
 
 
-def calculate_profit_loss_ratio(trades: pd.Series) -> float:
-    """计算盈亏比"""
-    if trades.empty:
-        return 0.0
-
-    winning_trades = trades[trades > 0]
-    losing_trades = trades[trades < 0]
-
-    if len(losing_trades) == 0:
-        return float("inf")
-
-    avg_win = winning_trades.mean() if len(winning_trades) > 0 else 0
-    avg_loss = abs(losing_trades.mean())
-
-    return avg_win / avg_loss if avg_loss != 0 else 0
-
-
 def calculate_calmar_ratio(returns: pd.Series, portfolio_value: pd.Series) -> float:
     """计算卡玛比率"""
     annual_return = returns.mean() * 252
@@ -148,43 +131,3 @@ def setup_logging(level: str = "INFO", log_file: Optional[str] = None) -> None:
     from .config import setup_logging as config_setup_logging
 
     config_setup_logging(level)
-
-
-def validate_ohlcv_data(data: pd.DataFrame) -> bool:
-    """验证OHLCV数据的完整性"""
-    required_columns = ["open", "high", "low", "close"]
-
-    # 检查必要列是否存在
-    if not all(col in data.columns for col in required_columns):
-        return False
-
-    # 检查高价是否大于等于低价
-    if (data["high"] < data["low"]).any():
-        return False
-
-    # 检查开盘价和收盘价是否在高低价之间
-    if ((data["open"] > data["high"]) | (data["open"] < data["low"])).any():
-        return False
-
-    if ((data["close"] > data["high"]) | (data["close"] < data["low"])).any():
-        return False
-
-    return True
-
-
-
-
-
-def format_percentage(value: float, decimals: int = 2) -> str:
-    """格式化百分比显示"""
-    return f"{value * 100: .{decimals}f}%"
-
-
-def format_currency(value: float, currency: str = "$") -> str:
-    """格式化货币显示"""
-    return f"{currency}{value: , .2f}"
-
-
-def safe_divide(numerator: float, denominator: float, default: float = 0.0) -> float:
-    """安全除法，避免除零错误"""
-    return numerator / denominator if denominator != 0 else default
