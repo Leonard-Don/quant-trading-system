@@ -532,6 +532,21 @@ export const getProviderRuntimeStatus = async () => {
   return response.data;
 };
 
+// Lightweight data-source health for the header status dot. Reuses the
+// provider-status endpoint (which embeds Tushare's classified health, cached
+// server-side ~60s) and returns just the compact { tushare, primary_source,
+// degraded } shape the indicator needs.
+export const getDataSourceHealth = async () => {
+  const response = await api.get('/system/providers/status', withTimeoutProfile('standard'));
+  const data = response.data || {};
+  const tushare = data.tushare || { ok: false, reason: 'unknown', detail: '' };
+  return {
+    tushare,
+    primary_source: data.primary_source || 'tushare',
+    degraded: typeof data.degraded === 'boolean' ? data.degraded : !tushare.ok,
+  };
+};
+
 export const createInfrastructureTask = async (payload) => {
   const response = await api.post('/infrastructure/tasks', payload, withTimeoutProfile('standard'));
   return response.data;

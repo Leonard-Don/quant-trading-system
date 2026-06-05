@@ -1,5 +1,7 @@
 import logging
+import time
 from datetime import datetime
+from typing import Any
 
 import psutil
 from fastapi import APIRouter
@@ -165,9 +167,70 @@ async def get_performance_metrics():
         ) from e
 
 
+# Tushare's health_check() may itself hit the Tushare API (a trade-calendar
+# probe). The frontend status dot polls this endpoint every few minutes, so we
+# cache the classified result for ~60s to avoid adding rate-limit pressure.
+_TUSHARE_HEALTH_TTL_SECONDS = 60.0
+_PRIMARY_SOURCE = "tushare"
+_tushare_health_cache: dict[str, Any] = {"result": None, "fetched_at": 0.0}
+
+
+def _reset_tushare_health_cache() -> None:
+    """Drop the cached Tushare health result (used by tests; cheap otherwise)."""
+    _tushare_health_cache["result"] = None
+    _tushare_health_cache["fetched_at"] = 0.0
+
+
+def _probe_tushare_health() -> dict[str, Any]:
+    """Run TushareProvider.health_check via the factory, classifying failures.
+
+    Returns the ``{ok, reason, detail}`` shape ``health_check`` produces. Any
+    missing provider or unexpected blow-up is mapped to a degraded result rather
+    than raising, so the status endpoint never 500s on a flaky token.
+    """
+    try:
+        data_manager = get_data_manager()
+        provider_factory = getattr(data_manager, "provider_factory", None)
+        providers = getattr(provider_factory, "providers", {}) if provider_factory else {}
+        tushare = providers.get("tushare") if providers else None
+        if tushare is None:
+            return {
+                "ok": False,
+                "reason": "token_missing",
+                "detail": "tushare provider not configured",
+            }
+        result = tushare.health_check()
+        if not isinstance(result, dict):
+            return {"ok": False, "reason": "error", "detail": "malformed health_check result"}
+        return {
+            "ok": bool(result.get("ok")),
+            "reason": result.get("reason", "error"),
+            "detail": result.get("detail", ""),
+        }
+    except Exception as exc:  # noqa: BLE001 - never let health probing break status
+        logger.warning("Tushare health probe failed: %s", exc)
+        return {"ok": False, "reason": "error", "detail": f"{type(exc).__name__}: {exc}"}
+
+
+def _get_tushare_health(now: float | None = None) -> dict[str, Any]:
+    """Return Tushare health, served from a ~60s server-side cache."""
+    now = time.monotonic() if now is None else now
+    cached = _tushare_health_cache["result"]
+    if cached is not None and (now - _tushare_health_cache["fetched_at"]) < _TUSHARE_HEALTH_TTL_SECONDS:
+        return cached
+    result = _probe_tushare_health()
+    _tushare_health_cache["result"] = result
+    _tushare_health_cache["fetched_at"] = now
+    return result
+
+
 @router.get("/providers/status", summary="数据源运行状态")
 async def get_provider_runtime_status():
-    """Return provider registry and circuit-breaker state without probing remotes."""
+    """Return provider registry and circuit-breaker state without probing remotes.
+
+    Also embeds the primary A-share source (Tushare) health so the frontend can
+    surface a green/amber/red data-source dot. ``health_check`` is cached ~60s.
+    """
     try:
         data_manager = get_data_manager()
         provider_factory = getattr(data_manager, "provider_factory", None)
@@ -185,10 +248,17 @@ async def get_provider_runtime_status():
             "circuit_breakers": SinaIndustryAdapter.get_circuit_status(),
         }
 
+        # Cheap (cached) Tushare health used to drive the header status dot.
+        tushare_health = await run_in_threadpool(_get_tushare_health)
+        degraded = not bool(tushare_health.get("ok"))
+
         return {
             "success": True,
             "timestamp": datetime.now().isoformat(),
             "providers": providers,
+            "tushare": tushare_health,
+            "primary_source": _PRIMARY_SOURCE,
+            "degraded": degraded,
         }
     except (AttributeError, ImportError, KeyError, RuntimeError, TypeError) as e:
         logger.error(f"Provider status error: {e}", exc_info=True)

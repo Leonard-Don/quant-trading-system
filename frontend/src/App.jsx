@@ -13,6 +13,7 @@ import {
 } from '@ant-design/icons';
 
 import ErrorBoundary from './components/ErrorBoundary';
+import DataSourceHealthDot from './components/DataSourceHealthDot';
 import {
   getStrategies,
   runBacktest,
@@ -359,6 +360,7 @@ function App() {
             </div>
           </div>
           <Space className="app-main-header__actions" size={16}>
+            <DataSourceHealthDot />
             <Tooltip title={themeToggleLabel}>
               <Button
                 className="app-main-header__theme-toggle"
