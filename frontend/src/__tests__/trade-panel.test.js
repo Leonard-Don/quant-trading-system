@@ -2,17 +2,15 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom';
 
 import TradePanel from '../components/TradePanel';
-import tradeWebSocketService from '../services/tradeWebsocket';
 import {
-  getPortfolio,
-  getTradeHistory,
+  getPaperAccount,
+  listPaperOrders,
+  submitPaperOrder,
+  resetPaperAccount,
   getRealtimeQuote,
-  executeTrade,
-  resetAccount,
 } from '../services/api';
 import { buildAlertDraftFromTradePlan } from '../utils/realtimeSignals';
 
-const mockListeners = new Map();
 const createDeferred = () => {
   let resolve;
   let reject;
@@ -24,21 +22,11 @@ const createDeferred = () => {
 };
 
 vi.mock('../services/api', () => ({
-  getPortfolio: jest.fn(),
-  getTradeHistory: jest.fn(),
+  getPaperAccount: jest.fn(),
+  listPaperOrders: jest.fn(),
+  submitPaperOrder: jest.fn(),
+  resetPaperAccount: jest.fn(),
   getRealtimeQuote: jest.fn(),
-  executeTrade: jest.fn(),
-  resetAccount: jest.fn(),
-}));
-
-vi.mock('../services/tradeWebsocket', () => ({
-  __esModule: true,
-  default: {
-    addListener: jest.fn(),
-    connect: jest.fn(),
-    disconnect: jest.fn(),
-    getStatus: jest.fn(() => ({ isConnected: true })),
-  },
 }));
 
 vi.mock('@ant-design/icons', () => {
@@ -109,7 +97,12 @@ vi.mock('antd', () => {
       </div>
     ) : null
   );
-  const Popconfirm = ({ children }) => <div>{children}</div>;
+  // Mirror Popconfirm's confirm flow: clicking the wrapped trigger fires
+  // onConfirm (the real component shows a popover with a confirm button; we
+  // collapse that to a direct confirm so tests can drive the reset action).
+  const Popconfirm = ({ children, onConfirm }) => (
+    <div onClick={() => onConfirm?.()}>{children}</div>
+  );
 
   return {
     Card,
@@ -135,6 +128,23 @@ vi.mock('antd', () => {
   };
 });
 
+// A funded paper account (initial_capital set) so maybeSeedStartingCapital
+// treats it as already-initialized and does NOT issue a reset.
+const fundedAccount = (overrides = {}) => ({
+  success: true,
+  data: {
+    profile_id: 'rtp-test',
+    initial_capital: 100000,
+    cash: 98000,
+    positions: [],
+    pending_orders: [],
+    orders_count: 0,
+    created_at: '2026-03-18T09:00:00',
+    updated_at: '2026-03-18T09:30:00',
+    ...overrides,
+  },
+});
+
 describe('TradePanel', () => {
   const renderTradePanel = async (ui) => {
     const view = render(ui);
@@ -145,15 +155,11 @@ describe('TradePanel', () => {
   };
 
   beforeEach(() => {
-    mockListeners.clear();
     jest.clearAllMocks();
-    tradeWebSocketService.addListener.mockImplementation((event, callback) => {
-      mockListeners.set(event, callback);
-      return () => mockListeners.delete(event);
-    });
-    tradeWebSocketService.connect.mockResolvedValue(undefined);
-    getPortfolio.mockResolvedValue({ success: true, data: { positions: [], trade_count: 0 } });
-    getTradeHistory.mockResolvedValue({ success: true, data: [] });
+    getPaperAccount.mockResolvedValue(fundedAccount());
+    listPaperOrders.mockResolvedValue({ success: true, data: { orders: [] } });
+    submitPaperOrder.mockResolvedValue({ success: true, data: {} });
+    resetPaperAccount.mockResolvedValue({ success: true, data: fundedAccount().data });
     getRealtimeQuote.mockResolvedValue({
       success: true,
       data: {
@@ -165,8 +171,6 @@ describe('TradePanel', () => {
         timestamp: '2026-03-18T09:30:00',
       },
     });
-    executeTrade.mockResolvedValue({ success: true, data: {} });
-    resetAccount.mockResolvedValue({ success: true });
   });
 
   test('loads single-symbol realtime quote for the active symbol', async () => {
@@ -185,7 +189,36 @@ describe('TradePanel', () => {
     expect(await screen.findByText('参考市价 $5123.45')).toBeInTheDocument();
   });
 
-  test('hydrates portfolio and history from the trade websocket snapshot', async () => {
+  test('hydrates portfolio and history from the paper account on open', async () => {
+    getPaperAccount.mockResolvedValue(fundedAccount({
+      cash: 98000,
+      orders_count: 1,
+      positions: [
+        {
+          symbol: 'AAPL',
+          quantity: 10,
+          avg_cost: 180,
+        },
+      ],
+    }));
+    listPaperOrders.mockResolvedValue({
+      success: true,
+      data: {
+        orders: [
+          {
+            id: 'trade-1',
+            symbol: 'AAPL',
+            side: 'BUY',
+            quantity: 10,
+            fill_price: 180,
+            effective_fill_price: 180,
+            commission: 0,
+            submitted_at: '2026-03-18T09:30:00',
+          },
+        ],
+      },
+    });
+
     await renderTradePanel(
       <TradePanel
         visible
@@ -195,49 +228,140 @@ describe('TradePanel', () => {
     );
 
     await waitFor(() => {
-      expect(getRealtimeQuote).toHaveBeenCalledWith('AAPL');
+      expect(getPaperAccount).toHaveBeenCalled();
     });
-
-    await act(async () => {
-      mockListeners.get('trade_snapshot')?.({
-        data: {
-          portfolio: {
-            balance: 98000,
-            total_equity: 100500,
-            total_pnl: 500,
-            total_pnl_percent: 0.5,
-            trade_count: 1,
-            positions: [
-              {
-                symbol: 'AAPL',
-                quantity: 10,
-                avg_price: 180,
-                current_price: 182,
-                market_value: 1820,
-                unrealized_pnl: 20,
-                unrealized_pnl_percent: 1.11,
-              },
-            ],
-          },
-          history: [
-            {
-              id: 'trade-1',
-              symbol: 'AAPL',
-              action: 'BUY',
-              quantity: 10,
-              price: 180,
-              total_amount: 1800,
-              timestamp: '2026-03-18T09:30:00',
-            },
-          ],
-        },
-      });
-    });
-
     await waitFor(() => {
       expect(screen.getByText('交易次数')).toBeInTheDocument();
     });
+    // Positions table + history table both list the symbol.
     expect(screen.getAllByTestId('table')[0]).toHaveTextContent('AAPL');
+    // Account scoped to the realtime profile (header sent via profile arg).
+    expect(getPaperAccount.mock.calls.every(([arg]) => typeof arg === 'string' && arg)).toBe(true);
+  });
+
+  test('seeds a 100k starting balance when the account is uninitialized', async () => {
+    // First call (maybeSeedStartingCapital probe) → empty/uninitialized account.
+    getPaperAccount
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          profile_id: 'rtp-test',
+          initial_capital: 0,
+          cash: 0,
+          positions: [],
+          pending_orders: [],
+          orders_count: 0,
+        },
+      })
+      // Subsequent refresh calls → the seeded account.
+      .mockResolvedValue(fundedAccount());
+
+    await renderTradePanel(
+      <TradePanel
+        visible
+        defaultSymbol="AAPL"
+        onClose={jest.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(resetPaperAccount).toHaveBeenCalledWith(
+        { initialCapital: 100000 },
+        expect.any(String),
+      );
+    });
+  });
+
+  test('does not reset an already-funded account on open', async () => {
+    await renderTradePanel(
+      <TradePanel
+        visible
+        defaultSymbol="AAPL"
+        onClose={jest.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(getPaperAccount).toHaveBeenCalled();
+    });
+    expect(resetPaperAccount).not.toHaveBeenCalled();
+  });
+
+  test('submits a market paper order and re-fetches account + orders (poll-after-action)', async () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <TradePanel
+          visible
+          defaultSymbol="^GSPC"
+          onClose={jest.fn()}
+          onSuccess={jest.fn()}
+        />
+      );
+
+      // Flush the initial load (seed probe + refresh) and the quote fetch.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      const callsBeforeSubmit = getPaperAccount.mock.calls.length;
+      const ordersBeforeSubmit = listPaperOrders.mock.calls.length;
+
+      // Click the primary buy button.
+      fireEvent.click(screen.getByRole('button', { name: '买入 Buy' }));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      // Order submitted as a MARKET order, filled at the live quote price,
+      // scoped to the realtime profile.
+      expect(submitPaperOrder).toHaveBeenCalledTimes(1);
+      const [orderPayload, profileArg] = submitPaperOrder.mock.calls[0];
+      expect(orderPayload).toMatchObject({
+        symbol: '^GSPC',
+        side: 'BUY',
+        order_type: 'MARKET',
+        fill_price: 5123.45,
+      });
+      expect(typeof profileArg).toBe('string');
+      expect(profileArg).toBeTruthy();
+
+      // Poll-after-action: account + orders re-fetched after the submit.
+      expect(getPaperAccount.mock.calls.length).toBeGreaterThan(callsBeforeSubmit);
+      expect(listPaperOrders.mock.calls.length).toBeGreaterThan(ordersBeforeSubmit);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('resets the account at the 100k starting balance and re-fetches', async () => {
+    await renderTradePanel(
+      <TradePanel
+        visible
+        defaultSymbol="AAPL"
+        onClose={jest.fn()}
+      />
+    );
+
+    await waitFor(() => {
+      expect(getPaperAccount).toHaveBeenCalled();
+    });
+
+    resetPaperAccount.mockClear();
+    const callsBeforeReset = getPaperAccount.mock.calls.length;
+
+    fireEvent.click(screen.getByRole('button', { name: '重置账户' }));
+
+    await waitFor(() => {
+      expect(resetPaperAccount).toHaveBeenCalledWith(
+        { initialCapital: 100000 },
+        expect.any(String),
+      );
+    });
+    await waitFor(() => {
+      expect(getPaperAccount.mock.calls.length).toBeGreaterThan(callsBeforeReset);
+    });
   });
 
   test('resets order state when reopening for another symbol', async () => {
@@ -439,6 +563,12 @@ describe('TradePanel', () => {
   });
 
   test('calculates and applies a suggested risk-based position size from the trade draft', async () => {
+    getPaperAccount.mockResolvedValue(fundedAccount({
+      initial_capital: 100000,
+      cash: 98000,
+      positions: [],
+    }));
+
     await renderTradePanel(
       <TradePanel
         visible
@@ -457,28 +587,16 @@ describe('TradePanel', () => {
       />
     );
 
-    await act(async () => {
-      mockListeners.get('trade_snapshot')?.({
-        data: {
-          portfolio: {
-            balance: 98000,
-            total_equity: 100000,
-            total_pnl: 0,
-            total_pnl_percent: 0,
-            trade_count: 0,
-            positions: [],
-          },
-          history: [],
-        },
-      });
-    });
-
     await waitFor(() => {
       expect(screen.getByText('仓位建议')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('$2000.00')).toBeInTheDocument();
+    // 风险预算 = total_equity (cash 98000, no positions) * 2% = 1960.
+    expect(screen.getByText('$1960.00')).toBeInTheDocument();
+    // 每股风险 = |920.16 - 906.36| = 13.80.
     expect(screen.getByText('$13.80')).toBeInTheDocument();
+    // 建议仓位 = floor(1960 / 13.80) = 142, capped by affordability
+    // floor(98000 / 920.16) = 106 → min(142, 106) = 106.
     expect(screen.getByText('106')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '使用建议仓位' }));
