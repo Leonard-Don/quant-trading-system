@@ -1883,3 +1883,26 @@ def test_get_industry_trend_realigns_overbroad_summary_with_stock_rows(monkeypat
     assert result.top_losers[0]["name"] == "厦门钨业"
     assert result.rise_count == 3
     assert result.fall_count == 1
+
+
+def test_get_leader_detail_backfills_name_from_quote_when_valuation_lacks_it():
+    """Tushare valuation has no stock name; the Sina quote does — backfill it,
+    otherwise the detail title shows the bare code instead of e.g. 贵州茅台."""
+    import pandas as _pd
+    from unittest.mock import MagicMock as _MM
+
+    from src.analytics.leader_stock_scorer import LeaderStockScorer
+
+    provider = _MM()
+    provider.get_historical_data.return_value = _pd.DataFrame()
+    provider.get_latest_quote.return_value = {"name": "贵州茅台", "current_price": 1680.0}
+
+    scorer = LeaderStockScorer(provider)
+    scorer.score_stock = _MM(return_value={
+        "symbol": "600519", "name": "", "total_score": 50,
+        "dimension_scores": {}, "raw_data": {},
+    })
+
+    detail = scorer.get_leader_detail("600519")
+
+    assert detail["name"] == "贵州茅台"
