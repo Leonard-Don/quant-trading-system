@@ -102,10 +102,10 @@ class AKShareProvider(BaseDataProvider):
     _industry_meta_lock = threading.Lock()
     _industry_stock_snapshot_lock = threading.Lock()
 
-    def __init__(self, api_key: Optional[str] = None, config: Dict[str, Any] = None):
+    def __init__(self, api_key: Optional[str] = None, config: Optional[Dict[str, Any]] = None):
         """初始化 AKShare 提供器"""
         super().__init__(api_key, config)
-        self._market_cap_cache = {}
+        self._market_cap_cache: Dict[str, Any] = {}
         self._market_cap_cache_time = None
         self._industry_stock_cache: Dict[str, Dict[str, Any]] = {}
         self._industry_stock_cache_lock = threading.RLock()

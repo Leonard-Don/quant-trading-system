@@ -362,9 +362,9 @@ class MarketSentimentIndex:
             weights = {s: 1.0 / len(symbols) for s in symbols}
         
         # 计算加权情绪
-        weighted_score = 0
-        total_weight = 0
-        
+        weighted_score = 0.0
+        total_weight = 0.0
+
         for _, row in signals.iterrows():
             symbol = row['symbol']
             weight = weights.get(symbol, 0)

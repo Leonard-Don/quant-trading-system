@@ -32,7 +32,10 @@ class FundamentalAnalyzer:
         """
         try:
             # 获取基本面数据
-            data = self.data_manager.provider_factory.get_provider(
+            provider_factory = self.data_manager.provider_factory
+            if provider_factory is None:
+                return self._get_empty_result()
+            data = provider_factory.get_provider(
                 "yahoo"
             ).get_fundamental_data(symbol)
 

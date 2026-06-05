@@ -53,7 +53,7 @@ class SentimentAnalyzer:
         }
     }
 
-    def __init__(self, config: dict[str, Any] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         初始化情绪分析器
 
@@ -81,7 +81,7 @@ class SentimentAnalyzer:
                 merged[key] = default_value.copy() if isinstance(default_value, dict) else default_value
         return merged
 
-    def analyze(self, df: pd.DataFrame, symbol: str = None) -> dict[str, Any]:
+    def analyze(self, df: pd.DataFrame, symbol: str | None = None) -> dict[str, Any]:
         """
         综合情绪分析
 

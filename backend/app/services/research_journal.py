@@ -52,7 +52,7 @@ RESEARCH_ACTION_KIND_SCORE = {
 }
 RESEARCH_ACTION_BUCKET_SCORE = {"actionable": 0, "watch": 1, "snoozed": 2, "read_later": 3}
 
-DEFAULT_RESEARCH_JOURNAL = {
+DEFAULT_RESEARCH_JOURNAL: dict[str, Any] = {
     "entries": [],
     "source_state": {},
     "generated_at": None,
@@ -453,7 +453,7 @@ class ResearchJournalStore:
         actionable = sorted(
             actionable,
             key=lambda entry: (
-                PRIORITY_SCORE.get(entry.get("priority"), 9),
+                PRIORITY_SCORE.get(str(entry.get("priority") or ""), 9),
                 entry.get("updated_at") or "",
             ),
             reverse=False,

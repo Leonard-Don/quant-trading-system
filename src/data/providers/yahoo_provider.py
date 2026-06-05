@@ -61,7 +61,7 @@ class YahooFinanceProvider(BaseDataProvider):
     rate_limit = 2000  # yfinance 没有严格限制
     requires_api_key = False
     
-    def __init__(self, api_key: Optional[str] = None, config: Dict[str, Any] = None):
+    def __init__(self, api_key: Optional[str] = None, config: Optional[Dict[str, Any]] = None):
         super().__init__(api_key, config)
         self._ticker_cache: Dict[str, yf.Ticker] = {}
 

@@ -35,7 +35,7 @@ class BaseDataProvider(ABC):
     rate_limit: int = 60
     requires_api_key: bool = False
     
-    def __init__(self, api_key: Optional[str] = None, config: Dict[str, Any] = None):
+    def __init__(self, api_key: Optional[str] = None, config: Optional[Dict[str, Any]] = None):
         """
         初始化数据提供器
         

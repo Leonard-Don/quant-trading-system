@@ -128,7 +128,17 @@ jobs:
         run: |
           mypy --explicit-package-bases --namespace-packages --follow-imports=silent \
             src/analytics/technical_indicators.py \
+            src/analytics/comprehensive_scorer.py \
+            src/analytics/dashboard.py \
+            src/analytics/feature_engineering.py \
+            src/analytics/fundamental_analyzer.py \
+            src/analytics/industry_stock_details.py \
+            src/analytics/portfolio_optimizer.py \
+            src/analytics/sentiment_analyzer.py \
+            src/analytics/trend_analyzer.py \
+            src/analytics/volume_price_analyzer.py \
             src/analytics/industry/ \
+            src/analytics/macro_factors/ \
             src/backtest/__init__.py \
             src/backtest/base_backtester.py \
             src/backtest/batch_backtester.py \
@@ -141,7 +151,21 @@ jobs:
             src/backtest/signal_adapter.py \
             src/data/realtime_manager.py \
             src/data/data_manager.py \
+            src/data/derivatives.py \
+            src/data/market_depth.py \
+            src/data/sentiment_signals.py \
+            src/data/source_health.py \
+            src/data/alternative/alt_data_manager.py \
+            src/data/alternative/entity_resolution.py \
+            src/data/alternative/runtime.py \
+            src/data/providers/_tushare_normalize.py \
+            src/data/providers/akshare_provider.py \
+            src/data/providers/base_provider.py \
+            src/data/providers/circuit_breaker.py \
             src/data/providers/provider_factory.py \
+            src/data/providers/tushare_provider.py \
+            src/data/providers/us_stock_provider.py \
+            src/data/providers/yahoo_provider.py \
             src/trading/__init__.py \
             src/trading/cross_market/__init__.py \
             src/trading/cross_market/cross_market_strategy.py \
@@ -149,11 +173,17 @@ jobs:
             src/trading/cross_market/hedge_portfolio.py \
             backend/app/services/industry_preferences.py \
             backend/app/services/paper_trading.py \
+            backend/app/services/paper_trading_engine.py \
             backend/app/services/realtime_alerts.py \
             backend/app/services/realtime_journal.py \
+            backend/app/services/realtime_preferences.py \
+            backend/app/services/research_journal.py \
             backend/app/services/runtime_state.py \
             backend/app/services/backtest/__init__.py \
-            backend/app/services/industry/__init__.py
+            backend/app/services/industry/__init__.py \
+            backend/app/services/industry/runtime_helpers.py \
+            backend/app/services/industry/runtime_parity.py \
+            backend/app/services/industry/runtime_trend.py
 
       - name: Mypy broad probe (non-blocking)
         continue-on-error: true
