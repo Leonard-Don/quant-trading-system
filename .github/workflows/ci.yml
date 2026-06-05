@@ -181,6 +181,7 @@ jobs:
             backend/app/services/runtime_state.py \
             backend/app/services/backtest/__init__.py \
             backend/app/services/industry/__init__.py \
+            backend/app/services/industry/runtime_etf.py \
             backend/app/services/industry/runtime_helpers.py \
             backend/app/services/industry/runtime_parity.py \
             backend/app/services/industry/runtime_trend.py

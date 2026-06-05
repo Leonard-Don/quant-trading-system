@@ -31,10 +31,19 @@ from backend.app.schemas.industry import (
     HeatmapDataItem,
     HeatmapResponse,
     IndustryBootstrapResponse,
-    IndustryRankResponse,
     LeaderBoardsResponse,
     LeaderStockResponse,
     StockResponse,
+)
+from backend.app.services.industry.runtime_etf import (
+    INDUSTRY_ETF_MAP as INDUSTRY_ETF_MAP,
+    _map_industry_etfs,
+)
+from backend.app.services.industry.runtime_heatmap import (
+    _build_hot_industry_rank_responses,
+    _collect_hot_leader_candidates,
+    _extract_leading_stock_symbol_lookup,
+    _trim_heatmap_history_payload,
 )
 from backend.app.services.industry.runtime_helpers import (
     _build_parity_price_data,
@@ -52,15 +61,18 @@ from backend.app.services.industry.runtime_parity import (
     _parity_cache as _parity_cache,
     _set_parity_cache,
 )
+from backend.app.services.industry.runtime_stocks import (
+    _backfill_quick_rows_with_cached_valuation,
+    _build_stock_responses,
+    _load_cached_quick_valuation,
+    _promote_detail_ready_quick_rows,
+)
 from backend.app.services.industry.runtime_trend import (
     _build_trend_summary_from_stock_rows,
     _should_align_trend_with_stock_rows,
 )
 from src.analytics.industry_stock_details import (
     build_enriched_industry_stocks,
-    coerce_optional_float,
-    extract_stock_detail_fields,
-    has_meaningful_numeric,
     normalize_symbol,
 )
 from src.utils.config import PROJECT_ROOT
@@ -124,29 +136,6 @@ _heatmap_refresh_executor = ThreadPoolExecutor(max_workers=1)
 _heatmap_refresh_lock = threading.Lock()
 
 _heatmap_refresh_inflight: set[int] = set()
-
-INDUSTRY_ETF_MAP: dict[str, list[dict[str, str]]] = {
-    "半导体": [{"symbol": "SOXX", "market": "US"}, {"symbol": "512760.SS", "market": "CN"}],
-    "芯片": [{"symbol": "SOXX", "market": "US"}, {"symbol": "159995.SZ", "market": "CN"}],
-    "人工智能": [{"symbol": "AIQ", "market": "US"}, {"symbol": "CHAT", "market": "US"}],
-    "软件": [{"symbol": "IGV", "market": "US"}, {"symbol": "515230.SS", "market": "CN"}],
-    "新能源": [{"symbol": "ICLN", "market": "US"}, {"symbol": "516160.SS", "market": "CN"}],
-    "光伏": [{"symbol": "TAN", "market": "US"}, {"symbol": "515790.SS", "market": "CN"}],
-    "电池": [{"symbol": "LIT", "market": "US"}, {"symbol": "159755.SZ", "market": "CN"}],
-    "医药": [{"symbol": "XLV", "market": "US"}, {"symbol": "512010.SS", "market": "CN"}],
-    "医疗": [{"symbol": "XLV", "market": "US"}, {"symbol": "159883.SZ", "market": "CN"}],
-    "消费": [{"symbol": "XLY", "market": "US"}, {"symbol": "159928.SZ", "market": "CN"}],
-    "白酒": [{"symbol": "512690.SS", "market": "CN"}],
-    "金融": [{"symbol": "XLF", "market": "US"}, {"symbol": "510230.SS", "market": "CN"}],
-    "银行": [{"symbol": "KBE", "market": "US"}, {"symbol": "512800.SS", "market": "CN"}],
-    "证券": [{"symbol": "KCE", "market": "US"}, {"symbol": "512880.SS", "market": "CN"}],
-    "地产": [{"symbol": "VNQ", "market": "US"}, {"symbol": "512200.SS", "market": "CN"}],
-    "军工": [{"symbol": "ITA", "market": "US"}, {"symbol": "512660.SS", "market": "CN"}],
-    "能源": [{"symbol": "XLE", "market": "US"}, {"symbol": "159930.SZ", "market": "CN"}],
-    "煤炭": [{"symbol": "KOL", "market": "US"}, {"symbol": "515220.SS", "market": "CN"}],
-    "有色": [{"symbol": "XME", "market": "US"}, {"symbol": "512400.SS", "market": "CN"}],
-    "汽车": [{"symbol": "CARZ", "market": "US"}, {"symbol": "516110.SS", "market": "CN"}],
-}
 
 
 def _load_symbol_mini_trend(symbol: str) -> list[float]:
@@ -278,87 +267,11 @@ def _serialize_heatmap_response(
     )
 
 
-def _build_hot_industry_rank_responses(
-    analyzer, hot_industries: list[dict[str, Any]]
-) -> list[IndustryRankResponse]:
-    return [
-        IndustryRankResponse(
-            rank=ind.get("rank", 0),
-            industry_name=ind.get("industry_name", ""),
-            score=ind.get("score", 0),
-            momentum=ind.get("momentum", 0),
-            change_pct=ind.get("change_pct", 0),
-            money_flow=ind.get("money_flow", 0),
-            flow_strength=ind.get("flow_strength", 0),
-            industryVolatility=ind.get("industry_volatility", 0),
-            industryVolatilitySource=ind.get("industry_volatility_source", "unavailable"),
-            stock_count=ind.get("stock_count", 0),
-            total_market_cap=ind.get("total_market_cap", 0),
-            marketCapSource=ind.get("market_cap_source", "unknown"),
-            mini_trend=ind.get("mini_trend", []),
-            score_breakdown=analyzer.build_rank_score_breakdown(ind),
-        )
-        for ind in hot_industries
-    ]
-
-
 def _get_stock_cache_keys(industry_name: str, top_n: int) -> tuple[str, str]:
     """生成行业成分股快/全量缓存键。"""
     return (
         f"stocks:quick:{industry_name}:{top_n}",
         f"stocks:full:{industry_name}:{top_n}",
-    )
-
-
-def _extract_leading_stock_symbol_lookup(industries) -> dict[str, str]:
-    if (
-        industries is None
-        or industries.empty
-        or not {"leading_stock_name", "leading_stock_code"}.issubset(industries.columns)
-    ):
-        return {}
-
-    filtered = industries.loc[:, ["leading_stock_name", "leading_stock_code"]].copy()
-    filtered["leading_stock_name"] = (
-        filtered["leading_stock_name"].fillna("").astype(str).str.strip()
-    )
-    filtered["leading_stock_code"] = filtered["leading_stock_code"].map(
-        lambda value: normalize_symbol(value or "")
-    )
-    filtered = filtered[
-        filtered["leading_stock_name"].ne("")
-        & filtered["leading_stock_code"].map(
-            lambda value: bool(SIX_DIGIT_SYMBOL_PATTERN.fullmatch(value or ""))
-        )
-    ]
-    if filtered.empty:
-        return {}
-    filtered = filtered.drop_duplicates(subset=["leading_stock_name"], keep="first")
-    return dict(zip(filtered["leading_stock_name"], filtered["leading_stock_code"]))
-
-
-def _collect_hot_leader_candidates(
-    heatmap_df,
-    top_industry_names: set[str],
-    top_n: int,
-) -> list[dict[str, Any]]:
-    if heatmap_df is None or heatmap_df.empty or "leading_stock" not in heatmap_df.columns:
-        return []
-
-    sort_col = "main_net_inflow" if "main_net_inflow" in heatmap_df.columns else "change_pct"
-    hot_candidate_limit = max(1, int(top_n * 1.2))
-    sorted_df = heatmap_df.sort_values(sort_col, ascending=False)
-    filtered_df = sorted_df[
-        sorted_df["leading_stock"].map(lambda value: isinstance(value, str) and bool(value))
-    ]
-    if top_industry_names:
-        filtered_df = filtered_df[filtered_df["industry_name"].isin(top_industry_names)]
-    if filtered_df.empty:
-        return []
-    return (
-        filtered_df.drop_duplicates(subset=["leading_stock"], keep="first")
-        .head(hot_candidate_limit)
-        .to_dict("records")
     )
 
 
@@ -411,35 +324,6 @@ def _build_leading_stock_symbol_lookup(force_refresh: bool = False) -> dict[str,
             _leading_stock_symbol_lookup_cache.update(symbol_lookup)
             _leading_stock_symbol_lookup_cache_time = now
     return symbol_lookup
-
-
-def _map_industry_etfs(industry_name: str) -> list[dict[str, str]]:
-    normalized = str(industry_name or "")
-    matches: list[dict[str, str]] = []
-    for keyword, etfs in INDUSTRY_ETF_MAP.items():
-        if keyword in normalized:
-            matches.extend(etfs)
-    if not matches:
-        matches = [{"symbol": "SPY", "market": "US"}, {"symbol": "510300.SS", "market": "CN"}]
-    seen = set()
-    result = []
-    for item in matches:
-        key = item["symbol"]
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append({**item, "reason": f"{industry_name} ETF proxy"})
-    return result
-
-
-def _trim_heatmap_history_payload(payload: list[dict]) -> list[dict]:
-    trimmed = list(payload[:_HEATMAP_HISTORY_MAX_ITEMS])
-    while trimmed:
-        encoded = json.dumps(trimmed, ensure_ascii=False, indent=2).encode("utf-8")
-        if len(encoded) <= _HEATMAP_HISTORY_MAX_FILE_BYTES:
-            break
-        trimmed = trimmed[:-1]
-    return trimmed
 
 
 def _resolve_industry_profile(request: Request | None) -> str:
@@ -650,177 +534,6 @@ def _resolve_symbol_with_provider(symbol_or_name: str) -> str:
             logger.warning(f"Failed to resolve symbol '{symbol_or_name}': {e}")
 
     return normalized
-
-
-def _build_stock_responses(
-    stocks: list[dict],
-    industry_name: str,
-    top_n: int,
-    score_stage: Optional[str] = None,
-) -> list[StockResponse]:
-    """将 provider 返回的原始成分股标准化为接口响应。"""
-    normalized_stocks = []
-    for idx, stock in enumerate(stocks[:top_n], 1):
-        symbol = normalize_symbol(stock.get("symbol") or stock.get("code") or "")
-        if not symbol:
-            continue
-        detail_fields = extract_stock_detail_fields(stock)
-
-        normalized_stocks.append(
-            StockResponse(
-                symbol=symbol,
-                name=stock.get("name", ""),
-                rank=int(stock.get("rank") or idx),
-                total_score=float(stock.get("total_score") or 0),
-                scoreStage=score_stage,
-                market_cap=detail_fields.get("market_cap"),
-                pe_ratio=detail_fields.get("pe_ratio"),
-                change_pct=detail_fields.get("change_pct"),
-                money_flow=detail_fields.get("money_flow"),
-                turnover_rate=detail_fields.get("turnover_rate") or detail_fields.get("turnover"),
-                industry=industry_name,
-            )
-        )
-
-    return normalized_stocks
-
-
-def _promote_detail_ready_quick_rows(
-    stocks: list[dict[str, Any]],
-    visible_top_n: int = 5,
-    detail_target: int = 2,
-) -> list[dict[str, Any]]:
-    """在 quick 阶段尽量让首屏先出现有真实明细的成分股。"""
-    if not stocks:
-        return stocks
-
-    front_size = min(len(stocks), visible_top_n)
-    target_count = min(detail_target, front_size)
-    front_rows = list(stocks[:front_size])
-    back_rows = list(stocks[front_size:])
-
-    front_detail_indexes = [
-        index
-        for index, stock in enumerate(front_rows)
-        if _count_quick_stock_detail_fields(stock) > 0
-    ]
-    if len(front_detail_indexes) >= target_count:
-        return stocks
-
-    promoted_rows: list[dict[str, Any]] = []
-    remaining_back_rows: list[dict[str, Any]] = []
-    needed_promotions = target_count - len(front_detail_indexes)
-
-    for stock in back_rows:
-        if len(promoted_rows) < needed_promotions and _count_quick_stock_detail_fields(stock) > 0:
-            promoted_rows.append(stock)
-            continue
-        remaining_back_rows.append(stock)
-
-    if not promoted_rows:
-        return stocks
-
-    replacement_positions = [
-        index
-        for index, stock in reversed(list(enumerate(front_rows)))
-        if _count_quick_stock_detail_fields(stock) == 0
-    ][: len(promoted_rows)]
-    if not replacement_positions:
-        return stocks
-
-    replacement_positions_set = set(replacement_positions)
-    kept_front_rows = [
-        stock for index, stock in enumerate(front_rows) if index not in replacement_positions_set
-    ]
-    displaced_front_rows = [
-        stock for index, stock in enumerate(front_rows) if index in replacement_positions_set
-    ]
-    return kept_front_rows + promoted_rows + displaced_front_rows + remaining_back_rows
-
-
-def _load_cached_quick_valuation(provider, symbol: str) -> dict[str, Any]:
-    """仅读取缓存估值；旧测试桩不支持 cached_only 时退回老签名。"""
-    if provider is None or not hasattr(provider, "get_stock_valuation"):
-        return {}
-
-    try:
-        valuation = provider.get_stock_valuation(symbol, cached_only=True)
-    except TypeError:
-        try:
-            valuation = provider.get_stock_valuation(symbol)
-        except Exception as exc:
-            logger.warning("Failed to load quick valuation for %s: %s", symbol, exc)
-            return {}
-    except Exception as exc:
-        logger.warning("Failed to load cached quick valuation for %s: %s", symbol, exc)
-        return {}
-
-    if not isinstance(valuation, dict) or valuation.get("error"):
-        return {}
-    return valuation
-
-
-def _backfill_quick_rows_with_cached_valuation(
-    stocks: list[dict[str, Any]],
-    provider,
-) -> list[dict[str, Any]]:
-    """用 cached-only 估值补齐 quick 首屏所需字段，避免远端冷启动阻塞接口。"""
-    if not stocks or provider is None or not hasattr(provider, "get_stock_valuation"):
-        return stocks
-
-    valuation_cache: dict[str, dict[str, Any]] = {}
-    enriched: list[dict[str, Any]] = []
-
-    for stock in stocks:
-        symbol = normalize_symbol(stock.get("symbol") or stock.get("code") or "")
-        if not symbol:
-            enriched.append(stock)
-            continue
-
-        detail_fields = extract_stock_detail_fields(stock)
-        missing_market_cap = not has_meaningful_numeric(detail_fields.get("market_cap"))
-        missing_pe_ratio = not has_meaningful_numeric(detail_fields.get("pe_ratio"))
-        missing_change_pct = detail_fields.get("change_pct") is None
-        missing_turnover_rate = not has_meaningful_numeric(detail_fields.get("turnover_rate"))
-
-        if not (
-            missing_market_cap or missing_pe_ratio or missing_change_pct or missing_turnover_rate
-        ):
-            enriched.append(stock)
-            continue
-
-        if symbol not in valuation_cache:
-            valuation_cache[symbol] = _load_cached_quick_valuation(provider, symbol)
-        valuation = valuation_cache[symbol]
-        if not valuation:
-            enriched.append(stock)
-            continue
-
-        valuation_market_cap = coerce_optional_float(valuation.get("market_cap"))
-        valuation_pe_ratio = coerce_optional_float(
-            valuation.get("pe_ratio", valuation.get("pe_ttm"))
-        )
-        valuation_change_pct = coerce_optional_float(valuation.get("change_pct"))
-        valuation_turnover_rate = coerce_optional_float(
-            valuation.get("turnover_rate", valuation.get("turnover"))
-        )
-
-        enriched_stock = dict(stock)
-        if missing_market_cap and has_meaningful_numeric(valuation_market_cap):
-            enriched_stock["market_cap"] = valuation_market_cap
-        if missing_pe_ratio and has_meaningful_numeric(valuation_pe_ratio):
-            enriched_stock["pe_ratio"] = valuation_pe_ratio
-        if missing_change_pct and valuation_change_pct is not None:
-            enriched_stock["change_pct"] = valuation_change_pct
-        if missing_turnover_rate and has_meaningful_numeric(valuation_turnover_rate):
-            enriched_stock["turnover_rate"] = valuation_turnover_rate
-            enriched_stock["turnover"] = valuation_turnover_rate
-        if not enriched_stock.get("name") and valuation.get("name"):
-            enriched_stock["name"] = valuation["name"]
-
-        enriched.append(enriched_stock)
-
-    return enriched
 
 
 def _build_full_industry_stock_response(
