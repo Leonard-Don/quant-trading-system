@@ -12,8 +12,11 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
+import time as _time
+from collections import deque
 from datetime import date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 import pandas as pd
 
@@ -34,6 +37,90 @@ _FUND_PREFIXES = (
     "58",  # STAR/科创 ETF family
 )
 
+# Default client-side TTLs (seconds). Valuation / quote / history churn intraday
+# but are fine to reuse for ~half a minute; financials only move quarterly so
+# they can be held far longer. These are overridable via the ``cache_ttl``
+# config (a scalar applies to every read path). ``get_latest_quote`` delegates
+# to ``get_historical_data`` and therefore inherits ``_DEFAULT_TTL_HISTORICAL``.
+_DEFAULT_TTL_VALUATION = 45
+_DEFAULT_TTL_HISTORICAL = 45
+_DEFAULT_TTL_FINANCIAL = 300  # a few minutes — quarterly data barely changes
+_RATE_WINDOW_SECONDS = 60.0
+
+
+class _TTLCache:
+    """Minimal dependency-free ``{key: (value, expires_at)}`` TTL cache.
+
+    ``cachetools`` is not a project dependency, so this keeps things light. The
+    clock is injectable (``time_func``) so tests are fully deterministic, and
+    ``ttl<=0`` on a ``set`` disables caching for that entry (every read stays a
+    miss).
+    """
+
+    _MISS = object()
+
+    def __init__(self, *, time_func: Callable[[], float] = _time.monotonic):
+        self._time = time_func
+        self._store: dict[Any, tuple[Any, float]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, key: Any) -> Any:
+        """Return the cached value, or the unique ``_MISS`` sentinel."""
+        with self._lock:
+            entry = self._store.get(key)
+            if entry is None:
+                return self._MISS
+            value, expires_at = entry
+            if self._time() >= expires_at:
+                self._store.pop(key, None)
+                return self._MISS
+            return value
+
+    def set(self, key: Any, value: Any, ttl: float) -> None:
+        if ttl is None or ttl <= 0:
+            return  # ttl<=0 -> caching disabled, keep behavior deterministic
+        with self._lock:
+            self._store[key] = (value, self._time() + float(ttl))
+
+    def clear(self) -> None:
+        with self._lock:
+            self._store.clear()
+
+
+class _SlidingWindowRateLimiter:
+    """Per-minute sliding-window throttle.
+
+    ``try_acquire()`` records a request timestamp and returns ``True`` while the
+    number of requests in the trailing 60s window stays under ``max_per_minute``;
+    once the window is full it returns ``False`` so callers can short-circuit
+    gracefully instead of hammering Tushare's per-minute limit. The clock is
+    injectable for deterministic tests.
+    """
+
+    def __init__(self, max_per_minute: int, *, time_func: Callable[[], float] = _time.monotonic):
+        self._max = max(0, int(max_per_minute))
+        self._time = time_func
+        self._window = _RATE_WINDOW_SECONDS
+        self._hits: deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def try_acquire(self) -> bool:
+        if self._max <= 0:
+            return True  # no configured limit -> never throttle
+        now = self._time()
+        with self._lock:
+            cutoff = now - self._window
+            while self._hits and self._hits[0] <= cutoff:
+                self._hits.popleft()
+            if len(self._hits) >= self._max:
+                return False
+            self._hits.append(now)
+            return True
+
+    def clear(self) -> None:
+        with self._lock:
+            self._hits.clear()
+
 
 class TushareProvider(BaseDataProvider):
     """Tushare Pro provider wired into the shared data-provider interface."""
@@ -47,6 +134,57 @@ class TushareProvider(BaseDataProvider):
         super().__init__(api_key=api_key, config=config or {})
         self._pro_client = self.config.get("pro_client")
         self._tushare_module = self.config.get("tushare_module")
+
+        # Injectable clock so caching/throttling are deterministic under test.
+        clock = self.config.get("clock")
+        self._clock: Callable[[], float] = clock if callable(clock) else _time.monotonic
+
+        # Optional per-instance override for the per-minute budget; default to
+        # the class attribute (200) so production keeps today's headroom.
+        rate_limit = self.config.get("rate_limit")
+        if rate_limit is not None:
+            self.rate_limit = int(rate_limit)
+
+        # ``cache_ttl`` as a scalar overrides ALL read-path TTLs (0 disables the
+        # cache, which tests use for determinism). When unset, each read path
+        # uses its tuned default.
+        self._cache_ttl_override = self.config.get("cache_ttl")
+
+        self._cache = _TTLCache(time_func=self._clock)
+        self._rate_limiter = _SlidingWindowRateLimiter(self.rate_limit, time_func=self._clock)
+
+    # ------------------------------------------------------------------
+    # Cache / throttle plumbing
+    # ------------------------------------------------------------------
+    def _ttl_for(self, default_ttl: float) -> float:
+        """Resolve the effective TTL, honoring a scalar ``cache_ttl`` override."""
+        if self._cache_ttl_override is not None:
+            return float(self._cache_ttl_override)
+        return float(default_ttl)
+
+    def clear_cache(self) -> None:
+        """Drop all cached read results (test/reset hook)."""
+        self._cache.clear()
+
+    def reset_throttle(self) -> None:
+        """Forget the per-minute request window (test/reset hook)."""
+        self._rate_limiter.clear()
+
+    def _acquire_or_short_circuit(self) -> bool:
+        """Try to claim a per-minute token.
+
+        Returns ``True`` when the call may proceed. On exhaustion it returns
+        ``False`` and logs once at WARNING so the silent-degradation pain is at
+        least observable; callers translate that into their existing fallback
+        contract (error dict / empty frame) rather than raising.
+        """
+        if self._rate_limiter.try_acquire():
+            return True
+        logger.warning(
+            "Tushare per-minute rate budget (%s/min) exhausted; short-circuiting to fallback",
+            self.rate_limit,
+        )
+        return False
 
     # ------------------------------------------------------------------
     # Symbol / date normalization
@@ -209,12 +347,32 @@ class TushareProvider(BaseDataProvider):
         if not self._is_supported_ts_code(ts_code):
             return pd.DataFrame()
 
+        # Cache key uses day-granularity dates so two reads on the same trading
+        # day (e.g. repeated quote refreshes that pass ``datetime.now()``) hit
+        # the same entry instead of refetching.
+        cache_key = (
+            "historical",
+            ts_code,
+            self._format_tushare_date(start_date),
+            self._format_tushare_date(end_date),
+        )
+        cached = self._cache.get(cache_key)
+        if cached is not self._cache._MISS:
+            return cached.copy()
+
+        # Throttle guards the real API call; on exhaustion degrade to an empty
+        # frame — the existing contract callers already handle.
+        if not self._acquire_or_short_circuit():
+            return pd.DataFrame()
+
         raw, asset_type = self._call_daily_endpoint(
             ts_code,
             start_date=start_date,
             end_date=end_date,
         )
-        return self._normalize_daily_frame(raw, ts_code=ts_code, asset_type=asset_type)
+        frame = self._normalize_daily_frame(raw, ts_code=ts_code, asset_type=asset_type)
+        self._cache.set(cache_key, frame, self._ttl_for(_DEFAULT_TTL_HISTORICAL))
+        return frame.copy()
 
     def get_latest_quote(self, symbol: str) -> dict[str, Any]:
         """Return the latest available Tushare daily bar as an EOD snapshot."""
@@ -261,6 +419,16 @@ class TushareProvider(BaseDataProvider):
         if not self._is_supported_ts_code(ts_code):
             return {"symbol": symbol, "error": "unsupported_tushare_symbol", "source": self.name}
 
+        cache_key = ("valuation", str(symbol), ts_code)
+        cached = self._cache.get(cache_key)
+        if cached is not self._cache._MISS:
+            return dict(cached)
+
+        # Throttle the real API call; on exhaustion degrade to a fallback-shaped
+        # error dict (callers already branch on ``error``) — never raise.
+        if not self._acquire_or_short_circuit():
+            return {"symbol": symbol, "error": "tushare_rate_limited", "source": self.name}
+
         try:
             pro = self._get_pro_client()
             end = datetime.now()
@@ -282,7 +450,7 @@ class TushareProvider(BaseDataProvider):
 
         row = self._latest_row(frame, "trade_date")
         total_mv = self._to_float(row.get("total_mv"))  # 万元
-        return {
+        result = {
             "symbol": str(symbol),
             "name": "",
             "market_cap": total_mv * 10000.0,  # 万元 -> 元
@@ -293,6 +461,8 @@ class TushareProvider(BaseDataProvider):
             "change_pct": 0.0,
             "source": self.name,
         }
+        self._cache.set(cache_key, result, self._ttl_for(_DEFAULT_TTL_VALUATION))
+        return result
 
     def get_stock_financial_data(self, symbol: str) -> dict[str, Any]:
         """Per-stock financials (ROE / 营收同比 / 净利同比) from ``fina_indicator``."""
@@ -300,6 +470,14 @@ class TushareProvider(BaseDataProvider):
         neutral = {"roe": 0.0, "revenue_yoy": 0.0, "profit_yoy": 0.0}
         if not self._is_supported_ts_code(ts_code):
             return {**neutral, "error": "unsupported_tushare_symbol", "source": self.name}
+
+        cache_key = ("financial", ts_code)
+        cached = self._cache.get(cache_key)
+        if cached is not self._cache._MISS:
+            return dict(cached)
+
+        if not self._acquire_or_short_circuit():
+            return {**neutral, "error": "tushare_rate_limited", "source": self.name}
 
         try:
             pro = self._get_pro_client()
@@ -311,12 +489,15 @@ class TushareProvider(BaseDataProvider):
             return {**neutral, "error": "empty_fina_indicator", "source": self.name}
 
         row = self._latest_row(frame, "end_date")
-        return {
+        result = {
             "roe": self._to_float(row.get("roe")),
             "revenue_yoy": self._to_float(row.get("or_yoy")),
             "profit_yoy": self._to_float(row.get("netprofit_yoy")),
             "source": self.name,
         }
+        # Financials only change quarterly -> a longer TTL is safe.
+        self._cache.set(cache_key, result, self._ttl_for(_DEFAULT_TTL_FINANCIAL))
+        return result
 
     def is_available(self) -> bool:
         """Check token/client availability without using BaseDataProvider's AAPL probe."""
