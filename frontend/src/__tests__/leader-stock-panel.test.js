@@ -46,7 +46,12 @@ vi.mock('../utils/messageApi', () => ({
   useSafeMessageApi: () => mockMessageApi,
 }));
 
-vi.mock('../components/StockDetailModal', () => ({ default: () => null }));
+vi.mock('../components/StockDetailModal', () => ({
+  default: (props) => {
+    globalThis.__leaderModalProps = props;
+    return null;
+  },
+}));
 vi.mock('../components/common/MiniSparkline', () => ({ default: () => <div data-testid="mini-sparkline" /> }));
 
 vi.mock('@ant-design/icons', () => {
@@ -273,5 +278,37 @@ describe('LeaderStockPanel', () => {
       symbol: '600111',
       name: '回测核心',
     }));
+  });
+
+  test('shows the stock detail even when the industry-trend request never resolves', async () => {
+    globalThis.__leaderModalProps = null;
+    getLeaderDetail.mockResolvedValue({
+      symbol: '600522', name: '中天科技', score_type: 'core', total_score: 60,
+      dimension_scores: {}, raw_data: { pe_ttm: 49.2 },
+    });
+    // Industry trend hangs forever — it must NOT block the (already-loaded) detail.
+    getIndustryTrend.mockReturnValue(new Promise(() => {}));
+
+    render(
+      <LeaderStockPanel
+        topN={5}
+        topIndustries={5}
+        perIndustry={3}
+        bootstrappedOverview={{
+          core: [buildLeaderRecord({ name: '中天科技', symbol: '600522', industry: '通信设备' })],
+          hot: [],
+          errors: {},
+        }}
+      />
+    );
+
+    const row = (await screen.findAllByTestId('leader-stock-row'))[0];
+    fireEvent.click(row);
+
+    await waitFor(() => {
+      expect(globalThis.__leaderModalProps?.detailData).toBeTruthy();
+    });
+    expect(globalThis.__leaderModalProps.detailData.symbol).toBe('600522');
+    expect(globalThis.__leaderModalProps.loading).toBe(false);
   });
 });

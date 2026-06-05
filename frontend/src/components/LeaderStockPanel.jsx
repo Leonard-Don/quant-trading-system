@@ -679,29 +679,42 @@ const LeaderStockPanel = ({
             setDetailData(null);
             setDetailIndustryTrend(null);
             const industryName = record?.industry || null;
-            const [detailResult, industryTrendResult] = await Promise.allSettled([
-                getLeaderDetail(symbol, scoreType, {
-                    signal: detailAbortRef.current.signal
-                }),
-                industryName
-                    ? getIndustryTrend(industryName, 30, {
-                        signal: detailTrendAbortRef.current.signal
+
+            // The industry trend is a secondary enhancement. Load it in the
+            // background so a slow/hanging trend request never blocks the detail.
+            // (Previously both were awaited together via Promise.allSettled, so a
+            // trend request that never settled left the modal stuck on
+            // "明细加载中" forever — even after the detail itself had returned.)
+            if (industryName) {
+                getIndustryTrend(industryName, 30, {
+                    signal: detailTrendAbortRef.current.signal,
+                })
+                    .then((trend) => {
+                        if (
+                            !detailTrendAbortRef.current?.signal.aborted &&
+                            detailRequestIdRef.current === requestId
+                        ) {
+                            setDetailIndustryTrend(trend);
+                        }
                     })
-                    : Promise.resolve(null),
-            ]);
+                    .catch((err) => {
+                        if (err?.name !== 'CanceledError' && err?.name !== 'AbortError') {
+                            console.warn('Industry trend for detail unavailable:', err);
+                        }
+                    });
+            }
+
+            // The detail is the only gating fetch — render it as soon as it returns.
+            const detailValue = await getLeaderDetail(symbol, scoreType, {
+                signal: detailAbortRef.current.signal,
+            });
             if (
                 detailAbortRef.current?.signal.aborted ||
                 detailRequestIdRef.current !== requestId
             ) {
                 return;
             }
-            if (detailResult.status !== 'fulfilled') {
-                throw detailResult.reason;
-            }
-            setDetailData(detailResult.value);
-            if (industryTrendResult.status === 'fulfilled') {
-                setDetailIndustryTrend(industryTrendResult.value);
-            }
+            setDetailData(detailValue);
         } catch (err) {
             if (err.name === 'CanceledError' || err.name === 'AbortError') return;
             if (detailRequestIdRef.current !== requestId) return;
