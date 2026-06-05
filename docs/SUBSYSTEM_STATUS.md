@@ -155,11 +155,22 @@ audit. (If `SECURITY.md` is ever expanded to describe runtime protections, it
 must state that the API is unauthenticated by default and that auth is an
 opt-in, non-enforced subsystem.)
 
+### Decision (2026-06-05)
+
+**Resolved by the product owner: this is a single-user local tool.** The auth /
+OAuth / users subsystem stays **in place and non-enforced** (the "keep as opt-in"
+stance below). It is **not** being deleted: `get_current_user_optional` is
+load-bearing — it supplies the anonymous-researcher identity that endpoints read,
+so removing the subsystem would mean unwinding that shim from every endpoint for
+no benefit on a local tool. `AUTH_REQUIRED` stays `False`. Multi-user / login is
+explicitly **out of scope** until that product decision changes.
+
 ### Recommendation
 
-Pick one of two explicit stances and write it down (this doc is the first step):
+The decision above selected the first of the two stances originally laid out here
+(kept for context):
 
-- **Recommended — keep as opt-in, document the switch.** Leave the subsystem
+- **Selected — keep as opt-in, document the switch.** Leave the subsystem
   in place, enforcement off by default. Document that setting `AUTH_REQUIRED=1`
   (optionally `API_KEY=…`) turns it on, and that turning it on **will break the
   no-login frontend and the test suite** until the frontend learns to
@@ -192,5 +203,5 @@ be wanted later.
 |-----------|--------|------------------------------|---------------|
 | `/trade/*` (global, ephemeral) | Live (frontend + tests), parallel to `/paper/*` | Consolidate into `/paper/*`, then deprecate + remove | None — documented only |
 | `/paper/*` (per-profile, persisted) | Live, the more capable design | Keep; absorb `/trade/*` behaviours | None |
-| Auth / OAuth / users | Built, **not enforced** (anonymous by default) | Keep as opt-in (`AUTH_REQUIRED`) and document, **or** mark speculative | None — documented only |
+| Auth / OAuth / users | Built, **not enforced** (anonymous by default) | **Decided 2026-06-05: single-user tool → keep as non-enforced opt-in, not deleted** (`get_current_user_optional` is load-bearing) | None — documented only |
 | `SECURITY.md` | Accurate (reporting policy only; no false auth claim) | No change needed | None |
