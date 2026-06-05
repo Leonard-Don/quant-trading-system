@@ -85,17 +85,24 @@ export default defineConfig({
     maxWorkers: "50%",
     minWorkers: 1,
     // These are heavy integration-style component tests (full Ant Design render
-    // + async mocks + waitFor) that legitimately take 1-3s each, and some poll
-    // on a real 5s interval. The default 5s timeout leaves no margin, so normal
-    // jitter tips them over. Give them ample room — they still complete fast
-    // when not contended, so this adds stability without hiding a real hang.
+    // + async mocks + waitFor) that legitimately take 1-3s each. (Their background
+    // polling is now faked at the setInterval level, so they no longer churn on a
+    // live interval.) The default 5s timeout leaves no margin, so normal jitter
+    // tips them over. Give them ample room — they still complete fast when not
+    // contended, so this adds stability without hiding a real hang.
     testTimeout: 15000,
     hookTimeout: 15000,
-    // Several heavy integration specs render real components that poll on real
-    // timers; under load an assertion can occasionally race the async/timer
-    // churn (each such spec passes reliably in isolation). The worker cap and
-    // timeout above cut the rate sharply; retry absorbs the rare residual so CI
-    // stays green. This guards test-timing fragility, not product behaviour.
-    retry: 2,
+    // retry is intentionally OFF. The specs that used to flake rendered real
+    // components whose background polling fired on real setInterval timers and
+    // raced the waitFor assertions under load. Those polls are now neutralised at
+    // the source: the affected specs fake setInterval/clearInterval so the poll
+    // stays inert (paper-trading-panel's 5s quote poll, industry-heatmap's 60s
+    // auto-refresh), while leaving setTimeout/raf real so antd motion and waitFor
+    // are unchanged. With the timing race removed, the full suite passes
+    // deterministically with --retry=0, so we no longer mask fragility with retry —
+    // a real regression now fails loudly instead of being silently re-run. The
+    // worker cap and timeouts above remain as defence-in-depth for the heavy
+    // integration specs, not as flake suppressors.
+    retry: 0,
   },
 });

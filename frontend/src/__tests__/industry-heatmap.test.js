@@ -41,6 +41,13 @@ describe('IndustryHeatmap history fallback', () => {
   });
 
   beforeEach(() => {
+    // The heatmap auto-refreshes via setInterval(loadData, refreshSec*1000) with
+    // refreshSec defaulting to 60. Faking ONLY setInterval/clearInterval keeps that
+    // poll inert (so it can't re-fire loadData and race the waitFor assertions under
+    // load) while leaving the focus setTimeout, recharts, and antd motion on real
+    // timers — so no act() flushing changes and assertions are identical. Real timers
+    // are restored by the global afterEach in vitest.setup.js.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     jest.clearAllMocks();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });

@@ -80,7 +80,18 @@ const ORDERS_HISTORY = {
 };
 
 describe('PaperTradingPanel', () => {
+    // The panel polls quotes on a real 5s setInterval (QUOTE_POLL_MS). Under real
+    // timers that interval fires mid-test and races the many waitFor assertions
+    // below (e.g. mockGetAccount call-count checks) — the documented flake source.
+    // We fake ONLY setInterval/clearInterval so the poll stays inert unless
+    // advanced; the initial synchronous fetchQuotes() still runs so data loads as
+    // before. antd's CSSMotion/portal transitions use setTimeout + raf (not
+    // setInterval), so leaving those real keeps act() flushing intact and avoids
+    // introducing "not wrapped in act" noise. waitFor's own polling also stays on
+    // real timers, so every assertion below is unchanged — only the poll's timing
+    // source differs. Real timers are restored by the global afterEach.
     beforeEach(() => {
+        vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
         mockGetAccount.mockReset();
         mockListOrders.mockReset();
         mockSubmitOrder.mockReset();
