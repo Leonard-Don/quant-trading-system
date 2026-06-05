@@ -318,17 +318,25 @@ class TestStrategyWeightOptimizer:
         out = swo.compare_strategies(df)
         assert list(out["strategy"]) == ["good"]  # 'short' dropped
 
-    def test_compare_strategies_all_short_raises_keyerror_BUG(self):
-        # BUG (production): when EVERY strategy has < 10 observations they are
-        # all skipped, leaving an empty `metrics` list. compare_strategies then
-        # builds a column-less DataFrame and calls
-        # ``.sort_values('sharpe_ratio')`` on it, which raises KeyError instead
-        # of returning an empty result. This test pins the current (buggy)
-        # behaviour so the bug is visible and the suite stays honest; if the
-        # production code is fixed to guard the empty case, update this test to
-        # assert ``out.empty``.
+    def test_compare_strategies_all_short_returns_empty_frame(self):
+        # When EVERY strategy has < 10 observations they are all skipped,
+        # leaving an empty `metrics` list. compare_strategies must return an
+        # empty DataFrame that still carries the expected columns, rather than
+        # calling ``.sort_values('sharpe_ratio')`` on a column-less frame (which
+        # raised ``KeyError: 'sharpe_ratio'``).
         swo = StrategyWeightOptimizer()
         idx = pd.date_range("2020-01-01", periods=5)
         df = pd.DataFrame({"tiny": [0.01, -0.01, 0.0, 0.01, -0.01]}, index=idx)
-        with pytest.raises(KeyError, match="sharpe_ratio"):
-            swo.compare_strategies(df)
+        out = swo.compare_strategies(df)
+        assert out.empty
+        expected_cols = {
+            "strategy",
+            "annual_return",
+            "annual_volatility",
+            "sharpe_ratio",
+            "max_drawdown",
+            "win_rate",
+            "calmar_ratio",
+            "optimal_weight",
+        }
+        assert expected_cols.issubset(set(out.columns))
