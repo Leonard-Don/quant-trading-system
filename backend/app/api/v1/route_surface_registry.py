@@ -36,30 +36,6 @@ ROUTE_SURFACE_REGISTRY: Final[dict[str, RouteSurfaceRow]] = {
         "entry_strategy": "Keep as ops/admin diagnostics; do not add to user-facing trading panels unless an admin health surface is explicitly built.",
         "removal_condition": "Remove after market-data provider health is represented in infrastructure diagnostics or external monitoring.",
     },
-    "GET /trade/portfolio": {
-        "status": "deprecated_compat",
-        "owner": "legacy trade engine compatibility",
-        "entry_strategy": "No new frontend entry; the persistent paper-trading engine (GET /paper/account) is the single source of truth. This route is a thin shim delegating to the default paper profile and preserving the legacy portfolio response shape.",
-        "removal_condition": "Remove after one compatibility window with no logs or saved clients calling /trade/portfolio.",
-    },
-    "POST /trade/execute": {
-        "status": "deprecated_compat",
-        "owner": "legacy trade engine compatibility",
-        "entry_strategy": "No new frontend entry; submit orders via POST /paper/orders. This route is a thin shim that submits a MARKET order to the default paper profile and preserves the legacy trade response shape.",
-        "removal_condition": "Remove after one compatibility window with no logs or saved clients calling /trade/execute.",
-    },
-    "GET /trade/history": {
-        "status": "deprecated_compat",
-        "owner": "legacy trade engine compatibility",
-        "entry_strategy": "No new frontend entry; read order history via GET /paper/orders. This route is a thin shim that maps the default paper profile's orders to the legacy trade-history shape.",
-        "removal_condition": "Remove after one compatibility window with no logs or saved clients calling /trade/history.",
-    },
-    "POST /trade/reset": {
-        "status": "deprecated_compat",
-        "owner": "legacy trade engine compatibility",
-        "entry_strategy": "No new frontend entry; reset via POST /paper/reset. This route is a thin shim that resets the default paper profile.",
-        "removal_condition": "Remove after one compatibility window with no logs or saved clients calling /trade/reset.",
-    },
     "POST /realtime/subscribe": {
         "status": "deprecated_compat",
         "owner": "legacy realtime subscription compatibility",

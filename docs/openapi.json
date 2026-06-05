@@ -1152,7 +1152,7 @@
           "System"
         ],
         "summary": "数据源运行状态",
-        "description": "Return provider registry and circuit-breaker state without probing remotes.",
+        "description": "Return provider registry and circuit-breaker state without probing remotes.\n\nAlso embeds the primary A-share source (Tushare) health so the frontend can\nsurface a green/amber/red data-source dot. ``health_check`` is cached ~60s.",
         "operationId": "get_provider_runtime_status_system_providers_status_get",
         "responses": {
           "200": {
@@ -2664,128 +2664,6 @@
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
                 }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/trade/portfolio": {
-      "get": {
-        "tags": [
-          "Trading"
-        ],
-        "summary": "获取投资组合状态",
-        "description": "获取当前账户余额、持仓和总资产",
-        "operationId": "get_portfolio_trade_portfolio_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          }
-        }
-      }
-    },
-    "/trade/execute": {
-      "post": {
-        "tags": [
-          "Trading"
-        ],
-        "summary": "执行交易",
-        "description": "执行买入或卖出交易",
-        "operationId": "execute_trade_trade_execute_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TradeRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/trade/history": {
-      "get": {
-        "tags": [
-          "Trading"
-        ],
-        "summary": "获取交易历史",
-        "description": "获取历史交易记录",
-        "operationId": "get_trade_history_trade_history_get",
-        "parameters": [
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 50,
-              "title": "Limit"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/trade/reset": {
-      "post": {
-        "tags": [
-          "Trading"
-        ],
-        "summary": "重置账户",
-        "description": "重置模拟账户",
-        "operationId": "reset_account_trade_reset_post",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
               }
             }
           }
@@ -11671,40 +11549,6 @@
         },
         "type": "object",
         "title": "TokenRequest"
-      },
-      "TradeRequest": {
-        "properties": {
-          "symbol": {
-            "type": "string",
-            "title": "Symbol"
-          },
-          "action": {
-            "type": "string",
-            "title": "Action"
-          },
-          "quantity": {
-            "type": "integer",
-            "title": "Quantity"
-          },
-          "price": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Price"
-          }
-        },
-        "type": "object",
-        "required": [
-          "symbol",
-          "action",
-          "quantity"
-        ],
-        "title": "TradeRequest"
       },
       "TrendAnalysisRequest": {
         "properties": {

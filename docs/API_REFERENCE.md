@@ -498,6 +498,9 @@ Args:
 
 Return provider registry and circuit-breaker state without probing remotes.
 
+Also embeds the primary A-share source (Tushare) health so the frontend can
+surface a green/amber/red data-source dot. ``health_check`` is cached ~60s.
+
 **响应: **
 
 - **200**: Successful Response
@@ -1095,66 +1098,6 @@ Return provider registry and circuit-breaker state without probing remotes.
 
 - **200**: Successful Response
 - **422**: Validation Error
-
----
-
-### Trading
-
-#### GET /trade/portfolio
-
-**获取投资组合状态**
-
-获取当前账户余额、持仓和总资产
-
-**响应: **
-
-- **200**: Successful Response
-
----
-
-#### POST /trade/execute
-
-**执行交易**
-
-执行买入或卖出交易
-
-**请求体: **
-
-参考模型: `TradeRequest`
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### GET /trade/history
-
-**获取交易历史**
-
-获取历史交易记录
-
-**请求参数: **
-
-- `limit` （可选）: 无描述
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### POST /trade/reset
-
-**重置账户**
-
-重置模拟账户
-
-**响应: **
-
-- **200**: Successful Response
 
 ---
 
@@ -3400,15 +3343,6 @@ Return provider registry and circuit-breaker state without probing remotes.
 - `role` (string): 无描述
 - `expires_in_seconds` (integer): 无描述
 - `refresh_expires_in_seconds` (integer): 无描述
-
-### TradeRequest
-
-**字段: **
-
-- `symbol` (string): 无描述
-- `action` (string): 无描述
-- `quantity` (integer): 无描述
-- `price` (unknown): 无描述
 
 ### TrendAnalysisRequest
 
