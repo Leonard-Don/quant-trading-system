@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import IndustryHeatmap, { buildFallbackHeatmapPayload } from '../components/IndustryHeatmap';
 import { getIndustryHeatmap, getIndustryHeatmapHistory } from '../services/api';
@@ -169,5 +169,89 @@ describe('IndustryHeatmap history fallback', () => {
       ]),
       update_time: '2026-04-20T08:00:00Z',
     }));
+  });
+
+  // Characterization tests guarding the layer-2 split: the parent owns state
+  // and prop-drills into the extracted HeatmapTreemap / HeatmapControls
+  // children. These assert the prop-drilling boundary stays wired up.
+  it('forwards a treemap tile click back through onIndustryClick', async () => {
+    const onIndustryClick = jest.fn();
+    const payload = {
+      industries: [
+        {
+          name: '军工',
+          value: 1.6,
+          size: 200,
+          stockCount: 8,
+          moneyFlow: 98000000,
+          turnoverRate: 2.4,
+          marketCapSource: 'snapshot_manual',
+        },
+      ],
+      max_value: 1.6,
+      min_value: 1.6,
+      update_time: '2026-04-20T08:00:00Z',
+    };
+
+    render(
+      <IndustryHeatmap
+        onIndustryClick={onIndustryClick}
+        onDataLoad={jest.fn()}
+        initialData={payload}
+        bootstrapLoading={false}
+        showStats={false}
+      />
+    );
+
+    const tile = await screen.findByTestId('heatmap-tile');
+    fireEvent.click(tile);
+
+    expect(onIndustryClick).toHaveBeenCalledWith('军工');
+  });
+
+  it('forwards a control change back through onTimeframeChange', async () => {
+    const onTimeframeChange = jest.fn();
+    const payload = {
+      industries: [
+        {
+          name: '军工',
+          value: 1.6,
+          size: 200,
+          stockCount: 8,
+          moneyFlow: 98000000,
+          turnoverRate: 2.4,
+          marketCapSource: 'snapshot_manual',
+        },
+      ],
+      max_value: 1.6,
+      min_value: 1.6,
+      update_time: '2026-04-20T08:00:00Z',
+    };
+
+    const { container } = render(
+      <IndustryHeatmap
+        onIndustryClick={jest.fn()}
+        onDataLoad={jest.fn()}
+        onTimeframeChange={onTimeframeChange}
+        initialData={payload}
+        bootstrapLoading={false}
+        showStats={false}
+      />
+    );
+
+    await screen.findByTestId('heatmap-tile');
+
+    // The default (matchMedia.matches === false) renders the compact-mobile
+    // controls, where the timeframe selector is an antd Select. Open it and
+    // pick a different timeframe.
+    const timeframeSelect = container.querySelector('.heatmap-control-timeframe');
+    expect(timeframeSelect).toBeTruthy();
+    const combobox = timeframeSelect.querySelector('.ant-select-selector');
+    fireEvent.mouseDown(combobox);
+
+    const option = await screen.findByText('5日');
+    fireEvent.click(option);
+
+    expect(onTimeframeChange).toHaveBeenCalledWith(5);
   });
 });
