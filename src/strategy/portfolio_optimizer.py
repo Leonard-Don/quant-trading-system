@@ -648,6 +648,21 @@ class StrategyWeightOptimizer:
                 'optimal_weight': self.optimal_weights.get(strategy, 0)
             })
 
+        # 所有策略都因样本不足被跳过时，metrics 为空。直接对无列的空
+        # DataFrame 调用 .sort_values('sharpe_ratio') 会抛 KeyError，
+        # 这里返回带预期列的空表，保证调用方拿到一致的空结果。
+        if not metrics:
+            return pd.DataFrame(columns=[
+                'strategy',
+                'annual_return',
+                'annual_volatility',
+                'sharpe_ratio',
+                'max_drawdown',
+                'win_rate',
+                'calmar_ratio',
+                'optimal_weight',
+            ])
+
         return pd.DataFrame(metrics).sort_values('sharpe_ratio', ascending=False)
 
 
