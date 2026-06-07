@@ -2,8 +2,8 @@
 
 # quant-trading-system
 
-**一个基于 FastAPI + React 的量化研究基础设施 —— 回测引擎、实时行情、策略库，外加一套严谨的策略证伪方法学（含点位时间因子 IC 验证框架）。聚焦 `今日研究`、`策略回测`、`实时行情`、`行业热度` 四个公开工作区。**
-*Quant research infrastructure — backtest engines, realtime data, a strategy library, and a rigorous strategy-falsification methodology.*
+**一个基于 FastAPI + React 的量化研究基础设施 —— 回测引擎、实时行情、策略库，以及统计检验与点位时间因子 IC 验证工具。聚焦 `今日研究`、`策略回测`、`实时行情`、`行业热度` 四个公开工作区。**
+*Quant research infrastructure — backtest engines, realtime data, a strategy library, and statistical / factor-IC validation tooling.*
 
 **当前版本：`v5.0.0`** · [查看更新日志](docs/CHANGELOG.md)
 
@@ -26,7 +26,7 @@
 
 ## 📌 仓库定位
 
-> 它是一套量化**研究基础设施**：可独立运行的回测引擎、实时行情管线、12 种可运行回测策略（`src/strategy/` 下另有更多未注册到运行时的研究实现），以及一套用来**证伪**自己策略的形式化统计方法学（统计检验 + 因子 IC 验证）。请把它当成一个**研究与回测平台**来用，**不构成投资建议**。
+> 它是一套量化**研究基础设施**：可独立运行的回测引擎、实时行情管线、12 种可运行回测策略（`src/strategy/` 下另有更多未注册到运行时的研究实现），以及一套用来**检验**策略与因子是否真有效的统计工具（统计显著性检验 + 因子 IC 验证）。请把它当成一个**研究与回测平台**来用，**不构成投资建议**。
 
 这个仓是一个独立维护的量化研究项目，围绕今日研究与四块核心工作区展开：
 
@@ -122,7 +122,7 @@ cp .env.example .env
 - 回测结果支持收益、Sharpe、回撤、交易事件、月度收益等维度展示
 - 主回测每跑完一次会**自动归档**到"今日研究"档案，带策略 / 标的 / 期间 / 主要指标，便于多版本对比
 - 配套 [`strategy_statistical_tests.py`](src/backtest/strategy_statistical_tests.py) 形式化检验层（DM + 区块自举 + Sharpe 检验 + Holm 校正），用于判断回测价差是否只是噪声
-- 配套 **因子 IC 验证框架**（[`scripts/run_factor_scorecard.py`](scripts/run_factor_scorecard.py) + [`src/analytics/factors/`](src/analytics/factors/)）：点位时间（基本面按 `ann_date` 公告日对齐）、样本外 rank IC / ICIR / 逐年稳定性，用于在把任何因子接入评分前**证伪其预测力**，杜绝 look-ahead 与过拟合
+- 配套 **因子 IC 验证框架**（[`scripts/run_factor_scorecard.py`](scripts/run_factor_scorecard.py) + [`src/analytics/factors/`](src/analytics/factors/)）：点位时间（基本面按 `ann_date` 公告日对齐）、样本外 rank IC / ICIR / 逐年稳定性，用于在把任何因子接入评分前**验证其是否真有预测力**，杜绝 look-ahead 与过拟合
 
 <details>
 <summary><b>📋 策略库一览（✅ 12 个已接入回测引擎可直接运行，另有若干研究用实现）</b></summary>
