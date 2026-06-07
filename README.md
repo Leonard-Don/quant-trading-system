@@ -2,7 +2,7 @@
 
 # quant-trading-system
 
-**一个基于 FastAPI + React 的量化研究基础设施 —— 回测引擎、实时行情、策略库，外加一套严谨的策略证伪方法学。聚焦 `今日研究`、`策略回测`、`实时行情`、`行业热度` 四个公开工作区。**
+**一个基于 FastAPI + React 的量化研究基础设施 —— 回测引擎、实时行情、策略库，外加一套严谨的策略证伪方法学（含点位时间因子 IC 验证框架）。聚焦 `今日研究`、`策略回测`、`实时行情`、`行业热度` 四个公开工作区。**
 *Quant research infrastructure — backtest engines, realtime data, a strategy library, and a rigorous strategy-falsification methodology.*
 
 **当前版本：`v5.0.0`** · [查看更新日志](docs/CHANGELOG.md)
@@ -26,7 +26,7 @@
 
 ## 📌 仓库定位
 
-> 它是一套量化**研究基础设施**：可独立运行的回测引擎、实时行情管线、12 种可运行回测策略（策略库共 29 个实现），以及一套用来**证伪**自己策略的形式化统计方法学。请把它当成一个**研究与回测平台**来用。
+> 它是一套量化**研究基础设施**：可独立运行的回测引擎、实时行情管线、12 种可运行回测策略（`src/strategy/` 下另有更多未注册到运行时的研究实现），以及一套用来**证伪**自己策略的形式化统计方法学（统计检验 + 因子 IC 验证）。请把它当成一个**研究与回测平台**来用，**不构成投资建议**。
 
 这个仓是一个独立维护的量化研究项目，围绕今日研究与四块核心工作区展开：
 
@@ -118,13 +118,14 @@ cp .env.example .env
 - 支持主回测、历史复盘、策略对比、组合优化和高级实验
 - **高级实验** 工作区（`?tab=advanced`）整合 Walk-Forward、批量参数搜索、贝叶斯优化、市场状态分层、Portfolio 曝险与基准对比，把"过拟合检测 → 参数稳健性 → 组合验证"做成一条线
 - 保留 `cross-market` 跨市场回测作为核心研究能力的一部分
-- 回测引擎当前接入 **12** 种可运行策略；策略库另有更多实现（共 **29** 个）尚未注册到运行时，部分还依赖可选的 ML / DL 库（见下表）；策略库用于研究与对比，**不构成投资建议**
+- 回测引擎当前接入 **12** 种可运行策略；`src/strategy/` 下另有更多研究用实现尚未注册到运行时，部分还依赖可选的 ML / DL 库（见下表）；策略库用于研究与对比，**不构成投资建议**
 - 回测结果支持收益、Sharpe、回撤、交易事件、月度收益等维度展示
 - 主回测每跑完一次会**自动归档**到"今日研究"档案，带策略 / 标的 / 期间 / 主要指标，便于多版本对比
 - 配套 [`strategy_statistical_tests.py`](src/backtest/strategy_statistical_tests.py) 形式化检验层（DM + 区块自举 + Sharpe 检验 + Holm 校正），用于判断回测价差是否只是噪声
+- 配套 **因子 IC 验证框架**（[`scripts/run_factor_scorecard.py`](scripts/run_factor_scorecard.py) + [`src/analytics/factors/`](src/analytics/factors/)）：点位时间（基本面按 `ann_date` 公告日对齐）、样本外 rank IC / ICIR / 逐年稳定性，用于在把任何因子接入评分前**证伪其预测力**，杜绝 look-ahead 与过拟合
 
 <details>
-<summary><b>📋 策略库一览（共 29 个实现，其中 ✅ 12 个已接入回测引擎可直接运行）</b></summary>
+<summary><b>📋 策略库一览（✅ 12 个已接入回测引擎可直接运行，另有若干研究用实现）</b></summary>
 
 | 类别 | 策略（✅ = 已注册到回测引擎、可运行） |
 |------|------|
@@ -133,7 +134,6 @@ cp .env.example .env
 | **技术分析** | Ichimoku 云图 · 随机指标 · CCI · 抛物线 SAR · 多指标融合 |
 | **配对交易** | 单对配对交易 · 多对配对交易 |
 | **机器学习** | 随机森林 · 逻辑回归 · 集成策略（需 scikit-learn） |
-| **情绪策略** | 情绪策略 · 情绪动量 · 逆向情绪 |
 | **深度学习** | LSTM · 深度学习集成 · 增强动量（需 TensorFlow） |
 
 > ✅ 标记的 12 种已注册到回测引擎、可在 `策略回测` 工作区直接运行；其余实现存在于 [`src/strategy/`](src/strategy/) 但尚未接入运行时（机器学习类需 `scikit-learn`、深度学习类需 `TensorFlow`）。
@@ -200,18 +200,18 @@ quant-trading-system/
 │       ├── core/                   # 配置、错误处理、任务队列、限流状态
 │       ├── db/                     # 数据库连接与 schema
 │       ├── schemas/                # Pydantic 请求/响应模型
-│       ├── services/               # 实时提醒、偏好、复盘、交易流
+│       ├── services/               # 实时提醒、偏好、复盘、纸面交易
 │       └── websocket/              # WebSocket 路由与连接管理
 ├── frontend/                       # React 18 前端 (Vite)
 │   └── src/
-│       ├── components/             # 回测 / 实时 / 行业 / 跨市场等组件 (32 主组件 + 7 子模块)
+│       ├── components/             # 回测 / 实时 / 行业 / 跨市场等组件 (33 主组件 + 8 子模块，大组件已按职责拆分)
 │       ├── hooks/                  # 实时偏好、实验工作区等自定义 Hook
 │       ├── services/               # API 与 WebSocket 客户端
 │       ├── contexts/               # React Context 状态管理
 │       ├── i18n/                   # 国际化支持
 │       └── utils/                  # 路由、快照对比、格式化工具
 ├── src/                            # 核心算法库
-│   ├── analytics/                  # 行业分析、估值、趋势、信号、定价等 (20 模块)
+│   ├── analytics/                  # 行业分析、趋势、信号、定价 + 因子库与 IC 验证 (factors/)
 │   ├── backtest/                   # 主回测 / 跨市场 / 批量 / 组合 / 风控 / 执行引擎 (14 模块)
 │   ├── core/                       # 基础类、事件系统
 │   ├── data/                       # 数据管理器、实时管理器、数据提供器、另类数据
@@ -220,7 +220,7 @@ quant-trading-system/
 │   ├── reporting/                  # 报告生成
 │   ├── research/                    # 研究流水线库 (NormalizedFrame / FeatureSet / DataHandler / ModelRun)，契约测试覆盖、尚未接入运行时
 │   ├── settings/                   # 分层配置管理 (base / data / trading / api / performance / gui)
-│   ├── strategy/                   # 29 个策略实现（12 个已接入引擎）+ 策略验证器
+│   ├── strategy/                   # 策略实现（12 个已接入回测引擎）+ 策略验证器
 │   ├── trading/                    # 交易执行与跨市场资产建模
 │   └── utils/                      # 通用工具
 ├── tests/                          # 测试套件
@@ -238,13 +238,13 @@ quant-trading-system/
 |------|------|------|
 | 后端框架 | FastAPI + Uvicorn | 异步 RESTful API，自动 OpenAPI 文档 |
 | 前端框架 | React 18 + Ant Design 5 | 懒加载、响应式布局、主题支持 |
-| 实时通信 | WebSocket | 实时行情与交易流广播 |
+| 实时通信 | WebSocket | 实时行情推送广播 |
 | 数据获取 | yfinance · Tushare · AKShare · THS/Sina · Tencent 等多源 | 多 provider 聚合与故障回退 |
 | 任务队列 | Celery + Redis | 异步回测任务与后台调度 |
 | 时序数据库 | TimescaleDB (PostgreSQL) | 行情数据持久化与高效时序查询 |
 | 图表可视化 | Recharts + Ant Design Charts + Lightweight Charts | K 线 / 热力图 / 雷达图 / 走势线 |
 | 监控 | Prometheus Client + APScheduler | 性能指标采集与定时任务 |
-| 测试 | pytest + Jest + Playwright | 单元 / 集成 / 浏览器 E2E |
+| 测试 | pytest + Vitest + Playwright | 单元 / 集成 / 浏览器 E2E |
 | CI/CD | GitHub Actions | 后端回归 + 前端回归 + E2E 验证 |
 
 ### 数据提供器
@@ -362,11 +362,11 @@ pytest tests/unit/test_backtester.py tests/unit/test_realtime_manager.py -q
 ```bash
 cd frontend
 
-# 完整测试套件（58 个测试文件）
-CI=1 npm test -- --runInBand --watchAll=false
+# 完整测试套件（Vitest，60 个测试文件）
+npm test
 
-# 按模块测试
-CI=1 npm test -- --runInBand --runTestsByPath \
+# 按文件测试
+npx vitest run \
   src/__tests__/app-routing.test.js \
   src/__tests__/cross-market-backtest-panel.test.js \
   src/__tests__/realtime-panel.test.js \
@@ -392,7 +392,7 @@ GitHub Actions 会在每次 push 到 `main` 或 PR 时自动运行：
 | Job | 内容 |
 |-----|------|
 | `backend` | 后端依赖安装 + 回归测试 (pytest) |
-| `frontend` | 前端依赖安装 + 回归测试 (Jest) + 构建验证 |
+| `frontend` | 前端依赖安装 + 回归测试 (Vitest) + 构建验证 |
 | `research-e2e` | 全栈启动 + Playwright E2E |
 
 ---
@@ -445,6 +445,7 @@ GitHub Actions 会在每次 push 到 `main` 或 PR 时自动运行：
 | `scripts/health_check.py` | 全链路健康检查 |
 | `scripts/run_tests.py` | 运行测试套件 |
 | `scripts/generate_api_docs.py` | 生成 API 文档 |
+| `scripts/run_factor_scorecard.py` | 因子 IC 记分卡（点位时间、样本外验证） |
 | `scripts/sync_version.py` | 同步前后端版本号 |
 | `scripts/performance_test.py` | 性能压测 |
 | `scripts/cleanup.sh` | 清理缓存与临时文件 |
@@ -470,7 +471,7 @@ git checkout -b feature/your-feature
 
 # 4. 开发并测试
 pytest tests/unit/ -q
-cd frontend && CI=1 npm test -- --runInBand --watchAll=false
+cd frontend && npm test
 
 # 5. 提交 PR
 git push origin feature/your-feature
