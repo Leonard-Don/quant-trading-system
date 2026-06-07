@@ -621,6 +621,50 @@ class TestLeaderStockScorer:
         assert scorer._normalize(-10, 0, 100) == 0.0
         assert scorer._normalize(150, 0, 100) == 1.0
 
+    def test_rank_stocks_stamps_score_type(self, scorer):
+        """排名结果应携带 score_type，便于上层判断可比性"""
+        result = scorer.rank_stocks_in_industry("电子", top_n=5, score_type="hot")
+        assert result, "expected at least one ranked stock"
+        assert all(item.get("score_type") == "hot" for item in result)
+
+        core_result = scorer.rank_stocks_in_industry("电子", top_n=5, score_type="core")
+        assert core_result
+        assert all(item.get("score_type") == "core" for item in core_result)
+
+    def test_get_leader_stocks_rejects_mixed_score_types(self, scorer):
+        """全局排序前必须保证 score_type 同质，否则混排会得到无意义的名次"""
+        mixed = [
+            {"symbol": "000001", "total_score": 95.0, "score_type": "hot"},
+            {"symbol": "000002", "total_score": 0.8, "score_type": "core"},
+        ]
+        with pytest.raises(ValueError, match="score_type"):
+            scorer._rank_by_total_score(mixed)
+
+    def test_rank_by_total_score_homogeneous_still_sorts(self, scorer):
+        """同质列表仍按 total_score 降序排序（保留既有行为）"""
+        homogeneous = [
+            {"symbol": "000001", "total_score": 50.0, "score_type": "hot"},
+            {"symbol": "000002", "total_score": 90.0, "score_type": "hot"},
+            {"symbol": "000003", "total_score": 70.0, "score_type": "hot"},
+        ]
+        ranked = scorer._rank_by_total_score(homogeneous)
+        assert [item["symbol"] for item in ranked] == ["000002", "000003", "000001"]
+
+    def test_get_leader_stocks_homogeneous_global_rank(self, scorer):
+        """get_leader_stocks 在同质 score_type 下仍正常产出 global_rank"""
+        result = scorer.get_leader_stocks(["电子", "医药生物"], top_per_industry=3, score_type="hot")
+        assert isinstance(result, list)
+        if result:
+            assert all(item.get("score_type") == "hot" for item in result)
+            assert result[0]["global_rank"] == 1
+            scores = [item.get("total_score", 0) for item in result]
+            assert scores == sorted(scores, reverse=True)
+
+    def test_dead_weight_optimizer_removed(self, scorer):
+        """optimize_weights 产出与 DEFAULT_WEIGHTS 不兼容的键、且无任何调用方，应已移除"""
+        assert not hasattr(scorer, "optimize_weights")
+        assert not hasattr(scorer, "_evaluate_weights")
+
 
 class _OfflineIndustryBacktestDataManager:
     def get_historical_data(self, symbol, start_date=None, end_date=None):
