@@ -604,6 +604,7 @@ async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
             impact_reference_notional=request.impact_reference_notional,
             impact_coefficient=request.impact_coefficient,
             permanent_impact_bps=request.permanent_impact_bps,
+            execution_lag=request.execution_lag,
         ).run(
             strategy=type(
                 "PortfolioStrategyWrapper",

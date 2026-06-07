@@ -33,6 +33,7 @@ class PortfolioBacktester(BaseBacktester):
         impact_reference_notional: float = 100000.0,
         impact_coefficient: float = 1.0,
         permanent_impact_bps: float = 0.0,
+        execution_lag: int = 1,
     ):
         super().__init__(
             initial_capital=initial_capital,
@@ -52,6 +53,7 @@ class PortfolioBacktester(BaseBacktester):
             impact_reference_notional=impact_reference_notional,
             impact_coefficient=impact_coefficient,
             permanent_impact_bps=permanent_impact_bps,
+            execution_lag=execution_lag,
         )
 
     def run(self, strategy: Any, data: Any, **kwargs: Any) -> dict[str, Any]:
