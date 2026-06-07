@@ -12,6 +12,14 @@ import logging
 from pathlib import Path
 import threading
 
+from .akshare import parsing as _parsing
+from .akshare.mappings import (
+    HISTORICAL_COLUMN_MAP,
+    INDUSTRY_INDEX_COLUMN_MAP,
+    INDUSTRY_MONEY_FLOW_COLUMN_MAP,
+    SINA_SPOT_COLUMN_MAP,
+    SW_INDUSTRY_MAP,
+)
 from .base_provider import BaseDataProvider
 from .circuit_breaker import CircuitBreaker
 
@@ -50,39 +58,8 @@ class AKShareProvider(BaseDataProvider):
     rate_limit: int = 100  # 每分钟请求限制
     requires_api_key: bool = False
 
-    # 申万一级行业代码映射
-    SW_INDUSTRY_MAP = {
-        "农林牧渔": "801010",
-        "基础化工": "801030",
-        "钢铁": "801040",
-        "有色金属": "801050",
-        "电子": "801080",
-        "汽车": "801880",
-        "家用电器": "801110",
-        "食品饮料": "801120",
-        "纺织服饰": "801130",
-        "轻工制造": "801140",
-        "医药生物": "801150",
-        "公用事业": "801160",
-        "交通运输": "801170",
-        "房地产": "801180",
-        "商贸零售": "801200",
-        "社会服务": "801210",
-        "银行": "801780",
-        "非银金融": "801790",
-        "综合": "801230",
-        "建筑材料": "801710",
-        "建筑装饰": "801720",
-        "电力设备": "801730",
-        "国防军工": "801740",
-        "计算机": "801750",
-        "传媒": "801760",
-        "通信": "801770",
-        "煤炭": "801020",
-        "石油石化": "801960",
-        "环保": "801970",
-        "美容护理": "801980",
-    }
+    # 申万一级行业代码映射（常量抽取至 ./akshare/mappings.py，此处重新绑定为类属性）
+    SW_INDUSTRY_MAP = SW_INDUSTRY_MAP
     _industry_meta_cache_path = (
         Path(__file__).resolve().parents[3] / "cache" / "industry_metadata_cache.json"
     )
@@ -403,50 +380,7 @@ class AKShareProvider(BaseDataProvider):
 
         try:
             payload = json.loads(history_path.read_text(encoding="utf-8"))
-            if not isinstance(payload, list) or not payload:
-                return None, None
-
-            for snapshot in payload:
-                industries = snapshot.get("industries") or []
-                rows = []
-                for item in industries:
-                    source = str(item.get("marketCapSource", "unknown") or "unknown").strip()
-                    total_market_cap = pd.to_numeric(item.get("size"), errors="coerce")
-                    turnover_rate = pd.to_numeric(item.get("turnoverRate"), errors="coerce")
-                    industry_name = str(item.get("name") or "").strip()
-                    if (
-                        not industry_name
-                        or not pd.notna(total_market_cap)
-                        or float(total_market_cap) <= 0
-                    ):
-                        continue
-                    if (
-                        source == "unknown"
-                        or source.startswith("estimated")
-                        or source == "constant_fallback"
-                    ):
-                        continue
-
-                    rows.append(
-                        {
-                            "industry_name": industry_name,
-                            "original_name": industry_name,
-                            "total_market_cap": float(total_market_cap),
-                            "turnover_rate": float(turnover_rate)
-                            if pd.notna(turnover_rate)
-                            else 0.0,
-                            "market_cap_source": source,
-                        }
-                    )
-
-                if rows:
-                    updated_at_raw = snapshot.get("captured_at") or snapshot.get("update_time")
-                    updated_at = datetime.fromisoformat(updated_at_raw) if updated_at_raw else None
-                    df = pd.DataFrame(rows).drop_duplicates(subset=["industry_name"], keep="first")
-                    logger.info(
-                        "Loaded heatmap-history metadata fallback with %s industries", len(df)
-                    )
-                    return df, updated_at
+            return cls._parse_heatmap_history_payload(payload)
         except Exception as e:
             logger.warning(f"Failed to load heatmap-history metadata fallback: {e}")
 
@@ -514,21 +448,7 @@ class AKShareProvider(BaseDataProvider):
                 return pd.DataFrame()
 
             # 标准化列名
-            df = df.rename(
-                columns={
-                    "日期": "date",
-                    "开盘": "open",
-                    "收盘": "close",
-                    "最高": "high",
-                    "最低": "low",
-                    "成交量": "volume",
-                    "成交额": "amount",
-                    "振幅": "amplitude",
-                    "涨跌幅": "pct_change",
-                    "涨跌额": "change",
-                    "换手率": "turnover",
-                }
-            )
+            df = df.rename(columns=HISTORICAL_COLUMN_MAP)
 
             # 设置日期索引
             df["date"] = pd.to_datetime(df["date"])
@@ -667,17 +587,7 @@ class AKShareProvider(BaseDataProvider):
                 return pd.DataFrame()
 
             # 标准化列名
-            df = df.rename(
-                columns={
-                    "日期": "date",
-                    "开盘": "open",
-                    "收盘": "close",
-                    "最高": "high",
-                    "最低": "low",
-                    "成交量": "volume",
-                    "成交额": "amount",
-                }
-            )
+            df = df.rename(columns=INDUSTRY_INDEX_COLUMN_MAP)
 
             df["date"] = pd.to_datetime(df["date"])
             df.set_index("date", inplace=True)
@@ -729,23 +639,7 @@ class AKShareProvider(BaseDataProvider):
                 return pd.DataFrame()
 
             # 标准化列名 - 注意 AKShare 返回的列名带有 "今日" 前缀
-            df = df.rename(
-                columns={
-                    "名称": "industry_name",
-                    "今日涨跌幅": "change_pct",
-                    "今日主力净流入-净额": "main_net_inflow",
-                    "今日主力净流入-净占比": "main_net_ratio",
-                    "今日超大单净流入-净额": "super_large_net",
-                    "今日超大单净流入-净占比": "super_large_ratio",
-                    "今日大单净流入-净额": "large_net",
-                    "今日大单净流入-净占比": "large_ratio",
-                    "今日中单净流入-净额": "medium_net",
-                    "今日中单净流入-净占比": "medium_ratio",
-                    "今日小单净流入-净额": "small_net",
-                    "今日小单净流入-净占比": "small_ratio",
-                    "今日主力净流入最大股": "leading_stock",
-                }
-            )
+            df = df.rename(columns=INDUSTRY_MONEY_FLOW_COLUMN_MAP)
 
             # [Enhanced] Fetch industry metadata (Market Cap) from EastMoney
             meta_merged = False
@@ -936,49 +830,8 @@ class AKShareProvider(BaseDataProvider):
                     if df_meta.empty:
                         continue
 
-                    # [Filter Duplicate Industries]
-                    # Logic:
-                    # 1. Remove names ending with 'III' (usually redundant L3)
-                    # 2. Remove names ending with 'II' ONLY IF the base name exists
-
-                    df_meta["base_name"] = df_meta["板块名称"].astype(str)
-                    all_names = set(df_meta["base_name"].tolist())
-
-                    filter_indices = []
-                    for idx, row in df_meta.iterrows():
-                        name = row["base_name"]
-                        keep = True
-
-                        if name.endswith("Ⅲ"):
-                            keep = False
-                        elif name.endswith("Ⅱ"):
-                            base = name[:-1]
-                            if base in all_names:
-                                keep = False
-
-                        if keep:
-                            filter_indices.append(idx)
-
-                    df_meta = df_meta.loc[filter_indices].drop(columns=["base_name"])
-
-                    # Preserve original name for matching
-                    df_meta["original_name"] = df_meta["板块名称"]
-
-                    # [Clean Names] Remove Roman numerals from the display name
-                    # e.g., "白酒Ⅱ" -> "白酒", "证券Ⅱ" -> "证券"
-                    df_meta["板块名称"] = df_meta["板块名称"].str.replace(r"[ⅡⅢⅢ]$", "", regex=True)
-
-                    # Rename columns to match for merge
-                    df_meta = df_meta.rename(
-                        columns={
-                            "板块名称": "industry_name",
-                            "总市值": "total_market_cap",
-                            "换手率": "turnover_rate",
-                            "涨跌幅": "change_pct_meta",  # Avoid conflict
-                        }
-                    )
-                    if "market_cap_source" not in df_meta.columns:
-                        df_meta["market_cap_source"] = "akshare_metadata"
+                    # 去重 + 名称清洗 + 列名映射（纯逻辑抽取至 ./akshare/parsing.py）
+                    df_meta = self._parse_industry_metadata_frame(df_meta)
 
                     # Update Cache
                     self._industry_meta_cache = df_meta
@@ -1062,13 +915,7 @@ class AKShareProvider(BaseDataProvider):
                 df_sina = self._call_akshare("stock_zh_a_spot", ak.stock_zh_a_spot)
                 if not df_sina.empty:
                     # 将 Sina 中文列名粗暴向 EM 看齐以满足外层读取
-                    df_sina = df_sina.rename(
-                        columns={
-                            "symbol": "代码",
-                            "name": "名称",
-                            "mktcap": "流通市值",  # Sina 这个接口并没有直接的动态 PE，所以 PE 校验只能放空让它跳过
-                        }
-                    )
+                    df_sina = df_sina.rename(columns=SINA_SPOT_COLUMN_MAP)
                     self._spot_cache = df_sina
                     self._spot_cache_time = current_time
                     return self._spot_cache
@@ -1431,44 +1278,8 @@ class AKShareProvider(BaseDataProvider):
             logger.debug("AKShare availability probe failed: %s", exc)
             return False
 
-    def _safe_float(self, value: Any) -> float:
-        """
-        安全转换为浮点数
-
-        支持格式:
-        - 普通数字: 3.14, 100
-        - 百分号: '8.32%' → 8.32
-        - 中文单位: '3000.48万' → 30004800, '2.68亿' → 268000000
-        - 布尔值 False、'--'、空值 → 0.0
-        """
-        if value is None or value is False or value == "--" or value == "":
-            return 0.0
-        try:
-            if pd.isna(value):
-                return 0.0
-        except (TypeError, ValueError):
-            pass
-
-        # 数字类型直接转
-        if isinstance(value, (int, float)):
-            return float(value)
-
-        # 字符串类型需要解析
-        s = str(value).strip()
-        if not s:
-            return 0.0
-
-        try:
-            # 去掉百分号
-            if s.endswith("%"):
-                return float(s[:-1])
-            # 中文单位
-            if s.endswith("万亿"):
-                return float(s[:-2]) * 1e12
-            if s.endswith("亿"):
-                return float(s[:-1]) * 1e8
-            if s.endswith("万"):
-                return float(s[:-1]) * 1e4
-            return float(s)
-        except (ValueError, TypeError):
-            return 0.0
+    # 纯叶子助手抽取至 ./akshare/parsing.py，以 staticmethod 别名沿用历史方法名重新绑定，
+    # 调用点（self._safe_float / self._parse_*）保持不变，行为逐字节一致。
+    _safe_float = staticmethod(_parsing.safe_float)
+    _parse_heatmap_history_payload = staticmethod(_parsing.parse_heatmap_history_payload)
+    _parse_industry_metadata_frame = staticmethod(_parsing.parse_industry_metadata_frame)
