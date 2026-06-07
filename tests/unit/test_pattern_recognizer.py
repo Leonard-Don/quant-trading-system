@@ -352,15 +352,16 @@ class TestTriangle:
 # --------------------------------------------------------------------------- #
 class TestFlag:
     def test_bull_flag(self, rec):
-        # early_trend = (close[-30]-close[-20])/close[-30]; needs > 0.1, so
-        # close[-30] must be much larger than close[-20] (note the sign!).
+        # A genuine bull flag: a strong prior RISE (the flagpole, from ~30 bars
+        # ago into the consolidation) followed by a tight recent range.
+        # early_trend measures the flagpole and must be POSITIVE for a bull flag.
         n = 30
         idx = pd.date_range("2024-01-01", periods=n)
-        close = np.full(n, 100.0)
-        close[-30] = 100.0
-        close[-20] = 80.0  # (100-80)/100 = 0.2 > 0.1
-        # tight recent range: last 10 bars near 100, range/close[-10] < 0.05
-        close[-10:] = 100.0
+        close = np.empty(n)
+        # Flagpole: rise from 100 -> 120 over the first 20 bars.
+        close[:20] = np.linspace(100.0, 120.0, 20)
+        # Consolidation: last 10 bars hold tightly near 120 (range/close < 0.05).
+        close[20:] = 120.0
         close_s = pd.Series(close, index=idx)
         high = close_s + 0.5
         low = close_s - 0.5
@@ -369,12 +370,15 @@ class TestFlag:
         assert out["pattern"] == "bull_flag"
 
     def test_bear_flag(self, rec):
+        # A genuine bear flag: a strong prior DECLINE (flagpole down) followed by
+        # a tight recent range. early_trend must be NEGATIVE for a bear flag.
         n = 30
         idx = pd.date_range("2024-01-01", periods=n)
-        close = np.full(n, 100.0)
-        close[-30] = 100.0
-        close[-20] = 120.0  # (100-120)/100 = -0.2 < -0.1
-        close[-10:] = 100.0
+        close = np.empty(n)
+        # Flagpole: drop from 100 -> 80 over the first 20 bars.
+        close[:20] = np.linspace(100.0, 80.0, 20)
+        # Consolidation: last 10 bars hold tightly near 80.
+        close[20:] = 80.0
         close_s = pd.Series(close, index=idx)
         high = close_s + 0.5
         low = close_s - 0.5
@@ -385,8 +389,9 @@ class TestFlag:
     def test_no_flag_when_recent_range_wide(self, rec):
         n = 30
         idx = pd.date_range("2024-01-01", periods=n)
-        close = np.full(n, 100.0)
-        close[-20] = 80.0  # strong prior move
+        close = np.empty(n)
+        close[:20] = np.linspace(100.0, 120.0, 20)  # strong prior rise
+        close[20:] = 120.0
         close_s = pd.Series(close, index=idx)
         high = close_s + 5.0  # wide recent range
         low = close_s - 5.0

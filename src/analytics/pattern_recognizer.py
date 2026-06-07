@@ -598,8 +598,11 @@ class PatternRecognizer:
         if len(close) < 30:
             return None
 
-        # 检查前期趋势
-        early_trend = (close.iloc[-30] - close.iloc[-20]) / close.iloc[-30]
+        # 检查前期趋势（旗杆）：整理区之前的那一段走势，即从 30 日前到
+        # 近 10 日整理区开始（约 10 日前）的涨跌幅。
+        # 旧实现写成 (close[-30] - close[-20])/close[-30]，符号被反转且只
+        # 覆盖到 -20，导致先涨得到负值、上升/下降旗形的标签被互换。
+        early_trend = (close.iloc[-10] - close.iloc[-30]) / close.iloc[-30]
 
         # 检查近期整理
         recent_range = (high.tail(10).max() - low.tail(10).min()) / close.iloc[-10]
