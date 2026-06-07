@@ -615,6 +615,37 @@ class TushareProvider(BaseDataProvider):
             fields="ts_code,symbol,name,area,industry,list_date",
         )
 
+    def get_index_constituents(self, index_code: str) -> list[str]:
+        """Current constituents of an index via Tushare ``index_weight``.
+
+        ``index_weight`` returns one row per ``(trade_date, con_code)``; weights
+        are published monthly, so a plain query without a single ``trade_date``
+        spans several periods. We keep only the latest published ``trade_date``
+        and return its ``con_code`` list (e.g. ``'600519.SH'``), de-duplicated
+        while preserving first-seen order. A 90-day lookback window is passed so
+        the call lands on at least one published period. Degrades to an empty
+        list on rate-limit exhaustion, matching the read-path contract.
+        """
+        code = str(index_code) if "." in str(index_code) else self.normalize_symbol(index_code)
+        if not self._acquire_or_short_circuit():
+            return []
+        pro = self._get_pro_client()
+        end = datetime.now()
+        start = end - timedelta(days=90)
+        df = pro.index_weight(
+            index_code=code,
+            start_date=self._format_tushare_date(start),
+            end_date=self._format_tushare_date(end),
+        )
+        if df is None or getattr(df, "empty", True) or "con_code" not in df.columns:
+            return []
+        if "trade_date" in df.columns:
+            latest = df["trade_date"].astype(str).max()
+            df = df[df["trade_date"].astype(str) == latest]
+        codes = [str(c) for c in df["con_code"].tolist() if c is not None and str(c)]
+        # De-duplicate while preserving first-seen order.
+        return list(dict.fromkeys(codes))
+
     def get_market_mood(self, trade_date: date | datetime | str, *, include_bj: bool = True) -> dict[str, Any]:
         """Port the QMT market-mood lens to this project's provider layer."""
 
