@@ -17,9 +17,22 @@ import pandas as pd
 from src.backtest.industry_backtest import IndustryBacktester
 
 
-def _price_frame(values, start="2024-01-01"):
-    dates = pd.date_range(start=start, periods=len(values), freq="B")
-    prices = pd.Series(values, index=dates)
+def _price_frame(values, start="2024-01-01", lead_bars=15):
+    """Build a proxy price frame whose trend (``values``) begins on ``start``.
+
+    The look-ahead fix means a rebalance at ``anchor_date`` ranks only on bars
+    at or before the anchor. The first monthly rebalance lands on the backtest
+    ``start_date``; without history preceding it the point-in-time proxy path
+    has < ``min_price_observations`` bars and cannot rank. So prepend
+    ``lead_bars`` flat leading bars (equal to the first value) BEFORE ``start``
+    to provide legitimate pre-anchor history without changing the trend shape.
+    """
+    start_ts = pd.Timestamp(start)
+    lead_dates = pd.bdate_range(end=start_ts - pd.tseries.offsets.BDay(1), periods=lead_bars)
+    trend_dates = pd.bdate_range(start=start_ts, periods=len(values))
+    dates = lead_dates.append(trend_dates)
+    lead_values = [values[0]] * lead_bars
+    prices = pd.Series(lead_values + list(values), index=dates)
     return pd.DataFrame(
         {
             "open": prices,

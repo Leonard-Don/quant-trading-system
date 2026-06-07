@@ -738,7 +738,7 @@ class IndustryBacktester(BaseBacktester):
             proxy_scores: list[float] = []
             for proxy in proxies:
                 proxy_frame = self._load_symbol_frame(proxy["symbol"], date)
-                score = self._score_proxy_frame(proxy_frame)
+                score = self._score_proxy_frame(proxy_frame, date)
                 if score is not None:
                     proxy_scores.append(score)
             if proxy_scores:
@@ -766,7 +766,7 @@ class IndustryBacktester(BaseBacktester):
             ranked_candidates: list[dict[str, Any]] = []
             for index, proxy in enumerate(self.industry_proxy_map.get(industry_name, [])):
                 proxy_frame = self._load_symbol_frame(proxy["symbol"], date)
-                score = self._score_proxy_frame(proxy_frame)
+                score = self._score_proxy_frame(proxy_frame, date)
                 if score is None and self.strict_data_validation:
                     continue
                 ranked_candidates.append(
@@ -840,8 +840,19 @@ class IndustryBacktester(BaseBacktester):
         self._run_diagnostics["symbols_loaded"] = int(self._run_diagnostics.get("symbols_loaded", 0)) + 1
         return cleaned
 
-    def _score_proxy_frame(self, frame: pd.DataFrame) -> Optional[float]:
-        if frame.empty or len(frame) < self.min_price_observations:
+    def _score_proxy_frame(
+        self, frame: pd.DataFrame, anchor_date: datetime
+    ) -> Optional[float]:
+        if frame.empty:
+            return None
+
+        # Look-ahead guard: ``_load_symbol_frame`` fetches a +5 calendar-day
+        # buffer past ``anchor_date`` so the anchor landing on a non-trading day
+        # still resolves. That buffer must NOT feed the ranking — slice to bars
+        # at or before the anchor before scoring, otherwise future bars leak
+        # into the rebalance decision made at ``anchor_date``.
+        frame = frame[frame.index <= pd.Timestamp(anchor_date)]
+        if len(frame) < self.min_price_observations:
             return None
 
         window = frame.tail(self.ranking_lookback_days)
