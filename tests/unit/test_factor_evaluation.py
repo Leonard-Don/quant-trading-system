@@ -5,6 +5,7 @@ from src.analytics.factors.evaluation import (
     evaluate_factor,
     factor_ic_series,
     forward_returns,
+    passes_ic_gate,
 )
 from src.data.factor_panel import FactorPanel
 
@@ -78,3 +79,16 @@ def test_evaluate_factor_reports_oos_and_icir():
     assert rep["mean_ic"] > 0.1
     assert rep["oos_mean_ic"] > 0.0
     assert "icir" in rep and "yearly_ic" in rep and "n_dates" in rep
+
+
+def test_gate_requires_positive_oos_ic_not_just_magnitude():
+    # Positive, material OOS IC + positive ICIR + sign-stable -> PASS
+    assert passes_ic_gate(0.04, 0.20, True) is True
+    # OOS sign flip (large NEGATIVE magnitude) must FAIL — this was the abs() bug
+    assert passes_ic_gate(-0.05, 0.20, True) is False
+    # Sub-threshold positive -> FAIL
+    assert passes_ic_gate(0.02, 0.20, True) is False
+    # Not sign-stable -> FAIL
+    assert passes_ic_gate(0.04, 0.20, False) is False
+    # Negative ICIR (in-sample doesn't work) -> FAIL
+    assert passes_ic_gate(0.04, -0.10, True) is False
