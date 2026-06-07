@@ -43,6 +43,19 @@ class TestAssessValuation:
         assert out["score"] == 30
         assert out["status"] == "fair_value"
 
+    def test_extreme_pe_uses_most_severe_penalty(self):
+        # Regression: the ``pe > 50`` branch used to be unreachable because it
+        # sat after ``pe > 30``.  A PE of 80 must now take the -20 penalty, not
+        # the -10 one that a PE of 31 would take.
+        analyzer = FundamentalAnalyzer(data_manager=MagicMock())
+        out = analyzer._assess_valuation({"pe_ratio": 80})
+        # base 50 - 20 (pe>50) = 30
+        assert out["score"] == 30
+        # And it must be strictly worse than a merely-high PE of 31.
+        moderate = analyzer._assess_valuation({"pe_ratio": 31})
+        assert moderate["score"] == 40  # 50 - 10 (pe>30)
+        assert out["score"] < moderate["score"]
+
     def test_missing_metrics_default_neutral(self):
         analyzer = FundamentalAnalyzer(data_manager=MagicMock())
         out = analyzer._assess_valuation({})

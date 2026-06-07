@@ -231,7 +231,15 @@ class VolumePriceAnalyzer:
         positive_mf = positive_flow.rolling(window=14).sum()
         negative_mf = negative_flow.rolling(window=14).sum()
 
-        mfi = 100 - (100 / (1 + positive_mf / negative_mf))
+        # 显式处理分母为零的边界：
+        #   - 全部为上涨日 (negative_mf == 0)  -> MFI = 100 (超买)
+        #   - 全部为下跌日 (positive_mf == 0)  -> MFI = 0   (超卖)
+        # 直接相除会得到 inf/nan，下游会把 nan 误当成中性 50，
+        # 而“全为上涨日”恰恰应当是超买（趋向 100），方向正好相反。
+        money_ratio = positive_mf / negative_mf.replace(0, np.nan)
+        mfi = 100 - (100 / (1 + money_ratio))
+        mfi = mfi.where(negative_mf != 0, 100.0)  # 无下跌资金流 -> 超买
+        mfi = mfi.where(positive_mf != 0, 0.0)  # 无上涨资金流 -> 超卖
         current_mfi = mfi.iloc[-1]
 
         # 资金流向状态
@@ -341,7 +349,18 @@ class VolumePriceAnalyzer:
             trend = "bearish"
 
         # OBV变化率
-        obv_change = (obv.iloc[-1] - obv.iloc[-20]) / abs(obv.iloc[-20]) * 100
+        # 守护分母：当 20 日前的 OBV 基准为 0 时，直接相除会得到 inf
+        # （随后被 pd.isna 漏掉而静默归零，真实的变化被吞掉）。
+        # 基准为 0 而当前非 0 时，按方向给出 ±100% 的有限变化率。
+        obv_now = obv.iloc[-1]
+        obv_base = obv.iloc[-20]
+        delta = obv_now - obv_base
+        if abs(obv_base) > 1e-9:
+            obv_change = delta / abs(obv_base) * 100
+        elif delta == 0:
+            obv_change = 0.0
+        else:
+            obv_change = 100.0 if delta > 0 else -100.0
 
         return {
             "current_obv": float(obv.iloc[-1]),

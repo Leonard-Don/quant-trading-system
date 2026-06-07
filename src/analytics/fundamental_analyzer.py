@@ -74,13 +74,15 @@ class FundamentalAnalyzer:
         status = "neutral"
 
         # PE 评分
+        # 注意：最严苛的阈值必须排在前面，否则 ``pe > 50`` 永远不会命中
+        # （因为 ``pe > 50`` 蕴含 ``pe > 30``）。
         if pe > 0:
             if pe < 15:
                 score += 10
-            elif pe > 30:
-                score -= 10
             elif pe > 50:
                 score -= 20
+            elif pe > 30:
+                score -= 10
 
         # PEG 评分
         if peg > 0:
