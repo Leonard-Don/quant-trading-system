@@ -499,6 +499,48 @@ class TushareProvider(BaseDataProvider):
         self._cache.set(cache_key, result, self._ttl_for(_DEFAULT_TTL_FINANCIAL))
         return result
 
+    def get_financial_indicators(self, symbol: str, start: str, end: str) -> pd.DataFrame:
+        """Historical ``fina_indicator`` with ``ann_date`` (point-in-time, for factors).
+
+        Returns the full quarterly frame (incl. ``ann_date``/``end_date`` and the
+        indicator columns) for ``symbol`` like ``'600000.SH'`` between ``start`` and
+        ``end`` (``YYYYMMDD``). Degrades to an empty frame on rate-limit exhaustion,
+        matching the existing read-path contract.
+        """
+        ts_code = self.normalize_symbol(symbol)
+        if not self._is_supported_ts_code(ts_code):
+            return pd.DataFrame()
+        if not self._acquire_or_short_circuit():
+            return pd.DataFrame()
+        pro = self._get_pro_client()
+        df = pro.fina_indicator(
+            ts_code=ts_code,
+            start_date=self._format_tushare_date(start),
+            end_date=self._format_tushare_date(end),
+        )
+        return df if df is not None else pd.DataFrame()
+
+    def get_moneyflow(self, symbol: str, start: str, end: str) -> pd.DataFrame:
+        """Historical ``moneyflow`` (per-day net inflow components, for factors).
+
+        Returns the daily moneyflow frame (incl. ``trade_date`` and the
+        ``net_mf_amount`` / buy-sell amount columns) for ``symbol`` between ``start``
+        and ``end`` (``YYYYMMDD``). Degrades to an empty frame on rate-limit
+        exhaustion.
+        """
+        ts_code = self.normalize_symbol(symbol)
+        if not self._is_supported_ts_code(ts_code):
+            return pd.DataFrame()
+        if not self._acquire_or_short_circuit():
+            return pd.DataFrame()
+        pro = self._get_pro_client()
+        df = pro.moneyflow(
+            ts_code=ts_code,
+            start_date=self._format_tushare_date(start),
+            end_date=self._format_tushare_date(end),
+        )
+        return df if df is not None else pd.DataFrame()
+
     def is_available(self) -> bool:
         """Check token/client availability without using BaseDataProvider's AAPL probe."""
 

@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+from scipy.stats import spearmanr
+
+from src.data.factor_panel import FactorPanel
+
+
+def forward_returns(panel: FactorPanel, as_of, horizon: int) -> pd.Series:
+    as_of = pd.Timestamp(as_of)
+    out = {}
+    for sym in panel.symbols:
+        df = panel.prices[sym]
+        pos = df.index.searchsorted(as_of)
+        if pos >= len(df) or df.index[pos] != as_of:  # as_of must be a trading day for this symbol
+            continue
+        fwd = pos + horizon
+        if fwd >= len(df):
+            continue
+        c0, c1 = df["close"].iloc[pos], df["close"].iloc[fwd]
+        if c0 and np.isfinite(c0) and np.isfinite(c1):
+            out[sym] = float(c1 / c0 - 1.0)
+    return pd.Series(out, dtype=float)
+
+
+def _rank_ic(factor_vals: pd.Series, fwd: pd.Series, direction: int) -> float:
+    common = factor_vals.dropna().index.intersection(fwd.dropna().index)
+    if len(common) < 5:
+        return np.nan
+    f = factor_vals.loc[common].astype(float) * direction
+    r = fwd.loc[common].astype(float)
+    rho, _ = spearmanr(f, r)
+    return float(rho) if np.isfinite(rho) else np.nan
+
+
+def factor_ic_series(factor, panel: FactorPanel, dates, horizon: int) -> pd.Series:
+    direction = getattr(factor, "direction", 1)
+    rows = {}
+    for d in dates:
+        d = pd.Timestamp(d)
+        fvals = factor.compute(panel, d)
+        fwd = forward_returns(panel, d, horizon)
+        ic = _rank_ic(fvals, fwd, direction)
+        if np.isfinite(ic):
+            rows[d] = ic
+    return pd.Series(rows, dtype=float).sort_index()
+
+
+def evaluate_factor(factor, panel: FactorPanel, dates, horizon: int, train_frac: float = 0.7) -> dict:
+    ic = factor_ic_series(factor, panel, dates, horizon)
+    if ic.empty:
+        return {
+            "name": factor.name,
+            "n_dates": 0,
+            "mean_ic": np.nan,
+            "icir": np.nan,
+            "oos_mean_ic": np.nan,
+            "yearly_ic": {},
+            "passes": False,
+        }
+    split = int(len(ic) * train_frac)
+    oos = ic.iloc[split:]
+    icir = float(ic.mean() / ic.std(ddof=0)) if ic.std(ddof=0) else np.nan
+    yearly = {int(y): float(v.mean()) for y, v in ic.groupby(ic.index.year)}
+    mean_ic, oos_ic = float(ic.mean()), float(oos.mean()) if len(oos) else np.nan
+    signs = list(yearly.values())
+    stable = len(signs) >= 2 and (all(s >= 0 for s in signs) or all(s <= 0 for s in signs))
+    passes = bool(
+        np.isfinite(oos_ic) and abs(oos_ic) >= 0.03 and np.isfinite(icir) and icir > 0 and stable
+    )
+    return {
+        "name": factor.name,
+        "n_dates": len(ic),
+        "mean_ic": mean_ic,
+        "icir": icir,
+        "oos_mean_ic": oos_ic,
+        "yearly_ic": yearly,
+        "sign_stable": stable,
+        "passes": passes,
+    }
