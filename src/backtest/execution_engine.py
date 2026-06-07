@@ -28,6 +28,7 @@ class PortfolioExecutionConfig:
     impact_reference_notional: float = 100000.0
     impact_coefficient: float = 1.0
     permanent_impact_bps: float = 0.0
+    execution_lag: int = 1
 
 
 class PortfolioExecutionEngine:
@@ -55,6 +56,7 @@ class PortfolioExecutionEngine:
     def execute(self, *, price_data: pd.DataFrame, target_weights: pd.DataFrame) -> dict[str, Any]:
         prices = price_data.astype(float).copy()
         weights = target_weights.reindex(index=prices.index, columns=prices.columns).fillna(0.0)
+        weights = self._apply_execution_lag(weights)
         market_context = self._build_market_context(prices)
 
         positions = pd.Series(0.0, index=prices.columns, dtype=float)
@@ -228,6 +230,21 @@ class PortfolioExecutionEngine:
             "positions": positions_df,
             "trades": trades,
         }
+
+    def _configured_execution_lag(self) -> int:
+        return max(int(self.config.execution_lag or 0), 0)
+
+    def _apply_execution_lag(self, weights: pd.DataFrame) -> pd.DataFrame:
+        """Defer target weights by ``execution_lag`` bars.
+
+        A target derived from bar ``t`` is filled at bar ``t + lag``'s price,
+        matching the single-asset ``SingleAssetExecutionEngine`` default and
+        preventing same-bar look-ahead on the portfolio path.
+        """
+        lag = self._configured_execution_lag()
+        if lag <= 0:
+            return weights
+        return weights.shift(lag).fillna(0.0)
 
     def _desired_shares(
         self,
