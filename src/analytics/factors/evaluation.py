@@ -47,6 +47,21 @@ def factor_ic_series(factor, panel: FactorPanel, dates, horizon: int) -> pd.Seri
     return pd.Series(rows, dtype=float).sort_index()
 
 
+def passes_ic_gate(oos_ic: float, icir: float, sign_stable: bool, threshold: float = 0.03) -> bool:
+    """A factor passes only if its OUT-OF-SAMPLE IC is positive AND material in the SAME
+    direction (>= threshold) — not merely large in magnitude. ``direction`` is already applied
+    when the IC is computed, so positive = predicts as intended. A sign flip OOS (positive
+    in-sample, negative OOS) is overfit, not signal, and MUST fail (a previous ``abs(oos_ic)``
+    gate wrongly let such factors through)."""
+    return bool(
+        np.isfinite(oos_ic)
+        and oos_ic >= threshold
+        and np.isfinite(icir)
+        and icir > 0
+        and sign_stable
+    )
+
+
 def evaluate_factor(factor, panel: FactorPanel, dates, horizon: int, train_frac: float = 0.7) -> dict:
     ic = factor_ic_series(factor, panel, dates, horizon)
     if ic.empty:
@@ -66,9 +81,7 @@ def evaluate_factor(factor, panel: FactorPanel, dates, horizon: int, train_frac:
     mean_ic, oos_ic = float(ic.mean()), float(oos.mean()) if len(oos) else np.nan
     signs = list(yearly.values())
     stable = len(signs) >= 2 and (all(s >= 0 for s in signs) or all(s <= 0 for s in signs))
-    passes = bool(
-        np.isfinite(oos_ic) and abs(oos_ic) >= 0.03 and np.isfinite(icir) and icir > 0 and stable
-    )
+    passes = passes_ic_gate(oos_ic, icir, stable)
     return {
         "name": factor.name,
         "n_dates": len(ic),
