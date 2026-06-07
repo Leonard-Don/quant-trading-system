@@ -120,6 +120,8 @@ const PaperTradingPanel = () => {
     const [refreshKey, setRefreshKey] = useState(0);
     const [prefillSource, setPrefillSource] = useState(null);
     const [orderForm] = Form.useForm();
+    const watchedSymbol = Form.useWatch('symbol', orderForm);
+    const watchedOrderType = Form.useWatch('order_type', orderForm);
 
     const refresh = useCallback(() => setRefreshKey((value) => value + 1), []);
 
@@ -179,6 +181,10 @@ const PaperTradingPanel = () => {
         pendingOrders.forEach((order) => {
             if (order?.symbol) symbolSet.add(order.symbol);
         });
+        // Include the symbol the user is currently typing into the order form
+        // so quoteMap picks up its live price — that powers the MARKET-order
+        // auto-fill of 成交价 below.
+        if (watchedSymbol) symbolSet.add(String(watchedSymbol).trim().toUpperCase());
         const symbols = Array.from(symbolSet);
         if (symbols.length === 0) return undefined;
 
@@ -304,7 +310,23 @@ const PaperTradingPanel = () => {
         // the polling interval on every parent render and stall test runs.
         // The closure captures their current values which are idempotent.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [account?.positions, account?.pending_orders]);
+    }, [account?.positions, account?.pending_orders, watchedSymbol]);
+
+    // MARKET orders shouldn't force manual price entry — auto-fill 成交价 from
+    // the live quote when the user picks a symbol that has a price. We only
+    // populate when the field is empty, so a manually-typed / prefilled price is
+    // never clobbered (the user can always override). For LIMIT we leave the
+    // field manual — it doubles as the limit price.
+    useEffect(() => {
+        if (watchedOrderType !== 'MARKET' || !watchedSymbol) return;
+        const currentPrice = Number(orderForm.getFieldValue('fill_price'));
+        if (Number.isFinite(currentPrice) && currentPrice > 0) return;
+        const sym = String(watchedSymbol).trim().toUpperCase();
+        const price = Number(quoteMap[sym]?.price);
+        if (Number.isFinite(price) && price > 0) {
+            orderForm.setFieldValue('fill_price', Number(price.toFixed(2)));
+        }
+    }, [watchedSymbol, watchedOrderType, quoteMap, orderForm]);
 
     const summary = useMemo(() => {
         const positions = account?.positions || [];
@@ -364,6 +386,13 @@ const PaperTradingPanel = () => {
             ]);
             refresh();
         } catch (error) {
+            // antd's validateFields() rejects with { errorFields }. Surface the
+            // specific inline rule (e.g. "请输入成交价") instead of the generic
+            // submit-failure toast, which would otherwise mislead the user.
+            if (error?.errorFields?.length) {
+                message.error(error.errorFields[0]?.errors?.[0] || '请检查表单填写');
+                return;
+            }
             const detail = error?.response?.data?.error?.message
                 || error?.response?.data?.detail
                 || error?.message
@@ -793,6 +822,7 @@ const PaperTradingPanel = () => {
                                 label="成交价"
                                 name="fill_price"
                                 rules={[{ required: true, message: '请输入成交价' }]}
+                                extra={watchedOrderType === 'MARKET' ? '市价单自动带入实时价，可改' : undefined}
                             >
                                 <InputNumber min={0.0001} style={{ width: '100%' }} placeholder="如 150.0" />
                             </Form.Item>

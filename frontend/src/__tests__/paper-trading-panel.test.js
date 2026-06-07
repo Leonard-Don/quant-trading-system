@@ -748,6 +748,74 @@ describe('PaperTradingPanel', () => {
         // doesn't re-apply a stale prefill
         expect(window.sessionStorage.getItem('paper-trading-prefill')).toBeNull();
     });
+
+    it('auto-fills 成交价 from the live quote for a MARKET order', async () => {
+        // A MARKET order shouldn't force manual price entry: once the typed
+        // symbol has a live quote, 成交价 is populated automatically (the user
+        // can still override it).
+        mockGetMultipleQuotes.mockResolvedValue({
+            success: true,
+            data: { quotes: { '600519.SS': { price: 1450 } } },
+        });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+
+        const fillPriceInput = screen.getByPlaceholderText('如 150.0');
+        // Default order_type is MARKET; typing a symbol with a live quote should
+        // auto-populate the fill price.
+        fireEvent.change(screen.getByPlaceholderText('如 600519.SS / AAPL'), { target: { value: '600519.SS' } });
+
+        await waitFor(() => expect(fillPriceInput).toHaveValue('1450'));
+    });
+
+    it('does not auto-fill 成交价 for a LIMIT order (price stays manual)', async () => {
+        // For LIMIT the 成交价 field doubles as the limit price; auto-fill must
+        // never clobber a deliberately-entered limit.
+        mockGetMultipleQuotes.mockResolvedValue({
+            success: true,
+            data: { quotes: { '600519.SS': { price: 1450 } } },
+        });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+
+        // Switch to LIMIT, set a deliberate limit price, then type the symbol.
+        fireEvent.click(screen.getByText('限价单'));
+        const fillPriceInput = screen.getByPlaceholderText('如 150.0');
+        fireEvent.change(fillPriceInput, { target: { value: '1400' } });
+        fireEvent.change(screen.getByPlaceholderText('如 600519.SS / AAPL'), { target: { value: '600519.SS' } });
+
+        // Give the quote poll a chance to resolve; the manual limit must survive.
+        await waitFor(() => expect(mockGetMultipleQuotes).toHaveBeenCalled());
+        expect(fillPriceInput).toHaveValue('1400');
+    });
+
+    it('surfaces the field validation message (not the generic toast) when 成交价 is empty', async () => {
+        // Use a symbol with NO live quote so the MARKET auto-fill never
+        // populates 成交价 — leaving the field genuinely empty for validation.
+        mockGetMultipleQuotes.mockResolvedValue({ success: true, data: { quotes: {} } });
+
+        renderWithApp(<PaperTradingPanel />);
+        await waitFor(() => expect(screen.getByText('持仓 1')).toBeInTheDocument());
+
+        // Fill everything EXCEPT 成交价, then submit. validateFields() should
+        // reject and we surface the inline rule message.
+        fireEvent.change(screen.getByPlaceholderText('如 600519.SS / AAPL'), { target: { value: 'TQQQ' } });
+        fireEvent.change(screen.getByPlaceholderText('如 10'), { target: { value: '5' } });
+
+        fireEvent.click(screen.getByRole('button', { name: '提交订单' }));
+
+        // The inline rule message must surface (in the antd message toast AND/OR
+        // the inline form-item explain). queryAllByText is flexible to either.
+        await waitFor(() => {
+            expect(screen.getAllByText('请输入成交价').length).toBeGreaterThan(0);
+        });
+        // ...and the generic submit-failure toast must NOT appear.
+        expect(screen.queryByText('订单提交失败')).not.toBeInTheDocument();
+        // No API call should have been made (validation failed first).
+        expect(mockSubmitOrder).not.toHaveBeenCalled();
+    });
 });
 
 describe('computeMarkToMarket', () => {
