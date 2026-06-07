@@ -181,12 +181,16 @@ class TrendAnalyzer:
         high = df["high"]
         low = df["low"]
 
-        # 1. RSI (0-100)
+        # 1. RSI (0-100) - Wilder's smoothing (RMA), the canonical definition
         delta = close.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
+        gain = delta.where(delta > 0, 0)
+        loss = -delta.where(delta < 0, 0)
+        avg_gain = gain.ewm(alpha=1 / 14, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1 / 14, adjust=False).mean()
+        rs = avg_gain / avg_loss
         rsi = 100 - (100 / (1 + rs))
+        # all-gain window (no losses) -> RSI saturates to 100
+        rsi = rsi.where(avg_loss != 0, 100.0)
         current_rsi = rsi.iloc[-1]
 
         if current_rsi < 30:
@@ -237,21 +241,21 @@ class TrendAnalyzer:
         else:
             score -= 3
 
-        # 5. ADX (平均趋向指数)
+        # 5. ADX (平均趋向指数) - Wilder's smoothing (RMA) for TR/DM/DX
         tr1 = high - low
         tr2 = abs(high - close.shift(1))
         tr3 = abs(low - close.shift(1))
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.rolling(window=14).mean()
+        atr = tr.ewm(alpha=1 / 14, adjust=False).mean()
 
         high_diff = high.diff()
         low_diff = -low.diff()
         pos_dm = high_diff.where((high_diff > low_diff) & (high_diff > 0), 0)
         neg_dm = low_diff.where((low_diff > high_diff) & (low_diff > 0), 0)
-        pos_di = 100 * (pos_dm.rolling(window=14).mean() / atr)
-        neg_di = 100 * (neg_dm.rolling(window=14).mean() / atr)
+        pos_di = 100 * (pos_dm.ewm(alpha=1 / 14, adjust=False).mean() / atr)
+        neg_di = 100 * (neg_dm.ewm(alpha=1 / 14, adjust=False).mean() / atr)
         dx = 100 * abs(pos_di - neg_di) / (pos_di + neg_di)
-        adx = dx.rolling(window=14).mean()
+        adx = dx.ewm(alpha=1 / 14, adjust=False).mean()
         current_adx = adx.iloc[-1]
         current_pos_di = pos_di.iloc[-1]
         current_neg_di = neg_di.iloc[-1]
@@ -348,20 +352,20 @@ class TrendAnalyzer:
         tr2 = abs(high - close.shift(1))
         tr3 = abs(low - close.shift(1))
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.rolling(window=14).mean()
+        atr = tr.ewm(alpha=1 / 14, adjust=False).mean()
 
-        # +DI 和 -DI
+        # +DI 和 -DI (Wilder's smoothing / RMA)
         high_diff = high.diff()
         low_diff = -low.diff()
 
         pos_dm = high_diff.where((high_diff > low_diff) & (high_diff > 0), 0)
         neg_dm = low_diff.where((low_diff > high_diff) & (low_diff > 0), 0)
 
-        pos_di = 100 * (pos_dm.rolling(window=14).mean() / atr)
-        neg_di = 100 * (neg_dm.rolling(window=14).mean() / atr)
+        pos_di = 100 * (pos_dm.ewm(alpha=1 / 14, adjust=False).mean() / atr)
+        neg_di = 100 * (neg_dm.ewm(alpha=1 / 14, adjust=False).mean() / atr)
 
         dx = 100 * abs(pos_di - neg_di) / (pos_di + neg_di)
-        adx = dx.rolling(window=14).mean().iloc[-1]
+        adx = dx.ewm(alpha=1 / 14, adjust=False).mean().iloc[-1]
 
         if not pd.isna(adx):
             if adx > 50:
@@ -531,12 +535,12 @@ class TrendAnalyzer:
         volatility_20 = returns.rolling(window=20).std() * np.sqrt(252) * 100
         current_volatility = volatility_20.iloc[-1]
 
-        # ATR (真实波动幅度均值)
+        # ATR (真实波动幅度均值) - Wilder's smoothing (RMA)
         tr1 = high - low
         tr2 = abs(high - close.shift(1))
         tr3 = abs(low - close.shift(1))
         tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.rolling(window=14).mean()
+        atr = tr.ewm(alpha=1 / 14, adjust=False).mean()
         current_atr = atr.iloc[-1]
         atr_percent = (current_atr / close.iloc[-1]) * 100
 
@@ -579,12 +583,16 @@ class TrendAnalyzer:
         sell_signals = 0
         total_signals = 0
 
-        # 1. RSI
+        # 1. RSI - Wilder's smoothing (RMA), the canonical definition
         delta = close.diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
+        gain = delta.where(delta > 0, 0)
+        loss = -delta.where(delta < 0, 0)
+        avg_gain = gain.ewm(alpha=1 / 14, adjust=False).mean()
+        avg_loss = loss.ewm(alpha=1 / 14, adjust=False).mean()
+        rs = avg_gain / avg_loss
         rsi = 100 - (100 / (1 + rs))
+        # all-gain window (no losses) -> RSI saturates to 100
+        rsi = rsi.where(avg_loss != 0, 100.0)
         current_rsi = rsi.iloc[-1]
 
         total_signals += 1
