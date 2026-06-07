@@ -487,6 +487,28 @@ class LeaderStockScorer:
             return 0
         return max(min_val, min(max_val, value))
 
+    @staticmethod
+    def _rank_by_total_score(scored_stocks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        按 total_score 降序排序，但只允许对 *同质* score_type 的列表排序。
+
+        "hot" 评分走独立的 0-100 surge 量尺，"core" 评分走六维加权 0-1→×100 量尺，
+        二者数值不可比。若把它们混进同一次全局排序，名次将毫无意义。该守卫确保
+        调用方不会静默地把不同量尺的评分交叉排名。
+        """
+        score_types = {
+            stock.get("score_type")
+            for stock in scored_stocks
+            if stock.get("score_type") is not None
+        }
+        if len(score_types) > 1:
+            raise ValueError(
+                "Refusing to rank stocks with mixed score_type "
+                f"{sorted(str(s) for s in score_types)}: hot/core scores are on "
+                "incomparable scales and must not be interleaved by total_score."
+            )
+        return sorted(scored_stocks, key=lambda x: x.get("total_score", 0), reverse=True)
+
     def rank_stocks_in_industry(
         self,
         industry_name: str,
@@ -526,10 +548,12 @@ class LeaderStockScorer:
 
                 score_data = self.score_stock(symbol, industry_stats, score_type=score_type)
                 if "error" not in score_data:
+                    # 标记本条评分使用的量尺，防止后续与不同 score_type 混排
+                    score_data["score_type"] = score_type
                     scored_stocks.append(score_data)
 
-            # 按综合得分排序
-            scored_stocks.sort(key=lambda x: x.get("total_score", 0), reverse=True)
+            # 按综合得分排序（同一 score_type，量尺可比）
+            scored_stocks = self._rank_by_total_score(scored_stocks)
 
             # 添加排名
             for idx, stock in enumerate(scored_stocks[:top_n], 1):
@@ -660,8 +684,8 @@ class LeaderStockScorer:
                 logger.error(f"Error getting leaders for {industry}: {e}")
                 continue
 
-        # 按综合得分全局排序
-        all_leaders.sort(key=lambda x: x.get("total_score", 0), reverse=True)
+        # 按综合得分全局排序（守卫：只允许同质 score_type，避免 hot/core 量尺混排）
+        all_leaders = self._rank_by_total_score(all_leaders)
 
         # 更新全局排名
         for idx, leader in enumerate(all_leaders, 1):
@@ -754,139 +778,3 @@ class LeaderStockScorer:
         except Exception as e:
             logger.error(f"Error getting leader detail for {symbol}: {e}")
             return {"symbol": symbol, "error": str(e)}
-
-    def optimize_weights(
-        self,
-        historical_returns: pd.DataFrame,
-        target: str = "total_return"
-    ) -> dict[str, float]:
-        """
-        基于历史表现优化权重参数
-
-        Args:
-            historical_returns: 历史收益数据
-            target: 优化目标 ("total_return" | "sharpe" | "max_drawdown")
-
-        Returns:
-            优化后的权重
-        """
-        # 简单实现：使用网格搜索
-        # 实际应用中可以使用更复杂的优化算法（如遗传算法、贝叶斯优化）
-
-        best_weights = self.weights.copy()
-        best_score = float('-inf')
-
-        # 生成权重组合
-        weight_options = [0.1, 0.15, 0.2, 0.25, 0.3]
-
-        for mc in weight_options:
-            for roe in weight_options:
-                for rg in weight_options:
-                    for pg in weight_options:
-                        remaining = 1 - mc - roe - rg - pg
-                        if remaining < 0:
-                            continue
-
-                        test_weights = {
-                            "market_cap": mc,
-                            "roe": roe,
-                            "revenue_growth": rg,
-                            "profit_growth": pg,
-                            "volatility": -remaining * 0.5,
-                            "liquidity": remaining * 0.5,
-                        }
-
-                        # 评估这组权重的表现
-                        # （简化版：这里需要实际的回测逻辑）
-                        score = self._evaluate_weights(test_weights, historical_returns, target)
-
-                        if score > best_score:
-                            best_score = score
-                            best_weights = test_weights
-
-        logger.info(f"Optimized weights: {best_weights}, score: {best_score}")
-        return best_weights
-
-    def _evaluate_weights(
-        self,
-        weights: dict[str, float],
-        historical_returns: pd.DataFrame,
-        target: str
-    ) -> float:
-        """基于历史因子与未来收益评估权重组合表现。"""
-        if historical_returns is None or historical_returns.empty:
-            return float("-inf")
-
-        df = historical_returns.copy()
-        candidate_target_cols = [
-            target,
-            "forward_return",
-            "future_return",
-            "next_return",
-            "total_return",
-            "return",
-        ]
-        target_col = next((column for column in candidate_target_cols if column in df.columns), None)
-        if not target_col:
-            return float("-inf")
-
-        factor_aliases = {
-            "market_cap": ["market_cap", "market_cap_score"],
-            "roe": ["roe", "profitability", "profitability_score"],
-            "revenue_growth": ["revenue_growth", "growth", "growth_score"],
-            "profit_growth": ["profit_growth", "momentum", "momentum_score"],
-            "volatility": ["volatility", "volatility_score"],
-            "liquidity": ["liquidity", "activity", "activity_score"],
-        }
-
-        score = pd.Series(0.0, index=df.index, dtype=float)
-        used_factor = False
-
-        for weight_key, weight in weights.items():
-            factor_col = next((column for column in factor_aliases.get(weight_key, []) if column in df.columns), None)
-            if not factor_col:
-                continue
-            factor_values = pd.to_numeric(df[factor_col], errors="coerce")
-            if factor_values.dropna().empty:
-                continue
-            mean = factor_values.mean()
-            std = factor_values.std(ddof=0) or 1.0
-            standardized = ((factor_values - mean) / std).fillna(0.0)
-            score += standardized * float(weight)
-            used_factor = True
-
-        if not used_factor:
-            return float("-inf")
-
-        target_values = pd.to_numeric(df[target_col], errors="coerce").fillna(0.0)
-        score_df = pd.DataFrame({
-            "score": score,
-            "target": target_values,
-            "date": df["date"] if "date" in df.columns else "all",
-        })
-
-        bucket_returns = []
-        for _, group in score_df.groupby("date"):
-            if group.empty:
-                continue
-            threshold = group["score"].quantile(0.8)
-            selected = group[group["score"] >= threshold]
-            if selected.empty:
-                continue
-            bucket_returns.append(float(selected["target"].mean()))
-
-        if not bucket_returns:
-            return float("-inf")
-
-        returns = pd.Series(bucket_returns, dtype=float)
-        mean_return = float(returns.mean())
-        std_return = float(returns.std(ddof=0) or 0.0)
-        equity_curve = (1 + returns).cumprod()
-        running_peak = equity_curve.cummax()
-        drawdown = ((equity_curve / running_peak) - 1).min() if not equity_curve.empty else 0.0
-
-        if target == "sharpe":
-            return mean_return / std_return if std_return > 0 else float("-inf")
-        if target == "max_drawdown":
-            return -float(drawdown)
-        return mean_return
