@@ -17,10 +17,9 @@ from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
+from src.analytics.industry.clustering import cluster_merged_industries
 from src.analytics.industry.computations import (
     apply_historical_volatility,
     derive_size_source,
@@ -39,6 +38,13 @@ from src.analytics.industry.money_flow import (
 from src.analytics.industry.scoring import (
     build_rank_score_breakdown as _build_rank_score_breakdown,
     calculate_rank_score_series as _calculate_rank_score_series_impl,
+)
+from src.analytics.industry.trend_series import (
+    build_industry_ohlc_trend,
+    build_relative_trend_points_from_cumulative_changes,
+)
+from src.analytics.industry.tushare_money_flow import (
+    normalize_tushare_industry_money_flow,
 )
 from src.analytics.industry_stock_details import (
     build_enriched_industry_stocks,
@@ -402,111 +408,11 @@ class IndustryAnalyzer:
         moneyflow_df: Optional[pd.DataFrame],
         board_df: Optional[pd.DataFrame],
     ) -> pd.DataFrame:
-        """Map Tushare after-close industry frames into the analyzer contract."""
-        moneyflow = cls._normalize_tushare_columns(moneyflow_df)
-        board = cls._normalize_tushare_columns(board_df)
-        if moneyflow.empty and board.empty:
-            return pd.DataFrame()
+        """Map Tushare after-close industry frames into the analyzer contract.
 
-        records: dict[str, dict[str, Any]] = {}
-
-        for _, row in moneyflow.iterrows():
-            industry_name = cls._tushare_name_from_row(row)
-            if not industry_name:
-                continue
-            record = records.setdefault(industry_name, {"industry_name": industry_name})
-            change_pct = cls._coerce_tushare_numeric(
-                cls._tushare_first_value(row, ["change_pct", "pct_change", "涨跌幅"])
-            )
-            if change_pct is not None:
-                record["change_pct"] = change_pct
-
-            net_amount = cls._coerce_tushare_numeric(
-                cls._tushare_first_value(
-                    row,
-                    [
-                        "main_net_inflow",
-                        "net_amount",
-                        "net_mf_amount",
-                        "net_main_amount",
-                        "主力净流入-净额",
-                        "净额",
-                    ],
-                ),
-                0.0,
-            )
-            if net_amount is not None and abs(net_amount) < 1e8 and abs(net_amount) > 0:
-                net_amount *= 10000
-            record["main_net_inflow"] = net_amount or 0.0
-
-            net_ratio = cls._coerce_tushare_numeric(
-                cls._tushare_first_value(
-                    row,
-                    [
-                        "main_net_ratio",
-                        "net_amount_rate",
-                        "net_mf_ratio",
-                        "net_main_rate",
-                        "主力净流入-净占比",
-                    ],
-                )
-            )
-            if net_ratio is not None:
-                record["main_net_ratio"] = net_ratio
-                record["flow_strength"] = max(min(net_ratio / 100.0, 1.0), -1.0)
-
-            cls._append_tushare_source(record, "tushare_moneyflow_ind_ths")
-
-        for _, row in board.iterrows():
-            industry_name = cls._tushare_name_from_row(row)
-            if not industry_name:
-                continue
-            record = records.setdefault(industry_name, {"industry_name": industry_name})
-            board_change = cls._coerce_tushare_numeric(
-                cls._tushare_first_value(row, ["change_pct", "pct_change", "涨跌幅"])
-            )
-            if board_change is not None:
-                record["change_pct"] = board_change
-
-            total_mv = cls._coerce_tushare_numeric(
-                cls._tushare_first_value(row, ["total_market_cap", "total_mv", "总市值"])
-            )
-            if total_mv is not None and total_mv > 0:
-                if total_mv < 1e10:
-                    total_mv *= 10000
-                record["total_market_cap"] = total_mv
-                record["market_cap_source"] = "tushare_dc_board"
-
-            turnover_rate = cls._coerce_tushare_numeric(
-                cls._tushare_first_value(row, ["turnover_rate", "换手率"]),
-                0.0,
-            )
-            record["turnover_rate"] = turnover_rate or 0.0
-
-            up_num = cls._coerce_tushare_numeric(cls._tushare_first_value(row, ["up_num", "上涨家数"]), 0.0) or 0.0
-            down_num = cls._coerce_tushare_numeric(cls._tushare_first_value(row, ["down_num", "下跌家数"]), 0.0) or 0.0
-            if up_num or down_num:
-                record["stock_count"] = int(up_num + down_num)
-
-            leading = cls._tushare_first_value(row, ["leading_stock", "leading", "领涨股"])
-            if leading:
-                record["leading_stock"] = str(leading).strip()
-            leading_pct = cls._coerce_tushare_numeric(
-                cls._tushare_first_value(row, ["leading_stock_change", "leading_pct", "领涨股涨跌幅"])
-            )
-            if leading_pct is not None:
-                record["leading_stock_change"] = leading_pct
-
-            cls._append_tushare_source(record, "tushare_dc_index")
-
-        if not records:
-            return pd.DataFrame()
-
-        result = pd.DataFrame(records.values())
-        if "market_cap_source" not in result.columns:
-            result["market_cap_source"] = "unknown"
-        result["market_cap_source"] = result["market_cap_source"].fillna("unknown")
-        return result
+        Logic lives in industry.tushare_money_flow.
+        """
+        return normalize_tushare_industry_money_flow(moneyflow_df, board_df)
 
     def _candidate_tushare_trade_dates(self, provider) -> list[Any]:
         today = datetime.now()
@@ -775,33 +681,7 @@ class IndustryAnalyzer:
             if close_series.dropna().empty:
                 return []
 
-            result = []
-            prev_close = None
-            for idx, row in normalized_hist.iterrows():
-                close_value = pd.to_numeric(pd.Series([row.get("close")]), errors="coerce").iloc[0]
-                if pd.isna(close_value):
-                    continue
-
-                open_value = pd.to_numeric(pd.Series([row.get("open")]), errors="coerce").iloc[0] if "open" in normalized_hist.columns else np.nan
-                high_value = pd.to_numeric(pd.Series([row.get("high")]), errors="coerce").iloc[0] if "high" in normalized_hist.columns else np.nan
-                low_value = pd.to_numeric(pd.Series([row.get("low")]), errors="coerce").iloc[0] if "low" in normalized_hist.columns else np.nan
-                volume_value = pd.to_numeric(pd.Series([row.get("volume")]), errors="coerce").iloc[0] if "volume" in normalized_hist.columns else np.nan
-                amount_value = pd.to_numeric(pd.Series([row.get("amount")]), errors="coerce").iloc[0] if "amount" in normalized_hist.columns else np.nan
-                change_pct = ((float(close_value) / float(prev_close) - 1) * 100) if prev_close not in (None, 0) else None
-
-                result.append({
-                    "date": idx.strftime("%Y-%m-%d") if hasattr(idx, "strftime") else str(idx),
-                    "open": None if pd.isna(open_value) else round(float(open_value), 2),
-                    "high": None if pd.isna(high_value) else round(float(high_value), 2),
-                    "low": None if pd.isna(low_value) else round(float(low_value), 2),
-                    "close": round(float(close_value), 2),
-                    "volume": None if pd.isna(volume_value) else float(volume_value),
-                    "amount": None if pd.isna(amount_value) else float(amount_value),
-                    "change_pct": None if change_pct is None else round(float(change_pct), 2),
-                })
-                prev_close = float(close_value)
-
-            return result
+            return build_industry_ohlc_trend(normalized_hist)
         except Exception as e:
             logger.debug(f"Failed to load industry trend series for {industry_name}: {e}")
             return []
@@ -1051,100 +931,8 @@ class IndustryAnalyzer:
         if not valuation_df.empty:
             merged_df = merged_df.merge(valuation_df, on="industry_name", how="left")
 
-        feature_cols = ["weighted_change", "flow_strength"]
-        if "pe_ttm" in merged_df.columns:
-            # PE/PB 取对数或倒数处理，避免长尾影响；这里简单填充并标准化
-            merged_df["pe_feat"] = merged_df["pe_ttm"].apply(lambda x: np.log(max(x, 1.0)) if pd.notna(x) else 0)
-            feature_cols.append("pe_feat")
-        if "pb" in merged_df.columns:
-            merged_df["pb_feat"] = merged_df["pb"].apply(lambda x: np.log(max(x, 1.0)) if pd.notna(x) else 0)
-            feature_cols.append("pb_feat")
-
-        features = merged_df[feature_cols].fillna(0).values
-
-        # 标准化特征
-        scaler = StandardScaler()
-        features_scaled = scaler.fit_transform(features)
-
-        min_clusters = max(2, min(int(n_clusters or 4), len(merged_df) - 1))
-        max_clusters = min(max(min_clusters, int(n_clusters or 4) + 2), max(2, len(merged_df) - 1), 8)
-        selected_clusters = min_clusters
-        selected_silhouette = None
-        cluster_candidates: dict[int, float] = {}
-
-        if len(merged_df) >= 4:
-            for candidate in range(min_clusters, max_clusters + 1):
-                if candidate >= len(merged_df):
-                    continue
-                candidate_model = KMeans(n_clusters=candidate, random_state=42, n_init=10)
-                labels = candidate_model.fit_predict(features_scaled)
-                if len(set(labels)) < 2:
-                    continue
-                try:
-                    cluster_candidates[candidate] = float(silhouette_score(features_scaled, labels))
-                except Exception:
-                    continue
-
-            if cluster_candidates:
-                selected_clusters, selected_silhouette = max(cluster_candidates.items(), key=lambda item: item[1])
-
-        # K-Means 聚类
-        kmeans = KMeans(n_clusters=selected_clusters, random_state=42, n_init=10)
-        merged_df["cluster"] = kmeans.fit_predict(features_scaled)
-
-        # 识别热门行业簇（平均动量最高的簇）
-        cluster_stats = {}
-        for i in range(selected_clusters):
-            cluster_data = merged_df[merged_df["cluster"] == i]
-            avg_momentum = cluster_data["weighted_change"].mean() if len(cluster_data) > 0 else 0
-            avg_flow = cluster_data["flow_strength"].mean() if len(cluster_data) > 0 else 0
-            cluster_stats[i] = {
-                "count": len(cluster_data),
-                "avg_momentum": float(avg_momentum) if pd.notna(avg_momentum) else 0.0,
-                "avg_flow": float(avg_flow) if pd.notna(avg_flow) else 0.0,
-                "industries": cluster_data["industry_name"].tolist(),
-            }
-
-        # 找出平均动量最高的簇作为热门簇
-        hot_cluster = max(cluster_stats.keys(), key=lambda k: cluster_stats[k]["avg_momentum"])
-
-        clean_df = merged_df.replace([np.inf, -np.inf], np.nan).copy()
-        for column in (
-            "cluster",
-            "weighted_change",
-            "flow_strength",
-            "change_pct",
-            "main_net_inflow",
-            "pe_ttm",
-            "pb",
-        ):
-            if column in clean_df.columns:
-                clean_df[column] = pd.to_numeric(clean_df[column], errors="coerce").fillna(0)
-        points = []
-        for _, row in clean_df.iterrows():
-            points.append({
-                "industry_name": row.get("industry_name", ""),
-                "cluster": int(row.get("cluster", -1)),
-                "weighted_change": float(row.get("weighted_change", 0)),
-                "flow_strength": float(row.get("flow_strength", 0)),
-                "change_pct": float(row.get("change_pct", row.get("weighted_change", 0))),
-                "money_flow": float(row.get("main_net_inflow", 0)),
-                "pe_ttm": float(row.get("pe_ttm", 0)) if pd.notna(row.get("pe_ttm")) else 0,
-                "pb": float(row.get("pb", 0)) if pd.notna(row.get("pb")) else 0,
-            })
-
-        return {
-            "clusters": {
-                i: stats["industries"]
-                for i, stats in cluster_stats.items()
-            },
-            "hot_cluster": hot_cluster,
-            "cluster_stats": cluster_stats,
-            "points": points,
-            "selected_cluster_count": selected_clusters,
-            "silhouette_score": selected_silhouette,
-            "cluster_candidates": cluster_candidates,
-        }
+        # 特征工程 + K-Means 聚类 + 簇统计逻辑见 industry.clustering
+        return cluster_merged_industries(merged_df, n_clusters)
 
     def _enrich_stock_counts(self, result: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
@@ -1343,23 +1131,9 @@ class IndustryAnalyzer:
         self._update_cache(cache_key, result)
         return result
 
-    @staticmethod
-    def _build_relative_trend_points_from_cumulative_changes(cumulative_changes: list[float]) -> list[float]:
-        if not cumulative_changes:
-            return []
-
-        points = []
-        ordered_changes = list(cumulative_changes)
-        for change in reversed(ordered_changes):
-            try:
-                denominator = 1 + (float(change) / 100.0)
-            except (TypeError, ValueError):
-                return []
-            if denominator <= 0:
-                return []
-            points.append(round(100.0 / denominator, 3))
-        points.append(100.0)
-        return points
+    _build_relative_trend_points_from_cumulative_changes = staticmethod(
+        build_relative_trend_points_from_cumulative_changes
+    )
 
     def _build_industry_mini_trend_lookup(
         self,
