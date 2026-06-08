@@ -73,6 +73,7 @@ vi.mock('@ant-design/icons', () => {
     FireOutlined: MockIcon,
     FundOutlined: MockIcon,
     ThunderboltOutlined: MockIcon,
+    SafetyCertificateOutlined: MockIcon,
   };
 });
 

@@ -1,7 +1,7 @@
 const DEFAULT_PUBLIC_VIEW = 'backtest';
 
 export const VIEW_QUERY_KEY = 'view';
-export const PUBLIC_VIEW_IDS = ['today', 'backtest', 'realtime', 'industry', 'paper'];
+export const PUBLIC_VIEW_IDS = ['today', 'backtest', 'realtime', 'industry', 'paper', 'lowvol'];
 export const PUBLIC_VIEWS = new Set(PUBLIC_VIEW_IDS);
 const PUBLIC_VIEW_ALIASES = {
   alerts: 'realtime',
