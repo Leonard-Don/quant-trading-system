@@ -55,6 +55,31 @@ class ExecutionConfig:
     impact_coefficient: float = 1.0
     permanent_impact_bps: float = 0.0
     execution_lag: int = 1
+    # --- A-share trading frictions (all default OFF so non-A-share / US
+    # backtests are byte-for-byte unchanged) ---
+    stamp_duty_rate: float = 0.0  # 印花税 — charged on SELL notional only
+    transfer_fee_rate: float = 0.0  # 过户费 — charged on BOTH buy and sell notional
+    enforce_t_plus_1: bool = False  # shares bought on a bar can't be sold that bar
+    price_limit_pct: float | None = None  # 涨跌停 daily band, e.g. 0.10 / 0.20
+
+
+def ashare_cost_profile(price_limit_pct: float = 0.10) -> dict[str, Any]:
+    """Return the canonical A-share friction profile (2023 rules).
+
+    * stamp duty 印花税: 0.05% on sells (cut from 0.1% in Aug 2023)
+    * transfer fee 过户费: ~0.001% both sides
+    * T+1 settlement enforced
+    * daily price-limit band (10% main board; pass 0.20 for ChiNext/STAR/BSE)
+
+    The returned mapping is keyed to match :class:`Backtester` constructor
+    kwargs / :class:`ExecutionConfig` fields, so it can be splatted directly.
+    """
+    return {
+        "stamp_duty_rate": 0.0005,
+        "transfer_fee_rate": 0.00001,
+        "enforce_t_plus_1": True,
+        "price_limit_pct": price_limit_pct,
+    }
 
 
 class SingleAssetExecutionEngine:
@@ -208,6 +233,64 @@ class SingleAssetExecutionEngine:
         commission_cost = (notional * self.commission) + float(self.config.fixed_commission or 0.0)
         return float(max(commission_cost, float(self.config.min_commission or 0.0)))
 
+    def _ashare_costs(self, *, notional: float, side: str) -> dict[str, float]:
+        """A-share regulatory frictions for a fill.
+
+        * 印花税 (stamp duty) applies to SELL notional only.
+        * 过户费 (transfer fee) applies to BOTH buy and sell notional.
+
+        ``notional`` is the raw trade value (shares * price), matching how
+        these fees are levied in China (on transaction value, before slippage).
+        All-zero when the rates are at their OFF defaults.
+        """
+        base_notional = abs(float(notional or 0.0))
+        stamp_duty = (
+            base_notional * float(self.config.stamp_duty_rate or 0.0)
+            if side == "SELL"
+            else 0.0
+        )
+        transfer_fee = base_notional * float(self.config.transfer_fee_rate or 0.0)
+        return {"stamp_duty_cost": stamp_duty, "transfer_fee_cost": transfer_fee}
+
+    def _price_limit_band(self, prev_close: float) -> tuple[float, float] | None:
+        """Compute the (lower, upper) 涨跌停 band from the prior close.
+
+        Limits are ``prev_close * (1 ± pct)`` rounded to the 2-decimal A-share
+        tick. Returns ``None`` when limits are disabled or ``prev_close`` is
+        non-positive / missing (e.g. the first bar).
+        """
+        pct = self.config.price_limit_pct
+        if pct is None or pct <= 0:
+            return None
+        if prev_close is None or not np.isfinite(prev_close) or prev_close <= 0:
+            return None
+        lower = round(prev_close * (1.0 - pct), 2)
+        upper = round(prev_close * (1.0 + pct), 2)
+        return lower, upper
+
+    def _prev_closes(self, data: pd.DataFrame) -> np.ndarray:
+        """Prior-bar close for each bar (NaN on the first bar)."""
+        closes = data["close"].astype(float).to_numpy()
+        prev = np.empty_like(closes)
+        prev[0] = np.nan
+        if len(closes) > 1:
+            prev[1:] = closes[:-1]
+        return prev
+
+    @staticmethod
+    def _is_limit_up(price: float, band: tuple[float, float] | None) -> bool:
+        """A fill at/through the upper limit is a sealed limit-up (no sellers)."""
+        if band is None:
+            return False
+        return float(price) >= band[1]
+
+    @staticmethod
+    def _is_limit_down(price: float, band: tuple[float, float] | None) -> bool:
+        """A fill at/through the lower limit is a limit-down (no buyers)."""
+        if band is None:
+            return False
+        return float(price) <= band[0]
+
     def _build_portfolio(
         self,
         *,
@@ -261,8 +344,11 @@ class SingleAssetExecutionEngine:
         peak_equity = self.initial_capital
         prev_total = self.initial_capital
         market_context = self._prepare_execution_context(data)
+        prev_closes = self._prev_closes(data)
 
         for i, (price, signal) in enumerate(zip(price_array, signal_array)):
+            # T+1: snapshot the shares held at bar-open; same-bar buys are locked.
+            position_at_bar_open = current_position
             current_equity = current_cash + current_position * price
             daily_ret = (
                 (current_equity - prev_total) / prev_total if prev_total > 0 else 0.0
@@ -301,7 +387,9 @@ class SingleAssetExecutionEngine:
                     ):
                         signal = -1
 
-            if signal == 1 and current_position == 0:
+            band = self._price_limit_band(prev_closes[i])
+
+            if signal == 1 and current_position == 0 and not self._is_limit_up(price, band):
                 sizing_ctx = SizingContext(
                     current_equity=current_equity,
                     current_price=price,
@@ -323,9 +411,10 @@ class SingleAssetExecutionEngine:
                         bar_index=i,
                         market_context=market_context,
                     )
+                    ashare = self._ashare_costs(notional=shares * price, side="BUY")
                     gross_cost = shares * price * (1 + float(execution_cost["total_slippage_rate"]))
                     commission_cost = self._commission_cost(gross_cost)
-                    total_cost = gross_cost + commission_cost
+                    total_cost = gross_cost + commission_cost + ashare["transfer_fee_cost"]
                     if total_cost <= current_cash:
                         current_cash -= total_cost
                         current_position = shares
@@ -339,6 +428,8 @@ class SingleAssetExecutionEngine:
                                 "shares": shares,
                                 "cost": total_cost,
                                 "pnl": 0.0,
+                                "stamp_duty_cost": 0.0,
+                                "transfer_fee_cost": ashare["transfer_fee_cost"],
                                 "market_impact_rate": execution_cost["impact_rate"],
                                 "execution_slippage_rate": execution_cost["total_slippage_rate"],
                                 "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
@@ -349,41 +440,60 @@ class SingleAssetExecutionEngine:
                                 "impact_volatility_estimate": execution_cost["volatility_estimate"],
                             }
                         )
-            elif signal == -1 and current_position > 0:
-                execution_cost = self._execution_cost_profile(
-                    price=price,
-                    shares=current_position,
-                    bar_index=i,
-                    market_context=market_context,
-                )
-                gross_revenue = current_position * price * (1 - float(execution_cost["total_slippage_rate"]))
-                commission_cost = self._commission_cost(gross_revenue)
-                total_revenue = gross_revenue - commission_cost
-                total_cost_basis = current_position * avg_cost_basis
-                pnl = total_revenue - total_cost_basis
-                current_cash += total_revenue
-                trade_pnls.append(pnl)
-                trades.append(
-                    {
-                        "date": data.index[i],
-                        "type": "SELL",
-                        "price": price,
-                        "shares": current_position,
-                        "revenue": total_revenue,
-                        "pnl": pnl,
-                        "market_impact_rate": execution_cost["impact_rate"],
-                        "execution_slippage_rate": execution_cost["total_slippage_rate"],
-                        "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
-                        "estimated_total_slippage_cost": execution_cost["estimated_total_slippage_cost"],
-                        "impact_model": execution_cost["model"],
-                        "participation_rate": execution_cost["participation_rate"],
-                        "impact_liquidity_proxy": execution_cost["liquidity_proxy"],
-                        "impact_volatility_estimate": execution_cost["volatility_estimate"],
-                    }
-                )
-                current_position = 0.0
-                avg_cost_basis = 0.0
-                current_entry_date = None
+            elif signal == -1 and current_position > 0 and not self._is_limit_down(price, band):
+                # T+1: only shares held at bar-open are sellable (same-bar buys
+                # are locked). In the event path a fresh entry happens only when
+                # flat, so this guards the rare same-bar entry+forced-exit case.
+                sellable = current_position
+                if self.config.enforce_t_plus_1:
+                    sellable = min(current_position, position_at_bar_open)
+                if sellable <= 0:
+                    pass
+                else:
+                    execution_cost = self._execution_cost_profile(
+                        price=price,
+                        shares=sellable,
+                        bar_index=i,
+                        market_context=market_context,
+                    )
+                    ashare = self._ashare_costs(notional=sellable * price, side="SELL")
+                    gross_revenue = sellable * price * (1 - float(execution_cost["total_slippage_rate"]))
+                    commission_cost = self._commission_cost(gross_revenue)
+                    total_revenue = (
+                        gross_revenue
+                        - commission_cost
+                        - ashare["stamp_duty_cost"]
+                        - ashare["transfer_fee_cost"]
+                    )
+                    total_cost_basis = sellable * avg_cost_basis
+                    pnl = total_revenue - total_cost_basis
+                    current_cash += total_revenue
+                    trade_pnls.append(pnl)
+                    trades.append(
+                        {
+                            "date": data.index[i],
+                            "type": "SELL",
+                            "price": price,
+                            "shares": sellable,
+                            "revenue": total_revenue,
+                            "pnl": pnl,
+                            "stamp_duty_cost": ashare["stamp_duty_cost"],
+                            "transfer_fee_cost": ashare["transfer_fee_cost"],
+                            "market_impact_rate": execution_cost["impact_rate"],
+                            "execution_slippage_rate": execution_cost["total_slippage_rate"],
+                            "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
+                            "estimated_total_slippage_cost": execution_cost["estimated_total_slippage_cost"],
+                            "impact_model": execution_cost["model"],
+                            "participation_rate": execution_cost["participation_rate"],
+                            "impact_liquidity_proxy": execution_cost["liquidity_proxy"],
+                            "impact_volatility_estimate": execution_cost["volatility_estimate"],
+                        }
+                    )
+                    current_position -= sellable
+                    if current_position <= 0:
+                        current_position = 0.0
+                        avg_cost_basis = 0.0
+                        current_entry_date = None
 
             position_array[i] = float(current_position)
             cash_array[i] = float(current_cash)
@@ -430,8 +540,11 @@ class SingleAssetExecutionEngine:
         peak_equity = self.initial_capital
         prev_total = self.initial_capital
         market_context = self._prepare_execution_context(data)
+        prev_closes = self._prev_closes(data)
 
         for i, (price, raw_signal) in enumerate(zip(price_array, signal_array)):
+            # T+1: snapshot the shares held at bar-open; same-bar buys are locked.
+            position_at_bar_open = current_position
             current_equity = current_cash + current_position * price
             daily_ret = (
                 (current_equity - prev_total) / prev_total if prev_total > 0 else 0.0
@@ -484,8 +597,9 @@ class SingleAssetExecutionEngine:
             )
             desired_position = self._normalize_shares(sizer.calculate(sizing_ctx).shares)
             position_delta = desired_position - current_position
+            band = self._price_limit_band(prev_closes[i])
 
-            if position_delta > 0:
+            if position_delta > 0 and not self._is_limit_up(price, band):
                 shares_to_buy = position_delta
                 execution_cost = self._execution_cost_profile(
                     price=price,
@@ -493,9 +607,10 @@ class SingleAssetExecutionEngine:
                     bar_index=i,
                     market_context=market_context,
                 )
+                ashare = self._ashare_costs(notional=shares_to_buy * price, side="BUY")
                 gross_cost = shares_to_buy * price * (1 + float(execution_cost["total_slippage_rate"]))
                 commission_cost = self._commission_cost(gross_cost)
-                total_cost = gross_cost + commission_cost
+                total_cost = gross_cost + commission_cost + ashare["transfer_fee_cost"]
                 if total_cost <= current_cash and shares_to_buy > 0:
                     previous_position = current_position
                     current_cash -= total_cost
@@ -516,6 +631,8 @@ class SingleAssetExecutionEngine:
                             "shares": shares_to_buy,
                             "cost": total_cost,
                             "pnl": 0.0,
+                            "stamp_duty_cost": 0.0,
+                            "transfer_fee_cost": ashare["transfer_fee_cost"],
                             "market_impact_rate": execution_cost["impact_rate"],
                             "execution_slippage_rate": execution_cost["total_slippage_rate"],
                             "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
@@ -526,29 +643,47 @@ class SingleAssetExecutionEngine:
                             "impact_volatility_estimate": execution_cost["volatility_estimate"],
                         }
                     )
-            elif position_delta < 0 and current_position > 0:
+            elif (
+                position_delta < 0
+                and current_position > 0
+                and not self._is_limit_down(price, band)
+            ):
                 shares_to_sell = min(abs(position_delta), current_position)
-                execution_cost = self._execution_cost_profile(
-                    price=price,
-                    shares=shares_to_sell,
-                    bar_index=i,
-                    market_context=market_context,
-                )
-                gross_revenue = shares_to_sell * price * (1 - float(execution_cost["total_slippage_rate"]))
-                commission_cost = self._commission_cost(gross_revenue)
-                total_revenue = gross_revenue - commission_cost
-                pnl = total_revenue - (shares_to_sell * avg_cost_basis)
-                current_cash += total_revenue
-                current_position -= shares_to_sell
-                trade_pnls.append(pnl)
-                trades.append(
-                    {
-                        "date": data.index[i],
-                        "type": "SELL",
+                # T+1: only shares held at bar-open are sellable (same-bar buys
+                # are locked). For the scalar long path a single net delta per
+                # bar means this cap rarely binds, but it guarantees correctness.
+                if self.config.enforce_t_plus_1:
+                    shares_to_sell = min(shares_to_sell, position_at_bar_open)
+                if shares_to_sell > 0:
+                    execution_cost = self._execution_cost_profile(
+                        price=price,
+                        shares=shares_to_sell,
+                        bar_index=i,
+                        market_context=market_context,
+                    )
+                    ashare = self._ashare_costs(notional=shares_to_sell * price, side="SELL")
+                    gross_revenue = shares_to_sell * price * (1 - float(execution_cost["total_slippage_rate"]))
+                    commission_cost = self._commission_cost(gross_revenue)
+                    total_revenue = (
+                        gross_revenue
+                        - commission_cost
+                        - ashare["stamp_duty_cost"]
+                        - ashare["transfer_fee_cost"]
+                    )
+                    pnl = total_revenue - (shares_to_sell * avg_cost_basis)
+                    current_cash += total_revenue
+                    current_position -= shares_to_sell
+                    trade_pnls.append(pnl)
+                    trades.append(
+                        {
+                            "date": data.index[i],
+                            "type": "SELL",
                             "price": price,
                             "shares": shares_to_sell,
                             "revenue": total_revenue,
                             "pnl": pnl,
+                            "stamp_duty_cost": ashare["stamp_duty_cost"],
+                            "transfer_fee_cost": ashare["transfer_fee_cost"],
                             "market_impact_rate": execution_cost["impact_rate"],
                             "execution_slippage_rate": execution_cost["total_slippage_rate"],
                             "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
@@ -559,10 +694,10 @@ class SingleAssetExecutionEngine:
                             "impact_volatility_estimate": execution_cost["volatility_estimate"],
                         }
                     )
-                if current_position <= 0:
-                    current_position = 0.0
-                    avg_cost_basis = 0.0
-                    current_entry_date = None
+                    if current_position <= 0:
+                        current_position = 0.0
+                        avg_cost_basis = 0.0
+                        current_entry_date = None
 
             position_array[i] = float(current_position)
             cash_array[i] = float(current_cash)
@@ -612,6 +747,10 @@ class Backtester(BaseBacktester):
         permanent_impact_bps: float = 0.0,
         execution_lag: int = 1,
         max_holding_days: Optional[int] = None,
+        stamp_duty_rate: float = 0.0,
+        transfer_fee_rate: float = 0.0,
+        enforce_t_plus_1: bool = False,
+        price_limit_pct: Optional[float] = None,
     ):
         """
         Initialize backtester
@@ -633,6 +772,15 @@ class Backtester(BaseBacktester):
             execution_lag: Number of bars to delay strategy signals before
                            execution. The default one-bar lag avoids
                            same-close signal/fill lookahead.
+            stamp_duty_rate: A-share 印花税 on SELL notional (default 0 = off).
+            transfer_fee_rate: A-share 过户费 on BOTH buy and sell notional
+                               (default 0 = off).
+            enforce_t_plus_1: When True, shares bought on a bar cannot be sold
+                              on that same bar (A-share T+1 settlement).
+            price_limit_pct: A-share daily price-limit band 涨跌停 (e.g. 0.10).
+                             A buy at/through the upper limit is skipped (sealed
+                             limit-up) and a sell at/through the lower limit is
+                             skipped (limit-down). ``None`` = off.
         """
         super().__init__(
             initial_capital=initial_capital,
@@ -655,6 +803,10 @@ class Backtester(BaseBacktester):
             impact_coefficient=impact_coefficient,
             permanent_impact_bps=permanent_impact_bps,
             execution_lag=execution_lag,
+            stamp_duty_rate=stamp_duty_rate,
+            transfer_fee_rate=transfer_fee_rate,
+            enforce_t_plus_1=enforce_t_plus_1,
+            price_limit_pct=price_limit_pct,
         )
 
     def run(
