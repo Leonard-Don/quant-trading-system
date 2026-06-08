@@ -646,7 +646,7 @@ class TushareProvider(BaseDataProvider):
             # Point-in-time: window ENDS at the as-of date so no future (look-ahead)
             # publication can leak in. 120d lookback comfortably spans a monthly cycle.
             as_of = self._format_tushare_date(trade_date)
-            end_dt = trade_date if isinstance(trade_date, (date, datetime)) else None
+            end_dt: date | None = trade_date if isinstance(trade_date, (date, datetime)) else None
             if end_dt is None:
                 end_dt = datetime.strptime(str(as_of), "%Y%m%d")
             start = self._format_tushare_date(end_dt - timedelta(days=120))
