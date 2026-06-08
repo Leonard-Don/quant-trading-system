@@ -615,28 +615,50 @@ class TushareProvider(BaseDataProvider):
             fields="ts_code,symbol,name,area,industry,list_date",
         )
 
-    def get_index_constituents(self, index_code: str) -> list[str]:
-        """Current constituents of an index via Tushare ``index_weight``.
+    def get_index_constituents(
+        self,
+        index_code: str,
+        trade_date: Optional[date | datetime | str] = None,
+    ) -> list[str]:
+        """Constituents of an index via Tushare ``index_weight``.
 
         ``index_weight`` returns one row per ``(trade_date, con_code)``; weights
         are published monthly, so a plain query without a single ``trade_date``
         spans several periods. We keep only the latest published ``trade_date``
         and return its ``con_code`` list (e.g. ``'600519.SH'``), de-duplicated
-        while preserving first-seen order. A 90-day lookback window is passed so
-        the call lands on at least one published period. Degrades to an empty
-        list on rate-limit exhaustion, matching the read-path contract.
+        while preserving first-seen order.
+
+        ``trade_date=None`` (default) keeps the legacy behavior: query the last
+        ~90 days and return the *current* (latest published) constituents.
+
+        When ``trade_date`` is given, the constituents are returned **as-of** that
+        date (point-in-time, survivorship-bias-free): the query window ends at the
+        as-of date and we keep the latest published period ``<=`` it. A 120-day
+        lookback ensures at least one monthly publication lands inside the window.
+        Degrades to an empty list on rate-limit exhaustion, matching the read-path
+        contract.
         """
         code = str(index_code) if "." in str(index_code) else self.normalize_symbol(index_code)
         if not self._acquire_or_short_circuit():
             return []
         pro = self._get_pro_client()
-        end = datetime.now()
-        start = end - timedelta(days=90)
-        df = pro.index_weight(
-            index_code=code,
-            start_date=self._format_tushare_date(start),
-            end_date=self._format_tushare_date(end),
-        )
+        if trade_date is not None:
+            # Point-in-time: window ENDS at the as-of date so no future (look-ahead)
+            # publication can leak in. 120d lookback comfortably spans a monthly cycle.
+            as_of = self._format_tushare_date(trade_date)
+            end_dt = trade_date if isinstance(trade_date, (date, datetime)) else None
+            if end_dt is None:
+                end_dt = datetime.strptime(str(as_of), "%Y%m%d")
+            start = self._format_tushare_date(end_dt - timedelta(days=120))
+            df = pro.index_weight(index_code=code, start_date=start, end_date=as_of)
+        else:
+            end = datetime.now()
+            start = end - timedelta(days=90)
+            df = pro.index_weight(
+                index_code=code,
+                start_date=self._format_tushare_date(start),
+                end_date=self._format_tushare_date(end),
+            )
         if df is None or getattr(df, "empty", True) or "con_code" not in df.columns:
             return []
         if "trade_date" in df.columns:
@@ -645,6 +667,29 @@ class TushareProvider(BaseDataProvider):
         codes = [str(c) for c in df["con_code"].tolist() if c is not None and str(c)]
         # De-duplicate while preserving first-seen order.
         return list(dict.fromkeys(codes))
+
+    def get_suspended_symbols(self, trade_date: date | datetime | str) -> set[str]:
+        """Set of ts_codes SUSPENDED (停牌) on ``trade_date`` via ``suspend_d``.
+
+        Queries ``suspend_d(suspend_type='S', trade_date=...)`` — the by-date form
+        (per-symbol queries are unreliable). Returns the set of ``ts_code`` values
+        suspended that day so the factor harness can exclude un-tradable names from
+        the eligible cross-section. Degrades to an empty set on no data / any client
+        error / rate-limit exhaustion (never raises), matching the read-path
+        contract.
+        """
+        if not self._acquire_or_short_circuit():
+            return set()
+        day = self._format_tushare_date(trade_date)
+        try:
+            pro = self._get_pro_client()
+            df = pro.suspend_d(suspend_type="S", trade_date=day)
+        except Exception as exc:  # noqa: BLE001 - any client error degrades to empty set
+            logger.warning("Tushare suspend_d failed for %s: %s", day, exc)
+            return set()
+        if df is None or getattr(df, "empty", True) or "ts_code" not in df.columns:
+            return set()
+        return {str(c) for c in df["ts_code"].tolist() if c is not None and str(c)}
 
     def get_market_mood(self, trade_date: date | datetime | str, *, include_bj: bool = True) -> dict[str, Any]:
         """Port the QMT market-mood lens to this project's provider layer."""
