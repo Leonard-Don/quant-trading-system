@@ -20,7 +20,7 @@ from backend.app.core.task_queue import task_queue_manager
 from backend.app.schemas.backtest import BacktestRequest
 from backend.app.services.runtime_state import get_data_manager
 from src.analytics.dashboard import PerformanceAnalyzer
-from src.backtest.backtester import Backtester
+from src.backtest.backtester import Backtester, ashare_cost_profile
 from src.backtest.batch_backtester import BatchBacktester
 from src.backtest.impact_model import normalize_market_impact_model
 from src.strategy.advanced_strategies import (
@@ -63,6 +63,50 @@ STRATEGIES = {
     "turtle_trading": TurtleTradingStrategy,
     "multi_factor": MultiFactorStrategy,
 }
+
+
+def _extract_ashare_board_code(symbol: str) -> Optional[str]:
+    """Return the bare 6-digit A-share board code for ``symbol``, else None.
+
+    Accepts both exchange-suffixed forms (``600519.SS`` / ``000001.SZ``) and a
+    bare 6-digit code (``600519``). US tickers and other symbols return None.
+    """
+    if not symbol:
+        return None
+    raw = str(symbol).strip().upper()
+    if not raw:
+        return None
+
+    if raw.endswith((".SS", ".SZ", ".SH")):
+        code = raw.rsplit(".", 1)[0]
+    elif raw.isdigit() and len(raw) == 6:
+        code = raw
+    else:
+        return None
+
+    if len(code) == 6 and code.isdigit():
+        return code
+    return None
+
+
+def resolve_ashare_frictions(symbol: str) -> Optional[dict[str, Any]]:
+    """Resolve the default A-share friction profile for ``symbol``.
+
+    Returns ``None`` for non-A-share symbols (US tickers etc.) so their
+    backtests keep current behaviour. For A-share symbols the board determines
+    the daily price-limit band:
+
+    * 300xxx (ChiNext) / 688xxx (STAR) / 8xxxxx, 4xxxxx (BSE) -> 20%
+    * everything else (main board) -> 10%
+    """
+    code = _extract_ashare_board_code(symbol)
+    if code is None:
+        return None
+    if code.startswith(("300", "688", "8", "4")):
+        price_limit_pct = 0.20
+    else:
+        price_limit_pct = 0.10
+    return ashare_cost_profile(price_limit_pct=price_limit_pct)
 
 
 def _estimate_min_history_bars(strategy_name: str, cleaned_params: dict[str, Any]) -> int:
@@ -280,9 +324,22 @@ def run_backtest_pipeline(
     permanent_impact_bps: float = 0.0,
     execution_lag: int = 1,
     max_holding_days: Optional[int] = None,
+    apply_ashare_frictions: bool = True,
+    stamp_duty_rate: Optional[float] = None,
+    transfer_fee_rate: Optional[float] = None,
+    enforce_t_plus_1: Optional[bool] = None,
+    price_limit_pct: Optional[float] = None,
     data=None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Run the normalized backtest execution pipeline used by all endpoints."""
+    """Run the normalized backtest execution pipeline used by all endpoints.
+
+    A-share symbols (``*.SS`` / ``*.SZ`` / bare 6-digit codes) automatically
+    receive China-market frictions (stamp duty, transfer fee, T+1, price limits)
+    unless ``apply_ashare_frictions`` is False. Any explicitly supplied
+    ``stamp_duty_rate`` / ``transfer_fee_rate`` / ``enforce_t_plus_1`` /
+    ``price_limit_pct`` override the auto-resolved value. Non-A-share symbols
+    keep current behaviour (all fields stay 0 / False / None).
+    """
     logger.info(f"Starting backtest for {symbol} with strategy {strategy_name}")
 
     if strategy_name not in STRATEGIES:
@@ -307,6 +364,28 @@ def run_backtest_pipeline(
     strategy = _create_strategy_instance(strategy_name, cleaned_params)
     logger.info(f"Running backtest with strategy: {strategy.name}")
 
+    # Auto-apply A-share frictions for Chinese symbols (None for US etc.).
+    auto_profile = resolve_ashare_frictions(symbol) if apply_ashare_frictions else None
+    base_profile = auto_profile or {
+        "stamp_duty_rate": 0.0,
+        "transfer_fee_rate": 0.0,
+        "enforce_t_plus_1": False,
+        "price_limit_pct": None,
+    }
+    # Explicit per-field overrides win over the auto-resolved profile.
+    effective_stamp_duty = (
+        stamp_duty_rate if stamp_duty_rate is not None else base_profile["stamp_duty_rate"]
+    )
+    effective_transfer_fee = (
+        transfer_fee_rate if transfer_fee_rate is not None else base_profile["transfer_fee_rate"]
+    )
+    effective_t_plus_1 = (
+        enforce_t_plus_1 if enforce_t_plus_1 is not None else base_profile["enforce_t_plus_1"]
+    )
+    effective_price_limit = (
+        price_limit_pct if price_limit_pct is not None else base_profile["price_limit_pct"]
+    )
+
     backtester = Backtester(
         initial_capital=initial_capital,
         commission=commission,
@@ -320,6 +399,10 @@ def run_backtest_pipeline(
         permanent_impact_bps=permanent_impact_bps,
         execution_lag=execution_lag,
         max_holding_days=max_holding_days,
+        stamp_duty_rate=effective_stamp_duty,
+        transfer_fee_rate=effective_transfer_fee,
+        enforce_t_plus_1=effective_t_plus_1,
+        price_limit_pct=effective_price_limit,
     )
     results = backtester.run(strategy, data)
     results = validate_and_fix_backtest_results(results)
@@ -343,6 +426,11 @@ def run_backtest_pipeline(
             "permanent_impact_bps": permanent_impact_bps,
             "execution_lag": execution_lag,
             "max_holding_days": max_holding_days,
+            "stamp_duty_rate": effective_stamp_duty,
+            "transfer_fee_rate": effective_transfer_fee,
+            "enforce_t_plus_1": effective_t_plus_1,
+            "price_limit_pct": effective_price_limit,
+            "ashare_frictions_applied": auto_profile is not None,
             "parameters": cleaned_params,
         }
     )
