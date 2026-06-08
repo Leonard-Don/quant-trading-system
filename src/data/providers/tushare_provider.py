@@ -652,12 +652,12 @@ class TushareProvider(BaseDataProvider):
             start = self._format_tushare_date(end_dt - timedelta(days=120))
             df = pro.index_weight(index_code=code, start_date=start, end_date=as_of)
         else:
-            end = datetime.now()
-            start = end - timedelta(days=90)
+            end_now = datetime.now()
+            start_dt = end_now - timedelta(days=90)
             df = pro.index_weight(
                 index_code=code,
-                start_date=self._format_tushare_date(start),
-                end_date=self._format_tushare_date(end),
+                start_date=self._format_tushare_date(start_dt),
+                end_date=self._format_tushare_date(end_now),
             )
         if df is None or getattr(df, "empty", True) or "con_code" not in df.columns:
             return []
