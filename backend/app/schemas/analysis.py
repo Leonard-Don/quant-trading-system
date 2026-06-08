@@ -26,3 +26,31 @@ class TrendAnalysisResponse(BaseModel):
     momentum: Optional[dict[str, Any]] = None
     volatility: Optional[dict[str, Any]] = None
     fibonacci_levels: Optional[dict[str, Any]] = None
+
+
+class LowVolatilityScreenItem(BaseModel):
+    """A single ranked name in the low-volatility screen."""
+
+    rank: int
+    symbol: str
+    name: Optional[str] = None
+    realized_vol: float
+    annualized_vol: float
+    recent_return: Optional[float] = None
+    n_bars: int
+
+
+class LowVolatilityScreenResponse(BaseModel):
+    """Point-in-time low-volatility ranking of an index universe.
+
+    A SCREEN (cross-sectional ranking), not a portfolio backtest. ``count`` is
+    the number of names actually ranked — it can be below the universe size when
+    some constituents' prices could not be fetched.
+    """
+
+    as_of: str
+    universe: str
+    window: int
+    count: int
+    items: list[LowVolatilityScreenItem]
+    disclaimer: str
