@@ -34,13 +34,32 @@ def _rank_ic(factor_vals: pd.Series, fwd: pd.Series, direction: int) -> float:
     return float(rho) if np.isfinite(rho) else np.nan
 
 
-def factor_ic_series(factor, panel: FactorPanel, dates, horizon: int) -> pd.Series:
+def factor_ic_series(
+    factor,
+    panel: FactorPanel,
+    dates,
+    horizon: int,
+    eligible_by_date: dict[pd.Timestamp, set[str]] | None = None,
+) -> pd.Series:
+    """Rank-IC of ``factor`` on each rebalance date.
+
+    ``eligible_by_date`` (optional) is a ``{date: set_of_eligible_symbols}`` map.
+    When provided, on each date the cross-section (factor values AND forward
+    returns) is restricted to that date's eligible symbols BEFORE computing rank
+    IC — this is how survivorship-free / suspension-filtered eligibility is wired
+    in. ``None`` (default) means no filter = legacy behavior.
+    """
     direction = getattr(factor, "direction", 1)
     rows = {}
     for d in dates:
         d = pd.Timestamp(d)
         fvals = factor.compute(panel, d)
         fwd = forward_returns(panel, d, horizon)
+        if eligible_by_date is not None:
+            eligible = eligible_by_date.get(d)
+            if eligible is not None:
+                fvals = fvals[fvals.index.isin(eligible)]
+                fwd = fwd[fwd.index.isin(eligible)]
         ic = _rank_ic(fvals, fwd, direction)
         if np.isfinite(ic):
             rows[d] = ic
@@ -62,8 +81,15 @@ def passes_ic_gate(oos_ic: float, icir: float, sign_stable: bool, threshold: flo
     )
 
 
-def evaluate_factor(factor, panel: FactorPanel, dates, horizon: int, train_frac: float = 0.7) -> dict:
-    ic = factor_ic_series(factor, panel, dates, horizon)
+def evaluate_factor(
+    factor,
+    panel: FactorPanel,
+    dates,
+    horizon: int,
+    train_frac: float = 0.7,
+    eligible_by_date: dict[pd.Timestamp, set[str]] | None = None,
+) -> dict:
+    ic = factor_ic_series(factor, panel, dates, horizon, eligible_by_date=eligible_by_date)
     if ic.empty:
         return {
             "name": factor.name,

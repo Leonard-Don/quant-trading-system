@@ -81,6 +81,63 @@ def test_evaluate_factor_reports_oos_and_icir():
     assert "icir" in rep and "yearly_ic" in rep and "n_dates" in rep
 
 
+def test_eligible_by_date_restricts_cross_section():
+    # On each date, an ineligible symbol must be excluded from that date's IC.
+    # Build a panel; compute IC with NO filter, then with a filter that drops one
+    # symbol per date. The filtered IC must equal the IC recomputed on the
+    # restricted (symbol-dropped) cross-section — proving the symbol was excluded.
+    panel, dates, factor, horizon = _panel_with_relationship(seed=3)
+    syms = panel.symbols
+    dropped = syms[0]
+    eligible = {pd.Timestamp(d): set(syms) - {dropped} for d in dates}
+
+    ic_full = factor_ic_series(factor, panel, dates, horizon)
+    ic_filtered = factor_ic_series(
+        factor, panel, dates, horizon, eligible_by_date=eligible
+    )
+
+    # Filtering changed the series (the dropped symbol mattered to at least one date).
+    assert not ic_full.equals(ic_filtered)
+
+    # And the filtered IC matches a panel that simply never had the dropped symbol.
+    restricted_panel = FactorPanel(
+        prices={s: df for s, df in panel.prices.items() if s != dropped}
+    )
+
+    class _Restricted:
+        name = factor.name
+        direction = factor.direction
+
+        def compute(self, p, as_of):
+            full = factor.compute(panel, as_of)
+            return full.drop(index=[dropped], errors="ignore")
+
+    ic_restricted = factor_ic_series(
+        _Restricted(), restricted_panel, dates, horizon
+    )
+    pd.testing.assert_series_equal(ic_filtered, ic_restricted)
+
+
+def test_eligible_by_date_default_none_unchanged():
+    # Back-compat: eligible_by_date=None == no filter == current behavior.
+    panel, dates, factor, horizon = _panel_with_relationship(seed=4)
+    a = factor_ic_series(factor, panel, dates, horizon)
+    b = factor_ic_series(factor, panel, dates, horizon, eligible_by_date=None)
+    pd.testing.assert_series_equal(a, b)
+
+
+def test_evaluate_factor_threads_eligible_by_date():
+    # evaluate_factor must accept + thread eligible_by_date down to the IC series.
+    panel, dates, factor, horizon = _panel_with_relationship(seed=5)
+    syms = panel.symbols
+    eligible = {pd.Timestamp(d): set(syms) - {syms[0]} for d in dates}
+    rep = evaluate_factor(
+        factor, panel, dates, horizon, eligible_by_date=eligible
+    )
+    rep_full = evaluate_factor(factor, panel, dates, horizon)
+    assert rep["mean_ic"] != rep_full["mean_ic"]
+
+
 def test_gate_requires_positive_oos_ic_not_just_magnitude():
     # Positive, material OOS IC + positive ICIR + sign-stable -> PASS
     assert passes_ic_gate(0.04, 0.20, True) is True

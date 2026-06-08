@@ -90,3 +90,79 @@ def build_panel(symbols, start, end, provider, cache_dir) -> FactorPanel:
             mf.index = pd.DatetimeIndex(pd.to_datetime(mf["trade_date"].astype(str)))
             moneyflow[sym] = mf.sort_index()
     return FactorPanel(prices=prices, fundamentals=fundamentals, moneyflow=moneyflow)
+
+
+def _to_yyyymmdd(value) -> str:
+    """Coerce a date-like value to a Tushare ``YYYYMMDD`` string."""
+    ts = pd.Timestamp(value)
+    return ts.strftime("%Y%m%d")
+
+
+def build_survivorship_free_universe(
+    provider,
+    index_code: str,
+    start,
+    end,
+    *,
+    sample_freq_days: int = 90,
+    extra_dates=None,
+) -> list[str]:
+    """Survivorship-bias-free universe = UNION of historical index constituents.
+
+    Calls ``provider.get_index_constituents(index_code, trade_date=d)`` (the
+    point-in-time form) at a series of sample dates spanning ``[start, end]`` (one
+    per ``sample_freq_days``, ~quarterly by default) plus any ``extra_dates`` (e.g.
+    the actual rebalance dates), and unions the ``con_code`` sets. Any stock that
+    was EVER in the index during the window therefore lands in the panel.
+
+    Returns the de-duplicated symbol list in first-seen order so the panel/cache
+    ordering is deterministic.
+    """
+    start_ts, end_ts = pd.Timestamp(start), pd.Timestamp(end)
+    sample_dates = list(
+        pd.date_range(start=start_ts, end=end_ts, freq=f"{int(sample_freq_days)}D")
+    )
+    # Always include the endpoints so short ranges still sample at least twice.
+    if not sample_dates or sample_dates[0] != start_ts:
+        sample_dates.insert(0, start_ts)
+    if sample_dates[-1] != end_ts:
+        sample_dates.append(end_ts)
+    for d in extra_dates or []:
+        sample_dates.append(pd.Timestamp(d))
+    # De-dup the sample grid (string-level) preserving order.
+    seen_dates = list(dict.fromkeys(_to_yyyymmdd(d) for d in sample_dates))
+
+    universe: list[str] = []
+    seen: set[str] = set()
+    for day in seen_dates:
+        cons = provider.get_index_constituents(index_code, trade_date=day) or []
+        for c in cons:
+            c = str(c)
+            if c and c not in seen:
+                seen.add(c)
+                universe.append(c)
+    return universe
+
+
+def build_eligible_by_date(
+    provider,
+    index_code: str,
+    rebalance_dates,
+) -> dict[pd.Timestamp, set[str]]:
+    """Per-rebalance-date eligible set: as-of constituents MINUS suspended names.
+
+    For each date ``D`` in ``rebalance_dates``:
+        ``eligible(D) = {constituents as-of D} - {suspended on D}``
+
+    One ``get_index_constituents(.., trade_date=D)`` and one
+    ``get_suspended_symbols(D)`` call per date. Keyed by ``pd.Timestamp`` so it
+    drops straight into ``factor_ic_series(.., eligible_by_date=...)``.
+    """
+    out: dict[pd.Timestamp, set[str]] = {}
+    for d in rebalance_dates:
+        ts = pd.Timestamp(d)
+        day = _to_yyyymmdd(ts)
+        cons = set(provider.get_index_constituents(index_code, trade_date=day) or [])
+        suspended = provider.get_suspended_symbols(day) or set()
+        out[ts] = cons - set(suspended)
+    return out

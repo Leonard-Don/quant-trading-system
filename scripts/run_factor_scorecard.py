@@ -4,6 +4,7 @@ import argparse
 import json
 import pathlib
 import sys
+import time
 
 import pandas as pd
 
@@ -71,11 +72,18 @@ def monthly_rebalance_dates(trading_dates) -> list:
     return [pd.Timestamp(g.index[0]) for _, g in s.groupby([s.index.year, s.index.month])]
 
 
-def build_scorecard_markdown(reports: list[dict]) -> str:
+_LEGACY_NOTE = "Universe 用当前流动性名单近似历史池(轻微幸存者偏差)。点位时间;OOS = 后 30% 时序。"
+_SURVIVORSHIP_FREE_NOTE = (
+    "Survivorship-free + suspension-filtered:universe = 历史成分并集(点位时间);"
+    "横截面 = 当日成分 − 当日停牌。OOS = 后 30% 时序。"
+)
+
+
+def build_scorecard_markdown(reports: list[dict], note: str | None = None) -> str:
     lines = [
         "# 因子记分卡 (Phase 1)",
         "",
-        "> Universe 用当前流动性名单近似历史池(轻微幸存者偏差)。点位时间;OOS = 后 30% 时序。",
+        f"> {note or _LEGACY_NOTE}",
         "",
         "| factor | n | mean IC | ICIR | OOS IC | sign-stable | verdict |",
         "|---|--:|--:|--:|--:|:--:|:--:|",
@@ -161,19 +169,36 @@ def build_multi_horizon_markdown(
     *,
     universe_label: str,
     n_symbols: int,
+    survivorship_free: bool = False,
 ) -> str:
     """Full multi-horizon scorecard document.
 
     Per-horizon detail sections + a factor×horizon OOS-IC matrix + a
     factor×horizon PASS/FAIL matrix + an honest pass summary.
+
+    ``survivorship_free=True`` swaps the universe note to record that the run is
+    **survivorship-free + suspension-filtered** (point-in-time historical
+    constituents unioned across the window; suspended names excluded per date)
+    instead of the legacy "current names approximate the historical pool" caveat.
     """
     horizons = sorted(reports_by_horizon)
+    if survivorship_free:
+        universe_note = (
+            f"> Universe: **{universe_label}** ({n_symbols} symbols usable). "
+            "**Survivorship-free + suspension-filtered (无幸存者偏差 + 停牌过滤)**:"
+            "universe = 回测区间内历史成分的并集(点位时间);每个调仓日的横截面"
+            "= 当日成分 − 当日停牌。点位时间;OOS = 后 30% 时序;门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable。"
+        )
+    else:
+        universe_note = (
+            f"> Universe: **{universe_label}** ({n_symbols} symbols usable). "
+            "Universe 用当前成分/流动性名单近似历史池(轻微幸存者偏差)。"
+            "点位时间;OOS = 后 30% 时序;门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable。"
+        )
     lines = [
         "# 因子记分卡 (Phase 1, multi-horizon)",
         "",
-        f"> Universe: **{universe_label}** ({n_symbols} symbols usable). "
-        "Universe 用当前成分/流动性名单近似历史池(轻微幸存者偏差)。"
-        "点位时间;OOS = 后 30% 时序;门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable。",
+        universe_note,
         f"> Horizons (持有天数): {', '.join(f'h={h}' for h in horizons)}",
         "",
         "## factor × horizon → OOS IC",
@@ -192,11 +217,12 @@ def build_multi_horizon_markdown(
         (", ".join(passing) if passing else "无 (none) —— 不启动 Phase 2(诚实门)"),
         "",
     ]
+    detail_note = _SURVIVORSHIP_FREE_NOTE if survivorship_free else _LEGACY_NOTE
     for h in horizons:
         lines += [
             f"## 明细 h={h}",
             "",
-            build_scorecard_markdown(reports_by_horizon[h]),
+            build_scorecard_markdown(reports_by_horizon[h], note=detail_note),
             "",
         ]
     return "\n".join(lines)
@@ -218,6 +244,18 @@ def main():
         default=0,
         help="cap the universe to the first N symbols (0 = no cap); used for a bounded fallback",
     )
+    ap.add_argument(
+        "--survivorship-free",
+        "--point-in-time",
+        dest="survivorship_free",
+        action="store_true",
+        help=(
+            "build the universe as the UNION of point-in-time CSI300 constituents "
+            "across the backtest window (no survivorship bias) and restrict each "
+            "rebalance date's cross-section to {constituents as-of D} - {suspended on D}. "
+            "Implies --universe csi300."
+        ),
+    )
     ap.add_argument("--train-frac", type=float, default=0.7)
     args = ap.parse_args()
     from dotenv import load_dotenv
@@ -227,7 +265,11 @@ def main():
     from src.analytics.factors.fundamental import ALL_FUNDAMENTAL_FACTORS
     from src.analytics.factors.moneyflow import ALL_MONEYFLOW_FACTORS
     from src.analytics.factors.price import ALL_PRICE_FACTORS
-    from src.data.factor_panel import build_panel
+    from src.data.factor_panel import (
+        build_eligible_by_date,
+        build_panel,
+        build_survivorship_free_universe,
+    )
     from src.data.providers.tushare_provider import TushareProvider
 
     horizons = parse_horizons(args.horizons)
@@ -235,10 +277,23 @@ def main():
         raise SystemExit("--horizons must contain at least one integer horizon")
 
     provider = TushareProvider()
-    symbols = resolve_universe(args.universe, provider)
+    if args.survivorship_free:
+        # Point-in-time, survivorship-free universe = UNION of historical CSI300
+        # constituents sampled across [start, end]. Resumable: panel cache below.
+        universe_label = "csi300 (survivorship-free union)"
+        symbols = build_survivorship_free_universe(
+            provider, CSI300_CODE, args.start, args.end, sample_freq_days=90
+        )
+        print(
+            f"survivorship-free universe: {len(symbols)} historical CSI300 names "
+            f"unioned over {args.start}..{args.end}"
+        )
+    else:
+        universe_label = args.universe
+        symbols = resolve_universe(args.universe, provider)
     if args.max_symbols and args.max_symbols > 0:
         symbols = symbols[: args.max_symbols]
-    print(f"universe={args.universe} requested={len(symbols)} symbols; building panel...")
+    print(f"universe={universe_label} requested={len(symbols)} symbols; building panel...")
 
     # Build the panel ONCE for the universe (resumable per-symbol pickle cache).
     panel = build_panel(
@@ -262,23 +317,52 @@ def main():
     ref_sym = panel.symbols[0]
     base_dates = [d for d in base_dates if len(panel.history(ref_sym, d)) >= 252]
 
+    # Per-rebalance-date eligibility: {constituents as-of D} - {suspended on D}.
+    # Built once over the rebalance grid (eligibility is date-, not horizon-, dependent).
+    # Each date costs 2 Tushare calls (index_weight + suspend_d); chunk under the
+    # per-minute budget and reset/sleep between chunks so no date short-circuits to
+    # an empty (wrongly-excludes-everything) eligible set.
+    eligible_by_date = None
+    if args.survivorship_free:
+        grid = base_dates[:-1] if base_dates else []
+        print(f"building eligibility (as-of constituents − suspended) for {len(grid)} dates...")
+        eligible_by_date = {}
+        chunk = 80  # 80 dates * 2 calls = 160 < 200/min
+        for i in range(0, len(grid), chunk):
+            provider.reset_throttle()
+            part = grid[i : i + chunk]
+            eligible_by_date.update(build_eligible_by_date(provider, CSI300_CODE, part))
+            if i + chunk < len(grid):
+                time.sleep(62)
+        empty = sum(1 for v in eligible_by_date.values() if not v)
+        if empty:
+            print(f"WARNING: {empty}/{len(grid)} dates have an empty eligible set")
+
     reports_by_horizon: dict[int, list[dict]] = {}
     for h in horizons:
         # Leave enough trailing dates so a forward bar exists for this horizon.
         dates_h = base_dates[:-1] if base_dates else []
         print(f"evaluating {len(factors)} factors @ h={h} over {len(dates_h)} rebalance dates...")
         reports_by_horizon[h] = [
-            evaluate_factor(f, panel, dates_h, h, args.train_frac) for f in factors
+            evaluate_factor(
+                f, panel, dates_h, h, args.train_frac, eligible_by_date=eligible_by_date
+            )
+            for f in factors
         ]
 
     md = build_multi_horizon_markdown(
-        reports_by_horizon, universe_label=args.universe, n_symbols=usable
+        reports_by_horizon,
+        universe_label=universe_label,
+        n_symbols=usable,
+        survivorship_free=args.survivorship_free,
     )
     (PROJECT_ROOT / "docs/factor_scorecard.md").write_text(md, encoding="utf-8")
     (PROJECT_ROOT / "docs/factor_scorecard.json").write_text(
         json.dumps(
             {
-                "universe": args.universe,
+                "universe": universe_label,
+                "survivorship_free": bool(args.survivorship_free),
+                "suspension_filtered": bool(args.survivorship_free),
                 "n_symbols_usable": usable,
                 "n_symbols_requested": len(symbols),
                 "horizons": horizons,

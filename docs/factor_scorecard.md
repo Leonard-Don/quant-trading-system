@@ -1,28 +1,28 @@
 # 因子记分卡 (Phase 1, multi-horizon)
 
-> Universe: **csi300** (298 symbols usable). Universe 用当前成分/流动性名单近似历史池(轻微幸存者偏差)。点位时间;OOS = 后 30% 时序;门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable。
+> Universe: **csi300 (survivorship-free union)** (526 symbols usable). **Survivorship-free + suspension-filtered (无幸存者偏差 + 停牌过滤)**:universe = 回测区间内历史成分的并集(点位时间);每个调仓日的横截面= 当日成分 − 当日停牌。点位时间;OOS = 后 30% 时序;门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable。
 > Horizons (持有天数): h=5, h=20, h=60
 
 ## factor × horizon → OOS IC
 
 | factor | h=5 | h=20 | h=60 |
 |---|--:|--:|--:|
-| low_volatility | 0.0306 | 0.0559 | 0.1653 |
-| momentum_12_1 | -0.0852 | -0.0610 | -0.0470 |
-| short_reversal | 0.0258 | 0.0446 | 0.0065 |
-| turnover_reversal | -0.0034 | 0.0230 | 0.0029 |
-| roe | -0.0437 | -0.0705 | -0.1383 |
-| profit_growth | -0.0450 | -0.0721 | -0.1383 |
-| revenue_growth | -0.0238 | -0.0723 | -0.1720 |
-| net_inflow | -0.0207 | -0.0197 | -0.0289 |
+| low_volatility | 0.0402 | 0.1050 | 0.2453 |
+| momentum_12_1 | -0.0665 | -0.0103 | 0.0252 |
+| short_reversal | 0.0071 | 0.0478 | -0.0185 |
+| turnover_reversal | -0.0146 | -0.0356 | -0.0960 |
+| roe | -0.0527 | -0.0884 | -0.1691 |
+| profit_growth | -0.0663 | -0.0933 | -0.1750 |
+| revenue_growth | -0.0301 | -0.1063 | -0.2204 |
+| net_inflow | -0.0042 | -0.0164 | 0.0104 |
 
 ## factor × horizon → PASS / FAIL
 
 | factor | h=5 | h=20 | h=60 |
 |---|:--:|:--:|:--:|
-| low_volatility | ✗ | ✗ | ✗ |
+| low_volatility | ✗ | ✓ | ✗ |
 | momentum_12_1 | ✗ | ✗ | ✗ |
-| short_reversal | ✗ | ✗ | ✗ |
+| short_reversal | ✗ | ✓ | ✗ |
 | turnover_reversal | ✗ | ✗ | ✗ |
 | roe | ✗ | ✗ | ✗ |
 | profit_growth | ✗ | ✗ | ✗ |
@@ -31,24 +31,24 @@
 
 ## 过关因子 (factor@horizon)
 
-无 (none) —— 不启动 Phase 2(诚实门)
+low_volatility@20, short_reversal@20
 
 ## 明细 h=5
 
 # 因子记分卡 (Phase 1)
 
-> Universe 用当前流动性名单近似历史池(轻微幸存者偏差)。点位时间;OOS = 后 30% 时序。
+> Survivorship-free + suspension-filtered:universe = 历史成分并集(点位时间);横截面 = 当日成分 − 当日停牌。OOS = 后 30% 时序。
 
 | factor | n | mean IC | ICIR | OOS IC | sign-stable | verdict |
 |---|--:|--:|--:|--:|:--:|:--:|
-| low_volatility | 46 | 0.0447 | 0.169 | 0.0306 | ✗ | FAIL |
-| short_reversal | 46 | 0.0178 | 0.100 | 0.0258 | ✗ | FAIL |
-| turnover_reversal | 46 | -0.0057 | -0.030 | -0.0034 | ✗ | FAIL |
-| net_inflow | 46 | -0.0093 | -0.071 | -0.0207 | ✗ | FAIL |
-| revenue_growth | 46 | -0.0250 | -0.182 | -0.0238 | ✗ | FAIL |
-| roe | 46 | -0.0332 | -0.215 | -0.0437 | ✗ | FAIL |
-| profit_growth | 46 | -0.0293 | -0.226 | -0.0450 | ✓ | FAIL |
-| momentum_12_1 | 46 | -0.0470 | -0.214 | -0.0852 | ✓ | FAIL |
+| low_volatility | 46 | 0.0603 | 0.240 | 0.0402 | ✗ | FAIL |
+| short_reversal | 46 | 0.0247 | 0.143 | 0.0071 | ✗ | FAIL |
+| net_inflow | 46 | -0.0064 | -0.050 | -0.0042 | ✗ | FAIL |
+| turnover_reversal | 46 | -0.0203 | -0.113 | -0.0146 | ✗ | FAIL |
+| revenue_growth | 46 | -0.0321 | -0.220 | -0.0301 | ✓ | FAIL |
+| roe | 46 | -0.0356 | -0.218 | -0.0527 | ✗ | FAIL |
+| profit_growth | 46 | -0.0352 | -0.279 | -0.0663 | ✓ | FAIL |
+| momentum_12_1 | 46 | -0.0423 | -0.200 | -0.0665 | ✓ | FAIL |
 
 **过关因子:** 无 —— 不启动 Phase 2(诚实门)
 
@@ -56,36 +56,36 @@
 
 # 因子记分卡 (Phase 1)
 
-> Universe 用当前流动性名单近似历史池(轻微幸存者偏差)。点位时间;OOS = 后 30% 时序。
+> Survivorship-free + suspension-filtered:universe = 历史成分并集(点位时间);横截面 = 当日成分 − 当日停牌。OOS = 后 30% 时序。
 
 | factor | n | mean IC | ICIR | OOS IC | sign-stable | verdict |
 |---|--:|--:|--:|--:|:--:|:--:|
-| low_volatility | 46 | 0.0363 | 0.142 | 0.0559 | ✗ | FAIL |
-| short_reversal | 46 | 0.0098 | 0.055 | 0.0446 | ✗ | FAIL |
-| turnover_reversal | 46 | 0.0236 | 0.144 | 0.0230 | ✗ | FAIL |
-| net_inflow | 46 | 0.0121 | 0.090 | -0.0197 | ✗ | FAIL |
-| momentum_12_1 | 46 | 0.0089 | 0.038 | -0.0610 | ✗ | FAIL |
-| roe | 46 | -0.0415 | -0.298 | -0.0705 | ✗ | FAIL |
-| profit_growth | 46 | -0.0394 | -0.289 | -0.0721 | ✗ | FAIL |
-| revenue_growth | 46 | -0.0427 | -0.316 | -0.0723 | ✗ | FAIL |
+| low_volatility | 46 | 0.0777 | 0.335 | 0.1050 | ✓ | PASS |
+| short_reversal | 46 | 0.0206 | 0.120 | 0.0478 | ✓ | PASS |
+| momentum_12_1 | 46 | 0.0191 | 0.088 | -0.0103 | ✗ | FAIL |
+| net_inflow | 46 | 0.0124 | 0.100 | -0.0164 | ✗ | FAIL |
+| turnover_reversal | 46 | -0.0108 | -0.062 | -0.0356 | ✗ | FAIL |
+| roe | 46 | -0.0373 | -0.238 | -0.0884 | ✗ | FAIL |
+| profit_growth | 46 | -0.0428 | -0.354 | -0.0933 | ✗ | FAIL |
+| revenue_growth | 46 | -0.0493 | -0.369 | -0.1063 | ✗ | FAIL |
 
-**过关因子:** 无 —— 不启动 Phase 2(诚实门)
+**过关因子:** low_volatility, short_reversal
 
 ## 明细 h=60
 
 # 因子记分卡 (Phase 1)
 
-> Universe 用当前流动性名单近似历史池(轻微幸存者偏差)。点位时间;OOS = 后 30% 时序。
+> Survivorship-free + suspension-filtered:universe = 历史成分并集(点位时间);横截面 = 当日成分 − 当日停牌。OOS = 后 30% 时序。
 
 | factor | n | mean IC | ICIR | OOS IC | sign-stable | verdict |
 |---|--:|--:|--:|--:|:--:|:--:|
-| low_volatility | 44 | 0.0537 | 0.272 | 0.1653 | ✗ | FAIL |
-| short_reversal | 44 | -0.0040 | -0.024 | 0.0065 | ✗ | FAIL |
-| turnover_reversal | 44 | 0.0216 | 0.155 | 0.0029 | ✗ | FAIL |
-| net_inflow | 44 | 0.0057 | 0.046 | -0.0289 | ✗ | FAIL |
-| momentum_12_1 | 44 | 0.0290 | 0.161 | -0.0470 | ✗ | FAIL |
-| profit_growth | 44 | -0.0718 | -0.508 | -0.1383 | ✗ | FAIL |
-| roe | 44 | -0.0791 | -0.589 | -0.1383 | ✗ | FAIL |
-| revenue_growth | 44 | -0.0823 | -0.564 | -0.1720 | ✗ | FAIL |
+| low_volatility | 44 | 0.1220 | 0.651 | 0.2453 | ✗ | FAIL |
+| momentum_12_1 | 44 | 0.0469 | 0.276 | 0.0252 | ✗ | FAIL |
+| net_inflow | 44 | 0.0149 | 0.131 | 0.0104 | ✗ | FAIL |
+| short_reversal | 44 | -0.0034 | -0.022 | -0.0185 | ✗ | FAIL |
+| turnover_reversal | 44 | -0.0328 | -0.201 | -0.0960 | ✗ | FAIL |
+| roe | 44 | -0.0672 | -0.434 | -0.1691 | ✗ | FAIL |
+| profit_growth | 44 | -0.0739 | -0.521 | -0.1750 | ✗ | FAIL |
+| revenue_growth | 44 | -0.0880 | -0.587 | -0.2204 | ✗ | FAIL |
 
 **过关因子:** 无 —— 不启动 Phase 2(诚实门)
