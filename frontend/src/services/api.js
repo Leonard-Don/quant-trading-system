@@ -507,6 +507,23 @@ export const predictPrice = async (symbol) => {
   return response.data;
 };
 
+// 低波动选股 — cross-sectional ranking of an index universe by trailing
+// realized volatility (the project's only out-of-sample-validated signal).
+// Backend caches daily; a full live fetch of ~300-500 names can be slow on a
+// cold cache, so use the longer analysis timeout profile.
+export const getLowVolatilityScreen = async ({ universe = 'csi300', top = 30, window = 60 } = {}) => {
+  const params = new URLSearchParams({
+    universe,
+    top: String(top),
+    window: String(window),
+  });
+  const response = await api.get(
+    `/analysis/low-volatility-screen?${params.toString()}`,
+    withTimeoutProfile('analysis'),
+  );
+  return response.data;
+};
+
 // 多股票相关性分析
 export const getCorrelationAnalysis = async (symbols, periodDays = 90) => {
   const response = await api.post('/analysis/correlation', {

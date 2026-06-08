@@ -6,15 +6,20 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
 from backend.app.core.error_handler import AppException
-from backend.app.schemas.analysis import TrendAnalysisRequest, TrendAnalysisResponse
+from backend.app.schemas.analysis import (
+    LowVolatilityScreenResponse,
+    TrendAnalysisRequest,
+    TrendAnalysisResponse,
+)
 from backend.app.services.runtime_state import get_data_manager
 from src.analytics.comprehensive_scorer import ComprehensiveScorer
 from src.analytics.fundamental_analyzer import FundamentalAnalyzer
+from src.analytics.low_vol_screen import rank_low_volatility
 from src.analytics.model_comparator import model_comparator
 from src.analytics.pattern_recognizer import PatternRecognizer
 from src.analytics.predictor import PricePredictor
@@ -44,6 +49,22 @@ ANALYSIS_CACHE_TTLS = {
     "klines": 180,
     "prediction_compare": 300,
 }
+
+# Low-volatility screen ------------------------------------------------------
+# Map the public universe enum to the Tushare index code.
+LOW_VOL_UNIVERSE_CODES = {
+    "csi300": "000300.SH",
+    "csi500": "000905.SH",
+}
+LOW_VOL_SCREEN_CACHE_TTL = 86_400  # daily — a full ~300-name live fetch is heavy.
+LOW_VOL_TOP_CAP = 100
+# Honest, evidence-anchored disclaimer shown PROMINENTLY in the UI banner.
+LOW_VOL_DISCLAIMER = (
+    "低波动是本项目唯一通过样本外验证的信号(预注册确认:CSI500 OOS IC +0.11,"
+    "详见 docs/research/lowvol-confirmation.md)。这是 20 日持有期的横截面信号"
+    "——统计上低波动股票倾向跑赢,但这是信号不是保证收益,且未计入交易摩擦与容量。"
+    "仅供研究,非投资建议。"
+)
 HISTORY_FETCH_EXCEPTIONS = (
     AttributeError,
     ConnectionError,
@@ -1270,3 +1291,169 @@ async def get_risk_metrics(request: TrendAnalysisRequest):
     except Exception as e:
         logger.error(f"Error calculating risk metrics: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+# ==================== 低波动选股 (Low-Volatility Screen) ====================
+
+
+def _low_vol_provider():
+    """The Tushare provider, used for constituents + stock names.
+
+    Returns ``None`` (rather than raising) when the provider is unavailable so
+    the endpoint can degrade to an empty universe instead of a 500.
+    """
+    factory = getattr(data_manager, "provider_factory", None)
+    if factory is None:
+        return None
+    try:
+        return factory.get_provider("tushare")
+    except Exception as exc:
+        logger.warning("Low-vol screen: tushare provider unavailable: %s", exc)
+        return None
+
+
+def _resolve_low_vol_names(provider, symbols: list[str]) -> dict[str, str]:
+    """Best-effort ``{ts_code -> name}`` map. Never raises; empty on any failure."""
+    if provider is None or not symbols:
+        return {}
+    try:
+        basic = provider.get_stock_basic()
+    except Exception as exc:
+        logger.warning("Low-vol screen: get_stock_basic failed: %s", exc)
+        return {}
+    if basic is None or getattr(basic, "empty", True):
+        return {}
+    if "ts_code" not in basic.columns or "name" not in basic.columns:
+        return {}
+    wanted = set(symbols)
+    return {
+        str(row.ts_code): str(row.name)
+        for row in basic.itertuples(index=False)
+        if str(row.ts_code) in wanted
+    }
+
+
+def _fetch_low_vol_prices(symbols: list[str], window: int) -> dict[str, pd.DataFrame]:
+    """Fetch recent daily prices per constituent, reusing the provider's cache.
+
+    Requests a generous calendar window (≈ ``window`` trading days plus headroom
+    for weekends/holidays/suspensions) so each frame has at least ``window + 1``
+    close bars. Per-symbol failures are skipped (the screen ranks what it has).
+    """
+    # ~1.6 calendar days per trading day, + 40-bar headroom, floored at 120d.
+    lookback_days = max(120, int((window + 40) * 1.6))
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=lookback_days)
+    prices: dict[str, pd.DataFrame] = {}
+    for symbol in symbols:
+        try:
+            frame = data_manager.get_historical_data(
+                symbol=symbol,
+                start_date=start_date,
+                end_date=end_date,
+                interval="1d",
+            )
+        except HISTORY_FETCH_EXCEPTIONS as exc:
+            logger.warning("Low-vol screen: price fetch failed for %s: %s", symbol, exc)
+            continue
+        if frame is not None and not frame.empty and "close" in frame.columns:
+            prices[symbol] = frame
+    return prices
+
+
+def _run_low_vol_screen(universe: str, top: int, window: int) -> dict:
+    """Resolve the universe, fetch prices, rank, and decorate with names.
+
+    Blocking (network) — call via ``_run_blocking``. Ranks whatever names it can
+    fetch; ``count`` reflects the actually-ranked set.
+    """
+    code = LOW_VOL_UNIVERSE_CODES[universe]
+    provider = _low_vol_provider()
+    constituents: list[str] = []
+    if provider is not None:
+        try:
+            constituents = list(provider.get_index_constituents(code) or [])
+        except Exception as exc:
+            logger.warning("Low-vol screen: constituents fetch failed: %s", exc)
+            constituents = []
+
+    prices = _fetch_low_vol_prices(constituents, window) if constituents else {}
+    ranked = rank_low_volatility(prices, window=window, top=top)
+
+    names = _resolve_low_vol_names(provider, [r["symbol"] for r in ranked])
+    items = []
+    for row in ranked:
+        items.append(
+            {
+                "rank": row["rank"],
+                "symbol": row["symbol"],
+                "name": names.get(row["symbol"]),
+                "realized_vol": _finite_float(row["realized_vol"]),
+                "annualized_vol": _finite_float(row["annualized_vol"]),
+                "recent_return": (
+                    None
+                    if row["recent_return"] is None
+                    else _finite_float(row["recent_return"])
+                ),
+                "n_bars": int(row["n_bars"]),
+            }
+        )
+
+    return {
+        "as_of": datetime.now().isoformat(),
+        "universe": universe,
+        "window": window,
+        "count": len(items),
+        "items": items,
+        "disclaimer": LOW_VOL_DISCLAIMER,
+    }
+
+
+@router.get(
+    "/low-volatility-screen",
+    response_model=LowVolatilityScreenResponse,
+    summary="低波动选股",
+)
+async def low_volatility_screen(
+    universe: str = Query("csi300", description="指数池: csi300 | csi500"),
+    top: int = Query(30, ge=1, le=LOW_VOL_TOP_CAP, description="返回名次上限 (≤100)"),
+    window: int = Query(60, ge=2, le=500, description="实现波动率回看窗口 (交易日)"),
+):
+    """Rank an index universe by trailing realized volatility (calmest first).
+
+    Cross-sectional SCREEN, not a portfolio backtest. The realized-vol
+    definition matches the validated ``low_volatility`` factor exactly. Result is
+    cached with a daily TTL because a full live fetch of ~300–500 names is heavy.
+    """
+    key = str(universe or "").strip().lower()
+    if key not in LOW_VOL_UNIVERSE_CODES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown universe '{universe}'. Use one of: "
+            f"{', '.join(sorted(LOW_VOL_UNIVERSE_CODES))}.",
+        )
+
+    cache_key = (
+        "analysis::low_vol_screen::"
+        f"{key}::top={top}::window={window}::{datetime.now():%Y-%m-%d}"
+    )
+    cached = cache_manager.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        result = await _run_blocking(_run_low_vol_screen, key, top, window)
+    except HTTPException:
+        raise
+    except AppException:
+        raise
+    except ANALYSIS_RUNTIME_EXCEPTIONS as e:
+        logger.error("Error in low-volatility screen: %s", e, exc_info=True)
+        raise AppException(
+            message=str(e),
+            error_code="LOW_VOLATILITY_SCREEN_FAILED",
+            details={"universe": key},
+        ) from e
+
+    cache_manager.set(cache_key, result, ttl=LOW_VOL_SCREEN_CACHE_TTL)
+    return result

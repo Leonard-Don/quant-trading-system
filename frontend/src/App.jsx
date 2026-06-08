@@ -10,6 +10,7 @@ import {
   FireOutlined,
   FundOutlined,
   ThunderboltOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 
 import ErrorBoundary from './components/ErrorBoundary';
@@ -44,6 +45,7 @@ const IndustryDashboard = lazyWithRetry(() => import('./components/IndustryDashb
 const BacktestDashboard = lazyWithRetry(() => import('./components/BacktestDashboard'));
 const TodayResearchDashboard = lazyWithRetry(() => import('./components/TodayResearchDashboard'));
 const PaperTradingPanel = lazyWithRetry(() => import('./components/PaperTradingPanel'));
+const LowVolatilityScreen = lazyWithRetry(() => import('./components/LowVolatilityScreen'));
 
 // 懒加载占位组件
 const LazyLoadFallback = () => (
@@ -62,7 +64,7 @@ const LazyLoadFallback = () => (
 const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
-const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry', 'paper']);
+const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry', 'paper', 'lowvol']);
 const FULL_VIEW_SET = new Set(['realtime']);
 const readViewStateFromLocation = (search = window.location.search, revision = 0) => {
   const params = new URLSearchParams(search);
@@ -215,6 +217,11 @@ function App() {
       key: 'paper',
       icon: <ThunderboltOutlined />,
       label: '纸面账户',
+    },
+    {
+      key: 'lowvol',
+      icon: <SafetyCertificateOutlined />,
+      label: '低波动',
     }
   ];
 
@@ -296,6 +303,8 @@ function App() {
 
       case 'paper':
         return <Suspense fallback={<LazyLoadFallback />}><PaperTradingPanel /></Suspense>;
+      case 'lowvol':
+        return <Suspense fallback={<LazyLoadFallback />}><LowVolatilityScreen /></Suspense>;
       case 'backtest':
       default:
         return (
