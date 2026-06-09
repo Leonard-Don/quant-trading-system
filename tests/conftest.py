@@ -99,6 +99,26 @@ def _isolate_provider_class_caches(monkeypatch):
     monkeypatch.setenv("TUSHARE_TOKEN", "")
     monkeypatch.setenv("TS_TOKEN", "")
 
+    # The analysis cache (``cache_manager``) is DISK-BACKED — it writes JSON to
+    # ``<repo>/cache/``. Without isolation, endpoint tests POLLUTE that real
+    # cache with their fixtures (a fake ``平静股`` low-vol screen result written
+    # by a test was later served as real data by a dev server) and their
+    # ``cache_manager.clear()`` calls WIPE the developer's genuine cache.
+    # Repoint it at a fresh per-test tmp dir and isolate the in-memory layer.
+    import pathlib
+    import shutil
+    import tempfile
+
+    from src.utils.cache import cache_manager
+
+    # A standalone temp dir (NOT the test's own ``tmp_path`` — sharing it would
+    # add an ``analysis_cache`` entry that tests inspecting ``tmp_path`` count).
+    cache_tmp = pathlib.Path(tempfile.mkdtemp(prefix="pytest_analysis_cache_"))
+    monkeypatch.setattr(cache_manager, "cache_dir", cache_tmp)
+    _saved_memory_cache = dict(getattr(cache_manager, "memory_cache", {}))
+    if hasattr(cache_manager, "memory_cache"):
+        cache_manager.memory_cache.clear()
+
     snapshots: list[tuple[type, str, object]] = []
     for cls, attrs in _resolve_provider_cache_targets():
         for attr in attrs:
@@ -115,6 +135,11 @@ def _isolate_provider_class_caches(monkeypatch):
     finally:
         for cls, attr, saved in snapshots:
             setattr(cls, attr, saved)
+        # Restore the in-memory cache layer (cache_dir is restored by monkeypatch).
+        if hasattr(cache_manager, "memory_cache"):
+            cache_manager.memory_cache.clear()
+            cache_manager.memory_cache.update(_saved_memory_cache)
+        shutil.rmtree(cache_tmp, ignore_errors=True)
 
 
 @pytest.fixture
