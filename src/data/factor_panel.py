@@ -76,8 +76,13 @@ def build_panel(symbols, start, end, provider, cache_dir) -> FactorPanel:
                 fa.to_pickle(fa_path)
         if fa is not None and not fa.empty:
             fa = fa.copy()
-            fa["ann_date"] = pd.to_datetime(fa["ann_date"].astype(str))
-            fundamentals[sym] = fa
+            # ``errors="coerce"`` so one malformed/None ann_date (seen in fresh
+            # fetches) becomes NaT and is dropped, instead of crashing the whole
+            # panel build with a strptime ValueError.
+            fa["ann_date"] = pd.to_datetime(fa["ann_date"].astype(str), errors="coerce")
+            fa = fa.dropna(subset=["ann_date"])
+            if not fa.empty:
+                fundamentals[sym] = fa
 
         mf_path = cache_dir / f"{sym}_mf.pkl"
         mf = _cache_load(mf_path)
@@ -87,8 +92,12 @@ def build_panel(symbols, start, end, provider, cache_dir) -> FactorPanel:
                 mf.to_pickle(mf_path)
         if mf is not None and not mf.empty:
             mf = mf.copy()
-            mf.index = pd.DatetimeIndex(pd.to_datetime(mf["trade_date"].astype(str)))
-            moneyflow[sym] = mf.sort_index()
+            mf.index = pd.DatetimeIndex(
+                pd.to_datetime(mf["trade_date"].astype(str), errors="coerce")
+            )
+            mf = mf[mf.index.notna()].sort_index()
+            if not mf.empty:
+                moneyflow[sym] = mf
     return FactorPanel(prices=prices, fundamentals=fundamentals, moneyflow=moneyflow)
 
 

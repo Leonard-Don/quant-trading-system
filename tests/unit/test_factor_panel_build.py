@@ -26,6 +26,35 @@ class _FakeProvider:
         )
 
 
+class _NullDateProvider(_FakeProvider):
+    """Fresh Tushare fetches can carry a None/malformed ann_date or trade_date.
+    That must NOT crash the whole panel build (it used to: strptime ValueError on
+    the literal string 'None')."""
+
+    def get_financial_indicators(self, symbol, start, end):
+        return pd.DataFrame(
+            {"ann_date": ["20240103", None], "end_date": ["20231231", "20230930"], "roe": [11.0, 9.0]}
+        )
+
+    def get_moneyflow(self, symbol, start, end):
+        d = pd.bdate_range("2024-01-01", periods=3)
+        td = [d[0].strftime("%Y%m%d"), None, d[2].strftime("%Y%m%d")]
+        return pd.DataFrame({"trade_date": td, "net_mf_amount": [100, 200, 300]})
+
+
+def test_build_panel_survives_null_ann_date_and_trade_date(tmp_path):
+    # Regression: a None ann_date / trade_date is coerced to NaT and dropped,
+    # not raised — the rest of the panel still builds.
+    panel = build_panel(["AAA"], "20240101", "20240115", _NullDateProvider(), cache_dir=tmp_path)
+    assert "AAA" in panel.symbols
+    # the good fundamental row survives; the None-ann_date row was dropped
+    fund = panel.latest_fundamental("AAA", pd.Timestamp("2024-01-10"))
+    assert fund is not None and fund["roe"] == 11.0
+    # moneyflow keeps only the valid-dated rows (no NaT index)
+    mf = panel.moneyflow_history("AAA", pd.Timestamp("2024-01-10"))
+    assert not mf.empty and bool(mf.index.notna().all())
+
+
 def test_build_panel_assembles_and_caches(tmp_path):
     prov = _FakeProvider()
     panel = build_panel(["AAA", "BBB"], "20240101", "20240115", prov, cache_dir=tmp_path)
