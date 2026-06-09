@@ -524,6 +524,21 @@ export const getLowVolatilityScreen = async ({ universe = 'csi300', top = 30, wi
   return response.data;
 };
 
+// 低波动组合回测 — net-of-cost monthly low-vol basket vs equal-weight benchmark
+// (total-return prices, A-share frictions). Backend caches daily; cold compute
+// is heavy, so use the longer analysis timeout profile.
+export const getLowVolatilityPortfolio = async ({ universe = 'csi300', basketN = 30 } = {}) => {
+  const params = new URLSearchParams({
+    universe,
+    basket_n: String(basketN),
+  });
+  const response = await api.get(
+    `/analysis/low-volatility-portfolio?${params.toString()}`,
+    withTimeoutProfile('analysis'),
+  );
+  return response.data;
+};
+
 // 多股票相关性分析
 export const getCorrelationAnalysis = async (symbols, periodDays = 90) => {
   const response = await api.post('/analysis/correlation', {

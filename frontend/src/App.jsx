@@ -45,7 +45,7 @@ const IndustryDashboard = lazyWithRetry(() => import('./components/IndustryDashb
 const BacktestDashboard = lazyWithRetry(() => import('./components/BacktestDashboard'));
 const TodayResearchDashboard = lazyWithRetry(() => import('./components/TodayResearchDashboard'));
 const PaperTradingPanel = lazyWithRetry(() => import('./components/PaperTradingPanel'));
-const LowVolatilityScreen = lazyWithRetry(() => import('./components/LowVolatilityScreen'));
+const LowVolatilityView = lazyWithRetry(() => import('./components/LowVolatilityView'));
 
 // 懒加载占位组件
 const LazyLoadFallback = () => (
@@ -304,7 +304,7 @@ function App() {
       case 'paper':
         return <Suspense fallback={<LazyLoadFallback />}><PaperTradingPanel /></Suspense>;
       case 'lowvol':
-        return <Suspense fallback={<LazyLoadFallback />}><LowVolatilityScreen /></Suspense>;
+        return <Suspense fallback={<LazyLoadFallback />}><LowVolatilityView /></Suspense>;
       case 'backtest':
       default:
         return (

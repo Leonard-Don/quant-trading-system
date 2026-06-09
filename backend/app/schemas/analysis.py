@@ -54,3 +54,56 @@ class LowVolatilityScreenResponse(BaseModel):
     count: int
     items: list[LowVolatilityScreenItem]
     disclaimer: str
+
+
+class LowVolPortfolioEquityPoint(BaseModel):
+    """One rebalance-dated point on the growth-of-1 equity curve."""
+
+    date: str
+    basket_gross: float
+    basket_net: float
+    benchmark: float
+
+
+class LowVolPortfolioLegMetrics(BaseModel):
+    """Risk/return metrics for one leg (gross / net / benchmark).
+
+    Fields are Optional because a too-short or empty series yields an empty
+    metrics dict in the pure core (CAGR/Sharpe undefined for <2 periods).
+    """
+
+    total_return: Optional[float] = None
+    cagr: Optional[float] = None
+    ann_vol: Optional[float] = None
+    sharpe: Optional[float] = None
+    max_drawdown: Optional[float] = None
+    n_periods: Optional[int] = None
+
+
+class LowVolPortfolioMetrics(BaseModel):
+    gross: LowVolPortfolioLegMetrics
+    net: LowVolPortfolioLegMetrics
+    benchmark: LowVolPortfolioLegMetrics
+
+
+class LowVolPortfolioBacktestResponse(BaseModel):
+    """Net-of-cost low-volatility long-only basket backtest vs equal-weight.
+
+    Monthly rebalance, bottom-``basket_n`` lowest-realized-vol names, total-
+    return prices, A-share frictions on turnover. ``benchmark`` is equal-weight
+    of the same eligible universe (gross). ``disclaimer`` is shown prominently
+    in the UI and is honest about the CSI500 marginality.
+    """
+
+    universe: str
+    index_code: str
+    span: str
+    window: int
+    basket_n: int
+    n_periods: int
+    avg_annual_turnover: Optional[float] = None
+    cost_rates: dict[str, float]
+    equity_curve: list[LowVolPortfolioEquityPoint]
+    metrics: LowVolPortfolioMetrics
+    as_of: str
+    disclaimer: str

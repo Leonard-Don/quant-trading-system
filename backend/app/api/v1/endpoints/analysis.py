@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from backend.app.core.error_handler import AppException
 from backend.app.schemas.analysis import (
     LowVolatilityScreenResponse,
+    LowVolPortfolioBacktestResponse,
     TrendAnalysisRequest,
     TrendAnalysisResponse,
 )
@@ -63,6 +64,22 @@ LOW_VOL_DISCLAIMER = (
     "低波动是本项目唯一通过样本外验证的信号(预注册确认:CSI500 OOS IC +0.11,"
     "详见 docs/research/lowvol-confirmation.md)。这是 20 日持有期的横截面信号"
     "——统计上低波动股票倾向跑赢,但这是信号不是保证收益,且未计入交易摩擦与容量。"
+    "注意:OOD 检验(docs/research/lowvol-ood.md)显示该信号在 2024–25 未见期持续性偏弱,"
+    "应实时监控而非假设长期有效。仅供研究,非投资建议。"
+)
+
+# Low-volatility PORTFOLIO BACKTEST (net-of-cost basket strategy) ------------
+LOW_VOL_PORTFOLIO_CACHE_TTL = 86_400  # daily — the backtest is heavy, must not run per request.
+LOW_VOL_PORTFOLIO_BASKET_MIN = 10
+LOW_VOL_PORTFOLIO_BASKET_MAX = 100
+# Honest, evidence-anchored disclaimer for the NET backtest. Keeps the CSI500
+# marginality explicit (per docs/research/lowvol-portfolio-backtest.md).
+LOW_VOL_PORTFOLIO_DISCLAIMER = (
+    "低波动是本项目唯一通过样本外验证的信号(CSI500 OOS IC +0.11)。此为净额回测"
+    "(已计入 A 股交易摩擦,总收益复权价)。CSI300 大盘:净 Sharpe≈0.44 vs 等权 0.22、"
+    "波动与回撤更低、换手低成本小;CSI500 中小盘:换手更高,净额仅与等权持平甚至略逊。"
+    "这是历史回测与信号,非保证收益、未计容量冲击,2019–24 为偏防御区间;"
+    "且 OOD 检验(docs/research/lowvol-ood.md)显示信号在 2024–25 未见期持续性偏弱,需实时监控。"
     "仅供研究,非投资建议。"
 )
 HISTORY_FETCH_EXCEPTIONS = (
@@ -1456,4 +1473,107 @@ async def low_volatility_screen(
         ) from e
 
     cache_manager.set(cache_key, result, ttl=LOW_VOL_SCREEN_CACHE_TTL)
+    return result
+
+
+# =========== 低波动组合回测 (Low-Volatility Portfolio Backtest) ===========
+
+
+def _run_low_vol_portfolio(universe: str, basket_n: int) -> dict:
+    """Resolve the provider, run the cached net-of-cost basket backtest.
+
+    Blocking (disk + a few light eligibility calls) — call via ``_run_blocking``.
+    Relies on the pre-cached 2018-2024 panel/adj under ``data/_factor_cache``;
+    never re-fetches full price histories.
+    """
+    from backend.app.services.low_vol_portfolio_service import (
+        run_low_vol_portfolio_from_cache,
+    )
+
+    code = LOW_VOL_UNIVERSE_CODES[universe]
+    provider = _low_vol_provider()
+    if provider is None:
+        raise AppException(
+            message="行情数据源暂时不可用，无法运行低波动组合回测。",
+            error_code="LOW_VOL_PORTFOLIO_PROVIDER_UNAVAILABLE",
+            status_code=502,
+            details={"universe": universe},
+        )
+
+    raw = run_low_vol_portfolio_from_cache(provider, code, basket_n=basket_n)
+    metrics = raw.get("metrics") or {}
+    return {
+        "universe": universe,
+        "index_code": code,
+        "span": raw.get("span", ""),
+        "window": raw.get("window", 60),
+        "basket_n": raw.get("basket_n", basket_n),
+        "n_periods": raw.get("n_periods", 0),
+        "avg_annual_turnover": raw.get("avg_annual_turnover"),
+        "cost_rates": raw.get("cost_rates", {}),
+        "equity_curve": raw.get("equity_curve", []),
+        "metrics": {
+            "gross": metrics.get("gross", {}),
+            "net": metrics.get("net", {}),
+            "benchmark": metrics.get("benchmark", {}),
+        },
+        "as_of": datetime.now().isoformat(),
+        "disclaimer": LOW_VOL_PORTFOLIO_DISCLAIMER,
+    }
+
+
+@router.get(
+    "/low-volatility-portfolio",
+    response_model=LowVolPortfolioBacktestResponse,
+    summary="低波动组合回测",
+)
+async def low_volatility_portfolio(
+    universe: str = Query("csi300", description="指数池: csi300 | csi500"),
+    basket_n: int = Query(
+        30,
+        ge=LOW_VOL_PORTFOLIO_BASKET_MIN,
+        le=LOW_VOL_PORTFOLIO_BASKET_MAX,
+        description="基金篮子持仓数量 (10..100)",
+    ),
+):
+    """Net-of-cost monthly low-volatility long-only basket backtest (2018-2024).
+
+    Longs the bottom-``basket_n`` lowest-60d-realized-vol names of the chosen
+    index, rebalanced monthly, P&L on total-return (adjusted) prices, A-share
+    frictions charged on turnover, vs an equal-weight benchmark of the same
+    eligible universe. Span is fixed to the cached 2018-2024 window. The result
+    is daily-TTL cached because the backtest is heavy and must not recompute per
+    request. Honest about CSI500 marginality via ``disclaimer``.
+    """
+    key = str(universe or "").strip().lower()
+    if key not in LOW_VOL_UNIVERSE_CODES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown universe '{universe}'. Use one of: "
+            f"{', '.join(sorted(LOW_VOL_UNIVERSE_CODES))}.",
+        )
+
+    cache_key = (
+        "analysis::low_vol_portfolio::"
+        f"{key}::basket_n={basket_n}::{datetime.now():%Y-%m-%d}"
+    )
+    cached = cache_manager.get(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        result = await _run_blocking(_run_low_vol_portfolio, key, basket_n)
+    except HTTPException:
+        raise
+    except AppException:
+        raise
+    except ANALYSIS_RUNTIME_EXCEPTIONS as e:
+        logger.error("Error in low-volatility portfolio backtest: %s", e, exc_info=True)
+        raise AppException(
+            message=str(e),
+            error_code="LOW_VOLATILITY_PORTFOLIO_FAILED",
+            details={"universe": key, "basket_n": basket_n},
+        ) from e
+
+    cache_manager.set(cache_key, result, ttl=LOW_VOL_PORTFOLIO_CACHE_TTL)
     return result
