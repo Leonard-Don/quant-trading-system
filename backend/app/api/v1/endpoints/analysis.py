@@ -64,7 +64,8 @@ LOW_VOL_DISCLAIMER = (
     "低波动是本项目唯一通过样本外验证的信号(预注册确认:CSI500 OOS IC +0.11,"
     "详见 docs/research/lowvol-confirmation.md)。这是 20 日持有期的横截面信号"
     "——统计上低波动股票倾向跑赢,但这是信号不是保证收益,且未计入交易摩擦与容量。"
-    "仅供研究,非投资建议。"
+    "注意:OOD 检验(docs/research/lowvol-ood.md)显示该信号在 2024–25 未见期持续性偏弱,"
+    "应实时监控而非假设长期有效。仅供研究,非投资建议。"
 )
 
 # Low-volatility PORTFOLIO BACKTEST (net-of-cost basket strategy) ------------
@@ -77,7 +78,8 @@ LOW_VOL_PORTFOLIO_DISCLAIMER = (
     "低波动是本项目唯一通过样本外验证的信号(CSI500 OOS IC +0.11)。此为净额回测"
     "(已计入 A 股交易摩擦,总收益复权价)。CSI300 大盘:净 Sharpe≈0.44 vs 等权 0.22、"
     "波动与回撤更低、换手低成本小;CSI500 中小盘:换手更高,净额仅与等权持平甚至略逊。"
-    "这是历史回测与信号,非保证收益、未计容量冲击,2019–24 为偏防御区间。"
+    "这是历史回测与信号,非保证收益、未计容量冲击,2019–24 为偏防御区间;"
+    "且 OOD 检验(docs/research/lowvol-ood.md)显示信号在 2024–25 未见期持续性偏弱,需实时监控。"
     "仅供研究,非投资建议。"
 )
 HISTORY_FETCH_EXCEPTIONS = (
