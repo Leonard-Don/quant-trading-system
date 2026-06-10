@@ -72,10 +72,10 @@ def monthly_rebalance_dates(trading_dates) -> list:
     return [pd.Timestamp(g.index[0]) for _, g in s.groupby([s.index.year, s.index.month])]
 
 
-_LEGACY_NOTE = "Universe 用当前流动性名单近似历史池(轻微幸存者偏差)。点位时间;OOS = 后 30% 时序。"
+_LEGACY_NOTE = "Universe 用当前流动性名单近似历史池(轻微幸存者偏差)。点位时间;OOS = 后 30% 时序;前向收益用全收益价(close×adj_factor)。"
 _SURVIVORSHIP_FREE_NOTE = (
     "Survivorship-free + suspension-filtered:universe = 历史成分并集(点位时间);"
-    "横截面 = 当日成分 − 当日停牌。OOS = 后 30% 时序。"
+    "横截面 = 当日成分 − 当日停牌。OOS = 后 30% 时序;前向收益用全收益价(close×adj_factor)。"
 )
 
 
@@ -245,14 +245,14 @@ def build_multi_horizon_markdown(
             f"> Universe: **{universe_label}** ({n_symbols} symbols usable). "
             "**Survivorship-free + suspension-filtered (无幸存者偏差 + 停牌过滤)**:"
             "universe = 回测区间内历史成分的并集(点位时间);每个调仓日的横截面"
-            "= 当日成分 − 当日停牌。点位时间;OOS = 后 30% 时序;门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable;"
+            "= 当日成分 − 当日停牌。点位时间;OOS = 后 30% 时序;前向收益用全收益价(close×adj_factor);门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable;"
             "Holm(α=0.05) 跨全部 factor×horizon 单元控制多重检验,见 Holm 列。"
         )
     else:
         universe_note = (
             f"> Universe: **{universe_label}** ({n_symbols} symbols usable). "
             "Universe 用当前成分/流动性名单近似历史池(轻微幸存者偏差)。"
-            "点位时间;OOS = 后 30% 时序;门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable;"
+            "点位时间;OOS = 后 30% 时序;前向收益用全收益价(close×adj_factor);门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable;"
             "Holm(α=0.05) 跨全部 factor×horizon 单元控制多重检验,见 Holm 列。"
         )
     lines = [

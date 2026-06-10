@@ -541,6 +541,35 @@ class TushareProvider(BaseDataProvider):
         )
         return df if df is not None else pd.DataFrame()
 
+    def get_adj_factor(self, symbol: str, start: str, end: str) -> pd.Series:
+        """Historical ``adj_factor`` as a float Series indexed by trade date.
+
+        Used by the factor panel to measure forward returns on total-return
+        prices (close × adj_factor). Same semantics as the lowvol portfolio
+        backtest's per-symbol cache. Degrades to an empty Series on
+        rate-limit exhaustion, matching the read-path contract.
+        """
+        ts_code = self.normalize_symbol(symbol)
+        if not self._is_supported_ts_code(ts_code):
+            return pd.Series(dtype=float)
+        if not self._acquire_or_short_circuit():
+            return pd.Series(dtype=float)
+        pro = self._get_pro_client()
+        df = pro.adj_factor(
+            ts_code=ts_code,
+            start_date=self._format_tushare_date(start),
+            end_date=self._format_tushare_date(end),
+        )
+        if df is None or df.empty:
+            return pd.Series(dtype=float)
+        s = (
+            df.sort_values("trade_date")
+            .set_index("trade_date")["adj_factor"]
+            .astype(float)
+        )
+        s.index = pd.DatetimeIndex(pd.to_datetime(s.index.astype(str)))
+        return s
+
     def is_available(self) -> bool:
         """Check token/client availability without using BaseDataProvider's AAPL probe."""
 
