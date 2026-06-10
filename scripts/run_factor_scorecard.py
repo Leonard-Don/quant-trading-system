@@ -79,25 +79,74 @@ _SURVIVORSHIP_FREE_NOTE = (
 )
 
 
+def _fmt(value, spec: str = ".3f") -> str:
+    """Render a numeric cell; '-' for missing/NaN (keeps legacy reports renderable)."""
+    if isinstance(value, (int, float)) and value == value:
+        return format(value, spec)
+    return "-"
+
+
+def _holm_mark(report: dict) -> str:
+    hs = report.get("holm_significant")
+    if hs is None:
+        return "-"
+    return "✓" if hs else "✗"
+
+
+def apply_holm_correction(
+    reports_by_horizon: dict[int, list[dict]], *, alpha: float = 0.05
+):
+    """Holm-correct the one-sided OOS-IC p-values across EVERY (factor, horizon)
+    cell evaluated in this run.
+
+    The family is all cells, not one factor's row — the run tests
+    |factors| × |horizons| hypotheses, so that is the multiplicity a "lucky"
+    cell must survive. Annotates each report dict in place with
+    ``holm_significant`` (True/False; ``None`` when the cell has no finite
+    p-value, e.g. too few OOS dates) and returns the correction object.
+    """
+    from src.backtest.statistical_tests.corrections import holm_correct
+
+    cells: list[tuple[int, dict, float]] = []
+    for h in sorted(reports_by_horizon):
+        for r in reports_by_horizon[h]:
+            p = r.get("oos_p_value")
+            if isinstance(p, (int, float)) and p == p:
+                cells.append((h, r, float(p)))
+            else:
+                r["holm_significant"] = None
+    correction = holm_correct(
+        [p for _, _, p in cells],
+        alpha=alpha,
+        labels=[f"{r['name']}@{h}" for h, r, _ in cells],
+    )
+    for (_, r, _), rejected in zip(cells, correction.rejected):
+        r["holm_significant"] = bool(rejected)
+    return correction
+
+
 def build_scorecard_markdown(reports: list[dict], note: str | None = None) -> str:
     lines = [
         "# 因子记分卡 (Phase 1)",
         "",
         f"> {note or _LEGACY_NOTE}",
         "",
-        "| factor | n | mean IC | ICIR | OOS IC | sign-stable | verdict |",
-        "|---|--:|--:|--:|--:|:--:|:--:|",
+        "| factor | n | mean IC | ICIR | OOS IC | OOS ICIR | p(OOS) | Holm | sign-stable | verdict |",
+        "|---|--:|--:|--:|--:|--:|--:|:--:|:--:|:--:|",
     ]
     for r in sorted(reports, key=lambda x: (x.get("oos_mean_ic") or -9), reverse=True):
-        vals = {
-            k: (r.get(k) if r.get(k) is not None else float("nan"))
-            for k in ["name", "n_dates", "mean_ic", "icir", "oos_mean_ic"]
-        }
         lines.append(
-            "| {name} | {n_dates} | {mean_ic:.4f} | {icir:.3f} | {oos_mean_ic:.4f} | {ss} | {v} |".format(
+            "| {name} | {n} | {mean_ic} | {icir} | {oos_ic} | {oos_icir} | {p} | {holm} | {ss} | {v} |".format(
+                name=r.get("name", "?"),
+                n=r.get("n_dates", "-"),
+                mean_ic=_fmt(r.get("mean_ic"), ".4f"),
+                icir=_fmt(r.get("icir"), ".3f"),
+                oos_ic=_fmt(r.get("oos_mean_ic"), ".4f"),
+                oos_icir=_fmt(r.get("oos_icir"), ".3f"),
+                p=_fmt(r.get("oos_p_value"), ".4f"),
+                holm=_holm_mark(r),
                 ss="✓" if r.get("sign_stable") else "✗",
                 v="PASS" if r.get("passes") else "FAIL",
-                **vals,
             )
         )
     passed = [r["name"] for r in reports if r.get("passes")]
@@ -155,12 +204,21 @@ def build_pass_fail_matrix_markdown(reports_by_horizon: dict[int, list[dict]]) -
 
 
 def _passing_pairs(reports_by_horizon: dict[int, list[dict]]) -> list[str]:
-    """``factor@horizon`` labels for every (factor, horizon) that passes the gate."""
+    """``factor@horizon`` labels for every (factor, horizon) that passes the gate.
+
+    When the Holm annotation is present, each label carries its verdict —
+    ``(Holm✓)`` / ``(Holm✗)`` — so a threshold-gate PASS can never be quoted
+    without the family-wide multiple-testing verdict next to it.
+    """
     pairs: list[str] = []
     for h in sorted(reports_by_horizon):
         for r in reports_by_horizon[h]:
             if r.get("passes"):
-                pairs.append(f"{r['name']}@{h}")
+                label = f"{r['name']}@{h}"
+                hs = r.get("holm_significant")
+                if hs is not None:
+                    label += " (Holm✓)" if hs else " (Holm✗)"
+                pairs.append(label)
     return pairs
 
 
@@ -187,13 +245,15 @@ def build_multi_horizon_markdown(
             f"> Universe: **{universe_label}** ({n_symbols} symbols usable). "
             "**Survivorship-free + suspension-filtered (无幸存者偏差 + 停牌过滤)**:"
             "universe = 回测区间内历史成分的并集(点位时间);每个调仓日的横截面"
-            "= 当日成分 − 当日停牌。点位时间;OOS = 后 30% 时序;门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable。"
+            "= 当日成分 − 当日停牌。点位时间;OOS = 后 30% 时序;门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable;"
+            "Holm(α=0.05) 跨全部 factor×horizon 单元控制多重检验,见 Holm 列。"
         )
     else:
         universe_note = (
             f"> Universe: **{universe_label}** ({n_symbols} symbols usable). "
             "Universe 用当前成分/流动性名单近似历史池(轻微幸存者偏差)。"
-            "点位时间;OOS = 后 30% 时序;门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable。"
+            "点位时间;OOS = 后 30% 时序;门槛 OOS IC ≥ 0.03 且 ICIR>0 且 sign-stable;"
+            "Holm(α=0.05) 跨全部 factor×horizon 单元控制多重检验,见 Holm 列。"
         )
     lines = [
         "# 因子记分卡 (Phase 1, multi-horizon)",
@@ -350,6 +410,8 @@ def main():
             for f in factors
         ]
 
+    correction = apply_holm_correction(reports_by_horizon, alpha=0.05)
+
     md = build_multi_horizon_markdown(
         reports_by_horizon,
         universe_label=universe_label,
@@ -368,6 +430,16 @@ def main():
                 "horizons": horizons,
                 "start": args.start,
                 "end": args.end,
+                "holm": {
+                    "method": correction.method,
+                    "alpha": correction.alpha,
+                    "n_tests": len(correction.raw_p_values),
+                    "significant": [
+                        lab
+                        for lab, rej in zip(correction.labels, correction.rejected)
+                        if rej
+                    ],
+                },
                 "reports_by_horizon": {str(h): reports_by_horizon[h] for h in horizons},
             },
             default=str,

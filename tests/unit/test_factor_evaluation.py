@@ -138,6 +138,47 @@ def test_evaluate_factor_threads_eligible_by_date():
     assert rep["mean_ic"] != rep_full["mean_ic"]
 
 
+def test_evaluate_factor_reports_oos_only_diagnostics():
+    # The gate's headline evidence must be measurable OOS-only: report the OOS
+    # segment's ICIR and a one-sided t-test (H1: mean OOS IC > 0) so the
+    # scorecard can apply multiple-testing control. Full-sample icir stays as a
+    # diagnostic but must no longer be the only dispersion statistic.
+    panel, dates, factor, horizon = _panel_with_relationship()
+    rep = evaluate_factor(factor, panel, dates, horizon, train_frac=0.7)
+    assert rep["oos_n"] > 0
+    assert rep["oos_icir"] > 0  # strong synthetic factor works OOS too
+    assert np.isfinite(rep["oos_t_stat"])
+    assert 0.0 <= rep["oos_p_value"] < 0.05  # clearly significant
+
+
+def test_oos_p_value_is_one_sided():
+    # A factor that predicts the WRONG way must get p ~ 1, not ~ 0: the test is
+    # one-sided (H1: mean OOS IC > 0), so negative IC is evidence AGAINST.
+    panel, dates, factor, horizon = _panel_with_relationship(seed=2)
+
+    class _Inverted:
+        name = "inverted"
+        direction = -1  # flips the sign of every cross-sectional IC
+
+        def compute(self, p, as_of):
+            return factor.compute(p, as_of)
+
+    rep = evaluate_factor(_Inverted(), panel, dates, horizon, train_frac=0.7)
+    assert rep["oos_mean_ic"] < 0
+    assert rep["oos_p_value"] > 0.5
+
+
+def test_evaluate_factor_empty_ic_reports_nan_oos_diagnostics():
+    # Empty IC series (no evaluable dates) -> the new keys exist and are NaN,
+    # so downstream consumers can rely on the schema unconditionally.
+    panel, _, factor, horizon = _panel_with_relationship(seed=6)
+    rep = evaluate_factor(factor, panel, [], horizon)
+    assert rep["passes"] is False
+    assert rep["oos_n"] == 0
+    for key in ("oos_icir", "oos_t_stat", "oos_p_value"):
+        assert key in rep and not np.isfinite(rep[key])
+
+
 def test_gate_requires_positive_oos_ic_not_just_magnitude():
     # Positive, material OOS IC + positive ICIR + sign-stable -> PASS
     assert passes_ic_gate(0.04, 0.20, True) is True
