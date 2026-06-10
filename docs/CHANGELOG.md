@@ -2,6 +2,88 @@
 
 ## Unreleased
 
+> 以下 2026-06-03 → 2026-06-10 区段（#88–#152）为 2026-06-10 集中补录：
+> 这一波提交当时未随 PR 同步写入更新日志。
+
+### Features（补录 #88–#152）
+
+- feat(factors): 点位时间（point-in-time）因子库 + IC 验证引擎（Phase 1）——
+  `FactorPanel` 面板构建、价格/基本面/资金流因子实现、IC/ICIR 评估与 OOS
+  门控、CSI300 universe 与多 horizon 记分卡（`docs/factor_scorecard.md`）
+  (#133–#137)。
+- feat(factors): 无幸存者偏差 + 停牌过滤的因子 IC 验证 harness——按时点重建
+  指数成分（含已退市股票）、剔除停牌区间 (#145)。
+- feat: 低波动选股——把首个通过验证的信号以选股器形式公开
+  （`GET /analysis/low-volatility-screen`、前端 `?view=lowvol`）(#147)。
+- feat(low-vol): 策略回测——净成本（net-of-cost）低波动组合回测进入 UI
+  （`GET /analysis/low-volatility-portfolio`）(#150)。
+- feat(backtest): 真实 A 股交易摩擦——印花税、过户费、佣金下限、T+1、
+  涨跌停限制 (#144)。
+- feat(analytics): 点位时间 scorer 权重校准 harness (#132)。
+- feat(industry): Tushare 接入龙头股详情数据路径 + Sina 优先报价 (#95)；
+  龙头详情从实时报价回填股票名 (#97)；行业趋势拉取不再阻塞龙头详情弹窗 (#98)。
+- feat(tushare): 客户端 TTL 缓存 + 热点读取按分钟退避 (#101)；数据源健康度
+  以页头状态点呈现 (#100)；Tushare 自检（health_check +
+  `scripts/check_tushare.py`）(#96)。
+- feat(ui): 补完浅色主题（翻转残余硬编码深色表面、表面卡片主题感知）
+  (#91, #93)；回测净值曲线揭示动效 (#92)。
+
+### Research（补录）
+
+- research(low-vol): 预注册 OOS 确认——**CONFIRMED**。CSI500（不相交中盘
+  universe）OOS IC +0.1135、ICIR 0.447；CSI300 稳健性 3/3 窗口、市场状态
+  4/0；手工重算与引擎一致 (#146)。
+- research(low-vol): 净成本组合回测——CSI300 上有效，CSI500 上边际 (#148)；
+  OOD 压力测试——对估计器选择稳健，但前向持续性偏弱 (#149)。
+- research(factors): 点位时间 IC 探针——融资融券因子 (#138)、业绩预告增速
+  因子 (#139)、北向资金因子 (#140)，均未通过 IC 门控（负结果照实记录）。
+
+### Fixed（补录）
+
+- fix(backtest): 移除行业轮动排名中的前视偏差 (#128)；组合策略路径补上
+  1-bar 执行滞后 (#127)。
+- fix(factors): IC 门控要求 OOS IC 为正（而非绝对值）(#136)。
+- fix(analytics): 修正估值/MFI/OBV/标志位四处打分 bug (#129)；趋势分析
+  RSI/ATR/ADX 改用 Wilder 平滑（RMA）(#130)；不可比的龙头分数加保护 +
+  移除死代码 optimizer (#131)。
+- fix(factor-panel): 畸形 `ann_date`/`trade_date` 做强制转换而非让面板崩溃
+  (#152)。
+- fix(paper-trading): 市价单自动填充成交价 + 清晰校验信息 (#143)；归档落到
+  dashboard profile、未定价持仓按成本估值 (#88)。
+- fix(strategy): `compare_strategies` 空输入保护 (#122)。
+- fix(tests): 系统性稳住 flaky vitest 套件（worker 上限 + 超时 + 重试）
+  (#94)；从源头消灭 real-timer flake、移除测试重试 (#102)；隔离落盘分析
+  缓存避免测试污染 `<repo>/cache/` (#151)。
+
+### Refactoring（补录）
+
+- refactor(trade): `/trade/*` 并入持久化纸面账户引擎并退役兼容 shim——
+  `/trade/*` API 已整体移除 (#107, #108)。
+- refactor: 拆分神组件/神模块——MarketAnalysis (#103)、
+  CrossMarketBacktestPanel (#112)、IndustryHeatmap (#118)、
+  RealtimeStockDetailModal (#124)、IndustryDashboard (#126)、industry
+  runtime 拆 etf/heatmap/stocks 及聚类/趋势/tushare 助手 (#121, #123)、
+  `sina_ths_adapter` 拆 `sina_ths/` 包 (#114)、akshare 解析助手拆
+  `akshare/` 包 (#125)、`strategy_statistical_tests` 拆同级模块 (#119)、
+  RealTimePanel 快照动作提为 hook (#117)。
+- chore: 移除 7 个死 Python 模块（约 2188 行）(#110) 及孤儿文件/零引用
+  导出 (#111)。
+
+### Tooling（补录）
+
+- chore(ci): 严格 mypy 门从 31 个源文件扩到 73 个 (#115)；ruff 基线
+  118 → 103 锁定本轮清理 (#116)；gitignore `.ruff_cache/`、`.benchmarks/`
+  (#109)。
+- test: 补齐 utility/analytics 模块测试 (#113)，覆盖 pairs_trading、
+  portfolio_optimizer、pattern_recognizer (#120)。
+
+### Documentation（补录）
+
+- docs: trade-vs-paper 与认证子系统状态审计 (#99)；记录单用户决策——鉴权
+  保持不强制、不删除 (#104)；README 多轮刷新（架构树、因子 IC 验证框架、
+  措辞）(#89, #90, #141, #142)；因子库 Phase 1 spec 与实施计划 (#133,
+  #134)。
+
 ### Removed
 
 - feat(etf)!: remove the entire ETF rotation board. Deletes the

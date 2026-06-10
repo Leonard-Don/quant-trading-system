@@ -1,20 +1,24 @@
 # 公开主仓结构说明
 
-当前 `quant-trading-system` 已收敛为一个研究档案入口加三块 GitHub-facing 主工作区：
+当前 `quant-trading-system` 已收敛为一个研究档案入口（今日研究）加四块 GitHub-facing 主工作区，外加一个低波动选股视图：
 
 - `今日研究`
 - `策略回测`
 - `实时行情`
 - `行业热度`
+- `纸面账户`
+- `低波动选股`（`?view=lowvol`，呈现已验证的 low_volatility@20 信号）
 
 ## 入口层
 
 ```text
-frontend/src/App.js
+frontend/src/App.jsx
 ├── today
 ├── backtest
 ├── realtime
-└── industry
+├── industry
+├── paper
+└── lowvol
 ```
 
 - 旧的 `pricing / godsEye / workbench / quantlab` view 不再公开。
@@ -31,12 +35,13 @@ backend/app/api/v1/api.py
 ├── /realtime
 ├── /analysis
 ├── /optimization
-├── /trade
 ├── /industry
 ├── /events
 ├── /cross-market
 ├── /infrastructure
-└── /research-journal
+├── /research-journal
+├── /policy-radar
+└── /paper
 ```
 
 已从当前主仓移出的公开路由：
@@ -46,6 +51,8 @@ backend/app/api/v1/api.py
 - `/research-workbench/*`
 - `/quant-lab/*`
 - `/alt-data/*`
+- `/trade/*`（2026-06-05 并入 `/paper/*` 后整体移除，#107/#108）
+- `/etf-rotation/*`（ETF 轮动板块整体下线，见 CHANGELOG Unreleased）
 
 ## 关键行为调整
 

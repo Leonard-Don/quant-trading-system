@@ -48,6 +48,16 @@ jobs:
             --cov=src --cov=backend --cov-report=xml --cov-report=term \
             --cov-fail-under=60
 
+      - name: API docs freshness gate (must pass)
+        # docs/openapi.json + API_REFERENCE.md + postman_collection.json are
+        # generated artifacts. Regenerate them from app.openapi() and fail if
+        # the tracked files differ — i.e. an endpoint landed without re-running
+        # scripts/generate_api_docs.py (this is how the low-vol endpoints went
+        # missing from the docs in 2026-06).
+        run: |
+          python scripts/generate_api_docs.py
+          git diff --exit-code docs/openapi.json docs/API_REFERENCE.md docs/postman_collection.json
+
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v7
