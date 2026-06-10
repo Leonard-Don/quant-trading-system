@@ -9662,6 +9662,33 @@
         ],
         "title": "LoginRequest"
       },
+      "LowVolAdjFallback": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "ratio": {
+            "type": "number",
+            "title": "Ratio"
+          },
+          "symbols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Symbols"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count",
+          "ratio",
+          "symbols"
+        ],
+        "title": "LowVolAdjFallback",
+        "description": "Accounting of symbols that fell back to raw (un-adjusted) closes.\n\n``count`` is 0 for an honest total-return run; when positive, the\n``disclaimer`` is also qualified — a dividend-free leg may never look\nidentical to a correct run. ``symbols`` is capped at 20 entries."
+      },
       "LowVolPortfolioBacktestResponse": {
         "properties": {
           "universe": {
@@ -9720,6 +9747,9 @@
             "type": "string",
             "title": "As Of"
           },
+          "adj_fallback": {
+            "$ref": "#/components/schemas/LowVolAdjFallback"
+          },
           "disclaimer": {
             "type": "string",
             "title": "Disclaimer"
@@ -9737,10 +9767,11 @@
           "equity_curve",
           "metrics",
           "as_of",
+          "adj_fallback",
           "disclaimer"
         ],
         "title": "LowVolPortfolioBacktestResponse",
-        "description": "Net-of-cost low-volatility long-only basket backtest vs equal-weight.\n\nMonthly rebalance, bottom-``basket_n`` lowest-realized-vol names, total-\nreturn prices, A-share frictions on turnover. ``benchmark`` is equal-weight\nof the same eligible universe (gross). ``disclaimer`` is shown prominently\nin the UI and is honest about the CSI500 marginality."
+        "description": "Net-of-cost low-volatility long-only basket backtest vs equal-weight.\n\nMonthly rebalance, bottom-``basket_n`` lowest-realized-vol names, total-\nreturn prices, A-share frictions on turnover. ``benchmark`` is equal-weight\nof the same eligible universe (gross). ``disclaimer`` is shown prominently\nin the UI and is honest about the CSI500 marginality. ``adj_fallback``\naccounts for any raw-close degradation of the total-return claim."
       },
       "LowVolPortfolioEquityPoint": {
         "properties": {
@@ -9934,6 +9965,10 @@
             "type": "integer",
             "title": "Window"
           },
+          "window_validated": {
+            "type": "boolean",
+            "title": "Window Validated"
+          },
           "count": {
             "type": "integer",
             "title": "Count"
@@ -9955,6 +9990,7 @@
           "as_of",
           "universe",
           "window",
+          "window_validated",
           "count",
           "items",
           "disclaimer"

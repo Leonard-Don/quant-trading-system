@@ -51,6 +51,7 @@ class LowVolatilityScreenResponse(BaseModel):
     as_of: str
     universe: str
     window: int
+    window_validated: bool
     count: int
     items: list[LowVolatilityScreenItem]
     disclaimer: str
@@ -86,13 +87,27 @@ class LowVolPortfolioMetrics(BaseModel):
     benchmark: LowVolPortfolioLegMetrics
 
 
+class LowVolAdjFallback(BaseModel):
+    """Accounting of symbols that fell back to raw (un-adjusted) closes.
+
+    ``count`` is 0 for an honest total-return run; when positive, the
+    ``disclaimer`` is also qualified — a dividend-free leg may never look
+    identical to a correct run. ``symbols`` is capped at 20 entries.
+    """
+
+    count: int
+    ratio: float
+    symbols: list[str]
+
+
 class LowVolPortfolioBacktestResponse(BaseModel):
     """Net-of-cost low-volatility long-only basket backtest vs equal-weight.
 
     Monthly rebalance, bottom-``basket_n`` lowest-realized-vol names, total-
     return prices, A-share frictions on turnover. ``benchmark`` is equal-weight
     of the same eligible universe (gross). ``disclaimer`` is shown prominently
-    in the UI and is honest about the CSI500 marginality.
+    in the UI and is honest about the CSI500 marginality. ``adj_fallback``
+    accounts for any raw-close degradation of the total-return claim.
     """
 
     universe: str
@@ -106,4 +121,5 @@ class LowVolPortfolioBacktestResponse(BaseModel):
     equity_curve: list[LowVolPortfolioEquityPoint]
     metrics: LowVolPortfolioMetrics
     as_of: str
+    adj_fallback: LowVolAdjFallback
     disclaimer: str

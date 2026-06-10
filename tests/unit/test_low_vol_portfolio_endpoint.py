@@ -225,3 +225,41 @@ def test_service_smoke_on_synthetic_cache(tmp_path, monkeypatch):
     assert result["metrics"]["net"]["cagr"] is not None
     # net is never above gross
     assert result["metrics"]["net"]["cagr"] <= result["metrics"]["gross"]["cagr"] + 1e-9
+
+
+def test_adj_fallback_surfaced_and_disclaimer_flagged(monkeypatch):
+    # When the service reports raw-close fallbacks, the endpoint must surface
+    # the accounting AND visibly qualify the "总收益复权价" disclaimer — a
+    # dividend-free run may never look identical to a correct one (audit
+    # finding, 2026-06-10).
+    fake_dm = _FakeDataManager()
+    monkeypatch.setattr(analysis, "data_manager", fake_dm)
+
+    def fallback_backtest(provider, index_code, *, basket_n=30, **kwargs):
+        raw = _fake_backtest(provider, index_code, basket_n=basket_n, **kwargs)
+        raw["adj_fallback"] = {"count": 2, "ratio": 0.04, "symbols": ["111111.SH", "222222.SZ"]}
+        return raw
+
+    monkeypatch.setattr(
+        low_vol_portfolio_service, "run_low_vol_portfolio_from_cache", fallback_backtest
+    )
+    cache_manager.clear()
+    app = FastAPI()
+    register_exception_handlers(app)
+    app.include_router(analysis.router, prefix="/analysis")
+    resp = TestClient(app).get("/analysis/low-volatility-portfolio?universe=csi300")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["adj_fallback"]["count"] == 2
+    assert body["adj_fallback"]["symbols"] == ["111111.SH", "222222.SZ"]
+    assert "复权因子" in body["disclaimer"] and "⚠️" in body["disclaimer"]
+
+
+def test_clean_run_reports_zero_adj_fallback(client):
+    # Service results without the key (legacy shape) normalize to count 0 and
+    # the disclaimer stays unqualified.
+    resp = client.get("/analysis/low-volatility-portfolio?universe=csi300")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["adj_fallback"] == {"count": 0, "ratio": 0.0, "symbols": []}
+    assert "⚠️" not in body["disclaimer"]
