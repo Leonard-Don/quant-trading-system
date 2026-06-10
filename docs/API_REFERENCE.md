@@ -3517,8 +3517,6 @@ some constituents' prices could not be fetched.
 - `loc` (array): 无描述
 - `msg` (string): 无描述
 - `type` (string): 无描述
-- `input` (unknown): 无描述
-- `ctx` (object): 无描述
 
 ### WalkForwardRequest
 
