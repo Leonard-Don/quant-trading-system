@@ -60,6 +60,7 @@ LOW_VOL_UNIVERSE_CODES = {
 LOW_VOL_SCREEN_CACHE_TTL = 86_400  # daily — a full ~300-name live fetch is heavy.
 LOW_VOL_TOP_CAP = 100
 # Honest, evidence-anchored disclaimer shown PROMINENTLY in the UI banner.
+LOW_VOL_VALIDATED_WINDOW = 60  # the only validated vol-lookback (20d holding horizon)
 LOW_VOL_DISCLAIMER = (
     "低波动是本项目唯一通过样本外验证的信号(预注册确认:CSI500 OOS IC +0.11,"
     "详见 docs/research/lowvol-confirmation.md)。这是 20 日持有期的横截面信号"
@@ -1416,13 +1417,23 @@ def _run_low_vol_screen(universe: str, top: int, window: int) -> dict:
             }
         )
 
+    # Only window=60 (vol lookback) at the 20d holding horizon was validated;
+    # any other window must not borrow the validated framing.
+    window_validated = window == LOW_VOL_VALIDATED_WINDOW
+    disclaimer = LOW_VOL_DISCLAIMER
+    if not window_validated:
+        disclaimer += (
+            f"⚠️ 当前回看窗口 window={window} 未经验证:已验证的参数组合"
+            f"仅为 {LOW_VOL_VALIDATED_WINDOW} 日回看 + 20 日持有。"
+        )
     return {
         "as_of": datetime.now().isoformat(),
         "universe": universe,
         "window": window,
+        "window_validated": window_validated,
         "count": len(items),
         "items": items,
-        "disclaimer": LOW_VOL_DISCLAIMER,
+        "disclaimer": disclaimer,
     }
 
 
@@ -1502,6 +1513,15 @@ def _run_low_vol_portfolio(universe: str, basket_n: int) -> dict:
 
     raw = run_low_vol_portfolio_from_cache(provider, code, basket_n=basket_n)
     metrics = raw.get("metrics") or {}
+    adj_fallback = raw.get("adj_fallback") or {"count": 0, "ratio": 0.0, "symbols": []}
+    disclaimer = LOW_VOL_PORTFOLIO_DISCLAIMER
+    if adj_fallback.get("count"):
+        # A dividend-free leg may never hide behind the total-return claim.
+        disclaimer += (
+            f"⚠️ 本次运行有 {adj_fallback['count']} 个标的缺少复权因子"
+            f"(占比 {adj_fallback.get('ratio', 0.0):.1%}),已按未复权价回退,"
+            "这些标的的分红收益未计入。"
+        )
     return {
         "universe": universe,
         "index_code": code,
@@ -1518,7 +1538,8 @@ def _run_low_vol_portfolio(universe: str, basket_n: int) -> dict:
             "benchmark": metrics.get("benchmark", {}),
         },
         "as_of": datetime.now().isoformat(),
-        "disclaimer": LOW_VOL_PORTFOLIO_DISCLAIMER,
+        "adj_fallback": adj_fallback,
+        "disclaimer": disclaimer,
     }
 
 

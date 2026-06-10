@@ -2958,6 +2958,20 @@ request. Honest about CSI500 marginality via ``disclaimer``.
 - `expires_in_seconds` (integer): 无描述
 - `refresh_expires_in_seconds` (integer): 无描述
 
+### LowVolAdjFallback
+
+Accounting of symbols that fell back to raw (un-adjusted) closes.
+
+``count`` is 0 for an honest total-return run; when positive, the
+``disclaimer`` is also qualified — a dividend-free leg may never look
+identical to a correct run. ``symbols`` is capped at 20 entries.
+
+**字段: **
+
+- `count` (integer): 无描述
+- `ratio` (number): 无描述
+- `symbols` (array): 无描述
+
 ### LowVolPortfolioBacktestResponse
 
 Net-of-cost low-volatility long-only basket backtest vs equal-weight.
@@ -2965,7 +2979,8 @@ Net-of-cost low-volatility long-only basket backtest vs equal-weight.
 Monthly rebalance, bottom-``basket_n`` lowest-realized-vol names, total-
 return prices, A-share frictions on turnover. ``benchmark`` is equal-weight
 of the same eligible universe (gross). ``disclaimer`` is shown prominently
-in the UI and is honest about the CSI500 marginality.
+in the UI and is honest about the CSI500 marginality. ``adj_fallback``
+accounts for any raw-close degradation of the total-return claim.
 
 **字段: **
 
@@ -2980,6 +2995,7 @@ in the UI and is honest about the CSI500 marginality.
 - `equity_curve` (array): 无描述
 - `metrics` (unknown): 无描述
 - `as_of` (string): 无描述
+- `adj_fallback` (unknown): 无描述
 - `disclaimer` (string): 无描述
 
 ### LowVolPortfolioEquityPoint
@@ -3044,6 +3060,7 @@ some constituents' prices could not be fetched.
 - `as_of` (string): 无描述
 - `universe` (string): 无描述
 - `window` (integer): 无描述
+- `window_validated` (boolean): 无描述
 - `count` (integer): 无描述
 - `items` (array): 无描述
 - `disclaimer` (string): 无描述

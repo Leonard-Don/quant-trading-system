@@ -6,10 +6,14 @@ Bridges the network world (Tushare provider + the pickle factor cache under
 
 The heavy inputs — per-symbol total-return prices and ``adj_factor`` — are
 ALREADY CACHED (CSI300/CSI500 panels, 2018-2024). This service RELIES ON THAT
-CACHE and never re-fetches full histories. The only live calls are the light
+CACHE and never re-fetches full price histories. The live calls are the light
 eligibility lookups (``index_weight`` constituents + ``suspend_d`` suspensions)
-per monthly rebalance date; the endpoint caches the whole result with a daily
-TTL so even those run at most once per universe per day.
+per monthly rebalance date, plus one ``adj_factor`` fetch per symbol whose
+pickle is missing (via ``build_panel``, when the provider supports it); the
+endpoint caches the whole result with a daily TTL so even those run at most
+once per universe per day. Symbols still lacking adj data after that are
+COUNTED and surfaced (``adj_fallback``), and the run REFUSES above
+``MAX_ADJ_FALLBACK_RATIO`` — total-return honesty is enforced, not assumed.
 
 Blocking (touches disk + a few provider calls) — call via a threadpool.
 """
@@ -40,7 +44,17 @@ SPAN_END = "20241231"
 VOL_WINDOW = 60
 MIN_HISTORY_BARS = 252  # one trading year before the first rebalance counts
 
+# The pure backtester's first honesty invariant is total-return P&L. Symbols
+# whose adj_factor is unavailable fall back to the raw close (dividend-free) —
+# above this share of the panel, the "总收益复权价" claim is broken and the
+# run must refuse instead of silently shipping a wrong-looking-right backtest.
+MAX_ADJ_FALLBACK_RATIO = 0.05
+
 DEFAULT_CACHE_DIR = pathlib.Path(__file__).resolve().parents[3] / "data" / "_factor_cache"
+
+
+class AdjFallbackMaterialError(RuntimeError):
+    """Raised when too many symbols lack adj_factor for an honest total-return run."""
 
 
 def _monthly_rebalance_dates(trading_dates) -> list[pd.Timestamp]:
@@ -48,35 +62,24 @@ def _monthly_rebalance_dates(trading_dates) -> list[pd.Timestamp]:
     return [pd.Timestamp(g.index[0]) for _, g in s.groupby([s.index.year, s.index.month])]
 
 
-def _adj_close_from_cache(
-    symbols, panel: FactorPanel, cache_dir: pathlib.Path
-) -> dict[str, pd.Series]:
-    """Build ``{symbol -> total-return adjusted close}`` from cached pickles.
+def _total_return_close_map(
+    panel: FactorPanel,
+) -> tuple[dict[str, pd.Series], list[str]]:
+    """``{symbol -> total-return close}`` from the panel, plus the fallback list.
 
-    Reads the per-symbol ``{sym}_adj.pkl`` (the ``adj_factor`` series) and joins
-    it onto the panel's own price index, exactly mirroring the research script's
-    ``_adj_close_map`` but WITHOUT any network fetch (cache-only). Symbols whose
-    adj_factor pickle is missing fall back to the raw close (no dividend adj).
+    ``build_panel`` already loads ``{sym}_adj.pkl`` (and, when the provider
+    supports ``get_adj_factor``, fetches + caches missing factors), so
+    ``panel.total_return_close`` is the single source of truth. Symbols absent
+    from ``panel.adj`` fall back to the raw close — they are RETURNED, not
+    hidden, so the caller can account for (or refuse) the degradation.
     """
     adj: dict[str, pd.Series] = {}
-    for sym in symbols:
-        if sym not in panel.prices:
-            continue
-        px = panel.prices[sym]
-        af_path = cache_dir / f"{sym}_adj.pkl"
-        factor = None
-        if af_path.exists():
-            try:
-                loaded = pd.read_pickle(af_path)
-            except (OSError, ValueError, EOFError):
-                loaded = None
-            if loaded is not None and not getattr(loaded, "empty", True):
-                factor = loaded.reindex(px.index).ffill().bfill()
-        if factor is None:
-            adj[sym] = px["close"].astype(float).rename(sym)
-        else:
-            adj[sym] = (px["close"].astype(float) * factor).rename(sym)
-    return adj
+    fallback: list[str] = []
+    for sym in panel.symbols:
+        adj[sym] = panel.total_return_close(sym).rename(sym)
+        if sym not in panel.adj:
+            fallback.append(sym)
+    return adj, sorted(fallback)
 
 
 def run_low_vol_portfolio_from_cache(
@@ -90,6 +93,7 @@ def run_low_vol_portfolio_from_cache(
     eligibility_chunk: int = 80,
     throttle_sleep: float = 0.0,
     cost_rates: Optional[dict] = None,
+    max_adj_fallback_ratio: float = MAX_ADJ_FALLBACK_RATIO,
 ) -> dict:
     """Assemble the cached panel + eligibility and run the pure backtest.
 
@@ -129,7 +133,19 @@ def run_low_vol_portfolio_from_cache(
             "metrics": {"gross": {}, "net": {}, "benchmark": {}},
             "avg_annual_turnover": None,
             "n_periods": 0,
+            "adj_fallback": {"count": 0, "ratio": 0.0, "symbols": []},
         }
+
+    adj, fallback = _total_return_close_map(panel)
+    fallback_ratio = len(fallback) / len(panel.symbols)
+    if fallback_ratio > max_adj_fallback_ratio:
+        raise AdjFallbackMaterialError(
+            f"{len(fallback)}/{len(panel.symbols)} symbols "
+            f"({fallback_ratio:.1%}) lack adj_factor data, so the backtest "
+            "cannot honestly claim total-return (复权) P&L. Warm the cache "
+            "(scripts/research/lowvol_portfolio_backtest.py fetches and caches "
+            "{sym}_adj.pkl) or use a provider with get_adj_factor support."
+        )
 
     base_dates = _monthly_rebalance_dates(panel.trading_dates)
     ref = panel.symbols[0]
@@ -144,8 +160,6 @@ def run_low_vol_portfolio_from_cache(
         )
         if throttle_sleep and i + eligibility_chunk < len(dates):
             time.sleep(throttle_sleep)
-
-    adj = _adj_close_from_cache(panel.symbols, panel, cache_dir)
 
     result = run_low_vol_portfolio_backtest(
         panel,
@@ -163,6 +177,11 @@ def run_low_vol_portfolio_from_cache(
             "basket_n": basket_n,
             "window": window,
             "cost_rates": dict(rates),
+            "adj_fallback": {
+                "count": len(fallback),
+                "ratio": fallback_ratio,
+                "symbols": fallback[:20],
+            },
         }
     )
     return result

@@ -4,6 +4,15 @@
 
 ### Research
 
+- fix(low-vol): 端点层强制执行"总收益复权价"诚实不变量 (#157)。此前组合回测服务在
+  `{sym}_adj.pkl` 缺失时**静默**回退到未复权价（无计数、无日志、无标记），而端点
+  仍然附带"总收益复权价"的免责声明——新鲜 checkout 下整个回测会以无分红口径运行
+  且看起来与正确结果无异（2026-06-10 审查确认）。现在：服务复用 #156 的
+  `panel.total_return_close()`（缺失 adj 会经 provider 自动补抓），逐标的统计回退，
+  payload 新增 `adj_fallback {count, ratio, symbols}`，回退占比超过 5%
+  （`MAX_ADJ_FALLBACK_RATIO`）直接拒绝运行并给出可操作的报错；有任何回退时免责
+  声明追加 ⚠️ 标注。低波动 screen 端点新增 `window_validated` 字段——只有
+  window=60（20 日持有）是已验证组合，其他窗口的输出不再借用"已验证"框架。
 - fix(factors)!: 因子 IC 的前向收益改用**全收益价**（close × adj_factor）(#156)。
   此前所有 IC 都按未复权收盘价度量——分红被排除（系统性压低高股息票的收益）、
   送转/拆分造成幻影暴跌（2026-06-10 审查确认）。`FactorPanel` 新增 `adj` 与

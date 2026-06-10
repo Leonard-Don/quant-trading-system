@@ -169,3 +169,15 @@ def test_partial_fetch_still_ranks_available(client, monkeypatch):
     body = resp.json()
     assert body["count"] == 2
     assert [i["symbol"] for i in body["items"]] == ["111111.SH", "222222.SH"]
+
+
+def test_window_validated_flag_is_honest(client):
+    # Only window=60 (lookback) at the 20d horizon was validated. Any other
+    # window must be flagged so the output can't borrow the validated framing.
+    ok = client.get("/analysis/low-volatility-screen?universe=csi300&window=60").json()
+    assert ok["window_validated"] is True
+    assert "⚠️" not in ok["disclaimer"]
+
+    other = client.get("/analysis/low-volatility-screen?universe=csi300&window=120").json()
+    assert other["window_validated"] is False
+    assert "未经验证" in other["disclaimer"]
