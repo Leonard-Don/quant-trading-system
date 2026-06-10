@@ -163,22 +163,31 @@ async def run_batch_backtest(request: BatchBacktestRequest):
         batch = _build_batch_backtester(request.max_workers, request.use_processes)
         if request.timeout_seconds <= 0:
             raise HTTPException(status_code=400, detail="Timeout seconds must be positive")
-        tasks = [
-            BacktestTask(
-                task_id=item.task_id or f"task_{index}",
-                symbol=item.symbol,
-                strategy_name=item.strategy,
-                parameters=item.parameters,
-                start_date=item.start_date,
-                end_date=item.end_date,
-                initial_capital=item.initial_capital,
-                commission=item.commission,
-                slippage=item.slippage,
-                execution_lag=item.execution_lag,
-                research_label=item.research_label,
+        tasks = []
+        for index, item in enumerate(request.tasks, start=1):
+            # Mirror run_backtest_pipeline's auto-resolution: A-share tasks get
+            # the canonical friction profile (audit 2026-06-10 — batch used to
+            # run A-share symbols friction-free), non-A-share tasks stay off.
+            frictions = backtest_runtime.resolve_ashare_frictions(item.symbol) or {}
+            tasks.append(
+                BacktestTask(
+                    task_id=item.task_id or f"task_{index}",
+                    symbol=item.symbol,
+                    strategy_name=item.strategy,
+                    parameters=item.parameters,
+                    start_date=item.start_date,
+                    end_date=item.end_date,
+                    initial_capital=item.initial_capital,
+                    commission=item.commission,
+                    slippage=item.slippage,
+                    execution_lag=item.execution_lag,
+                    stamp_duty_rate=frictions.get("stamp_duty_rate", 0.0),
+                    transfer_fee_rate=frictions.get("transfer_fee_rate", 0.0),
+                    enforce_t_plus_1=frictions.get("enforce_t_plus_1", False),
+                    price_limit_pct=frictions.get("price_limit_pct"),
+                    research_label=item.research_label,
+                )
             )
-            for index, item in enumerate(request.tasks, start=1)
-        ]
 
         results = await asyncio.wait_for(
             asyncio.to_thread(
@@ -275,6 +284,17 @@ async def run_walk_forward_backtest(request: WalkForwardRequest):
             test_period=request.test_period,
             step_size=request.step_size,
         )
+        # Mirror run_backtest_pipeline's per-symbol auto-resolution. Without it
+        # the train-window optimizer scores candidates under understated costs
+        # and systematically favors higher-turnover parameters for A-shares
+        # (audit 2026-06-10) — walk-forward costs must match the single-run engine.
+        auto_frictions = backtest_runtime.resolve_ashare_frictions(request.symbol)
+        frictions = auto_frictions or {
+            "stamp_duty_rate": 0.0,
+            "transfer_fee_rate": 0.0,
+            "enforce_t_plus_1": False,
+            "price_limit_pct": None,
+        }
         result = await asyncio.wait_for(
             asyncio.to_thread(
                 analyzer.analyze,
@@ -296,6 +316,10 @@ async def run_walk_forward_backtest(request: WalkForwardRequest):
                     permanent_impact_bps=request.permanent_impact_bps,
                     execution_lag=request.execution_lag,
                     max_holding_days=request.max_holding_days,
+                    stamp_duty_rate=frictions["stamp_duty_rate"],
+                    transfer_fee_rate=frictions["transfer_fee_rate"],
+                    enforce_t_plus_1=frictions["enforce_t_plus_1"],
+                    price_limit_pct=frictions["price_limit_pct"],
                 ),
                 parameter_grid=request.parameter_grid,
                 parameter_candidates=request.parameter_candidates,
@@ -325,6 +349,13 @@ async def run_walk_forward_backtest(request: WalkForwardRequest):
                     "optimization_budget": request.optimization_budget,
                     "monte_carlo_simulations": request.monte_carlo_simulations,
                     "timeout_seconds": request.timeout_seconds,
+                    # Friction echo — same surface run_backtest_pipeline exposes,
+                    # so callers can see which cost regime optimized the params.
+                    "ashare_frictions_applied": auto_frictions is not None,
+                    "stamp_duty_rate": frictions["stamp_duty_rate"],
+                    "transfer_fee_rate": frictions["transfer_fee_rate"],
+                    "enforce_t_plus_1": frictions["enforce_t_plus_1"],
+                    "price_limit_pct": frictions["price_limit_pct"],
                     **result,
                 },
             }
