@@ -425,3 +425,195 @@ class TestUSInvariance:
         assert cfg.transfer_fee_rate == 0.0
         assert cfg.enforce_t_plus_1 is False
         assert cfg.price_limit_pct is None
+
+
+# --------------------------------------------------------------------------- #
+# 6. Frictions on the batch and walk-forward paths (audit 2026-06-10: these
+#    endpoints bypassed run_backtest_pipeline, so A-share tasks silently ran
+#    friction-free — and walk-forward parameter optimization picked candidates
+#    under understated costs).
+# --------------------------------------------------------------------------- #
+def _dummy_ohlcv(n=120):
+    idx = pd.date_range("2023-01-01", periods=n, freq="D")
+    prices = np.linspace(50, 70, n)
+    return pd.DataFrame(
+        {
+            "open": prices,
+            "high": prices * 1.01,
+            "low": prices * 0.99,
+            "close": prices,
+            "volume": [2_000_000] * n,
+        },
+        index=idx,
+    )
+
+
+class TestBatchFrictions:
+    def test_backtest_task_friction_fields_default_off(self):
+        from src.backtest.batch_backtester import BacktestTask
+
+        task = BacktestTask(
+            task_id="t1",
+            symbol="600519.SS",
+            strategy_name="buy_and_hold",
+            parameters={},
+            start_date="2023-01-01",
+            end_date="2023-06-01",
+        )
+        assert task.stamp_duty_rate == 0.0
+        assert task.transfer_fee_rate == 0.0
+        assert task.enforce_t_plus_1 is False
+        assert task.price_limit_pct is None
+
+    def test_worker_forwards_friction_kwargs_to_factory(self):
+        from src.backtest.batch_backtester import BacktestTask, _run_single_backtest_worker
+
+        seen = {}
+
+        class _Capturing:
+            def __init__(
+                self,
+                initial_capital=10000,
+                commission=0.001,
+                slippage=0.001,
+                execution_lag=1,
+                stamp_duty_rate=0.0,
+                transfer_fee_rate=0.0,
+                enforce_t_plus_1=False,
+                price_limit_pct=None,
+            ):
+                seen.update(
+                    stamp_duty_rate=stamp_duty_rate,
+                    transfer_fee_rate=transfer_fee_rate,
+                    enforce_t_plus_1=enforce_t_plus_1,
+                    price_limit_pct=price_limit_pct,
+                )
+
+            def run(self, strategy, data):
+                return {"total_return": 0.0, "metrics": {}}
+
+        task = BacktestTask(
+            task_id="t1",
+            symbol="600519.SS",
+            strategy_name="buy_and_hold",
+            parameters={},
+            start_date="2023-01-01",
+            end_date="2023-06-01",
+            stamp_duty_rate=0.0005,
+            transfer_fee_rate=0.00001,
+            enforce_t_plus_1=True,
+            price_limit_pct=0.10,
+        )
+        _run_single_backtest_worker(
+            task,
+            backtester_factory=_Capturing,
+            strategy_factory=lambda name, params: object(),
+            data_fetcher=lambda s, a, b: _dummy_ohlcv(),
+        )
+        # The behavior under test is the kwarg forwarding; the fake's minimal
+        # result shape failing metric normalization downstream is irrelevant.
+        assert seen["stamp_duty_rate"] == pytest.approx(0.0005)
+        assert seen["transfer_fee_rate"] == pytest.approx(0.00001)
+        assert seen["enforce_t_plus_1"] is True
+        assert seen["price_limit_pct"] == pytest.approx(0.10)
+
+    def test_batch_endpoint_resolves_frictions_per_ashare_task(self, monkeypatch):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
+        captured = {}
+
+        class _FakeBatch:
+            def run_batch(self, tasks, **kwargs):
+                captured["tasks"] = list(tasks)
+                return []
+
+            def get_ranked_results(self, **kwargs):
+                return []
+
+            def get_summary(self):
+                return {}
+
+        monkeypatch.setattr(
+            backtest_endpoint, "_build_batch_backtester", lambda *a, **k: _FakeBatch()
+        )
+        app = FastAPI()
+        app.include_router(backtest_endpoint.router, prefix="/backtest")
+        client = TestClient(app)
+        resp = client.post(
+            "/backtest/batch",
+            json={
+                "tasks": [
+                    {"symbol": "600519.SS", "strategy": "buy_and_hold"},
+                    {"symbol": "300750.SZ", "strategy": "buy_and_hold"},
+                    {"symbol": "AAPL", "strategy": "buy_and_hold"},
+                ]
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        by_symbol = {t.symbol: t for t in captured["tasks"]}
+        moutai = by_symbol["600519.SS"]
+        assert moutai.stamp_duty_rate == pytest.approx(0.0005)
+        assert moutai.transfer_fee_rate == pytest.approx(0.00001)
+        assert moutai.enforce_t_plus_1 is True
+        assert moutai.price_limit_pct == pytest.approx(0.10)
+        # ChiNext board gets the 20% daily band
+        assert by_symbol["300750.SZ"].price_limit_pct == pytest.approx(0.20)
+        # US symbol: every friction stays off
+        aapl = by_symbol["AAPL"]
+        assert aapl.stamp_duty_rate == 0.0
+        assert aapl.transfer_fee_rate == 0.0
+        assert aapl.enforce_t_plus_1 is False
+        assert aapl.price_limit_pct is None
+
+
+class TestWalkForwardFrictions:
+    def _post_walkforward(self, monkeypatch, symbol):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
+        captured = {}
+
+        def fake_analyze(self, *, data, strategy_factory, backtester_factory, **kwargs):
+            captured["factory"] = backtester_factory
+            return {"n_windows": 0, "windows": [], "aggregate_metrics": {}}
+
+        monkeypatch.setattr(backtest_endpoint.WalkForwardAnalyzer, "analyze", fake_analyze)
+        monkeypatch.setattr(
+            backtest_endpoint, "_fetch_backtest_data", lambda *a, **k: _dummy_ohlcv()
+        )
+        app = FastAPI()
+        app.include_router(backtest_endpoint.router, prefix="/backtest")
+        client = TestClient(app)
+        resp = client.post(
+            "/backtest/walk-forward",
+            json={"symbol": symbol, "strategy": "buy_and_hold"},
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["data"], captured["factory"]
+
+    def test_factory_applies_ashare_frictions_and_response_echoes(self, monkeypatch):
+        data, factory = self._post_walkforward(monkeypatch, "600519.SS")
+        backtester = factory()
+        cfg = backtester.execution_config
+        assert cfg.stamp_duty_rate == pytest.approx(0.0005)
+        assert cfg.transfer_fee_rate == pytest.approx(0.00001)
+        assert cfg.enforce_t_plus_1 is True
+        assert cfg.price_limit_pct == pytest.approx(0.10)
+        # Parity with run_backtest_pipeline's echo (runtime.py:429-433)
+        assert data["ashare_frictions_applied"] is True
+        assert data["stamp_duty_rate"] == pytest.approx(0.0005)
+        assert data["price_limit_pct"] == pytest.approx(0.10)
+
+    def test_us_symbol_keeps_frictions_off(self, monkeypatch):
+        data, factory = self._post_walkforward(monkeypatch, "AAPL")
+        cfg = factory().execution_config
+        assert cfg.stamp_duty_rate == 0.0
+        assert cfg.transfer_fee_rate == 0.0
+        assert cfg.enforce_t_plus_1 is False
+        assert cfg.price_limit_pct is None
+        assert data["ashare_frictions_applied"] is False

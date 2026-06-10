@@ -4,6 +4,15 @@
 
 ### Research
 
+- fix(backtest)!: batch 与 walk-forward 路径接入 A 股摩擦自动解析 (#158)。
+  这两个端点绕过 `run_backtest_pipeline`，A 股任务此前一直在零印花税/零过户费/
+  无 T+1/无涨跌停的口径下运行（2026-06-10 审查确认）——尤其 walk-forward 的
+  参数寻优在低估成本下系统性偏向高换手配置，选出的参数再被拿去与"含摩擦"的
+  单次回测对比。现在：`BacktestTask` 新增四个摩擦字段（默认关闭，网格搜索与
+  非 A 股任务字节不变）；batch 端点逐任务、walk-forward 端点按 symbol 调用
+  `resolve_ashare_frictions` 自动解析（与单次回测同一套主板 10% / 创业板科创板
+  20% 涨跌停档位）；walk-forward 响应回显 `ashare_frictions_applied` 与生效
+  摩擦值。A 股的 batch/walk-forward 历史数字会变化；美股路径数值不变（有测试钉住）。
 - fix(low-vol): 端点层强制执行"总收益复权价"诚实不变量 (#157)。此前组合回测服务在
   `{sym}_adj.pkl` 缺失时**静默**回退到未复权价（无计数、无日志、无标记），而端点
   仍然附带"总收益复权价"的免责声明——新鲜 checkout 下整个回测会以无分红口径运行

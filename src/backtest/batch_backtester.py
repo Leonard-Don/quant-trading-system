@@ -68,6 +68,10 @@ def _run_single_backtest_worker(
             commission=task.commission,
             slippage=task.slippage,
             execution_lag=task.execution_lag,
+            stamp_duty_rate=task.stamp_duty_rate,
+            transfer_fee_rate=task.transfer_fee_rate,
+            enforce_t_plus_1=task.enforce_t_plus_1,
+            price_limit_pct=task.price_limit_pct,
         )
         result = backtester.run(strategy, data)
         normalized_metrics = _normalize_metrics(result)
@@ -316,6 +320,13 @@ class BacktestTask:
     commission: float = 0.001
     slippage: float = 0.001
     execution_lag: int = 1
+    # A-share frictions (mirror Backtester.__init__/ExecutionConfig; defaults OFF
+    # so non-A-share tasks and grid search stay byte-identical). The /backtest/batch
+    # endpoint resolves these per task via resolve_ashare_frictions(symbol).
+    stamp_duty_rate: float = 0.0
+    transfer_fee_rate: float = 0.0
+    enforce_t_plus_1: bool = False
+    price_limit_pct: Optional[float] = None
     research_label: Optional[str] = None
 
 
