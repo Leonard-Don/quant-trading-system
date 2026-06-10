@@ -362,7 +362,7 @@ pytest tests/unit/test_backtester.py tests/unit/test_realtime_manager.py -q
 ```bash
 cd frontend
 
-# 完整测试套件（Vitest，60 个测试文件）
+# 完整测试套件（Vitest）
 npm test
 
 # 按文件测试

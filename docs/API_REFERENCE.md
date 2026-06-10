@@ -1082,6 +1082,54 @@ surface a green/amber/red data-source dot. ``health_check`` is cached ~60s.
 
 ---
 
+#### GET /analysis/low-volatility-screen
+
+**低波动选股**
+
+Rank an index universe by trailing realized volatility (calmest first).
+
+Cross-sectional SCREEN, not a portfolio backtest. The realized-vol
+definition matches the validated ``low_volatility`` factor exactly. Result is
+cached with a daily TTL because a full live fetch of ~300–500 names is heavy.
+
+**请求参数: **
+
+- `universe` （可选）: 指数池: csi300 | csi500
+- `top` （可选）: 返回名次上限 (≤100)
+- `window` （可选）: 实现波动率回看窗口 (交易日)
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
+#### GET /analysis/low-volatility-portfolio
+
+**低波动组合回测**
+
+Net-of-cost monthly low-volatility long-only basket backtest (2018-2024).
+
+Longs the bottom-``basket_n`` lowest-60d-realized-vol names of the chosen
+index, rebalanced monthly, P&L on total-return (adjusted) prices, A-share
+frictions charged on turnover, vs an equal-weight benchmark of the same
+eligible universe. Span is fixed to the cached 2018-2024 window. The result
+is daily-TTL cached because the backtest is heavy and must not recompute per
+request. Honest about CSI500 marginality via ``disclaimer``.
+
+**请求参数: **
+
+- `universe` （可选）: 指数池: csi300 | csi500
+- `basket_n` （可选）: 基金篮子持仓数量 (10..100)
+
+**响应: **
+
+- **200**: Successful Response
+- **422**: Validation Error
+
+---
+
 ### Optimization
 
 #### POST /optimization/optimize
@@ -2909,6 +2957,96 @@ surface a green/amber/red data-source dot. ``health_check`` is cached ~60s.
 - `password` (string): 无描述
 - `expires_in_seconds` (integer): 无描述
 - `refresh_expires_in_seconds` (integer): 无描述
+
+### LowVolPortfolioBacktestResponse
+
+Net-of-cost low-volatility long-only basket backtest vs equal-weight.
+
+Monthly rebalance, bottom-``basket_n`` lowest-realized-vol names, total-
+return prices, A-share frictions on turnover. ``benchmark`` is equal-weight
+of the same eligible universe (gross). ``disclaimer`` is shown prominently
+in the UI and is honest about the CSI500 marginality.
+
+**字段: **
+
+- `universe` (string): 无描述
+- `index_code` (string): 无描述
+- `span` (string): 无描述
+- `window` (integer): 无描述
+- `basket_n` (integer): 无描述
+- `n_periods` (integer): 无描述
+- `avg_annual_turnover` (unknown): 无描述
+- `cost_rates` (object): 无描述
+- `equity_curve` (array): 无描述
+- `metrics` (unknown): 无描述
+- `as_of` (string): 无描述
+- `disclaimer` (string): 无描述
+
+### LowVolPortfolioEquityPoint
+
+One rebalance-dated point on the growth-of-1 equity curve.
+
+**字段: **
+
+- `date` (string): 无描述
+- `basket_gross` (number): 无描述
+- `basket_net` (number): 无描述
+- `benchmark` (number): 无描述
+
+### LowVolPortfolioLegMetrics
+
+Risk/return metrics for one leg (gross / net / benchmark).
+
+Fields are Optional because a too-short or empty series yields an empty
+metrics dict in the pure core (CAGR/Sharpe undefined for <2 periods).
+
+**字段: **
+
+- `total_return` (unknown): 无描述
+- `cagr` (unknown): 无描述
+- `ann_vol` (unknown): 无描述
+- `sharpe` (unknown): 无描述
+- `max_drawdown` (unknown): 无描述
+- `n_periods` (unknown): 无描述
+
+### LowVolPortfolioMetrics
+
+**字段: **
+
+- `gross` (unknown): 无描述
+- `net` (unknown): 无描述
+- `benchmark` (unknown): 无描述
+
+### LowVolatilityScreenItem
+
+A single ranked name in the low-volatility screen.
+
+**字段: **
+
+- `rank` (integer): 无描述
+- `symbol` (string): 无描述
+- `name` (unknown): 无描述
+- `realized_vol` (number): 无描述
+- `annualized_vol` (number): 无描述
+- `recent_return` (unknown): 无描述
+- `n_bars` (integer): 无描述
+
+### LowVolatilityScreenResponse
+
+Point-in-time low-volatility ranking of an index universe.
+
+A SCREEN (cross-sectional ranking), not a portfolio backtest. ``count`` is
+the number of names actually ranked — it can be below the universe size when
+some constituents' prices could not be fetched.
+
+**字段: **
+
+- `as_of` (string): 无描述
+- `universe` (string): 无描述
+- `window` (integer): 无描述
+- `count` (integer): 无描述
+- `items` (array): 无描述
+- `disclaimer` (string): 无描述
 
 ### MarketDataRequest
 

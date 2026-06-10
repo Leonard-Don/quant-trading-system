@@ -1865,6 +1865,52 @@
       }
     },
     {
+      "name": "低波动选股",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/low-volatility-screen",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "low-volatility-screen"
+          ]
+        }
+      }
+    },
+    {
+      "name": "低波动组合回测",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/analysis/low-volatility-portfolio",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "analysis",
+            "low-volatility-portfolio"
+          ]
+        }
+      }
+    },
+    {
       "name": "投资组合优化",
       "request": {
         "method": "POST",
