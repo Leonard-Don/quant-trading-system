@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from scipy.stats import spearmanr
+from scipy.stats import spearmanr, ttest_1samp
 
 from src.data.factor_panel import FactorPanel
 
@@ -97,12 +97,27 @@ def evaluate_factor(
             "mean_ic": np.nan,
             "icir": np.nan,
             "oos_mean_ic": np.nan,
+            "oos_n": 0,
+            "oos_icir": np.nan,
+            "oos_t_stat": np.nan,
+            "oos_p_value": np.nan,
             "yearly_ic": {},
             "passes": False,
         }
     split = int(len(ic) * train_frac)
     oos = ic.iloc[split:]
     icir = float(ic.mean() / ic.std(ddof=0)) if ic.std(ddof=0) else np.nan
+    # OOS-only dispersion + a one-sided t-test (H1: mean OOS IC > 0). The
+    # full-sample icir above mixes the train segment, so it can't be the only
+    # strength statistic a reader (or the Holm correction) sees.
+    oos_icir = (
+        float(oos.mean() / oos.std(ddof=0)) if len(oos) and oos.std(ddof=0) else np.nan
+    )
+    if len(oos) >= 3:
+        t_res = ttest_1samp(oos.to_numpy(), 0.0, alternative="greater")
+        oos_t_stat, oos_p_value = float(t_res.statistic), float(t_res.pvalue)
+    else:
+        oos_t_stat, oos_p_value = np.nan, np.nan
     yearly = {int(y): float(v.mean()) for y, v in ic.groupby(ic.index.year)}
     mean_ic, oos_ic = float(ic.mean()), float(oos.mean()) if len(oos) else np.nan
     signs = list(yearly.values())
@@ -114,6 +129,10 @@ def evaluate_factor(
         "mean_ic": mean_ic,
         "icir": icir,
         "oos_mean_ic": oos_ic,
+        "oos_n": len(oos),
+        "oos_icir": oos_icir,
+        "oos_t_stat": oos_t_stat,
+        "oos_p_value": oos_p_value,
         "yearly_ic": yearly,
         "sign_stable": stable,
         "passes": passes,
