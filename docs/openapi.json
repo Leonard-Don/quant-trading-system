@@ -6449,7 +6449,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Get Policy Signal Policy Radar Signal Get"
                 }
@@ -6520,7 +6519,6 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "additionalProperties": true,
                   "title": "Response Get Policy Records Policy Radar Records Get"
                 }
               }
@@ -6552,7 +6550,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Get Paper Account Paper Account Get"
                 }
@@ -6586,7 +6583,6 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "additionalProperties": true,
                   "title": "Response Submit Paper Order Paper Orders Post"
                 }
               }
@@ -6631,7 +6627,6 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "additionalProperties": true,
                   "title": "Response List Paper Orders Paper Orders Get"
                 }
               }
@@ -6673,7 +6668,6 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
                   "type": "object",
                   "title": "Response Reset Paper Account Paper Reset Post"
                 }
@@ -6718,7 +6712,6 @@
               "application/json": {
                 "schema": {
                   "type": "object",
-                  "additionalProperties": true,
                   "title": "Response Cancel Paper Order Paper Orders  Order Id  Delete"
                 }
               }
@@ -6803,7 +6796,6 @@
             "title": "Strategy"
           },
           "parameters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Parameters",
             "default": {}
@@ -6831,13 +6823,11 @@
             "title": "End Date"
           },
           "metrics": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Metrics",
             "default": {}
           },
           "result": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Result"
           }
@@ -6902,7 +6892,6 @@
             "title": "Scopes"
           },
           "metadata": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Metadata"
           }
@@ -6924,7 +6913,6 @@
             "title": "Strategy"
           },
           "parameters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Parameters",
             "default": {}
@@ -7036,7 +7024,6 @@
           "data": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -7154,7 +7141,6 @@
             "title": "Strategy"
           },
           "parameters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Parameters",
             "default": {}
@@ -7353,7 +7339,6 @@
           },
           "cluster_stats": {
             "additionalProperties": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "object",
@@ -7362,7 +7347,6 @@
           },
           "points": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -7536,7 +7520,6 @@
             "title": "Name"
           },
           "parameters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Parameters",
             "default": {}
@@ -7588,7 +7571,6 @@
             "title": "Config Key"
           },
           "payload": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Payload"
           },
@@ -7736,7 +7718,6 @@
             "default": "equal_weight"
           },
           "parameters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Parameters"
           },
@@ -7806,7 +7787,6 @@
           "data": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -8379,7 +8359,6 @@
           },
           "structural_decay_radar_top_signals": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -8401,7 +8380,6 @@
           },
           "bias_actions": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -8409,7 +8387,6 @@
           },
           "signal_attribution": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -8417,7 +8394,6 @@
           },
           "driver_summary": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -8425,7 +8401,6 @@
           },
           "dominant_drivers": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -8433,7 +8408,6 @@
           },
           "core_legs": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -8441,7 +8415,6 @@
           },
           "support_legs": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -8955,7 +8928,6 @@
           },
           "saved_views": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -9055,7 +9027,6 @@
           },
           "score_breakdown": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -9103,7 +9074,6 @@
           },
           "data": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -9335,7 +9305,6 @@
           },
           "top_gainers": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -9344,7 +9313,6 @@
           },
           "top_losers": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -9526,26 +9494,22 @@
             "description": "评分类型: core(综合评分) 或 hot(动量评分)"
           },
           "dimension_scores": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Dimension Scores",
             "description": "各维度得分"
           },
           "raw_data": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Raw Data",
             "description": "原始数据"
           },
           "technical_analysis": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Technical Analysis",
             "description": "技术分析"
           },
           "price_data": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -9646,7 +9610,6 @@
             "default": 0
           },
           "dimension_scores": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Dimension Scores",
             "description": "各维度得分"
@@ -10061,7 +10024,6 @@
             "title": "Strategy"
           },
           "parameters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Parameters",
             "default": {}
@@ -10244,7 +10206,6 @@
             "title": "Strategy"
           },
           "parameters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Parameters",
             "default": {}
@@ -10368,7 +10329,6 @@
             "title": "Strategy"
           },
           "parameters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Parameters",
             "default": {}
@@ -10510,7 +10470,6 @@
             "title": "Strategy"
           },
           "parameters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Parameters",
             "default": {}
@@ -10642,7 +10601,6 @@
             "default": true
           },
           "settings": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Settings"
           }
@@ -10661,7 +10619,6 @@
             "default": "dry_run"
           },
           "payload": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Payload"
           }
@@ -10841,12 +10798,10 @@
             "default": ""
           },
           "extra_params": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Extra Params"
           },
           "metadata": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Metadata"
           }
@@ -11066,7 +11021,6 @@
             "title": "Strategy"
           },
           "parameters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Parameters",
             "default": {}
@@ -11273,7 +11227,6 @@
       "RealtimeAlertHitRequest": {
         "properties": {
           "entry": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Entry"
           },
@@ -11308,7 +11261,6 @@
         "properties": {
           "alerts": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -11316,7 +11268,6 @@
           },
           "alert_hit_history": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -11330,7 +11281,6 @@
         "properties": {
           "review_snapshots": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -11338,7 +11288,6 @@
           },
           "timeline_events": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -11371,7 +11320,6 @@
           },
           "watch_groups": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
@@ -11394,7 +11342,6 @@
             "default": "default"
           },
           "payload": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Payload"
           },
@@ -11453,7 +11400,6 @@
           "backtest_result": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -11465,7 +11411,6 @@
           "parameters": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -11523,7 +11468,6 @@
       "ResearchJournalEntryRequest": {
         "properties": {
           "entry": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Entry"
           }
@@ -11535,14 +11479,12 @@
         "properties": {
           "entries": {
             "items": {
-              "additionalProperties": true,
               "type": "object"
             },
             "type": "array",
             "title": "Entries"
           },
           "source_state": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Source State"
           },
@@ -11856,7 +11798,6 @@
             "title": "Description"
           },
           "parameters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Parameters"
           }
@@ -11902,7 +11843,6 @@
             "default": "manual_task"
           },
           "payload": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Payload"
           },
@@ -11941,7 +11881,6 @@
             "title": "Value"
           },
           "payload": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Payload"
           }
@@ -12060,7 +11999,6 @@
             "title": "Indicators"
           },
           "trend_details": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Trend Details"
           },
@@ -12071,7 +12009,6 @@
           "multi_timeframe": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -12094,7 +12031,6 @@
           "signal_strength": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -12106,7 +12042,6 @@
           "momentum": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -12118,7 +12053,6 @@
           "volatility": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -12130,7 +12064,6 @@
           "fibonacci_levels": {
             "anyOf": [
               {
-                "additionalProperties": true,
                 "type": "object"
               },
               {
@@ -12176,13 +12109,6 @@
           "type": {
             "type": "string",
             "title": "Error Type"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "type": "object",
-            "title": "Context"
           }
         },
         "type": "object",
@@ -12204,7 +12130,6 @@
             "title": "Strategy"
           },
           "parameters": {
-            "additionalProperties": true,
             "type": "object",
             "title": "Parameters",
             "default": {}
@@ -12228,7 +12153,6 @@
             "anyOf": [
               {
                 "items": {
-                  "additionalProperties": true,
                   "type": "object"
                 },
                 "type": "array"
