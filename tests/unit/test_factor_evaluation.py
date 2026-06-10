@@ -138,6 +138,49 @@ def test_evaluate_factor_threads_eligible_by_date():
     assert rep["mean_ic"] != rep_full["mean_ic"]
 
 
+def test_forward_returns_use_total_return_prices_across_a_split():
+    # A 2:1 split halves the raw close (phantom -50% "return"); the adj_factor
+    # doubles on the same day. Total-return prices (close * adj) must see ~0%.
+    dates = pd.bdate_range("2024-01-01", periods=6)
+    closes = [10.0, 10.0, 10.0, 5.0, 5.0, 5.0]  # split effective on day 4
+    adj = pd.Series([1.0, 1.0, 1.0, 2.0, 2.0, 2.0], index=dates)
+    px = pd.DataFrame(
+        {"open": closes, "high": closes, "low": closes, "close": closes,
+         "volume": [1e6] * 6},
+        index=dates,
+    )
+    panel = FactorPanel(prices={"SPLIT": px}, adj={"SPLIT": adj})
+    fr = forward_returns(panel, dates[1], horizon=3)
+    assert abs(fr["SPLIT"]) < 1e-12  # not -0.5
+
+
+def test_forward_returns_include_dividends_via_adj_factor():
+    # An ex-dividend day drops the raw close; adj_factor steps up so the
+    # total-return path credits the payout instead of booking a fake loss.
+    dates = pd.bdate_range("2024-01-01", periods=4)
+    closes = [100.0, 100.0, 95.0, 95.0]  # 5 paid out on day 3
+    adj = pd.Series([1.0, 1.0, 100.0 / 95.0, 100.0 / 95.0], index=dates)
+    px = pd.DataFrame(
+        {"open": closes, "high": closes, "low": closes, "close": closes,
+         "volume": [1e6] * 4},
+        index=dates,
+    )
+    panel = FactorPanel(prices={"DIV": px}, adj={"DIV": adj})
+    fr = forward_returns(panel, dates[0], horizon=2)
+    assert abs(fr["DIV"]) < 1e-12  # raw close would say -5%
+
+
+def test_forward_returns_fall_back_to_raw_close_without_adj():
+    # Panels without adj data (legacy callers, tests) keep the old behavior.
+    panel, dates, _, horizon = _panel_with_relationship(seed=7)
+    sym = panel.symbols[0]
+    df = panel.prices[sym]
+    fr = forward_returns(panel, dates[0], horizon)
+    pos = df.index.searchsorted(pd.Timestamp(dates[0]))
+    expected = float(df["close"].iloc[pos + horizon] / df["close"].iloc[pos] - 1.0)
+    assert abs(fr[sym] - expected) < 1e-12
+
+
 def test_evaluate_factor_reports_oos_only_diagnostics():
     # The gate's headline evidence must be measurable OOS-only: report the OOS
     # segment's ICIR and a one-sided t-test (H1: mean OOS IC > 0) so the

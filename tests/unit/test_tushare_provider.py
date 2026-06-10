@@ -129,6 +129,37 @@ def test_historical_daily_data_uses_tushare_pro_and_standardizes_frame():
     assert frame.attrs["source_mode"] == "eod"
 
 
+class _AdjFactorPro:
+    def __init__(self):
+        self.adj_calls: list[dict] = []
+
+    def adj_factor(self, **kwargs):
+        self.adj_calls.append(kwargs)
+        # Tushare returns newest-first; the provider must sort + index by date.
+        return pd.DataFrame(
+            [
+                {"ts_code": kwargs.get("ts_code"), "trade_date": "20240103", "adj_factor": 2.0},
+                {"ts_code": kwargs.get("ts_code"), "trade_date": "20240102", "adj_factor": 1.0},
+            ]
+        )
+
+
+def test_get_adj_factor_returns_datetime_indexed_series():
+    fake = _AdjFactorPro()
+    provider = TushareProvider(api_key="token", config={"pro_client": fake})
+
+    s = provider.get_adj_factor("000001", "20240101", "20240104")
+
+    assert fake.adj_calls[0] == {
+        "ts_code": "000001.SZ",
+        "start_date": "20240101",
+        "end_date": "20240104",
+    }
+    assert isinstance(s, pd.Series)
+    assert list(s.index.strftime("%Y-%m-%d")) == ["2024-01-02", "2024-01-03"]
+    assert s.tolist() == [1.0, 2.0]
+
+
 def test_etf_history_uses_tushare_fund_daily_endpoint():
     fake = _FakeTusharePro()
     provider = TushareProvider(api_key="token", config={"pro_client": fake})

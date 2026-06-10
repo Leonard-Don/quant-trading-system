@@ -82,6 +82,38 @@ def test_build_panel_uses_cache_on_rerun(tmp_path):
     assert calls["n"] == first  # no extra fetch; served from cache
 
 
+class _AdjProvider(_FakeProvider):
+    def __init__(self):
+        self.adj_calls = 0
+
+    def get_adj_factor(self, symbol, start, end):
+        self.adj_calls += 1
+        dates = pd.bdate_range("2024-01-01", periods=10)
+        return pd.Series([1.0] * 5 + [2.0] * 5, index=dates, name="adj_factor")
+
+
+def test_build_panel_fetches_and_caches_adj_factor(tmp_path):
+    # Panel must carry adj_factor (total-return measurement needs it), fetched
+    # via the provider, pickle-cached as {sym}_adj.pkl (same format the lowvol
+    # portfolio backtest already writes), and served from cache on rerun.
+    prov = _AdjProvider()
+    panel = build_panel(["AAA"], "20240101", "20240115", prov, cache_dir=tmp_path)
+    assert "AAA" in panel.adj
+    assert float(panel.adj["AAA"].iloc[-1]) == 2.0
+    assert (tmp_path / "AAA_adj.pkl").exists()
+    first = prov.adj_calls
+    build_panel(["AAA"], "20240101", "20240115", prov, cache_dir=tmp_path)
+    assert prov.adj_calls == first  # cache hit, no refetch
+
+
+def test_build_panel_tolerates_provider_without_adj_factor(tmp_path):
+    # Legacy/stub providers (no get_adj_factor) must still build a panel; the
+    # adj map is simply empty and forward returns fall back to raw closes.
+    panel = build_panel(["AAA"], "20240101", "20240115", _FakeProvider(), cache_dir=tmp_path)
+    assert "AAA" in panel.symbols
+    assert panel.adj == {}
+
+
 class _AsOfProvider:
     """Provider whose constituents/suspensions vary by date (point-in-time)."""
 

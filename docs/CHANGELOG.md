@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Research
+
+- fix(factors)!: 因子 IC 的前向收益改用**全收益价**（close × adj_factor）(#156)。
+  此前所有 IC 都按未复权收盘价度量——分红被排除（系统性压低高股息票的收益）、
+  送转/拆分造成幻影暴跌（2026-06-10 审查确认）。`FactorPanel` 新增 `adj` 与
+  `total_return_close()`；`build_panel` 复用组合回测的 `{sym}_adj.pkl` 缓存；
+  `TushareProvider.get_adj_factor` 新增。修正度量下旗舰信号**变强**：
+  `low_volatility@20` OOS IC +0.105 → **+0.113**（单侧 p 0.046 → 0.038）；
+  `short_reversal@20` 的压线 PASS 未能幸存（2022 年度 IC 翻负 → 符号不稳 →
+  FAIL）。预注册 CSI500 确认文档增补第 5 条诚实声明（原数字偏保守，不静默重跑）。
+- feat(factors): OOS-only 诊断 + Holm 多重检验控制进入因子记分卡 (#155)。
+  `evaluate_factor` 新增 `oos_n`/`oos_icir`/`oos_t_stat`/`oos_p_value`（单侧 t
+  检验，H1: mean OOS IC > 0）；记分卡跨全部 factor×horizon 单元（真实假设族）
+  做 Holm(α=0.05)，明细表新增三列，过关因子一律带 `(Holm✓/✗)` 标注。阈值门
+  `passes` 语义不变（24 单元 PASS/FAIL 与旧产物逐一相同）。诚实结论：
+  `low_volatility@20` 单独 p=0.046，但在 24 检验族内 Holm 不显著——抗数据挖掘
+  的分量在预注册 k=1 CSI500 确认 (#146)，该确认不受影响。
+
+### Docs
+
+- docs: API 文档三件套重新生成（补回 #147/#150 的低波动端点）+ CI 新增 API docs
+  freshness gate；CHANGELOG 集中补录 #88–#152；修复 PROJECT_STRUCTURE.md 与
+  ARCHITECTURE.md §9 的过期描述 (#153)。生成产物必须来自锁定版本环境
+  （fastapi==0.116.1 / pydantic==2.9.2）——本地新版 fastapi 生成的 schema 有差异，
+  曾导致 main 短暂转红，已按锁定环境重新生成修复 (#154)。
+
 > 以下 2026-06-03 → 2026-06-10 区段（#88–#152）为 2026-06-10 集中补录：
 > 这一波提交当时未随 PR 同步写入更新日志。
 

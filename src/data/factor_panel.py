@@ -11,6 +11,8 @@ class FactorPanel:
     prices: dict[str, pd.DataFrame]  # symbol -> OHLCV indexed by DatetimeIndex
     fundamentals: dict[str, pd.DataFrame] = field(default_factory=dict)  # cols incl ann_date,end_date
     moneyflow: dict[str, pd.DataFrame] = field(default_factory=dict)  # indexed by date
+    adj: dict[str, pd.Series] = field(default_factory=dict)  # symbol -> adj_factor by date
+    _tr_close: dict[str, pd.Series] = field(default_factory=dict, repr=False)  # memo
 
     @property
     def symbols(self) -> list[str]:
@@ -28,6 +30,33 @@ class FactorPanel:
         if df is None:
             return pd.DataFrame()
         return df.loc[df.index <= pd.Timestamp(as_of)]
+
+    def total_return_close(self, symbol: str) -> pd.Series:
+        """Close × adj_factor when adj data exists; raw close otherwise.
+
+        Forward returns must be measured on total-return prices: raw closes
+        exclude dividends (systematically understating high-yield names'
+        returns) and book a corporate action (送转/split) as a phantom price
+        crash. Factor DEFINITIONS may still choose the raw close — this only
+        fixes the dependent variable.
+        """
+        memo = self._tr_close.get(symbol)
+        if memo is not None:
+            return memo
+        df = self.prices.get(symbol)
+        if df is None:
+            return pd.Series(dtype=float)
+        close = df["close"].astype(float)
+        adj = self.adj.get(symbol)
+        if adj is None or adj.empty:
+            out = close
+        else:
+            # ffill bridges gaps; bfill only extends the FIRST known factor
+            # backwards (a constant factor never distorts a return ratio).
+            aligned = adj.reindex(close.index).ffill().bfill().astype(float)
+            out = close * aligned
+        self._tr_close[symbol] = out
+        return out
 
     def latest_fundamental(self, symbol: str, as_of: pd.Timestamp) -> pd.Series | None:
         df = self.fundamentals.get(symbol)
@@ -55,7 +84,7 @@ def _cache_load(path: pathlib.Path):
 def build_panel(symbols, start, end, provider, cache_dir) -> FactorPanel:
     cache_dir = pathlib.Path(cache_dir)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    prices, fundamentals, moneyflow = {}, {}, {}
+    prices, fundamentals, moneyflow, adj = {}, {}, {}, {}
     for sym in symbols:
         px_path = cache_dir / f"{sym}_px.pkl"
         px = _cache_load(px_path)
@@ -67,6 +96,23 @@ def build_panel(symbols, start, end, provider, cache_dir) -> FactorPanel:
             continue
         px.index = pd.DatetimeIndex(px.index)
         prices[sym] = px
+
+        # adj_factor for total-return measurement. Same {sym}_adj.pkl format the
+        # lowvol portfolio backtest already caches, so existing pickles are hits.
+        adj_path = cache_dir / f"{sym}_adj.pkl"
+        adj_s = _cache_load(adj_path)
+        if adj_s is None and hasattr(provider, "get_adj_factor"):
+            adj_s = provider.get_adj_factor(sym, start, end)
+            if adj_s is not None and not adj_s.empty:
+                adj_s.to_pickle(adj_path)
+        if adj_s is not None and not adj_s.empty:
+            adj_s = adj_s.copy()
+            adj_s.index = pd.DatetimeIndex(
+                pd.to_datetime(adj_s.index.astype(str), errors="coerce")
+            )
+            adj_s = adj_s[adj_s.index.notna()].sort_index()
+            if not adj_s.empty:
+                adj[sym] = adj_s.astype(float)
 
         fa_path = cache_dir / f"{sym}_fa.pkl"
         fa = _cache_load(fa_path)
@@ -98,7 +144,7 @@ def build_panel(symbols, start, end, provider, cache_dir) -> FactorPanel:
             mf = mf[mf.index.notna()].sort_index()
             if not mf.empty:
                 moneyflow[sym] = mf
-    return FactorPanel(prices=prices, fundamentals=fundamentals, moneyflow=moneyflow)
+    return FactorPanel(prices=prices, fundamentals=fundamentals, moneyflow=moneyflow, adj=adj)
 
 
 def _to_yyyymmdd(value) -> str:

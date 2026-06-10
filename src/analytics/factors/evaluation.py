@@ -8,6 +8,10 @@ from src.data.factor_panel import FactorPanel
 
 
 def forward_returns(panel: FactorPanel, as_of, horizon: int) -> pd.Series:
+    """Forward TOTAL returns: measured on close × adj_factor where adj data
+    exists (dividends credited, 送转/split jumps neutralized), raw close
+    otherwise. Raw-close forward returns systematically understate high-yield
+    names and rank any split-affected name dead-last — see the 2026-06-10 audit."""
     as_of = pd.Timestamp(as_of)
     out = {}
     for sym in panel.symbols:
@@ -18,7 +22,8 @@ def forward_returns(panel: FactorPanel, as_of, horizon: int) -> pd.Series:
         fwd = pos + horizon
         if fwd >= len(df):
             continue
-        c0, c1 = df["close"].iloc[pos], df["close"].iloc[fwd]
+        tr = panel.total_return_close(sym)
+        c0, c1 = tr.iloc[pos], tr.iloc[fwd]
         if c0 and np.isfinite(c0) and np.isfinite(c1):
             out[sym] = float(c1 / c0 - 1.0)
     return pd.Series(out, dtype=float)
