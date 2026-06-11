@@ -619,6 +619,16 @@ async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
             axis=1,
         )
 
+        # Per-leg A-share friction profiles — the component runs above already
+        # auto-apply frictions via run_backtest_pipeline; without this the
+        # combined portfolio number ran friction-free while its own components
+        # were charged (audit 2026-06-10). Mixed portfolios charge only the
+        # A-share legs; non-A-share symbols resolve to None and stay off.
+        portfolio_ashare_frictions = {
+            leg: profile
+            for leg in ordered_symbols
+            if (profile := backtest_runtime.resolve_ashare_frictions(leg)) is not None
+        }
         portfolio_results = PortfolioBacktester(
             initial_capital=float(request.initial_capital),
             commission=request.commission,
@@ -636,6 +646,7 @@ async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
             impact_coefficient=request.impact_coefficient,
             permanent_impact_bps=request.permanent_impact_bps,
             execution_lag=request.execution_lag,
+            ashare_frictions=portfolio_ashare_frictions,
         ).run(
             strategy=type(
                 "PortfolioStrategyWrapper",

@@ -617,3 +617,194 @@ class TestWalkForwardFrictions:
         assert cfg.enforce_t_plus_1 is False
         assert cfg.price_limit_pct is None
         assert data["ashare_frictions_applied"] is False
+
+
+# --------------------------------------------------------------------------- #
+# 7. Per-symbol frictions in the PORTFOLIO engine (audit 2026-06-10: the
+#    multi-asset path had no stamp/transfer/limit support at all, so the
+#    combined portfolio number was friction-free while its per-symbol
+#    component runs charged frictions).
+# --------------------------------------------------------------------------- #
+_MOUTAI_PROFILE = {
+    "stamp_duty_rate": 0.001,
+    "transfer_fee_rate": 0.0001,
+    "enforce_t_plus_1": True,
+    "price_limit_pct": None,
+}
+
+
+class TestPortfolioEngineFrictions:
+    def _engine(self, frictions=None, commission=0.0, slippage=0.0):
+        from src.backtest.execution_engine import (
+            PortfolioExecutionConfig,
+            PortfolioExecutionEngine,
+        )
+
+        cfg = PortfolioExecutionConfig(
+            allow_fractional_shares=True,
+            execution_lag=0,
+            ashare_frictions=frictions or {},
+        )
+        return PortfolioExecutionEngine(
+            initial_capital=100_000, commission=commission, slippage=slippage, config=cfg
+        )
+
+    @staticmethod
+    def _frames(symbol, prices_list, weights_list):
+        idx = pd.date_range("2024-01-01", periods=len(prices_list), freq="D")
+        prices = pd.DataFrame({symbol: prices_list}, index=idx)
+        weights = pd.DataFrame({symbol: weights_list}, index=idx)
+        return prices, weights
+
+    def test_sell_charges_stamp_and_transfer_on_raw_notional(self):
+        prices, weights = self._frames("600519.SS", [100.0, 100.0, 100.0], [1.0, 0.0, 0.0])
+        res = self._engine({"600519.SS": _MOUTAI_PROFILE}).execute(
+            price_data=prices, target_weights=weights
+        )
+        buys = [t for t in res["trades"] if t["type"] == "BUY"]
+        sells = [t for t in res["trades"] if t["type"] == "SELL"]
+        assert buys and sells, res["trades"]
+        sell = sells[0]
+        raw = sell["shares"] * sell["price"]
+        # Parity with the single-asset engine: stamp duty SELL-only, transfer
+        # fee both sides, both on the RAW notional.
+        assert sell["stamp_duty_cost"] == pytest.approx(raw * 0.001)
+        assert sell["transfer_fee_cost"] == pytest.approx(raw * 0.0001)
+        buy = buys[0]
+        buy_raw = buy["shares"] * buy["price"]
+        assert buy["stamp_duty_cost"] == 0.0
+        assert buy["transfer_fee_cost"] == pytest.approx(buy_raw * 0.0001)
+
+    def test_unflagged_symbol_runs_byte_identical(self):
+        prices, weights = self._frames("AAPL", [100.0, 105.0, 110.0], [1.0, 0.5, 0.0])
+        base = self._engine().execute(price_data=prices, target_weights=weights)
+        flagged_elsewhere = self._engine({"600519.SS": _MOUTAI_PROFILE}).execute(
+            price_data=prices, target_weights=weights
+        )
+        assert base["portfolio_history"]["total"].tolist() == (
+            flagged_elsewhere["portfolio_history"]["total"].tolist()
+        )
+        for trade in flagged_elsewhere["trades"]:
+            assert trade["stamp_duty_cost"] == 0.0
+            assert trade["transfer_fee_cost"] == 0.0
+
+    def test_price_limit_blocks_buy_at_limit_up(self):
+        profile = dict(_MOUTAI_PROFILE, price_limit_pct=0.10)
+        # Bar2 closes +10% vs bar1 -> at the limit-up band -> BUY must not fill;
+        # bar3 is inside the band -> the deferred buy fills there.
+        prices, weights = self._frames("600519.SS", [100.0, 110.0, 112.0], [0.0, 1.0, 1.0])
+        res = self._engine({"600519.SS": profile}).execute(
+            price_data=prices, target_weights=weights
+        )
+        buys = [t for t in res["trades"] if t["type"] == "BUY"]
+        assert buys, res["trades"]
+        assert buys[0]["date"] == prices.index[2]
+        # Control: without the band the buy fills on bar2.
+        res_free = self._engine().execute(price_data=prices, target_weights=weights)
+        free_buys = [t for t in res_free["trades"] if t["type"] == "BUY"]
+        assert free_buys[0]["date"] == prices.index[1]
+
+    def test_price_limit_blocks_sell_at_limit_down(self):
+        profile = dict(_MOUTAI_PROFILE, price_limit_pct=0.10)
+        # Buy bar1; bar2 closes -10% (limit-down) -> SELL blocked; bar3 sells.
+        prices, weights = self._frames("600519.SS", [100.0, 90.0, 91.0], [1.0, 0.0, 0.0])
+        res = self._engine({"600519.SS": profile}).execute(
+            price_data=prices, target_weights=weights
+        )
+        sells = [t for t in res["trades"] if t["type"] == "SELL"]
+        assert sells, res["trades"]
+        assert sells[0]["date"] == prices.index[2]
+
+    def test_portfolio_backtester_threads_frictions_into_config(self):
+        from src.backtest.portfolio_backtester import PortfolioBacktester
+
+        bt = PortfolioBacktester(
+            initial_capital=100_000,
+            ashare_frictions={"600519.SS": _MOUTAI_PROFILE},
+        )
+        assert bt.execution_config.ashare_frictions == {"600519.SS": _MOUTAI_PROFILE}
+
+
+class TestPortfolioStrategyEndpointFrictions:
+    def test_endpoint_resolves_per_symbol_profiles(self, monkeypatch):
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from backend.app.api.v1.endpoints import backtest as backtest_endpoint
+
+        idx = pd.date_range("2023-01-01", periods=80, freq="D")
+        closes = np.linspace(50, 70, 80)
+        df = pd.DataFrame(
+            {
+                "open": closes,
+                "high": closes * 1.01,
+                "low": closes * 0.99,
+                "close": closes,
+                "volume": [2_000_000] * 80,
+            },
+            index=idx,
+        )
+
+        def fake_pipeline(**kwargs):
+            history = [
+                {"date": str(d.date()), "total": 100000.0 + i} for i, d in enumerate(idx)
+            ]
+            return (
+                {
+                    "portfolio_history": history,
+                    "total_return": 0.05,
+                    "annualized_return": 0.05,
+                    "max_drawdown": -0.05,
+                    "final_value": 105000.0,
+                    "num_trades": 2,
+                },
+                None,
+            )
+
+        class _Strategy:
+            def generate_signals(self, data):
+                return pd.Series(1, index=data.index)
+
+        captured = {}
+
+        class _CapturingPB:
+            def __init__(self, **kwargs):
+                captured.update(kwargs)
+
+            def run(self, strategy, data, **kwargs):
+                return {
+                    "portfolio_history": [],
+                    "positions_history": [],
+                    "total_return": 0.05,
+                    "annualized_return": 0.05,
+                    "volatility": 0.1,
+                    "sharpe_ratio": 0.5,
+                    "max_drawdown": -0.05,
+                    "num_trades": 2,
+                    "final_value": 105000.0,
+                }
+
+        monkeypatch.setattr(backtest_endpoint, "_fetch_backtest_data", lambda *a, **k: df)
+        monkeypatch.setattr(backtest_endpoint, "run_backtest_pipeline", fake_pipeline)
+        monkeypatch.setattr(
+            backtest_endpoint, "_create_strategy_instance", lambda *a, **k: _Strategy()
+        )
+        monkeypatch.setattr(backtest_endpoint, "PortfolioBacktester", _CapturingPB)
+
+        app = FastAPI()
+        app.include_router(backtest_endpoint.router, prefix="/backtest")
+        client = TestClient(app)
+        resp = client.post(
+            "/backtest/portfolio-strategy",
+            json={
+                "symbols": ["600519.SS", "AAPL"],
+                "strategy": "buy_and_hold",
+                "objective": "equal_weight",
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        frictions = captured["ashare_frictions"]
+        # Only the A-share leg gets a profile; the US leg is absent (off).
+        assert set(frictions) == {"600519.SS"}
+        assert frictions["600519.SS"]["stamp_duty_rate"] == pytest.approx(0.0005)
+        assert frictions["600519.SS"]["enforce_t_plus_1"] is True
