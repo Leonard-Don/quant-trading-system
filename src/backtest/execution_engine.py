@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import numpy as np
@@ -29,6 +29,14 @@ class PortfolioExecutionConfig:
     impact_coefficient: float = 1.0
     permanent_impact_bps: float = 0.0
     execution_lag: int = 1
+    # Per-symbol A-share friction profiles: {symbol: {stamp_duty_rate,
+    # transfer_fee_rate, enforce_t_plus_1, price_limit_pct}} — the same shape
+    # ashare_cost_profile()/resolve_ashare_frictions() produce. Empty (default)
+    # keeps every path byte-identical. Mixed portfolios charge only flagged
+    # legs. Note: T+1 needs no engine logic here — the engine sells before it
+    # buys within a bar and an asset is on exactly one side per bar (delta sign),
+    # so a same-bar buy-then-sell of one asset is structurally impossible.
+    ashare_frictions: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 class PortfolioExecutionEngine:
@@ -58,6 +66,7 @@ class PortfolioExecutionEngine:
         weights = target_weights.reindex(index=prices.index, columns=prices.columns).fillna(0.0)
         weights = self._apply_execution_lag(weights)
         market_context = self._build_market_context(prices)
+        prev_closes = prices.shift(1)  # per-symbol price-limit bands need t-1 closes
 
         positions = pd.Series(0.0, index=prices.columns, dtype=float)
         cash = float(self.initial_capital)
@@ -99,6 +108,9 @@ class PortfolioExecutionEngine:
                 price = current_prices.get(asset)
                 if pd.isna(price) or delta >= 0:
                     continue
+                band = self._price_limit_band(asset, prev_closes.loc[timestamp].get(asset))
+                if band is not None and float(price) <= band[0]:
+                    continue  # limit-down: sells don't fill (跌停无法卖出)
                 shares_to_sell = min(abs(delta), abs(positions[asset]) if positions[asset] > 0 else abs(delta))
                 shares_to_sell = self._normalize_shares(shares_to_sell)
                 if shares_to_sell <= 0 or (shares_to_sell * price) < self.config.min_trade_value:
@@ -113,7 +125,10 @@ class PortfolioExecutionEngine:
                 )
                 proceeds = shares_to_sell * price * (1 - float(execution_cost["total_slippage_rate"]))
                 commission_cost = self._commission_cost(proceeds)
-                cash += proceeds - commission_cost
+                stamp_duty_cost, transfer_fee_cost = self._ashare_costs(
+                    asset, shares_to_sell * price, "SELL"
+                )
+                cash += proceeds - commission_cost - stamp_duty_cost - transfer_fee_cost
                 positions[asset] -= shares_to_sell
                 trades.append(
                     {
@@ -122,7 +137,11 @@ class PortfolioExecutionEngine:
                         "type": "SELL",
                         "shares": float(shares_to_sell),
                         "price": float(price),
-                        "value": float(proceeds - commission_cost),
+                        "value": float(
+                            proceeds - commission_cost - stamp_duty_cost - transfer_fee_cost
+                        ),
+                        "stamp_duty_cost": float(stamp_duty_cost),
+                        "transfer_fee_cost": float(transfer_fee_cost),
                         "market_impact_rate": execution_cost["impact_rate"],
                         "execution_slippage_rate": execution_cost["total_slippage_rate"],
                         "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
@@ -139,10 +158,16 @@ class PortfolioExecutionEngine:
                 price = current_prices.get(asset)
                 if pd.isna(price) or delta <= 0:
                     continue
+                band = self._price_limit_band(asset, prev_closes.loc[timestamp].get(asset))
+                if band is not None and float(price) >= band[1]:
+                    continue  # limit-up: buys don't fill (涨停无法买入)
                 shares_to_buy = self._normalize_shares(delta)
                 if shares_to_buy <= 0 or (shares_to_buy * price) < self.config.min_trade_value:
                     continue
 
+                transfer_fee_rate = float(
+                    self._friction_profile(asset).get("transfer_fee_rate") or 0.0
+                )
                 execution_cost = self._execution_cost_profile(
                     price=price,
                     shares=shares_to_buy,
@@ -152,13 +177,14 @@ class PortfolioExecutionEngine:
                 )
                 gross_cost = shares_to_buy * price * (1 + float(execution_cost["total_slippage_rate"]))
                 commission_cost = self._commission_cost(gross_cost)
-                total_cost = gross_cost + commission_cost
+                _, transfer_fee_cost = self._ashare_costs(asset, shares_to_buy * price, "BUY")
+                total_cost = gross_cost + commission_cost + transfer_fee_cost
 
                 if total_cost > cash and price > 0:
                     affordable = cash / (
                         price
                         * (1 + float(execution_cost["total_slippage_rate"]))
-                        * (1 + self.commission)
+                        * (1 + self.commission + transfer_fee_rate)
                     )
                     shares_to_buy = self._normalize_shares(affordable)
                     execution_cost = self._execution_cost_profile(
@@ -170,7 +196,8 @@ class PortfolioExecutionEngine:
                     )
                     gross_cost = shares_to_buy * price * (1 + float(execution_cost["total_slippage_rate"]))
                     commission_cost = self._commission_cost(gross_cost)
-                    total_cost = gross_cost + commission_cost
+                    _, transfer_fee_cost = self._ashare_costs(asset, shares_to_buy * price, "BUY")
+                    total_cost = gross_cost + commission_cost + transfer_fee_cost
 
                 if shares_to_buy <= 0 or total_cost > cash:
                     continue
@@ -185,6 +212,8 @@ class PortfolioExecutionEngine:
                         "shares": float(shares_to_buy),
                         "price": float(price),
                         "value": float(total_cost),
+                        "stamp_duty_cost": 0.0,
+                        "transfer_fee_cost": float(transfer_fee_cost),
                         "market_impact_rate": execution_cost["impact_rate"],
                         "execution_slippage_rate": execution_cost["total_slippage_rate"],
                         "estimated_market_impact_cost": execution_cost["estimated_market_impact_cost"],
@@ -308,6 +337,45 @@ class PortfolioExecutionEngine:
             "estimated_market_impact_cost": trade_notional * float(impact["impact_rate"]),
             "estimated_total_slippage_cost": trade_notional * total_slippage_rate,
         }
+
+    def _friction_profile(self, asset: str) -> dict[str, Any]:
+        return self.config.ashare_frictions.get(asset) or {}
+
+    def _ashare_costs(self, asset: str, notional: float, side: str) -> tuple[float, float]:
+        """(stamp_duty_cost, transfer_fee_cost) for a flagged symbol.
+
+        Parity with the single-asset engine (backtester.py::_ashare_costs):
+        stamp duty on the SELL side only, transfer fee on both sides, both on
+        the RAW shares×price notional. Unflagged symbols cost (0.0, 0.0).
+        """
+        profile = self._friction_profile(asset)
+        if not profile:
+            return 0.0, 0.0
+        raw = abs(float(notional or 0.0))
+        if not np.isfinite(raw) or raw <= 0:
+            return 0.0, 0.0
+        stamp = raw * float(profile.get("stamp_duty_rate") or 0.0) if side == "SELL" else 0.0
+        transfer = raw * float(profile.get("transfer_fee_rate") or 0.0)
+        return float(stamp), float(transfer)
+
+    def _price_limit_band(self, asset: str, prev_close: Any) -> Optional[tuple[float, float]]:
+        """(lower, upper) daily price band from the prior close, or ``None``.
+
+        Mirrors the single-asset ``_price_limit_band``: no band on the first
+        bar (NaN prev close) or for symbols without a ``price_limit_pct``.
+        """
+        profile = self._friction_profile(asset)
+        pct = profile.get("price_limit_pct")
+        if pct is None or float(pct) <= 0:
+            return None
+        try:
+            prev = float(prev_close)
+        except (TypeError, ValueError):
+            return None
+        if not np.isfinite(prev) or prev <= 0:
+            return None
+        pct = float(pct)
+        return (round(prev * (1 - pct), 2), round(prev * (1 + pct), 2))
 
     def _commission_cost(self, notional: float) -> float:
         if not np.isfinite(notional) or notional <= 0:

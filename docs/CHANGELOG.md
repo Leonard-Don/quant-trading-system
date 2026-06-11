@@ -4,6 +4,14 @@
 
 ### Research
 
+- feat(backtest)!: portfolio 引擎支持**按符号**的 A 股摩擦 (#159)。
+  `PortfolioExecutionConfig` 新增 `ashare_frictions: {symbol: profile}`（默认空
+  ——所有现有路径字节不变）：印花税只收卖出、过户费双边、均按原始名义额（与单
+  资产引擎逐项对齐）；按符号的涨跌停价格带阻断成交（涨停不能买、跌停不能卖，
+  带由 t-1 收盘价推得）；T+1 在该引擎结构上自然满足（同一 bar 先卖后买、单资产
+  只会出现在一侧），文档化而非加逻辑。`/backtest/portfolio-strategy` 端点按腿调用
+  `resolve_ashare_frictions`——修复"组件回测含摩擦、组合数字零摩擦"的口径分裂；
+  混合组合只对 A 股腿收费，美股腿数值不变。
 - fix(backtest)!: batch 与 walk-forward 路径接入 A 股摩擦自动解析 (#158)。
   这两个端点绕过 `run_backtest_pipeline`，A 股任务此前一直在零印花税/零过户费/
   无 T+1/无涨跌停的口径下运行（2026-06-10 审查确认）——尤其 walk-forward 的

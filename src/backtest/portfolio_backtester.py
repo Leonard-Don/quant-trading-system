@@ -34,6 +34,7 @@ class PortfolioBacktester(BaseBacktester):
         impact_coefficient: float = 1.0,
         permanent_impact_bps: float = 0.0,
         execution_lag: int = 1,
+        ashare_frictions: Optional[dict[str, dict[str, Any]]] = None,
     ):
         super().__init__(
             initial_capital=initial_capital,
@@ -54,6 +55,7 @@ class PortfolioBacktester(BaseBacktester):
             impact_coefficient=impact_coefficient,
             permanent_impact_bps=permanent_impact_bps,
             execution_lag=execution_lag,
+            ashare_frictions=dict(ashare_frictions or {}),
         )
 
     def run(self, strategy: Any, data: Any, **kwargs: Any) -> dict[str, Any]:
