@@ -15,4 +15,10 @@ describe('Panel', () => {
     expect(screen.queryByTestId('panel-header')).toBeNull();
     expect(screen.getByText('only body')).toBeTruthy();
   });
+
+  test('forwards style + testId to the surface root', () => {
+    render(<Panel testId="x" style={{ background: 'rgb(1, 2, 3)' }}>b</Panel>);
+    const root = screen.getByTestId('x');
+    expect(root.style.background).toBe('rgb(1, 2, 3)');
+  });
 });
