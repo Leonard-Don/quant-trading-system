@@ -1004,7 +1004,6 @@ code {
   color: var(--accent-primary) !important;
 }
 
-.industry-ranking-card .ant-card-head,
 .leader-stock-table .ant-table-thead > tr > th {
   background: color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary) 12%) !important;
 }

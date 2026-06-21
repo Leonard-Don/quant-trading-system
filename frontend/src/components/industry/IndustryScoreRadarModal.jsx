@@ -90,7 +90,7 @@ const IndustryScoreRadarModal = ({
                         </Col>
                         <Col xs={8}>
                             <div>
-                                <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)', marginBottom: 4 }}>涨跌幅</div>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>涨跌幅</div>
                                 <span style={{ color: changePct >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontSize: 22, fontWeight: 600 }}>
                                     {changePct >= 0 ? '+' : ''}{Number(changePct).toFixed(2)}%
                                 </span>
@@ -98,7 +98,7 @@ const IndustryScoreRadarModal = ({
                         </Col>
                         <Col xs={8}>
                             <div>
-                                <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)', marginBottom: 4 }}>主力资金</div>
+                                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>主力资金</div>
                                 <span style={{ color: moneyFlow >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontSize: 20, fontWeight: 600 }}>
                                     {formatIndustryAlertMoneyFlow(moneyFlow)}
                                 </span>
