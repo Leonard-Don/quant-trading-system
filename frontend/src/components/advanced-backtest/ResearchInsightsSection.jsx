@@ -1,8 +1,9 @@
-import { Alert, Card, Col, Empty, Row, Space, Table } from 'antd';
+import { Alert, Col, Empty, Row, Space, Table } from 'antd';
 import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Legend,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
@@ -10,7 +11,10 @@ import {
   YAxis,
 } from 'recharts';
 
+import { Panel } from '../../design/components';
 import { formatPercentage } from '../../utils/formatting';
+
+const CHART_NEGATIVE = '#ef4444';
 
 function ResearchInsightsSection({
   robustnessScore,
@@ -27,7 +31,7 @@ function ResearchInsightsSection({
     <>
       <Row gutter={[20, 20]}>
         <Col xs={24} xl={9}>
-          <Card className="workspace-panel workspace-chart-card" title="稳健性评分">
+          <Panel className="workspace-panel workspace-chart-card" title="稳健性评分">
             {robustnessScore || overfittingWarnings.length || researchConclusion ? (
               <Space direction="vertical" style={{ width: '100%' }} size="large">
                 {robustnessScore ? (
@@ -102,10 +106,10 @@ function ResearchInsightsSection({
             ) : (
               <Empty description="运行批量实验、滚动前瞻、基准对照或市场状态分析后，这里会给出稳健性评分、过拟合预警和自动研究结论。" />
             )}
-          </Card>
+          </Panel>
         </Col>
         <Col xs={24} xl={15}>
-          <Card className="workspace-panel workspace-chart-card" title="市场状态分层回测">
+          <Panel className="workspace-panel workspace-chart-card" title="市场状态分层回测">
             {marketRegimeResult ? (
               <Space direction="vertical" style={{ width: '100%' }} size="large">
                 {marketRegimeLoading ? (
@@ -140,7 +144,11 @@ function ResearchInsightsSection({
                         <YAxis tickFormatter={(value) => `${(Number(value || 0) * 100).toFixed(0)}%`} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
                         <RechartsTooltip />
                         <Legend />
-                        <Bar dataKey="strategyTotalReturn" name="策略收益" fill={CHART_POSITIVE} />
+                        <Bar dataKey="strategyTotalReturn" name="策略收益">
+                          {marketRegimeChartData.map((d, i) => (
+                            <Cell key={i} fill={(d.strategyTotalReturn ?? 0) >= 0 ? CHART_POSITIVE : CHART_NEGATIVE} />
+                          ))}
+                        </Bar>
                         <Bar dataKey="marketTotalReturn" name="市场收益" fill={CHART_NEUTRAL} />
                       </BarChart>
                     </ResponsiveContainer>
@@ -164,7 +172,7 @@ function ResearchInsightsSection({
             ) : (
               <Empty description="运行市场状态分层回测后，这里会展示策略在不同市场状态下的表现差异。" />
             )}
-          </Card>
+          </Panel>
         </Col>
       </Row>
     </>

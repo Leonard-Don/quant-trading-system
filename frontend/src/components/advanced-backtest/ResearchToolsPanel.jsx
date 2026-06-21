@@ -1,4 +1,6 @@
-import { Button, Card, Col, Input, InputNumber, Row, Select } from 'antd';
+import { Button, Col, Input, InputNumber, Row, Select } from 'antd';
+
+import { Panel } from '../../design/components';
 
 function ResearchToolsPanel({
   compact = false,
@@ -21,7 +23,7 @@ function ResearchToolsPanel({
   handleRunPortfolioStrategy,
 }) {
   return (
-    <Card className={`workspace-panel advanced-lab-tool-panel${compact ? ' advanced-lab-tool-panel--compact' : ''}`}>
+    <Panel className={`workspace-panel advanced-lab-tool-panel${compact ? ' advanced-lab-tool-panel--compact' : ''}`}>
       <div className="workspace-section__header">
         <div>
           <div className="workspace-section__title">研究增强工具</div>
@@ -76,7 +78,7 @@ function ResearchToolsPanel({
           </div>
         </Col>
       </Row>
-    </Card>
+    </Panel>
   );
 }
 

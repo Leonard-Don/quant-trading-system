@@ -1,4 +1,6 @@
-import { Alert, Button, Card, Col, Input, Row, Select, Space, Table, Tag } from 'antd';
+import { Alert, Button, Col, Input, Row, Select, Space, Table, Tag } from 'antd';
+
+import { Panel } from '../../design/components';
 
 import { ADVANCED_TEMPLATE_CATEGORY_LABELS } from '../../utils/advancedExperimentTemplates';
 import { getStrategyName, getStrategyParameterLabel } from '../../constants/strategies';
@@ -32,7 +34,7 @@ function TemplateManagerSection({
   experimentComparison,
 }) {
   return (
-    <Card className={`workspace-panel advanced-lab-control-card${compact ? ' advanced-lab-control-card--compact' : ''}`}>
+    <Panel className={`workspace-panel advanced-lab-control-card${compact ? ' advanced-lab-control-card--compact' : ''}`}>
       <div className="workspace-section__header">
         <div>
           <div className="workspace-section__title">实验模板与版本对比</div>
@@ -192,7 +194,7 @@ function TemplateManagerSection({
           </div>
         </Col>
       </Row>
-    </Card>
+    </Panel>
   );
 }
 

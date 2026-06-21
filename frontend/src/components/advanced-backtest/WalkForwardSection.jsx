@@ -1,7 +1,6 @@
 import {
   Alert,
   Button,
-  Card,
   Col,
   DatePicker,
   Empty,
@@ -25,6 +24,7 @@ import {
   YAxis,
 } from 'recharts';
 
+import { Panel } from '../../design/components';
 import { getStrategyName, getStrategyParameterLabel, getStrategyDetails } from '../../constants/strategies';
 import { formatPercentage } from '../../utils/formatting';
 import { DEFAULT_CAPITAL, DEFAULT_COMMISSION, DEFAULT_SLIPPAGE, getMetricValue } from '../../hooks/useAdvancedBacktestLab';
@@ -105,7 +105,7 @@ function WalkForwardForm({
   handleRunWalkForward,
 }) {
   return (
-    <Card
+    <Panel
       className="workspace-panel workspace-panel--emphasis"
       title={(
         <div className="workspace-title">
@@ -264,7 +264,7 @@ function WalkForwardForm({
           运行滚动前瞻分析
         </Button>
       </Form>
-    </Card>
+    </Panel>
   );
 }
 
@@ -280,10 +280,10 @@ function WalkForwardResults({
   handleExportWalkForward,
 }) {
   return (
-    <Card
+    <Panel
       className="workspace-panel workspace-chart-card"
       title="滚动前瞻分析结果"
-      extra={walkResult ? (
+      actions={walkResult ? (
         <Space size="small">
           <Button size="small" onClick={handleSaveWalkHistory}>保存到历史</Button>
           <Button size="small" icon={<DownloadOutlined />} onClick={() => handleExportWalkForward('csv')}>导出CSV</Button>
@@ -446,7 +446,7 @@ function WalkForwardResults({
       ) : (
         <Empty description="运行滚动前瞻分析后，这里会显示各窗口表现和聚合结果。" />
       )}
-    </Card>
+    </Panel>
   );
 }
 
