@@ -15,14 +15,13 @@
 import {
     Row,
     Col,
-    Card,
     Spin,
     Empty,
     Tag,
     Button,
     Space,
-    Statistic,
 } from 'antd';
+import { Panel } from '../../design/components';
 import {
     FireOutlined,
     BranchesOutlined,
@@ -92,8 +91,7 @@ const IndustryClusterPanel = ({
                         const isHot = parseInt(idx) === clusters.hot_cluster;
                         return (
                             <Col span={12} key={idx}>
-                                <Card
-                                    size="small"
+                                <Panel
                                     title={
                                         <span>
                                             {isHot && (
@@ -109,25 +107,20 @@ const IndustryClusterPanel = ({
                                 >
                                     <Row gutter={8}>
                                         <Col span={12}>
-                                            <Statistic
-                                                title="平均动量"
-                                                value={Math.abs(stats.avg_momentum) < 0.005 ? '0.00' : stats.avg_momentum?.toFixed(2)}
-                                                suffix="%"
-                                                valueStyle={{
-                                                    color: stats.avg_momentum >= 0 ? '#cf1322' : '#3f8600',
-                                                    fontSize: 14
-                                                }}
-                                            />
+                                            <div>
+                                                <div style={{ fontSize: 12, color: PANEL_MUTED, marginBottom: 4 }}>平均动量</div>
+                                                <span style={{ color: stats.avg_momentum >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontSize: 14, fontWeight: 600 }}>
+                                                    {Math.abs(stats.avg_momentum) < 0.005 ? '0.00' : stats.avg_momentum?.toFixed(2)}%
+                                                </span>
+                                            </div>
                                         </Col>
                                         <Col span={12}>
-                                            <Statistic
-                                                title="平均资金强度"
-                                                value={Math.abs(stats.avg_flow) < 0.005 ? '0.00' : stats.avg_flow?.toFixed(2)}
-                                                valueStyle={{
-                                                    color: (stats.avg_flow || 0) >= 0 ? '#cf1322' : '#3f8600',
-                                                    fontSize: 14
-                                                }}
-                                            />
+                                            <div>
+                                                <div style={{ fontSize: 12, color: PANEL_MUTED, marginBottom: 4 }}>平均资金强度</div>
+                                                <span style={{ color: (stats.avg_flow || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontSize: 14, fontWeight: 600 }}>
+                                                    {Math.abs(stats.avg_flow) < 0.005 ? '0.00' : stats.avg_flow?.toFixed(2)}
+                                                </span>
+                                            </div>
                                         </Col>
                                     </Row>
                                     <div style={{ marginTop: 8 }}>
@@ -152,7 +145,7 @@ const IndustryClusterPanel = ({
                                             )}
                                         </div>
                                     </div>
-                                </Card>
+                                </Panel>
                             </Col>
                         );
                     })}
@@ -311,10 +304,8 @@ const IndustryClusterPanel = ({
                     </ResponsiveContainer>
                 </div>
                 {selectedClusterPoint && (
-                    <Card
-                        size="small"
-                        style={{ marginTop: 12, borderRadius: 12, border: '1px solid rgba(24,144,255,0.18)' }}
-                        styles={{ body: { padding: '12px 14px' } }}
+                    <Panel
+                        style={{ marginTop: 12, borderRadius: 12, border: '1px solid rgba(24,144,255,0.18)', padding: '12px 14px' }}
                     >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -340,7 +331,7 @@ const IndustryClusterPanel = ({
                                 </Button>
                             </Space>
                         </div>
-                    </Card>
+                    </Panel>
                 )}
             </div>
         );

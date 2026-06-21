@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
-import { Card, Tag, Button, Space } from 'antd';
+import { Tag, Button, Space } from 'antd';
 import { StarFilled, BranchesOutlined } from '@ant-design/icons';
 import { activateOnEnterOrSpace } from './industryShared';
+import { Panel } from '../../design/components';
 
 const IndustryWatchlistPanel = ({
     watchlistEntries,
@@ -21,9 +22,8 @@ const IndustryWatchlistPanel = ({
     );
 
     return (
-    <Card
-        size="small"
-        data-testid="industry-watchlist-card"
+    <Panel
+        testId="industry-watchlist-card"
         style={{
             marginBottom: 12,
             borderRadius: 12,
@@ -42,7 +42,7 @@ const IndustryWatchlistPanel = ({
                 </span>
             </div>
         )}
-        extra={watchlistEntries.length > 0 ? (
+        actions={watchlistEntries.length > 0 ? (
             <Space size={8} wrap>
                 <Tag color="gold" style={{ margin: 0, borderRadius: 999 }}>
                     {watchlistEntries.length}/{maxWatchlistIndustries}
@@ -90,17 +90,17 @@ const IndustryWatchlistPanel = ({
                                         </Tag>
                                     )}
                                     {item.replayDiff && (
-                                        <Tag color={item.replayDiff.changeDelta >= 0 ? 'red' : 'green'} style={{ margin: 0, borderRadius: 999, fontSize: 10 }}>
+                                        <Tag color={item.replayDiff.changeDelta >= 0 ? 'green' : 'red'} style={{ margin: 0, borderRadius: 999, fontSize: 10 }}>
                                             回放 {item.replayDiff.changeDelta >= 0 ? '+' : ''}{Number(item.replayDiff.changeDelta || 0).toFixed(2)}%
                                         </Tag>
                                     )}
                                 </div>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 12, color: 'var(--text-secondary)' }}>
                                     <span>评分 {item.score != null ? Number(item.score).toFixed(1) : '-'}</span>
-                                    <span style={{ color: (item.change_pct || 0) >= 0 ? '#cf1322' : '#3f8600' }}>
+                                    <span style={{ color: (item.change_pct || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                                         涨跌 {item.change_pct != null ? `${item.change_pct >= 0 ? '+' : ''}${Number(item.change_pct).toFixed(2)}%` : '-'}
                                     </span>
-                                    <span style={{ color: (item.money_flow || 0) >= 0 ? '#cf1322' : '#3f8600' }}>
+                                    <span style={{ color: (item.money_flow || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                                         资金 {item.money_flow != null ? formatIndustryAlertMoneyFlow(item.money_flow) : '-'}
                                     </span>
                                 </div>
@@ -167,7 +167,7 @@ const IndustryWatchlistPanel = ({
                 )}
             </div>
         )}
-    </Card>
+    </Panel>
     );
 };
 

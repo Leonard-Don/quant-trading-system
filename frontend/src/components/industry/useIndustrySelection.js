@@ -241,7 +241,7 @@ export default function useIndustrySelection({
                 key: 'price',
                 label: '价格强度',
                 score: priceScore,
-                color: change >= 0 ? '#cf1322' : '#3f8600',
+                color: change >= 0 ? 'var(--color-up)' : 'var(--color-down)',
                 summary: change >= 0
                     ? `行业涨跌幅 ${change.toFixed(2)}%，价格表现仍在正向贡献。`
                     : `行业涨跌幅 ${change.toFixed(2)}%，价格端正在拖累当前综合分。`,
@@ -250,7 +250,7 @@ export default function useIndustrySelection({
                 key: 'capital',
                 label: '资金热度',
                 score: capitalScore,
-                color: moneyFlow >= 0 ? '#cf1322' : '#3f8600',
+                color: moneyFlow >= 0 ? 'var(--color-up)' : 'var(--color-down)',
                 summary: moneyFlow >= 0
                     ? `主力净流入 ${formatIndustryAlertMoneyFlow(moneyFlow)}，净流入占比 ${netInflowRatio.toFixed(2)}%。`
                     : `主力净流出 ${formatIndustryAlertMoneyFlow(moneyFlow)}，短线承接仍需继续确认。`,

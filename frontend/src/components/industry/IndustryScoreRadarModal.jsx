@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Modal, Row, Col, Statistic, Tag, Empty } from 'antd';
+// Statistic kept for the non-directional score-tier cell only
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer } from 'recharts';
 import { clampNumeric, formatIndustryAlertMoneyFlow, getIndustryScoreTone } from './industryShared';
 
@@ -88,20 +89,20 @@ const IndustryScoreRadarModal = ({
                             />
                         </Col>
                         <Col xs={8}>
-                            <Statistic
-                                title="涨跌幅"
-                                value={changePct}
-                                precision={2}
-                                suffix="%"
-                                valueStyle={{ color: changePct >= 0 ? '#cf1322' : '#3f8600', fontSize: 22 }}
-                            />
+                            <div>
+                                <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)', marginBottom: 4 }}>涨跌幅</div>
+                                <span style={{ color: changePct >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontSize: 22, fontWeight: 600 }}>
+                                    {changePct >= 0 ? '+' : ''}{Number(changePct).toFixed(2)}%
+                                </span>
+                            </div>
                         </Col>
                         <Col xs={8}>
-                            <Statistic
-                                title="主力资金"
-                                value={formatIndustryAlertMoneyFlow(moneyFlow)}
-                                valueStyle={{ color: moneyFlow >= 0 ? '#cf1322' : '#3f8600', fontSize: 20 }}
-                            />
+                            <div>
+                                <div style={{ fontSize: 12, color: 'rgba(0,0,0,0.45)', marginBottom: 4 }}>主力资金</div>
+                                <span style={{ color: moneyFlow >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontSize: 20, fontWeight: 600 }}>
+                                    {formatIndustryAlertMoneyFlow(moneyFlow)}
+                                </span>
+                            </div>
                         </Col>
                     </Row>
 

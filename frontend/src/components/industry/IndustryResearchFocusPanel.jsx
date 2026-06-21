@@ -1,5 +1,6 @@
-import { Card, Tag, Button, Space, Row, Col, Progress } from 'antd';
+import { Tag, Button, Space, Row, Col, Progress } from 'antd';
 import { BranchesOutlined, StarFilled } from '@ant-design/icons';
+import { Panel } from '../../design/components';
 
 const TEXT_PRIMARY = 'var(--text-primary)';
 const TEXT_SECONDARY = 'var(--text-secondary)';
@@ -28,8 +29,7 @@ const IndustryResearchFocusPanel = ({
     const topReasons = (selectedIndustryReasons || []).slice(0, 2);
 
     return (
-        <Card
-            size="small"
+        <Panel
             style={{
                 marginBottom: 12,
                 borderRadius: 12,
@@ -97,7 +97,7 @@ const IndustryResearchFocusPanel = ({
                         <Col xs={8} sm={8}>
                             <div style={{ padding: '10px 12px', borderRadius: 10, background: 'color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary) 12%)' }}>
                                 <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>涨跌幅</div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: (selectedIndustrySnapshot?.change_pct || 0) >= 0 ? '#cf1322' : '#3f8600' }}>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: (selectedIndustrySnapshot?.change_pct || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                                     {selectedIndustrySnapshot?.change_pct != null
                                         ? `${selectedIndustrySnapshot.change_pct >= 0 ? '+' : ''}${selectedIndustrySnapshot.change_pct.toFixed(2)}%`
                                         : '-'}
@@ -107,7 +107,7 @@ const IndustryResearchFocusPanel = ({
                         <Col xs={8} sm={8}>
                             <div style={{ padding: '10px 12px', borderRadius: 10, background: 'color-mix(in srgb, var(--bg-secondary) 88%, var(--bg-primary) 12%)' }}>
                                 <div style={{ fontSize: 11, color: TEXT_SECONDARY, marginBottom: 4 }}>资金流向</div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: (selectedIndustrySnapshot?.money_flow || 0) >= 0 ? '#cf1322' : '#3f8600' }}>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: (selectedIndustrySnapshot?.money_flow || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                                     {selectedIndustrySnapshot?.money_flow != null
                                         ? `${selectedIndustrySnapshot.money_flow >= 0 ? '+' : ''}${(selectedIndustrySnapshot.money_flow / 1e8).toFixed(1)}亿`
                                         : '-'}
@@ -207,7 +207,7 @@ const IndustryResearchFocusPanel = ({
                     )}
                 </div>
             )}
-        </Card>
+        </Panel>
     );
 };
 
