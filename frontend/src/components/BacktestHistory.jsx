@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { AutoComplete, Card, Table, Button, Tag, Space, Popconfirm, Tooltip, Modal, Descriptions, Select } from 'antd';
+import { AutoComplete, Table, Button, Tag, Space, Popconfirm, Tooltip, Modal, Descriptions, Select } from 'antd';
+import { Panel } from '../design/components';
 import {
     HistoryOutlined,
     FilePdfOutlined,
@@ -479,8 +480,7 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
             render: (val) => {
                 // val is decimal, formatPercentage expects decimal
                 const formatted = formatPercentage(val);
-                const color = val >= 0 ? 'green' : 'red';
-                return <span style={{ color }}>{formatted}</span>;
+                return <span style={{ color: getValueColor(val) }}>{formatted}</span>;
             }
         },
         {
@@ -829,7 +829,7 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
                 </div>
             </div>
 
-            <Card
+            <Panel
                 className="workspace-panel"
                 title={
                     <div className="workspace-title">
@@ -842,7 +842,7 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
                         </div>
                     </div>
                 }
-                extra={
+                actions={
                     <Space wrap className="workspace-toolbar">
                         <Tag color="blue">{summaryItems[0]?.value || `${normalizedHistory.length} 条记录`}</Tag>
                         {filters.symbol ? <Tag color="cyan">标的 {filters.symbol}</Tag> : null}
@@ -851,8 +851,7 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
                         <Tag color="geekblue">可复盘</Tag>
                     </Space>
                 }
-                style={{ marginTop: 16 }}
-                styles={{ body: { padding: 0 } }}
+                style={{ marginTop: 16, padding: 0 }}
             >
                 <div className="workspace-toolbar" style={{ padding: '16px 16px 0', display: 'flex', flexWrap: 'wrap', gap: 12 }}>
                     <AutoComplete
@@ -914,7 +913,7 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
                     onChange={handleTableChange}
                     size="small"
                 />
-            </Card>
+            </Panel>
 
             <Modal
                 title="回测详情"
