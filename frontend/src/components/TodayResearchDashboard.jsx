@@ -62,6 +62,7 @@ import {
 } from '../utils/todayResearch';
 import {
   MetricGrid,
+  PageHero,
   Panel,
   StatCard,
   StatusPill,
@@ -632,9 +633,9 @@ const TodayResearchDashboard = () => {
     <Panel
       icon={<PlusOutlined />}
       title="新增记录"
-      actions={<span className="text-[12px] text-subtle">盘前计划、人工判断或临时线索</span>}
+      actions={<span className="text-xs text-subtle">盘前计划、人工判断或临时线索</span>}
     >
-      <p className="mb-3 text-[13px] leading-relaxed text-muted">
+      <p className="mb-3 text-sm leading-relaxed text-muted">
         盘前计划、人工判断或临时线索可以直接沉淀到档案。
       </p>
       <Form layout="vertical" form={form} onFinish={handleCreateManualEntry}>
@@ -674,9 +675,9 @@ const TodayResearchDashboard = () => {
   const renderEmptyWorkbench = () => (
     <Panel className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
-        <div className="text-[11px] uppercase tracking-[0.1em] text-accent">今日入口</div>
-        <div className="text-[16px] font-medium text-fg">先把第一条线索放进工作台</div>
-        <p className="text-[13px] leading-relaxed text-muted">
+        <div className="text-xs uppercase tracking-widest text-accent">今日入口</div>
+        <div className="text-base font-medium text-fg">先把第一条线索放进工作台</div>
+        <p className="text-sm leading-relaxed text-muted">
           工作台会把回测快照、实时复盘、行业观察和人工判断统一成可回看的研究流。
         </p>
       </div>
@@ -734,7 +735,7 @@ const TodayResearchDashboard = () => {
       actions={<StatusPill tone="info">{inboxEntries.length} 条</StatusPill>}
       className="flex flex-col gap-3"
     >
-      <p className="text-[13px] leading-relaxed text-muted">把今天的线索先分成可处理、继续观察和稍后回看。</p>
+      <p className="text-sm leading-relaxed text-muted">把今天的线索先分成可处理、继续观察和稍后回看。</p>
       <MetricGrid className="grid-cols-2 sm:grid-cols-5">
         {RESEARCH_INBOX_BUCKET_ORDER.map((bucket) => (
           <StatCard
@@ -760,7 +761,7 @@ const TodayResearchDashboard = () => {
       actions={<StatusPill tone="warn">{researchActionCounts.total || 0} 条</StatusPill>}
       className="flex flex-col gap-3"
     >
-      <p className="text-[13px] leading-relaxed text-muted">提醒、计划和观察名单的下一步处理清单。</p>
+      <p className="text-sm leading-relaxed text-muted">提醒、计划和观察名单的下一步处理清单。</p>
       <MetricGrid className="grid-cols-2 sm:grid-cols-4">
         <StatCard label="需处理" value={researchActionCounts.actionable || 0} accent />
         <StatCard label="继续观察" value={researchActionCounts.watch || 0} />
@@ -787,31 +788,25 @@ const TodayResearchDashboard = () => {
   return (
     <div className="today-research-page flex flex-col gap-4">
       <FadeIn>
-        <Surface variant="raised" className="p-5">
-          <div className="flex flex-wrap items-start justify-between gap-5">
-            <div className="min-w-0 flex-1 basis-[280px]">
-              <div className="mb-2 text-[11px] uppercase tracking-[0.1em] text-accent">今日线索、提醒与复盘档案</div>
-              <h2 className="text-2xl font-medium leading-tight text-fg">研究工作台</h2>
-              <p className="mt-2 max-w-[420px] text-[13px] leading-relaxed text-muted">
-                把分散在回测、实时行情、行业热度和纸面账户里的线索收成一张日内工作台，先判断轻重缓急，再回到具体模块深挖。
-              </p>
-            </div>
-            <div className="shrink-0">
-              <MetricGrid className="basis-[420px]">
-                <StatCard label="待处理" value={summary.open_entries || 0} />
-                <StatCard label="回测快照" value={getMetricValue(summary, 'backtest')} accent />
-                <StatCard
-                  label="实时记录"
-                  value={getMetricValue(summary, 'realtime_review') + getMetricValue(summary, 'realtime_alert') + getMetricValue(summary, 'trade_plan')}
-                />
-                <StatCard
-                  label="行业观察"
-                  value={getMetricValue(summary, 'industry_watch') + getMetricValue(summary, 'industry_alert')}
-                />
-              </MetricGrid>
-            </div>
-          </div>
-        </Surface>
+        <PageHero
+          eyebrow="今日线索、提醒与复盘档案"
+          title="研究工作台"
+          subtitle="把分散在回测、实时行情、行业热度和纸面账户里的线索收成一张日内工作台，先判断轻重缓急，再回到具体模块深挖。"
+          metrics={(
+            <MetricGrid className="basis-96">
+              <StatCard label="待处理" value={summary.open_entries || 0} />
+              <StatCard label="回测快照" value={getMetricValue(summary, 'backtest')} accent />
+              <StatCard
+                label="实时记录"
+                value={getMetricValue(summary, 'realtime_review') + getMetricValue(summary, 'realtime_alert') + getMetricValue(summary, 'trade_plan')}
+              />
+              <StatCard
+                label="行业观察"
+                value={getMetricValue(summary, 'industry_watch') + getMetricValue(summary, 'industry_alert')}
+              />
+            </MetricGrid>
+          )}
+        />
       </FadeIn>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -841,15 +836,15 @@ const TodayResearchDashboard = () => {
           <Surface key={step.key} className="flex items-start gap-3 p-4">
             <span className="text-accent" aria-hidden="true">{step.icon}</span>
             <div className="flex flex-col gap-1">
-              <strong className="text-[14px] font-medium text-fg">{step.title}</strong>
-              <span className="text-[12px] leading-relaxed text-muted">{step.description}</span>
+              <strong className="text-sm font-medium text-fg">{step.title}</strong>
+              <span className="text-xs leading-relaxed text-muted">{step.description}</span>
             </div>
           </Surface>
         ))}
       </section>
 
       {isJournalEmpty ? (
-        <div className="today-research-grid today-research-grid--empty grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="today-research-grid today-research-grid--empty">
           {renderEmptyWorkbench()}
           {renderManualEntryCard()}
         </div>
@@ -858,13 +853,13 @@ const TodayResearchDashboard = () => {
           {renderResearchInboxCard()}
           {renderResearchActionsCard()}
 
-          <div className="today-research-grid grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="today-research-grid">
             <Panel
               title="处理队列"
               actions={<StatusPill tone="warn">{actionQueue.length} 条</StatusPill>}
               className="flex flex-col gap-3"
             >
-              <p className="text-[13px] leading-relaxed text-muted">优先看仍处于待处理或跟踪中的线索。</p>
+              <p className="text-sm leading-relaxed text-muted">优先看仍处于待处理或跟踪中的线索。</p>
               {renderPrimaryQueueEntry()}
               {nextActions.length ? (
                 <div className="today-research-next-actions">
@@ -883,7 +878,7 @@ const TodayResearchDashboard = () => {
                 {visibleQueueEntries.map((entry) => renderEntry(entry, { compact: true }))}
               </div>
               {hiddenQueueCount > 0 ? (
-                <div className="today-research-queue-footnote text-[12px] text-subtle">
+                <div className="today-research-queue-footnote text-xs text-subtle">
                   其余 {hiddenQueueCount} 条仍保留在下方完整档案流中，避免首屏重复铺满。
                 </div>
               ) : null}
@@ -892,13 +887,13 @@ const TodayResearchDashboard = () => {
             {renderManualEntryCard()}
           </div>
 
-          <div className="today-research-grid today-research-grid--secondary grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="today-research-grid today-research-grid--secondary">
             <Panel
               title="标的时间线"
               actions={<StatusPill tone="neutral">{symbolTimeline.length} 个标的</StatusPill>}
               className="flex flex-col gap-3"
             >
-              <p className="text-[13px] leading-relaxed text-muted">按标的聚合回测、提醒和复盘，方便回看链路。</p>
+              <p className="text-sm leading-relaxed text-muted">按标的聚合回测、提醒和复盘，方便回看链路。</p>
               {symbolTimeline.length ? (
                 <div className="today-research-symbol-list">
                   {symbolTimeline.map((item) => (
@@ -928,7 +923,7 @@ const TodayResearchDashboard = () => {
               actions={<StatusPill tone="success">本地 + 后端</StatusPill>}
               className="flex flex-col gap-3"
             >
-              <p className="text-[13px] leading-relaxed text-muted">当前页从这些已有模块收集状态。</p>
+              <p className="text-sm leading-relaxed text-muted">当前页从这些已有模块收集状态。</p>
               <MetricGrid className="grid-cols-2 sm:grid-cols-3">
                 <StatCard label="回测快照" value={sourceCounts.backtest_snapshots || 0} />
                 <StatCard label="复盘快照" value={sourceCounts.realtime_review_snapshots || 0} />
@@ -956,7 +951,7 @@ const TodayResearchDashboard = () => {
             )}
             className="flex flex-col gap-3"
           >
-            <p className="text-[13px] leading-relaxed text-muted">所有来源统一成一条可回看的研究流。</p>
+            <p className="text-sm leading-relaxed text-muted">所有来源统一成一条可回看的研究流。</p>
             <div className="today-research-filter-bar">
               <Space wrap size={[10, 10]} className="today-research-filter-bar__controls">
                 <Select
