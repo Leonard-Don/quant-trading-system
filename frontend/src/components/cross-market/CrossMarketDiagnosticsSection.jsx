@@ -1,4 +1,6 @@
-import { Alert, Card, Col, Row, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, Col, Row, Statistic, Table, Tag, Typography } from 'antd';
+
+import { Panel } from '../../design/components';
 
 const { Text } = Typography;
 
@@ -22,7 +24,7 @@ function CrossMarketDiagnosticsSection({
   return (
     <Row gutter={[16, 16]}>
       <Col xs={24} xl={12}>
-        <Card title="数据对齐诊断" variant="borderless" className="workspace-panel">
+        <Panel title="数据对齐诊断" className="workspace-panel">
           <Row gutter={[16, 16]}>
             <Col span={8}>
               <Statistic title="可交易日占比" value={(results.data_alignment?.tradable_day_ratio || 0) * 100} precision={2} suffix="%" />
@@ -76,10 +78,10 @@ function CrossMarketDiagnosticsSection({
               },
             ]}
           />
-        </Card>
+        </Panel>
       </Col>
       <Col xs={24} xl={12}>
-        <Card title="执行诊断" variant="borderless" className="workspace-panel">
+        <Panel title="执行诊断" className="workspace-panel">
           <Row gutter={[16, 16]}>
             <Col span={8}>
               <Statistic title="换手率" value={results.execution_diagnostics?.turnover || 0} precision={2} />
@@ -171,7 +173,7 @@ function CrossMarketDiagnosticsSection({
           {results.execution_diagnostics?.stress_test_flag ? (
             <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics.stress_test_flag === 'high' ? 'warning' : 'info'} showIcon message={`压力测试最坏情景：${stressMeta.label}`} description={results.execution_diagnostics.stress_test_reason || '已根据资金放大情景评估路由拥挤度。'} />
           ) : null}
-        </Card>
+        </Panel>
       </Col>
     </Row>
   );

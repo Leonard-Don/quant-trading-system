@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Card,
   Space,
   Spin,
   Tag,
   Typography,
 } from 'antd';
+
+import { Panel } from '../design/components';
 
 import ResearchPlaybook from './research-playbook/ResearchPlaybook';
 import CrossMarketAssetSection from './cross-market/CrossMarketAssetSection';
@@ -1134,7 +1135,7 @@ function CrossMarketBacktestPanel() {
       </div>
 
       {researchContext?.template ? (
-        <Card className="app-page-context-rail" variant="borderless">
+        <Panel className="app-page-context-rail">
           <div className="app-page-context-rail__header">
             <div>
               <div className="app-page-context-rail__eyebrow">执行上下文</div>
@@ -1161,7 +1162,7 @@ function CrossMarketBacktestPanel() {
               </div>
             ) : null}
           </div>
-        </Card>
+        </Panel>
       ) : null}
 
       {playbook ? (
@@ -1192,7 +1193,7 @@ function CrossMarketBacktestPanel() {
             {renderAssetSection('空头篮子', shortAssets, 'short')}
           </div>
 
-          <Card variant="borderless" className="workspace-panel cross-market-preview-card">
+          <Panel className="workspace-panel cross-market-preview-card">
             <div className="cross-market-preview-grid">
               <div className="cross-market-preview-copy">
                 <Text strong className="cross-market-preview-card__title">
@@ -1240,7 +1241,7 @@ function CrossMarketBacktestPanel() {
                 })}
               </div>
             </div>
-          </Card>
+          </Panel>
         </div>
 
         <CrossMarketControlSidebar
@@ -1267,11 +1268,11 @@ function CrossMarketBacktestPanel() {
       </div>
 
       {running && !results ? (
-        <Card variant="borderless" className="workspace-panel">
+        <Panel className="workspace-panel">
           <div style={{ minHeight: 180, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Spin size="large" />
           </div>
-        </Card>
+        </Panel>
       ) : null}
 
       {results ? (

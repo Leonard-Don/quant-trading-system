@@ -9,7 +9,7 @@
  * Extracted verbatim from CrossMarketBacktestPanel.jsx so behaviour matches.
  */
 
-import { Alert, Card, Col, Row, Space, Statistic, Table, Tag, Typography } from 'antd';
+import { Alert, Col, Row, Space, Statistic, Table, Tag, Typography } from 'antd';
 import {
   Bar,
   BarChart,
@@ -22,6 +22,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+
+import { Panel } from '../../design/components';
 
 import CrossMarketDiagnosticsSection from './CrossMarketDiagnosticsSection';
 import CrossMarketBasketSummaryCard from './CrossMarketBasketSummaryCard';
@@ -130,34 +132,33 @@ function CrossMarketResultsView({
 
       <Row gutter={[16, 16]}>
         <Col xs={24} md={8}>
-          <Card variant="borderless" className="workspace-panel">
-            <Statistic
-              title="总收益率"
-              value={results.total_return * 100}
-              precision={2}
-              suffix="%"
-              valueStyle={{ color: getValueColor(results.total_return) }}
-            />
-          </Card>
+          <Panel className="workspace-panel">
+            <div>
+              <div style={{ fontSize: 14, color: 'var(--color-text-secondary, rgba(0,0,0,0.45))' }}>总收益率</div>
+              <span style={{ color: getValueColor(results.total_return), fontSize: 24, fontWeight: 600 }}>
+                {(results.total_return * 100).toFixed(2)}%
+              </span>
+            </div>
+          </Panel>
         </Col>
         <Col xs={24} md={8}>
-          <Card variant="borderless" className="workspace-panel">
+          <Panel className="workspace-panel">
             <Statistic
               title="最终净值"
               value={results.final_value}
               precision={2}
               formatter={(value) => formatCurrency(Number(value || 0))}
             />
-          </Card>
+          </Panel>
         </Col>
         <Col xs={24} md={8}>
-          <Card variant="borderless" className="workspace-panel">
+          <Panel className="workspace-panel">
             <Statistic
               title="夏普比率"
               value={results.sharpe_ratio}
               precision={2}
             />
-          </Card>
+          </Panel>
         </Col>
       </Row>
 
@@ -181,7 +182,7 @@ function CrossMarketResultsView({
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>
-          <Card title="资产宇宙摘要" variant="borderless" className="workspace-panel">
+          <Panel title="资产宇宙摘要" className="workspace-panel">
             <Row gutter={[16, 16]}>
               <Col span={8}>
                 <Statistic
@@ -216,10 +217,10 @@ function CrossMarketResultsView({
                 <Tag color="blue" key={currency}>{currency}</Tag>
               ))}
             </div>
-          </Card>
+          </Panel>
         </Col>
         <Col xs={24} xl={12}>
-          <Card title="对冲组合画像" variant="borderless" className="workspace-panel">
+          <Panel title="对冲组合画像" className="workspace-panel">
             <Row gutter={[16, 16]}>
               <Col span={8}>
                 <Statistic
@@ -284,13 +285,13 @@ function CrossMarketResultsView({
                 </Text>
               ) : null}
             </div>
-          </Card>
+          </Panel>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>
-          <Card title="执行批次计划" variant="borderless">
+          <Panel title="执行批次计划">
             <Table
               size="small"
               rowKey="route_key"
@@ -299,10 +300,10 @@ function CrossMarketResultsView({
               locale={{ emptyText: '暂无执行批次' }}
               columns={executionBatchColumns}
             />
-          </Card>
+          </Panel>
         </Col>
         <Col xs={24} xl={12}>
-          <Card title="逐资产执行路由" variant="borderless">
+          <Panel title="逐资产执行路由">
             <Table
               size="small"
               rowKey={(record) => `${record.symbol}-${record.side}`}
@@ -311,13 +312,13 @@ function CrossMarketResultsView({
               locale={{ emptyText: '暂无执行路由' }}
               columns={executionRouteColumns}
             />
-          </Card>
+          </Panel>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>
-          <Card title="数据源资金分布" variant="borderless">
+          <Panel title="数据源资金分布">
             <Table
               size="small"
               rowKey="key"
@@ -326,10 +327,10 @@ function CrossMarketResultsView({
               locale={{ emptyText: '暂无数据源分布' }}
               columns={providerAllocationColumns}
             />
-          </Card>
+          </Panel>
         </Col>
         <Col xs={24} xl={12}>
-          <Card title="交易场所资金分布" variant="borderless">
+          <Panel title="交易场所资金分布">
             <Table
               size="small"
               rowKey="key"
@@ -338,13 +339,13 @@ function CrossMarketResultsView({
               locale={{ emptyText: '暂无交易场所分布' }}
               columns={venueAllocationColumns}
             />
-          </Card>
+          </Panel>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>
-          <Card title="流动性概况" variant="borderless">
+          <Panel title="流动性概况">
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
               <Space wrap size={[8, 8]}>
                 <Tag color={liquidityMeta.color}>{liquidityMeta.label}</Tag>
@@ -371,10 +372,10 @@ function CrossMarketResultsView({
                 </Text>
               ) : null}
             </Space>
-          </Card>
+          </Panel>
         </Col>
         <Col xs={24} xl={12}>
-          <Card title="多市场日历概况" variant="borderless">
+          <Panel title="多市场日历概况">
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
               <Space wrap size={[8, 8]}>
                 <Tag color={calendarMeta.color}>{calendarMeta.label}</Tag>
@@ -409,13 +410,13 @@ function CrossMarketResultsView({
                 ]}
               />
             </Space>
-          </Card>
+          </Panel>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>
-          <Card title="执行压力测试" variant="borderless">
+          <Panel title="执行压力测试">
             <Table
               size="small"
               rowKey="label"
@@ -424,10 +425,10 @@ function CrossMarketResultsView({
               locale={{ emptyText: '暂无压力测试结果' }}
               columns={stressScenarioColumns}
             />
-          </Card>
+          </Panel>
         </Col>
         <Col xs={24} xl={12}>
-          <Card title="保证金与杠杆画像" variant="borderless">
+          <Panel title="保证金与杠杆画像">
             <Space direction="vertical" size={10} style={{ width: '100%' }}>
               <Space wrap size={[8, 8]}>
                 <Tag color={marginMeta.color}>{marginMeta.label}</Tag>
@@ -457,13 +458,13 @@ function CrossMarketResultsView({
                 </Text>
               ) : null}
             </Space>
-          </Card>
+          </Panel>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={14}>
-          <Card title="组合净值曲线" variant="borderless" className="workspace-panel workspace-chart-card">
+          <Panel title="组合净值曲线" className="workspace-panel workspace-chart-card">
             <div style={{ width: '100%', height: 320 }}>
               <ResponsiveContainer width="100%" height={320} minWidth={320} minHeight={320}>
                 <LineChart data={results.portfolio_curve}>
@@ -476,10 +477,10 @@ function CrossMarketResultsView({
                 </LineChart>
               </ResponsiveContainer>
             </div>
-          </Card>
+          </Panel>
         </Col>
         <Col xs={24} xl={10}>
-          <Card title="长短腿累计收益" variant="borderless" className="workspace-panel workspace-chart-card">
+          <Panel title="长短腿累计收益" className="workspace-panel workspace-chart-card">
             <div style={{ width: '100%', height: 320 }}>
               <ResponsiveContainer width="100%" height={320} minWidth={320} minHeight={320}>
                 <BarChart
@@ -506,13 +507,13 @@ function CrossMarketResultsView({
                 </BarChart>
               </ResponsiveContainer>
             </div>
-          </Card>
+          </Panel>
         </Col>
       </Row>
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={results.hedge_ratio_series ? 14 : 24}>
-          <Card title="价差与 Z 分数" variant="borderless" className="workspace-panel workspace-chart-card">
+          <Panel title="价差与 Z 分数" className="workspace-panel workspace-chart-card">
             <div style={{ width: '100%', height: 320 }}>
               <ResponsiveContainer width="100%" height={320} minWidth={320} minHeight={320}>
                 <LineChart data={results.spread_series}>
@@ -527,11 +528,11 @@ function CrossMarketResultsView({
                 </LineChart>
               </ResponsiveContainer>
             </div>
-          </Card>
+          </Panel>
         </Col>
         {results.hedge_ratio_series ? (
           <Col xs={24} xl={10}>
-            <Card title="对冲比率" variant="borderless">
+            <Panel title="对冲比率">
               <div style={{ width: '100%', height: 320 }}>
                 <ResponsiveContainer width="100%" height={280} minWidth={320} minHeight={280}>
                   <LineChart data={results.hedge_ratio_series}>
@@ -544,14 +545,14 @@ function CrossMarketResultsView({
                   </LineChart>
                 </ResponsiveContainer>
               </div>
-            </Card>
+            </Panel>
           </Col>
         ) : null}
       </Row>
 
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>
-          <Card title="交易记录" variant="borderless">
+          <Panel title="交易记录">
             <Table
               size="small"
               rowKey={(record) => [
@@ -602,10 +603,10 @@ function CrossMarketResultsView({
                 },
               ]}
             />
-          </Card>
+          </Panel>
         </Col>
         <Col xs={24} xl={12}>
-          <Card title="资产相关性矩阵" variant="borderless">
+          <Panel title="资产相关性矩阵">
             <Table
               size="small"
               scroll={{ x: true }}
@@ -615,11 +616,11 @@ function CrossMarketResultsView({
               dataSource={results.correlation_matrix.rows || []}
               columns={correlationColumns}
             />
-          </Card>
+          </Panel>
         </Col>
       </Row>
 
-      <Card title="资产贡献度" variant="borderless">
+      <Panel title="资产贡献度">
         <Table
           size="small"
           rowKey="symbol"
@@ -628,7 +629,7 @@ function CrossMarketResultsView({
           dataSource={assetContributionRows}
           columns={contributionColumns}
         />
-      </Card>
+      </Panel>
 
       <CrossMarketBasketSummaryCard
         results={results}
@@ -637,7 +638,7 @@ function CrossMarketResultsView({
       />
 
       {results.allocation_overlay ? (
-        <Card title="权重偏置对照" variant="borderless">
+        <Panel title="权重偏置对照">
           <Space direction="vertical" size={10} style={{ width: '100%' }}>
             <Space wrap size={[8, 8]}>
               <Tag color={results.allocation_overlay.allocation_mode === 'macro_bias' ? 'green' : 'default'}>
@@ -819,10 +820,10 @@ function CrossMarketResultsView({
               />
             ) : null}
           </Space>
-        </Card>
+        </Panel>
       ) : null}
       {results.constraint_overlay?.applied ? (
-        <Card title="组合约束落地" variant="borderless">
+        <Panel title="组合约束落地">
           <Space direction="vertical" size={10} style={{ width: '100%' }}>
             <Space wrap size={[8, 8]}>
               {results.constraint_overlay.constraints?.max_single_weight ? (
@@ -894,7 +895,7 @@ function CrossMarketResultsView({
               ]}
             />
           </Space>
-        </Card>
+        </Panel>
       ) : null}
     </div>
   );

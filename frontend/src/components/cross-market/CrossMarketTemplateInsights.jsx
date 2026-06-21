@@ -8,7 +8,9 @@
  * CrossMarketBacktestPanel.jsx to keep behaviour identical.
  */
 
-import { Alert, Card, Space, Tag, Typography } from 'antd';
+import { Alert, Space, Tag, Typography } from 'antd';
+
+import { Panel } from '../../design/components';
 
 import {
   formatBiasQualityLabel,
@@ -219,7 +221,7 @@ function CrossMarketTemplateInsights({
       ) : null}
 
       {effectiveTemplate?.biasActions?.length ? (
-        <Card title="建议增减仓名单" variant="borderless">
+        <Panel title="建议增减仓名单">
           <Space wrap size={[8, 8]}>
             {effectiveTemplate.biasActions.map((item) => (
               <Tag key={`${item.side}-${item.symbol}`} color={item.action === 'increase' ? 'green' : 'orange'}>
@@ -227,11 +229,11 @@ function CrossMarketTemplateInsights({
               </Tag>
             ))}
           </Space>
-        </Card>
+        </Panel>
       ) : null}
 
       {effectiveTemplate?.dominantDrivers?.length ? (
-        <Card title="主题结论" variant="borderless">
+        <Panel title="主题结论">
           <Space direction="vertical" size={8} style={{ width: '100%' }}>
             <Text>{formatSignalList(effectiveTemplate.themeCore) || '暂无主题核心腿'}</Text>
             <Text type="secondary">辅助腿：{formatSignalList(effectiveTemplate.themeSupport) || '无'}</Text>
@@ -243,7 +245,7 @@ function CrossMarketTemplateInsights({
               ))}
             </Space>
           </Space>
-        </Card>
+        </Panel>
       ) : null}
 
       {!researchContext?.template && topRecommendation ? (

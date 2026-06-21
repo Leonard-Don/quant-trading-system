@@ -8,7 +8,8 @@
  * CrossMarketBacktestPanel.jsx so behaviour is identical.
  */
 
-import { Alert, Button, Card, Form, Input, InputNumber, Select, Space, Tag, Typography } from 'antd';
+import { Alert, Button, Form, Input, InputNumber, Select, Space, Tag, Typography } from 'antd';
+import { Panel } from '../../design/components';
 import { ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 
 import {
@@ -49,7 +50,7 @@ function CrossMarketControlSidebar({
 }) {
   return (
     <aside className="cross-market-sidebar">
-      <Card variant="borderless" className="workspace-panel cross-market-sidebar-card cross-market-sidebar-card--overview">
+      <Panel className="workspace-panel cross-market-sidebar-card cross-market-sidebar-card--overview">
         <div className="app-page-section-kicker">控制总览</div>
         <Text strong className="cross-market-sidebar-card__title">右侧保持输入，左侧专注结果</Text>
         <Paragraph type="secondary" style={{ margin: '8px 0 0' }}>
@@ -68,9 +69,9 @@ function CrossMarketControlSidebar({
             ? `当前模板：${formatTemplateName(selectedTemplate)}${selectedTemplate.theme ? ` · ${formatTemplateTheme(selectedTemplate)}` : ''}`
             : '当前未锁定模板，建议先从模板快选开始。'}
         </div>
-      </Card>
+      </Panel>
 
-      <Card title="模板快选" variant="borderless" className="workspace-panel cross-market-sidebar-card">
+      <Panel title="模板快选" className="workspace-panel cross-market-sidebar-card">
         <div className="cross-market-template-list">
           {displayRecommendedTemplates.slice(0, 3).map((template) => (
             <div
@@ -117,9 +118,9 @@ function CrossMarketControlSidebar({
             </div>
           ))}
         </div>
-      </Card>
+      </Panel>
 
-      <Card title="参数与模板" variant="borderless" className="workspace-panel cross-market-sidebar-card">
+      <Panel title="参数与模板" className="workspace-panel cross-market-sidebar-card">
         <Space direction="vertical" style={{ width: '100%' }} size={14}>
           <Select
             placeholder="载入演示模板"
@@ -305,7 +306,7 @@ function CrossMarketControlSidebar({
             </Button>
           </div>
         </Space>
-      </Card>
+      </Panel>
     </aside>
   );
 }

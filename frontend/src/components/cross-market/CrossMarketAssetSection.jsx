@@ -7,9 +7,10 @@
  * panel owns the assets state and the asset_class option list.
  */
 
-import { Button, Card, Col, Input, InputNumber, Row, Select, Space } from 'antd';
+import { Button, Col, Input, InputNumber, Row, Select, Space } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 
+import { Panel } from '../../design/components';
 import { ASSET_CLASS_OPTIONS } from '../../utils/crossMarketDefaults';
 
 const CrossMarketAssetSection = ({
@@ -20,14 +21,13 @@ const CrossMarketAssetSection = ({
     onUpdate,
     onRemove,
 }) => (
-    <Card
+    <Panel
         title={title}
-        extra={(
+        actions={(
             <Button size="small" icon={<PlusOutlined />} onClick={() => onAdd?.(side)}>
                 新增
             </Button>
         )}
-        variant="borderless"
         className="workspace-panel cross-market-asset-card"
     >
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
@@ -69,7 +69,7 @@ const CrossMarketAssetSection = ({
                 </Row>
             ))}
         </Space>
-    </Card>
+    </Panel>
 );
 
 export default CrossMarketAssetSection;

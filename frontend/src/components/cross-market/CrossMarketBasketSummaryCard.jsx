@@ -1,4 +1,5 @@
-import { Card, Col, Row, Tag, Typography } from 'antd';
+import { Col, Row, Tag, Typography } from 'antd';
+import { Panel } from '../../design/components';
 
 const { Text } = Typography;
 
@@ -12,7 +13,7 @@ function CrossMarketBasketSummaryCard({
   }
 
   return (
-    <Card title="资产篮子摘要" variant="borderless">
+    <Panel title="资产篮子摘要">
       <Row gutter={[16, 16]}>
         <Col xs={24} md={12}>
           <Text strong>多头篮子</Text>
@@ -31,7 +32,7 @@ function CrossMarketBasketSummaryCard({
           </div>
         </Col>
       </Row>
-    </Card>
+    </Panel>
   );
 }
 
