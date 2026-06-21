@@ -77,7 +77,7 @@ const buildColumns = () => [
         return '—';
       }
       const color = Number(value) >= 0 ? 'var(--color-up)' : 'var(--color-down)';
-      return <Text style={{ color }}>{formatPercent(value)}</Text>;
+      return <span style={{ color }}>{formatPercent(value)}</span>;
     },
   },
 ];
