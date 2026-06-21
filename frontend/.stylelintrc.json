@@ -1,0 +1,13 @@
+{
+  "extends": "stylelint-config-standard",
+  "rules": {
+    "declaration-no-important": true,
+    "custom-property-pattern": null,
+    "at-rule-no-unknown": [true, { "ignoreAtRules": ["theme", "layer", "tailwind", "apply", "variants", "responsive", "screen"] }],
+    "import-notation": null,
+    "color-function-alias-notation": null,
+    "color-function-notation": null,
+    "alpha-value-notation": null
+  },
+  "ignoreFiles": ["build/**", "node_modules/**"]
+}
