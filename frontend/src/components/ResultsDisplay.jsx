@@ -3,7 +3,6 @@ import {
   Card,
   Row,
   Col,
-  Statistic,
   Table,
   Tabs,
   Button,
@@ -33,6 +32,7 @@ import {
   DeploymentUnitOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
+import { MetricGrid, StatCard } from '../design/components';
 import { downloadBacktestReport, runMarketRegimeBacktest } from '../services/api';
 import { getStrategyDetails, getStrategyName } from '../constants/strategies';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
@@ -335,7 +335,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       title: '累计盈利',
       value: normalizedResults.total_profit || 0,
       formatter: (value) => formatCurrency(Number(value || 0)),
-      color: 'var(--accent-success)',
+      color: getValueColor(normalizedResults.total_profit),
       icon: <ThunderboltOutlined style={{ fontSize: '14px' }} />,
     },
   ];
@@ -678,23 +678,23 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
                     </div>
                   </div>
                 ) : (
-                  <div className="results-primary-kpi-grid">
-                    {primaryMetrics.map((metric) => (
-                      <div key={metric.key}>
-                        <Card className="metric-card workspace-kpi-card" size="small">
-                          <Statistic
-                            title={metric.title}
-                            value={metric.value}
-                            precision={metric.precision}
-                            suffix={metric.suffix}
-                            formatter={metric.formatter}
-                            valueStyle={{ color: metric.color, fontSize: '20px' }}
-                            prefix={metric.icon}
-                          />
-                        </Card>
-                      </div>
-                    ))}
-                  </div>
+                  <MetricGrid className="results-primary-kpi-grid">
+                    {primaryMetrics.map((metric) => {
+                      const raw = metric.formatter
+                        ? metric.formatter(metric.value)
+                        : (metric.precision != null
+                            ? Number(metric.value).toFixed(metric.precision)
+                            : metric.value);
+                      const display = typeof raw === 'string' ? raw + (metric.suffix || '') : raw;
+                      return (
+                        <StatCard
+                          key={metric.key}
+                          label={metric.title}
+                          value={<span style={{ color: metric.color }}>{display}</span>}
+                        />
+                      );
+                    })}
+                  </MetricGrid>
                 )}
               </div>
             </Col>
@@ -725,21 +725,23 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
                 <div className="workspace-section__description">把风险、持仓效率和盈亏结构压成一组紧凑卡片，不再拆成多段往下堆。</div>
               </div>
             </div>
-            <div className="results-secondary-kpi-grid">
-              {secondaryMetrics.map((metric) => (
-                <Card key={metric.key} className="metric-card workspace-kpi-card" size="small">
-                  <Statistic
-                    title={metric.title}
-                    value={metric.value}
-                    precision={metric.precision}
-                    suffix={metric.suffix}
-                    formatter={metric.formatter}
-                    valueStyle={{ color: metric.color, fontSize: '18px' }}
-                    prefix={metric.icon}
+            <MetricGrid className="results-secondary-kpi-grid">
+              {secondaryMetrics.map((metric) => {
+                const raw = metric.formatter
+                  ? metric.formatter(metric.value)
+                  : (metric.precision != null
+                      ? Number(metric.value).toFixed(metric.precision)
+                      : metric.value);
+                const display = typeof raw === 'string' ? raw + (metric.suffix || '') : raw;
+                return (
+                  <StatCard
+                    key={metric.key}
+                    label={metric.title}
+                    value={<span style={{ color: metric.color }}>{display}</span>}
                   />
-                </Card>
-              ))}
-            </div>
+                );
+              })}
+            </MetricGrid>
           </div>
 
           {signalExplanation.length ? (
