@@ -11,17 +11,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     App as AntdApp,
     Button,
-    Card,
-    Col,
     Empty,
     Form,
     Input,
     InputNumber,
     Popconfirm,
-    Row,
     Segmented,
     Space,
-    Statistic,
     Table,
     Tag,
     Tooltip,
@@ -34,6 +30,9 @@ import {
     ReloadOutlined,
     ThunderboltOutlined,
 } from '@ant-design/icons';
+
+import { Panel, MetricGrid, StatCard } from '../design/components';
+import { FadeIn } from '../design/motion';
 
 import {
     cancelPaperOrder,
@@ -58,7 +57,7 @@ import {
 import { getCurrencySymbol, SYMBOL_PLACEHOLDER_BILINGUAL } from '../utils/strategyDefaults';
 import { loadRealtimeProfileId } from '../hooks/useRealtimePreferences';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const QUOTE_POLL_MS = 5000;
 
@@ -501,8 +500,11 @@ const PaperTradingPanel = () => {
             align: 'right',
             render: (value, record) => {
                 if (value == null) return <Text type="secondary">—</Text>;
-                const tone = value >= 0 ? 'var(--accent-danger)' : 'var(--accent-success)';
-                return <Text style={{ color: tone }}>{formatMoney(value, record?.symbol)}</Text>;
+                return (
+                    <span style={{ color: value >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+                        {formatMoney(value, record?.symbol)}
+                    </span>
+                );
             },
         },
         {
@@ -670,116 +672,95 @@ const PaperTradingPanel = () => {
         return <Empty description="纸面账户加载中..." />;
     }
 
-    return (
-        <div className="paper-trading-workspace" style={{ padding: 16 }}>
-            <Card variant="borderless" style={{ marginBottom: 16 }}>
-                <Title level={4} style={{ marginTop: 0 }}>
-                    <ThunderboltOutlined /> 纸面账户
-                </Title>
-                <Row gutter={[16, 16]}>
-                    <Col xs={12} md={6}>
-                        <Statistic
-                            title="现金"
-                            value={summary.cash}
-                            precision={2}
-                            prefix={summary.currencyPrefix}
-                            valueStyle={{ fontSize: 22 }}
-                        />
-                    </Col>
-                    <Col xs={12} md={6}>
-                        <Statistic
-                            title="持仓市值"
-                            value={summary.marketValue}
-                            precision={2}
-                            prefix={summary.currencyPrefix}
-                            valueStyle={{ fontSize: 22 }}
-                        />
-                    </Col>
-                    <Col xs={12} md={6}>
-                        <Statistic
-                            title="总权益"
-                            value={summary.equity}
-                            precision={2}
-                            prefix={summary.currencyPrefix}
-                            valueStyle={{ fontSize: 22, color: 'var(--text-primary)' }}
-                        />
-                    </Col>
-                    <Col xs={12} md={6}>
-                        <Statistic
-                            title="总收益率"
-                            value={summary.totalReturn != null ? summary.totalReturn * 100 : 0}
-                            precision={2}
-                            suffix="%"
-                            valueStyle={{
-                                fontSize: 22,
-                                color: (summary.totalReturn ?? 0) >= 0
-                                    ? 'var(--accent-danger)'
-                                    : 'var(--accent-success)',
-                            }}
-                        />
-                    </Col>
-                </Row>
-                <Space style={{ marginTop: 12 }}>
-                    <Tooltip title="账户首次开立时设置；可通过重置改变">
-                        <Tag>初始资金 {formatMoneyWithPrefix(summary.initialCapital, summary.currencyPrefix)}</Tag>
-                    </Tooltip>
-                    <Tag>持仓 {summary.positions.length}</Tag>
-                    <Tag>订单 {orders.length}</Tag>
-                    <Button
-                        size="small"
-                        icon={<ReloadOutlined />}
-                        onClick={refresh}
-                        aria-label="刷新纸面账户"
-                    >
-                        刷新
-                    </Button>
-                    <Tooltip title={summary.positions.length === 0 ? '暂无持仓可归档' : '把当前持仓写入今日研究档案，方便回到研究工作区时一眼看到'}>
-                        <Button
-                            size="small"
-                            icon={<CloudUploadOutlined />}
-                            onClick={handleSnapshotPositions}
-                            loading={snapshotting}
-                            disabled={summary.positions.length === 0}
-                            data-testid="paper-snapshot-positions"
-                        >
-                            归档到档案
-                        </Button>
-                    </Tooltip>
-                    <Tooltip title={orders.length === 0 ? '暂无订单可导出' : '导出最近订单流水为 CSV，可用 Excel / pandas 接续分析'}>
-                        <Button
-                            size="small"
-                            onClick={handleExportOrdersCsv}
-                            disabled={orders.length === 0}
-                            data-testid="paper-export-orders-csv"
-                        >
-                            导出订单 CSV
-                        </Button>
-                    </Tooltip>
-                    <Tooltip title={summary.positions.length === 0 ? '暂无持仓可导出' : '导出当前持仓快照（含浮动盈亏 / 止损止盈）为 CSV'}>
-                        <Button
-                            size="small"
-                            onClick={handleExportPositionsCsv}
-                            disabled={summary.positions.length === 0}
-                            data-testid="paper-export-positions-csv"
-                        >
-                            导出持仓 CSV
-                        </Button>
-                    </Tooltip>
-                    <Popconfirm
-                        title="重置账户？"
-                        description="将清空持仓、订单与盈亏，回到初始资金状态。"
-                        onConfirm={() => handleReset(summary.initialCapital || 10000)}
-                        okText="重置"
-                        cancelText="取消"
-                    >
-                        <Button size="small" danger loading={resetting}>重置</Button>
-                    </Popconfirm>
-                </Space>
-            </Card>
+    const heroActions = (
+        <Space wrap>
+            <Tooltip title="账户首次开立时设置；可通过重置改变">
+                <Tag>初始资金 {formatMoneyWithPrefix(summary.initialCapital, summary.currencyPrefix)}</Tag>
+            </Tooltip>
+            <Tag>持仓 {summary.positions.length}</Tag>
+            <Tag>订单 {orders.length}</Tag>
+            <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={refresh}
+                aria-label="刷新纸面账户"
+            >
+                刷新
+            </Button>
+            <Tooltip title={summary.positions.length === 0 ? '暂无持仓可归档' : '把当前持仓写入今日研究档案，方便回到研究工作区时一眼看到'}>
+                <Button
+                    size="small"
+                    icon={<CloudUploadOutlined />}
+                    onClick={handleSnapshotPositions}
+                    loading={snapshotting}
+                    disabled={summary.positions.length === 0}
+                    data-testid="paper-snapshot-positions"
+                >
+                    归档到档案
+                </Button>
+            </Tooltip>
+            <Tooltip title={orders.length === 0 ? '暂无订单可导出' : '导出最近订单流水为 CSV，可用 Excel / pandas 接续分析'}>
+                <Button
+                    size="small"
+                    onClick={handleExportOrdersCsv}
+                    disabled={orders.length === 0}
+                    data-testid="paper-export-orders-csv"
+                >
+                    导出订单 CSV
+                </Button>
+            </Tooltip>
+            <Tooltip title={summary.positions.length === 0 ? '暂无持仓可导出' : '导出当前持仓快照（含浮动盈亏 / 止损止盈）为 CSV'}>
+                <Button
+                    size="small"
+                    onClick={handleExportPositionsCsv}
+                    disabled={summary.positions.length === 0}
+                    data-testid="paper-export-positions-csv"
+                >
+                    导出持仓 CSV
+                </Button>
+            </Tooltip>
+            <Popconfirm
+                title="重置账户？"
+                description="将清空持仓、订单与盈亏，回到初始资金状态。"
+                onConfirm={() => handleReset(summary.initialCapital || 10000)}
+                okText="重置"
+                cancelText="取消"
+            >
+                <Button size="small" danger loading={resetting}>重置</Button>
+            </Popconfirm>
+        </Space>
+    );
 
-            <Row gutter={[16, 16]}>
-                <Col xs={24} md={10}>
-                    <Card title={<><DollarOutlined /> 下单</>} size="small">
+    return (
+        <FadeIn className="paper-trading-workspace flex flex-col gap-4 p-4">
+            <Panel title="纸面账户" icon={<ThunderboltOutlined />} actions={heroActions}>
+                <MetricGrid>
+                    <StatCard
+                        label="现金"
+                        value={formatMoneyWithPrefix(summary.cash, summary.currencyPrefix)}
+                    />
+                    <StatCard
+                        label="持仓市值"
+                        value={formatMoneyWithPrefix(summary.marketValue, summary.currencyPrefix)}
+                    />
+                    <StatCard
+                        label="总权益"
+                        value={formatMoneyWithPrefix(summary.equity, summary.currencyPrefix)}
+                    />
+                    <StatCard
+                        label="总收益率"
+                        value={(
+                            <span style={{ color: (summary.totalReturn ?? 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
+                                {`${(summary.totalReturn != null ? summary.totalReturn * 100 : 0).toFixed(2)}%`}
+                            </span>
+                        )}
+                    />
+                </MetricGrid>
+            </Panel>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div>
+                    <Panel title="下单" icon={<DollarOutlined />}>
                         {prefillSource ? (
                             <Tag
                                 color="processing"
@@ -885,10 +866,10 @@ const PaperTradingPanel = () => {
                                 </Button>
                             </Form.Item>
                         </Form>
-                    </Card>
-                </Col>
-                <Col xs={24} md={14}>
-                    <Card title={<><LineChartOutlined /> 当前持仓</>} size="small">
+                    </Panel>
+                </div>
+                <div>
+                    <Panel title="当前持仓" icon={<LineChartOutlined />}>
                         <Table
                             dataSource={summary.positions}
                             columns={positionColumns}
@@ -897,11 +878,11 @@ const PaperTradingPanel = () => {
                             pagination={false}
                             locale={{ emptyText: '暂无持仓' }}
                         />
-                    </Card>
-                </Col>
-            </Row>
+                    </Panel>
+                </div>
+            </div>
 
-            <Card title="挂单（限价单 / 待成交）" size="small" style={{ marginTop: 16 }}>
+            <Panel title="挂单（限价单 / 待成交）">
                 <Table
                     dataSource={account?.pending_orders || []}
                     rowKey="id"
@@ -953,9 +934,9 @@ const PaperTradingPanel = () => {
                         },
                     ]}
                 />
-            </Card>
+            </Panel>
 
-            <Card title="近期订单" size="small" style={{ marginTop: 16 }}>
+            <Panel title="近期订单">
                 <Table
                     dataSource={orders}
                     columns={orderColumns}
@@ -964,8 +945,8 @@ const PaperTradingPanel = () => {
                     pagination={{ pageSize: 10 }}
                     locale={{ emptyText: '暂无订单' }}
                 />
-            </Card>
-        </div>
+            </Panel>
+        </FadeIn>
     );
 };
 
