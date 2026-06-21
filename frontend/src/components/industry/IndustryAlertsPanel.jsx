@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Tag, Space, Radio, Select, Checkbox, Button, Row, Col, Empty, InputNumber } from 'antd';
+import { Tag, Space, Radio, Select, Checkbox, Button, Row, Col, Empty, InputNumber } from 'antd';
+import { Panel } from '../../design/components';
 import { NotificationOutlined, StarFilled, BranchesOutlined } from '@ant-design/icons';
 import { normalizeIndustryAlertThresholds } from './industryShared';
 
@@ -82,16 +83,15 @@ const IndustryAlertsPanel = ({
     }
 
     return (
-        <Card
-            size="small"
-            data-testid="industry-alerts-card"
+        <Panel
+            testId="industry-alerts-card"
             style={{
                 marginBottom: 12,
                 background: 'linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 94%, var(--accent-warning) 6%) 0%, color-mix(in srgb, var(--bg-secondary) 96%, var(--accent-primary) 4%) 100%)',
                 border: '1px solid color-mix(in srgb, var(--border-color) 82%, transparent 18%)',
                 boxShadow: '0 10px 30px rgba(15, 23, 42, 0.06)',
+                padding: '12px 14px',
             }}
-            styles={{ body: { padding: '12px 14px' } }}
         >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -450,7 +450,7 @@ const IndustryAlertsPanel = ({
             <div style={{ marginTop: 10, fontSize: 10, color: 'var(--text-muted)' }}>
                 当前为截面异动提醒；订阅设置会保留，下次进入页面仍按你的观察范围和规则显示。“新增”仍基于本页会话内首次出现时间判断。
             </div>
-        </Card>
+        </Panel>
     );
 };
 

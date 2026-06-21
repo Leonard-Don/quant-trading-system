@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Card, Empty, Spin, Tag, Tooltip, Typography, Space, Button } from 'antd';
+import { Empty, Spin, Tag, Tooltip, Typography, Space, Button } from 'antd';
+import { Panel } from '../../design/components';
 import { ReloadOutlined, LinkOutlined, RadarChartOutlined } from '@ant-design/icons';
 
 import { getPolicyRadarSignal, getPolicyRadarRecords } from '../../services/api';
@@ -161,7 +162,8 @@ const PolicyRadarPanel = ({ industry = null, timeframe = '7d', limit = 10 }) => 
     }, [industry, timeframe, limit, refreshKey]);
 
     return (
-        <Card
+        <Panel
+            testId="policy-radar-panel"
             title={(
                 <Space>
                     <RadarChartOutlined />
@@ -173,7 +175,7 @@ const PolicyRadarPanel = ({ industry = null, timeframe = '7d', limit = 10 }) => 
                     ) : null}
                 </Space>
             )}
-            extra={(
+            actions={(
                 <Button
                     type="text"
                     size="small"
@@ -183,8 +185,6 @@ const PolicyRadarPanel = ({ industry = null, timeframe = '7d', limit = 10 }) => 
                     aria-label="刷新政策雷达"
                 />
             )}
-            size="small"
-            data-testid="policy-radar-panel"
         >
             {loading && !signal ? (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '24px 0' }}>
@@ -234,7 +234,7 @@ const PolicyRadarPanel = ({ industry = null, timeframe = '7d', limit = 10 }) => 
                     </div>
                 </Space>
             )}
-        </Card>
+        </Panel>
     );
 };
 

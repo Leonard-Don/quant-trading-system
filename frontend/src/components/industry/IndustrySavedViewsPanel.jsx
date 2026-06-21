@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Card, Button, Empty, Input, Space, Tag } from 'antd';
+import { Button, Empty, Input, Space, Tag } from 'antd';
+import { Panel } from '../../design/components';
 import { SaveOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import { buildSavedIndustryViewLabel } from './industryShared';
 
@@ -18,12 +19,11 @@ const IndustrySavedViewsPanel = ({
     const latestSavedView = useMemo(() => savedViews[0] || null, [savedViews]);
 
     return (
-    <Card
-        size="small"
-        data-testid="industry-saved-views-panel"
+    <Panel
+        testId="industry-saved-views-panel"
         style={{ marginBottom: 12 }}
         title="保存视图"
-        extra={(
+        actions={(
             <Space size={8}>
                 <Input
                     data-testid="industry-saved-view-name-input"
@@ -139,7 +139,7 @@ const IndustrySavedViewsPanel = ({
                 )}
             </div>
         )}
-    </Card>
+    </Panel>
     );
 };
 

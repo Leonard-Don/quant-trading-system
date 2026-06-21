@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Card, Button, Space, Radio, Select, Tag, Row, Col } from 'antd';
+import { Button, Space, Radio, Select, Tag, Row, Col } from 'antd';
+import { Panel } from '../../design/components';
 import { StarFilled } from '@ant-design/icons';
 
 const IndustryReplayPanel = ({
@@ -50,9 +51,8 @@ const IndustryReplayPanel = ({
     }
 
     return (
-        <Card
-            size="small"
-            data-testid="industry-replay-card"
+        <Panel
+            testId="industry-replay-card"
             style={{
                 marginBottom: 12,
                 background: activeReplaySnapshot
@@ -62,8 +62,8 @@ const IndustryReplayPanel = ({
                     ? '1px solid color-mix(in srgb, var(--accent-primary) 24%, var(--border-color) 76%)'
                     : panelBorder,
                 boxShadow: panelShadow,
+                padding: '12px 14px',
             }}
-            styles={{ body: { padding: '12px 14px' } }}
         >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -216,7 +216,7 @@ const IndustryReplayPanel = ({
                                                         详情
                                                     </Button>
                                                 </Space>
-                                                <span style={{ fontSize: 12, color: '#cf1322', fontWeight: 700 }}>{formatReplayDelta(item.changeDelta, 2, '%')}</span>
+                                                <span style={{ fontSize: 12, color: 'var(--color-up)', fontWeight: 700 }}>{formatReplayDelta(item.changeDelta, 2, '%')}</span>
                                             </div>
                                         ))}
                                     </div>
@@ -239,7 +239,7 @@ const IndustryReplayPanel = ({
                                                         详情
                                                     </Button>
                                                 </Space>
-                                                <span style={{ fontSize: 12, color: '#3f8600', fontWeight: 700 }}>{formatReplayDelta(item.changeDelta, 2, '%')}</span>
+                                                <span style={{ fontSize: 12, color: 'var(--color-down)', fontWeight: 700 }}>{formatReplayDelta(item.changeDelta, 2, '%')}</span>
                                             </div>
                                         ))}
                                     </div>
@@ -324,7 +324,7 @@ const IndustryReplayPanel = ({
                         <Col xs={12} md={6}>
                             <div style={{ borderRadius: 10, padding: '10px 12px', background: 'rgba(245,34,45,0.05)', border: '1px solid rgba(245,34,45,0.12)' }}>
                                 <div style={{ fontSize: 11, color: textSecondary, marginBottom: 4 }}>涨跌幅变化</div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: replayIndustryDiffDetail.changeDelta >= 0 ? '#cf1322' : '#3f8600' }}>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: replayIndustryDiffDetail.changeDelta >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                                     {formatReplayDelta(replayIndustryDiffDetail.changeDelta, 2, '%')}
                                 </div>
                                 <div style={{ fontSize: 11, color: panelMuted, marginTop: 4 }}>
@@ -350,7 +350,7 @@ const IndustryReplayPanel = ({
                         <Col xs={12} md={6}>
                             <div style={{ borderRadius: 10, padding: '10px 12px', background: 'rgba(24,144,255,0.05)', border: '1px solid rgba(24,144,255,0.12)' }}>
                                 <div style={{ fontSize: 11, color: textSecondary, marginBottom: 4 }}>主力资金变化</div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: replayIndustryDiffDetail.flowDelta >= 0 ? '#cf1322' : '#3f8600' }}>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: replayIndustryDiffDetail.flowDelta >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                                     {formatReplayMetricMoney(replayIndustryDiffDetail.flowDelta)}
                                 </div>
                                 <div style={{ fontSize: 11, color: panelMuted, marginTop: 4 }}>
@@ -363,7 +363,7 @@ const IndustryReplayPanel = ({
                         <Col xs={12} md={6}>
                             <div style={{ borderRadius: 10, padding: '10px 12px', background: 'rgba(82,196,26,0.05)', border: '1px solid rgba(82,196,26,0.12)' }}>
                                 <div style={{ fontSize: 11, color: textSecondary, marginBottom: 4 }}>换手率变化</div>
-                                <div style={{ fontSize: 18, fontWeight: 700, color: replayIndustryDiffDetail.turnoverDelta >= 0 ? '#cf1322' : '#3f8600' }}>
+                                <div style={{ fontSize: 18, fontWeight: 700, color: replayIndustryDiffDetail.turnoverDelta >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                                     {formatReplayDelta(replayIndustryDiffDetail.turnoverDelta, 2, '%')}
                                 </div>
                                 <div style={{ fontSize: 11, color: panelMuted, marginTop: 4 }}>
@@ -394,7 +394,7 @@ const IndustryReplayPanel = ({
                     </div>
                 </>
             )}
-        </Card>
+        </Panel>
     );
 };
 

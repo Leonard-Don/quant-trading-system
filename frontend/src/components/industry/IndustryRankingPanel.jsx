@@ -1,4 +1,5 @@
-import { Card, Table, Empty, Button, Radio, Select, Tooltip, Tag } from 'antd';
+import { Table, Empty, Button, Radio, Select, Tooltip, Tag } from 'antd';
+import { Panel } from '../../design/components';
 import { ReloadOutlined } from '@ant-design/icons';
 import { activateOnEnterOrSpace } from './industryShared';
 
@@ -33,10 +34,10 @@ const IndustryRankingPanel = ({
     const hasActiveRankingState = activeRankingStateTags.length > 0;
 
     return (
-        <Card
+        <Panel
             className="industry-ranking-card"
             title="行业排名"
-            extra={(
+            actions={(
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     <div style={{
                         display: 'flex',
@@ -252,7 +253,7 @@ const IndustryRankingPanel = ({
                     )
                 }}
             />
-        </Card>
+        </Panel>
     );
 };
 
