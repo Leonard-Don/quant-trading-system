@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Card,
   Select,
   InputNumber,
   Button,
@@ -14,6 +13,7 @@ import {
 } from 'antd';
 import { ReloadOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
 
+import { Panel } from '../design/components';
 import { getLowVolatilityScreen } from '../services/api';
 import { useSafeMessageApi, getApiErrorMessage } from '../utils/messageApi';
 
@@ -76,8 +76,8 @@ const buildColumns = () => [
       if (value === null || value === undefined || Number.isNaN(Number(value))) {
         return '—';
       }
-      const color = Number(value) >= 0 ? '#cf1322' : '#3f8600';
-      return <Text style={{ color }}>{formatPercent(value)}</Text>;
+      const cls = Number(value) >= 0 ? 'text-up' : 'text-down';
+      return <Text className={cls}>{formatPercent(value)}</Text>;
     },
   },
 ];
@@ -132,14 +132,10 @@ const LowVolatilityScreen = () => {
   const items = data?.items || [];
 
   return (
-    <Card
-      title={(
-        <Space>
-          <SafetyCertificateOutlined />
-          <span>低波动选股</span>
-        </Space>
-      )}
-      extra={(
+    <Panel
+      title="低波动选股"
+      icon={<SafetyCertificateOutlined />}
+      actions={(
         <Button
           type="primary"
           icon={<ReloadOutlined />}
@@ -212,7 +208,7 @@ const LowVolatilityScreen = () => {
       {loading && items.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '48px 0' }}>
           <Spin />
-          <div style={{ marginTop: 12, color: '#8c8c8c' }}>正在拉取成分股并计算波动率…</div>
+          <div style={{ marginTop: 12 }} className="text-muted">正在拉取成分股并计算波动率…</div>
         </div>
       ) : (
         <Table
@@ -225,7 +221,7 @@ const LowVolatilityScreen = () => {
           locale={{ emptyText: <Empty description="暂无数据" /> }}
         />
       )}
-    </Card>
+    </Panel>
   );
 };
 
