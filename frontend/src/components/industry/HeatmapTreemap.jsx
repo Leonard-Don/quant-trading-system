@@ -241,9 +241,9 @@ const HeatmapTreemap = ({
                         if (!policyEntry || policyEntry.signal === 'neutral') {
                             bgColor = '#6b7280'; // neutral gray
                         } else if (policyEntry.signal === 'bullish') {
-                            bgColor = 'rgb(200, 60, 60)';
-                        } else if (policyEntry.signal === 'bearish') {
                             bgColor = 'rgb(60, 140, 80)';
+                        } else if (policyEntry.signal === 'bearish') {
+                            bgColor = 'rgb(200, 60, 60)';
                         }
                     }
 
@@ -257,7 +257,7 @@ const HeatmapTreemap = ({
                     // 换手率 (turnover_rate) 始终为正，不显示箭头或显示火号
                     const showArrow = colorMetric !== 'turnover_rate';
                     const arrowIcon = displayValue >= 0 ? '↑' : '↓';
-                    const arrowColor = displayValue >= 0 ? '#ff9c9c' : '#b7eb8f';
+                    const arrowColor = displayValue >= 0 ? '#b7eb8f' : '#ff9c9c';
                     // 超大行业标记
                     const marketCapDisplayKind = getMarketCapDisplayKind(item);
                     const sourceCornerLabel = marketCapDisplayKind === 'snapshot'
@@ -337,7 +337,7 @@ const HeatmapTreemap = ({
                                             alignItems: 'center'
                                         }}>
                                             <span>{item.name}</span>
-                                            <Tag color={item.value >= 0 ? 'error' : 'success'} style={{ margin: 0, border: 'none', fontWeight: 700 }}>
+                                            <Tag color={item.value >= 0 ? 'success' : 'error'} style={{ margin: 0, border: 'none', fontWeight: 700 }}>
                                                 {item.value >= 0 ? '+' : ''}{item.value.toFixed(2)}%
                                             </Tag>
                                         </div>

@@ -43,8 +43,8 @@ import { useSafeMessageApi } from '../utils/messageApi';
 const { Text } = Typography;
 const TEXT_SECONDARY = 'var(--text-secondary)';
 const TEXT_MUTED = 'var(--text-muted)';
-const POSITIVE = 'var(--accent-danger)';
-const NEGATIVE = 'var(--accent-success)';
+const POSITIVE = 'var(--accent-success)';
+const NEGATIVE = 'var(--accent-danger)';
 const WARNING = 'var(--accent-warning)';
 const NEUTRAL_LINE = 'color-mix(in srgb, var(--border-color) 78%, var(--text-muted) 22%)';
 const COMPACT_STAT_VALUE_STYLE = {
@@ -558,9 +558,9 @@ const IndustryTrendPanel = ({
             : `当前成分股覆盖率为 ${formatCoveragePercent(trendData.stock_coverage_ratio)}，洞察结论更适合看方向，不宜过度精确化解读。`,
     ].filter(Boolean);
     const insightTone = (trendData.period_change_pct || 0) >= 0 && (trendData.period_money_flow || 0) >= 0
-        ? { label: '偏强研判', color: 'red' }
+        ? { label: '偏强研判', color: 'green' }
         : (trendData.period_change_pct || 0) < 0 && (trendData.period_money_flow || 0) < 0
-            ? { label: '偏弱研判', color: 'green' }
+            ? { label: '偏弱研判', color: 'red' }
             : { label: '中性研判', color: 'blue' };
     const summaryCards = [
         {
@@ -698,10 +698,10 @@ const IndustryTrendPanel = ({
                         <Text strong>近 {trendData.period_days || days} 日行业状态</Text>
                     </div>
                     <Space size={[6, 6]} wrap>
-                        <Tag color={(trendData.period_change_pct || 0) >= 0 ? 'error' : 'success'} style={{ margin: 0, borderRadius: 999 }}>
+                        <Tag color={(trendData.period_change_pct || 0) >= 0 ? 'success' : 'error'} style={{ margin: 0, borderRadius: 999 }}>
                             {(trendData.period_change_pct || 0) >= 0 ? '+' : ''}{(trendData.period_change_pct || 0).toFixed(2)}%
                         </Tag>
-                        <Tag color={(trendData.period_money_flow || 0) >= 0 ? 'error' : 'success'} style={{ margin: 0, borderRadius: 999 }}>
+                        <Tag color={(trendData.period_money_flow || 0) >= 0 ? 'success' : 'error'} style={{ margin: 0, borderRadius: 999 }}>
                             主力净流入 {formatMoneyFlow(trendData.period_money_flow)}
                         </Tag>
                     </Space>
@@ -719,7 +719,7 @@ const IndustryTrendPanel = ({
                     <div className="industry-detail-section-card__header">
                         <Text strong>行业指数走势</Text>
                         <Space size={[6, 6]} wrap>
-                            <Tag color={trendSeriesDeltaPct >= 0 ? 'error' : 'success'} style={{ margin: 0, borderRadius: 999 }}>
+                            <Tag color={trendSeriesDeltaPct >= 0 ? 'success' : 'error'} style={{ margin: 0, borderRadius: 999 }}>
                                 {trendSeriesDeltaPct >= 0 ? '+' : ''}{trendSeriesDeltaPct.toFixed(2)}%
                             </Tag>
                             <Tag color="default" style={{ margin: 0, borderRadius: 999 }}>
@@ -819,9 +819,9 @@ const IndustryTrendPanel = ({
                 <Col xs={24} xl={12}>
                     <div className="industry-detail-section-card">
                         <div className="industry-detail-section-card__header">
-                            <Text strong style={{ color: POSITIVE }}>
+                            <span style={{ color: POSITIVE, fontWeight: 600 }}>
                                 <RiseOutlined /> 涨幅前5
-                            </Text>
+                            </span>
                         </div>
                         <Table
                             dataSource={(trendData.top_gainers || []).map((s, i) => ({ ...s, _rank: i + 1 }))}
@@ -854,9 +854,9 @@ const IndustryTrendPanel = ({
                 <Col xs={24} xl={12}>
                     <div className="industry-detail-section-card">
                         <div className="industry-detail-section-card__header">
-                            <Text strong style={{ color: NEGATIVE }}>
+                            <span style={{ color: NEGATIVE, fontWeight: 600 }}>
                                 <FallOutlined /> 跌幅前5
-                            </Text>
+                            </span>
                         </div>
                         <Table
                             dataSource={(trendData.top_losers || []).map((s, i) => ({ ...s, _rank: i + 1 }))}

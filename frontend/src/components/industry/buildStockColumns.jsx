@@ -62,7 +62,7 @@ const buildStockColumns = ({ onBacktestStock }) => [
                 return '-';
             }
             return (
-                <span style={{ color: value >= 0 ? '#cf1322' : '#3f8600' }}>
+                <span style={{ color: value >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                     {value >= 0 ? '+' : ''}{value.toFixed(2)}%
                 </span>
             );
@@ -77,7 +77,7 @@ const buildStockColumns = ({ onBacktestStock }) => [
             value === null || value === undefined
                 ? '-'
                 : (
-                    <span style={{ color: Number(value) >= 0 ? '#cf1322' : '#3f8600' }}>
+                    <span style={{ color: Number(value) >= 0 ? 'var(--color-up)' : 'var(--color-down)' }}>
                         {formatIndustryAlertMoneyFlow(Number(value))}
                     </span>
                 )

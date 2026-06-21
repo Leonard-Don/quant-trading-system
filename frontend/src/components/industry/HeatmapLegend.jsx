@@ -34,7 +34,7 @@ const HeatmapLegend = ({
 }) => {
     const gradient = colorMetric === 'turnover_rate'
         ? 'linear-gradient(to right, blue, yellow, red)'
-        : 'linear-gradient(to right, rgb(20, 180, 40), #6B6B6B, rgb(235, 20, 20))';
+        : 'linear-gradient(to right, rgb(235, 20, 20), #6B6B6B, rgb(20, 180, 40))';
 
     const rangeDigits = colorMetric === 'pe_ttm' ? 0 : 1;
 

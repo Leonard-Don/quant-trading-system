@@ -13,8 +13,8 @@ export const TOOLTIP_TEXT = 'var(--text-primary)';
 export const TOOLTIP_MUTED = 'var(--text-secondary)';
 export const TOOLTIP_SUBTLE = 'var(--text-muted)';
 export const TOOLTIP_SHADOW = '0 10px 30px rgba(15, 23, 42, 0.18)';
-export const HEATMAP_POSITIVE = 'var(--accent-danger)';
-export const HEATMAP_NEGATIVE = 'var(--accent-success)';
+export const HEATMAP_POSITIVE = 'var(--accent-success)';
+export const HEATMAP_NEGATIVE = 'var(--accent-danger)';
 export const HEATMAP_WARNING = 'var(--accent-warning)';
 // Stronger shadow keeps tile labels readable on muted (~0%) tiles where
 // the background can dip toward neutral grey.

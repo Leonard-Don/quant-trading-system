@@ -379,9 +379,9 @@ const IndustryHeatmap = ({
         const intensity = Math.min(Math.abs(value) / clampedMax, 1);
         const t = Math.pow(intensity, 0.7);
         if (value > 0) {
-            return `rgb(${Math.round(160 + t * 75)}, ${Math.round(80 - t * 65)}, ${Math.round(70 - t * 55)})`;
-        } else {
             return `rgb(${Math.round(60 - t * 45)}, ${Math.round(140 + t * 50)}, ${Math.round(80 - t * 50)})`;
+        } else {
+            return `rgb(${Math.round(160 + t * 75)}, ${Math.round(80 - t * 65)}, ${Math.round(70 - t * 55)})`;
         }
     }, []);
 

@@ -118,7 +118,7 @@ const buildHotIndustryColumns = ({
         width: 84,
         sorter: (a, b) => a.change_pct - b.change_pct,
         render: (value) => (
-            <span style={{ color: value >= 0 ? '#cf1322' : '#3f8600', fontWeight: 700, fontSize: 13 }}>
+            <span style={{ color: value >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontWeight: 700, fontSize: 13 }}>
                 {value >= 0 ? '+' : ''}{(value || 0).toFixed(2)}%
             </span>
         )
@@ -145,7 +145,7 @@ const buildHotIndustryColumns = ({
         render: (value) => {
             const displayValue = (value || 0) / 100000000;
             return (
-                <span style={{ color: displayValue >= 0 ? '#cf1322' : '#3f8600', fontSize: 12 }}>
+                <span style={{ color: displayValue >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontSize: 12 }}>
                     {displayValue >= 0 ? '+' : ''}{displayValue.toFixed(2)}亿
                 </span>
             );
@@ -160,7 +160,7 @@ const buildHotIndustryColumns = ({
         render: (value) => {
             const v = value || 0;
             return (
-                <span style={{ color: v >= 0 ? '#cf1322' : '#3f8600', fontSize: 11, fontWeight: 600 }}>
+                <span style={{ color: v >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontSize: 11, fontWeight: 600 }}>
                     {v >= 0 ? '↑' : '↓'}{Math.abs(v).toFixed(2)}
                 </span>
             );
