@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import {
-    Card,
     Select,
     Button,
     Row,
@@ -9,7 +8,6 @@ import {
     Table,
     Space,
     Alert,
-    Statistic,
     InputNumber
 } from 'antd';
 import {
@@ -28,6 +26,8 @@ import {
 } from 'recharts';
 import { ExperimentOutlined, PieChartOutlined, DotChartOutlined } from '@ant-design/icons';
 import { optimizePortfolio } from '../services/api';
+import { Panel, MetricGrid, StatCard } from '../design/components';
+import { getValueColor } from '../utils/formatting';
 
 const { Text } = Typography;
 const { Option } = Select;
@@ -142,7 +142,7 @@ const PortfolioOptimizer = () => {
                 </div>
             </div>
 
-            <Card className="workspace-panel" style={{ marginBottom: 24 }}>
+            <Panel className="workspace-panel" style={{ marginBottom: 24 }}>
                 <Space direction="vertical" size="large" style={{ width: '100%' }}>
                     <Row gutter={16}>
                         <Col span={12}>
@@ -191,30 +191,33 @@ const PortfolioOptimizer = () => {
                         开始计算最优配置
                     </Button>
                 </Space>
-            </Card>
+            </Panel>
 
             {error && <Alert message="错误" description={error} type="error" showIcon style={{ marginBottom: 24 }} />}
 
             {result && (
                 <Row gutter={[24, 24]}>
                     <Col span={8}>
-                        <Card title="最优组合指标" variant="borderless" className="workspace-panel">
-                            <Row gutter={[16, 24]}>
-                                <Col span={24}>
-                                    <Statistic title="预期年化收益率" value={result.optimal_portfolio.return} suffix="%" valueStyle={{ color: '#3f8600' }} />
-                                </Col>
-                                <Col span={24}>
-                                    <Statistic title="预期年化波动率" value={result.optimal_portfolio.volatility} suffix="%" />
-                                </Col>
-                                <Col span={24}>
-                                    <Statistic title="夏普比率" value={result.optimal_portfolio.sharpe_ratio} prefix={<ExperimentOutlined />} />
-                                </Col>
-                            </Row>
-                        </Card>
+                        <Panel title="最优组合指标" className="workspace-panel">
+                            <MetricGrid>
+                                <StatCard
+                                    label="预期年化收益率"
+                                    value={<span style={{ color: getValueColor(result.optimal_portfolio.return) }}>{Number(result.optimal_portfolio.return).toFixed(2)}%</span>}
+                                />
+                                <StatCard
+                                    label="预期年化波动率"
+                                    value={`${Number(result.optimal_portfolio.volatility).toFixed(2)}%`}
+                                />
+                                <StatCard
+                                    label="夏普比率"
+                                    value={<span style={{ color: getValueColor(result.optimal_portfolio.sharpe_ratio) }}><ExperimentOutlined /> {Number(result.optimal_portfolio.sharpe_ratio).toFixed(3)}</span>}
+                                />
+                            </MetricGrid>
+                        </Panel>
                     </Col>
 
                     <Col span={16}>
-                        <Card title={<><PieChartOutlined /> 推荐仓位分配</>} variant="borderless" className="workspace-panel workspace-chart-card">
+                        <Panel title={<><PieChartOutlined /> 推荐仓位分配</>} className="workspace-panel workspace-chart-card">
                             <Row>
                                 <Col span={12}>
                                     <div className="pie-chart-container" style={{ width: '100%', height: 300 }}>
@@ -251,11 +254,11 @@ const PortfolioOptimizer = () => {
                                     />
                                 </Col>
                             </Row>
-                        </Card>
+                        </Panel>
                     </Col>
 
                     <Col span={24}>
-                        <Card title={<><DotChartOutlined /> 有效前沿</>} variant="borderless" className="workspace-panel workspace-chart-card">
+                        <Panel title={<><DotChartOutlined /> 有效前沿</>} className="workspace-panel workspace-chart-card">
                             <div style={{ height: 400 }}>
                                 <ResponsiveContainer width="100%" height={400} minWidth={320} minHeight={400}>
                                     <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
@@ -279,7 +282,7 @@ const PortfolioOptimizer = () => {
                                     <Text type="secondary">红点表示当前计算出的最优组合位置</Text>
                                 </div>
                             </div>
-                        </Card>
+                        </Panel>
                     </Col>
                 </Row>
             )}
