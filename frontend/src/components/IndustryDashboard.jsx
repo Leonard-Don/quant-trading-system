@@ -2,7 +2,6 @@ import { useState } from 'react';
 import {
     Row,
     Col,
-    Card,
     Tabs,
     Empty,
     Button,
@@ -13,6 +12,7 @@ import {
 import {
     ReloadOutlined,
 } from '@ant-design/icons';
+import { Panel } from '../design/components';
 import IndustryHeatmap from './IndustryHeatmap';
 import IndustryTrendPanel from './IndustryTrendPanel';
 import LeaderStockPanel from './LeaderStockPanel';
@@ -288,9 +288,9 @@ const IndustryDashboard = () => {
             label: '聚类分析',
             key: 'clusters',
             children: (
-                <Card
+                <Panel
                     title="行业聚类分析"
-                    extra={
+                    actions={
                         <Space size={8} wrap>
                             <Select
                                 value={data.clusterCount}
@@ -329,7 +329,7 @@ const IndustryDashboard = () => {
                         onSetSelectedIndustry={data.setSelectedIndustry}
                         onAddToComparison={data.handleAddToComparison}
                     />
-                </Card>
+                </Panel>
             )
         },
         {
@@ -430,9 +430,9 @@ const IndustryDashboard = () => {
                     message={message}
                 />
             ) : (
-                <Card size="small">
+                <Panel>
                     <Empty description="当前没有需要升级处理的行业提醒" />
-                </Card>
+                </Panel>
             ),
         },
         {
@@ -475,9 +475,9 @@ const IndustryDashboard = () => {
                     formatReplayMetricMoney={data.formatReplayMetricMoney}
                 />
             ) : (
-                <Card size="small">
+                <Panel>
                     <Empty description="当前还没有可用的行业历史快照" />
-                </Card>
+                </Panel>
             ),
         },
         {

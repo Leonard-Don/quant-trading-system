@@ -10,8 +10,9 @@
  * the former hero <Card> block, so behavior is unchanged.
  */
 
-import { Card, Tag, Space, Typography } from 'antd';
+import { Tag, Space, Typography } from 'antd';
 import { FireOutlined, BranchesOutlined } from '@ant-design/icons';
+import { Panel, MetricGrid, StatCard } from '../../design/components';
 
 const { Title, Paragraph } = Typography;
 
@@ -26,7 +27,7 @@ const IndustryDashboardHero = ({
     watchlistEntries,
     subscribedAlertNewCount,
 }) => (
-    <Card className="app-page-hero app-page-hero--industry" variant="borderless">
+    <Panel variant="raised" className="app-page-hero app-page-hero--industry">
         <div className="app-page-hero__header industry-hero-header">
             <div className="app-page-hero__content industry-hero-header__content">
                 <div className="app-page-eyebrow">
@@ -80,34 +81,25 @@ const IndustryDashboardHero = ({
                                 : industryActionPosture.actionHint}
                         </div>
                     </div>
-                    <div className="app-page-metric-strip industry-hero-metrics">
-                        <div className="app-page-metric-card">
-                            <span className="app-page-metric-card__label">热力覆盖</span>
-                            <span className="app-page-metric-card__value">{heatmapIndustries.length} 个行业</span>
-                        </div>
-                        <div className="app-page-metric-card">
-                            <span className="app-page-metric-card__label">上涨占比</span>
-                            <span className="app-page-metric-card__value">
-                                {heatmapSummary?.upRatio != null ? `${heatmapSummary.upRatio}%` : '--'}
-                            </span>
-                        </div>
-                        <div className="app-page-metric-card">
-                            <span className="app-page-metric-card__label">市值覆盖</span>
-                            <span className="app-page-metric-card__value">
-                                {heatmapCoveragePct != null ? `${heatmapCoveragePct}%` : '--'}
-                            </span>
-                        </div>
-                        <div className="app-page-metric-card">
-                            <span className="app-page-metric-card__label">观察 / 新提醒</span>
-                            <span className="app-page-metric-card__value">
-                                {watchlistEntries.length} / {subscribedAlertNewCount || 0}
-                            </span>
-                        </div>
-                    </div>
+                    <MetricGrid className="industry-hero-metrics">
+                        <StatCard label="热力覆盖" value={`${heatmapIndustries.length} 个行业`} />
+                        <StatCard
+                            label="上涨占比"
+                            value={heatmapSummary?.upRatio != null ? `${heatmapSummary.upRatio}%` : '--'}
+                        />
+                        <StatCard
+                            label="市值覆盖"
+                            value={heatmapCoveragePct != null ? `${heatmapCoveragePct}%` : '--'}
+                        />
+                        <StatCard
+                            label="观察 / 新提醒"
+                            value={`${watchlistEntries.length} / ${subscribedAlertNewCount || 0}`}
+                        />
+                    </MetricGrid>
                 </div>
             </div>
         </div>
-    </Card>
+    </Panel>
 );
 
 export default IndustryDashboardHero;

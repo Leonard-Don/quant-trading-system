@@ -744,6 +744,13 @@ code {
   margin-left: auto;
 }
 
+.industry-market-snapshot-bar {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 8px 10px;
+}
+
 .industry-market-snapshot-bar .ant-tag {
   border-radius: 999px;
 }

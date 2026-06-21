@@ -1,5 +1,6 @@
-import { Card, Tag, Space, Tooltip } from 'antd';
+import { Tag, Space, Tooltip } from 'antd';
 import { RiseOutlined, FundOutlined, StarFilled, ClockCircleOutlined } from '@ant-design/icons';
+import { Panel } from '../../design/components';
 
 const IndustryMarketSnapshotBar = ({
     heatmapSummary,
@@ -40,16 +41,7 @@ const IndustryMarketSnapshotBar = ({
     );
 
     return (
-        <Card
-            className="industry-market-snapshot-bar"
-            size="small"
-            style={{
-                background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: 16,
-            }}
-            styles={{ body: { padding: '8px 10px' } }}
-        >
+        <Panel className="industry-market-snapshot-bar">
             <div
                 style={{
                     display: 'flex',
@@ -104,20 +96,20 @@ const IndustryMarketSnapshotBar = ({
                 {heatmapSummary.topInflow.length > 0 && (
                     <div className="industry-market-snapshot-pill">
                         <div className="industry-market-snapshot-pill__label">
-                            <RiseOutlined style={{ color: '#ff7875', marginRight: 4 }} />
+                            <RiseOutlined style={{ color: 'var(--color-up)', marginRight: 4 }} />
                             主力流入
                         </div>
-                        {renderIndustryTags(heatmapSummary.topInflow, (index) => (index === 0 ? 'red' : 'volcano'))}
+                        {renderIndustryTags(heatmapSummary.topInflow, (index) => (index === 0 ? 'green' : 'lime'))}
                     </div>
                 )}
 
                 {heatmapSummary.topOutflow.length > 0 && (
                     <div className="industry-market-snapshot-pill">
                         <div className="industry-market-snapshot-pill__label">
-                            <FundOutlined style={{ color: '#95de64', marginRight: 4 }} />
+                            <FundOutlined style={{ color: 'var(--color-down)', marginRight: 4 }} />
                             流出压力
                         </div>
-                        {renderIndustryTags(heatmapSummary.topOutflow, (index) => (index === 0 ? 'green' : 'lime'))}
+                        {renderIndustryTags(heatmapSummary.topOutflow, (index) => (index === 0 ? 'red' : 'volcano'))}
                     </div>
                 )}
 
@@ -203,7 +195,7 @@ const IndustryMarketSnapshotBar = ({
                     </div>
                 )}
             </div>
-        </Card>
+        </Panel>
     );
 };
 
