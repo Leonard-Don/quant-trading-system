@@ -10,6 +10,6 @@ export function getChartTheme(isDark) {
     accent: p.accent,
     grid: p.grid,
     axis: p.axis,
-    series: [p.accent, '#818cf8', p.up, '#fbbf24', p.down],
+    series: [p.accent, p.info, p.up, p.warn, p.down],
   };
 }

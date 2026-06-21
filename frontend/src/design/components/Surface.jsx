@@ -9,7 +9,7 @@ const VARIANTS = {
 export default function Surface({ variant = 'flat', className, children, ...rest }) {
   return (
     <div
-      className={cn('rounded-[14px] border border-hairline', VARIANTS[variant] || VARIANTS.flat, className)}
+      className={cn('rounded-lg border border-hairline', VARIANTS[variant] || VARIANTS.flat, className)}
       {...rest}
     >
       {children}

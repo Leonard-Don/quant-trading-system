@@ -15,4 +15,8 @@ describe('buildAntdTheme', () => {
     expect(cfg.algorithm).toBe(antdTheme.defaultAlgorithm);
     expect(cfg.token.colorPrimary).toBe('#2563eb');
   });
+
+  test('applies the Inter font family from tokens', () => {
+    expect(buildAntdTheme(true).token.fontFamily).toContain('Inter');
+  });
 });

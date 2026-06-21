@@ -25,4 +25,17 @@ describe('design tokens', () => {
     expect(antdTokenInputs.light.colorPrimary).toBe('#2563eb');
     expect(chartPalette.dark.up).toBe('#34d399');
   });
+
+  test('antd + chart inputs are derived from THEME_VARS (no drift)', () => {
+    for (const theme of ['dark', 'light']) {
+      expect(antdTokenInputs[theme].colorPrimary).toBe(THEME_VARS[theme]['--color-accent']);
+      expect(antdTokenInputs[theme].colorBorder).toBe(THEME_VARS[theme]['--color-hairline']);
+      expect(antdTokenInputs[theme].colorBgContainer).toBe(THEME_VARS[theme]['--color-surface']);
+      expect(chartPalette[theme].up).toBe(THEME_VARS[theme]['--color-up']);
+      expect(chartPalette[theme].down).toBe(THEME_VARS[theme]['--color-down']);
+      expect(chartPalette[theme].accent).toBe(THEME_VARS[theme]['--color-accent']);
+      expect(chartPalette[theme].info).toBe(THEME_VARS[theme]['--color-info']);
+      expect(chartPalette[theme].warn).toBe(THEME_VARS[theme]['--color-warn']);
+    }
+  });
 });

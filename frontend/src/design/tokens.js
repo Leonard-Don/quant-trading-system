@@ -2,7 +2,9 @@
 //   - applyTokens.js  -> runtime CSS custom properties
 //   - tailwind.css    -> utility names map to these var names
 //   - antdTheme.js    -> Ant Design ConfigProvider theme
-// Do NOT hardcode design colors anywhere else (stylelint guards this).
+// THEME_VARS is the canonical color source; antdTokenInputs and chartPalette are
+// DERIVED from it so a color edit can never drift across consumers. Do NOT hardcode
+// design colors anywhere else (stylelint guards CSS).
 
 export const THEME_VARS = {
   dark: {
@@ -48,29 +50,32 @@ export const RADII = { sm: '6px', md: '10px', lg: '14px', pill: '999px' };
 export const FONT_SANS =
   "'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
 
-// Literal inputs for Ant Design ConfigProvider (antd needs concrete hex, not var()).
-export const antdTokenInputs = {
-  dark: {
-    colorPrimary: '#38bdf8',
-    colorBgLayout: '#0b1220',
-    colorBgContainer: '#131d31',
-    colorBgElevated: '#1b2740',
-    colorText: '#f1f5f9',
-    colorTextSecondary: '#94a3b8',
-    colorBorder: 'rgba(148, 163, 184, 0.14)',
-  },
-  light: {
-    colorPrimary: '#2563eb',
-    colorBgLayout: '#f1f5f9',
-    colorBgContainer: '#ffffff',
-    colorBgElevated: '#f8fafc',
-    colorText: '#1e293b',
-    colorTextSecondary: '#475569',
-    colorBorder: 'rgba(100, 116, 139, 0.18)',
-  },
+const deriveAntd = (theme) => {
+  const v = THEME_VARS[theme];
+  return {
+    colorPrimary: v['--color-accent'],
+    colorBgLayout: v['--color-app'],
+    colorBgContainer: v['--color-surface'],
+    colorBgElevated: v['--color-raised'],
+    colorText: v['--color-fg'],
+    colorTextSecondary: v['--color-muted'],
+    colorBorder: v['--color-hairline'],
+  };
 };
 
-export const chartPalette = {
-  dark: { up: '#34d399', down: '#f87171', accent: '#38bdf8', grid: 'rgba(148,163,184,0.14)', axis: '#94a3b8' },
-  light: { up: '#059669', down: '#dc2626', accent: '#2563eb', grid: 'rgba(100,116,139,0.18)', axis: '#475569' },
+export const antdTokenInputs = { dark: deriveAntd('dark'), light: deriveAntd('light') };
+
+const deriveChart = (theme) => {
+  const v = THEME_VARS[theme];
+  return {
+    up: v['--color-up'],
+    down: v['--color-down'],
+    accent: v['--color-accent'],
+    info: v['--color-info'],
+    warn: v['--color-warn'],
+    grid: v['--color-hairline'],
+    axis: v['--color-muted'],
+  };
 };
+
+export const chartPalette = { dark: deriveChart('dark'), light: deriveChart('light') };

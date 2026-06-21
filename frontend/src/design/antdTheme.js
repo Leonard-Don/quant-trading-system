@@ -1,5 +1,5 @@
 import { theme as antdTheme } from 'antd';
-import { antdTokenInputs, RADII } from './tokens';
+import { antdTokenInputs, RADII, FONT_SANS } from './tokens';
 
 export function buildAntdTheme(isDark) {
   const t = isDark ? antdTokenInputs.dark : antdTokenInputs.light;
@@ -8,6 +8,7 @@ export function buildAntdTheme(isDark) {
     token: {
       colorPrimary: t.colorPrimary,
       borderRadius: parseInt(RADII.md, 10),
+      fontFamily: FONT_SANS,
       colorBgContainer: t.colorBgContainer,
       colorBgElevated: t.colorBgElevated,
       colorBgLayout: t.colorBgLayout,
