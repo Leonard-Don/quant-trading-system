@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-    Card,
     Select,
     DatePicker,
     Button,
@@ -15,6 +14,8 @@ import {
     Input,
     InputNumber,
 } from 'antd';
+import { Panel } from '../design/components';
+import { getValueColor } from '../utils/formatting';
 import { BarChartOutlined, DownloadOutlined, TrophyOutlined } from '@ant-design/icons';
 import {
     BarChart,
@@ -178,16 +179,15 @@ const StrategyComparison = ({ strategies }) => {
         }
 
         return (
-            <Card className="workspace-panel" style={{ marginBottom: 20 }} title="策略参数版本">
+            <Panel className="workspace-panel" style={{ marginBottom: 20 }} title="策略参数版本">
                 <Space direction="vertical" size="large" style={{ width: '100%' }}>
                     {params.selectedStrategies.map((strategyName) => {
                         const strategy = strategyDefinitions[strategyName];
                         const parameterEntries = Object.entries(strategy?.parameters || {});
 
                         return (
-                            <Card
+                            <Panel
                                 key={strategyName}
-                                size="small"
                                 title={getStrategyName(strategyName)}
                                 className="workspace-panel workspace-panel--subtle"
                             >
@@ -223,11 +223,11 @@ const StrategyComparison = ({ strategies }) => {
                                         ))}
                                     </Row>
                                 )}
-                            </Card>
+                            </Panel>
                         );
                     })}
                 </Space>
-            </Card>
+            </Panel>
         );
     };
 
@@ -277,9 +277,9 @@ const StrategyComparison = ({ strategies }) => {
                     return <Text type="secondary">无交易</Text>;
                 }
                 return (
-                    <Text type={value >= 0 ? 'success' : 'danger'}>
+                    <span style={{ color: getValueColor(value) }}>
                         {(value * 100).toFixed(2)}%
-                    </Text>
+                    </span>
                 );
             },
             sorter: (a, b) => a.total_return - b.total_return
@@ -295,9 +295,9 @@ const StrategyComparison = ({ strategies }) => {
             dataIndex: 'max_drawdown',
             key: 'max_drawdown',
             render: (value) => (
-                <Text type="danger">
+                <span style={{ color: 'var(--accent-danger)' }}>
                     {(value * 100).toFixed(2)}%
-                </Text>
+                </span>
             )
         },
         {
@@ -389,7 +389,7 @@ const StrategyComparison = ({ strategies }) => {
                 </div>
             </div>
 
-            <Card className="workspace-panel" style={{ marginBottom: 20 }}>
+            <Panel className="workspace-panel" style={{ marginBottom: 20 }}>
                 <Space size="large" wrap style={{ marginBottom: comparisonPresets.length ? 12 : 0 }}>
                     <div style={{ width: 180 }}>
                         <Input
@@ -482,7 +482,7 @@ const StrategyComparison = ({ strategies }) => {
                         ))}
                     </Space>
                 ) : null}
-            </Card>
+            </Panel>
 
             {renderStrategyParameterPanels()}
 
@@ -500,7 +500,7 @@ const StrategyComparison = ({ strategies }) => {
                     ) : null}
                     {/* 综合评分排名卡片 */}
                     <Col span={24}>
-                        <Card
+                        <Panel
                             className="workspace-panel workspace-panel--emphasis"
                             title={
                                 <Space>
@@ -548,23 +548,23 @@ const StrategyComparison = ({ strategies }) => {
                                     );
                                 })}
                             </Row>
-                        </Card>
+                        </Panel>
                     </Col>
 
                     <Col span={24}>
-                        <Card title="对比结果概览" className="workspace-panel">
+                        <Panel title="对比结果概览" className="workspace-panel">
                             <Table
                                 dataSource={dataSource}
                                 columns={columns}
                                 pagination={false}
                                 size="middle"
                             />
-                        </Card>
+                        </Panel>
                     </Col>
 
                     {/* 雷达图 - 多维度对比 */}
                     <Col span={12}>
-                        <Card title="多维度性能雷达图" className="workspace-chart-card workspace-panel">
+                        <Panel title="多维度性能雷达图" className="workspace-chart-card workspace-panel">
                             <div className="radar-chart-container">
                                 <ResponsiveContainer width="100%" height={380} minWidth={320} minHeight={380}>
                                     <RadarChart
@@ -601,12 +601,12 @@ const StrategyComparison = ({ strategies }) => {
                                     </RadarChart>
                                 </ResponsiveContainer>
                             </div>
-                        </Card>
+                        </Panel>
                     </Col>
 
                     {/* 增强柱状图 */}
                     <Col span={12}>
-                        <Card title="收益与风险对比" className="workspace-chart-card workspace-panel">
+                        <Panel title="收益与风险对比" className="workspace-chart-card workspace-panel">
                             <ResponsiveContainer width="100%" height={380} minWidth={320} minHeight={380}>
                                 <BarChart data={chartData} margin={{ top: 20, right: 30, left: 30, bottom: 20 }}>
                                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border-color)" />
@@ -623,18 +623,18 @@ const StrategyComparison = ({ strategies }) => {
                                     <Legend wrapperStyle={{ color: 'var(--text-secondary)', paddingTop: 10 }} />
                                     <Bar dataKey="总收益率" name="总收益率 (%)" radius={[4, 4, 0, 0]}>
                                         {chartData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={parseFloat(entry['总收益率']) >= 0 ? '#00f5d4' : '#ff6b6b'} />
+                                            <Cell key={`cell-${index}`} fill={parseFloat(entry['总收益率']) >= 0 ? '#22c55e' : '#ef4444'} />
                                         ))}
                                     </Bar>
                                     <Bar dataKey="最大回撤" name="最大回撤 (%)" fill="#ff6b6b" radius={[4, 4, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
-                        </Card>
+                        </Panel>
                     </Col>
 
                     {/* 夏普比率对比 */}
                     <Col span={24}>
-                        <Card title="风险调整收益对比 (夏普比率)" className="workspace-chart-card workspace-panel">
+                        <Panel title="风险调整收益对比 (夏普比率)" className="workspace-chart-card workspace-panel">
                             <ResponsiveContainer width="100%" height={250} minWidth={320} minHeight={250}>
                                 <BarChart
                                     data={dataSource.map(d => ({ name: d.strategyName, '夏普比率': d.sharpe_ratio, '年化收益': (d.annualized_return * 100).toFixed(2) }))}
@@ -652,7 +652,7 @@ const StrategyComparison = ({ strategies }) => {
                                     <Bar dataKey="夏普比率" fill="#fee440" radius={[0, 4, 4, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
-                        </Card>
+                        </Panel>
                     </Col>
                 </Row>
             )}
