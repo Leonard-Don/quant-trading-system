@@ -1,5 +1,6 @@
 import { Suspense, useMemo } from 'react';
-import { Card, Spin, Tabs, Tag, Typography } from 'antd';
+import { Spin, Tabs, Tag, Typography } from 'antd';
+import { Panel } from '../design/components';
 import { BarChartOutlined, HistoryOutlined, ExperimentOutlined, PieChartOutlined, GlobalOutlined, DeploymentUnitOutlined } from '@ant-design/icons';
 import StrategyForm from './StrategyForm';
 import ResultsDisplay from './ResultsDisplay';
@@ -197,7 +198,7 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results, onS
                             onAutoExecuteToPaperTrading={onAutoExecuteToPaperTrading}
                         />
                     ) : (
-                        <Card
+                        <Panel
                             className="workspace-panel workspace-panel--result backtest-main-stage__empty-card"
                             title={(
                                 <div className="workspace-title">
@@ -210,12 +211,11 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results, onS
                                     </div>
                                 </div>
                             )}
-                            extra={(
+                            actions={(
                                 <Tag color={loading ? 'processing' : 'default'}>
                                     {mainWorkspaceStatus}
                                 </Tag>
                             )}
-                            size="small"
                         >
                             <div className="summary-strip summary-strip--compact">
                                 <div className="summary-strip__item">
@@ -251,7 +251,7 @@ const BacktestDashboard = ({ strategies, height, onSubmit, loading, results, onS
                                     ))}
                                 </div>
                             )}
-                        </Card>
+                        </Panel>
                     )}
                 </div>
             </div>

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Card,
   Row,
   Col,
   Table,
@@ -32,7 +31,7 @@ import {
   DeploymentUnitOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
-import { MetricGrid, StatCard } from '../design/components';
+import { MetricGrid, StatCard, Panel } from '../design/components';
 import { downloadBacktestReport, runMarketRegimeBacktest } from '../services/api';
 import { getStrategyDetails, getStrategyName } from '../constants/strategies';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
@@ -1028,7 +1027,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       key: 'trades',
       label: '交易记录',
       children: (
-        <Card className="workspace-chart-card" size="small" title="成交明细">
+        <Panel className="workspace-chart-card" title="成交明细">
           <Table
             columns={tradesColumns}
             dataSource={trades}
@@ -1041,14 +1040,14 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
               showTotal: (total) => `共 ${total} 条记录`
             }}
           />
-        </Card>
+        </Panel>
       )
     }
   ];
 
   return (
     <div className="results-container backtest-results">
-      <Card
+      <Panel
         className="workspace-panel workspace-panel--result"
         title={
           <div className="workspace-title">
@@ -1061,7 +1060,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
             </div>
           </div>
         }
-        extra={
+        actions={
           <Space wrap className="workspace-toolbar">
             {normalizedResults.history_record_id ? (
               <Button
@@ -1137,7 +1136,6 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
             </Button>
           </Space>
         }
-        size="small"
       >
         <div className="summary-strip summary-strip--compact results-summary-strip">
           {resultSummaryItems.map((item) => (
@@ -1171,7 +1169,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
           </div>
         </div>
         <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
-      </Card>
+      </Panel>
     </div>
   );
 };

@@ -6,13 +6,13 @@ import {
   InputNumber,
   DatePicker,
   Button,
-  Card,
   Dropdown,
   Modal,
   Tag,
   Popconfirm,
   Alert,
 } from 'antd';
+import { Panel } from '../design/components';
 import { PlayCircleOutlined, SaveOutlined, FolderOpenOutlined, DeleteOutlined, DownOutlined } from '@ant-design/icons';
 import dayjs from '../utils/dayjs';
 import { getStrategyName, getStrategyParameterLabel, getStrategyDetails } from '../constants/strategies';
@@ -524,7 +524,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
     : null;
 
   return (
-    <Card
+    <Panel
       className="workspace-panel workspace-panel--form"
       title={
         <div className="workspace-title">
@@ -537,7 +537,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
           </div>
         </div>
       }
-      extra={
+      actions={
         <Tag color={savedConfigs.length > 0 ? 'blue' : 'default'}>
           {savedConfigs.length > 0 ? `${savedConfigs.length} 个本地配置` : '未保存配置'}
         </Tag>
@@ -545,7 +545,6 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
       style={{
         margin: '0 0 20px 0',
       }}
-      styles={{ body: { padding: '24px' } }}
       >
         <div className="summary-strip summary-strip--compact strategy-form-summary">
         {summaryItems.map((item) => (
@@ -892,7 +891,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
           配置将保存到本地浏览器，包括股票代码、策略、参数和交易设置。
         </div>
       </Modal>
-    </Card>
+    </Panel>
   );
 };
 
