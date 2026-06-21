@@ -67,7 +67,7 @@ const { Title } = Typography;
 const { useBreakpoint } = Grid;
 const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry', 'paper', 'lowvol']);
 const FULL_VIEW_SET = new Set(['realtime']);
-const readViewStateFromLocation = (search = window.location.search, revision = 0) => {
+export const readViewStateFromLocation = (search = window.location.search, revision = 0) => {
   const params = new URLSearchParams(search);
   const requestedView = params.get(VIEW_QUERY_KEY);
 
@@ -75,6 +75,13 @@ const readViewStateFromLocation = (search = window.location.search, revision = 0
     return {
       currentView: 'realtime',
       realtimeAuxIntent: `alerts:${revision}`,
+    };
+  }
+
+  if (import.meta.env.DEV && requestedView === '__gallery') {
+    return {
+      currentView: '__gallery',
+      realtimeAuxIntent: null,
     };
   }
 
@@ -131,6 +138,9 @@ function App() {
   }, [currentView, strategiesLoaded, loadStrategies]);
 
   useEffect(() => {
+    if (currentView === '__gallery') {
+      return;
+    }
     const nextUrl = buildViewUrlForCurrentState(
       currentView,
       locationState.search,
