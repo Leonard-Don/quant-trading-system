@@ -1,0 +1,26 @@
+@layer theme, base, antd, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme {
+  --color-app: #0b1220;
+  --color-surface: #131d31;
+  --color-raised: #1b2740;
+  --color-inset: #0f1828;
+  --color-fg: #f1f5f9;
+  --color-muted: #94a3b8;
+  --color-subtle: #64748b;
+  --color-accent: #38bdf8;
+  --color-on-accent: #04121f;
+  --color-up: #34d399;
+  --color-down: #f87171;
+  --color-warn: #fbbf24;
+  --color-info: #818cf8;
+  --color-success: #34d399;
+  --color-danger: #f87171;
+  --color-hairline: rgba(148, 163, 184, 0.14);
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+}

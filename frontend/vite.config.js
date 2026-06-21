@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
 
 // Vite config for the quant-trading-system frontend.
@@ -9,7 +10,7 @@ export default defineConfig({
   // plugin-react: app code lives in .jsx; tests under src/__tests__ keep
   // a .js extension by team convention but contain JSX (e.g. vi.mock
   // factories returning <div>…</div>). Include those in the JSX transform.
-  plugins: [react({ include: /\.(jsx|tsx|mdx)$|\/__tests__\/.*\.js$/ })],
+  plugins: [react({ include: /\.(jsx|tsx|mdx)$|\/__tests__\/.*\.js$/ }), tailwindcss()],
   esbuild: {
     // Match plugin-react's include so esbuild's transform applies the JSX
     // loader to the same set. App-level .js files no longer need this.
