@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react';
 import {
-  Card,
   Select,
   InputNumber,
   Button,
@@ -8,13 +7,12 @@ import {
   Alert,
   Space,
   Typography,
-  Statistic,
-  Row,
-  Col,
   Empty,
   Spin,
 } from 'antd';
 import { LineChartOutlined } from '@ant-design/icons';
+
+import { Panel, MetricGrid, StatCard } from '../design/components';
 import {
   ResponsiveContainer,
   LineChart,
@@ -124,15 +122,10 @@ const LowVolPortfolioPanel = () => {
   const metricRows = buildMetricRows(data?.metrics);
 
   return (
-    <Card
-      type="inner"
-      title={(
-        <Space>
-          <LineChartOutlined />
-          <span>低波动组合回测（净额，含 A 股摩擦）</span>
-        </Space>
-      )}
-      extra={(
+    <Panel
+      title="低波动组合回测（净额，含 A 股摩擦）"
+      icon={<LineChartOutlined />}
+      actions={(
         <Button type="primary" icon={<LineChartOutlined />} onClick={runBacktest} loading={loading}>
           运行回测
         </Button>
@@ -191,26 +184,17 @@ const LowVolPortfolioPanel = () => {
       {loading && !data ? (
         <div style={{ textAlign: 'center', padding: '48px 0' }}>
           <Spin />
-          <div style={{ marginTop: 12, color: '#8c8c8c' }}>正在构建组合并计算净值（冷启动较慢）…</div>
+          <div style={{ marginTop: 12 }} className="text-muted">正在构建组合并计算净值（冷启动较慢）…</div>
         </div>
       ) : !data ? (
-        <Empty description="点击“运行回测”查看低波动组合净值曲线与指标" />
+        <Empty description={'点击“运行回测”查看低波动组合净值曲线与指标'} />
       ) : (
         <>
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col>
-              <Statistic title="调仓期数" value={data.n_periods ?? '—'} />
-            </Col>
-            <Col>
-              <Statistic title="年换手(单边)" value={ratio(data.avg_annual_turnover, 2)} suffix="×" />
-            </Col>
-            <Col>
-              <Statistic
-                title="净超额年化 vs 等权"
-                value={pct((data.metrics?.net?.cagr ?? 0) - (data.metrics?.benchmark?.cagr ?? 0))}
-              />
-            </Col>
-          </Row>
+          <MetricGrid className="mb-4">
+            <StatCard label="调仓期数" value={data.n_periods ?? '—'} />
+            <StatCard label="年换手(单边)" value={`${ratio(data.avg_annual_turnover, 2)}×`} />
+            <StatCard label="净超额年化 vs 等权" value={pct((data.metrics?.net?.cagr ?? 0) - (data.metrics?.benchmark?.cagr ?? 0))} accent />
+          </MetricGrid>
 
           <div style={{ width: '100%', height: 320, marginBottom: 16 }}>
             <ResponsiveContainer width="100%" height="100%">
@@ -220,9 +204,9 @@ const LowVolPortfolioPanel = () => {
                 <YAxis tick={{ fontSize: 11 }} domain={['auto', 'auto']} />
                 <Tooltip formatter={(v) => Number(v).toFixed(3)} />
                 <Legend />
-                <Line type="monotone" dataKey="basket_net" name="低波动篮子(净)" stroke="#cf1322" dot={false} strokeWidth={2} />
-                <Line type="monotone" dataKey="basket_gross" name="低波动篮子(毛)" stroke="#fa8c16" dot={false} strokeDasharray="4 2" />
-                <Line type="monotone" dataKey="benchmark" name="等权基准" stroke="#8c8c8c" dot={false} />
+                <Line type="monotone" dataKey="basket_net" name="低波动篮子(净)" stroke="var(--color-accent)" dot={false} strokeWidth={2} />
+                <Line type="monotone" dataKey="basket_gross" name="低波动篮子(毛)" stroke="var(--color-warn)" dot={false} strokeDasharray="4 2" />
+                <Line type="monotone" dataKey="benchmark" name="等权基准" stroke="var(--color-muted)" dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -236,7 +220,7 @@ const LowVolPortfolioPanel = () => {
           />
         </>
       )}
-    </Card>
+    </Panel>
   );
 };
 
