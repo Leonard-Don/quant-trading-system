@@ -758,7 +758,7 @@ const LeaderStockPanel = ({
     };
 
     const renderLeaderChange = (value) => (
-        <span style={{ color: (value || 0) >= 0 ? '#cf1322' : '#3f8600', fontWeight: 700, fontSize: 12 }}>
+        <span style={{ color: (value || 0) >= 0 ? 'var(--color-up)' : 'var(--color-down)', fontWeight: 700, fontSize: 12 }}>
             {(value || 0) >= 0 ? '+' : ''}{(value || 0).toFixed(2)}%
         </span>
     );
