@@ -76,8 +76,8 @@ const buildColumns = () => [
       if (value === null || value === undefined || Number.isNaN(Number(value))) {
         return '—';
       }
-      const cls = Number(value) >= 0 ? 'text-up' : 'text-down';
-      return <Text className={cls}>{formatPercent(value)}</Text>;
+      const color = Number(value) >= 0 ? 'var(--color-up)' : 'var(--color-down)';
+      return <Text style={{ color }}>{formatPercent(value)}</Text>;
     },
   },
 ];
