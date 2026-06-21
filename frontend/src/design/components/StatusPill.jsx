@@ -21,7 +21,7 @@ export default function StatusPill({ tone = 'neutral', className, children }) {
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1.5 rounded-full border border-hairline px-2.5 py-1 text-[12px]',
+        'inline-flex items-center gap-1.5 rounded-full border border-hairline px-2.5 py-1 text-xs',
         toneClass,
         className,
       )}
