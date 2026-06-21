@@ -634,7 +634,7 @@ const HeatmapTreemap = ({
                                     </div>
                                 )}
                                 {/* Hide text if block is too narrow or too short */}
-                                {(layout.width > 24 && layout.height > 20) && (
+                                {(layout.width > 30 && layout.height > 26) && (
                                     <>
                                         <Text
                                             strong
@@ -730,6 +730,8 @@ const HeatmapTreemap = ({
                                                     alignItems: 'center',
                                                     gap: 4,
                                                     cursor: onLeadingStockClick && item.leadingStockSymbol ? 'pointer' : 'default',
+                                                    overflow: 'hidden',
+                                                    minWidth: 0,
                                                 }}
                                             >
                                                 <span style={{
@@ -737,10 +739,13 @@ const HeatmapTreemap = ({
                                                     fontSize: 10,
                                                     opacity: 0.86,
                                                     whiteSpace: 'nowrap',
+                                                    flexShrink: 0,
                                                 }}>
                                                     龙头
                                                 </span>
-                                                <span style={{
+                                                <span
+                                                    data-testid="heatmap-leader-name"
+                                                    style={{
                                                     color: textColor,
                                                     fontSize: 11,
                                                     fontWeight: 700,
@@ -748,6 +753,9 @@ const HeatmapTreemap = ({
                                                     overflow: 'hidden',
                                                     textOverflow: 'ellipsis',
                                                     textShadow: TILE_TEXT_SHADOW,
+                                                    minWidth: '0px',
+                                                    maxWidth: '100%',
+                                                    flexShrink: 1,
                                                 }}>
                                                     {item.leadingStock}
                                                 </span>
@@ -783,6 +791,10 @@ const HeatmapTreemap = ({
                                                 fontSize: 11,
                                                 lineHeight: 1.2,
                                                 textShadow: '0 1px 2px rgba(15, 23, 42, 0.24)',
+                                                maxWidth: '100%',
+                                                whiteSpace: 'nowrap',
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
                                             }}
                                         >
                                             {sizeMetric === 'market_cap' && (item.size > 0 ? `${(item.size / 100000000).toFixed(0)} 亿` : '')}
