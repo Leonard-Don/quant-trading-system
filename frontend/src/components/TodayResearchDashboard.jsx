@@ -3,7 +3,6 @@ import {
   Alert,
   App as AntdApp,
   Button,
-  Card,
   Empty,
   Form,
   Input,
@@ -61,8 +60,17 @@ import {
   summarizeResearchActionQueue,
   summarizeResearchEntries,
 } from '../utils/todayResearch';
+import {
+  MetricGrid,
+  Panel,
+  StatCard,
+  StatusPill,
+  Surface,
+  Toolbar,
+} from '../design/components';
+import { FadeIn, Stagger } from '../design/motion';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 const { TextArea } = Input;
 
 const TYPE_ICON = {
@@ -621,14 +629,14 @@ const TodayResearchDashboard = () => {
   };
 
   const renderManualEntryCard = () => (
-    <Card className="today-research-panel">
-      <div className="today-research-panel__head">
-        <div>
-          <div className="today-research-panel__title">新增记录</div>
-          <div className="today-research-panel__desc">盘前计划、人工判断或临时线索可以直接沉淀到档案。</div>
-        </div>
-        <PlusOutlined />
-      </div>
+    <Panel
+      icon={<PlusOutlined />}
+      title="新增记录"
+      actions={<span className="text-[12px] text-subtle">盘前计划、人工判断或临时线索</span>}
+    >
+      <p className="mb-3 text-[13px] leading-relaxed text-muted">
+        盘前计划、人工判断或临时线索可以直接沉淀到档案。
+      </p>
       <Form layout="vertical" form={form} onFinish={handleCreateManualEntry}>
         <Form.Item name="title" label="标题" rules={[{ required: true, message: '请输入标题' }]}>
           <Input placeholder="例如：半导体龙头继续跟踪" />
@@ -660,19 +668,19 @@ const TodayResearchDashboard = () => {
           加入研究档案
         </Button>
       </Form>
-    </Card>
+    </Panel>
   );
 
   const renderEmptyWorkbench = () => (
-    <Card className="today-research-panel today-research-empty-workbench">
-      <div className="today-research-empty-workbench__content">
-        <div className="app-page-section-kicker">今日入口</div>
-        <div className="today-research-empty-workbench__title">先把第一条线索放进工作台</div>
-        <p>
+    <Panel className="flex flex-col gap-4">
+      <div className="flex flex-col gap-2">
+        <div className="text-[11px] uppercase tracking-[0.1em] text-accent">今日入口</div>
+        <div className="text-[16px] font-medium text-fg">先把第一条线索放进工作台</div>
+        <p className="text-[13px] leading-relaxed text-muted">
           工作台会把回测快照、实时复盘、行业观察和人工判断统一成可回看的研究流。
         </p>
       </div>
-      <div className="today-research-empty-actions">
+      <div className="flex flex-wrap gap-2">
         <Button icon={<BarChartOutlined />} onClick={() => handleOpenModule('backtest')}>
           跑一次回测
         </Button>
@@ -683,7 +691,7 @@ const TodayResearchDashboard = () => {
           加入行业观察
         </Button>
       </div>
-    </Card>
+    </Panel>
   );
 
   const renderPrimaryQueueEntry = () => {
@@ -720,51 +728,51 @@ const TodayResearchDashboard = () => {
   };
 
   const renderResearchInboxCard = () => (
-    <Card className="today-research-panel today-research-inbox-card" data-testid="today-research-inbox">
-      <div className="today-research-panel__head">
-        <div>
-          <div className="today-research-panel__title">研究收件箱</div>
-          <div className="today-research-panel__desc">把今天的线索先分成可处理、继续观察和稍后回看。</div>
-        </div>
-        <Tag color="blue">{inboxEntries.length} 条</Tag>
-      </div>
-      <div className="today-research-inbox-buckets">
+    <Panel
+      testId="today-research-inbox"
+      title="研究收件箱"
+      actions={<StatusPill tone="info">{inboxEntries.length} 条</StatusPill>}
+      className="flex flex-col gap-3"
+    >
+      <p className="text-[13px] leading-relaxed text-muted">把今天的线索先分成可处理、继续观察和稍后回看。</p>
+      <MetricGrid className="grid-cols-2 sm:grid-cols-5">
         {RESEARCH_INBOX_BUCKET_ORDER.map((bucket) => (
-          <div className="today-research-inbox-bucket" key={bucket}>
-            <span>{RESEARCH_INBOX_BUCKET_LABELS[bucket]}</span>
-            <strong>{inboxGroups[bucket]?.length || 0}</strong>
-          </div>
+          <StatCard
+            key={bucket}
+            label={RESEARCH_INBOX_BUCKET_LABELS[bucket]}
+            value={inboxGroups[bucket]?.length || 0}
+            accent={bucket === 'actionable'}
+          />
         ))}
-      </div>
+      </MetricGrid>
       <div className="today-research-inbox-list">
         {inboxPreviewEntries.length ? inboxPreviewEntries.map(renderInboxEntry) : (
           <Empty description="收件箱暂无可展示线索" image={Empty.PRESENTED_IMAGE_SIMPLE} />
         )}
       </div>
-    </Card>
+    </Panel>
   );
 
   const renderResearchActionsCard = () => (
-    <Card className="today-research-panel today-research-actions-card" data-testid="today-research-actions">
-      <div className="today-research-panel__head">
-        <div>
-          <div className="today-research-panel__title">研究行动</div>
-          <div className="today-research-panel__desc">提醒、计划和观察名单的下一步处理清单。</div>
-        </div>
-        <Tag color="volcano">{researchActionCounts.total || 0} 条</Tag>
-      </div>
-      <div className="today-research-action-summary">
-        <span>需处理 <strong>{researchActionCounts.actionable || 0}</strong></span>
-        <span>继续观察 <strong>{researchActionCounts.watch || 0}</strong></span>
-        <span>稍后 <strong>{researchActionCounts.snoozed || 0}</strong></span>
-        <span>高优先级 <strong>{researchActionCounts.high || 0}</strong></span>
-      </div>
+    <Panel
+      testId="today-research-actions"
+      title="研究行动"
+      actions={<StatusPill tone="warn">{researchActionCounts.total || 0} 条</StatusPill>}
+      className="flex flex-col gap-3"
+    >
+      <p className="text-[13px] leading-relaxed text-muted">提醒、计划和观察名单的下一步处理清单。</p>
+      <MetricGrid className="grid-cols-2 sm:grid-cols-4">
+        <StatCard label="需处理" value={researchActionCounts.actionable || 0} accent />
+        <StatCard label="继续观察" value={researchActionCounts.watch || 0} />
+        <StatCard label="稍后" value={researchActionCounts.snoozed || 0} />
+        <StatCard label="高优先级" value={researchActionCounts.high || 0} />
+      </MetricGrid>
       <div className="today-research-action-list">
         {visibleResearchActions.length ? visibleResearchActions.map(renderResearchAction) : (
           <Empty description="暂无下一步研究行动" image={Empty.PRESENTED_IMAGE_SIMPLE} />
         )}
       </div>
-    </Card>
+    </Panel>
   );
 
   if (loading) {
@@ -777,85 +785,86 @@ const TodayResearchDashboard = () => {
   }
 
   return (
-    <div className="today-research-page">
-      <section className="today-research-hero">
-        <div>
-          <div className="app-page-section-kicker">今日线索、提醒与复盘档案</div>
-          <Title level={1}>研究工作台</Title>
-          <p>
-            把分散在回测、实时行情、行业热度和纸面账户里的线索收成一张日内工作台，先判断轻重缓急，再回到具体模块深挖。
-          </p>
-          <div className="today-research-hero__status">
-            <span>活跃线索 {activeEntries.length} 条</span>
-            <span>高优先级 {highPriorityActiveCount} 条</span>
-            <span>最近同步 {formatTime(journal.updated_at || journal.generated_at)}</span>
-          </div>
-          <Space wrap className="today-research-hero__actions">
-            <Button type="primary" icon={<CloudSyncOutlined />} loading={syncing} onClick={() => syncJournal()}>
-              同步当前状态
-            </Button>
-            <Tooltip title="刷新">
-              <Button aria-label="刷新" icon={<ReloadOutlined />} onClick={() => syncJournal()} />
-            </Tooltip>
-            <Tooltip title="导出备份">
-              <Button aria-label="导出备份" icon={<ExportOutlined />} onClick={handleExportBackup} />
-            </Tooltip>
-            <Tooltip title="导入备份">
-              <Button aria-label="导入备份" icon={<ImportOutlined />} onClick={() => setBackupVisible(true)} />
-            </Tooltip>
-          </Space>
-        </div>
-        <div className="today-research-hero__metrics">
-          <div className="today-research-metric">
-            <span>待处理</span>
-            <strong>{summary.open_entries || 0}</strong>
-          </div>
-          <div className="today-research-metric">
-            <span>回测快照</span>
-            <strong>{getMetricValue(summary, 'backtest')}</strong>
-          </div>
-          <div className="today-research-metric">
-            <span>实时记录</span>
-            <strong>{getMetricValue(summary, 'realtime_review') + getMetricValue(summary, 'realtime_alert') + getMetricValue(summary, 'trade_plan')}</strong>
-          </div>
-          <div className="today-research-metric">
-            <span>行业观察</span>
-            <strong>{getMetricValue(summary, 'industry_watch') + getMetricValue(summary, 'industry_alert')}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section className="today-research-flow" aria-label="研究工作台流程">
-        {WORKBENCH_FLOW_STEPS.map((step) => (
-          <div className="today-research-flow__item" key={step.key}>
-            <span className="today-research-flow__icon">{step.icon}</span>
-            <div>
-              <strong>{step.title}</strong>
-              <span>{step.description}</span>
+    <div className="today-research-page flex flex-col gap-4">
+      <FadeIn>
+        <Surface variant="raised" className="p-5">
+          <div className="flex flex-wrap items-start justify-between gap-5">
+            <div className="min-w-0 flex-1 basis-[280px]">
+              <div className="mb-2 text-[11px] uppercase tracking-[0.1em] text-accent">今日线索、提醒与复盘档案</div>
+              <h2 className="text-2xl font-medium leading-tight text-fg">研究工作台</h2>
+              <p className="mt-2 max-w-[420px] text-[13px] leading-relaxed text-muted">
+                把分散在回测、实时行情、行业热度和纸面账户里的线索收成一张日内工作台，先判断轻重缓急，再回到具体模块深挖。
+              </p>
+            </div>
+            <div className="shrink-0">
+              <MetricGrid className="basis-[420px]">
+                <StatCard label="待处理" value={summary.open_entries || 0} />
+                <StatCard label="回测快照" value={getMetricValue(summary, 'backtest')} accent />
+                <StatCard
+                  label="实时记录"
+                  value={getMetricValue(summary, 'realtime_review') + getMetricValue(summary, 'realtime_alert') + getMetricValue(summary, 'trade_plan')}
+                />
+                <StatCard
+                  label="行业观察"
+                  value={getMetricValue(summary, 'industry_watch') + getMetricValue(summary, 'industry_alert')}
+                />
+              </MetricGrid>
             </div>
           </div>
+        </Surface>
+      </FadeIn>
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusPill tone="info">活跃线索 {activeEntries.length} 条</StatusPill>
+          <StatusPill tone="warn">高优先级 {highPriorityActiveCount} 条</StatusPill>
+          <StatusPill tone="neutral">最近同步 {formatTime(journal.updated_at || journal.generated_at)}</StatusPill>
+        </div>
+        <Toolbar>
+          <Button type="primary" icon={<CloudSyncOutlined />} loading={syncing} onClick={() => syncJournal()}>
+            同步当前状态
+          </Button>
+          <Tooltip title="刷新">
+            <Button aria-label="刷新" icon={<ReloadOutlined />} onClick={() => syncJournal()} />
+          </Tooltip>
+          <Tooltip title="导出备份">
+            <Button aria-label="导出备份" icon={<ExportOutlined />} onClick={handleExportBackup} />
+          </Tooltip>
+          <Tooltip title="导入备份">
+            <Button aria-label="导入备份" icon={<ImportOutlined />} onClick={() => setBackupVisible(true)} />
+          </Tooltip>
+        </Toolbar>
+      </div>
+
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-3" aria-label="研究工作台流程">
+        {WORKBENCH_FLOW_STEPS.map((step) => (
+          <Surface key={step.key} className="flex items-start gap-3 p-4">
+            <span className="text-accent" aria-hidden="true">{step.icon}</span>
+            <div className="flex flex-col gap-1">
+              <strong className="text-[14px] font-medium text-fg">{step.title}</strong>
+              <span className="text-[12px] leading-relaxed text-muted">{step.description}</span>
+            </div>
+          </Surface>
         ))}
       </section>
 
       {isJournalEmpty ? (
-        <div className="today-research-grid today-research-grid--empty">
+        <div className="today-research-grid today-research-grid--empty grid grid-cols-1 gap-4 lg:grid-cols-2">
           {renderEmptyWorkbench()}
           {renderManualEntryCard()}
         </div>
       ) : (
-        <>
+        <Stagger className="flex flex-col gap-4">
           {renderResearchInboxCard()}
           {renderResearchActionsCard()}
 
-          <div className="today-research-grid">
-            <Card className="today-research-panel today-research-panel--queue">
-              <div className="today-research-panel__head">
-                <div>
-                  <div className="today-research-panel__title">处理队列</div>
-                  <div className="today-research-panel__desc">优先看仍处于待处理或跟踪中的线索。</div>
-                </div>
-                <Tag color="orange">{actionQueue.length} 条</Tag>
-              </div>
+          <div className="today-research-grid grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Panel
+              title="处理队列"
+              actions={<StatusPill tone="warn">{actionQueue.length} 条</StatusPill>}
+              className="flex flex-col gap-3"
+            >
+              <p className="text-[13px] leading-relaxed text-muted">优先看仍处于待处理或跟踪中的线索。</p>
               {renderPrimaryQueueEntry()}
               {nextActions.length ? (
                 <div className="today-research-next-actions">
@@ -874,24 +883,22 @@ const TodayResearchDashboard = () => {
                 {visibleQueueEntries.map((entry) => renderEntry(entry, { compact: true }))}
               </div>
               {hiddenQueueCount > 0 ? (
-                <div className="today-research-queue-footnote">
+                <div className="today-research-queue-footnote text-[12px] text-subtle">
                   其余 {hiddenQueueCount} 条仍保留在下方完整档案流中，避免首屏重复铺满。
                 </div>
               ) : null}
-            </Card>
+            </Panel>
 
             {renderManualEntryCard()}
           </div>
 
-          <div className="today-research-grid today-research-grid--secondary">
-            <Card className="today-research-panel">
-              <div className="today-research-panel__head">
-                <div>
-                  <div className="today-research-panel__title">标的时间线</div>
-                  <div className="today-research-panel__desc">按标的聚合回测、提醒和复盘，方便回看链路。</div>
-                </div>
-                <Tag>{symbolTimeline.length} 个标的</Tag>
-              </div>
+          <div className="today-research-grid today-research-grid--secondary grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Panel
+              title="标的时间线"
+              actions={<StatusPill tone="neutral">{symbolTimeline.length} 个标的</StatusPill>}
+              className="flex flex-col gap-3"
+            >
+              <p className="text-[13px] leading-relaxed text-muted">按标的聚合回测、提醒和复盘，方便回看链路。</p>
               {symbolTimeline.length ? (
                 <div className="today-research-symbol-list">
                   {symbolTimeline.map((item) => (
@@ -914,24 +921,22 @@ const TodayResearchDashboard = () => {
               ) : (
                 <Empty description="还没有标的级记录" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               )}
-            </Card>
+            </Panel>
 
-            <Card className="today-research-panel">
-              <div className="today-research-panel__head">
-                <div>
-                  <div className="today-research-panel__title">数据来源</div>
-                  <div className="today-research-panel__desc">当前页从这些已有模块收集状态。</div>
-                </div>
-                <Tag color="green">本地 + 后端</Tag>
-              </div>
-              <div className="today-research-source-grid">
-                <div><span>回测快照</span><strong>{sourceCounts.backtest_snapshots || 0}</strong></div>
-                <div><span>复盘快照</span><strong>{sourceCounts.realtime_review_snapshots || 0}</strong></div>
-                <div><span>实时提醒</span><strong>{sourceCounts.realtime_alert_hit_history || 0}</strong></div>
-                <div><span>行业观察</span><strong>{sourceCounts.industry_watchlist || 0}</strong></div>
-                <div><span>行业提醒</span><strong>{sourceCounts.industry_alert_history || 0}</strong></div>
-                <div><span>提醒规则</span><strong>{sourceCounts.price_alert_rules || 0}</strong></div>
-              </div>
+            <Panel
+              title="数据来源"
+              actions={<StatusPill tone="success">本地 + 后端</StatusPill>}
+              className="flex flex-col gap-3"
+            >
+              <p className="text-[13px] leading-relaxed text-muted">当前页从这些已有模块收集状态。</p>
+              <MetricGrid className="grid-cols-2 sm:grid-cols-3">
+                <StatCard label="回测快照" value={sourceCounts.backtest_snapshots || 0} />
+                <StatCard label="复盘快照" value={sourceCounts.realtime_review_snapshots || 0} />
+                <StatCard label="实时提醒" value={sourceCounts.realtime_alert_hit_history || 0} />
+                <StatCard label="行业观察" value={sourceCounts.industry_watchlist || 0} />
+                <StatCard label="行业提醒" value={sourceCounts.industry_alert_history || 0} />
+                <StatCard label="提醒规则" value={sourceCounts.price_alert_rules || 0} />
+              </MetricGrid>
               <Alert
                 className="today-research-backup-alert"
                 type="success"
@@ -939,19 +944,19 @@ const TodayResearchDashboard = () => {
                 message="档案已接入后端快照"
                 description={`当前 profile: ${profileId}，最近同步 ${formatTime(journal.updated_at || journal.generated_at)}。`}
               />
-            </Card>
+            </Panel>
           </div>
 
-          <Card className="today-research-panel">
-            <div className="today-research-panel__head">
-              <div>
-                <div className="today-research-panel__title">完整档案流</div>
-                <div className="today-research-panel__desc">所有来源统一成一条可回看的研究流。</div>
-              </div>
-              <Tag color={hasActiveEntryFilters ? 'blue' : undefined}>
+          <Panel
+            title="完整档案流"
+            actions={(
+              <StatusPill tone={hasActiveEntryFilters ? 'info' : 'neutral'}>
                 {hasActiveEntryFilters ? `${filteredEntries.length} / ${entries.length} 条` : `${entries.length} 条`}
-              </Tag>
-            </div>
+              </StatusPill>
+            )}
+            className="flex flex-col gap-3"
+          >
+            <p className="text-[13px] leading-relaxed text-muted">所有来源统一成一条可回看的研究流。</p>
             <div className="today-research-filter-bar">
               <Space wrap size={[10, 10]} className="today-research-filter-bar__controls">
                 <Select
@@ -997,8 +1002,8 @@ const TodayResearchDashboard = () => {
                 <Empty description={hasActiveEntryFilters ? '当前筛选没有匹配记录' : '还没有研究档案，先跑一次回测或保存一条实时复盘快照。'} />
               )}
             </div>
-          </Card>
-        </>
+          </Panel>
+        </Stagger>
       )}
 
       <Modal

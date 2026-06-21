@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import IndustryHeatmap, { buildFallbackHeatmapPayload } from '../components/IndustryHeatmap';
+import IndustryHeatmap from '../components/IndustryHeatmap';
 
 // Mirror the exact shape used in industry-heatmap.test.js (camelCase fields).
 // A single wide/tall industry forces the "large block" path (leader pill + market cap row).
