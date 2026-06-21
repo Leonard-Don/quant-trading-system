@@ -1,6 +1,5 @@
 import { Tag, Space, Tooltip } from 'antd';
 import { RiseOutlined, FundOutlined, StarFilled, ClockCircleOutlined } from '@ant-design/icons';
-import { Panel } from '../../design/components';
 
 const IndustryMarketSnapshotBar = ({
     heatmapSummary,
@@ -41,7 +40,7 @@ const IndustryMarketSnapshotBar = ({
     );
 
     return (
-        <Panel className="industry-market-snapshot-bar">
+        <div className="industry-market-snapshot-bar">
             <div
                 style={{
                     display: 'flex',
@@ -195,7 +194,7 @@ const IndustryMarketSnapshotBar = ({
                     </div>
                 )}
             </div>
-        </Panel>
+        </div>
     );
 };
 

@@ -35,13 +35,13 @@ export const buildIndustryPolicySignalColumn = ({ mutedColor = 'var(--text-muted
         let tagColor = 'default';
         let tagText = '中性';
         if (signal === 'bullish') {
-            tagColor = 'red';
+            tagColor = 'green';
             tagText = '偏多';
         } else if (signal === 'bearish') {
-            tagColor = 'green';
+            tagColor = 'red';
             tagText = '偏空';
         }
-        const impactColor = hasImpact && impactValue >= 0 ? '#cf1322' : '#3f8600';
+        const impactColor = hasImpact && impactValue >= 0 ? 'var(--color-up)' : 'var(--color-down)';
         return (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'flex-start' }}>
                 <Tag
