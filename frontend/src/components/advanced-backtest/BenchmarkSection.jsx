@@ -1,14 +1,16 @@
-import { Alert, Card, Empty, Space, Table } from 'antd';
+import { Alert, Empty, Space, Table } from 'antd';
 import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Legend,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
   YAxis,
 } from 'recharts';
+import { Panel } from '../../design/components';
 
 import { getStrategyName } from '../../constants/strategies';
 import { formatPercentage, formatCurrency } from '../../utils/formatting';
@@ -24,7 +26,7 @@ function BenchmarkSection({
   benchmarkLoading,
 }) {
   return (
-    <Card className="workspace-panel workspace-chart-card" title="基准对照">
+    <Panel className="workspace-panel workspace-chart-card" title="基准对照">
       {benchmarkResult?.data && benchmarkContext?.strategy ? (
         <Space direction="vertical" style={{ width: '100%' }} size="large">
           {benchmarkLoading ? (
@@ -54,7 +56,11 @@ function BenchmarkSection({
                   <YAxis tickFormatter={(value) => `${(Number(value || 0) * 100).toFixed(0)}%`} tick={{ fill: 'var(--text-muted)', fontSize: 12 }} />
                   <RechartsTooltip />
                   <Legend />
-                  <Bar dataKey="totalReturn" name="总收益率" fill={CHART_POSITIVE} />
+                  <Bar dataKey="totalReturn" name="总收益率">
+                    {benchmarkChartData.map((d, i) => (
+                      <Cell key={i} fill={(d.totalReturn ?? 0) >= 0 ? CHART_POSITIVE : CHART_NEGATIVE} />
+                    ))}
+                  </Bar>
                   <Bar dataKey="drawdown" name="最大回撤绝对值" fill={CHART_NEGATIVE} />
                 </BarChart>
               </ResponsiveContainer>
@@ -84,7 +90,7 @@ function BenchmarkSection({
       ) : (
         <Empty description="运行基准对照后，这里会展示策略与买入持有的差异。" />
       )}
-    </Card>
+    </Panel>
   );
 }
 

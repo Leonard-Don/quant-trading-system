@@ -1,7 +1,6 @@
 import {
   Alert,
   Button,
-  Card,
   Col,
   DatePicker,
   Empty,
@@ -14,6 +13,7 @@ import {
   Table,
   Tag,
 } from 'antd';
+import { Panel } from '../../design/components';
 import { DownloadOutlined, ExperimentOutlined, PartitionOutlined } from '@ant-design/icons';
 import {
   Bar,
@@ -109,7 +109,7 @@ function BatchBacktestForm({
   handleRunBatch,
 }) {
   return (
-    <Card
+    <Panel
       className="workspace-panel"
       title={(
         <div className="workspace-title">
@@ -239,7 +239,7 @@ function BatchBacktestForm({
           运行批量回测
         </Button>
       </Form>
-    </Card>
+    </Panel>
   );
 }
 
@@ -258,10 +258,10 @@ function BatchBacktestResults({
   handleExportBatch,
 }) {
   return (
-    <Card
+    <Panel
       className="workspace-panel workspace-chart-card"
       title={batchExperimentMeta.title}
-      extra={batchResult ? (
+      actions={batchResult ? (
         <Space size="small">
           <Button size="small" onClick={handleSaveBatchHistory}>保存到历史</Button>
           <Button size="small" icon={<DownloadOutlined />} onClick={() => handleExportBatch('csv')}>导出CSV</Button>
@@ -376,7 +376,7 @@ function BatchBacktestResults({
       ) : (
         <Empty description="运行批量回测后，这里会显示汇总和排名。" />
       )}
-    </Card>
+    </Panel>
   );
 }
 

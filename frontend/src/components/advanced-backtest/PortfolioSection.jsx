@@ -1,4 +1,5 @@
-import { Alert, Card, Col, Empty, Row, Space, Table, Tag } from 'antd';
+import { Alert, Col, Empty, Row, Space, Table, Tag } from 'antd';
+import { Panel } from '../../design/components';
 import {
   CartesianGrid,
   Legend,
@@ -26,7 +27,7 @@ function PortfolioSection({
   portfolioLoading,
 }) {
   return (
-    <Card className="workspace-panel workspace-chart-card" title="组合级策略回测">
+    <Panel className="workspace-panel workspace-chart-card" title="组合级策略回测">
       {portfolioStrategyResult ? (
         <Space direction="vertical" style={{ width: '100%' }} size="large">
           {portfolioLoading ? (
@@ -173,7 +174,7 @@ function PortfolioSection({
       ) : (
         <Empty description="运行组合级策略回测后，这里会展示组合表现和各资产贡献。" />
       )}
-    </Card>
+    </Panel>
   );
 }
 
