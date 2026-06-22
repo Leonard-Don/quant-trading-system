@@ -40,10 +40,6 @@ import {
 import { loadRealtimeProfileId } from '../hooks/useRealtimePreferences';
 import { buildAppUrl, navigateToAppUrl } from '../utils/researchContext';
 import {
-  buildPrefillFromJournalEntry,
-  setPaperPrefill,
-} from '../utils/paperTradingPrefill';
-import {
   RESEARCH_INBOX_BUCKET_LABELS,
   RESEARCH_INBOX_BUCKET_ORDER,
   TODAY_RESEARCH_PRIORITY_LABELS,
@@ -133,7 +129,7 @@ const WORKBENCH_FLOW_STEPS = [
     key: 'collect',
     icon: <FileTextOutlined />,
     title: '线索收件',
-    description: '回测、实时行情、行业观察和纸面账户记录统一汇入。',
+    description: '回测、实时行情、行业观察记录统一汇入。',
   },
   {
     key: 'triage',
@@ -360,16 +356,6 @@ const TodayResearchDashboard = () => {
     navigateToAppUrl(buildAppUrl({ view }));
   }, []);
 
-  const handleSendEntryToPaper = useCallback((entry) => {
-    const prefill = buildPrefillFromJournalEntry(entry);
-    if (!prefill) {
-      messageApi.warning('该档案不足以预填纸面订单（缺少标的）');
-      return;
-    }
-    setPaperPrefill(prefill);
-    navigateToAppUrl(buildAppUrl({ view: 'paper' }));
-  }, [messageApi]);
-
   const handleUpdateEntryStatus = useCallback(async (entry, status, options = {}) => {
     try {
       const response = await updateResearchJournalEntryStatus(
@@ -517,16 +503,6 @@ const TodayResearchDashboard = () => {
           <Button size="small" onClick={() => handleOpenEntry(entry)}>
             {entry.action?.label || '打开'}
           </Button>
-          {entry.type === 'backtest' && entry.symbol ? (
-            <Button
-              size="small"
-              icon={<ThunderboltOutlined />}
-              onClick={() => handleSendEntryToPaper(entry)}
-              data-testid="today-entry-send-to-paper"
-            >
-              送到纸面账户
-            </Button>
-          ) : null}
           {entry.status !== 'done' && entry.status !== 'archived' ? (
             <Button size="small" icon={<CheckCircleOutlined />} onClick={() => handleMarkDone(entry)}>
               完成
@@ -791,7 +767,7 @@ const TodayResearchDashboard = () => {
         <PageHero
           eyebrow="今日线索、提醒与复盘档案"
           title="研究工作台"
-          subtitle="把分散在回测、实时行情、行业热度和纸面账户里的线索收成一张日内工作台，先判断轻重缓急，再回到具体模块深挖。"
+          subtitle="把分散在回测、实时行情、行业热度里的线索收成一张日内工作台，先判断轻重缓急，再回到具体模块深挖。"
           metrics={(
             <MetricGrid className="basis-96">
               <StatCard label="待处理" value={summary.open_entries || 0} />

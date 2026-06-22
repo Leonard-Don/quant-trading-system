@@ -82,13 +82,6 @@
       }
     ]
   },
-  "paper_trading": {
-    "active_profiles": [
-      "e2e-smoke"
-    ],
-    "available": true,
-    "profile_count": 1
-  },
   "policy_radar": {
     "last_refresh_at": "2026-05-31T00:42:13.871527",
     "policy_count": 15,
@@ -195,13 +188,6 @@
           "policy_signal": "neutral"
         }
       ]
-    },
-    "paper_trading": {
-      "active_profiles": [
-        "e2e-smoke"
-      ],
-      "available": true,
-      "profile_count": 1
     },
     "policy_radar": {
       "last_refresh_at": "2026-05-31T00:42:13.871527",

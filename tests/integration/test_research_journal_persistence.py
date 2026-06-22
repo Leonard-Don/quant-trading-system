@@ -7,7 +7,7 @@ The unit suite asserts in-memory normalization on a per-call basis
 walks the full lifecycle through real files on a ``tmp_path`` fixture:
 snapshot write, entry add, status archive, profile-scoped reads, and a
 process-restart-style reload via a freshly constructed store on the
-same path -- mirroring the ``test_paper_trading_lifecycle.py`` pattern.
+same path -- the standard per-profile, file-backed store lifecycle pattern.
 
 Mapping note: spec D4 item 4 lists the lifecycle as
 "write -> list -> read -> archive -> delete", but

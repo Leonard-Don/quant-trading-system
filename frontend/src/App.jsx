@@ -9,8 +9,6 @@ import {
   MoonOutlined,
   FireOutlined,
   FundOutlined,
-  ThunderboltOutlined,
-  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 
 import ErrorBoundary from './components/ErrorBoundary';
@@ -19,16 +17,8 @@ import {
   getStrategies,
   runBacktest,
   createResearchJournalEntry,
-  getRealtimeQuote,
-  submitPaperOrder,
 } from './services/api';
 import { buildBacktestJournalEntry } from './utils/backtestJournalEntry';
-import { getCurrencySymbol } from './utils/strategyDefaults';
-import {
-  buildPrefillFromBacktest,
-  canAutoExecutePrefill,
-  setPaperPrefill,
-} from './utils/paperTradingPrefill';
 import { useTheme } from './contexts/ThemeContext';
 import { APP_VERSION } from './generated/version';
 import { useAppUrlState } from './hooks/useAppUrlState';
@@ -44,8 +34,6 @@ const RealTimePanel = lazyWithRetry(() => import('./components/RealTimePanel'));
 const IndustryDashboard = lazyWithRetry(() => import('./components/IndustryDashboard'));
 const BacktestDashboard = lazyWithRetry(() => import('./components/BacktestDashboard'));
 const TodayResearchDashboard = lazyWithRetry(() => import('./components/TodayResearchDashboard'));
-const PaperTradingPanel = lazyWithRetry(() => import('./components/PaperTradingPanel'));
-const LowVolatilityView = lazyWithRetry(() => import('./components/LowVolatilityView'));
 const DesignGallery = lazyWithRetry(() => import('./design/gallery/DesignGallery'));
 
 // 懒加载占位组件
@@ -65,7 +53,7 @@ const LazyLoadFallback = () => (
 const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
-const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry', 'paper', 'lowvol']);
+const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry']);
 const FULL_VIEW_SET = new Set(['realtime']);
 export const readViewStateFromLocation = (search = window.location.search, revision = 0) => {
   const params = new URLSearchParams(search);
@@ -223,16 +211,6 @@ function App() {
       key: 'industry',
       icon: <FireOutlined />,
       label: '行业热度',
-    },
-    {
-      key: 'paper',
-      icon: <ThunderboltOutlined />,
-      label: '纸面账户',
-    },
-    {
-      key: 'lowvol',
-      icon: <SafetyCertificateOutlined />,
-      label: '低波动',
     }
   ];
 
@@ -248,59 +226,6 @@ function App() {
     }
   }, [isMobile, locationState.pathname, locationState.search]);
 
-  const handleSendBacktestToPaper = useCallback((backtestResult) => {
-    const prefill = buildPrefillFromBacktest(backtestResult);
-    if (!prefill) {
-      message.warning('当前回测结果不足以预填纸面订单（缺少标的或成交记录）');
-      return;
-    }
-    setPaperPrefill(prefill);
-    setCurrentView('paper');
-  }, [message, setCurrentView]);
-
-  const handleAutoExecuteBacktestToPaper = useCallback(async (backtestResult) => {
-    const prefill = buildPrefillFromBacktest(backtestResult);
-    if (!canAutoExecutePrefill(prefill)) {
-      message.warning('当前回测结果缺少有效成交信息，无法直接下单');
-      return;
-    }
-
-    // Best-effort: any failure (quote unavailable, order rejected) falls
-    // back to the F path so the user lands in the paper workspace with a
-    // prefilled form rather than a dead end.
-    try {
-      const quoteResp = await getRealtimeQuote(prefill.symbol);
-      const quotePayload = quoteResp?.data || quoteResp || {};
-      const price = Number(quotePayload.price ?? quotePayload.last_price ?? quotePayload.close);
-      if (!Number.isFinite(price) || price <= 0) {
-        message.warning('行情不可用，已切到手填模式');
-        setPaperPrefill(prefill);
-        setCurrentView('paper');
-        return;
-      }
-      await submitPaperOrder({
-        symbol: prefill.symbol,
-        side: prefill.side,
-        quantity: prefill.quantity,
-        fill_price: price,
-        commission: 0,
-        slippage_bps: 0,
-      });
-      message.success(
-        `已按市价 ${getCurrencySymbol(prefill.symbol)}${price.toFixed(2)} 下单 ${prefill.side} ${prefill.quantity} ${prefill.symbol}`,
-      );
-      setCurrentView('paper');
-    } catch (error) {
-      const detail = error?.response?.data?.error?.message
-        || error?.response?.data?.detail
-        || error?.message
-        || '下单失败';
-      message.error(`直接下单失败：${detail}（已切到手填模式）`);
-      setPaperPrefill(prefill);
-      setCurrentView('paper');
-    }
-  }, [message, setCurrentView]);
-
   const renderContent = () => {
     switch (currentView) {
       case 'today':
@@ -312,10 +237,6 @@ function App() {
       case 'industry':
         return <Suspense fallback={<LazyLoadFallback />}><IndustryDashboard /></Suspense>;
 
-      case 'paper':
-        return <Suspense fallback={<LazyLoadFallback />}><PaperTradingPanel /></Suspense>;
-      case 'lowvol':
-        return <Suspense fallback={<LazyLoadFallback />}><LowVolatilityView /></Suspense>;
       case '__gallery':
         return import.meta.env.DEV
           ? <Suspense fallback={<LazyLoadFallback />}><DesignGallery /></Suspense>
@@ -329,8 +250,6 @@ function App() {
               onSubmit={handleBacktest}
               loading={loading}
               results={results}
-              onSendToPaperTrading={handleSendBacktestToPaper}
-              onAutoExecuteToPaperTrading={handleAutoExecuteBacktestToPaper}
             />
           </Suspense>
         );

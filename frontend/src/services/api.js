@@ -507,38 +507,6 @@ export const predictPrice = async (symbol) => {
   return response.data;
 };
 
-// 低波动选股 — cross-sectional ranking of an index universe by trailing
-// realized volatility (the project's only out-of-sample-validated signal).
-// Backend caches daily; a full live fetch of ~300-500 names can be slow on a
-// cold cache, so use the longer analysis timeout profile.
-export const getLowVolatilityScreen = async ({ universe = 'csi300', top = 30, window = 60 } = {}) => {
-  const params = new URLSearchParams({
-    universe,
-    top: String(top),
-    window: String(window),
-  });
-  const response = await api.get(
-    `/analysis/low-volatility-screen?${params.toString()}`,
-    withTimeoutProfile('analysis'),
-  );
-  return response.data;
-};
-
-// 低波动组合回测 — net-of-cost monthly low-vol basket vs equal-weight benchmark
-// (total-return prices, A-share frictions). Backend caches daily; cold compute
-// is heavy, so use the longer analysis timeout profile.
-export const getLowVolatilityPortfolio = async ({ universe = 'csi300', basketN = 30 } = {}) => {
-  const params = new URLSearchParams({
-    universe,
-    basket_n: String(basketN),
-  });
-  const response = await api.get(
-    `/analysis/low-volatility-portfolio?${params.toString()}`,
-    withTimeoutProfile('analysis'),
-  );
-  return response.data;
-};
-
 // 多股票相关性分析
 export const getCorrelationAnalysis = async (symbols, periodDays = 90) => {
   const response = await api.post('/analysis/correlation', {
@@ -1181,50 +1149,6 @@ export const getPolicyRadarRecords = async ({ industry, timeframe = '7d', limit 
   const params = { timeframe, limit };
   if (industry) params.industry = industry;
   const response = await api.get('/policy-radar/records', { params });
-  return response.data;
-};
-
-// Paper-trading client fns. Each accepts an optional `profileId`; when present
-// we send `X-Realtime-Profile` so the call scopes to the same per-browser
-// realtime identity the workbench uses (mirrors getRealtimeAlerts). Omitting it
-// (the default) sends no header → backend resolves the "default" profile, which
-// keeps existing PaperTradingPanel callers behaving exactly as before.
-const paperProfileConfig = (profileId) => (
-  profileId
-    ? { headers: { 'X-Realtime-Profile': profileId } }
-    : undefined
-);
-
-export const getPaperAccount = async (profileId) => {
-  const response = await api.get('/paper/account', paperProfileConfig(profileId));
-  return response.data;
-};
-
-export const submitPaperOrder = async (order, profileId) => {
-  const response = await api.post('/paper/orders', order, paperProfileConfig(profileId));
-  return response.data;
-};
-
-export const listPaperOrders = async ({ limit = 100 } = {}, profileId) => {
-  const config = { params: { limit } };
-  if (profileId) {
-    config.headers = { 'X-Realtime-Profile': profileId };
-  }
-  const response = await api.get('/paper/orders', config);
-  return response.data;
-};
-
-export const resetPaperAccount = async ({ initialCapital } = {}, profileId) => {
-  const body = initialCapital != null ? { initial_capital: initialCapital } : {};
-  const response = await api.post('/paper/reset', body, paperProfileConfig(profileId));
-  return response.data;
-};
-
-export const cancelPaperOrder = async (orderId, profileId) => {
-  const response = await api.delete(
-    `/paper/orders/${encodeURIComponent(orderId)}`,
-    paperProfileConfig(profileId),
-  );
   return response.data;
 };
 

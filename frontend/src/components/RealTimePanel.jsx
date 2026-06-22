@@ -40,7 +40,6 @@ import { useRealtimeReviewActions } from '../hooks/useRealtimeReviewActions';
 import {
   buildAlertDraftFromAnomaly,
   buildRealtimeAnomalyFeed,
-  buildTradePlanDraftFromAnomaly,
 } from '../utils/realtimeSignals';
 import {
   useRealtimeJournal,
@@ -91,7 +90,6 @@ const { Text } = Typography;
 //   - utils/realtimePanelConstants.js
 //   - utils/realtimePanelHelpers.js
 
-const TradePanel = lazyWithRetry(() => import('./TradePanel'));
 const RealtimeStockDetailModal = lazyWithRetry(() => import('./RealtimeStockDetailModal'));
 const PriceAlerts = lazyWithRetry(() => import('./PriceAlerts'));
 
@@ -104,10 +102,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
   const [alertPrefillDraft, setAlertPrefillDraft] = useState(null);
   const [alertComposerSignal, setAlertComposerSignal] = useState(0);
 
-  // Trade Modal State
-  const [isTradeModalVisible, setIsTradeModalVisible] = useState(false);
-  const [selectedSymbol, setSelectedSymbol] = useState(null);
-  const [tradePlanDraft, setTradePlanDraft] = useState(null);
   const [quoteSortMode, setQuoteSortMode] = useState('change_desc');
   const [quoteViewMode, setQuoteViewMode] = useState('grid');
 
@@ -306,33 +300,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     resolveSymbolCategory,
   ]);
 
-  const handleOpenTrade = useCallback((symbol, draft = null) => {
-    setSelectedSymbol(symbol);
-    setTradePlanDraft(draft);
-    setIsTradeModalVisible(true);
-    if (draft?.symbol) {
-      appendTimelineEvent({
-        symbol: draft.symbol,
-        kind: 'trade_plan',
-        source: 'plan',
-        sourceLabel: '交易计划',
-        title: draft.sourceTitle || '生成交易计划',
-        description: draft.note || draft.sourceDescription || `已为 ${draft.symbol} 生成交易计划草稿。`,
-        action: draft.action,
-        entryPrice: draft.suggestedEntry ?? draft.limitPrice,
-        stopLoss: draft.stopLoss,
-        takeProfit: draft.takeProfit,
-        priceSnapshot: quotes[draft.symbol]?.price ?? draft.suggestedEntry ?? draft.limitPrice ?? null,
-      });
-    }
-  }, [appendTimelineEvent, quotes]);
-
-  const handleCloseTrade = useCallback(() => {
-    setIsTradeModalVisible(false);
-    setSelectedSymbol(null);
-    setTradePlanDraft(null);
-  }, []);
-
   const getDisplayName = useCallback((symbol) => {
     const metadata = metadataMap[symbol];
     if (metadata) {
@@ -422,11 +389,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     setDetailSymbol(null);
   }, []);
 
-  const handleOpenTradeFromDetail = useCallback((symbol, draft = null) => {
-    setIsDetailModalVisible(false);
-    handleOpenTrade(symbol, draft);
-  }, [handleOpenTrade]);
-
   const handleOpenAlerts = useCallback((symbol = '', draft = null) => {
     if (symbol) {
       setAlertPrefillSymbol(symbol);
@@ -456,15 +418,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     setIsAlertsDrawerVisible(false);
     setAlertPrefillDraft(null);
   }, []);
-
-  const handleCreateAlertFromTradePlan = useCallback((draft) => {
-    if (!draft?.symbol) {
-      return;
-    }
-
-    handleCloseTrade();
-    handleOpenAlerts(draft.symbol, draft);
-  }, [handleCloseTrade, handleOpenAlerts]);
 
   const findMatchingSymbols = useCallback((input) => {
     if (!input || input.trim() === '') return [];
@@ -1321,7 +1274,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
           getQuoteFreshness={getQuoteFreshness}
           getSymbolsByCategory={getSymbolsByCategory}
           handleOpenAlerts={handleOpenAlerts}
-          handleOpenTrade={handleOpenTrade}
           handleShowDetail={handleShowDetail}
           hasNumericValue={hasNumericValue}
           inferSymbolCategory={inferSymbolCategory}
@@ -1350,11 +1302,9 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         <RealtimeAnomalyRadar
           anomalyFeed={anomalyFeed}
           buildAlertDraftFromAnomaly={buildAlertDraftFromAnomaly}
-          buildTradePlanDraftFromAnomaly={buildTradePlanDraftFromAnomaly}
           formatQuoteTime={formatQuoteTime}
           getDisplayName={getDisplayName}
           handleOpenAlerts={handleOpenAlerts}
-          handleOpenTrade={handleOpenTrade}
           handleShowDetail={handleShowDetail}
           isExpanded={isAnomalyExpanded}
           onToggleExpanded={() => setIsAnomalyExpanded(prev => !prev)}
@@ -1525,25 +1475,11 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
         onUpdateReviewSnapshot={updateReviewSnapshot}
       />
 
-      <Suspense fallback={null}>
-        <TradePanel
-          visible={isTradeModalVisible}
-          defaultSymbol={selectedSymbol}
-          planDraft={tradePlanDraft}
-          onCreateAlertFromPlan={handleCreateAlertFromTradePlan}
-          onClose={handleCloseTrade}
-          onSuccess={() => {
-            messageApi.success('交易已记录');
-          }}
-        />
-      </Suspense>
-
       {/* 详情模态框 */}
       <Suspense fallback={null}>
         <RealtimeStockDetailModal
           open={isDetailModalVisible}
           onCancel={handleCloseDetail}
-          onQuickTrade={handleOpenTradeFromDetail}
           onNavigateSymbol={handleNavigateDetailSymbol}
           symbol={detailSymbol}
           quote={detailSymbol ? quotes[detailSymbol] || null : null}

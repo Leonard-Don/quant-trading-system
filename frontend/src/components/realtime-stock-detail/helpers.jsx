@@ -398,65 +398,6 @@ export const buildSignalSummary = (quote = null, eventTimeline = []) => {
     };
 };
 
-export const getSuggestedTradeQuantity = (symbol, price) => {
-    if (!symbol) {
-        return 100;
-    }
-
-    if (/-USD$/i.test(symbol)) {
-        return 1;
-    }
-
-    if (price !== null && price >= 1000) {
-        return 10;
-    }
-
-    if (price !== null && price >= 200) {
-        return 25;
-    }
-
-    if (price !== null && price >= 50) {
-        return 50;
-    }
-
-    return 100;
-};
-
-export const buildQuickTradeDraft = (symbol, quote, signalSummary) => {
-    const price = Number(quote?.price);
-    if (!symbol || Number.isNaN(price) || price <= 0) {
-        return null;
-    }
-
-    const low = Number(quote?.low);
-    const high = Number(quote?.high);
-    const changePercent = Number(quote?.change_percent);
-    const isWeakSignal = (!Number.isNaN(changePercent) && changePercent < 0) || (signalSummary?.totalScore ?? 50) < 50;
-    const action = isWeakSignal ? 'SELL' : 'BUY';
-    const fallbackRisk = price * 0.018;
-    const fallbackReward = price * 0.028;
-
-    const stopLoss = action === 'BUY'
-        ? (Number.isFinite(low) && low > 0 ? Math.min(price - 0.01, low) : Math.max(0.01, price - fallbackRisk))
-        : (Number.isFinite(high) && high > 0 ? Math.max(price + 0.01, high) : price + fallbackRisk);
-    const takeProfit = action === 'BUY'
-        ? (Number.isFinite(high) && high > 0 ? Math.max(price + 0.01, high) : price + fallbackReward)
-        : (Number.isFinite(low) && low > 0 ? Math.max(0.01, Math.min(price - 0.01, low)) : Math.max(0.01, price - fallbackReward));
-
-    return {
-        symbol,
-        action,
-        quantity: getSuggestedTradeQuantity(symbol, price),
-        limitPrice: price,
-        suggestedEntry: price,
-        stopLoss: Number(stopLoss.toFixed(2)),
-        takeProfit: Number(takeProfit.toFixed(2)),
-        sourceTitle: '详情页快速交易',
-        sourceDescription: `${signalSummary?.conviction || '盘中判断'} · 综合分 ${signalSummary?.totalScore ?? '--'} · 已按当前快照生成可编辑交易草稿。`,
-        note: `${getDisplayName(symbol)} 当前参考价 ${formatNumber(price)}，可直接带入纸面交易终端继续调整。`,
-    };
-};
-
 export const buildCompareCards = (displaySymbol, quote, compareCandidates = [], selectedCompareSymbols = [], timelineBySymbol = {}) => {
     const compareCandidateMap = new Map(
         compareCandidates

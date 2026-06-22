@@ -26,6 +26,15 @@ Last audited: 2026-06-05 (commit base `0ce5161`).
 > `tradeWebsocket.js`, and their tests/registry entries. There is now a **single
 > simulated-trading engine** (`backend/app/services/paper_trading.py`). The
 > analysis below is retained as historical context for how the decision was made.
+>
+> **⛔ SUPERSEDED (2026-06-22) — simulated trading fully removed.** The `/paper/*`
+> 纸面账户 module that this section describes as the surviving engine has since
+> itself been removed in its entirety: frontend `PaperTradingPanel.jsx` +
+> `TradePanel.jsx` (and the realtime quick-trade widget that hosted it), backend
+> `paper_trading.py` / `paper_trading_engine.py` / its endpoints + schemas, and
+> the `send-to-paper` research hand-offs (`paperTradingPrefill`,
+> `TodayResearchDashboard`/`ResultsDisplay` buttons). The application now ships
+> with **no simulated-trading layer**. Everything below is historical.
 
 ### Verdict (historical)
 
@@ -212,6 +221,6 @@ be wanted later.
 | Subsystem | Status | Action recommended (future) | Actioned here |
 |-----------|--------|------------------------------|---------------|
 | `/trade/*` (global, ephemeral) | **Removed (2026-06-05)** — engine + WS stack + routes deleted | — | ✅ Consolidated into `/paper/*` and retired |
-| `/paper/*` (per-profile, persisted) | Live — the single simulated-trading engine | Keep | ✅ Now the sole trading layer (absorbed the `/trade/*` UI) |
+| `/paper/*` (per-profile, persisted) | **Removed (2026-06-22)** — 纸面账户 module fully retired (frontend + backend) | — | ✅ Removed; no simulated-trading layer remains |
 | Auth / OAuth / users | Built, **not enforced** (anonymous by default) | **Decided 2026-06-05: single-user tool → keep as non-enforced opt-in, not deleted** (`get_current_user_optional` is load-bearing) | None — documented only |
 | `SECURITY.md` | Accurate (reporting policy only; no false auth claim) | No change needed | None |

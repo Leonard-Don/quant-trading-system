@@ -18,7 +18,6 @@ import {
     buildTrendChartModel,
     buildIntradayTrendSeries,
     buildSignalSummary,
-    buildQuickTradeDraft,
     buildCompareCards,
     isSameSymbolList,
     dedupeCompareCandidates,
@@ -36,7 +35,6 @@ const RealtimeStockDetailModal = ({
     quote,
     quoteMap = null,
     onCancel,
-    onQuickTrade = null,
     onNavigateSymbol = null,
     eventTimeline = EMPTY_LIST,
     compareCandidates,
@@ -202,7 +200,6 @@ const RealtimeStockDetailModal = ({
     }, [compareTargetSymbols, displaySymbol, open]);
 
     const signalSummary = useMemo(() => buildSignalSummary(quoteWithOrderBook, eventTimeline), [eventTimeline, quoteWithOrderBook]);
-    const quickTradeDraft = useMemo(() => buildQuickTradeDraft(displaySymbol, quote, signalSummary), [displaySymbol, quote, signalSummary]);
     const compareCards = useMemo(
         () => buildCompareCards(displaySymbol, quote, safeCompareCandidates, effectiveSelectedCompareSymbols, safeCompareTimelineMap),
         [displaySymbol, effectiveSelectedCompareSymbols, quote, safeCompareCandidates, safeCompareTimelineMap]
@@ -296,8 +293,6 @@ const RealtimeStockDetailModal = ({
                     quote={quote}
                     rangePercent={rangePercent}
                     displaySymbol={displaySymbol}
-                    onQuickTrade={onQuickTrade}
-                    quickTradeDraft={quickTradeDraft}
                 />
 
                 <ComparePanel

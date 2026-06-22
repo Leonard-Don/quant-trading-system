@@ -114,31 +114,9 @@ def sample_heatmap_history(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
-def sample_paper_trading_dir(tmp_path: Path) -> Path:
-    """A paper trading profile directory with two profile files. The cash
-    / positions inside the file should NEVER be exposed by the exporter."""
-    profiles_dir = tmp_path / "paper_trading"
-    profiles_dir.mkdir()
-    (profiles_dir / "default.json").write_text(
-        json.dumps(
-            {
-                "initial_capital": 1_000_000.0,
-                "cash": 999_888.50,
-                "positions": {"600519": {"qty": 50, "cost": 1800.0}},
-                "orders": [],
-            }
-        ),
-        encoding="utf-8",
-    )
-    (profiles_dir / "growth.json").write_text(json.dumps({"cash": 50_000.0}), encoding="utf-8")
-    return profiles_dir
-
-
-@pytest.fixture()
 def full_payload(
     sample_providers_dir: Path,
     sample_heatmap_history: Path,
-    sample_paper_trading_dir: Path,
     tmp_path: Path,
 ) -> dict[str, Any]:
     """The full payload built against the rich-input fixture set."""
@@ -148,7 +126,6 @@ def full_payload(
         sample_providers_dir,
         version_path=version_path,
         heatmap_history_path=sample_heatmap_history,
-        paper_trading_dir=sample_paper_trading_dir,
         generated_at="2026-05-17T00:00:00+00:00",
     )
 
@@ -166,7 +143,6 @@ def test_schema_required_keys_present(full_payload: dict[str, Any]) -> None:
         "source_codebase_version",
         "policy_radar",
         "industry_heat",
-        "paper_trading",
     }
     assert required.issubset(full_payload.keys()), (
         f"missing keys: {required - full_payload.keys()}"
@@ -204,25 +180,9 @@ def test_industry_heat_enriches_with_policy_signal(full_payload: dict[str, Any])
     assert "policy_signal" not in baijiu
 
 
-def test_paper_trading_lists_profile_names_only(
-    full_payload: dict[str, Any],
-) -> None:
-    """active_profiles: just names, no cash/positions leak."""
-    pt = full_payload["paper_trading"]
-    assert set(pt["active_profiles"]) == {"default", "growth"}
-    assert pt["available"] is True
-    assert pt["profile_count"] == 2
-    # The serialized payload must NOT contain any of the sensitive numbers.
-    serialized = json.dumps(full_payload, ensure_ascii=False)
-    assert "999888.5" not in serialized
-    assert "1000000.0" not in serialized
-    assert "600519" not in serialized
-
-
 def test_missing_provider_key_absent_no_synthetic_data(
     tmp_path: Path,
     sample_heatmap_history: Path,
-    sample_paper_trading_dir: Path,
 ) -> None:
     """When policy_radar.json is missing the key is absent — no fake fallback."""
     empty_providers = tmp_path / "empty_providers"
@@ -231,7 +191,6 @@ def test_missing_provider_key_absent_no_synthetic_data(
         empty_providers,
         version_path=tmp_path / "no-version",
         heatmap_history_path=sample_heatmap_history,
-        paper_trading_dir=sample_paper_trading_dir,
         generated_at="2026-05-17T00:00:00+00:00",
     )
     assert "policy_radar" not in payload, "policy_radar must not be invented"
@@ -245,14 +204,12 @@ def test_missing_provider_key_absent_no_synthetic_data(
 def test_missing_industry_heatmap_history_drops_section(
     tmp_path: Path,
     sample_providers_dir: Path,
-    sample_paper_trading_dir: Path,
 ) -> None:
     """When heatmap_history.json is missing, industry_heat is omitted entirely."""
     payload = export_public_summary.build_public_summary(
         sample_providers_dir,
         version_path=tmp_path / "no-version",
         heatmap_history_path=tmp_path / "no-heatmap.json",
-        paper_trading_dir=sample_paper_trading_dir,
         generated_at="2026-05-17T00:00:00+00:00",
     )
     assert "industry_heat" not in payload
@@ -292,7 +249,6 @@ def test_schema_version_locked_to_one() -> None:
 def test_export_is_deterministic_for_fixed_generated_at(
     sample_providers_dir: Path,
     sample_heatmap_history: Path,
-    sample_paper_trading_dir: Path,
     tmp_path: Path,
 ) -> None:
     """Same input + same generated_at → byte-identical output."""
@@ -302,14 +258,12 @@ def test_export_is_deterministic_for_fixed_generated_at(
         sample_providers_dir,
         version_path=version_path,
         heatmap_history_path=sample_heatmap_history,
-        paper_trading_dir=sample_paper_trading_dir,
         generated_at="2026-05-17T00:00:00+00:00",
     )
     second = export_public_summary.build_public_summary(
         sample_providers_dir,
         version_path=version_path,
         heatmap_history_path=sample_heatmap_history,
-        paper_trading_dir=sample_paper_trading_dir,
         generated_at="2026-05-17T00:00:00+00:00",
     )
     assert first == second
@@ -319,7 +273,6 @@ def test_export_is_deterministic_for_fixed_generated_at(
 def test_industry_heat_rejects_test_fixture_snapshot(
     tmp_path: Path,
     sample_providers_dir: Path,
-    sample_paper_trading_dir: Path,
 ) -> None:
     """A history file whose newest snapshot is a fixture row (e.g. 测试行业)
     must NOT poison the public summary — the exporter falls back to the
@@ -360,7 +313,6 @@ def test_industry_heat_rejects_test_fixture_snapshot(
         sample_providers_dir,
         version_path=tmp_path / "no-version",
         heatmap_history_path=history_path,
-        paper_trading_dir=sample_paper_trading_dir,
         generated_at="2026-05-18T00:00:00+00:00",
     )
     heat = payload["industry_heat"]["top_industries_by_score"]
@@ -386,7 +338,7 @@ def test_providers_envelope_matches_sibling_contract(
     providers = full_payload["providers"]
     # The sibling-project sections present.
     assert set(providers).issuperset(
-        {"policy_radar", "industry_heat", "paper_trading"}
+        {"policy_radar", "industry_heat"}
     )
 
     # policy_radar rows carry canonical industry/avg_impact/mentions/signal.
@@ -446,7 +398,6 @@ def test_industry_heat_names_overlap_policy_radar_when_both_present(
 
 def test_policy_alias_rows_reserved_for_cross_source_overlap(
     sample_providers_dir: Path,
-    sample_paper_trading_dir: Path,
     tmp_path: Path,
 ) -> None:
     """The real heatmap may say 电网设备 while policy_radar says 电网.
@@ -488,7 +439,6 @@ def test_policy_alias_rows_reserved_for_cross_source_overlap(
     payload = export_public_summary.build_public_summary(
         sample_providers_dir,
         heatmap_history_path=heatmap_history,
-        paper_trading_dir=sample_paper_trading_dir,
         generated_at="2026-05-18T00:00:00+00:00",
     )
 
