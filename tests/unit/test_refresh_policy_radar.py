@@ -9,6 +9,7 @@ the persisted snapshot causes ``/policy-radar/*`` to flip from ``available:false
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,11 @@ from src.data.alternative.alt_data_manager import AltDataManager
 
 def _stub_crawl_payload(source_id: str = "ndrc") -> list[dict[str, Any]]:
     """A minimal payload that survives the full PolicySignalProvider pipeline."""
+    # Publish date must be relative to "now": /policy-radar/records filters by a
+    # datetime.now()-relative window (e.g. 30d), so a hardcoded date silently
+    # falls out of the window as wall-clock time advances. A small 2-day offset
+    # keeps the record inside both the default 7d and the wider 30d windows.
+    recent_date = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
     return [
         {
             "title": f"{source_id.upper()} 加快电网与储能建设若干意见",
@@ -41,7 +47,7 @@ def _stub_crawl_payload(source_id: str = "ndrc") -> list[dict[str, Any]]:
             "text_length": 480,
             "detail_status": "full_text",
             "detail_quality": "rich",
-            "date": "2026-05-15",
+            "date": recent_date,
             "source": "国家发改委" if source_id == "ndrc" else source_id.upper(),
             "source_id": source_id,
             "link": f"https://example.com/{source_id}/policy",
