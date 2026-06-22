@@ -52,8 +52,8 @@ jobs:
         # docs/openapi.json + API_REFERENCE.md + postman_collection.json are
         # generated artifacts. Regenerate them from app.openapi() and fail if
         # the tracked files differ — i.e. an endpoint landed without re-running
-        # scripts/generate_api_docs.py (this is how the low-vol endpoints went
-        # missing from the docs in 2026-06).
+        # scripts/generate_api_docs.py (this is how endpoints have gone
+        # missing from the docs in the past).
         run: |
           python scripts/generate_api_docs.py
           git diff --exit-code docs/openapi.json docs/API_REFERENCE.md docs/postman_collection.json
@@ -182,8 +182,6 @@ jobs:
             src/trading/cross_market/execution_router.py \
             src/trading/cross_market/hedge_portfolio.py \
             backend/app/services/industry_preferences.py \
-            backend/app/services/paper_trading.py \
-            backend/app/services/paper_trading_engine.py \
             backend/app/services/realtime_alerts.py \
             backend/app/services/realtime_journal.py \
             backend/app/services/realtime_preferences.py \

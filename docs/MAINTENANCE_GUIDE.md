@@ -131,7 +131,7 @@ tar czf backups/data-$(date +%F).tgz data/ output/
 0 */6 * * * cd /opt/quant && /usr/bin/env python scripts/refresh_policy_radar.py --force >> logs/refresh_policy_radar.log 2>&1
 
 # 每小时刷新 data/public/quant_summary.json (Phase F1 公开摘要导出)
-# 把 cache/alt_data/* + data/industry/heatmap_history.json + data/paper_trading/*
+# 把 cache/alt_data/* + data/industry/heatmap_history.json
 # 蒸馏成一份小型公开 JSON,供 sibling 项目
 # cn-altdata-brief 在 GitHub Actions 里 git clone 后直接消费。
 # 本项目 Celery 仅用于回测任务卸载,不做 beat 调度,所以这里走 cron。

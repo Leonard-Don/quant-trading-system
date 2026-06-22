@@ -3,7 +3,7 @@
 导出 quant-trading-system 公开摘要 (Phase F1).
 
 把 runtime 私有缓存（``cache/alt_data/providers/*.json``、
-``data/paper_trading/*.json``、``data/industry/heatmap_history.json``）蒸馏为
+``data/industry/heatmap_history.json``）蒸馏为
 一份小而稳定、可安全提交到版本库的 ``data/public/quant_summary.json``。
 
 下游消费者
@@ -14,7 +14,6 @@ sibling 项目 ``cn-altdata-brief`` 在 GitHub Actions 里直接 ``git clone``
 
 - policy_radar 当前 industry 信号 top-N（已按 |avg_impact| 排序）
 - 行业热度榜单（top-10 行业的最新 score / change% / 关联政策信号）
-- paper_trading 已激活的 profile 列表
 
 它不需要直接访问 ``cache/``（被 ``.gitignore`` 排除），也不需要拉起后端
 FastAPI 进程。
@@ -54,7 +53,6 @@ DEFAULT_PROVIDERS_DIR = PROJECT_ROOT / "cache" / "alt_data" / "providers"
 DEFAULT_OUTPUT_PATH = PROJECT_ROOT / "data" / "public" / "quant_summary.json"
 DEFAULT_VERSION_PATH = PROJECT_ROOT / "VERSION"
 DEFAULT_HEATMAP_HISTORY_PATH = PROJECT_ROOT / "data" / "industry" / "heatmap_history.json"
-DEFAULT_PAPER_TRADING_DIR = PROJECT_ROOT / "data" / "paper_trading"
 # Ensure ``src.*`` imports resolve when invoked via ``python scripts/...``.
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -70,10 +68,6 @@ MAX_POLICY_INDUSTRIES = 5
 
 # Cap how many top-scoring industries we surface in industry_heat.
 MAX_INDUSTRY_HEAT_ROWS = 10
-
-# Cap how many paper_trading profile names we list (only names — no
-# cash / positions). Anonymises a workstation with hundreds of profiles.
-MAX_PAPER_TRADING_PROFILES = 50
 
 # Policy-radar signals are thematic (for example ``电网`` / ``风电``),
 # while the industry heatmap uses finer Shenwan-style names (``电网设备`` /
@@ -389,26 +383,6 @@ def _enrich_industry_heat_with_policy_signal(
     return new_block
 
 
-def _build_paper_trading_section(profiles_dir: Path) -> dict[str, Any]:
-    """List active paper_trading profile names (no cash/position detail).
-
-    Profile names are the filenames (sans ``.json``) under
-    ``data/paper_trading/``. We never read the account body — file presence
-    alone is the signal.
-    """
-    profile_names: list[str] = []
-    if profiles_dir.exists():
-        for entry in sorted(profiles_dir.iterdir()):
-            if entry.is_file() and entry.suffix == ".json":
-                profile_names.append(entry.stem)
-    profile_names = profile_names[:MAX_PAPER_TRADING_PROFILES]
-    return {
-        "active_profiles": profile_names,
-        "profile_count": len(profile_names),
-        "available": bool(profile_names),
-    }
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -419,7 +393,6 @@ def build_public_summary(
     *,
     version_path: Path = DEFAULT_VERSION_PATH,
     heatmap_history_path: Path = DEFAULT_HEATMAP_HISTORY_PATH,
-    paper_trading_dir: Path = DEFAULT_PAPER_TRADING_DIR,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """Build the public quant summary dict from on-disk runtime artifacts.
@@ -466,9 +439,6 @@ def build_public_summary(
             )
         payload["industry_heat"] = industry_heat_section
 
-    # --- paper_trading (always present — file-presence based)
-    payload["paper_trading"] = _build_paper_trading_section(paper_trading_dir)
-
     # --- providers envelope (sibling-project contract, additive)
     #
     # cn-altdata-brief's ``QuantTradingAdapter`` (and the sibling
@@ -480,7 +450,6 @@ def build_public_summary(
     payload["providers"] = _build_providers_envelope(
         policy_radar_section=policy_radar_section,
         industry_heat_section=industry_heat_section,
-        paper_trading_section=payload["paper_trading"],
     )
 
     return payload
@@ -490,7 +459,6 @@ def _build_providers_envelope(
     *,
     policy_radar_section: dict[str, Any] | None,
     industry_heat_section: dict[str, Any] | None,
-    paper_trading_section: dict[str, Any],
 ) -> dict[str, Any]:
     """Build the ``providers`` envelope matching the sibling-project contract.
 
@@ -581,9 +549,6 @@ def _build_providers_envelope(
             "top_industries_by_score": heat_rows,
         }
 
-    # paper_trading: just lift the existing section — no rename needed.
-    envelope["paper_trading"] = paper_trading_section
-
     return envelope
 
 
@@ -616,7 +581,6 @@ def export_public_summary(
     *,
     version_path: Path = DEFAULT_VERSION_PATH,
     heatmap_history_path: Path = DEFAULT_HEATMAP_HISTORY_PATH,
-    paper_trading_dir: Path = DEFAULT_PAPER_TRADING_DIR,
     generated_at: str | None = None,
 ) -> dict[str, Any]:
     """One-shot: build the summary and atomic-write it to disk."""
@@ -624,7 +588,6 @@ def export_public_summary(
         providers_dir,
         version_path=version_path,
         heatmap_history_path=heatmap_history_path,
-        paper_trading_dir=paper_trading_dir,
         generated_at=generated_at,
     )
     write_public_summary_atomic(payload, output_path)
@@ -639,8 +602,8 @@ def export_public_summary(
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Distill cache/alt_data/providers/*.json + data/industry/* + "
-            "data/paper_trading/* into the small, sanitized, committable "
+            "Distill cache/alt_data/providers/*.json + data/industry/* "
+            "into the small, sanitized, committable "
             "data/public/quant_summary.json."
         )
     )
@@ -663,12 +626,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Industry heatmap history file (default: data/industry/heatmap_history.json)",
     )
     parser.add_argument(
-        "--paper-trading-dir",
-        type=Path,
-        default=DEFAULT_PAPER_TRADING_DIR,
-        help="Paper trading profiles directory (default: data/paper_trading/)",
-    )
-    parser.add_argument(
         "--print",
         action="store_true",
         help="Print the JSON to stdout instead of writing to disk.",
@@ -682,7 +639,6 @@ def main(argv: list[str] | None = None) -> int:
     payload = build_public_summary(
         args.providers_dir,
         heatmap_history_path=args.heatmap_history,
-        paper_trading_dir=args.paper_trading_dir,
     )
     if args.print:
         json.dump(payload, sys.stdout, ensure_ascii=False, indent=2, sort_keys=True)

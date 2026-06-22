@@ -36,12 +36,11 @@
 | 📊 策略回测 | 单资产 / 跨市场 / 批量 / Walk-Forward 回测引擎 |
 | 📈 实时行情 | 多市场实时行情聚合、WebSocket 推送、提醒与复盘 |
 | 🔥 行业热度 | 行业热力图、排行榜、龙头股分析与轮动观察；附"政策雷达"标签呈现 alt-data 政策事件 |
-| ⚡ 纸面账户 | 市价 / 限价单（含取消）、滑点、止损、止盈，按 profile 持久化持仓与订单，前端基于实时行情计算浮动盈亏；支持回测结果一键预填或按市价直接成交，持仓可一键归档到今日研究 |
 
 这意味着：
 
-- 当前仓的前端主入口是 `today / backtest / realtime / industry / paper`
-- 当前仓的后端接口围绕 `/backtest/*`、`/realtime/*`、`/industry/*`、`/cross-market/*`、`/paper/*`、`/policy-radar/*`、`/research-journal/*` 等能力展开
+- 当前仓的前端主入口是 `today / backtest / realtime / industry`
+- 当前仓的后端接口围绕 `/backtest/*`、`/realtime/*`、`/industry/*`、`/cross-market/*`、`/policy-radar/*`、`/research-journal/*` 等能力展开
 - 项目可以独立 clone、安装、启动和发布，不依赖其他 sibling repo
 
 ### 🎯 这个仓适合谁
@@ -200,7 +199,7 @@ quant-trading-system/
 │       ├── core/                   # 配置、错误处理、任务队列、限流状态
 │       ├── db/                     # 数据库连接与 schema
 │       ├── schemas/                # Pydantic 请求/响应模型
-│       ├── services/               # 实时提醒、偏好、复盘、纸面交易
+│       ├── services/               # 实时提醒、偏好、复盘
 │       └── websocket/              # WebSocket 路由与连接管理
 ├── frontend/                       # React 18 前端 (Vite)
 │   └── src/

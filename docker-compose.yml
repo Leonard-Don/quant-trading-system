@@ -47,7 +47,7 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
-      # Persist research archive / paper-trading state / logs / provider cache
+      # Persist research archive / logs / provider cache
       # on the host. data/ holds real user state — keep it bind-mounted.
       - ./data:/app/data
       - ./logs:/app/logs

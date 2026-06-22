@@ -1,6 +1,6 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Card, Button, Space, Tabs, Typography, Tag } from 'antd';
-import { ArrowUpOutlined, ArrowDownOutlined, BellOutlined, DollarOutlined } from '@ant-design/icons';
+import { ArrowUpOutlined, ArrowDownOutlined, BellOutlined } from '@ant-design/icons';
 import {
   getRealtimeQuoteBoardDensityMode,
   getRealtimeQuoteListLayoutMode,
@@ -28,7 +28,6 @@ const RealtimeQuoteBoard = ({
   getDisplayName,
   getQuoteFreshness,
   handleOpenAlerts,
-  handleOpenTrade,
   handleShowDetail,
   hasNumericValue,
   inferSymbolCategory,
@@ -510,20 +509,6 @@ const RealtimeQuoteBoard = ({
               >
                 提醒
               </Button>
-              {!isMarketIndex && categoryType !== 'bond' && (
-                <Button
-                  type="primary"
-                  size="small"
-                  aria-label={`为 ${getDisplayName(symbol)} 打开交易面板`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    handleOpenTrade(symbol);
-                  }}
-                  icon={<DollarOutlined />}
-                >
-                  交易
-                </Button>
-              )}
               <Button
                 type="text"
                 size="small"
@@ -554,7 +539,6 @@ const RealtimeQuoteBoard = ({
     getDisplayName,
     getQuoteFreshness,
     handleOpenAlerts,
-    handleOpenTrade,
     handleShowDetail,
     hasNumericValue,
     onSetDraggingSymbol,

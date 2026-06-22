@@ -15,7 +15,6 @@ const REVIEW_SNAPSHOT_STORAGE_KEY = 'realtime-review-snapshots';
 const ALERT_HIT_HISTORY_STORAGE_KEY = 'realtime-alert-hit-history';
 
 const mockRealtimeStockDetailModalSpy = jest.fn();
-const mockTradePanelSpy = jest.fn();
 
 vi.mock('../services/api', () => ({
   __esModule: true,
@@ -39,13 +38,6 @@ vi.mock('../services/websocket', () => ({
 
 vi.mock('../utils/messageApi', () => ({
   useSafeMessageApi: () => mockMessageApi,
-}));
-
-vi.mock('../components/TradePanel', () => ({
-  default: (props) => {
-    mockTradePanelSpy(props);
-    return props.visible ? <div data-testid="trade-panel">{props.defaultSymbol}</div> : null;
-  },
 }));
 
 vi.mock('../components/RealtimeStockDetailModal', () => ({
@@ -795,43 +787,6 @@ describe('RealTimePanel', () => {
     }));
   });
 
-  test('passes detail quick-trade callback into the realtime detail modal', async () => {
-    await renderRealtimePanel();
-
-    const symbolCard = await screen.findByText((content, element) => {
-      return element?.tagName === 'SPAN' && content.includes('^GSPC · 行情');
-    });
-    fireEvent.click(symbolCard);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('realtime-stock-detail-modal')).toHaveTextContent('^GSPC');
-    });
-
-    const lastCall = mockRealtimeStockDetailModalSpy.mock.calls.at(-1)?.[0];
-    expect(lastCall.onQuickTrade).toEqual(expect.any(Function));
-
-    act(() => {
-      lastCall.onQuickTrade('^GSPC', {
-        symbol: '^GSPC',
-        action: 'BUY',
-        quantity: 10,
-        limitPrice: 5123.45,
-      });
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId('trade-panel')).toHaveTextContent('^GSPC');
-    });
-
-    const tradeCall = mockTradePanelSpy.mock.calls.at(-1)?.[0];
-    expect(tradeCall.planDraft).toEqual(expect.objectContaining({
-      symbol: '^GSPC',
-      action: 'BUY',
-      quantity: 10,
-      limitPrice: 5123.45,
-    }));
-  });
-
   test('renders development diagnostics from the realtime summary endpoint', async () => {
     await renderRealtimePanel();
 
@@ -919,38 +874,6 @@ describe('RealTimePanel', () => {
     await waitFor(() => {
       expect(mockNotification).toHaveBeenCalledTimes(notifyCallCount);
     });
-  });
-
-  test('opens trade panel with a generated plan draft from anomaly radar', async () => {
-    quote = {
-      ...quote,
-      symbol: '^GSPC',
-      price: 5279.9,
-      change: 155.12,
-      change_percent: 3.15,
-      high: 5280,
-      low: 5100,
-      previous_close: 5000,
-      volume: 999999999,
-    };
-
-    await renderRealtimePanel();
-    fireEvent.click(screen.getByRole('button', { name: '展开异动' }));
-
-    fireEvent.click((await screen.findAllByRole('button', { name: '计划' }))[0]);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('trade-panel')).toHaveTextContent('^GSPC');
-    });
-
-    const lastCall = mockTradePanelSpy.mock.calls.at(-1)?.[0];
-    expect(lastCall.visible).toBe(true);
-    expect(lastCall.defaultSymbol).toBe('^GSPC');
-    expect(lastCall.planDraft).toEqual(expect.objectContaining({
-      symbol: '^GSPC',
-      action: 'BUY',
-      suggestedEntry: 5279.9,
-    }));
   });
 
   test('saves a local review snapshot for the current realtime workspace state', async () => {

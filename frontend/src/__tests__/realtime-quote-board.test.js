@@ -26,7 +26,6 @@ vi.mock('@ant-design/icons', () => {
     ArrowUpOutlined: MockIcon,
     ArrowDownOutlined: MockIcon,
     BellOutlined: MockIcon,
-    DollarOutlined: MockIcon,
   };
 });
 
@@ -122,7 +121,6 @@ const createProps = (symbolCount = 60) => {
       },
     }),
     handleOpenAlerts: jest.fn(),
-    handleOpenTrade: jest.fn(),
     handleShowDetail: jest.fn(),
     hasNumericValue: (value) => value !== null && value !== undefined && !Number.isNaN(Number(value)),
     inferSymbolCategory: () => 'us',

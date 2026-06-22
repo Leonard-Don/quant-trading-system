@@ -6,11 +6,9 @@ const { Text } = Typography;
 const RealtimeAnomalyRadar = ({
   anomalyFeed,
   buildAlertDraftFromAnomaly,
-  buildTradePlanDraftFromAnomaly,
   formatQuoteTime,
   getDisplayName,
   handleOpenAlerts,
-  handleOpenTrade,
   handleShowDetail,
   isExpanded,
   onToggleExpanded,
@@ -145,15 +143,6 @@ const RealtimeAnomalyRadar = ({
                 <Text type="secondary" style={{ fontSize: '12px' }}>
                   {formatQuoteTime(item.timestamp)}
                 </Text>
-                <Button
-                  size="small"
-                  onClick={() => handleOpenTrade(
-                    item.symbol,
-                    buildTradePlanDraftFromAnomaly(item, quotes[item.symbol])
-                  )}
-                >
-                  计划
-                </Button>
                 <Button
                   size="small"
                   onClick={() => handleOpenAlerts(

@@ -9,7 +9,6 @@ from backend.app.api.v1.endpoints import (
     infrastructure,
     market_data,
     optimization,
-    paper_trading,
     policy_radar,
     realtime,
     research_journal,
@@ -45,7 +44,4 @@ api_router.include_router(
 )
 api_router.include_router(
     policy_radar.router, prefix="/policy-radar", tags=["Policy Radar"]
-)
-api_router.include_router(
-    paper_trading.router, prefix="/paper", tags=["Paper Trading"]
 )

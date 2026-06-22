@@ -97,8 +97,8 @@ export default defineConfig({
     // components whose background polling fired on real setInterval timers and
     // raced the waitFor assertions under load. Those polls are now neutralised at
     // the source: the affected specs fake setInterval/clearInterval so the poll
-    // stays inert (paper-trading-panel's 5s quote poll, industry-heatmap's 60s
-    // auto-refresh), while leaving setTimeout/raf real so antd motion and waitFor
+    // stays inert (e.g. industry-heatmap's 60s auto-refresh), while leaving
+    // setTimeout/raf real so antd motion and waitFor
     // are unchanged. With the timing race removed, the full suite passes
     // deterministically with --retry=0, so we no longer mask fragility with retry —
     // a real regression now fails loudly instead of being silently re-run. The

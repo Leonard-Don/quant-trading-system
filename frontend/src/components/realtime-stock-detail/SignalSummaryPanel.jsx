@@ -2,14 +2,12 @@
  * Signal-summary panel for RealtimeStockDetailModal (layer 2 split).
  *
  * Pure render — no hooks, no data fetching. Owns the verbatim "信号总表" section
- * (score tags, optional quick-trade hand-off button, four-up metric grid) that
- * previously lived inline in the parent modal body. Receives the parent's
- * already-computed signal summary, quote, and range value plus the
- * onQuickTrade callback + quick-trade draft. The parent stays the orchestrator;
- * this child only renders.
+ * (score tags, four-up metric grid) that previously lived inline in the parent
+ * modal body. Receives the parent's already-computed signal summary, quote, and
+ * range value. The parent stays the orchestrator; this child only renders.
  */
 
-import { Row, Col, Tag, Typography, Button } from 'antd';
+import { Row, Col, Tag, Typography } from 'antd';
 import { RiseOutlined } from '@ant-design/icons';
 import {
     formatSignedNumber,
@@ -22,9 +20,6 @@ const SignalSummaryPanel = ({
     signalSummary,
     quote,
     rangePercent,
-    displaySymbol,
-    onQuickTrade,
-    quickTradeDraft,
 }) => (
     <section
         style={{
@@ -53,11 +48,6 @@ const SignalSummaryPanel = ({
                 <Tag style={{ margin: 0, borderRadius: 999, paddingInline: 9, fontWeight: 700 }}>
                     {signalSummary.conviction}
                 </Tag>
-                {onQuickTrade && quickTradeDraft ? (
-                    <Button size="small" type="primary" onClick={() => onQuickTrade(displaySymbol, quickTradeDraft)}>
-                        带入交易
-                    </Button>
-                ) : null}
             </div>
         </div>
 

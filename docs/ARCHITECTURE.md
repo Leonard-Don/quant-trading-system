@@ -251,9 +251,8 @@ sequenceDiagram
 部分后端子系统存在"已构建但并行/未启用"的情况，容易被误读为重复实现或已生效的访问控制。
 详见 [`SUBSYSTEM_STATUS.md`](./SUBSYSTEM_STATUS.md)：
 
-- **模拟交易双层**：✅ 已解决(2026-06-05)。`/trade/*` 已并入按 profile 持久化的
-  `/paper/*` 引擎并整体移除(#107 合并、#108 退役兼容 shim),现在只有一套模拟交易
-  实现。详见 `SUBSYSTEM_STATUS.md` §1 的 RESOLVED 记录。
+- **模拟交易**：纸面账户(`/paper/*`)模块已整体下线,后端不再提供任何模拟交易实现。
+  历史背景(`/trade/*` 曾于 2026-06-05 并入 `/paper/*`,#107/#108)见 `SUBSYSTEM_STATUS.md`。
 - **认证子系统**:`/infrastructure/auth|oauth/*` 与 `backend/app/core/auth/*` 已完整实现,
   但**全站研究接口均未强制鉴权**(`AUTH_REQUIRED` 默认 `False`,匿名放行),即当前 API
   按"单用户本地研究工具"的定位默认无鉴权。开启鉴权会破坏免登录前端与测试,故不在本次变更内启用。

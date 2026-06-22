@@ -654,39 +654,4 @@ describe('RealtimeStockDetailModal', () => {
     expect(screen.getByTestId('detail-compare-card-^IXIC').style.background).toContain('linear-gradient');
     expect(screen.getByTestId('detail-compare-card-^GSPC').style.background).toContain('linear-gradient');
   });
-
-  test('can hand off a quick trade draft from the detail signal summary', async () => {
-    const onQuickTrade = jest.fn();
-
-    await renderRealtimeDetailModal(
-      <RealtimeStockDetailModal
-        open
-        symbol="AAPL"
-        quote={{
-          symbol: 'AAPL',
-          price: 184.2,
-          change: 3.1,
-          change_percent: 2.8,
-          open: 180.5,
-          low: 178,
-          high: 185,
-          previous_close: 179,
-        }}
-        onQuickTrade={onQuickTrade}
-        onCancel={jest.fn()}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: '带入交易' }));
-
-    expect(onQuickTrade).toHaveBeenCalledWith(
-      'AAPL',
-      expect.objectContaining({
-        symbol: 'AAPL',
-        action: 'BUY',
-        limitPrice: 184.2,
-        sourceTitle: '详情页快速交易',
-      })
-    );
-  });
 });

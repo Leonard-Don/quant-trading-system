@@ -1,29 +1,8 @@
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 
 from src.data.factor_panel import FactorPanel
-
-
-class LowVolatilityFactor:
-    name = "low_volatility"
-    direction = 1
-
-    def __init__(self, window: int = 60):
-        self.window = window
-
-    def compute(self, panel: FactorPanel, as_of) -> pd.Series:
-        out = {}
-        for sym in panel.symbols:
-            h = panel.history(sym, as_of)
-            if len(h) < self.window + 1:
-                continue
-            rets = h["close"].pct_change().dropna().iloc[-self.window:]
-            vol = rets.std(ddof=0)
-            if np.isfinite(vol):
-                out[sym] = -float(vol)  # higher = calmer
-        return pd.Series(out, dtype=float)
 
 
 class MomentumFactor:
@@ -80,7 +59,6 @@ class TurnoverReversalFactor:
 
 
 ALL_PRICE_FACTORS = [
-    LowVolatilityFactor(),
     MomentumFactor(),
     ShortReversalFactor(),
     TurnoverReversalFactor(),
