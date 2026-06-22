@@ -134,7 +134,7 @@ function CrossMarketResultsView({
         <Col xs={24} md={8}>
           <Panel className="workspace-panel">
             <div>
-              <div style={{ fontSize: 14, color: 'var(--color-text-secondary, rgba(0,0,0,0.45))' }}>总收益率</div>
+              <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>总收益率</div>
               <span style={{ color: getValueColor(results.total_return), fontSize: 24, fontWeight: 600 }}>
                 {(results.total_return * 100).toFixed(2)}%
               </span>
