@@ -114,7 +114,7 @@ pg_dump "$DATABASE_URL" -Fc -f ./backups/quant-$(date +%F).dump
 pg_restore --clean --dbname "$DATABASE_URL" ./backups/quant-2026-05-02.dump
 ```
 
-### 4.2 用户数据 / 研究档案
+### 4.2 用户数据 / 运行时产物
 
 ```bash
 tar czf backups/data-$(date +%F).tgz data/ output/

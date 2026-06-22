@@ -5,7 +5,7 @@ export default function DesignGallery() {
   return (
     <div className="flex flex-col gap-4 p-4">
       <PageHero
-        eyebrow="RESEARCH · 研究工作台"
+        eyebrow="BACKTEST · 策略回测"
         title="策略回测工作台"
         subtitle="从策略配置、执行到结果研判的一体化回测流。"
         metrics={

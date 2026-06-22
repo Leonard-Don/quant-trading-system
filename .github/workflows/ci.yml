@@ -185,7 +185,6 @@ jobs:
             backend/app/services/realtime_alerts.py \
             backend/app/services/realtime_journal.py \
             backend/app/services/realtime_preferences.py \
-            backend/app/services/research_journal.py \
             backend/app/services/runtime_state.py \
             backend/app/services/backtest/__init__.py \
             backend/app/services/industry/__init__.py \

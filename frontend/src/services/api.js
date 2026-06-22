@@ -851,66 +851,6 @@ export const updateRealtimeJournal = async (payload, profileId) => {
   return response.data;
 };
 
-export const getResearchJournalSnapshot = async (profileId) => {
-  const response = await api.get('/research-journal/snapshot', {
-    headers: profileId
-      ? {
-          'X-Research-Profile': profileId,
-        }
-      : undefined,
-  });
-  return response.data;
-};
-
-export const updateResearchJournalSnapshot = async (payload, profileId) => {
-  const response = await api.put(
-    '/research-journal/snapshot',
-    payload,
-    {
-      headers: profileId
-        ? {
-            'X-Research-Profile': profileId,
-          }
-        : undefined,
-    }
-  );
-  return response.data;
-};
-
-export const createResearchJournalEntry = async (entry, profileId) => {
-  const response = await api.post(
-    '/research-journal/entries',
-    { entry },
-    {
-      headers: profileId
-        ? {
-            'X-Research-Profile': profileId,
-          }
-        : undefined,
-    }
-  );
-  return response.data;
-};
-
-export const updateResearchJournalEntryStatus = async (entryId, status, profileId, note) => {
-  const payload = { status };
-  if (note !== undefined) {
-    payload.note = note;
-  }
-  const response = await api.patch(
-    `/research-journal/entries/${encodeURIComponent(entryId)}/status`,
-    payload,
-    {
-      headers: profileId
-        ? {
-            'X-Research-Profile': profileId,
-          }
-        : undefined,
-    }
-  );
-  return response.data;
-};
-
 // 事件 API
 export const getEventSummary = async (symbol) => {
   const response = await api.post('/events/summary', { symbol });

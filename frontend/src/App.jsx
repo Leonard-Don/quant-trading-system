@@ -8,7 +8,6 @@ import {
   SunOutlined,
   MoonOutlined,
   FireOutlined,
-  FundOutlined,
 } from '@ant-design/icons';
 
 import ErrorBoundary from './components/ErrorBoundary';
@@ -16,13 +15,10 @@ import DataSourceHealthDot from './components/DataSourceHealthDot';
 import {
   getStrategies,
   runBacktest,
-  createResearchJournalEntry,
 } from './services/api';
-import { buildBacktestJournalEntry } from './utils/backtestJournalEntry';
 import { useTheme } from './contexts/ThemeContext';
 import { APP_VERSION } from './generated/version';
 import { useAppUrlState } from './hooks/useAppUrlState';
-import { loadRealtimeProfileId } from './hooks/useRealtimePreferences';
 import { replaceAppUrl } from './utils/appUrlState';
 import lazyWithRetry from './utils/lazyWithRetry';
 import { normalizePublicView, VIEW_QUERY_KEY } from './utils/publicViews';
@@ -33,7 +29,6 @@ import { buildViewUrlForCurrentState, navigateToAppUrl } from './utils/researchC
 const RealTimePanel = lazyWithRetry(() => import('./components/RealTimePanel'));
 const IndustryDashboard = lazyWithRetry(() => import('./components/IndustryDashboard'));
 const BacktestDashboard = lazyWithRetry(() => import('./components/BacktestDashboard'));
-const TodayResearchDashboard = lazyWithRetry(() => import('./components/TodayResearchDashboard'));
 const DesignGallery = lazyWithRetry(() => import('./design/gallery/DesignGallery'));
 
 // 懒加载占位组件
@@ -53,7 +48,7 @@ const LazyLoadFallback = () => (
 const { Header, Content, Sider } = Layout;
 const { Title } = Typography;
 const { useBreakpoint } = Grid;
-const WIDE_VIEW_SET = new Set(['today', 'backtest', 'industry']);
+const WIDE_VIEW_SET = new Set(['backtest', 'industry']);
 const FULL_VIEW_SET = new Set(['realtime']);
 export const readViewStateFromLocation = (search = window.location.search, revision = 0) => {
   const params = new URLSearchParams(search);
@@ -160,18 +155,6 @@ function App() {
           content: '回测完成！',
           duration: 3,
         });
-        // Auto-archive to research journal. Best-effort: a journal failure must
-        // never disturb the visible backtest result, which is the primary user
-        // outcome here.
-        const journalEntry = buildBacktestJournalEntry(formData, result.data);
-        if (journalEntry) {
-          // Write under the same profile the 今日研究 dashboard reads
-          // (loadRealtimeProfileId); otherwise the entry lands in the "default"
-          // profile file and the 回测快照 counter never sees it.
-          createResearchJournalEntry(journalEntry, loadRealtimeProfileId()).catch((archiveError) => {
-            console.warn('Auto-archive to research journal failed:', archiveError);
-          });
-        }
       } else {
         message.error({
           content: '回测失败: ' + result.error,
@@ -191,11 +174,6 @@ function App() {
   };
 
   const menuItems = [
-    {
-      key: 'today',
-      icon: <FundOutlined />,
-      label: '研究工作台',
-    },
     {
       key: 'backtest',
       icon: <BarChartOutlined />,
@@ -228,9 +206,6 @@ function App() {
 
   const renderContent = () => {
     switch (currentView) {
-      case 'today':
-        return <Suspense fallback={<LazyLoadFallback />}><TodayResearchDashboard /></Suspense>;
-
       case 'realtime':
         return <Suspense fallback={<LazyLoadFallback />}><RealTimePanel openAlertsSignal={realtimeAuxIntent} /></Suspense>;
 

@@ -31,7 +31,6 @@ PATHS = [
     "/industry/health",
     "/industry/bootstrap",
     "/backtest/history/stats",
-    "/research-journal/snapshot?profile_id=backend-quality",
     "/infrastructure/status",
 ]
 OPENER = build_opener(ProxyHandler({}))
