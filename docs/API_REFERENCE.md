@@ -6,7 +6,6 @@
     ## 公开量化交易研究 API
 
     ### 当前公开能力
-    - 🧭 **今日研究**: 汇总回测快照、实时提醒、复盘记录与行业观察，形成统一研究档案
     - 📊 **策略回测**: 主回测、历史复盘、组合优化与跨市场回测
     - 📈 **实时行情**: 多市场报价聚合、提醒命中记录、复盘快照与深度详情
     - 🔥 **行业热度**: 热力图、排行榜、龙头股分析与轮动观察
@@ -2144,67 +2143,6 @@ surface a green/amber/red data-source dot. ``health_check`` is cached ~60s.
 
 ---
 
-### Research Journal
-
-#### GET /research-journal/snapshot
-
-**获取统一研究档案快照**
-
-**响应: **
-
-- **200**: Successful Response
-
----
-
-#### PUT /research-journal/snapshot
-
-**同步统一研究档案快照**
-
-**请求体: **
-
-参考模型: `ResearchJournalSnapshotRequest`
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### POST /research-journal/entries
-
-**新增一条研究档案记录**
-
-**请求体: **
-
-参考模型: `ResearchJournalEntryRequest`
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
-#### PATCH /research-journal/entries/{entry_id}/status
-
-**更新研究档案记录状态**
-
-**请求参数: **
-
-- `entry_id` （必需）: 无描述
-
-**请求体: **
-
-参考模型: `ResearchJournalStatusRequest`
-
-**响应: **
-
-- **200**: Successful Response
-- **422**: Validation Error
-
----
-
 ### Policy Radar
 
 #### GET /policy-radar/signal
@@ -3141,27 +3079,6 @@ surface a green/amber/red data-source dot. ``health_check`` is cached ~60s.
 - `initial_capital` (number): 无描述
 - `commission` (number): 无描述
 - `slippage` (number): 无描述
-
-### ResearchJournalEntryRequest
-
-**字段: **
-
-- `entry` (object): 无描述
-
-### ResearchJournalSnapshotRequest
-
-**字段: **
-
-- `entries` (array): 无描述
-- `source_state` (object): 无描述
-- `generated_at` (unknown): 无描述
-
-### ResearchJournalStatusRequest
-
-**字段: **
-
-- `status` (string): 无描述
-- `note` (unknown): 无描述
 
 ### SignificanceCompareRequest
 

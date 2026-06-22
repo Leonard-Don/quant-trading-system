@@ -11,7 +11,6 @@ from backend.app.api.v1.endpoints import (
     optimization,
     policy_radar,
     realtime,
-    research_journal,
     strategies,
     system,
 )
@@ -36,11 +35,6 @@ api_router.include_router(
     infrastructure.router,
     prefix="/infrastructure",
     tags=["Infrastructure"],
-)
-api_router.include_router(
-    research_journal.router,
-    prefix="/research-journal",
-    tags=["Research Journal"],
 )
 api_router.include_router(
     policy_radar.router, prefix="/policy-radar", tags=["Policy Radar"]

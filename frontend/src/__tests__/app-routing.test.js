@@ -27,11 +27,6 @@ vi.mock('../components/BacktestDashboard', () => ({
   default: () => <div>BacktestDashboard</div>,
 }));
 
-vi.mock('../components/TodayResearchDashboard', () => ({
-  __esModule: true,
-  default: () => <div>TodayResearchDashboard</div>,
-}));
-
 vi.mock('../services/api', () => ({
   getStrategies: jest.fn(() => Promise.resolve([])),
   runBacktest: jest.fn(),
@@ -137,25 +132,6 @@ describe('App realtime view routing', () => {
 
     expect(window.location.search).toContain('view=realtime');
     expect(window.location.search).toContain('tab=crypto');
-  });
-
-  test('opens the daily research dashboard from the public navigation', async () => {
-    window.history.replaceState(null, '', '/?view=today&symbol=AAPL&source=legacy');
-
-    render(<App />);
-
-    await waitFor(() => {
-      expect(screen.getByText('TodayResearchDashboard')).toBeInTheDocument();
-    });
-
-    expect(window.location.search).toContain('view=today');
-    expect(window.location.search).not.toContain('symbol=AAPL');
-
-    fireEvent.click(screen.getByRole('button', { name: '策略回测' }));
-
-    await waitFor(() => {
-      expect(screen.getByText('BacktestDashboard')).toBeInTheDocument();
-    });
   });
 
   test('renders the app shell without a fixed-height inner scroll container', async () => {

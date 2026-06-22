@@ -105,17 +105,6 @@ export const sanitizeParamsForView = (params, view) => {
     return params;
   }
 
-  if (publicView === 'today') {
-    params.delete(TAB_QUERY_KEY);
-    params.delete('period');
-    params.delete('record');
-    params.delete('history_symbol');
-    params.delete('history_strategy');
-    RESEARCH_KEYS.forEach((key) => params.delete(key));
-    WORKBENCH_KEYS.forEach((key) => params.delete(key));
-    return params;
-  }
-
   params.delete(TAB_QUERY_KEY);
   params.delete('period');
   params.delete('record');

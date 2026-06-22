@@ -9,12 +9,11 @@
   },
   "scripts": {
     "verify:backtest": "node verify_backtest_workflow.js",
-    "verify:today": "node verify_today_research.js",
     "verify:industry": "node verify_industry_features.js",
     "verify:realtime": "node verify_realtime_features.js",
     "verify:new": "node verify_new_features.js",
     "verify:fixture-contract": "node fixtureContract.test.js",
-    "verify:all": "npm run verify:package-contract && npm run verify:fixture-contract && npm run verify:backtest && npm run verify:today && npm run verify:industry && npm run verify:realtime && npm run verify:new",
+    "verify:all": "npm run verify:package-contract && npm run verify:fixture-contract && npm run verify:backtest && npm run verify:industry && npm run verify:realtime && npm run verify:new",
     "test": "npm run verify:industry",
     "verify:package-contract": "node packageScriptContract.test.js"
   },

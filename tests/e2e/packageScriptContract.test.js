@@ -36,7 +36,6 @@ if (typeof verifyAll !== 'string') {
   });
   for (const required of [
     'npm run verify:backtest',
-    'npm run verify:today',
     'npm run verify:industry',
     'npm run verify:realtime',
     'npm run verify:new',

@@ -14,10 +14,9 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const OUT_DIR = path.join(REPO_ROOT, 'tmp', 'snapshots');
 
 const VIEWS = [
-  { name: '01-today',     url: 'http://localhost:3000?view=today' },
-  { name: '02-backtest',  url: 'http://localhost:3000' },
-  { name: '03-realtime',  url: 'http://localhost:3000?view=realtime' },
-  { name: '04-industry',  url: 'http://localhost:3000?view=industry' },
+  { name: '01-backtest',  url: 'http://localhost:3000' },
+  { name: '02-realtime',  url: 'http://localhost:3000?view=realtime' },
+  { name: '03-industry',  url: 'http://localhost:3000?view=industry' },
 ];
 
 (async () => {

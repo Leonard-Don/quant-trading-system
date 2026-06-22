@@ -2,7 +2,7 @@
 
 # quant-trading-system
 
-**一个基于 FastAPI + React 的量化研究基础设施 —— 回测引擎、实时行情、策略库，以及统计检验与点位时间因子 IC 验证工具。聚焦 `今日研究`、`策略回测`、`实时行情`、`行业热度` 四个公开工作区。**
+**一个基于 FastAPI + React 的量化研究基础设施 —— 回测引擎、实时行情、策略库，以及统计检验与点位时间因子 IC 验证工具。聚焦 `策略回测`、`实时行情`、`行业热度` 三个公开工作区。**
 *Quant research infrastructure — backtest engines, realtime data, a strategy library, and statistical / factor-IC validation tooling.*
 
 **当前版本：`v5.0.0`** · [查看更新日志](docs/CHANGELOG.md)
@@ -16,7 +16,7 @@
 
 <br />
 
-> 本地优先 · 研究档案闭环 · 可独立运行 · 自带浏览器回归验证
+> 本地优先 · 可独立运行 · 自带浏览器回归验证
 
 [本地体验](#-本地体验) · [核心能力](#-核心能力) · [界面预览](#-界面预览) · [快速开始](#-快速开始) · [测试验证](#-测试验证) · [API 文档](#-api-文档) · [更新日志](docs/CHANGELOG.md)
 
@@ -28,25 +28,24 @@
 
 > 它是一套量化**研究基础设施**：可独立运行的回测引擎、实时行情管线、12 种可运行回测策略（`src/strategy/` 下另有更多未注册到运行时的研究实现），以及一套用来**检验**策略与因子是否真有效的统计工具（统计显著性检验 + 因子 IC 验证）。请把它当成一个**研究与回测平台**来用，**不构成投资建议**。
 
-这个仓是一个独立维护的量化研究项目，围绕今日研究与四块核心工作区展开：
+这个仓是一个独立维护的量化研究项目，围绕三块核心工作区展开：
 
 | 模块 | 说明 |
 |------|------|
-| 🧭 今日研究 | 汇总回测快照、行业观察、实时提醒和复盘记录，形成当天处理队列与研究档案 |
 | 📊 策略回测 | 单资产 / 跨市场 / 批量 / Walk-Forward 回测引擎 |
 | 📈 实时行情 | 多市场实时行情聚合、WebSocket 推送、提醒与复盘 |
 | 🔥 行业热度 | 行业热力图、排行榜、龙头股分析与轮动观察；附"政策雷达"标签呈现 alt-data 政策事件 |
 
 这意味着：
 
-- 当前仓的前端主入口是 `today / backtest / realtime / industry`
-- 当前仓的后端接口围绕 `/backtest/*`、`/realtime/*`、`/industry/*`、`/cross-market/*`、`/policy-radar/*`、`/research-journal/*` 等能力展开
+- 当前仓的前端主入口是 `backtest / realtime / industry`
+- 当前仓的后端接口围绕 `/backtest/*`、`/realtime/*`、`/industry/*`、`/cross-market/*`、`/policy-radar/*` 等能力展开
 - 项目可以独立 clone、安装、启动和发布，不依赖其他 sibling repo
 
 ### 🎯 这个仓适合谁
 
 - 想直接拿到一套能跑起来的量化**研究与回测基础设施**，而不是只拿到一个算法库
-- 想把 `策略回测`、`实时行情`、`行业热度` 和当天研究档案放在同一个前后端项目里联动验证
+- 想把 `策略回测`、`实时行情`、`行业热度` 放在同一个前后端项目里联动验证
 - 想优先依赖真实页面和浏览器回归来确认功能，而不是只看接口或静态图
 
 ### 🔎 GitHub 首页建议先看
@@ -74,7 +73,6 @@ cp .env.example .env
 
 启动成功后直接访问：
 
-- `http://localhost:3000?view=today` 查看今日研究
 - `http://localhost:3000` 查看策略回测
 - `http://localhost:3000?view=realtime` 查看实时行情
 - `http://localhost:3000?view=industry` 查看行业热度
@@ -82,7 +80,7 @@ cp .env.example .env
 <div align="center">
   <img src="docs/screenshots/product-tour-v2.png" alt="产品总览" />
   <br />
-  <sub>当前版本聚焦今日研究、策略回测、实时行情与行业热度四块公开能力</sub>
+  <sub>当前版本聚焦策略回测、实时行情与行业热度三块公开能力</sub>
 </div>
 
 <br />
@@ -119,7 +117,6 @@ cp .env.example .env
 - 保留 `cross-market` 跨市场回测作为核心研究能力的一部分
 - 回测引擎当前接入 **12** 种可运行策略；`src/strategy/` 下另有更多研究用实现尚未注册到运行时，部分还依赖可选的 ML / DL 库（见下表）；策略库用于研究与对比，**不构成投资建议**
 - 回测结果支持收益、Sharpe、回撤、交易事件、月度收益等维度展示
-- 主回测每跑完一次会**自动归档**到"今日研究"档案，带策略 / 标的 / 期间 / 主要指标，便于多版本对比
 - 配套 [`strategy_statistical_tests.py`](src/backtest/strategy_statistical_tests.py) 形式化检验层（DM + 区块自举 + Sharpe 检验 + Holm 校正），用于判断回测价差是否只是噪声
 - 配套 **因子 IC 验证框架**（[`scripts/run_factor_scorecard.py`](scripts/run_factor_scorecard.py) + [`src/analytics/factors/`](src/analytics/factors/)）：点位时间（基本面按 `ann_date` 公告日对齐）、样本外 rank IC / ICIR / 逐年稳定性，用于在把任何因子接入评分前**验证其是否真有预测力**，杜绝 look-ahead 与过拟合
 
