@@ -3,8 +3,10 @@
 
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
--- provider 放进主键，确保同一 symbol/timestamp 可以保留
--- 多个数据源各自独立入库的值。
+-- 行情时序表设计说明：
+-- 1. 主键包含 symbol、provider、ts，避免不同数据源在同一标的和时间点互相覆盖。
+-- 2. provider 保留数据血缘，便于对比 Yahoo、Tushare、AKShare 等来源差异。
+-- 3. ts 作为 TimescaleDB hypertable 时间维度，支撑按标的和时间窗口做回测、质量检查和刷新。
 CREATE TABLE IF NOT EXISTS market_timeseries (
     symbol TEXT NOT NULL,
     provider TEXT NOT NULL DEFAULT 'unknown',
