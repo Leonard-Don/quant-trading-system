@@ -3,8 +3,8 @@
 
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
--- Keep provider in the primary key so the same symbol/timestamp can retain
--- independently ingested values from multiple data sources.
+-- provider 放进主键，确保同一 symbol/timestamp 可以保留
+-- 多个数据源各自独立入库的值。
 CREATE TABLE IF NOT EXISTS market_timeseries (
     symbol TEXT NOT NULL,
     provider TEXT NOT NULL DEFAULT 'unknown',
