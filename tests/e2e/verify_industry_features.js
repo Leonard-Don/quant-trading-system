@@ -1211,7 +1211,12 @@ const setRankingSelect = async (page, controlName, optionText, options = {}) => 
 
   console.log('验证排行榜波动率排序与筛选...');
   await page.waitForFunction(
-    () => document.querySelectorAll('.ant-tabs-tabpane-active .ant-card-extra .ant-select').length >= 4,
+    () => [
+      'ranking-control-sort-by',
+      'ranking-control-lookback',
+      'ranking-control-volatility',
+      'ranking-control-market-cap',
+    ].every((testId) => document.querySelector(`.ant-tabs-tabpane-active [data-testid="${testId}"]`)),
     null,
     { timeout: 10000 }
   );
