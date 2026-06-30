@@ -316,21 +316,10 @@ const jumpToTrackedSymbol = async (page, symbol, expectedGroupLabel) => {
   await jumpToTrackedSymbol(page, 'AAPL', '美股');
   await clickMarketAnalysisTab(page, '趋势分析');
   console.log('连续切 symbol 后市场分析已切到正确标的并可继续切换: 是');
-  console.log('验证详情页带入交易...');
-  await getDetailModal(page).getByRole('button', { name: '带入交易' }).click();
-  await page.getByText('模拟交易终端', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
-  await page.getByText('仓位建议', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
-  console.log('详情页一键带入交易已生效: 是');
   await closeVisibleModal(page);
 
   const usCard = page.locator('.realtime-quote-card:visible').first();
   await usCard.waitFor({ state: 'visible', timeout: 60000 });
-  await usCard.getByRole('button', { name: '交易' }).click();
-  await page.getByText('模拟交易终端', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
-  await page.getByText('下单面板', { exact: true }).waitFor({ state: 'visible', timeout: 60000 });
-  console.log('交易弹窗已打开: 是');
-  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'realtime-trade-modal.png'), fullPage: true });
-  await closeVisibleModal(page);
 
   console.log('验证提醒抽屉...');
   await usCard.getByRole('button', { name: '提醒' }).click();

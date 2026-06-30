@@ -493,8 +493,8 @@ const RealtimeQuoteBoard = ({
           <div className="realtime-quote-card__footer">
             <Text type="secondary" style={{ fontSize: '12px' }}>
               {isListMode
-                ? `${isMarketIndex ? '指数联动分析' : '详情 / 分析 / 交易'} · ${freshness.label}`
-                : (isMarketIndex ? '指数详情与分析面板联动' : '支持查看实时快照、分析与交易入口')}
+                ? `${isMarketIndex ? '指数联动分析' : '详情 / 分析 / 提醒'} · ${freshness.label}`
+                : (isMarketIndex ? '指数详情与分析面板联动' : '支持查看实时快照、分析与提醒入口')}
             </Text>
             <Space>
               <Button
