@@ -219,7 +219,7 @@ class LeaderStockScorer:
         Returns:
             股票评分详情：
             - symbol: 股票代码
-            - name: 股票名称  
+            - name: 股票名称
             - total_score: 综合得分
             - dimension_scores: 各维度得分
             - raw_data: 原始数据

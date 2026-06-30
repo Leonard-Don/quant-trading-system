@@ -225,7 +225,7 @@ class PairsTradingStrategy(BaseStrategy):
             price2: 第二只股票价格序列
 
         Returns:
-            信号序列: 
+            信号序列:
                 1 = 做多价差（做多stock2，做空stock1）
                -1 = 做空价差（做空stock2，做多stock1）
                 0 = 持有/平仓

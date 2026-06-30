@@ -318,7 +318,7 @@ def calculate_var(
 
     Returns:
         VaR as a positive decimal (e.g. 0.02 means 2% potential loss)
-        Note: Returned value is usually negative in raw percentile, 
+        Note: Returned value is usually negative in raw percentile,
         but commonly expressed as a positive "Risk" value or negative return threshold.
         Here we return the negative return threshold (e.g. -0.02).
     """
