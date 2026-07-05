@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>quant-trading-system documentation</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #f6f8fa;
+        --fg: #24292f;
+        --muted: #57606a;
+        --border: #d0d7de;
+        --panel: #ffffff;
+        --accent: #0969da;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0d1117;
+          --fg: #e6edf3;
+          --muted: #8b949e;
+          --border: #30363d;
+          --panel: #161b22;
+          --accent: #58a6ff;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font: 16px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      main {
+        width: min(960px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 56px 0;
+      }
+
+      header {
+        margin-bottom: 32px;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(2rem, 6vw, 3.5rem);
+        line-height: 1.05;
+        letter-spacing: 0;
+      }
+
+      .lede {
+        max-width: 760px;
+        margin: 0;
+        color: var(--muted);
+        font-size: 1.12rem;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 42px;
+        padding: 0 16px;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        background: var(--panel);
+        color: var(--fg);
+        font-weight: 600;
+      }
+
+      .button.primary {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #ffffff;
+      }
+
+      section {
+        border-top: 1px solid var(--border);
+        padding: 28px 0;
+      }
+
+      h2 {
+        margin: 0 0 16px;
+        font-size: 1.2rem;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+      }
+
+      .card {
+        min-height: 132px;
+        padding: 16px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+      }
+
+      .card strong {
+        display: block;
+        margin-bottom: 8px;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: color-mix(in srgb, var(--muted) 15%, transparent);
+      }
+
+      footer {
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1>quant-trading-system</h1>
+        <p class="lede">
+          Documentation gateway for a local-first FastAPI and React quantitative
+          research workspace covering backtests, realtime market monitoring,
+          industry heatmaps, and paper-trading workflows.
+        </p>
+        <div class="actions" aria-label="Primary links">
+          <a class="button primary" href="https://github.com/Leonard-Don/quant-trading-system">Open repository</a>
+          <a class="button" href="./CHANGELOG.md">Changelog</a>
+          <a class="button" href="./API_REFERENCE.md">API reference</a>
+        </div>
+      </header>
+
+      <section>
+        <h2>Start here</h2>
+        <div class="grid">
+          <a class="card" href="./PROJECT_STRUCTURE.md">
+            <strong>Project structure</strong>
+            <p>Repository map, module boundaries, and where the main services live.</p>
+          </a>
+          <a class="card" href="./TESTING_GUIDE.md">
+            <strong>Testing guide</strong>
+            <p>Validation commands and browser regression workflow for the project.</p>
+          </a>
+          <a class="card" href="./DEPLOYMENT.md">
+            <strong>Deployment notes</strong>
+            <p>Operational notes for running the research system outside local development.</p>
+          </a>
+        </div>
+      </section>
+
+      <section>
+        <h2>Repository boundary</h2>
+        <p>
+          This GitHub Pages site is a documentation entry point, not a hosted
+          trading application. The full workspace is intended to run locally from
+          the repository with <code>./scripts/start_system.sh</code>.
+        </p>
+      </section>
+
+      <footer>
+        MIT licensed. Source: <a href="https://github.com/Leonard-Don/quant-trading-system">Leonard-Don/quant-trading-system</a>.
+      </footer>
+    </main>
+  </body>
+</html>
