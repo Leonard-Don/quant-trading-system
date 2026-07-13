@@ -4,7 +4,7 @@
 
 **Goal:** Preserve and test the useful project-virtualenv startup behavior, discard obsolete local WIP, publish the resulting clean `main` to GitHub, and then remove the local checkout and its data.
 
-**Architecture:** Rebase the already-approved documentation commits onto current `origin/main`, then implement the startup behavior test-first as a focused change to `scripts/start_system.sh`. Treat all older stash, branch, and conflicting-tag history as disposable only after a verified Git bundle exists; delete the checkout only after `origin/main` contains every retained commit and all prescribed tests pass.
+**Architecture:** Rebase the already-approved documentation commits onto current `origin/main`, align the Python 3.11 contract, and implement system/worker interpreter behavior test-first as focused startup-script changes. Treat all older stash, branch, and conflicting-tag history as disposable only after a verified Git bundle exists; delete the checkout only after `origin/main` contains every retained commit and all prescribed tests pass.
 
 **Tech Stack:** Bash 3.2-compatible shell, Python 3.11+, pytest, Ruff baseline tooling, Vitest/Vite, Git/GitHub.
 
@@ -18,11 +18,13 @@
 - The local `fix/audit-docs-quick-wins` branch is discarded because `git cherry origin/main fix/audit-docs-quick-wins` marks its only commit patch-equivalent with `-`.
 - The ten conflicting local release tags are discarded and replaced locally by the GitHub versions before final verification.
 - Do not delete the checkout until all retained commits are present on `origin/main` and the safety bundle has been verified.
+- The Task 1 safety bundle is intentionally a pre-integration snapshot; it is not evidence of the later current `HEAD`. Resolve `HEAD` live during final verification and carry its expected SHA across deletion in a repository-external marker.
 
 ## File Map
 
-- Modify: `scripts/start_system.sh` — select the project virtualenv interpreter and use that same interpreter for dependency checks, installation, and backend launch.
-- Create: `tests/unit/test_start_system_script.py` — behavior tests for virtualenv selection, explicit override, and interpreter-consistent pip/backend invocation.
+- Modify: `scripts/start_system.sh` — select the project virtualenv interpreter and use that same interpreter for dependency checks, installation, backend launch, and explicit worker handoff.
+- Modify: `scripts/start_celery_worker.sh` — apply the same explicit override, executable project virtualenv, and `python3` fallback precedence to the worker probe and launch.
+- Create: `tests/unit/test_start_system_script.py` — behavior tests for virtualenv selection, explicit override, interpreter-consistent pip/backend/worker invocation, argv boundaries, and daemon worker handoff.
 - Modify: `pyproject.toml` — state the real Python 3.11 floor consistently for packaging, Ruff, and mypy.
 - Modify: `requirements-dev.txt` — pin the newest Sphinx 9.0 release compatible with Python 3.11.
 - Modify: `README.md` — publish the truthful Python 3.11+ requirement.
@@ -203,6 +205,7 @@ Expected: one focused commit containing only the three compatibility files.
 **Interfaces:**
 - Consumes: optional `PYTHON_BIN` environment variable and `${PROJECT_ROOT}/.venv/bin/python3`.
 - Produces: one `PYTHON_BIN` value with precedence `explicit environment override > executable project .venv python3 > python3`; dependency installation uses `PYTHON_BIN -m pip`.
+- Final-review extension: the direct worker uses the same precedence for its Celery probe and launch, while `start_system.sh --with-worker` passes the selected value explicitly through foreground and daemon paths.
 
 - [ ] **Step 1: Write failing tests for interpreter selection and consistent invocation**
 
@@ -363,7 +366,7 @@ bash -n scripts/start_system.sh
 ./scripts/start_system.sh --help >/dev/null
 ```
 
-Expected: Bash parsing succeeds, all three tests pass, and the help command exits 0 without starting services.
+Expected: Bash parsing succeeds, all targeted startup tests pass, and the help command exits 0 without starting services.
 
 - [ ] **Step 5: Confirm the retained diff excludes the old tmux and pip fallback WIP**
 
@@ -372,7 +375,7 @@ git diff --check
 git diff -- scripts/start_system.sh tests/unit/test_start_system_script.py
 ```
 
-Expected: the diff contains only virtualenv selection, interpreter-consistent pip/backend use, and the three tests; it does not contain the old `start_command` rewrite or `PIP_BIN` branches.
+Expected: the diff contains only reviewed startup behavior: virtualenv selection, interpreter-consistent pip/backend/worker use, Bash 3.2-safe tmux command construction and environment handoff, plus their behavior tests; it does not restore the discarded `PIP_BIN` fallback branches.
 
 - [ ] **Step 6: Commit the tested startup change**
 
@@ -451,12 +454,13 @@ Expected: the only local-only commits are the retained commits on `main`; there 
 - [ ] **Step 1: Run shell and targeted startup verification**
 
 ```bash
-bash -n scripts/start_system.sh
+bash -n scripts/start_system.sh scripts/start_celery_worker.sh
 .venv/bin/python3 -m pytest tests/unit/test_start_system_script.py -q
 ./scripts/start_system.sh --help >/dev/null
+./scripts/start_celery_worker.sh --help >/dev/null
 ```
 
-Expected: exit 0 and three targeted tests pass.
+Expected: both shell scripts parse, both help paths exit 0 without starting services, and all targeted startup tests pass.
 
 - [ ] **Step 2: Run the repository Ruff baseline gate**
 
@@ -492,7 +496,7 @@ git diff --check
 git status --short --branch
 ```
 
-Expected: no worktree changes; `main` is ahead of `origin/main` only by retained documentation and tested startup commits.
+Expected: no worktree changes; `main` is ahead of `origin/main` only by reviewed retained commits for documentation, the Python 3.11 contract/lint compatibility, and tested startup behavior.
 
 ### Task 6: Publish, verify GitHub, and delete the local checkout
 
@@ -500,6 +504,7 @@ Expected: no worktree changes; `main` is ahead of `origin/main` only by retained
 - Delete after remote verification: `/Users/leonardodon/quant-trading-system`
 - Delete after remote verification: `/Users/leonardodon/.config/superpowers/worktrees/quant-trading-system`
 - Delete after remote verification: `/Users/leonardodon/Documents/Codex/2026-07-13/qu-a/work/retirement-safety/quant-trading-before-cleanup.bundle`
+- Create temporarily outside the repository, then delete after post-removal verification: `/Users/leonardodon/Documents/Codex/2026-07-13/qu-a/work/retirement-safety/quant-trading-origin-main.expected`
 
 **Interfaces:**
 - Consumes: clean tested `main` and verified safety bundle.
@@ -518,21 +523,70 @@ Expected: push succeeds. If branch protection rejects the push, stop before dele
 ```bash
 git fetch --prune --tags origin
 git rev-list --left-right --count main...origin/main
-test "$(git rev-parse main)" = "$(git ls-remote origin refs/heads/main | awk '{print $1}')"
+EXPECTED_ORIGIN_MAIN_MARKER=/Users/leonardodon/Documents/Codex/2026-07-13/qu-a/work/retirement-safety/quant-trading-origin-main.expected
+EXPECTED_ORIGIN_MAIN="$(git rev-parse main)"
+printf '%s\n' "$EXPECTED_ORIGIN_MAIN" > "$EXPECTED_ORIGIN_MAIN_MARKER"
+REMOTE_ORIGIN_MAIN="$(git ls-remote origin refs/heads/main | awk 'NR == 1 {print $1}')"
+test -n "$REMOTE_ORIGIN_MAIN"
+test "$EXPECTED_ORIGIN_MAIN" = "$REMOTE_ORIGIN_MAIN"
 git status --porcelain=v1
 test -z "$(git stash list)"
 ```
 
-Expected: divergence is `0 0`, commit hashes match, status is empty, and there are no stashes.
+Expected: divergence is `0 0`, local and live remote commit hashes match, the expected SHA is saved outside the repository, status is empty, and there are no stashes.
 
 - [ ] **Step 3: Confirm no process or launch item references the checkout**
 
 ```bash
-ps axww -o command= | rg '/Users/leonardodon/quant-trading-system' || true
-rg -l '/Users/leonardodon/quant-trading-system' /Users/leonardodon/Library/LaunchAgents /Library/LaunchAgents 2>/dev/null || true
+PROCESS_LIST=""
+if ! PROCESS_LIST="$(ps axww -o command=)"; then
+    echo "process scan failed" >&2
+    exit 1
+fi
+
+PROCESS_MATCHES=""
+if PROCESS_MATCHES="$(printf '%s\n' "$PROCESS_LIST" | rg '/Users/leonardodon/quant-trading-syste[m]')"; then
+    printf 'checkout-referencing processes found:\n%s\n' "$PROCESS_MATCHES" >&2
+    exit 1
+else
+    PROCESS_SCAN_STATUS=$?
+    if [[ "$PROCESS_SCAN_STATUS" -ne 1 ]]; then
+        echo "process match scan failed with status $PROCESS_SCAN_STATUS" >&2
+        exit 1
+    fi
+fi
+
+LAUNCH_AGENT_DIRS=()
+for launch_agent_dir in /Users/leonardodon/Library/LaunchAgents /Library/LaunchAgents; do
+    if [[ ! -e "$launch_agent_dir" ]]; then
+        continue
+    fi
+    if [[ ! -d "$launch_agent_dir" || ! -r "$launch_agent_dir" ]]; then
+        echo "LaunchAgent path is not a readable directory: $launch_agent_dir" >&2
+        exit 1
+    fi
+    LAUNCH_AGENT_DIRS+=("$launch_agent_dir")
+done
+if [[ "${#LAUNCH_AGENT_DIRS[@]}" -eq 0 ]]; then
+    echo "no readable LaunchAgent directories available for scanning" >&2
+    exit 1
+fi
+
+LAUNCH_AGENT_MATCHES=""
+if LAUNCH_AGENT_MATCHES="$(rg -l '/Users/leonardodon/quant-trading-syste[m]' "${LAUNCH_AGENT_DIRS[@]}" 2>&1)"; then
+    printf 'checkout-referencing LaunchAgents found:\n%s\n' "$LAUNCH_AGENT_MATCHES" >&2
+    exit 1
+else
+    LAUNCH_AGENT_SCAN_STATUS=$?
+    if [[ "$LAUNCH_AGENT_SCAN_STATUS" -ne 1 ]]; then
+        printf 'LaunchAgent scan failed with status %s:\n%s\n' \
+            "$LAUNCH_AGENT_SCAN_STATUS" "$LAUNCH_AGENT_MATCHES" >&2
+        exit 1
+    fi
+fi
 ```
 
-Expected: both commands return no matching runtime reference.
+Expected: both scans complete successfully with `rg` status 1 (no matches). Any real process or LaunchAgent match, any unreadable scan root, or any scan status greater than 1 prints diagnostics and exits 1 before deletion.
 
 - [ ] **Step 4: Remove the temporary bundle and local directories**
 
@@ -550,7 +604,14 @@ Expected: deletion succeeds only after Steps 1-3 pass.
 test ! -e /Users/leonardodon/quant-trading-system
 test ! -e /Users/leonardodon/.config/superpowers/worktrees/quant-trading-system
 test ! -e /Users/leonardodon/Documents/Codex/2026-07-13/qu-a/work/retirement-safety/quant-trading-before-cleanup.bundle
-git ls-remote https://github.com/Leonard-Don/quant-trading-system.git refs/heads/main
+EXPECTED_ORIGIN_MAIN_MARKER=/Users/leonardodon/Documents/Codex/2026-07-13/qu-a/work/retirement-safety/quant-trading-origin-main.expected
+test -f "$EXPECTED_ORIGIN_MAIN_MARKER"
+EXPECTED_ORIGIN_MAIN="$(cat "$EXPECTED_ORIGIN_MAIN_MARKER")"
+REMOTE_ORIGIN_MAIN="$(git ls-remote https://github.com/Leonard-Don/quant-trading-system.git refs/heads/main | awk 'NR == 1 {print $1}')"
+test -n "$REMOTE_ORIGIN_MAIN"
+test "$EXPECTED_ORIGIN_MAIN" = "$REMOTE_ORIGIN_MAIN"
+rm -f "$EXPECTED_ORIGIN_MAIN_MARKER"
+test ! -e "$EXPECTED_ORIGIN_MAIN_MARKER"
 ```
 
-Expected: all three local paths are absent and GitHub still returns the verified `main` commit.
+Expected: all three retired local paths are absent, GitHub returns exactly the SHA saved before deletion, and the repository-external marker is removed only after that comparison succeeds.
