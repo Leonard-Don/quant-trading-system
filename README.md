@@ -7,7 +7,7 @@
 
 **当前版本：`v5.0.0`** · [查看更新日志](docs/CHANGELOG.md)
 
-[![Python](https://img.shields.io/badge/Python-3.9+-blue?style=flat-square&logo=python)](https://python.org)
+[![Python](https://img.shields.io/badge/Python-3.11+-blue?style=flat-square&logo=python)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-18+-61DAFB?style=flat-square&logo=react)](https://reactjs.org)
 [![CI](https://img.shields.io/github/actions/workflow/status/Leonard-Don/quant-trading-system/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Leonard-Don/quant-trading-system/actions/workflows/ci.yml)
@@ -274,7 +274,7 @@ quant-trading-system/
 
 | 依赖 | 最低版本 | 推荐版本 |
 |------|----------|----------|
-| Python | `3.9+` | `3.13` |
+| Python | `3.11+` | `3.13` |
 | Node.js | `16+` | `22` |
 | npm | `8+` | `10+` |
 

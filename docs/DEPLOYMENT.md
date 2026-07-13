@@ -29,7 +29,7 @@ cd frontend && npm install
 ## 生产环境（建议）
 
 ### 1. 基础要求
-- Python 3.9+
+- Python 3.11+
 - Node.js 16+
 - npm 8+
 - 反向代理（Nginx/Traefik 等）

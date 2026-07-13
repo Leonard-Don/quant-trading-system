@@ -7,7 +7,7 @@ name = "quant-trading-system"
 version = "5.0.0"
 description = "Quantitative research workspace: backtesting, realtime market monitoring, industry heat analysis."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = { file = "LICENSE" }
 
 # ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ markers = [
 # ---------------------------------------------------------------------------
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py311"
 extend-exclude = [
     ".venv",
     "venv",
@@ -105,9 +105,8 @@ line-ending = "lf"
 # Mypy (loose for now — tighten module-by-module)
 # ---------------------------------------------------------------------------
 [tool.mypy]
-# 3.10 floor: CI runs 3.13 and modern deps (e.g. click) use match/case,
-# which mypy cannot parse under a 3.9 target.
-python_version = "3.10"
+# Python 3.11 is the project floor; keep mypy aligned with package metadata.
+python_version = "3.11"
 ignore_missing_imports = true
 warn_unused_ignores = false
 warn_redundant_casts = true
