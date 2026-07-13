@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="$PROJECT_ROOT/logs"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
+VENV_DIR="$PROJECT_ROOT/.venv"
 BACKEND_PID_FILE="$LOG_DIR/backend.pid"
 FRONTEND_PID_FILE="$LOG_DIR/frontend.pid"
 TMUX_SESSION="${QUANT_SYSTEM_TMUX_SESSION:-quant-trading-system}"
@@ -15,6 +16,15 @@ BACKEND_PORT="${BACKEND_PORT:-8000}"
 FRONTEND_HOST="${FRONTEND_HOST:-localhost}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 WORKER_PID_FILE="$LOG_DIR/celery-worker.pid"
+
+PYTHON_BIN="${PYTHON_BIN:-}"
+if [[ -z "$PYTHON_BIN" ]]; then
+    if [[ -x "$VENV_DIR/bin/python3" ]]; then
+        PYTHON_BIN="$VENV_DIR/bin/python3"
+    else
+        PYTHON_BIN="python3"
+    fi
+fi
 
 INSTALL_DEPS=0
 FORCE_PORT_CLEANUP=0
@@ -191,12 +201,17 @@ start_daemon() {
     fi
 
     local start_command
-    printf -v start_command '%q ' "$PROJECT_ROOT/scripts/start_system.sh" "${foreground_args[@]}"
-    start_command="${start_command% }"
+    printf -v start_command '%q' "$PROJECT_ROOT/scripts/start_system.sh"
+    if [[ "${#foreground_args[@]}" -gt 0 ]]; then
+        local arg
+        for arg in "${foreground_args[@]}"; do
+            printf -v start_command '%s %q' "$start_command" "$arg"
+        done
+    fi
 
     log_info "🚀 正在后台启动量化交易系统..."
     log_info "   - tmux 会话: $TMUX_SESSION"
-    tmux new-session -d -s "$TMUX_SESSION" -c "$PROJECT_ROOT" "$start_command"
+    tmux new-session -d -e "PYTHON_BIN=$PYTHON_BIN" -s "$TMUX_SESSION" -c "$PROJECT_ROOT" "$start_command"
 
     log_info "⏳ 等待后端服务启动..."
     if ! wait_for_url "http://${BACKEND_HOST}:${BACKEND_PORT}/health" "后端服务" 60; then
@@ -293,7 +308,7 @@ ensure_port_available() {
 }
 
 check_python_runtime_deps() {
-    python3 - <<'PY' >/dev/null 2>&1
+    "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
 import fastapi  # noqa: F401
 import uvicorn  # noqa: F401
 import pydantic  # noqa: F401
@@ -303,7 +318,7 @@ PY
 install_python_deps() {
     local install_log="$LOG_DIR/install-python.log"
     log_info "📦 安装 Python 依赖..."
-    if pip3 install -r "$PROJECT_ROOT/requirements.txt" >"$install_log" 2>&1; then
+    if "$PYTHON_BIN" -m pip install -r "$PROJECT_ROOT/requirements.txt" >"$install_log" 2>&1; then
         log_info "✅ Python 依赖安装完成"
     else
         log_error "❌ Python 依赖安装失败，请检查日志: $install_log"
@@ -377,8 +392,7 @@ trap cleanup EXIT INT TERM
 log_info "🚀 正在启动量化交易系统..."
 log_info "=================================="
 
-require_command python3 "请先安装 Python3"
-require_command pip3 "请先安装 pip3"
+require_command "$PYTHON_BIN" "请先安装 Python3 或创建项目 .venv"
 require_command node "请先安装 Node.js"
 require_command npm "请先安装 npm"
 require_command curl "请先安装 curl"
@@ -436,7 +450,7 @@ ensure_port_available "$BACKEND_PORT" "后端服务" "$BACKEND_PID_FILE"
 ensure_port_available "$FRONTEND_PORT" "前端服务" "$FRONTEND_PID_FILE"
 
 log_info "🔧 启动后端服务..."
-API_RELOAD=false python3 "$PROJECT_ROOT/scripts/start_backend.py" >"$LOG_DIR/backend.log" 2>&1 &
+API_RELOAD=false "$PYTHON_BIN" "$PROJECT_ROOT/scripts/start_backend.py" >"$LOG_DIR/backend.log" 2>&1 &
 BACKEND_PID=$!
 STARTED_BACKEND=1
 echo "$BACKEND_PID" > "$BACKEND_PID_FILE"
