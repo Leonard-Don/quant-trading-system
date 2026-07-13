@@ -80,7 +80,7 @@ ignore = [
     "RUF001", # ambiguous unicode (Chinese strings)
     "RUF002",
     "RUF003",
-    "UP007",  # X | Y union (need py3.10 minimum)
+    "UP007",  # 暂缓 Optional/Union 迁移，待运行时类型解析回归验证后统一启用
     "UP045",
 ]
 
