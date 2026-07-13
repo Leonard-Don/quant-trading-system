@@ -6,13 +6,14 @@
 
 **Architecture:** Rebase the already-approved documentation commits onto current `origin/main`, then implement the startup behavior test-first as a focused change to `scripts/start_system.sh`. Treat all older stash, branch, and conflicting-tag history as disposable only after a verified Git bundle exists; delete the checkout only after `origin/main` contains every retained commit and all prescribed tests pass.
 
-**Tech Stack:** Bash 3.2-compatible shell, Python 3, pytest, Ruff baseline tooling, Vitest/Vite, Git/GitHub.
+**Tech Stack:** Bash 3.2-compatible shell, Python 3.11+, pytest, Ruff baseline tooling, Vitest/Vite, Git/GitHub.
 
 ## Global Constraints
 
 - Keep only code that is still valuable on current `origin/main` and passes its relevant tests.
 - Do not upload or retain `.env`, `data/`, caches, models, logs, build products, or run history.
 - Use Chinese commit messages for retained changes.
+- Align the declared, documented, lint, type-check, and pinned-development-dependency Python floor at 3.11; the locked SciPy 1.16.0 already requires 3.11, and Sphinx must remain installable on 3.11.
 - The two old stashes are discarded: the import-sort stash is broken and 610 commits behind; the Policy Radar key fix is already superseded by `buildRecordKey()` on `origin/main`.
 - The local `fix/audit-docs-quick-wins` branch is discarded because `git cherry origin/main fix/audit-docs-quick-wins` marks its only commit patch-equivalent with `-`.
 - The ten conflicting local release tags are discarded and replaced locally by the GitHub versions before final verification.
@@ -22,6 +23,9 @@
 
 - Modify: `scripts/start_system.sh` — select the project virtualenv interpreter and use that same interpreter for dependency checks, installation, and backend launch.
 - Create: `tests/unit/test_start_system_script.py` — behavior tests for virtualenv selection, explicit override, and interpreter-consistent pip/backend invocation.
+- Modify: `pyproject.toml` — state the real Python 3.11 floor consistently for packaging, Ruff, and mypy.
+- Modify: `requirements-dev.txt` — pin the newest Sphinx 9.0 release compatible with Python 3.11.
+- Modify: `README.md` — publish the truthful Python 3.11+ requirement.
 - Preserve: `docs/superpowers/specs/2026-07-13-local-retirement-design.md` — approved retirement design.
 - Preserve: `docs/superpowers/plans/2026-07-13-local-retirement.md` — this execution plan.
 
@@ -75,7 +79,122 @@ git status --short --branch
 
 Expected: rebase succeeds and the worktree is clean; `main` is ahead only by the design and plan commits.
 
-### Task 2: Add virtualenv-aware startup behavior test-first
+### Task 2: Repair the Python development-environment contract
+
+**Files:**
+- Modify: `pyproject.toml`
+- Modify: `requirements-dev.txt`
+- Modify: `README.md`
+
+**Interfaces:**
+- Consumes: the public Python-version claim, packaging metadata, Ruff/mypy targets, and locked development requirements.
+- Produces: one consistent Python 3.11+ contract and a development dependency set resolvable on Python 3.11.
+
+- [ ] **Step 1: Reproduce the incompatible Sphinx pin on Python 3.11**
+
+```bash
+.venv/bin/python3 -m pip install --dry-run --ignore-installed \
+  --python-version 3.11 --only-binary=:all: --no-deps 'sphinx==9.1.0'
+```
+
+Expected: FAIL with `9.1.0 Requires-Python >=3.12`.
+
+- [ ] **Step 2: Record the currently contradictory Python floors**
+
+```bash
+.venv/bin/python3 - <<'PY'
+import tomllib
+from pathlib import Path
+
+config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+print(config["project"]["requires-python"])
+print(config["tool"]["ruff"]["target-version"])
+print(config["tool"]["mypy"]["python_version"])
+PY
+rg -n 'Python-3\.9|`3\.9\+`' README.md
+```
+
+Expected: output shows `>=3.9`, `py39`, `3.10`, and two README Python 3.9+ claims even though locked SciPy requires Python 3.11.
+
+- [ ] **Step 3: Apply the minimal consistent contract**
+
+In `pyproject.toml`, use these exact values:
+
+```toml
+requires-python = ">=3.11"
+```
+
+```toml
+[tool.ruff]
+target-version = "py311"
+```
+
+```toml
+[tool.mypy]
+python_version = "3.11"
+```
+
+Update the adjacent mypy comment to describe the Python 3.11 project floor without claiming a 3.9 target. In `requirements-dev.txt`, replace:
+
+```text
+sphinx==9.1.0
+```
+
+with:
+
+```text
+sphinx==9.0.4
+```
+
+In `README.md`, change the Python badge and environment table requirement from `3.9+` to `3.11+`; retain the recommended version `3.13`.
+
+- [ ] **Step 4: Verify the full direct requirement set resolves for Python 3.11**
+
+```bash
+.venv/bin/python3 -m pip install --dry-run --ignore-installed \
+  --python-version 3.11 --only-binary=:all: --no-deps -r requirements-dev.txt
+```
+
+Expected: exit 0 and `Would install` includes `Sphinx-9.0.4`.
+
+- [ ] **Step 5: Install the corrected development requirements in the project virtualenv**
+
+```bash
+.venv/bin/python3 -m pip install -r requirements-dev.txt
+```
+
+Expected: exit 0; `pytest-socket==0.8.0`, `ruff==0.15.10`, and `Sphinx==9.0.4` are installed.
+
+- [ ] **Step 6: Verify metadata, tool targets, and documentation agree**
+
+```bash
+.venv/bin/python3 - <<'PY'
+import tomllib
+from pathlib import Path
+
+config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
+assert config["project"]["requires-python"] == ">=3.11"
+assert config["tool"]["ruff"]["target-version"] == "py311"
+assert config["tool"]["mypy"]["python_version"] == "3.11"
+readme = Path("README.md").read_text(encoding="utf-8")
+assert "Python-3.11+-blue" in readme
+assert "`3.11+`" in readme
+assert "3.9+" not in readme
+PY
+```
+
+Expected: exit 0 with no assertion failures.
+
+- [ ] **Step 7: Commit the compatibility fix**
+
+```bash
+git add pyproject.toml requirements-dev.txt README.md
+git commit -m "fix: 对齐 Python 3.11 开发环境契约"
+```
+
+Expected: one focused commit containing only the three compatibility files.
+
+### Task 3: Add virtualenv-aware startup behavior test-first
 
 **Files:**
 - Create: `tests/unit/test_start_system_script.py`
@@ -264,7 +383,7 @@ git commit -m "fix: 启动脚本优先使用项目虚拟环境"
 
 Expected: one focused commit containing exactly the script and its tests.
 
-### Task 3: Remove obsolete local Git state
+### Task 4: Remove obsolete local Git state
 
 **Files:**
 - Delete from Git refs: all stashes, `fix/audit-docs-quick-wins`, and the ten conflicting local tags.
@@ -320,7 +439,7 @@ git branch -vv
 
 Expected: the only local-only commits are the retained commits on `main`; there are no other local branches.
 
-### Task 4: Run the complete verification gates
+### Task 5: Run the complete verification gates
 
 **Files:**
 - Verify: all retained source, tests, and documentation.
@@ -375,7 +494,7 @@ git status --short --branch
 
 Expected: no worktree changes; `main` is ahead of `origin/main` only by retained documentation and tested startup commits.
 
-### Task 5: Publish, verify GitHub, and delete the local checkout
+### Task 6: Publish, verify GitHub, and delete the local checkout
 
 **Files:**
 - Delete after remote verification: `/Users/leonardodon/quant-trading-system`
