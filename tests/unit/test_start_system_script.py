@@ -1,3 +1,4 @@
+import contextlib
 import os
 import shlex
 import shutil
@@ -7,6 +8,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 START_SCRIPT = PROJECT_ROOT / "scripts" / "start_system.sh"
+WORKER_SCRIPT = PROJECT_ROOT / "scripts" / "start_celery_worker.sh"
 
 
 def _make_executable(path: Path) -> None:
@@ -24,6 +26,14 @@ def _copy_start_script(tmp_path: Path) -> tuple[Path, Path]:
     script = project / "scripts" / "start_system.sh"
     script.parent.mkdir(parents=True)
     shutil.copy2(START_SCRIPT, script)
+    return project, script
+
+
+def _copy_worker_script(tmp_path: Path) -> tuple[Path, Path]:
+    project = tmp_path / "project with spaces"
+    script = project / "scripts" / "start_celery_worker.sh"
+    script.parent.mkdir(parents=True)
+    shutil.copy2(WORKER_SCRIPT, script)
     return project, script
 
 
@@ -55,8 +65,85 @@ exit 0
     )
 
 
+def _make_worker_python(path: Path) -> None:
+    _write_executable(
+        path,
+        """#!/usr/bin/env bash
+printf '%q ' "$@" >> "${PYTHON_CALLS:?}"
+printf '\\n' >> "${PYTHON_CALLS:?}"
+if [[ "${1:-}" == "-" ]]; then
+    cat >/dev/null
+    exit 0
+fi
+if [[ "${1:-}" == "-m" && "${2:-}" == "celery" ]]; then
+    /bin/sleep 30
+    exit 0
+fi
+exit 97
+""",
+    )
+
+
 def _read_argv_calls(path: Path) -> list[list[str]]:
     return [shlex.split(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def _worker_env(tmp_path: Path, calls: Path) -> dict[str, str]:
+    fake_bin = tmp_path / "controlled path"
+    _make_executable(fake_bin / "sleep")
+    _write_executable(fake_bin / "python3", "#!/usr/bin/env bash\nexit 96\n")
+
+    env = os.environ.copy()
+    env["PATH"] = f"{fake_bin}:/usr/bin:/bin"
+    env["PYTHON_CALLS"] = str(calls)
+    env["CELERY_BROKER_URL"] = "redis://example.invalid:6379/0"
+    return env
+
+
+def _run_worker(
+    project: Path,
+    script: Path,
+    env: dict[str, str],
+) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        [
+            "bash",
+            str(script),
+            "--loglevel",
+            "debug",
+            "--concurrency",
+            "2",
+            "--pool",
+            "solo",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=10,
+    )
+
+    pid_file = project / "logs" / "celery-worker.pid"
+    if pid_file.exists():
+        with contextlib.suppress(ProcessLookupError, ValueError):
+            os.kill(int(pid_file.read_text(encoding="utf-8").strip()), 15)
+    return result
+
+
+def _expected_worker_calls() -> list[list[str]]:
+    return [
+        ["-"],
+        [
+            "-m",
+            "celery",
+            "-A",
+            "backend.app.core.task_queue:celery_app",
+            "worker",
+            "--loglevel=debug",
+            "--concurrency=2",
+            "--pool=solo",
+        ],
+    ]
 
 
 def _prepare_runnable_project(tmp_path: Path) -> tuple[Path, Path]:
@@ -68,8 +155,9 @@ def _prepare_runnable_project(tmp_path: Path) -> tuple[Path, Path]:
 
 def _foreground_env(tmp_path: Path, python_bin: Path, calls: Path) -> dict[str, str]:
     fake_bin = tmp_path / "controlled path"
-    for command in ("node", "npm", "sleep"):
+    for command in ("node", "npm"):
         _make_executable(fake_bin / command)
+    _write_executable(fake_bin / "sleep", "#!/usr/bin/env bash\n/bin/sleep 0.02\n")
 
     curl_count = tmp_path / "curl-count"
     _write_executable(
@@ -203,7 +291,87 @@ def test_selected_python_launches_backend(tmp_path: Path) -> None:
     assert [str(project / "scripts" / "start_backend.py")] in calls
 
 
-def test_daemon_passes_explicit_python_to_existing_tmux_server(tmp_path: Path) -> None:
+def test_worker_prefers_explicit_python_with_spaces_and_preserves_argv(tmp_path: Path) -> None:
+    project, script = _copy_worker_script(tmp_path)
+    calls = tmp_path / "python-calls"
+    explicit_python = tmp_path / "explicit python with spaces" / "bin" / "python3"
+    _make_worker_python(explicit_python)
+    _write_executable(project / ".venv" / "bin" / "python3", "#!/usr/bin/env bash\nexit 95\n")
+    env = _worker_env(tmp_path, calls)
+    env["PYTHON_BIN"] = str(explicit_python)
+
+    result = _run_worker(project, script, env)
+
+    assert result.returncode == 0, result.stderr
+    assert _read_argv_calls(calls) == _expected_worker_calls()
+
+
+def test_worker_prefers_project_virtualenv_when_system_python_is_unusable(
+    tmp_path: Path,
+) -> None:
+    project, script = _copy_worker_script(tmp_path)
+    calls = tmp_path / "python-calls"
+    _make_worker_python(project / ".venv" / "bin" / "python3")
+    env = _worker_env(tmp_path, calls)
+    env.pop("PYTHON_BIN", None)
+
+    result = _run_worker(project, script, env)
+
+    assert result.returncode == 0, result.stderr
+    assert _read_argv_calls(calls) == _expected_worker_calls()
+
+
+def test_worker_falls_back_to_python3_when_project_virtualenv_is_not_executable(
+    tmp_path: Path,
+) -> None:
+    project, script = _copy_worker_script(tmp_path)
+    calls = tmp_path / "python-calls"
+    venv_python = project / ".venv" / "bin" / "python3"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.write_text("not executable\n", encoding="utf-8")
+    env = _worker_env(tmp_path, calls)
+    _make_worker_python(tmp_path / "controlled path" / "python3")
+    env.pop("PYTHON_BIN", None)
+
+    result = _run_worker(project, script, env)
+
+    assert result.returncode == 0, result.stderr
+    assert _read_argv_calls(calls) == _expected_worker_calls()
+
+
+def test_start_system_passes_selected_python_to_worker(tmp_path: Path) -> None:
+    project, script = _prepare_runnable_project(tmp_path)
+    selected_python = project / ".venv" / "bin" / "python3"
+    calls = tmp_path / "python-calls"
+    _make_argv_recorder(selected_python)
+    worker_python = tmp_path / "worker-python-bin"
+    _write_executable(
+        project / "scripts" / "start_celery_worker.sh",
+        """#!/usr/bin/env bash
+printf '%s\\n' "${PYTHON_BIN-}" > "${WORKER_PYTHON_BIN:?}"
+mkdir -p "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/logs"
+printf '%s\\n' "$$" > "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/logs/celery-worker.pid"
+""",
+    )
+    env = _foreground_env(tmp_path, selected_python, calls)
+    env.pop("PYTHON_BIN", None)
+    env["WORKER_PYTHON_BIN"] = str(worker_python)
+
+    result = subprocess.run(
+        ["bash", str(script), "--with-worker"],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=env,
+        timeout=10,
+    )
+
+    assert result.returncode == 1
+    assert "前端服务意外停止" in result.stderr
+    assert worker_python.read_text(encoding="utf-8").strip() == str(selected_python)
+
+
+def test_daemon_with_worker_preserves_explicit_python_and_arguments(tmp_path: Path) -> None:
     _, script = _copy_start_script(tmp_path)
     explicit_python = tmp_path / "custom python" / "bin" / "python3"
     _make_executable(explicit_python)
@@ -232,7 +400,7 @@ exit 1
     env["TMUX_NEW_SESSION_ARGS"] = str(tmux_args)
 
     result = subprocess.run(
-        ["bash", str(script), "--daemon"],
+        ["bash", str(script), "--daemon", "--with-worker"],
         check=False,
         capture_output=True,
         text=True,
@@ -246,3 +414,4 @@ exit 1
         "-e",
         f"PYTHON_BIN={explicit_python}",
     ]
+    assert shlex.split(new_session_args[-1]) == [str(script), "--with-worker"]

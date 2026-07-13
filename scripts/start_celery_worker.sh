@@ -5,12 +5,22 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 LOG_DIR="$PROJECT_ROOT/logs"
+VENV_DIR="$PROJECT_ROOT/.venv"
 PID_FILE="$LOG_DIR/celery-worker.pid"
 LOG_FILE="$LOG_DIR/celery-worker.log"
 
 LOG_LEVEL="${CELERY_LOGLEVEL:-info}"
 CONCURRENCY="${CELERY_WORKER_CONCURRENCY:-1}"
 POOL="${CELERY_WORKER_POOL:-solo}"
+
+PYTHON_BIN="${PYTHON_BIN:-}"
+if [[ -z "$PYTHON_BIN" ]]; then
+    if [[ -x "$VENV_DIR/bin/python3" ]]; then
+        PYTHON_BIN="$VENV_DIR/bin/python3"
+    else
+        PYTHON_BIN="python3"
+    fi
+fi
 
 usage() {
     cat <<'EOF'
@@ -81,7 +91,7 @@ if [[ -z "${CELERY_BROKER_URL:-}" ]]; then
     exit 1
 fi
 
-if ! python3 - <<'PY' >/dev/null 2>&1
+if ! "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1
 import celery  # noqa: F401
 PY
 then
@@ -97,7 +107,7 @@ log_info "   - Concurrency: ${CONCURRENCY}"
 (
     cd "$PROJECT_ROOT"
     PYTHONPATH="$PROJECT_ROOT:${PYTHONPATH:-}" \
-    nohup python3 -m celery -A backend.app.core.task_queue:celery_app worker \
+    nohup "$PYTHON_BIN" -m celery -A backend.app.core.task_queue:celery_app worker \
         --loglevel="$LOG_LEVEL" \
         --concurrency="$CONCURRENCY" \
         --pool="$POOL" \

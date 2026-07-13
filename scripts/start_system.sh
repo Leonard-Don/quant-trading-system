@@ -433,7 +433,7 @@ if [[ "$WITH_WORKER" -eq 1 ]]; then
     if [[ -f "$WORKER_PID_FILE" ]]; then
         PREEXISTING_WORKER_PID="$(cat "$WORKER_PID_FILE" 2>/dev/null || true)"
     fi
-    "$PROJECT_ROOT/scripts/start_celery_worker.sh"
+    PYTHON_BIN="$PYTHON_BIN" "$PROJECT_ROOT/scripts/start_celery_worker.sh"
     if [[ -f "$WORKER_PID_FILE" ]]; then
         WORKER_PID="$(cat "$WORKER_PID_FILE" 2>/dev/null || true)"
         if [[ -n "$WORKER_PID" && "$WORKER_PID" != "$PREEXISTING_WORKER_PID" ]]; then
