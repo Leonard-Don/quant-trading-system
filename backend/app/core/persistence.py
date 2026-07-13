@@ -746,7 +746,7 @@ class PersistenceManager:
                 columns = [description[0] for description in cursor.description]
             records = []
             for raw_row in rows:
-                row = dict(zip(columns, raw_row))
+                row = dict(zip(columns, raw_row, strict=False))
                 payload = row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"] or "{}")
                 records.append(
                     {
@@ -872,7 +872,7 @@ class PersistenceManager:
                 columns = [description[0] for description in cursor.description]
             items = []
             for raw_row in rows:
-                row = dict(zip(columns, raw_row))
+                row = dict(zip(columns, raw_row, strict=False))
                 payload = row["payload"] if isinstance(row["payload"], dict) else json.loads(row["payload"] or "{}")
                 items.append(
                     {

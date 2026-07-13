@@ -7,10 +7,11 @@
 import inspect
 import json
 import logging
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from itertools import product
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
@@ -485,7 +486,7 @@ class BatchBacktester:
         param_values = list(param_grid.values())
 
         for i, values in enumerate(product(*param_values)):
-            params = dict(zip(param_names, values))
+            params = dict(zip(param_names, values, strict=False))
             task = BacktestTask(
                 task_id=f"grid_{symbol}_{strategy_name}_{i}",
                 research_label=None,
@@ -794,7 +795,7 @@ class WalkForwardAnalyzer:
         if parameter_grid:
             names = list(parameter_grid.keys())
             values = list(parameter_grid.values())
-            return [dict(zip(names, candidate_values)) for candidate_values in product(*values)]
+            return [dict(zip(names, candidate_values, strict=False)) for candidate_values in product(*values)]
 
         return [{}]
 

@@ -78,7 +78,7 @@ def _extract_leading_stock_symbol_lookup(industries) -> dict[str, str]:
     if filtered.empty:
         return {}
     filtered = filtered.drop_duplicates(subset=["leading_stock_name"], keep="first")
-    return dict(zip(filtered["leading_stock_name"], filtered["leading_stock_code"]))
+    return dict(zip(filtered["leading_stock_name"], filtered["leading_stock_code"], strict=False))
 
 
 def _collect_hot_leader_candidates(

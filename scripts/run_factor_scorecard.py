@@ -120,7 +120,7 @@ def apply_holm_correction(
         alpha=alpha,
         labels=[f"{r['name']}@{h}" for h, r, _ in cells],
     )
-    for (_, r, _), rejected in zip(cells, correction.rejected):
+    for (_, r, _), rejected in zip(cells, correction.rejected, strict=False):
         r["holm_significant"] = bool(rejected)
     return correction
 
@@ -436,7 +436,7 @@ def main():
                     "n_tests": len(correction.raw_p_values),
                     "significant": [
                         lab
-                        for lab, rej in zip(correction.labels, correction.rejected)
+                        for lab, rej in zip(correction.labels, correction.rejected, strict=False)
                         if rej
                     ],
                 },

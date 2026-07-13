@@ -22,10 +22,10 @@ module is safe to import on environments without akshare.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from datetime import UTC, datetime
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -59,7 +59,7 @@ _AKSHARE_DAILY_COLUMN_MAP = {
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 @dataclass(frozen=True)
@@ -189,12 +189,12 @@ class AkshareProvider:
                 return None
             ts_py = ts.to_pydatetime()
             if ts_py.tzinfo is None:
-                ts_py = ts_py.replace(tzinfo=timezone.utc)
+                ts_py = ts_py.replace(tzinfo=UTC)
             return ts_py
         if isinstance(raw.index, pd.DatetimeIndex) and len(raw.index) > 0:
             ts_py = raw.index[-1].to_pydatetime()
             if ts_py.tzinfo is None:
-                ts_py = ts_py.replace(tzinfo=timezone.utc)
+                ts_py = ts_py.replace(tzinfo=UTC)
             return ts_py
         return None
 

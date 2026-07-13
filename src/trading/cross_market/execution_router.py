@@ -103,7 +103,7 @@ class ExecutionRouter:
 
         gross_weight = sum(abs(weight) for weight in effective_weights) or 1.0
         routes: list[ExecutionRoute] = []
-        for asset, effective_weight in zip(self.asset_specs, effective_weights):
+        for asset, effective_weight in zip(self.asset_specs, effective_weights, strict=False):
             capital_fraction = float(abs(effective_weight) / gross_weight)
             target_notional = float(capital * capital_fraction)
             reference_price = float(self.latest_prices.get(asset.symbol) or 1.0)

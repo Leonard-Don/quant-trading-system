@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 import pandas as pd
@@ -115,7 +115,7 @@ class FrameProvenance:
             raise FrameValidationError("FrameProvenance.as_of must be a datetime or None")
         # Normalize naive datetimes to UTC for downstream serialization.
         if isinstance(self.as_of, datetime) and self.as_of.tzinfo is None:
-            object.__setattr__(self, "as_of", self.as_of.replace(tzinfo=timezone.utc))
+            object.__setattr__(self, "as_of", self.as_of.replace(tzinfo=UTC))
 
     def to_dict(self) -> dict[str, Any]:
         as_of_iso: Optional[str]
@@ -123,7 +123,7 @@ class FrameProvenance:
             as_of_iso = None
         else:
             as_of_iso = (
-                self.as_of.astimezone(timezone.utc)
+                self.as_of.astimezone(UTC)
                 .replace(microsecond=0)
                 .isoformat()
                 .replace("+00:00", "Z")

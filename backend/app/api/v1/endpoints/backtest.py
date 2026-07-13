@@ -246,7 +246,7 @@ async def run_batch_backtest(request: BatchBacktestRequest):
                 },
             }
         )
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise HTTPException(status_code=504, detail="Batch backtest timed out") from exc
     except HTTPException:
         raise
@@ -360,7 +360,7 @@ async def run_walk_forward_backtest(request: WalkForwardRequest):
                 },
             }
         )
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise HTTPException(status_code=504, detail="Walk-forward analysis timed out") from exc
     except HTTPException:
         raise
@@ -612,7 +612,7 @@ async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
             normalized_weights = normalized_weights / normalized_weights.sum()
 
         weight_map = {
-            symbol: float(weight) for symbol, weight in zip(ordered_symbols, normalized_weights)
+            symbol: float(weight) for symbol, weight in zip(ordered_symbols, normalized_weights, strict=False)
         }
         weighted_target_signals = target_exposure_frame.mul(
             pd.Series(weight_map),

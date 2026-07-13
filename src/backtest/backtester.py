@@ -346,7 +346,7 @@ class SingleAssetExecutionEngine:
         market_context = self._prepare_execution_context(data)
         prev_closes = self._prev_closes(data)
 
-        for i, (price, signal) in enumerate(zip(price_array, signal_array)):
+        for i, (price, signal) in enumerate(zip(price_array, signal_array, strict=False)):
             # T+1: snapshot the shares held at bar-open; same-bar buys are locked.
             position_at_bar_open = current_position
             current_equity = current_cash + current_position * price
@@ -542,7 +542,7 @@ class SingleAssetExecutionEngine:
         market_context = self._prepare_execution_context(data)
         prev_closes = self._prev_closes(data)
 
-        for i, (price, raw_signal) in enumerate(zip(price_array, signal_array)):
+        for i, (price, raw_signal) in enumerate(zip(price_array, signal_array, strict=False)):
             # T+1: snapshot the shares held at bar-open; same-bar buys are locked.
             position_at_bar_open = current_position
             current_equity = current_cash + current_position * price

@@ -311,7 +311,7 @@ class RandomForestStrategy(MLStrategy):
 
         # 使用保存的特征名称
         if hasattr(self, 'feature_names') and self.feature_names:
-            feature_map = dict(zip(self.feature_names, importance))
+            feature_map = dict(zip(self.feature_names, importance, strict=False))
             # 按重要性排序
             sorted_features = dict(sorted(feature_map.items(), key=lambda x: x[1], reverse=True))
             # 返回前20个最重要的特征
@@ -389,7 +389,7 @@ class EnsembleStrategy(BaseStrategy):
         all_signals = []
         valid_weights = []
 
-        for strategy, weight in zip(self.strategies, self.weights):
+        for strategy, weight in zip(self.strategies, self.weights, strict=False):
             if strategy.is_trained:
                 signals = strategy.generate_signals(data)
                 all_signals.append(signals)
@@ -405,7 +405,7 @@ class EnsembleStrategy(BaseStrategy):
 
         # 加权平均
         ensemble_signals = pd.Series(0.0, index=data.index)
-        for signals, weight in zip(all_signals, normalized_weights):
+        for signals, weight in zip(all_signals, normalized_weights, strict=False):
             ensemble_signals += signals * weight
 
         # 转换为离散信号

@@ -220,7 +220,7 @@ class CrossMarketBacktester(BaseBacktester):
                 min_weight=float(min_single_weight) if min_single_weight is not None else None,
                 max_weight=float(max_single_weight) if max_single_weight is not None else None,
             )
-            for asset, adjusted_weight in zip(side_assets, adjusted_weights):
+            for asset, adjusted_weight in zip(side_assets, adjusted_weights, strict=False):
                 delta_weight = float(adjusted_weight - asset.weight)
                 binding = None
                 if max_single_weight is not None and abs(adjusted_weight - float(max_single_weight)) < 1e-6:

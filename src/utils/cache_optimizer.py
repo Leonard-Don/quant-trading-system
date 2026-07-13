@@ -9,10 +9,11 @@ import logging
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from .cache import CacheManager, cache_manager
 from .config import PROJECT_ROOT

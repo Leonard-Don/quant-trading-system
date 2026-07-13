@@ -106,7 +106,7 @@ async def cancel_background_tasks(tasks: list[asyncio.Task]) -> None:
         return
 
     results = await asyncio.gather(*pending_tasks, return_exceptions=True)
-    for task, result in zip(pending_tasks, results):
+    for task, result in zip(pending_tasks, results, strict=False):
         if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
             logger.warning("Background task %s exited with error during shutdown: %s", task.get_name(), result)
 

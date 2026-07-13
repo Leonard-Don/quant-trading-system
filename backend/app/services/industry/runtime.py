@@ -167,7 +167,7 @@ def _attach_leader_mini_trends(leaders: list[LeaderStockResponse]) -> list[Leade
     with ThreadPoolExecutor(max_workers=min(6, len(symbols))) as executor:
         trend_values = list(executor.map(_load_symbol_mini_trend, symbols))
 
-    trend_map = dict(zip(symbols, trend_values))
+    trend_map = dict(zip(symbols, trend_values, strict=False))
     for leader in leaders:
         leader.mini_trend = trend_map.get(leader.symbol, [])
     return leaders

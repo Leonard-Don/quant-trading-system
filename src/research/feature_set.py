@@ -11,9 +11,8 @@ quant features (returns, rolling means) can be expressed in two lines using pand
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
-from typing import Callable
 
 import pandas as pd
 

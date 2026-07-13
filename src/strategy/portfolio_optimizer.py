@@ -131,7 +131,7 @@ class PortfolioOptimizer:
 
             return {
                 'success': True,
-                'weights': dict(zip(returns.columns, result.x)),
+                'weights': dict(zip(returns.columns, result.x, strict=False)),
                 'expected_return': ret,
                 'expected_volatility': vol,
                 'sharpe_ratio': sharpe,
@@ -181,7 +181,7 @@ class PortfolioOptimizer:
 
             return {
                 'success': True,
-                'weights': dict(zip(returns.columns, result.x)),
+                'weights': dict(zip(returns.columns, result.x, strict=False)),
                 'expected_return': ret,
                 'expected_volatility': vol,
                 'sharpe_ratio': sharpe,
@@ -245,11 +245,11 @@ class PortfolioOptimizer:
 
             return {
                 'success': True,
-                'weights': dict(zip(returns.columns, result.x)),
+                'weights': dict(zip(returns.columns, result.x, strict=False)),
                 'expected_return': ret,
                 'expected_volatility': vol,
                 'sharpe_ratio': sharpe,
-                'risk_contributions': dict(zip(returns.columns, risk_contrib)),
+                'risk_contributions': dict(zip(returns.columns, risk_contrib, strict=False)),
                 'optimization_method': 'risk_parity'
             }
         else:
@@ -299,7 +299,7 @@ class PortfolioOptimizer:
 
             return {
                 'success': True,
-                'weights': dict(zip(returns.columns, result.x)),
+                'weights': dict(zip(returns.columns, result.x, strict=False)),
                 'expected_return': ret,
                 'expected_volatility': vol,
                 'sharpe_ratio': sharpe,

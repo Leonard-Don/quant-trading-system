@@ -97,7 +97,7 @@ def _build_industry_events(industry_name: str) -> list[dict[str, Any]]:
 
 
 def _cosine_similarity(left: list[float], right: list[float]) -> float:
-    numerator = sum(a * b for a, b in zip(left, right))
+    numerator = sum(a * b for a, b in zip(left, right, strict=False))
     left_norm = math.sqrt(sum(a * a for a in left))
     right_norm = math.sqrt(sum(b * b for b in right))
     if left_norm == 0 or right_norm == 0:

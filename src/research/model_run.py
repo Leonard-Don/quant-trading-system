@@ -18,7 +18,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 _RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-:/]{0,127}$")
@@ -53,12 +53,12 @@ def validate_run_id(run_id: Any) -> str:
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _isoformat(dt: datetime) -> str:
-    aware = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    return aware.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    aware = dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+    return aware.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 @dataclass(frozen=True)
@@ -120,7 +120,7 @@ class ModelRun:
         if not isinstance(self.created_at, datetime):
             raise ModelRunValidationError("created_at must be a datetime")
         if self.created_at.tzinfo is None:
-            object.__setattr__(self, "created_at", self.created_at.replace(tzinfo=timezone.utc))
+            object.__setattr__(self, "created_at", self.created_at.replace(tzinfo=UTC))
         if self.notes is not None and not isinstance(self.notes, str):
             raise ModelRunValidationError("notes must be a string or None")
         # Freeze maps to dict copies so external mutation can't bleed into the run.

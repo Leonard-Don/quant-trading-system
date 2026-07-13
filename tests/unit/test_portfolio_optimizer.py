@@ -23,7 +23,7 @@ def returns_frame(seed=0, n=252, cols=("A", "B", "C"), means=(0.0008, 0.0003, 0.
     clear preference order (A best Sharpe, C worst)."""
     rng = np.random.default_rng(seed)
     data = {}
-    for col, mu in zip(cols, means):
+    for col, mu in zip(cols, means, strict=False):
         data[col] = rng.normal(mu, 0.01, n)
     return pd.DataFrame(data)
 

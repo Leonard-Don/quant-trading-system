@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pandas as pd
 import pytest
@@ -41,7 +41,7 @@ def _normalized() -> NormalizedFrame:
     return NormalizedFrame.from_raw(
         _raw_frame(),
         _SCHEMA,
-        FrameProvenance(source_id="fixture", as_of=datetime(2026, 1, 6, tzinfo=timezone.utc)),
+        FrameProvenance(source_id="fixture", as_of=datetime(2026, 1, 6, tzinfo=UTC)),
     )
 
 
@@ -134,7 +134,7 @@ def test_model_run_validates_run_id_and_serializes_metrics() -> None:
         params={"alpha": 0.5},
         metrics={"r2": 0.42},
         artifacts={"model": "artifacts/ridge.pkl"},
-        created_at=datetime(2026, 1, 7, tzinfo=timezone.utc),
+        created_at=datetime(2026, 1, 7, tzinfo=UTC),
     )
 
     payload = run.to_dict()

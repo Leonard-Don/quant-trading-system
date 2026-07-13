@@ -8,13 +8,14 @@ from enum import Enum
 from typing import Optional
 
 
-class AssetClass(str, Enum):
+# Keep ``str, Enum``: ``StrEnum`` changes ``str(member)`` to the raw value.
+class AssetClass(str, Enum):  # noqa: UP042
     US_STOCK = "US_STOCK"
     ETF = "ETF"
     COMMODITY_FUTURES = "COMMODITY_FUTURES"
 
 
-class AssetSide(str, Enum):
+class AssetSide(str, Enum):  # noqa: UP042
     LONG = "long"
     SHORT = "short"
 
@@ -139,7 +140,7 @@ class AssetUniverse:
                     raise ValueError(f"Invalid weight configuration for {side.value} basket")
                 normalized_weights = [weight / total for weight in provisional]
 
-            for item, normalized_weight in zip(side_items, normalized_weights):
+            for item, normalized_weight in zip(side_items, normalized_weights, strict=False):
                 normalized.append(
                     AssetSpec(
                         symbol=item["symbol"],

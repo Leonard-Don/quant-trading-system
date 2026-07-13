@@ -418,7 +418,7 @@ def _normalize_to_budget(raw: np.ndarray) -> dict[str, float]:
         raw = np.ones_like(raw)
         total = raw.sum()
     scaled = raw / total * PRICE_VOL_BUDGET
-    return {dim: float(w) for dim, w in zip(DIMS, scaled)}
+    return {dim: float(w) for dim, w in zip(DIMS, scaled, strict=False)}
 
 
 def optimize_weights(train_panel: pd.DataFrame) -> dict[str, float]:

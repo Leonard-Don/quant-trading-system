@@ -15,7 +15,7 @@ Tests cover:
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -217,7 +217,7 @@ def test_registry_required_failed_source_still_comes_before_optional_ok() -> Non
 
 
 def test_registry_computes_freshness_from_iso_asof() -> None:
-    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=UTC)
     entries = build_source_registry(
         [
             {
@@ -245,7 +245,7 @@ def test_registry_computes_freshness_from_iso_asof() -> None:
 
 
 def test_registry_accepts_datetime_asof() -> None:
-    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=UTC)
     entries = build_source_registry(
         [
             {
@@ -261,7 +261,7 @@ def test_registry_accepts_datetime_asof() -> None:
 
 
 def test_registry_accepts_z_suffix_asof() -> None:
-    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=UTC)
     iso_z = (now - timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
     entries = build_source_registry(
         [{"source_id": "yahoo", "ok": True, "as_of": iso_z}],
@@ -286,7 +286,7 @@ def test_registry_marks_missing_when_asof_absent() -> None:
 
 
 def test_registry_respects_per_call_freshness_thresholds() -> None:
-    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=UTC)
     thresholds = FreshnessThresholds(
         fresh_max_seconds=5.0,
         recent_max_seconds=10.0,
@@ -349,7 +349,7 @@ def test_registry_capabilities_accepts_tuple_and_set_inputs() -> None:
 
 
 def test_registry_to_dict_returns_json_safe_payload() -> None:
-    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=UTC)
     entries = build_source_registry(
         [
             {
@@ -380,7 +380,7 @@ def test_registry_to_dict_returns_json_safe_payload() -> None:
 
 def test_to_dict_as_of_uses_strict_z_suffix() -> None:
     """to_dict() must always render as_of with a ``Z`` UTC suffix (no ``+00:00``)."""
-    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=UTC)
     entries = build_source_registry(
         [
             {
@@ -398,7 +398,7 @@ def test_to_dict_as_of_uses_strict_z_suffix() -> None:
 
 def test_to_dict_observed_at_uses_strict_z_suffix() -> None:
     """to_dict() must also render observed_at with a ``Z`` UTC suffix."""
-    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 5, 14, 12, 0, 0, tzinfo=UTC)
     entries = build_source_registry(
         [{"source_id": "yahoo", "ok": True}],
         now=now,

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from typing import Any, Optional, Union
 
 import pandas as pd
@@ -29,18 +29,18 @@ class BacktestReportError(ValueError):
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _isoformat_datetime(dt: datetime) -> str:
-    aware = dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
-    return aware.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    aware = dt if dt.tzinfo else dt.replace(tzinfo=UTC)
+    return aware.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _to_iso_date(value: Any) -> str:
     if isinstance(value, datetime):
-        aware = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-        return aware.astimezone(timezone.utc).date().isoformat()
+        aware = value if value.tzinfo else value.replace(tzinfo=UTC)
+        return aware.astimezone(UTC).date().isoformat()
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, str):
@@ -155,7 +155,7 @@ class BacktestReport:
         if not isinstance(self.generated_at, datetime):
             raise BacktestReportError("generated_at must be a datetime")
         if self.generated_at.tzinfo is None:
-            object.__setattr__(self, "generated_at", self.generated_at.replace(tzinfo=timezone.utc))
+            object.__setattr__(self, "generated_at", self.generated_at.replace(tzinfo=UTC))
         if self.notes is not None and not isinstance(self.notes, str):
             raise BacktestReportError("notes must be a string or None")
 

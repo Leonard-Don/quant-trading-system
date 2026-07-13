@@ -5,7 +5,6 @@ import stat
 import subprocess
 from pathlib import Path
 
-
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 START_SCRIPT = PROJECT_ROOT / "scripts" / "start_system.sh"
 

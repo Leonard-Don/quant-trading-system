@@ -586,7 +586,7 @@ class DeepLearningEnsemble(BaseStrategy):
         ensemble_signals = pd.Series(0.0, index=data.index)
         valid_weight_sum = 0
 
-        for model, weight in zip(self.models, self.weights):
+        for model, weight in zip(self.models, self.weights, strict=False):
             if model.is_trained:
                 signals = model.generate_signals(data)
                 ensemble_signals += signals * weight

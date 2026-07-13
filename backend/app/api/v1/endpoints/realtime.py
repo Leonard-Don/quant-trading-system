@@ -304,7 +304,7 @@ def _compute_realtime_anomaly_diagnostics(
     neg_scores = []
     cusum_flags = []
 
-    for ret, mu, sigma in zip(data["return"], drift, cusum_sigma):
+    for ret, mu, sigma in zip(data["return"], drift, cusum_sigma, strict=False):
         sigma = float(max(sigma, 1e-6))
         positive_cusum = max(0.0, positive_cusum + float(ret - mu))
         negative_cusum = min(0.0, negative_cusum + float(ret - mu))

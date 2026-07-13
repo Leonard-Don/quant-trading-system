@@ -9,8 +9,9 @@ import os
 import threading
 import time
 from collections import defaultdict, deque
+from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Callable
+from typing import Any
 
 import psutil
 

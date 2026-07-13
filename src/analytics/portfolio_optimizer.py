@@ -99,7 +99,7 @@ class PortfolioOptimizer:
                     "return": round(opt_return * 100, 2),
                     "volatility": round(opt_volatility * 100, 2),
                     "sharpe_ratio": round(opt_sharpe, 2),
-                    "weights": {asset: round(weight, 4) for asset, weight in zip(assets, optimal_weights)}
+                    "weights": {asset: round(weight, 4) for asset, weight in zip(assets, optimal_weights, strict=False)}
                 },
                 "assets": assets,
                 "efficient_frontier": random_portfolios # Returning random cloud for visualization

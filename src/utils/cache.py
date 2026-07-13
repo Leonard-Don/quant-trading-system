@@ -9,12 +9,13 @@ import threading
 
 # import pickle  # 安全考虑：避免使用pickle，改用json序列化
 import time
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import wraps
 
 # import os  # 暂时未使用
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 
 from .config import CACHE_TTL, PROJECT_ROOT
 
