@@ -8,13 +8,13 @@ import {
     Row,
     Col,
     Tag,
-    List,
     Typography,
     Alert,
     Space,
     Empty,
     Spin,
 } from 'antd';
+import SimpleList from '../common/SimpleList';
 import {
     RiseOutlined,
     FallOutlined,
@@ -194,12 +194,12 @@ const PatternTab = ({ loadingTab, errorTab, patternData, klinesData }) => {
 
             <Col span={24}>
                 <Card title="识别到的图表形态" className="glass-card">
-                    <List
+                    <SimpleList
                         itemLayout="horizontal"
                         dataSource={validPatterns}
                         renderItem={item => (
-                            <List.Item>
-                                <List.Item.Meta
+                            <SimpleList.Item>
+                                <SimpleList.Item.Meta
                                     avatar={
                                         item.signal.includes('bullish') ?
                                             <RiseOutlined style={{ color: '#52c41a', fontSize: 24 }} /> :
@@ -218,7 +218,7 @@ const PatternTab = ({ loadingTab, errorTab, patternData, klinesData }) => {
                                         </Space>
                                     }
                                 />
-                            </List.Item>
+                            </SimpleList.Item>
                         )}
                         locale={{ emptyText: '近期未识别到明显图表形态' }}
                     />
@@ -226,11 +226,11 @@ const PatternTab = ({ loadingTab, errorTab, patternData, klinesData }) => {
             </Col>
             <Col span={24}>
                 <Card title="识别到的K线形态">
-                    <List
+                    <SimpleList
                         grid={{ gutter: 16, column: 3 }}
                         dataSource={candlestickPatterns.length > 0 ? candlestickPatterns : []}
                         renderItem={item => (
-                            <List.Item>
+                            <SimpleList.Item>
                                 <Card
                                     size="small"
                                     title={item.name}
@@ -241,7 +241,7 @@ const PatternTab = ({ loadingTab, errorTab, patternData, klinesData }) => {
                                     <br />
                                     <Text type="secondary" style={{ fontSize: '12px' }}>日期: {new Date(item.date).toLocaleDateString()}</Text>
                                 </Card>
-                            </List.Item>
+                            </SimpleList.Item>
                         )}
                         locale={{ emptyText: '近期未识别到K线形态' }}
                     />

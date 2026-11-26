@@ -12,7 +12,6 @@ import {
     Row,
     Col,
     Tag,
-    List,
     Typography,
     Alert,
     Space,
@@ -22,6 +21,7 @@ import {
     Popover,
     Tooltip,
 } from 'antd';
+import SimpleList from '../common/SimpleList';
 import {
     RiseOutlined,
     FallOutlined,
@@ -89,11 +89,11 @@ const OverviewTab = ({
     };
 
     const scoreExplanationContent = (
-        <List
+        <SimpleList
             size="small"
             dataSource={overviewData.score_explanation || []}
             renderItem={item => (
-                <List.Item style={{ padding: '8px 0' }}>
+                <SimpleList.Item style={{ padding: '8px 0' }}>
                     <div style={{ width: '100%' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                             <Text strong>{item.dimension}</Text>
@@ -103,7 +103,7 @@ const OverviewTab = ({
                         </div>
                         <Text type="secondary" style={{ fontSize: '12px' }}>{item.reason}</Text>
                     </div>
-                </List.Item>
+                </SimpleList.Item>
             )}
             style={{ width: 320 }}
         />
@@ -156,17 +156,17 @@ const OverviewTab = ({
 
             <Col xs={24} md={8}>
                 <Card title="关键信号" variant="borderless">
-                    <List
+                    <SimpleList
                         dataSource={overviewData.key_signals}
                         renderItem={item => (
-                            <List.Item>
+                            <SimpleList.Item>
                                 <Space>
                                     <Tag color={item.importance === 'high' ? 'red' : 'blue'}>
                                         {item.type}
                                     </Tag>
                                     <Text>{item.signal}</Text>
                                 </Space>
-                            </List.Item>
+                            </SimpleList.Item>
                         )}
                     />
                 </Card>
@@ -264,7 +264,7 @@ const OverviewTab = ({
                     {(!eventData || (!eventData.earnings && !eventData.dividends && !eventData.news?.length)) ? (
                         <Empty description="暂无近期重要事件" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                     ) : (
-                        <List
+                        <SimpleList
                             grid={{ gutter: 16, xs: 1, sm: 2, md: 3 }}
                             dataSource={[
                                 {
@@ -317,15 +317,15 @@ const OverviewTab = ({
                                 } : null
                             ].filter(Boolean)}
                             renderItem={item => (
-                                <List.Item>
+                                <SimpleList.Item>
                                     <Card size="small" variant="borderless">
-                                        <List.Item.Meta
+                                        <SimpleList.Item.Meta
                                             avatar={item.icon}
                                             title={item.title}
                                             description={item.content}
                                         />
                                     </Card>
-                                </List.Item>
+                                </SimpleList.Item>
                             )}
                         />
                     )}

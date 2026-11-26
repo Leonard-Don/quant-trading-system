@@ -8,7 +8,6 @@ import {
     Row,
     Col,
     Tag,
-    List,
     Typography,
     Progress,
     Alert,
@@ -16,6 +15,7 @@ import {
     Empty,
     Spin,
 } from 'antd';
+import SimpleList from '../common/SimpleList';
 import {
     RiseOutlined,
     FallOutlined,
@@ -174,17 +174,17 @@ const VolumeTab = ({ loadingTab, errorTab, volumeData, symbol }) => {
             </Col>
             <Col span={24}>
                 <Card title="量价形态">
-                    <List
+                    <SimpleList
                         grid={{ gutter: 16, column: 2 }}
                         dataSource={volume_patterns.patterns}
                         renderItem={item => (
-                            <List.Item>
+                            <SimpleList.Item>
                                 <Alert
                                     title={item.description}
                                     type={item.signal === 'bullish' || item.signal === 'potential_bottom' ? 'success' : 'warning'}
                                     showIcon
                                 />
-                            </List.Item>
+                            </SimpleList.Item>
                         )}
                         locale={{ emptyText: '未识别到明显量价形态' }}
                     />

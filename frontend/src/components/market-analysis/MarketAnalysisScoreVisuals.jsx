@@ -5,6 +5,7 @@
  * dependencies on the host component.
  */
 
+import { forwardRef } from 'react';
 import { Progress, Tag } from 'antd';
 import {
     PolarAngleAxis,
@@ -64,11 +65,12 @@ export const ScoreGauge = ({ score }) => {
     );
 };
 
-export const RecommendationTag = ({ recommendation }) => (
-    <Tag color={colorForRecommendation(recommendation)} style={{ fontSize: '16px', padding: '5px 10px' }}>
+export const RecommendationTag = forwardRef(({ recommendation, ...rest }, ref) => (
+    <Tag ref={ref} {...rest} color={colorForRecommendation(recommendation)} style={{ fontSize: '16px', padding: '5px 10px' }}>
         {recommendation}
     </Tag>
-);
+));
+RecommendationTag.displayName = 'RecommendationTag';
 
 const RADAR_AXES = [
     { key: 'trend', subject: '趋势' },
