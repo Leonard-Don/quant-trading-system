@@ -121,7 +121,7 @@ function CrossMarketControlSidebar({
       </Panel>
 
       <Panel title="参数与模板" className="workspace-panel cross-market-sidebar-card">
-        <Space direction="vertical" style={{ width: '100%' }} size={14}>
+        <Space orientation="vertical" style={{ width: '100%' }} size={14}>
           <Select
             placeholder="载入演示模板"
             loading={loadingTemplates}

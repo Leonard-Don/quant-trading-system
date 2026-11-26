@@ -287,7 +287,7 @@ export default function useIndustryUrlState() {
             const node = document.querySelector(selectorMap[focusedRankingControlKey]);
             if (node) {
                 node.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-                const focusTarget = node.querySelector('input, button, .ant-select-selector');
+                const focusTarget = node.querySelector('input, button');
                 if (focusTarget?.focus) {
                     focusTarget.focus();
                 }

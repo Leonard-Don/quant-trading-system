@@ -356,7 +356,7 @@ const CandlestickChart = ({ symbol, embedMode = false }) => {
 
     // --- UI Content ---
     const indicatorContent = (
-        <Space direction="vertical">
+        <Space orientation="vertical">
             <Divider orientation="left" style={{ margin: '5px 0' }}>均线 (MA)</Divider>
             <Checkbox checked={indicators.ma5} onChange={(e) => setIndicators({ ...indicators, ma5: e.target.checked })}>MA 5 (周)</Checkbox>
             <Checkbox checked={indicators.ma10} onChange={(e) => setIndicators({ ...indicators, ma10: e.target.checked })}>MA 10 (双周)</Checkbox>

@@ -196,7 +196,7 @@ const PolicyRadarPanel = ({ industry = null, timeframe = '7d', limit = 10 }) => 
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                 />
             ) : (
-                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
                     <div>
                         <Text type="secondary" style={{ fontSize: 12 }}>共 {signal?.policy_count ?? 0} 条政策记录</Text>
                         <div style={{ marginTop: 6 }}>

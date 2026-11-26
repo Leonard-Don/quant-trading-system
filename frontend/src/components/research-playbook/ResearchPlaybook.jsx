@@ -110,7 +110,7 @@ function ResearchPlaybook({
           ))}
         </Row>
       ) : (
-        <Space direction="vertical" style={{ width: '100%' }}>
+        <Space orientation="vertical" style={{ width: '100%' }}>
           <Empty description="暂无研究任务卡" />
         </Space>
       )}

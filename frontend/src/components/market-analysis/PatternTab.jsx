@@ -207,7 +207,7 @@ const PatternTab = ({ loadingTab, errorTab, patternData, klinesData }) => {
                                     }
                                     title={<Text strong>{item.name}</Text>}
                                     description={
-                                        <Space direction="vertical" size={0}>
+                                        <Space orientation="vertical" size={0}>
                                             <Text type="secondary">{item.description}</Text>
                                             <Space>
                                                 <Tag color={item.signal.includes('bullish') ? 'success' : 'error'}>

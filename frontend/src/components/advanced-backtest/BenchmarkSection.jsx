@@ -28,7 +28,7 @@ function BenchmarkSection({
   return (
     <Panel className="workspace-panel workspace-chart-card" title="基准对照">
       {benchmarkResult?.data && benchmarkContext?.strategy ? (
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
+        <Space orientation="vertical" style={{ width: '100%' }} size="large">
           {benchmarkLoading ? (
             <Alert
               type="info"

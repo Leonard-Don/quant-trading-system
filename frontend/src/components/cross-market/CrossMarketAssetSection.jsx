@@ -30,7 +30,7 @@ const CrossMarketAssetSection = ({
         )}
         className="workspace-panel cross-market-asset-card"
     >
-        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        <Space orientation="vertical" style={{ width: '100%' }} size={12}>
             {sideAssets.map((asset) => (
                 <Row gutter={12} key={asset.key}>
                     <Col xs={24} md={8}>

@@ -29,7 +29,7 @@ function PortfolioSection({
   return (
     <Panel className="workspace-panel workspace-chart-card" title="组合级策略回测">
       {portfolioStrategyResult ? (
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
+        <Space orientation="vertical" style={{ width: '100%' }} size="large">
           {portfolioLoading ? (
             <Alert
               type="info"

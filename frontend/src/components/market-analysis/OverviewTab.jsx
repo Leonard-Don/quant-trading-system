@@ -135,7 +135,7 @@ const OverviewTab = ({
                         </div>
                     </Popover>
                     <div style={{ textAlign: 'center', marginTop: 16 }}>
-                        <Space direction="vertical">
+                        <Space orientation="vertical">
                             <Text type="secondary">投资建议</Text>
                             <Tooltip title={overviewData.recommendation_reasons?.length ? recommendationReasonContent : ''}>
                                 <RecommendationTag recommendation={overviewData.recommendation} />

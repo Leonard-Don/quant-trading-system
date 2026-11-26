@@ -17,7 +17,7 @@ function ResearchSummaryBanner({
       showIcon
       message={headline || title}
       description={(
-        <Space direction="vertical" size={10} style={{ width: '100%' }}>
+        <Space orientation="vertical" size={10} style={{ width: '100%' }}>
           {thesis ? (
             <Paragraph style={{ marginBottom: 0 }}>
               {thesis}
@@ -35,7 +35,7 @@ function ResearchSummaryBanner({
           ) : null}
 
           {warnings.length ? (
-            <Space direction="vertical" size={4} style={{ width: '100%' }}>
+            <Space orientation="vertical" size={4} style={{ width: '100%' }}>
               {warnings.slice(0, 3).map((warning) => (
                 <Text key={warning} style={{ color: '#ad6800' }}>
                   {warning}

@@ -33,7 +33,7 @@ function ResearchInsightsSection({
         <Col xs={24} xl={9}>
           <Panel className="workspace-panel workspace-chart-card" title="稳健性评分">
             {robustnessScore || overfittingWarnings.length || researchConclusion ? (
-              <Space direction="vertical" style={{ width: '100%' }} size="large">
+              <Space orientation="vertical" style={{ width: '100%' }} size="large">
                 {robustnessScore ? (
                   <>
                     <Alert
@@ -71,7 +71,7 @@ function ResearchInsightsSection({
                         <div className="workspace-section__description">这些信号说明当前优势可能依赖少数参数、少数窗口或少数市场状态。</div>
                       </div>
                     </div>
-                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                    <Space orientation="vertical" style={{ width: '100%' }} size="middle">
                       {overfittingWarnings.map((warning) => (
                         <Alert key={warning.key} type="warning" showIcon message={warning.title} description={warning.description} />
                       ))}
@@ -111,7 +111,7 @@ function ResearchInsightsSection({
         <Col xs={24} xl={15}>
           <Panel className="workspace-panel workspace-chart-card" title="市场状态分层回测">
             {marketRegimeResult ? (
-              <Space direction="vertical" style={{ width: '100%' }} size="large">
+              <Space orientation="vertical" style={{ width: '100%' }} size="large">
                 {marketRegimeLoading ? (
                   <Alert
                     type="info"

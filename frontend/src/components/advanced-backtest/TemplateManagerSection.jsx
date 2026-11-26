@@ -163,7 +163,7 @@ function TemplateManagerSection({
               </Space>
             </div>
             {experimentComparison ? (
-              <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <Space orientation="vertical" style={{ width: '100%' }} size="middle">
                 <Alert
                   type="info"
                   showIcon

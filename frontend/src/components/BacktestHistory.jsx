@@ -940,7 +940,7 @@ const BacktestHistory = ({ highlightRecordId = '' }) => {
                 {detailLoading && !selectedRecord ? (
                     <div style={{ padding: '24px 0', textAlign: 'center' }}>正在加载详情...</div>
                 ) : selectedRecord && (
-                    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                    <Space orientation="vertical" style={{ width: '100%' }} size="middle">
                         <div className="workspace-section">
                             <div className="workspace-section__header">
                                 <div>

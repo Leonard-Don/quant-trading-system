@@ -180,7 +180,7 @@ const StrategyComparison = ({ strategies }) => {
 
         return (
             <Panel className="workspace-panel" style={{ marginBottom: 20 }} title="策略参数版本">
-                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                <Space orientation="vertical" size="large" style={{ width: '100%' }}>
                     {params.selectedStrategies.map((strategyName) => {
                         const strategy = strategyDefinitions[strategyName];
                         const parameterEntries = Object.entries(strategy?.parameters || {});

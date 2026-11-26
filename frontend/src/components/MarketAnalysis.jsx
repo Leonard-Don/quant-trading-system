@@ -1043,7 +1043,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                     padding-inline: 14px !important;
                 }
 
-                .market-analysis__tabs-shell--embed .ant-tabs-content-holder {
+                .market-analysis__tabs-shell--embed .ant-tabs-body-holder {
                     padding-top: 2px;
                 }
 
