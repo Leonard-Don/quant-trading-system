@@ -1,8 +1,9 @@
 # Core Backend Framework
-fastapi==0.116.1
+fastapi==0.136.1
+starlette==1.3.1
 uvicorn[standard]==0.35.0
 pydantic==2.9.2
-python-multipart==0.0.27
+python-multipart==0.0.32
 
 # Data Processing and Analysis
 pandas==2.3.0
@@ -31,16 +32,16 @@ openpyxl==3.1.5
 # Utilities
 requests==2.33.1
 python-dateutil==2.9.0.post0
-python-dotenv==1.1.1
+python-dotenv==1.2.2
 psutil==6.1.1
 psycopg[binary]==3.3.3
 
 # Security
-cryptography==47.0.0
+cryptography==50.0.2
 
 # Async utilities
 aiofiles==24.1.0
-aiohttp==3.13.5
+aiohttp==3.14.5
 asyncio-throttle==1.0.2
 websockets==15.0.1
 APScheduler==3.11.0
