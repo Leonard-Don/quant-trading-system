@@ -4,6 +4,7 @@ import shlex
 import shutil
 import stat
 import subprocess
+import time
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -39,7 +40,7 @@ def _copy_worker_script(tmp_path: Path) -> tuple[Path, Path]:
 
 def _last_trace_assignment(stderr: str, name: str) -> str:
     prefix = f"+ {name}="
-    assignments = [line[len(prefix):] for line in stderr.splitlines() if line.startswith(prefix)]
+    assignments = [line[len(prefix) :] for line in stderr.splitlines() if line.startswith(prefix)]
     assert assignments, f"missing {name} assignment in shell trace"
     return shlex.split(assignments[-1])[0]
 
@@ -100,6 +101,16 @@ def _worker_env(tmp_path: Path, calls: Path) -> dict[str, str]:
     return env
 
 
+def _wait_for_celery_call(calls: Path, timeout: float = 5.0) -> None:
+    # The worker is started with nohup in the background and the fake `sleep`
+    # returns at once, so give it time to record its argv before we kill it.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if calls.exists() and any(argv[:2] == ["-m", "celery"] for argv in _read_argv_calls(calls)):
+            return
+        time.sleep(0.05)
+
+
 def _run_worker(
     project: Path,
     script: Path,
@@ -125,6 +136,7 @@ def _run_worker(
 
     pid_file = project / "logs" / "celery-worker.pid"
     if pid_file.exists():
+        _wait_for_celery_call(Path(env["PYTHON_CALLS"]))
         with contextlib.suppress(ProcessLookupError, ValueError):
             os.kill(int(pid_file.read_text(encoding="utf-8").strip()), 15)
     return result
@@ -267,10 +279,7 @@ def test_start_script_rejects_invalid_explicit_python_override(tmp_path: Path) -
     )
 
     assert result.returncode == 1
-    assert (
-        f"❌ 未找到命令: {invalid_python}。请先安装 Python3 或创建项目 .venv"
-        in result.stderr
-    )
+    assert f"❌ 未找到命令: {invalid_python}。请先安装 Python3 或创建项目 .venv" in result.stderr
 
 
 def test_selected_python_checks_runtime_dependencies(tmp_path: Path) -> None:
