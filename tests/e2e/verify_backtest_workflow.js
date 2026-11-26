@@ -337,7 +337,7 @@ const ensureIndustryStockTableVisible = async (page) => {
     if (table && Array.from(table.querySelectorAll('button')).some((button) => (button.textContent || '').includes('回测'))) {
       return true;
     }
-    const activePane = panel.querySelector('.ant-tabs-tabpane-active') || panel;
+    const activePane = panel.querySelector('.ant-tabs-content-active') || panel;
     if (activePane.querySelector('.ant-spin-spinning')) return false;
     const text = activePane.textContent || '';
     return text.includes('成分股明细暂不可用')
