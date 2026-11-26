@@ -427,10 +427,10 @@ const waitForRankingReady = async (page) => {
 };
 
 const readRankingSelectValues = async (page) => page.evaluate(() => ({
-  sortBy: document.querySelector('[data-testid="ranking-control-sort-by"] .ant-select-content-value')?.textContent?.trim() || '',
-  lookback: document.querySelector('[data-testid="ranking-control-lookback"] .ant-select-content-value')?.textContent?.trim() || '',
-  volatility: document.querySelector('[data-testid="ranking-control-volatility"] .ant-select-content-value')?.textContent?.trim() || '',
-  marketCap: document.querySelector('[data-testid="ranking-control-market-cap"] .ant-select-content-value')?.textContent?.trim() || '',
+  sortBy: document.querySelector('[data-testid="ranking-control-sort-by"] .ant-select-content')?.textContent?.trim() || '',
+  lookback: document.querySelector('[data-testid="ranking-control-lookback"] .ant-select-content')?.textContent?.trim() || '',
+  volatility: document.querySelector('[data-testid="ranking-control-volatility"] .ant-select-content')?.textContent?.trim() || '',
+  marketCap: document.querySelector('[data-testid="ranking-control-market-cap"] .ant-select-content')?.textContent?.trim() || '',
 }));
 
 const readRankingStateTagTexts = async (page) => page.evaluate(() => (
@@ -612,7 +612,7 @@ const chooseSelectOption = async (page, selectLocator, optionText) => {
 // observed select state on final failure for CI diagnostics.
 const setRankingSelect = async (page, controlName, optionText, options = {}) => {
   const { attempts = 3, perAttemptVerifyMs = 4000 } = options;
-  const selectionItemSelector = `.ant-tabs-content-active [data-testid="${controlName}"] .ant-select-content-value`;
+  const selectionItemSelector = `.ant-tabs-content-active [data-testid="${controlName}"] .ant-select-content`;
   const readCurrent = () => page.evaluate(
     (selector) => document.querySelector(selector)?.textContent?.trim() || '',
     selectionItemSelector,
@@ -1241,10 +1241,10 @@ const setRankingSelect = async (page, controlName, optionText, options = {}) => 
   const reloadedRankingUrl = page.url();
   const rankingTabStillActive = await page.getByRole('tab', { name: '排行榜' }).getAttribute('aria-selected');
   await page.waitForFunction(() => {
-    const sortBy = document.querySelector('[data-testid="ranking-control-sort-by"] .ant-select-content-value')?.textContent?.trim();
-    const lookback = document.querySelector('[data-testid="ranking-control-lookback"] .ant-select-content-value')?.textContent?.trim();
-    const volatility = document.querySelector('[data-testid="ranking-control-volatility"] .ant-select-content-value')?.textContent?.trim();
-    const marketCap = document.querySelector('[data-testid="ranking-control-market-cap"] .ant-select-content-value')?.textContent?.trim();
+    const sortBy = document.querySelector('[data-testid="ranking-control-sort-by"] .ant-select-content')?.textContent?.trim();
+    const lookback = document.querySelector('[data-testid="ranking-control-lookback"] .ant-select-content')?.textContent?.trim();
+    const volatility = document.querySelector('[data-testid="ranking-control-volatility"] .ant-select-content')?.textContent?.trim();
+    const marketCap = document.querySelector('[data-testid="ranking-control-market-cap"] .ant-select-content')?.textContent?.trim();
     return sortBy === '按波动率' && lookback === '近5日' && volatility === '低波动' && marketCap === '实时市值';
   }, null, { timeout: 10000 }).catch(() => {});
   const rankingSelectValues = await readRankingSelectValues(page);
