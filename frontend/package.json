@@ -12,8 +12,8 @@
     "dayjs": "^1.11.20",
     "framer-motion": "^12.40.0",
     "lightweight-charts": "^5.1.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "recharts": "^2.7.2"
   },
   "devDependencies": {
