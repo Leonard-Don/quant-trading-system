@@ -150,28 +150,28 @@ function CrossMarketDiagnosticsSection({
             <Text type="secondary"> 当前对冲构造模式</Text>
           </div>
           {results.execution_diagnostics?.concentration_reason ? (
-            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.concentration_level === 'high' ? 'warning' : 'info'} showIcon message="执行集中度提示" description={results.execution_diagnostics.concentration_reason} />
+            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.concentration_level === 'high' ? 'warning' : 'info'} showIcon title="执行集中度提示" description={results.execution_diagnostics.concentration_reason} />
           ) : null}
           {results.execution_diagnostics?.liquidity_reason ? (
-            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.liquidity_level === 'stretched' ? 'warning' : 'info'} showIcon message="流动性容量提示" description={results.execution_diagnostics.liquidity_reason} />
+            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.liquidity_level === 'stretched' ? 'warning' : 'info'} showIcon title="流动性容量提示" description={results.execution_diagnostics.liquidity_reason} />
           ) : null}
           {results.execution_diagnostics?.margin_reason ? (
-            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.margin_level === 'aggressive' ? 'warning' : 'info'} showIcon message="保证金占用提示" description={results.execution_diagnostics.margin_reason} />
+            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.margin_level === 'aggressive' ? 'warning' : 'info'} showIcon title="保证金占用提示" description={results.execution_diagnostics.margin_reason} />
           ) : null}
           {results.execution_diagnostics?.beta_reason ? (
-            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.beta_level === 'stretched' ? 'warning' : 'info'} showIcon message="Beta 中性提示" description={results.execution_diagnostics.beta_reason} />
+            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.beta_level === 'stretched' ? 'warning' : 'info'} showIcon title="Beta 中性提示" description={results.execution_diagnostics.beta_reason} />
           ) : null}
           {results.execution_diagnostics?.calendar_reason ? (
-            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.calendar_level === 'stretched' ? 'warning' : 'info'} showIcon message="多市场日历提示" description={results.execution_diagnostics.calendar_reason} />
+            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.calendar_level === 'stretched' ? 'warning' : 'info'} showIcon title="多市场日历提示" description={results.execution_diagnostics.calendar_reason} />
           ) : null}
           {results.execution_diagnostics?.cointegration_reason ? (
-            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.cointegration_level === 'weak' ? 'warning' : 'info'} showIcon message="协整关系提示" description={results.execution_diagnostics.cointegration_reason} />
+            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics?.cointegration_level === 'weak' ? 'warning' : 'info'} showIcon title="协整关系提示" description={results.execution_diagnostics.cointegration_reason} />
           ) : null}
           {Number(results.execution_diagnostics?.residual_notional || 0) > 0 ? (
-            <Alert style={{ marginTop: 16 }} type="info" showIcon message="最小交易单位提示" description={`按最新价格和最小交易单位换算后，预计有 ${formatCurrency(Number(results.execution_diagnostics?.residual_notional || 0))} 的名义金额无法精确贴合目标权重。`} />
+            <Alert style={{ marginTop: 16 }} type="info" showIcon title="最小交易单位提示" description={`按最新价格和最小交易单位换算后，预计有 ${formatCurrency(Number(results.execution_diagnostics?.residual_notional || 0))} 的名义金额无法精确贴合目标权重。`} />
           ) : null}
           {results.execution_diagnostics?.stress_test_flag ? (
-            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics.stress_test_flag === 'high' ? 'warning' : 'info'} showIcon message={`压力测试最坏情景：${stressMeta.label}`} description={results.execution_diagnostics.stress_test_reason || '已根据资金放大情景评估路由拥挤度。'} />
+            <Alert style={{ marginTop: 16 }} type={results.execution_diagnostics.stress_test_flag === 'high' ? 'warning' : 'info'} showIcon title={`压力测试最坏情景：${stressMeta.label}`} description={results.execution_diagnostics.stress_test_reason || '已根据资金放大情景评估路由拥挤度。'} />
           ) : null}
         </Panel>
       </Col>

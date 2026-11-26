@@ -186,7 +186,7 @@ vi.mock('antd', () => {
       Text: ({ children }) => <span>{children}</span>,
     },
     Progress: () => <div>progress</div>,
-    Alert: ({ message, description }) => <div>{message}{description}</div>,
+    Alert: ({ title, description }) => <div>{title}{description}</div>,
     Space: passthrough,
     Table,
     Statistic,

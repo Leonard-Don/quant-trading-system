@@ -560,7 +560,7 @@ const StrategyForm = ({ strategies, onSubmit, loading }) => {
           className="strategy-form-preflight-alert"
           type="warning"
           showIcon
-          message="当前回测区间可能太短，策略很可能不会产生交易"
+          title="当前回测区间可能太短，策略很可能不会产生交易"
           description={`按当前参数估算，这段区间大约只有 ${shortWindowWarning.estimatedTradingDays} 个交易日，而 ${shortWindowWarning.strategyLabel} 至少需要约 ${shortWindowWarning.estimatedMinBars} 个交易日才更有机会形成有效信号。`}
           style={{ marginBottom: 16 }}
         />

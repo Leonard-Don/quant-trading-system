@@ -39,7 +39,7 @@ function ResearchInsightsSection({
                     <Alert
                       type={robustnessScore.score >= 75 ? 'success' : robustnessScore.score >= 55 ? 'info' : 'warning'}
                       showIcon
-                      message={`稳健性评分 ${robustnessScore.score} / 100`}
+                      title={`稳健性评分 ${robustnessScore.score} / 100`}
                       description={`当前结论：${robustnessScore.level}稳健性。${robustnessScore.summary}`}
                     />
                     <div className="summary-strip">
@@ -73,7 +73,7 @@ function ResearchInsightsSection({
                     </div>
                     <Space orientation="vertical" style={{ width: '100%' }} size="middle">
                       {overfittingWarnings.map((warning) => (
-                        <Alert key={warning.key} type="warning" showIcon message={warning.title} description={warning.description} />
+                        <Alert key={warning.key} type="warning" showIcon title={warning.title} description={warning.description} />
                       ))}
                     </Space>
                   </div>
@@ -89,7 +89,7 @@ function ResearchInsightsSection({
                     <Alert
                       type={overfittingWarnings.length ? 'warning' : 'success'}
                       showIcon
-                      message={researchConclusion.title}
+                      title={researchConclusion.title}
                       description={researchConclusion.summary}
                     />
                     <div className="summary-strip summary-strip--stack">
@@ -116,7 +116,7 @@ function ResearchInsightsSection({
                   <Alert
                     type="info"
                     showIcon
-                    message="正在刷新市场状态分层结果"
+                    title="正在刷新市场状态分层结果"
                     description="当前先保留上一版分层表现，新的市场状态分析完成后会自动替换。"
                   />
                 ) : null}
@@ -134,7 +134,7 @@ function ResearchInsightsSection({
                     <span className="summary-strip__value">{formatPercentage(marketRegimeResult.summary?.average_regime_return ?? 0)}</span>
                   </div>
                 </div>
-                {marketRegimeInsight ? <Alert type={marketRegimeInsight.type} showIcon message={marketRegimeInsight.title} description={marketRegimeInsight.description} /> : null}
+                {marketRegimeInsight ? <Alert type={marketRegimeInsight.type} showIcon title={marketRegimeInsight.title} description={marketRegimeInsight.description} /> : null}
                 {marketRegimeChartData.length ? (
                   <div style={{ height: 280 }}>
                     <ResponsiveContainer width="100%" height="100%">

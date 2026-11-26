@@ -59,7 +59,7 @@ const OverviewTab = ({
         return <MarketAnalysisSkeleton />;
     }
     if (errorTab.overview) {
-        return <Alert message="错误" description={errorTab.overview} type="error" showIcon />;
+        return <Alert title="错误" description={errorTab.overview} type="error" showIcon />;
     }
     if (!overviewData) return <Empty description="请输入股票代码开始分析" />;
 
@@ -201,7 +201,7 @@ const OverviewTab = ({
                                         title="RSI (14)"
                                         value={technicalData.rsi?.value}
                                         precision={2}
-                                        valueStyle={{ color: getIndicatorColor(technicalData.rsi?.status) }}
+                                        styles={{ content: { color: getIndicatorColor(technicalData.rsi?.status) } }}
                                         prefix={getIndicatorIcon(technicalData.rsi?.status)}
                                     />
                                     <Text type="secondary" style={{ fontSize: 12 }}>{technicalData.rsi?.signal}</Text>
@@ -213,7 +213,7 @@ const OverviewTab = ({
                                         title="MACD"
                                         value={technicalData.macd?.value ?? technicalData.macd?.histogram}
                                         formatter={() => formatDisplayNumber(technicalData.macd?.value ?? technicalData.macd?.histogram, 4)}
-                                        valueStyle={{ color: getIndicatorColor(technicalData.macd?.status) }}
+                                        styles={{ content: { color: getIndicatorColor(technicalData.macd?.status) } }}
                                         prefix={getIndicatorIcon(technicalData.macd?.status)}
                                     />
                                     <Text type="secondary" style={{ fontSize: 12 }}>{technicalData.macd?.trend || ''}</Text>
@@ -226,7 +226,7 @@ const OverviewTab = ({
                                         value={technicalData.bollinger?.bandwidth}
                                         precision={2}
                                         suffix="%"
-                                        valueStyle={{ color: getIndicatorColor(technicalData.bollinger?.position === 'above_upper' ? 'overbought' : technicalData.bollinger?.position === 'below_lower' ? 'oversold' : 'neutral') }}
+                                        styles={{ content: { color: getIndicatorColor(technicalData.bollinger?.position === 'above_upper' ? 'overbought' : technicalData.bollinger?.position === 'below_lower' ? 'oversold' : 'neutral') } }}
                                     />
                                     <Text type="secondary" style={{ fontSize: 12 }}>{technicalData.bollinger?.signal}</Text>
                                 </Card>
@@ -234,7 +234,7 @@ const OverviewTab = ({
                             {technicalData.overall && (
                                 <Col span={24} style={{ marginTop: 12 }}>
                                     <Alert
-                                        message={`综合信号: ${technicalData.overall.signal === 'strong_buy' ? '强力买入' :
+                                        title={`综合信号: ${technicalData.overall.signal === 'strong_buy' ? '强力买入' :
                                             technicalData.overall.signal === 'buy' || technicalData.overall.signal === 'bullish' ? '看涨' :
                                                 technicalData.overall.signal === 'strong_sell' ? '强力卖出' :
                                                     technicalData.overall.signal === 'sell' || technicalData.overall.signal === 'bearish' ? '看跌' :
@@ -335,7 +335,7 @@ const OverviewTab = ({
             <Col span={24}>
                 {overviewData.risk_warnings && overviewData.risk_warnings.length > 0 && (
                     <Alert
-                        message="风险提示"
+                        title="风险提示"
                         description={
                             <ul style={{ paddingLeft: 20, margin: 0 }}>
                                 {overviewData.risk_warnings.map((w, i) => <li key={i}>{w}</li>)}

@@ -193,7 +193,7 @@ const PortfolioOptimizer = () => {
                 </Space>
             </Panel>
 
-            {error && <Alert message="错误" description={error} type="error" showIcon style={{ marginBottom: 24 }} />}
+            {error && <Alert title="错误" description={error} type="error" showIcon style={{ marginBottom: 24 }} />}
 
             {result && (
                 <Row gutter={[24, 24]}>

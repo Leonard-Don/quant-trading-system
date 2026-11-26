@@ -48,7 +48,7 @@ function CrossMarketTemplateInsights({
         <Alert
           type="info"
           showIcon
-          message={`当前模板主题：${formatTemplateTheme(selectedTemplate)}${selectedTemplate.recommendationTier ? ` · ${selectedTemplate.recommendationTier}` : ''}`}
+          title={`当前模板主题：${formatTemplateTheme(selectedTemplate)}${selectedTemplate.recommendationTier ? ` · ${selectedTemplate.recommendationTier}` : ''}`}
           description={(
             <Space orientation="vertical" size={8} style={{ width: '100%' }}>
               <Text>{formatTemplateNarrative(selectedTemplate.narrative || selectedTemplate.description)}</Text>
@@ -156,7 +156,7 @@ function CrossMarketTemplateInsights({
         <Alert
           type="success"
           showIcon
-          message={`宏观权重偏置已启用 · 强度 ${Number(appliedBiasMeta.strength || 0).toFixed(1)}pp`}
+          title={`宏观权重偏置已启用 · 强度 ${Number(appliedBiasMeta.strength || 0).toFixed(1)}pp`}
           description={(
             <Space orientation="vertical" size={6} style={{ width: '100%' }}>
               <Text>{appliedBiasMeta.summary}</Text>
@@ -252,7 +252,7 @@ function CrossMarketTemplateInsights({
         <Alert
           type={topRecommendationNeedsPriorityReview ? 'warning' : 'success'}
           showIcon
-          message={`当前首选模板：${formatTemplateName(topRecommendation)}${topRecommendationNeedsPriorityReview ? ` · ${getReviewPriorityTitleSuffix(topRecommendation?.refreshMeta)}` : ''}`}
+          title={`当前首选模板：${formatTemplateName(topRecommendation)}${topRecommendationNeedsPriorityReview ? ` · ${getReviewPriorityTitleSuffix(topRecommendation?.refreshMeta)}` : ''}`}
           description={`${topRecommendation.driverHeadline}。${
             topRecommendation.recentComparisonLead
               ? `最近两版：${topRecommendation.recentComparisonLead}。`

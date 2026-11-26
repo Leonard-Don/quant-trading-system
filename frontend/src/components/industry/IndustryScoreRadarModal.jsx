@@ -85,7 +85,7 @@ const IndustryScoreRadarModal = ({
                                 title="综合评分"
                                 value={score || 0}
                                 precision={1}
-                                valueStyle={{ color: getIndustryScoreTone(score), fontSize: 24 }}
+                                styles={{ content: { color: getIndustryScoreTone(score), fontSize: 24 } }}
                             />
                         </Col>
                         <Col xs={8}>

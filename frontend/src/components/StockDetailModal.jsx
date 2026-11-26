@@ -462,7 +462,7 @@ const StockDetailModal = ({
                     <Alert
                         showIcon
                         type="warning"
-                        message={detailData.note || '当前展示的是降级详情快照。'}
+                        title={detailData.note || '当前展示的是降级详情快照。'}
                         style={{ marginBottom: 16, borderRadius: 12 }}
                     />
                 )}

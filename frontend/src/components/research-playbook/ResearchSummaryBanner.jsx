@@ -15,7 +15,7 @@ function ResearchSummaryBanner({
     <Alert
       type={warnings.length ? 'warning' : 'info'}
       showIcon
-      message={headline || title}
+      title={headline || title}
       description={(
         <Space orientation="vertical" size={10} style={{ width: '100%' }}>
           {thesis ? (

@@ -130,7 +130,7 @@ const AIPredictionPanel = ({ symbol }) => {
     if (error) {
         return (
             <Card>
-                <Alert message="分析失败" description={error} type="error" showIcon />
+                <Alert title="分析失败" description={error} type="error" showIcon />
                 <Button type="primary" onClick={fetchPrediction} style={{ marginTop: 16 }}>重试</Button>
             </Card>
         );
@@ -269,7 +269,7 @@ const AIPredictionPanel = ({ symbol }) => {
                         value={startPrice}
                         formatter={() => hasNumericValue(startPrice) ? Number(startPrice).toFixed(2) : '--'}
                         prefix={hasNumericValue(startPrice) ? '$' : ''}
-                        valueStyle={{ color: AI_COLORS.primary, fontSize: 24 }}
+                        styles={{ content: { color: AI_COLORS.primary, fontSize: 24 } }}
                     />
                 </Card>
             </Col>
@@ -280,7 +280,7 @@ const AIPredictionPanel = ({ symbol }) => {
                         value={endPrice}
                         formatter={() => hasNumericValue(endPrice) ? Number(endPrice).toFixed(2) : '--'}
                         prefix={hasNumericValue(endPrice) ? '$' : ''}
-                        valueStyle={{ color: isPositive ? AI_COLORS.positive : AI_COLORS.negative, fontSize: 24 }}
+                        styles={{ content: { color: isPositive ? AI_COLORS.positive : AI_COLORS.negative, fontSize: 24 } }}
                     />
                 </Card>
             </Col>
@@ -290,7 +290,7 @@ const AIPredictionPanel = ({ symbol }) => {
                         title={<span style={{ color: 'var(--text-secondary)' }}>预测涨跌幅</span>}
                         value={percentChange}
                         formatter={() => hasNumericValue(percentChange) ? Number(percentChange).toFixed(2) : '--'}
-                        valueStyle={{ color: isPositive ? AI_COLORS.positive : AI_COLORS.negative, fontSize: 24 }}
+                        styles={{ content: { color: isPositive ? AI_COLORS.positive : AI_COLORS.negative, fontSize: 24 } }}
                         prefix={hasNumericValue(percentChange) ? (isPositive ? <ArrowUpOutlined /> : <ArrowDownOutlined />) : ''}
                         suffix={hasNumericValue(percentChange) ? '%' : ''}
                     />
@@ -303,7 +303,7 @@ const AIPredictionPanel = ({ symbol }) => {
                         value={agreementValue}
                         formatter={() => hasNumericValue(agreementValue) ? Number(agreementValue).toFixed(2) : '--'}
                         suffix={hasNumericValue(agreementValue) ? '%' : ''}
-                        valueStyle={{ color: AI_COLORS.secondary, fontSize: 24 }}
+                        styles={{ content: { color: AI_COLORS.secondary, fontSize: 24 } }}
                     />
                 </Card>
             </Col>
@@ -380,7 +380,7 @@ const AIPredictionPanel = ({ symbol }) => {
 
                         {!hasAnyPrediction && (
                             <Alert
-                                message="暂无可用预测结果"
+                                title="暂无可用预测结果"
                                 description="当前没有可展示的模型输出，请稍后重试或重新训练模型。"
                                 type="warning"
                                 showIcon
@@ -390,7 +390,7 @@ const AIPredictionPanel = ({ symbol }) => {
 
                         {hasPartialPrediction && (
                             <Alert
-                                message={`当前仅使用${availableModelNames[0]}结果`}
+                                title={`当前仅使用${availableModelNames[0]}结果`}
                                 description={`综合共识模式下，${unavailableModelNames.join('、')} 当前不可用，因此页面会回退为单模型结果，不再伪造 0 值预测。`}
                                 type="info"
                                 showIcon
@@ -420,7 +420,7 @@ const AIPredictionPanel = ({ symbol }) => {
                         {renderChart()}
 
                         <Alert
-                            message="风险提示"
+                            title="风险提示"
                             description="AI预测基于历史数据，不代表未来表现。LSTM 模型对参数敏感，训练需要较多数据。"
                             type="warning"
                             showIcon

@@ -72,7 +72,7 @@ function CrossMarketResultsView({
       <Alert
         type={results.total_return >= 0 ? 'success' : 'warning'}
         showIcon
-        message={`跨市场结果已生成${
+        title={`跨市场结果已生成${
           results.allocation_overlay?.selection_quality?.label && results.allocation_overlay.selection_quality.label !== 'original'
             ? ' · 复核型结果'
             : ''
@@ -96,7 +96,7 @@ function CrossMarketResultsView({
         <Alert
           type={getSelectionQualityMeta(results.allocation_overlay.selection_quality.label).type}
           showIcon
-          message={getSelectionQualityMeta(results.allocation_overlay.selection_quality.label).title}
+          title={getSelectionQualityMeta(results.allocation_overlay.selection_quality.label).title}
           description={`推荐强度 ${Number(results.allocation_overlay.selection_quality.base_recommendation_score || 0).toFixed(2)} → ${Number(results.allocation_overlay.selection_quality.effective_recommendation_score || 0).toFixed(2)}${
             results.allocation_overlay.selection_quality.base_recommendation_tier
               ? ` · ${results.allocation_overlay.selection_quality.base_recommendation_tier} → ${results.allocation_overlay.selection_quality.effective_recommendation_tier || '-'}`
@@ -125,7 +125,7 @@ function CrossMarketResultsView({
         <Alert
           type="warning"
           showIcon
-          message="数据对齐覆盖率偏低"
+          title="数据对齐覆盖率偏低"
           description={`当前可交易日覆盖率为 ${(results.data_alignment?.tradable_day_ratio || 0) * 100}% ，建议检查资产组合或放宽时间窗口。`}
         />
       ) : null}

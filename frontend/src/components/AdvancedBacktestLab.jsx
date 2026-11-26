@@ -266,7 +266,7 @@ function AdvancedBacktestLab({ strategies, onImportTemplateToMainBacktest }) {
             type="success"
             showIcon
             style={{ marginTop: 16 }}
-            message={`已同步主回测配置：${lab.importedMainDraftSummary.symbol} · ${lab.importedMainDraftSummary.strategyLabel}`}
+            title={`已同步主回测配置：${lab.importedMainDraftSummary.symbol} · ${lab.importedMainDraftSummary.strategyLabel}`}
             description={`区间 ${lab.importedMainDraftSummary.dateRangeLabel}。本次覆盖字段：${lab.importedMainDraftSummary.changedFields.join('、')}。`}
           />
         ) : null}

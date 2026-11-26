@@ -36,7 +36,7 @@ const PatternTab = ({ loadingTab, errorTab, patternData, klinesData }) => {
         return <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>;
     }
     if (errorTab.pattern) {
-        return <Alert message="错误" description={errorTab.pattern} type="error" showIcon />;
+        return <Alert title="错误" description={errorTab.pattern} type="error" showIcon />;
     }
     if (!patternData) return <Empty description="暂无形态数据" />;
 

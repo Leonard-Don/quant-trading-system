@@ -50,9 +50,9 @@ vi.mock('antd', () => {
     </section>
   );
   const Spin = () => <div>loading</div>;
-  const Alert = ({ message, description }) => (
+  const Alert = ({ title, description }) => (
     <div>
-      <div>{message}</div>
+      <div>{title}</div>
       <div>{description}</div>
     </div>
   );

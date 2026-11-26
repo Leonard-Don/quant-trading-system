@@ -264,7 +264,7 @@ function CrossMarketControlSidebar({
             <Alert
               type="warning"
               showIcon
-              message={`当前模板：${selectedTemplate ? formatTemplateName(selectedTemplate) : ''} · ${getReviewPriorityTitleSuffix(selectedTemplate?.refreshMeta) || '建议优先重看'}`}
+              title={`当前模板：${selectedTemplate ? formatTemplateName(selectedTemplate) : ''} · ${getReviewPriorityTitleSuffix(selectedTemplate?.refreshMeta) || '建议优先重看'}`}
               description={`这次运行更适合作为复核型回测，而不是普通默认模板回测。${
                 selectedTemplate?.recentComparisonLead
                   ? `最近两版：${selectedTemplate.recentComparisonLead} · `

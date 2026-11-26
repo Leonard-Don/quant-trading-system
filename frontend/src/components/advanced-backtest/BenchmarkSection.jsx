@@ -33,14 +33,14 @@ function BenchmarkSection({
             <Alert
               type="info"
               showIcon
-              message="正在刷新基准对照"
+              title="正在刷新基准对照"
               description="当前先保留上一版和买入持有的对比，新的基准结果返回后会自动替换。"
             />
           ) : null}
           <Alert
             type={benchmarkSummary?.beatBenchmark ? 'success' : 'warning'}
             showIcon
-            message={`${getStrategyName(benchmarkContext.strategy)} vs 买入持有`}
+            title={`${getStrategyName(benchmarkContext.strategy)} vs 买入持有`}
             description={
               benchmarkSummary
                 ? `${benchmarkContext.symbol} · ${benchmarkContext.dateRange?.filter(Boolean).join(' 至 ')}，超额收益 ${formatPercentage(benchmarkSummary.excessReturn)}，夏普差值 ${benchmarkSummary.sharpeDelta.toFixed(2)}，回撤差值 ${formatPercentage(-benchmarkSummary.drawdownDelta)}`

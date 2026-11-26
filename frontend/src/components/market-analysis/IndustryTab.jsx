@@ -28,7 +28,7 @@ const IndustryTab = ({ loadingTab, errorTab, industryData }) => {
         return <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>;
     }
     if (errorTab.industry) {
-        return <Alert message="错误" description={errorTab.industry} type="error" showIcon />;
+        return <Alert title="错误" description={errorTab.industry} type="error" showIcon />;
     }
     if (!industryData) return <Empty description="暂无行业对比数据" />;
 
@@ -48,7 +48,7 @@ const IndustryTab = ({ loadingTab, errorTab, industryData }) => {
         <Row gutter={[16, 16]}>
             <Col span={24}>
                 <Alert
-                    message={`行业: ${industry || DISPLAY_EMPTY} | 板块: ${sector || DISPLAY_EMPTY}`}
+                    title={`行业: ${industry || DISPLAY_EMPTY} | 板块: ${sector || DISPLAY_EMPTY}`}
                     description={`${target?.symbol || DISPLAY_EMPTY} 在同行业中 PE 排名第 ${target?.pe_rank || DISPLAY_EMPTY} 位，增长排名第 ${target?.growth_rank || DISPLAY_EMPTY} 位`}
                     type="info"
                     showIcon

@@ -30,7 +30,7 @@ const TrendTab = ({ loadingTab, errorTab, trendData }) => {
         return <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>;
     }
     if (errorTab.trend) {
-        return <Alert message="错误" description={errorTab.trend} type="error" showIcon />;
+        return <Alert title="错误" description={errorTab.trend} type="error" showIcon />;
     }
     if (!trendData) return <Empty description="暂无趋势数据" />;
 
