@@ -32,7 +32,7 @@ describe('webSocketService', () => {
   test('rejects the connect promise when the initial websocket connection closes before opening', async () => {
     let socketInstance = null;
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = jest.fn().mockImplementation(function () {
       socketInstance = {
         readyState: 0,
         close: jest.fn(),
@@ -54,7 +54,7 @@ describe('webSocketService', () => {
     let socketInstance = null;
     jest.useFakeTimers();
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = jest.fn().mockImplementation(function () {
       socketInstance = {
         readyState: 0,
         close: jest.fn(),
@@ -84,7 +84,7 @@ describe('webSocketService', () => {
     const connectionEvents = [];
     jest.useFakeTimers();
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = jest.fn().mockImplementation(function () {
       socketInstance = {
         readyState: 0,
         close: jest.fn(),
@@ -135,7 +135,7 @@ describe('webSocketService', () => {
     let sockets = [];
     jest.useFakeTimers();
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = jest.fn().mockImplementation(function () {
       const socketInstance = {
         readyState: 0,
         close: jest.fn(),
@@ -196,7 +196,7 @@ describe('webSocketService', () => {
   test('requests websocket snapshots for the current symbols when connected', async () => {
     let socketInstance = null;
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = jest.fn().mockImplementation(function () {
       socketInstance = {
         readyState: 0,
         close: jest.fn(),
@@ -225,7 +225,7 @@ describe('webSocketService', () => {
   test('can force-resend subscriptions after the socket is already connected', async () => {
     let socketInstance = null;
 
-    global.WebSocket = jest.fn().mockImplementation(() => {
+    global.WebSocket = jest.fn().mockImplementation(function () {
       socketInstance = {
         readyState: 0,
         close: jest.fn(),
