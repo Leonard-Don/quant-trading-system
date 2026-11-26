@@ -187,9 +187,9 @@ function ApiStatusIndicator() {
       title={null}
       trigger="click"
       placement="bottomRight"
-      overlayStyle={{ maxWidth: 360 }}
       styles={{
-        body: {
+        root: { maxWidth: 360 },
+        container: {
           background: 'var(--bg-secondary)',
           border: '1px solid var(--border-color)',
           borderRadius: 12,

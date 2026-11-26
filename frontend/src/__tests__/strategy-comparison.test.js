@@ -127,7 +127,7 @@ vi.mock('antd', () => {
         message: mockMessage,
       }),
     },
-    Alert: ({ message }) => <div>{message}</div>,
+    Alert: ({ title }) => <div>{title}</div>,
     Progress: ({ percent }) => <div>{percent}</div>,
     Tag: ({ children }) => <span>{children}</span>,
   };

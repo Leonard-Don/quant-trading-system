@@ -229,7 +229,7 @@ function WalkForwardForm({
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
-            message={`${getStrategyName(selectedWalkStrategy)} · ${getStrategyDetails(selectedWalkStrategy).style}`}
+            title={`${getStrategyName(selectedWalkStrategy)} · ${getStrategyDetails(selectedWalkStrategy).style}`}
             description={`${getStrategyDetails(selectedWalkStrategy).summary} ${getStrategyDetails(selectedWalkStrategy).marketFit}`}
           />
         ) : null}
@@ -292,12 +292,12 @@ function WalkForwardResults({
       ) : null}
     >
       {walkResult ? (
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
+        <Space orientation="vertical" style={{ width: '100%' }} size="large">
           {walkLoading ? (
             <Alert
               type="info"
               showIcon
-              message="正在刷新滚动前瞻结果"
+              title="正在刷新滚动前瞻结果"
               description="上一版窗口稳定性分析会先保留，新的样本外验证完成后会自动替换。"
             />
           ) : null}
@@ -322,11 +322,11 @@ function WalkForwardResults({
           <Alert
             type="info"
             showIcon
-            message={`正收益窗口 ${walkResult.aggregate_metrics?.positive_windows ?? 0} 个，负收益窗口 ${walkResult.aggregate_metrics?.negative_windows ?? 0} 个`}
+            title={`正收益窗口 ${walkResult.aggregate_metrics?.positive_windows ?? 0} 个，负收益窗口 ${walkResult.aggregate_metrics?.negative_windows ?? 0} 个`}
             description="如果窗口之间表现差异很大，就说明策略更依赖某些特定市场阶段，稳定性需要继续验证。"
           />
           {walkInsight ? (
-            <Alert type={walkInsight.type} showIcon message={walkInsight.title} description={walkInsight.description} />
+            <Alert type={walkInsight.type} showIcon title={walkInsight.title} description={walkInsight.description} />
           ) : null}
           {walkResult.monte_carlo?.available ? (
             <div className="summary-strip">
@@ -358,7 +358,7 @@ function WalkForwardResults({
                     : 'success'
               }
               showIcon
-              message={`样本外过拟合诊断：${walkResult.overfitting_diagnostics.level === 'high' ? '高风险' : walkResult.overfitting_diagnostics.level === 'medium' ? '中等风险' : '低风险'}`}
+              title={`样本外过拟合诊断：${walkResult.overfitting_diagnostics.level === 'high' ? '高风险' : walkResult.overfitting_diagnostics.level === 'medium' ? '中等风险' : '低风险'}`}
               description={(walkResult.overfitting_diagnostics.warnings || []).join('；') || '训练窗与测试窗表现没有出现明显断裂。'}
             />
           ) : null}
@@ -366,7 +366,7 @@ function WalkForwardResults({
             <Alert
               type="info"
               showIcon
-              message={`当前聚焦：窗口 ${Number(focusedWalkRecord.window_id || 0) + 1}`}
+              title={`当前聚焦：窗口 ${Number(focusedWalkRecord.window_id || 0) + 1}`}
               description={`${focusedWalkRecord.test_start} ~ ${focusedWalkRecord.test_end}，窗口收益 ${formatPercentage(getMetricValue(focusedWalkRecord, 'total_return'))}，夏普 ${Number(getMetricValue(focusedWalkRecord, 'sharpe_ratio')).toFixed(2)}，最大回撤 ${formatPercentage(getMetricValue(focusedWalkRecord, 'max_drawdown'))}`}
             />
           ) : null}

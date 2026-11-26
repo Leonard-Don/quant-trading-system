@@ -31,7 +31,7 @@ class ErrorBoundary extends React.Component {
       return (
         <Card style={{ margin: '20px' }}>
           <Alert
-            message="系统错误"
+            title="系统错误"
             description="抱歉，系统遇到了一个错误。请尝试刷新页面。"
             type="error"
             showIcon

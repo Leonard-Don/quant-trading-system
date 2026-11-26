@@ -148,7 +148,7 @@ const IndustryResearchFocusPanel = ({
                                                 percent={Math.round(factor.score)}
                                                 showInfo={false}
                                                 strokeColor={factor.color}
-                                                trailColor="rgba(0,0,0,0.06)"
+                                                railColor="rgba(0,0,0,0.06)"
                                                 size="small"
                                             />
                                         </div>

@@ -69,7 +69,7 @@ const HeatmapStatsBar = ({ data, onIndustryClick }) => {
                     <Statistic
                         title="上涨"
                         value={upCount}
-                        valueStyle={{ color: HEATMAP_POSITIVE, fontSize: 22 }}
+                        styles={{ content: { color: HEATMAP_POSITIVE, fontSize: 22 } }}
                         prefix={<RiseOutlined style={{ fontSize: 14 }} />}
                     />
                 </Col>
@@ -77,7 +77,7 @@ const HeatmapStatsBar = ({ data, onIndustryClick }) => {
                     <Statistic
                         title="下跌"
                         value={downCount}
-                        valueStyle={{ color: HEATMAP_NEGATIVE, fontSize: 22 }}
+                        styles={{ content: { color: HEATMAP_NEGATIVE, fontSize: 22 } }}
                         prefix={<FallOutlined style={{ fontSize: 14 }} />}
                     />
                 </Col>
@@ -85,7 +85,7 @@ const HeatmapStatsBar = ({ data, onIndustryClick }) => {
                     <Statistic
                         title="平盘"
                         value={flatCount}
-                        valueStyle={{ color: 'var(--text-muted)', fontSize: 22 }}
+                        styles={{ content: { color: 'var(--text-muted)', fontSize: 22 } }}
                         prefix={<DashboardOutlined style={{ fontSize: 14 }} />}
                     />
                 </Col>
@@ -98,7 +98,7 @@ const HeatmapStatsBar = ({ data, onIndustryClick }) => {
                         percent={upPercent}
                         showInfo={false}
                         strokeColor={HEATMAP_POSITIVE}
-                        trailColor={HEATMAP_NEGATIVE}
+                        railColor={HEATMAP_NEGATIVE}
                         size="small"
                     />
                 </Col>
@@ -125,7 +125,7 @@ const HeatmapStatsBar = ({ data, onIndustryClick }) => {
                     <Statistic
                         title="更新时间"
                         value={updateTimeLabel}
-                        valueStyle={{ fontSize: 13 }}
+                        styles={{ content: { fontSize: 13 } }}
                     />
                 </Col>
             </Row>

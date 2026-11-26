@@ -33,7 +33,7 @@ const FundamentalTab = ({ loadingTab, errorTab, fundamentalData, symbol }) => {
         return <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>;
     }
     if (errorTab.fundamental) {
-        return <Alert message="错误" description={errorTab.fundamental} type="error" showIcon />;
+        return <Alert title="错误" description={errorTab.fundamental} type="error" showIcon />;
     }
     if (!fundamentalData) return <Empty description="暂无基本面数据" />;
 
@@ -78,7 +78,7 @@ const FundamentalTab = ({ loadingTab, errorTab, fundamentalData, symbol }) => {
         <Row gutter={[16, 16]}>
             <Col span={24}>
                 <Alert
-                    message="基本面概览"
+                    title="基本面概览"
                     description={summary}
                     type="info"
                     showIcon
@@ -125,7 +125,7 @@ const FundamentalTab = ({ loadingTab, errorTab, fundamentalData, symbol }) => {
                         title="营收增长"
                         value={metrics.revenue_growth !== null && metrics.revenue_growth !== undefined ? Number((metrics.revenue_growth * 100).toFixed(2)) : undefined}
                         precision={2}
-                        valueStyle={{ color: metrics.revenue_growth > 0 ? '#3f8600' : '#cf1322' }}
+                        styles={{ content: { color: metrics.revenue_growth > 0 ? '#3f8600' : '#cf1322' } }}
                         prefix={metrics.revenue_growth > 0 ? <RiseOutlined /> : <FallOutlined />}
                         suffix="%"
                     />

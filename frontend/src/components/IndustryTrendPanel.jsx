@@ -373,7 +373,7 @@ const IndustryTrendPanel = ({
                     type="info"
                     showIcon
                     style={{ marginBottom: 12 }}
-                    message="首批成分股加载中"
+                    title="首批成分股加载中"
                     description={
                         showTrendFallbackStocks
                             ? '先展示行业趋势快照里的候选股，完整评分和更多明细到达后会自动替换。'
@@ -390,7 +390,7 @@ const IndustryTrendPanel = ({
                     type="info"
                     showIcon
                     style={{ marginBottom: 12 }}
-                    message={
+                    title={
                         displayedStocksReady
                             ? '当前展示已具备主要明细，完整评分后台仍在构建'
                             : (stocksRefining ? '当前为快速评分，完整评分后台计算中（大行业可能稍慢）' : '当前为快速评分')
@@ -443,7 +443,7 @@ const IndustryTrendPanel = ({
                             value={loadingStockCount || 0}
                             suffix="只"
                             prefix={<TeamOutlined />}
-                            valueStyle={COMPACT_STAT_VALUE_STYLE}
+                            styles={{ content: COMPACT_STAT_VALUE_STYLE }}
                             titleStyle={COMPACT_STAT_TITLE_STYLE}
                         />
                     </Col>
@@ -453,7 +453,7 @@ const IndustryTrendPanel = ({
                             value={loadingTotalMarketCap}
                             formatter={() => formatMarketCap(loadingTotalMarketCap)}
                             prefix={<DollarOutlined />}
-                            valueStyle={COMPACT_STAT_VALUE_STYLE}
+                            styles={{ content: COMPACT_STAT_VALUE_STYLE }}
                             titleStyle={COMPACT_STAT_TITLE_STYLE}
                         />
                     </Col>
@@ -462,7 +462,7 @@ const IndustryTrendPanel = ({
                             title="平均市盈率"
                             value={loadingAvgPe || '-'}
                             precision={2}
-                            valueStyle={COMPACT_STAT_VALUE_STYLE}
+                            styles={{ content: COMPACT_STAT_VALUE_STYLE }}
                             titleStyle={COMPACT_STAT_TITLE_STYLE}
                         />
                     </Col>
@@ -681,7 +681,7 @@ const IndustryTrendPanel = ({
                                         percent={Math.round(Number(item.value || 0) * 100)}
                                         showInfo={false}
                                         strokeColor={item.meta.color}
-                                        trailColor="rgba(0,0,0,0.06)"
+                                        railColor="rgba(0,0,0,0.06)"
                                         size="small"
                                     />
                                 </div>
@@ -772,7 +772,7 @@ const IndustryTrendPanel = ({
                 <Alert
                     type="info"
                     showIcon
-                    message="行业走势暂不可用"
+                    title="行业走势暂不可用"
                     description="当前数据源未返回行业指数历史序列，先展示横截面摘要和成分股分布。"
                 />
             )}
@@ -911,7 +911,7 @@ const IndustryTrendPanel = ({
                     type="warning"
                     showIcon
                     style={{ marginBottom: 16 }}
-                    message="当前显示的是降级行业数据"
+                    title="当前显示的是降级行业数据"
                     description={trendData.note || '成分股明细暂不可用，页面仅展示行业聚合指标。'}
                 />
             )}

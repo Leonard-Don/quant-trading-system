@@ -48,9 +48,9 @@ function CrossMarketTemplateInsights({
         <Alert
           type="info"
           showIcon
-          message={`当前模板主题：${formatTemplateTheme(selectedTemplate)}${selectedTemplate.recommendationTier ? ` · ${selectedTemplate.recommendationTier}` : ''}`}
+          title={`当前模板主题：${formatTemplateTheme(selectedTemplate)}${selectedTemplate.recommendationTier ? ` · ${selectedTemplate.recommendationTier}` : ''}`}
           description={(
-            <Space direction="vertical" size={8} style={{ width: '100%' }}>
+            <Space orientation="vertical" size={8} style={{ width: '100%' }}>
               <Text>{formatTemplateNarrative(selectedTemplate.narrative || selectedTemplate.description)}</Text>
               {selectedTemplate.driverHeadline ? (
                 <Text type="secondary">{selectedTemplate.driverHeadline}</Text>
@@ -156,9 +156,9 @@ function CrossMarketTemplateInsights({
         <Alert
           type="success"
           showIcon
-          message={`宏观权重偏置已启用 · 强度 ${Number(appliedBiasMeta.strength || 0).toFixed(1)}pp`}
+          title={`宏观权重偏置已启用 · 强度 ${Number(appliedBiasMeta.strength || 0).toFixed(1)}pp`}
           description={(
-            <Space direction="vertical" size={6} style={{ width: '100%' }}>
+            <Space orientation="vertical" size={6} style={{ width: '100%' }}>
               <Text>{appliedBiasMeta.summary}</Text>
               {appliedBiasMeta.qualityLabel && appliedBiasMeta.qualityLabel !== 'full' ? (
                 <Text type="secondary">偏置收缩 {formatBiasQualityLabel(appliedBiasMeta.qualityLabel)} · {appliedBiasMeta.qualityReason}</Text>
@@ -234,7 +234,7 @@ function CrossMarketTemplateInsights({
 
       {effectiveTemplate?.dominantDrivers?.length ? (
         <Panel title="主题结论">
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          <Space orientation="vertical" size={8} style={{ width: '100%' }}>
             <Text>{formatSignalList(effectiveTemplate.themeCore) || '暂无主题核心腿'}</Text>
             <Text type="secondary">辅助腿：{formatSignalList(effectiveTemplate.themeSupport) || '无'}</Text>
             <Space wrap size={[6, 6]}>
@@ -252,7 +252,7 @@ function CrossMarketTemplateInsights({
         <Alert
           type={topRecommendationNeedsPriorityReview ? 'warning' : 'success'}
           showIcon
-          message={`当前首选模板：${formatTemplateName(topRecommendation)}${topRecommendationNeedsPriorityReview ? ` · ${getReviewPriorityTitleSuffix(topRecommendation?.refreshMeta)}` : ''}`}
+          title={`当前首选模板：${formatTemplateName(topRecommendation)}${topRecommendationNeedsPriorityReview ? ` · ${getReviewPriorityTitleSuffix(topRecommendation?.refreshMeta)}` : ''}`}
           description={`${topRecommendation.driverHeadline}。${
             topRecommendation.recentComparisonLead
               ? `最近两版：${topRecommendation.recentComparisonLead}。`

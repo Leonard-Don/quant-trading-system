@@ -658,7 +658,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
                     <Alert
                       type="warning"
                       showIcon
-                      message="这次回测没有形成有效成交结果"
+                      title="这次回测没有形成有效成交结果"
                       description={noTradeDescription}
                     />
                     <div className="results-note-grid" style={{ marginTop: 12 }}>
@@ -767,7 +767,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
               <Alert
                 type="info"
                 showIcon
-                message={`本次回测按 ${executionDiagnosticItems[0]?.value || '默认执行'} 运行`}
+                title={`本次回测按 ${executionDiagnosticItems[0]?.value || '默认执行'} 运行`}
                 description={
                   executionDiagnostics.configured_signal_mode && executionDiagnostics.configured_signal_mode !== executionDiagnostics.resolved_signal_mode
                     ? `原始配置为 ${executionDiagnostics.configured_signal_mode}，引擎最终按 ${executionDiagnostics.resolved_signal_mode} 解释信号。`
@@ -868,7 +868,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
                   <Alert
                     type={marketRegimeInsight.type}
                     showIcon
-                    message={marketRegimeInsight.title}
+                    title={marketRegimeInsight.title}
                     description={marketRegimeInsight.description}
                   />
                 ) : null}
@@ -904,7 +904,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
               <Alert
                 type="info"
                 showIcon
-                message="还没有市场状态结论"
+                title="还没有市场状态结论"
                 description="点击“分析市场状态”后，结果页会直接告诉你这个策略更适合上涨、下跌还是震荡行情。"
               />
             )}
@@ -1008,7 +1008,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
                 <Alert
                   type="info"
                   showIcon
-                  message="尚未生成市场状态分层结果"
+                  title="尚未生成市场状态分层结果"
                   description="先在概览页点击“分析市场状态”，这里就会补出完整分层明细。"
                 />
               )}
@@ -1100,7 +1100,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
-            message="正在基于新配置刷新回测结果"
+            title="正在基于新配置刷新回测结果"
             description="当前先保留上一版分析面板，等新结果返回后会自动替换。"
           />
         ) : null}

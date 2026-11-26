@@ -8,7 +8,6 @@ import {
     Row,
     Col,
     Tag,
-    List,
     Typography,
     Alert,
     Space,
@@ -17,6 +16,7 @@ import {
     Spin,
     Tooltip,
 } from 'antd';
+import SimpleList from '../common/SimpleList';
 import {
     RiseOutlined,
     FallOutlined,
@@ -30,7 +30,7 @@ const TrendTab = ({ loadingTab, errorTab, trendData }) => {
         return <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>;
     }
     if (errorTab.trend) {
-        return <Alert message="错误" description={errorTab.trend} type="error" showIcon />;
+        return <Alert title="错误" description={errorTab.trend} type="error" showIcon />;
     }
     if (!trendData) return <Empty description="暂无趋势数据" />;
 
@@ -114,11 +114,11 @@ const TrendTab = ({ loadingTab, errorTab, trendData }) => {
                                 </div>
                             </Col>
                             <Col span={16}>
-                                <List
+                                <SimpleList
                                     grid={{ gutter: 16, column: 3 }}
                                     dataSource={Object.entries(trend_analysis.fibonacci_levels.levels).sort((a, b) => parseFloat(b[1]) - parseFloat(a[1]))}
                                     renderItem={([level, price]) => (
-                                        <List.Item>
+                                        <SimpleList.Item>
                                             <Card size="small" styles={{ body: { padding: '8px', background: trend_analysis.fibonacci_levels.nearest_level === level ? '#e6f7ff' : 'transparent' } }}>
                                                 <div style={{ fontSize: '12px', color: '#888' }}>
                                                     Fib {level}
@@ -133,7 +133,7 @@ const TrendTab = ({ loadingTab, errorTab, trendData }) => {
                                                     {price.toFixed(2)}
                                                 </div>
                                             </Card>
-                                        </List.Item>
+                                        </SimpleList.Item>
                                     )}
                                 />
                             </Col>
@@ -144,24 +144,24 @@ const TrendTab = ({ loadingTab, errorTab, trendData }) => {
 
             <Col span={12}>
                 <Card title="支撑位">
-                    <List
+                    <SimpleList
                         dataSource={support_levels}
                         renderItem={level => (
-                            <List.Item>
+                            <SimpleList.Item>
                                 <Text type="success" strong>{level}</Text>
-                            </List.Item>
+                            </SimpleList.Item>
                         )}
                     />
                 </Card>
             </Col>
             <Col span={12}>
                 <Card title="阻力位">
-                    <List
+                    <SimpleList
                         dataSource={resistance_levels}
                         renderItem={level => (
-                            <List.Item>
+                            <SimpleList.Item>
                                 <Text type="danger" strong>{level}</Text>
-                            </List.Item>
+                            </SimpleList.Item>
                         )}
                     />
                 </Card>

@@ -12,7 +12,6 @@ import {
     Row,
     Col,
     Tag,
-    List,
     Typography,
     Alert,
     Space,
@@ -22,6 +21,7 @@ import {
     Popover,
     Tooltip,
 } from 'antd';
+import SimpleList from '../common/SimpleList';
 import {
     RiseOutlined,
     FallOutlined,
@@ -59,7 +59,7 @@ const OverviewTab = ({
         return <MarketAnalysisSkeleton />;
     }
     if (errorTab.overview) {
-        return <Alert message="错误" description={errorTab.overview} type="error" showIcon />;
+        return <Alert title="错误" description={errorTab.overview} type="error" showIcon />;
     }
     if (!overviewData) return <Empty description="请输入股票代码开始分析" />;
 
@@ -89,11 +89,11 @@ const OverviewTab = ({
     };
 
     const scoreExplanationContent = (
-        <List
+        <SimpleList
             size="small"
             dataSource={overviewData.score_explanation || []}
             renderItem={item => (
-                <List.Item style={{ padding: '8px 0' }}>
+                <SimpleList.Item style={{ padding: '8px 0' }}>
                     <div style={{ width: '100%' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                             <Text strong>{item.dimension}</Text>
@@ -103,7 +103,7 @@ const OverviewTab = ({
                         </div>
                         <Text type="secondary" style={{ fontSize: '12px' }}>{item.reason}</Text>
                     </div>
-                </List.Item>
+                </SimpleList.Item>
             )}
             style={{ width: 320 }}
         />
@@ -135,7 +135,7 @@ const OverviewTab = ({
                         </div>
                     </Popover>
                     <div style={{ textAlign: 'center', marginTop: 16 }}>
-                        <Space direction="vertical">
+                        <Space orientation="vertical">
                             <Text type="secondary">投资建议</Text>
                             <Tooltip title={overviewData.recommendation_reasons?.length ? recommendationReasonContent : ''}>
                                 <RecommendationTag recommendation={overviewData.recommendation} />
@@ -156,17 +156,17 @@ const OverviewTab = ({
 
             <Col xs={24} md={8}>
                 <Card title="关键信号" variant="borderless">
-                    <List
+                    <SimpleList
                         dataSource={overviewData.key_signals}
                         renderItem={item => (
-                            <List.Item>
+                            <SimpleList.Item>
                                 <Space>
                                     <Tag color={item.importance === 'high' ? 'red' : 'blue'}>
                                         {item.type}
                                     </Tag>
                                     <Text>{item.signal}</Text>
                                 </Space>
-                            </List.Item>
+                            </SimpleList.Item>
                         )}
                     />
                 </Card>
@@ -201,7 +201,7 @@ const OverviewTab = ({
                                         title="RSI (14)"
                                         value={technicalData.rsi?.value}
                                         precision={2}
-                                        valueStyle={{ color: getIndicatorColor(technicalData.rsi?.status) }}
+                                        styles={{ content: { color: getIndicatorColor(technicalData.rsi?.status) } }}
                                         prefix={getIndicatorIcon(technicalData.rsi?.status)}
                                     />
                                     <Text type="secondary" style={{ fontSize: 12 }}>{technicalData.rsi?.signal}</Text>
@@ -213,7 +213,7 @@ const OverviewTab = ({
                                         title="MACD"
                                         value={technicalData.macd?.value ?? technicalData.macd?.histogram}
                                         formatter={() => formatDisplayNumber(technicalData.macd?.value ?? technicalData.macd?.histogram, 4)}
-                                        valueStyle={{ color: getIndicatorColor(technicalData.macd?.status) }}
+                                        styles={{ content: { color: getIndicatorColor(technicalData.macd?.status) } }}
                                         prefix={getIndicatorIcon(technicalData.macd?.status)}
                                     />
                                     <Text type="secondary" style={{ fontSize: 12 }}>{technicalData.macd?.trend || ''}</Text>
@@ -226,7 +226,7 @@ const OverviewTab = ({
                                         value={technicalData.bollinger?.bandwidth}
                                         precision={2}
                                         suffix="%"
-                                        valueStyle={{ color: getIndicatorColor(technicalData.bollinger?.position === 'above_upper' ? 'overbought' : technicalData.bollinger?.position === 'below_lower' ? 'oversold' : 'neutral') }}
+                                        styles={{ content: { color: getIndicatorColor(technicalData.bollinger?.position === 'above_upper' ? 'overbought' : technicalData.bollinger?.position === 'below_lower' ? 'oversold' : 'neutral') } }}
                                     />
                                     <Text type="secondary" style={{ fontSize: 12 }}>{technicalData.bollinger?.signal}</Text>
                                 </Card>
@@ -234,7 +234,7 @@ const OverviewTab = ({
                             {technicalData.overall && (
                                 <Col span={24} style={{ marginTop: 12 }}>
                                     <Alert
-                                        message={`综合信号: ${technicalData.overall.signal === 'strong_buy' ? '强力买入' :
+                                        title={`综合信号: ${technicalData.overall.signal === 'strong_buy' ? '强力买入' :
                                             technicalData.overall.signal === 'buy' || technicalData.overall.signal === 'bullish' ? '看涨' :
                                                 technicalData.overall.signal === 'strong_sell' ? '强力卖出' :
                                                     technicalData.overall.signal === 'sell' || technicalData.overall.signal === 'bearish' ? '看跌' :
@@ -264,7 +264,7 @@ const OverviewTab = ({
                     {(!eventData || (!eventData.earnings && !eventData.dividends && !eventData.news?.length)) ? (
                         <Empty description="暂无近期重要事件" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                     ) : (
-                        <List
+                        <SimpleList
                             grid={{ gutter: 16, xs: 1, sm: 2, md: 3 }}
                             dataSource={[
                                 {
@@ -317,15 +317,15 @@ const OverviewTab = ({
                                 } : null
                             ].filter(Boolean)}
                             renderItem={item => (
-                                <List.Item>
+                                <SimpleList.Item>
                                     <Card size="small" variant="borderless">
-                                        <List.Item.Meta
+                                        <SimpleList.Item.Meta
                                             avatar={item.icon}
                                             title={item.title}
                                             description={item.content}
                                         />
                                     </Card>
-                                </List.Item>
+                                </SimpleList.Item>
                             )}
                         />
                     )}
@@ -335,7 +335,7 @@ const OverviewTab = ({
             <Col span={24}>
                 {overviewData.risk_warnings && overviewData.risk_warnings.length > 0 && (
                     <Alert
-                        message="风险提示"
+                        title="风险提示"
                         description={
                             <ul style={{ paddingLeft: 20, margin: 0 }}>
                                 {overviewData.risk_warnings.map((w, i) => <li key={i}>{w}</li>)}

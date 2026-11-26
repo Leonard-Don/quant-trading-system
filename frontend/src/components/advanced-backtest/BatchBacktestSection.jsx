@@ -227,7 +227,7 @@ function BatchBacktestForm({
                       ))}
                     </Row>
                   ) : (
-                    <Alert message="该策略没有额外参数，将按默认规则执行。" type="info" showIcon />
+                    <Alert title="该策略没有额外参数，将按默认规则执行。" type="info" showIcon />
                   )}
                 </div>
               );
@@ -270,16 +270,16 @@ function BatchBacktestResults({
       ) : null}
     >
       {batchResult ? (
-        <Space direction="vertical" style={{ width: '100%' }} size="large">
+        <Space orientation="vertical" style={{ width: '100%' }} size="large">
           {batchLoading ? (
             <Alert
               type="info"
               showIcon
-              message={`正在刷新：${batchPendingMeta?.title || batchExperimentMeta.title}`}
+              title={`正在刷新：${batchPendingMeta?.title || batchExperimentMeta.title}`}
               description="当前先保留上一版结果，新的批量实验完成后会自动替换。"
             />
           ) : null}
-          <Alert type="info" showIcon message={batchExperimentMeta.title} description={batchExperimentMeta.description} />
+          <Alert type="info" showIcon title={batchExperimentMeta.title} description={batchExperimentMeta.description} />
           <div className="summary-strip">
             <div className="summary-strip__item">
               <span className="summary-strip__label">总任务数</span>
@@ -302,18 +302,18 @@ function BatchBacktestResults({
             <Alert
               type="success"
               showIcon
-              message={`当前最佳策略：${getStrategyName(batchResult.summary.best_result.strategy)}`}
+              title={`当前最佳策略：${getStrategyName(batchResult.summary.best_result.strategy)}`}
               description={`总收益 ${formatPercentage(batchResult.summary.best_result.total_return || 0)}，夏普 ${Number(batchResult.summary.best_result.sharpe_ratio || 0).toFixed(2)}`}
             />
           ) : null}
           {batchInsight ? (
-            <Alert type={batchInsight.type} showIcon message={batchInsight.title} description={batchInsight.description} />
+            <Alert type={batchInsight.type} showIcon title={batchInsight.title} description={batchInsight.description} />
           ) : null}
           {focusedBatchRecord ? (
             <Alert
               type="info"
               showIcon
-              message={`当前聚焦：${getStrategyName(focusedBatchRecord.strategy)} · ${focusedBatchRecord.symbol}`}
+              title={`当前聚焦：${getStrategyName(focusedBatchRecord.strategy)} · ${focusedBatchRecord.symbol}`}
               description={`总收益 ${formatPercentage(getMetricValue(focusedBatchRecord, 'total_return'))}，夏普 ${Number(getMetricValue(focusedBatchRecord, 'sharpe_ratio')).toFixed(2)}，最终价值 ${formatCurrency(getMetricValue(focusedBatchRecord, 'final_value'))}`}
             />
           ) : null}

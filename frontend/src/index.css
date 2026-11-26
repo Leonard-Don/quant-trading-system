@@ -691,8 +691,8 @@ code {
   margin-bottom: 12px !important;
 }
 
-.industry-scan-insight-shell .ant-tabs-content-holder,
-.industry-scan-insight-shell .ant-tabs-tabpane {
+.industry-scan-insight-shell .ant-tabs-body-holder,
+.industry-scan-insight-shell .ant-tabs-content {
   min-width: 0;
 }
 
@@ -986,14 +986,14 @@ code {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-.ranking-toolbar-group .ant-select-selector,
+.ranking-toolbar-group .ant-select:not(.ant-select-customize-input),
 .ranking-toolbar-group .ant-radio-button-wrapper {
   background: color-mix(in srgb, var(--bg-primary) 34%, var(--bg-secondary) 66%) !important;
   border-color: var(--border-color) !important;
   color: var(--text-primary) !important;
 }
 
-.ranking-toolbar-group .ant-select-arrow,
+.ranking-toolbar-group .ant-select-suffix,
 .ranking-toolbar-group .ant-radio-button-wrapper .anticon {
   color: var(--text-muted) !important;
 }
@@ -1201,7 +1201,7 @@ h6 {
 /* 6. Inputs & Form */
 .ant-input,
 .ant-input-number,
-.ant-select-selector,
+.ant-select:not(.ant-select-customize-input),
 .ant-picker {
   background: rgba(15, 23, 42, 0.6) !important;
   border: 1px solid var(--border-color) !important;
@@ -1212,7 +1212,7 @@ h6 {
 
 .ant-input:hover,
 .ant-input-number:hover,
-.ant-select-selector:hover,
+.ant-select:not(.ant-select-customize-input):hover,
 .ant-picker:hover {
   border-color: var(--text-muted) !important;
 }
@@ -1220,7 +1220,7 @@ h6 {
 .ant-input:focus,
 .ant-input-focused,
 .ant-input-number-focused,
-.ant-select-focused .ant-select-selector,
+.ant-select-focused:not(.ant-select-customize-input),
 .ant-picker-focused {
   border-color: var(--accent-primary) !important;
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.2) !important;
@@ -1291,8 +1291,8 @@ h6 {
 }
 
 /* 10. Modal & Popover */
-.ant-modal-content,
-.ant-popover-inner {
+.ant-modal-container,
+.ant-popover-container {
   background: var(--bg-secondary) !important;
   border: 1px solid var(--border-color);
   box-shadow: var(--shadow-lg) !important;
@@ -1331,7 +1331,7 @@ h6 {
 }
 
 /* Search Input Button fix */
-.ant-input-search-button {
+.ant-input-search-btn {
   background: var(--bg-tertiary) !important;
   border-color: var(--border-color) !important;
 }
@@ -1396,11 +1396,12 @@ a {
 .ant-input,
 .ant-input-number-input,
 .ant-select-selection-item,
-.ant-select-selection-search-input {
+.ant-select-single .ant-select-content,
+.ant-select-input {
   color: var(--text-primary) !important;
 }
 
-.ant-select-selection-placeholder,
+.ant-select-placeholder,
 .ant-input::placeholder {
   color: var(--text-muted) !important;
 }
@@ -1457,7 +1458,7 @@ a {
 
 /* Overrides end */
 /* Notification & Message */
-.ant-message-notice-content {
+.ant-message-notice {
   background: var(--bg-secondary) !important;
   border: 1px solid var(--border-color);
   color: var(--text-primary);
@@ -1546,7 +1547,7 @@ a {
   border: 1px solid rgba(56, 189, 248, 0.2) !important;
 }
 
-.ant-alert-message {
+.ant-alert-title {
   color: var(--text-primary) !important;
 }
 
@@ -1603,7 +1604,7 @@ a {
 }
 
 /* 2. Drawer 抽屉组件 - 适配深色主题 */
-.ant-drawer-content {
+.ant-drawer-section {
   background: var(--bg-secondary) !important;
 }
 
@@ -1650,7 +1651,7 @@ a {
   color: var(--text-primary) !important;
 }
 
-.ant-collapse-content {
+.ant-collapse-panel {
   background: transparent !important;
   border-color: var(--border-color) !important;
   color: var(--text-primary) !important;
@@ -1662,13 +1663,13 @@ a {
 }
 
 /* 7. Tooltip 提示框 */
-.ant-tooltip-inner {
+.ant-tooltip-container {
   background: var(--bg-tertiary) !important;
   color: var(--text-primary) !important;
 }
 
 /* 8. Popconfirm 弹出确认框 */
-.ant-popconfirm-message-title {
+.ant-popconfirm-title {
   color: var(--text-primary) !important;
 }
 
@@ -1692,7 +1693,7 @@ a {
 }
 
 /* 12. 进度条文字 */
-.ant-progress-text {
+.ant-progress-indicator {
   color: var(--text-primary) !important;
 }
 
@@ -1772,7 +1773,7 @@ a {
 /* 1. Placeholder 文字颜色增强 - 确保可见 */
 .ant-input::placeholder,
 .ant-input-number-input::placeholder,
-.ant-select-selection-placeholder,
+.ant-select-placeholder,
 .ant-picker-input input::placeholder {
   color: var(--text-muted) !important;
   opacity: 1 !important;
@@ -1799,7 +1800,7 @@ a {
   min-width: 160px;
 }
 
-.ant-select-single .ant-select-selector {
+.ant-select-single:not(.ant-select-customize-input) {
   min-height: 32px;
   display: flex;
   align-items: center;
@@ -1823,7 +1824,7 @@ a {
   padding: 8px 12px !important;
 }
 
-.ant-input-search .ant-input-group-addon .ant-btn {
+.ant-input-search .ant-input-search-btn {
   min-width: 80px;
 }
 
@@ -1906,7 +1907,7 @@ a {
   padding: 12px 16px !important;
 }
 
-.ant-alert-message {
+.ant-alert-title {
   font-weight: 500;
 }
 
@@ -1925,27 +1926,26 @@ a {
 }
 
 /* 18. 增强 InputNumber 按钮可见性 */
-.ant-input-number-handler-wrap {
+.ant-input-number-actions {
   background: var(--bg-tertiary) !important;
   border-left: 1px solid var(--border-color) !important;
 }
 
-.ant-input-number-handler {
+.ant-input-number-action {
   border-color: var(--border-color) !important;
 }
 
-.ant-input-number-handler:hover {
+.ant-input-number-action:hover {
   height: 50% !important;
   background: rgba(56, 189, 248, 0.1) !important;
 }
 
-.ant-input-number-handler-up-inner,
-.ant-input-number-handler-down-inner {
+.ant-input-number-action .anticon {
   color: var(--text-secondary) !important;
 }
 
 /* 19. Tooltip 内边距 */
-.ant-tooltip-inner {
+.ant-tooltip-container {
   padding: 8px 12px !important;
   max-width: 300px;
 }
@@ -1958,7 +1958,7 @@ a {
   padding: 10px 14px !important;
 }
 
-.ant-popover-inner-content {
+.ant-popover-content {
   color: var(--text-secondary) !important;
   padding: 12px 14px !important;
 }
@@ -2239,7 +2239,7 @@ a {
 /* ===== 8. 输入框聚焦增强 ===== */
 .ant-input:focus,
 .ant-input-number:focus-within,
-.ant-select-focused .ant-select-selector,
+.ant-select-focused:not(.ant-select-customize-input),
 .ant-picker-focused {
   border-color: var(--accent-primary) !important;
   box-shadow:
@@ -2269,7 +2269,7 @@ a {
 }
 
 /* ===== 10. Modal 增强 ===== */
-.ant-modal-content {
+.ant-modal-container {
   border-radius: 16px !important;
   overflow: hidden;
 }
@@ -2347,11 +2347,11 @@ a {
 /* ===== 16. 状态徽章增强 ===== */
 
 /* ===== 17. 进度指示器 ===== */
-.ant-progress-inner {
+.ant-progress-rail {
   background: var(--bg-tertiary) !important;
 }
 
-.ant-progress-bg {
+.ant-progress-track {
   background: var(--gradient-primary) !important;
 }
 
@@ -2403,7 +2403,7 @@ a {
 }
 
 /* ===== 21. 通知和消息增强 ===== */
-.ant-message-notice-content {
+.ant-message-notice {
   border-radius: 8px !important;
   box-shadow: var(--shadow-lg) !important;
 }
@@ -2414,7 +2414,7 @@ a {
   border-radius: 12px !important;
 }
 
-.ant-notification-notice-message {
+.ant-notification-notice-title {
   color: var(--text-primary) !important;
 }
 
@@ -2875,7 +2875,7 @@ a {
   align-items: center;
 }
 
-.backtest-data-health-panel__alert .ant-alert-message {
+.backtest-data-health-panel__alert .ant-alert-title {
   font-size: 13px;
   font-weight: 700;
 }
@@ -3159,7 +3159,7 @@ a {
 }
 
 .strategy-form-grid .ant-input,
-.strategy-form-grid .ant-select-selector,
+.strategy-form-grid .ant-select:not(.ant-select-customize-input),
 .strategy-form-grid .ant-input-number,
 .strategy-form-grid .ant-picker {
   min-height: 44px;
@@ -4088,7 +4088,7 @@ a {
 /* ===== 30. 焦点可见性增强 (无障碍) ===== */
 .ant-btn:focus-visible,
 .ant-input:focus-visible,
-.ant-select:focus-visible .ant-select-selector {
+.ant-select:has(.ant-select-input:focus-visible) {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
 }
@@ -4660,7 +4660,7 @@ a {
 
 /* ===== 7. 下拉菜单和选择框溢出控制 ===== */
 
-.ant-select-selection-overflow {
+.ant-select-multiple .ant-select-content {
   flex-wrap: wrap;
   max-height: 100px;
   overflow-y: auto;
@@ -4710,24 +4710,24 @@ a {
 
 /* ===== 11. 进度条和仪表盘 ===== */
 
-.ant-progress-dashboard .ant-progress-text {
+.ant-progress-dashboard .ant-progress-indicator {
   font-size: 18px !important;
   overflow: visible;
 }
 
 /* 防止仪表盘文字溢出 */
-.ant-progress-inner {
+.ant-progress-body {
   overflow: visible !important;
 }
 
 /* ===== 12. 警告和提示框 ===== */
 
-.ant-alert-content {
+.ant-alert-section {
   overflow: hidden;
   word-wrap: break-word;
 }
 
-.ant-alert-message,
+.ant-alert-title,
 .ant-alert-description {
   word-break: break-word;
 }
@@ -4969,7 +4969,7 @@ a {
 /* App-wide form controls — were a dark slate fill on a light page. */
 [data-theme='light'] .ant-input,
 [data-theme='light'] .ant-input-number,
-[data-theme='light'] .ant-select-selector,
+[data-theme='light'] .ant-select:not(.ant-select-customize-input),
 [data-theme='light'] .ant-picker,
 [data-theme='light'] .ant-input-affix-wrapper {
   background: var(--bg-secondary) !important;

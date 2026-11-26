@@ -8,7 +8,6 @@ import {
     Row,
     Col,
     Tag,
-    List,
     Typography,
     Progress,
     Alert,
@@ -16,6 +15,7 @@ import {
     Empty,
     Spin,
 } from 'antd';
+import SimpleList from '../common/SimpleList';
 import {
     RiseOutlined,
     FallOutlined,
@@ -44,7 +44,7 @@ const VolumeTab = ({ loadingTab, errorTab, volumeData, symbol }) => {
         return <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>;
     }
     if (errorTab.volume) {
-        return <Alert message="错误" description={errorTab.volume} type="error" showIcon />;
+        return <Alert title="错误" description={errorTab.volume} type="error" showIcon />;
     }
     if (!volumeData) return <Empty description="暂无量价数据" />;
 
@@ -83,7 +83,7 @@ const VolumeTab = ({ loadingTab, errorTab, volumeData, symbol }) => {
                     <Statistic
                         title="当前成交量趋势"
                         value={VOLUME_TREND_MAP[volumeTrend.trend] || volumeTrend.trend || '数据不足'}
-                        valueStyle={{ color: volumeTrend.direction === 'expanding' ? '#ff3030' : '#00b578' }}
+                        styles={{ content: { color: volumeTrend.direction === 'expanding' ? '#ff3030' : '#00b578' } }}
                         prefix={volumeTrend.direction === 'expanding' ? <RiseOutlined /> : <FallOutlined />}
                     />
                     <div style={{ marginTop: 10 }}>
@@ -162,7 +162,7 @@ const VolumeTab = ({ loadingTab, errorTab, volumeData, symbol }) => {
                     <Statistic
                         title="OBV 趋势"
                         value={obv_analysis.obv_trend === 'bullish' ? '看涨' : obv_analysis.obv_trend === 'bearish' ? '看跌' : '中性'}
-                        valueStyle={{ color: obv_analysis.obv_trend === 'bullish' ? '#ff3030' : '#00b578' }}
+                        styles={{ content: { color: obv_analysis.obv_trend === 'bullish' ? '#ff3030' : '#00b578' } }}
                     />
                     <div style={{ marginTop: 10 }}>
                         <Text>20日变化率: </Text>
@@ -174,17 +174,17 @@ const VolumeTab = ({ loadingTab, errorTab, volumeData, symbol }) => {
             </Col>
             <Col span={24}>
                 <Card title="量价形态">
-                    <List
+                    <SimpleList
                         grid={{ gutter: 16, column: 2 }}
                         dataSource={volume_patterns.patterns}
                         renderItem={item => (
-                            <List.Item>
+                            <SimpleList.Item>
                                 <Alert
-                                    message={item.description}
+                                    title={item.description}
                                     type={item.signal === 'bullish' || item.signal === 'potential_bottom' ? 'success' : 'warning'}
                                     showIcon
                                 />
-                            </List.Item>
+                            </SimpleList.Item>
                         )}
                         locale={{ emptyText: '未识别到明显量价形态' }}
                     />

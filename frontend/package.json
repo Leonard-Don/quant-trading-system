@@ -5,9 +5,9 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@ant-design/icons": "^5.1.4",
+    "@ant-design/icons": "^6.3.4",
     "@fontsource/inter": "^5.2.8",
-    "antd": "^5.7.0",
+    "antd": "^6.7.2",
     "axios": "^1.15.1",
     "dayjs": "^1.11.20",
     "framer-motion": "^12.40.0",

@@ -14,6 +14,7 @@ describe('IndustryHeatmap history fallback', () => {
   beforeAll(() => {
     global.ResizeObserver = class ResizeObserver {
       observe() {}
+      unobserve() {}
       disconnect() {}
     };
     const createMediaQueryList = (query) => {
@@ -246,8 +247,8 @@ describe('IndustryHeatmap history fallback', () => {
     // pick a different timeframe.
     const timeframeSelect = container.querySelector('.heatmap-control-timeframe');
     expect(timeframeSelect).toBeTruthy();
-    const combobox = timeframeSelect.querySelector('.ant-select-selector');
-    fireEvent.mouseDown(combobox);
+    // antd 6 renders the Select root itself as the clickable box.
+    fireEvent.mouseDown(timeframeSelect);
 
     const option = await screen.findByText('5日');
     fireEvent.click(option);

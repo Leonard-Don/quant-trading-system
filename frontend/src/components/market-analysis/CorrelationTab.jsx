@@ -21,7 +21,7 @@ const CorrelationTab = ({ loadingTab, errorTab, correlationData }) => {
         return <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>;
     }
     if (errorTab.correlation) {
-        return <Alert message="错误" description={errorTab.correlation} type="error" showIcon />;
+        return <Alert title="错误" description={errorTab.correlation} type="error" showIcon />;
     }
     if (!correlationData) return <Empty description="暂无相关性分析数据" />;
 
@@ -78,7 +78,7 @@ const CorrelationTab = ({ loadingTab, errorTab, correlationData }) => {
         <Row gutter={[16, 16]}>
             <Col span={24}>
                 <Alert
-                    message="股票相关性分析"
+                    title="股票相关性分析"
                     description="显示选定股票之间的价格走势相关性。相关系数范围 -1 到 1，正值表示正相关，负值表示负相关。"
                     type="info"
                     showIcon

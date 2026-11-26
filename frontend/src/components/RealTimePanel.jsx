@@ -1442,7 +1442,7 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
       <Drawer
         title="价格提醒"
         placement="right"
-        width={720}
+        size={720}
         onClose={handleCloseAlerts}
         open={isAlertsDrawerVisible}
       >

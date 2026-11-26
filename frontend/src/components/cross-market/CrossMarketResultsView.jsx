@@ -72,7 +72,7 @@ function CrossMarketResultsView({
       <Alert
         type={results.total_return >= 0 ? 'success' : 'warning'}
         showIcon
-        message={`跨市场结果已生成${
+        title={`跨市场结果已生成${
           results.allocation_overlay?.selection_quality?.label && results.allocation_overlay.selection_quality.label !== 'original'
             ? ' · 复核型结果'
             : ''
@@ -96,7 +96,7 @@ function CrossMarketResultsView({
         <Alert
           type={getSelectionQualityMeta(results.allocation_overlay.selection_quality.label).type}
           showIcon
-          message={getSelectionQualityMeta(results.allocation_overlay.selection_quality.label).title}
+          title={getSelectionQualityMeta(results.allocation_overlay.selection_quality.label).title}
           description={`推荐强度 ${Number(results.allocation_overlay.selection_quality.base_recommendation_score || 0).toFixed(2)} → ${Number(results.allocation_overlay.selection_quality.effective_recommendation_score || 0).toFixed(2)}${
             results.allocation_overlay.selection_quality.base_recommendation_tier
               ? ` · ${results.allocation_overlay.selection_quality.base_recommendation_tier} → ${results.allocation_overlay.selection_quality.effective_recommendation_tier || '-'}`
@@ -125,7 +125,7 @@ function CrossMarketResultsView({
         <Alert
           type="warning"
           showIcon
-          message="数据对齐覆盖率偏低"
+          title="数据对齐覆盖率偏低"
           description={`当前可交易日覆盖率为 ${(results.data_alignment?.tradable_day_ratio || 0) * 100}% ，建议检查资产组合或放宽时间窗口。`}
         />
       ) : null}
@@ -346,7 +346,7 @@ function CrossMarketResultsView({
       <Row gutter={[16, 16]}>
         <Col xs={24} xl={12}>
           <Panel title="流动性概况">
-            <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            <Space orientation="vertical" size={10} style={{ width: '100%' }}>
               <Space wrap size={[8, 8]}>
                 <Tag color={liquidityMeta.color}>{liquidityMeta.label}</Tag>
                 <Tag color="cyan">
@@ -376,7 +376,7 @@ function CrossMarketResultsView({
         </Col>
         <Col xs={24} xl={12}>
           <Panel title="多市场日历概况">
-            <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            <Space orientation="vertical" size={10} style={{ width: '100%' }}>
               <Space wrap size={[8, 8]}>
                 <Tag color={calendarMeta.color}>{calendarMeta.label}</Tag>
                 <Tag color="cyan">
@@ -429,7 +429,7 @@ function CrossMarketResultsView({
         </Col>
         <Col xs={24} xl={12}>
           <Panel title="保证金与杠杆画像">
-            <Space direction="vertical" size={10} style={{ width: '100%' }}>
+            <Space orientation="vertical" size={10} style={{ width: '100%' }}>
               <Space wrap size={[8, 8]}>
                 <Tag color={marginMeta.color}>{marginMeta.label}</Tag>
                 <Tag color="volcano">
@@ -639,7 +639,7 @@ function CrossMarketResultsView({
 
       {results.allocation_overlay ? (
         <Panel title="权重偏置对照">
-          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+          <Space orientation="vertical" size={10} style={{ width: '100%' }}>
             <Space wrap size={[8, 8]}>
               <Tag color={results.allocation_overlay.allocation_mode === 'macro_bias' ? 'green' : 'default'}>
                 {results.allocation_overlay.allocation_mode === 'macro_bias' ? '宏观偏置' : '模板原始权重'}
@@ -656,7 +656,7 @@ function CrossMarketResultsView({
               <Text>{results.allocation_overlay.bias_summary}</Text>
             ) : null}
             {results.allocation_overlay.compression_summary ? (
-              <Space direction="vertical" size={2} style={{ width: '100%' }}>
+              <Space orientation="vertical" size={2} style={{ width: '100%' }}>
                 <Text type="secondary">
                   原始偏置 {Number(results.allocation_overlay.compression_summary.raw_bias_strength || 0).toFixed(1)}pp
                   {' · '}
@@ -824,7 +824,7 @@ function CrossMarketResultsView({
       ) : null}
       {results.constraint_overlay?.applied ? (
         <Panel title="组合约束落地">
-          <Space direction="vertical" size={10} style={{ width: '100%' }}>
+          <Space orientation="vertical" size={10} style={{ width: '100%' }}>
             <Space wrap size={[8, 8]}>
               {results.constraint_overlay.constraints?.max_single_weight ? (
                 <Tag color="blue">

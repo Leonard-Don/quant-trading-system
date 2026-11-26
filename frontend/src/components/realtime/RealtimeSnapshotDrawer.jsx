@@ -19,7 +19,7 @@ const RealtimeSnapshotDrawer = ({
   <Drawer
     title="复盘快照"
     placement="right"
-    width={720}
+    size={720}
     onClose={onClose}
     open={isOpen}
   >

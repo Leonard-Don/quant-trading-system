@@ -163,11 +163,11 @@ function TemplateManagerSection({
               </Space>
             </div>
             {experimentComparison ? (
-              <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <Space orientation="vertical" style={{ width: '100%' }} size="middle">
                 <Alert
                   type="info"
                   showIcon
-                  message="版本对比已生成"
+                  title="版本对比已生成"
                   description={experimentComparison.title}
                 />
                 <Table
@@ -187,7 +187,7 @@ function TemplateManagerSection({
               <Alert
                 type="info"
                 showIcon
-                message="还没有可比较的实验版本"
+                title="还没有可比较的实验版本"
                 description="先保存一个实验版本，再把当前结果与它做关键指标对比。"
               />
             )}

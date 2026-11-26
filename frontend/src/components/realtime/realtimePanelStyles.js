@@ -443,7 +443,7 @@ const REALTIME_PANEL_STYLES = `
           min-width: 96px;
         }
 
-        .realtime-search-panel .ant-select-customize-input .ant-select-selector {
+        .realtime-search-panel .ant-select-customize-input {
           height: 40px;
           min-height: 40px;
           overflow: visible;

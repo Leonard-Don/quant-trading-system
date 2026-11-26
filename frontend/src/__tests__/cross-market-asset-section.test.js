@@ -76,7 +76,7 @@ describe('CrossMarketAssetSection', () => {
         const { container } = renderSection();
         // The Select renders the displayed label, not the value; assert
         // the options are reachable via the rendered AntD select widget.
-        const selects = container.querySelectorAll('.ant-select-selector');
+        const selects = container.querySelectorAll('.ant-select');
         expect(selects.length).toBe(2);
     });
 });

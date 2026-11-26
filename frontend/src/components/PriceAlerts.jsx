@@ -802,7 +802,7 @@ const PriceAlerts = ({
                         type="info"
                         showIcon
                         style={{ marginBottom: 16 }}
-                        message="提醒规则会同步到当前实时工作台 profile"
+                        title="提醒规则会同步到当前实时工作台 profile"
                         description="本地缓存仍会保留一份，同时会像自选偏好一样同步到后端，换浏览器前至少能保住这套提醒规则。"
                     />
                 </div>
@@ -903,7 +903,7 @@ const PriceAlerts = ({
                         type="info"
                         showIcon
                         style={{ marginBottom: 16 }}
-                        message={`从「${prefillDraft.sourceTitle}」快速创建`}
+                        title={`从「${prefillDraft.sourceTitle}」快速创建`}
                         description={prefillDraft.sourceDescription || '已为你带入该异动对应的默认规则，你可以继续微调阈值后保存。'}
                     />
                 ) : null}

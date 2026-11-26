@@ -39,7 +39,7 @@ const SentimentTab = ({ loadingTab, errorTab, sentimentData, sentimentHistoryDat
         return <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>;
     }
     if (errorTab.sentiment) {
-        return <Alert message="错误" description={errorTab.sentiment} type="error" showIcon />;
+        return <Alert title="错误" description={errorTab.sentiment} type="error" showIcon />;
     }
     if (!sentimentData) return <Empty description="暂无情绪数据" />;
 
@@ -111,7 +111,7 @@ const SentimentTab = ({ loadingTab, errorTab, sentimentData, sentimentHistoryDat
                                 title="风险等级"
                                 value={risk_level === 'low' ? '低' : risk_level === 'medium' ? '中' : risk_level === 'high' ? '高' : risk_level === 'very_high' ? '极高' : risk_level}
                                 prefix={<WarningOutlined />}
-                                valueStyle={{ color: risk_level === 'high' || risk_level === 'very_high' ? '#ff3030' : '#faad14' }}
+                                styles={{ content: { color: risk_level === 'high' || risk_level === 'very_high' ? '#ff3030' : '#faad14' } }}
                             />
                         </Col>
                         <Col span={12}>

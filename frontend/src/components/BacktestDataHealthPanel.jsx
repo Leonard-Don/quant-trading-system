@@ -355,7 +355,7 @@ function BacktestDataHealthPanel() {
         <Alert
           type="warning"
           showIcon
-          message="数据源状态暂不可用"
+          title="数据源状态暂不可用"
           description={errorMessage}
         />
       ) : null}
@@ -397,7 +397,7 @@ function BacktestDataHealthPanel() {
             className="backtest-data-health-panel__alert"
             type={isHealthy ? 'success' : 'warning'}
             showIcon
-            message={isHealthy ? '数据源可以支撑当前研究流' : '部分数据源需要关注'}
+            title={isHealthy ? '数据源可以支撑当前研究流' : '部分数据源需要关注'}
             description={
               summary.contributingSources.length
                 ? `当前贡献来源：${summary.contributingSources.join(' + ').toUpperCase()}。`
@@ -455,7 +455,7 @@ function BacktestDataHealthPanel() {
                 className="backtest-data-health-panel__runtime-alert"
                 type="warning"
                 showIcon
-                message="诊断快照复制失败"
+                title="诊断快照复制失败"
                 description="当前浏览器未开放剪贴板权限。"
               />
             ) : null}
@@ -465,7 +465,7 @@ function BacktestDataHealthPanel() {
                 className="backtest-data-health-panel__runtime-alert"
                 type="warning"
                 showIcon
-                message="Provider 状态暂不可用"
+                title="Provider 状态暂不可用"
                 description={providerErrorMessage}
               />
             ) : null}

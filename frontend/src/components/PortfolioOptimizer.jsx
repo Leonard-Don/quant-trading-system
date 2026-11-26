@@ -143,7 +143,7 @@ const PortfolioOptimizer = () => {
             </div>
 
             <Panel className="workspace-panel" style={{ marginBottom: 24 }}>
-                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                <Space orientation="vertical" size="large" style={{ width: '100%' }}>
                     <Row gutter={16}>
                         <Col span={12}>
                             <Text strong>选择资产池 (输入代码回车添加)</Text>
@@ -193,7 +193,7 @@ const PortfolioOptimizer = () => {
                 </Space>
             </Panel>
 
-            {error && <Alert message="错误" description={error} type="error" showIcon style={{ marginBottom: 24 }} />}
+            {error && <Alert title="错误" description={error} type="error" showIcon style={{ marginBottom: 24 }} />}
 
             {result && (
                 <Row gutter={[24, 24]}>

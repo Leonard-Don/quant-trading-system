@@ -23,7 +23,7 @@ const RiskTab = ({ loadingTab, errorTab, riskData }) => {
         return <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>;
     }
     if (errorTab.risk) {
-        return <Alert message="错误" description={errorTab.risk} type="error" showIcon />;
+        return <Alert title="错误" description={errorTab.risk} type="error" showIcon />;
     }
     if (!riskData) return <Empty description="暂无风险评估数据" />;
 
@@ -33,7 +33,7 @@ const RiskTab = ({ loadingTab, errorTab, riskData }) => {
         <Row gutter={[16, 16]}>
             <Col span={24}>
                 <Alert
-                    message={`风险等级: ${riskLevelText[riskData.risk_level] || riskData.risk_level}`}
+                    title={`风险等级: ${riskLevelText[riskData.risk_level] || riskData.risk_level}`}
                     description={riskData.risk_description}
                     type={riskData.risk_level === 'low' || riskData.risk_level === 'very_low' ? 'success' :
                         riskData.risk_level === 'medium' ? 'warning' : 'error'}
@@ -47,14 +47,14 @@ const RiskTab = ({ loadingTab, errorTab, riskData }) => {
                         title="95% VaR (日度)"
                         value={riskData.var_95}
                         suffix="%"
-                        valueStyle={{ color: riskData.var_95 < -5 ? '#ff4d4f' : '#faad14' }}
+                        styles={{ content: { color: riskData.var_95 < -5 ? '#ff4d4f' : '#faad14' } }}
                     />
                     <Statistic
                         title="99% VaR (日度)"
                         value={riskData.var_99}
                         suffix="%"
                         style={{ marginTop: 16 }}
-                        valueStyle={{ color: riskData.var_99 < -8 ? '#ff4d4f' : '#faad14' }}
+                        styles={{ content: { color: riskData.var_99 < -8 ? '#ff4d4f' : '#faad14' } }}
                     />
                 </Card>
             </Col>
@@ -64,7 +64,7 @@ const RiskTab = ({ loadingTab, errorTab, riskData }) => {
                         title="最大回撤"
                         value={riskData.max_drawdown}
                         suffix="%"
-                        valueStyle={{ color: riskData.max_drawdown < -30 ? '#ff4d4f' : '#faad14' }}
+                        styles={{ content: { color: riskData.max_drawdown < -30 ? '#ff4d4f' : '#faad14' } }}
                     />
                     <Statistic
                         title="年化波动率"
@@ -79,13 +79,13 @@ const RiskTab = ({ loadingTab, errorTab, riskData }) => {
                     <Statistic
                         title="夏普比率"
                         value={riskData.sharpe_ratio}
-                        valueStyle={{ color: riskData.sharpe_ratio > 1 ? '#52c41a' : riskData.sharpe_ratio < 0 ? '#ff4d4f' : '#faad14' }}
+                        styles={{ content: { color: riskData.sharpe_ratio > 1 ? '#52c41a' : riskData.sharpe_ratio < 0 ? '#ff4d4f' : '#faad14' } }}
                     />
                     <Statistic
                         title="索提诺比率"
                         value={riskData.sortino_ratio}
                         style={{ marginTop: 16 }}
-                        valueStyle={{ color: riskData.sortino_ratio > 1 ? '#52c41a' : '#faad14' }}
+                        styles={{ content: { color: riskData.sortino_ratio > 1 ? '#52c41a' : '#faad14' } }}
                     />
                 </Card>
             </Col>
@@ -97,7 +97,7 @@ const RiskTab = ({ loadingTab, errorTab, riskData }) => {
                                 title="年化收益率"
                                 value={riskData.annual_return}
                                 suffix="%"
-                                valueStyle={{ color: riskData.annual_return > 0 ? '#52c41a' : '#ff4d4f' }}
+                                styles={{ content: { color: riskData.annual_return > 0 ? '#52c41a' : '#ff4d4f' } }}
                             />
                         </Col>
                         <Col span={12}>

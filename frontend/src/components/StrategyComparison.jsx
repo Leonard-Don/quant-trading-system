@@ -180,7 +180,7 @@ const StrategyComparison = ({ strategies }) => {
 
         return (
             <Panel className="workspace-panel" style={{ marginBottom: 20 }} title="策略参数版本">
-                <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                <Space orientation="vertical" size="large" style={{ width: '100%' }}>
                     {params.selectedStrategies.map((strategyName) => {
                         const strategy = strategyDefinitions[strategyName];
                         const parameterEntries = Object.entries(strategy?.parameters || {});
@@ -199,7 +199,7 @@ const StrategyComparison = ({ strategies }) => {
                                 </div>
                                 {parameterEntries.length === 0 ? (
                                     <Alert
-                                        message="该策略当前没有可调参数，将按默认规则参与对比。"
+                                        title="该策略当前没有可调参数，将按默认规则参与对比。"
                                         type="info"
                                         showIcon
                                     />
@@ -493,7 +493,7 @@ const StrategyComparison = ({ strategies }) => {
                             <Alert
                                 type="info"
                                 showIcon
-                                message="正在基于新配置刷新对比结果"
+                                title="正在基于新配置刷新对比结果"
                                 description="上一版对比结果会先保留，新的评分和图表返回后会自动覆盖。"
                             />
                         </Col>
@@ -535,7 +535,7 @@ const StrategyComparison = ({ strategies }) => {
                                                 <Progress
                                                     percent={item.scores.overall_score}
                                                     strokeColor={rankStyle.bg}
-                                                    trailColor="var(--bg-tertiary)"
+                                                    railColor="var(--bg-tertiary)"
                                                     format={(pct) => <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{pct}</span>}
                                                 />
                                                 <div style={{ marginTop: 12, display: 'flex', justifyContent: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -659,7 +659,7 @@ const StrategyComparison = ({ strategies }) => {
 
             {!results && !loading && (
                 <Alert
-                    message="请选择至少两个策略并点击“开始对比”以查看性能差异"
+                    title="请选择至少两个策略并点击“开始对比”以查看性能差异"
                     type="info"
                     showIcon
                 />

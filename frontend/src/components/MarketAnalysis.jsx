@@ -1043,7 +1043,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                     padding-inline: 14px !important;
                 }
 
-                .market-analysis__tabs-shell--embed .ant-tabs-content-holder {
+                .market-analysis__tabs-shell--embed .ant-tabs-body-holder {
                     padding-top: 2px;
                 }
 
@@ -1092,7 +1092,7 @@ const MarketAnalysis = ({ symbol: propSymbol, embedMode = false }) => {
                     color: var(--text-primary);
                 }
 
-                .market-analysis--embed .ant-list-item {
+                .market-analysis--embed .simple-list-item {
                     border-color: color-mix(in srgb, var(--border-color) 84%, white 16%) !important;
                 }
 
