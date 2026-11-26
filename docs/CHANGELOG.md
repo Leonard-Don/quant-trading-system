@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Tooling
+
+- chore(frontend): Vite 5 → 8、Vitest 2 → 5、`@vitejs/plugin-react` 4 → 6，清掉 npm audit
+  剩余的 6 个漏洞（esbuild / tinypool / @vitest/mocker）。Vite 8 用 Oxc 替代 esbuild，
+  `vite.config.js` 的 `esbuild` 选项改为等价的 `oxc`（测试目录的 `.js` 仍按 JSX 解析）；
+  CI 前端回归命令去掉已移除的 `--reporter=basic` / `--poolOptions.forks.singleFork`。
+  WebSocket 构造函数 mock 改用 `function`（Vitest 4+ 不再允许 `new` 箭头函数）。
+
 ### Research
 
 - feat(backtest)!: portfolio 引擎支持**按符号**的 A 股摩擦 (#159)。

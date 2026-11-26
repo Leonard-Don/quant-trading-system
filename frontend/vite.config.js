@@ -11,12 +11,12 @@ export default defineConfig({
   // a .js extension by team convention but contain JSX (e.g. vi.mock
   // factories returning <div>…</div>). Include those in the JSX transform.
   plugins: [react({ include: /\.(jsx|tsx|mdx)$|\/__tests__\/.*\.js$/ }), tailwindcss()],
-  esbuild: {
-    // Match plugin-react's include so esbuild's transform applies the JSX
-    // loader to the same set. App-level .js files no longer need this.
-    loader: "jsx",
-    include: /\.(jsx|tsx)$|\/__tests__\/.*\.js$/,
+  oxc: {
+    // Match plugin-react's include so Oxc parses the same set as JSX.
+    // App-level .js files no longer need this.
+    include: /\.jsx$|\/__tests__\/.*\.js$/,
     exclude: [],
+    lang: "jsx",
   },
   // Local dev port matches what start_system.sh / e2e expect.
   server: {
@@ -70,7 +70,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "src"),
+      "@": path.resolve(import.meta.dirname, "src"),
     },
     extensions: [".mjs", ".js", ".jsx", ".ts", ".tsx", ".json"],
   },
@@ -84,7 +84,6 @@ export default defineConfig({
     // timing-sensitive (real-timer polling + many waitFor calls); running one
     // heavy worker per core starves the event loop and trips the 5s timeout.
     maxWorkers: "50%",
-    minWorkers: 1,
     // These are heavy integration-style component tests (full Ant Design render
     // + async mocks + waitFor) that legitimately take 1-3s each. (Their background
     // polling is now faked at the setInterval level, so they no longer churn on a

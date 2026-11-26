@@ -42,6 +42,9 @@ vi.mock('recharts', () => {
   };
 });
 
+let originalCreateObjectURL;
+let originalRevokeObjectURL;
+
 beforeAll(() => {
   if (!window.matchMedia) {
     window.matchMedia = () => ({
@@ -62,12 +65,16 @@ beforeAll(() => {
     };
   }
 
-  if (!window.URL.createObjectURL) {
-    window.URL.createObjectURL = jest.fn(() => 'blob:test');
-  }
-  if (!window.URL.revokeObjectURL) {
-    window.URL.revokeObjectURL = jest.fn();
-  }
+  // Node's own URL.createObjectURL may be exposed in jsdom; always stub so tests can assert on it.
+  originalCreateObjectURL = window.URL.createObjectURL;
+  originalRevokeObjectURL = window.URL.revokeObjectURL;
+  window.URL.createObjectURL = jest.fn(() => 'blob:test');
+  window.URL.revokeObjectURL = jest.fn();
+});
+
+afterAll(() => {
+  window.URL.createObjectURL = originalCreateObjectURL;
+  window.URL.revokeObjectURL = originalRevokeObjectURL;
 });
 
 afterEach(() => {
