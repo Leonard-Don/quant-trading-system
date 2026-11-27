@@ -250,7 +250,7 @@ async def run_batch_backtest(request: BatchBacktestRequest):
         raise HTTPException(status_code=504, detail="Batch backtest timed out") from exc
     except HTTPException:
         raise
-    # Policy P2 (legacy envelope) — see docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md
+    # Policy P2 (legacy envelope) — see docs/endpoint_exception_policy.md
     except Exception as e:
         logger.error(f"Error running batch backtest: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
@@ -364,7 +364,7 @@ async def run_walk_forward_backtest(request: WalkForwardRequest):
         raise HTTPException(status_code=504, detail="Walk-forward analysis timed out") from exc
     except HTTPException:
         raise
-    # Policy P2 (legacy envelope) — see docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md
+    # Policy P2 (legacy envelope) — see docs/endpoint_exception_policy.md
     except Exception as e:
         logger.error(f"Error running walk-forward backtest: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
@@ -481,7 +481,7 @@ async def run_market_regime_backtest(request: MarketRegimeRequest):
         )
     except HTTPException:
         raise
-    # Policy P2 (legacy envelope) — see docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md
+    # Policy P2 (legacy envelope) — see docs/endpoint_exception_policy.md
     except Exception as e:
         logger.error(f"Error running market regime backtest: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
@@ -612,7 +612,8 @@ async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
             normalized_weights = normalized_weights / normalized_weights.sum()
 
         weight_map = {
-            symbol: float(weight) for symbol, weight in zip(ordered_symbols, normalized_weights, strict=False)
+            symbol: float(weight)
+            for symbol, weight in zip(ordered_symbols, normalized_weights, strict=False)
         }
         weighted_target_signals = target_exposure_frame.mul(
             pd.Series(weight_map),
@@ -713,7 +714,7 @@ async def run_portfolio_strategy_backtest(request: PortfolioStrategyRequest):
         )
     except HTTPException:
         raise
-    # Policy P2 (legacy envelope) — see docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md
+    # Policy P2 (legacy envelope) — see docs/endpoint_exception_policy.md
     except Exception as e:
         logger.error(f"Error running portfolio strategy backtest: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
@@ -778,7 +779,7 @@ def run_backtest(request: BacktestRequest):
 
     except HTTPException:
         raise
-    # Policy P2 (legacy envelope) — see docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md
+    # Policy P2 (legacy envelope) — see docs/endpoint_exception_policy.md
     except Exception as e:
         logger.error(f"Unexpected error running backtest: {e}", exc_info=True)
         return BacktestResponse(success=False, error=f"Internal server error: {e!s}")
@@ -810,7 +811,7 @@ async def compare_strategies_post(request: CompareRequest):
         )
     except HTTPException:
         raise
-    # Policy P2 (legacy envelope) — see docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md
+    # Policy P2 (legacy envelope) — see docs/endpoint_exception_policy.md
     except Exception as e:
         logger.error(f"Error comparing strategies: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
@@ -822,7 +823,7 @@ async def run_backtest_monte_carlo(request: MonteCarloBacktestRequest):
         return await asyncio.to_thread(run_backtest_monte_carlo_sync, request.model_dump())
     except HTTPException:
         raise
-    # Policy P2 (legacy envelope) — see docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md
+    # Policy P2 (legacy envelope) — see docs/endpoint_exception_policy.md
     except Exception as e:
         logger.error(f"Error running Monte Carlo backtest: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
@@ -843,7 +844,7 @@ async def compare_strategy_significance(request: SignificanceCompareRequest):
         return await asyncio.to_thread(compare_strategy_significance_sync, request.model_dump())
     except HTTPException:
         raise
-    # Policy P2 (legacy envelope) — see docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md
+    # Policy P2 (legacy envelope) — see docs/endpoint_exception_policy.md
     except Exception as e:
         logger.error(f"Error comparing strategy significance: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
@@ -864,7 +865,7 @@ async def run_multi_period_backtest(request: MultiPeriodBacktestRequest):
         return await asyncio.to_thread(run_multi_period_backtest_sync, request.model_dump())
     except HTTPException:
         raise
-    # Policy P2 (legacy envelope) — see docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md
+    # Policy P2 (legacy envelope) — see docs/endpoint_exception_policy.md
     except Exception as e:
         logger.error(f"Error running multi-period backtest: {e}", exc_info=True)
         return {"success": False, "error": str(e)}
@@ -885,7 +886,7 @@ async def run_market_impact_analysis(request: MarketImpactAnalysisRequest):
         return await asyncio.to_thread(run_market_impact_analysis_sync, request.model_dump())
     except HTTPException:
         raise
-    # Policy P2 (legacy envelope) — see docs/superpowers/specs/2026-05-07-endpoint-exception-policy.md
+    # Policy P2 (legacy envelope) — see docs/endpoint_exception_policy.md
     except Exception as e:
         logger.error(f"Error running market impact analysis: {e}", exc_info=True)
         return {"success": False, "error": str(e)}

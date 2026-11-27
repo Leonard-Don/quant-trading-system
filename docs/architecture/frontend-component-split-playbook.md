@@ -116,7 +116,7 @@ extracted helpers become reusable for <future use>.
 
 <Test status: which tests run, all green>.
 
-See docs/superpowers/specs/<spec>.md.
+See docs/<design-note>.md.
 ```
 
 ## 进度跟踪表
