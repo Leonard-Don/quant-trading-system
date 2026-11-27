@@ -384,7 +384,7 @@ function WalkForwardResults({
                     data={walkForwardChartData}
                     margin={{ top: 8, right: 12, left: 8, bottom: 8 }}
                     onClick={(state) => {
-                      const nextWindowKey = state?.activePayload?.[0]?.payload?.key;
+                      const nextWindowKey = walkForwardChartData[Number(state?.activeTooltipIndex)]?.key;
                       if (nextWindowKey) setFocusedWalkWindowKey(nextWindowKey);
                     }}
                   >
