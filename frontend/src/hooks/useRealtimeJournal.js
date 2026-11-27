@@ -209,11 +209,6 @@ export const useRealtimeJournal = ({ realtimeProfileId }) => {
     setTimelineEvents((prev) => [nextEvent, ...prev].slice(0, MAX_TIMELINE_EVENTS));
   }, []);
 
-  const handleAlertTriggered = useCallback((historyEntry) => {
-    if (!historyEntry?.symbol) return;
-    setAlertHitHistory((prev) => [historyEntry, ...prev].slice(0, MAX_ALERT_HIT_HISTORY));
-  }, []);
-
   const updateReviewSnapshot = useCallback((snapshotId, updates) => {
     setReviewSnapshots((prev) => prev.map((snapshot) => (
       snapshot.id === snapshotId
@@ -226,7 +221,6 @@ export const useRealtimeJournal = ({ realtimeProfileId }) => {
     alertHitHistory,
     setAlertHitHistory,
     appendTimelineEvent,
-    handleAlertTriggered,
     isJournalHydrated,
     reviewSnapshots,
     setReviewSnapshots,

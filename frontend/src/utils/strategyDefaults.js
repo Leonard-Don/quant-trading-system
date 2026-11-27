@@ -38,4 +38,6 @@ export const isCnSymbol = (symbol) => {
 export const getCurrencySymbol = (symbol) => (isCnSymbol(symbol) ? '¥' : '$');
 
 // Human-readable currency name, used in run-summary copy.
+export const getCurrencyCode = (symbol) => (isCnSymbol(symbol) ? 'CNY' : 'USD');
+
 export const getCurrencyName = (symbol) => (isCnSymbol(symbol) ? '人民币' : '美元');

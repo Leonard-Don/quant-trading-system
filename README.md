@@ -9,7 +9,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11+-blue?style=flat-square&logo=python)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
-[![React](https://img.shields.io/badge/React-18+-61DAFB?style=flat-square&logo=react)](https://reactjs.org)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)](https://reactjs.org)
 [![CI](https://img.shields.io/github/actions/workflow/status/Leonard-Don/quant-trading-system/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/Leonard-Don/quant-trading-system/actions/workflows/ci.yml)
 [![Latest Release](https://img.shields.io/github/v/release/Leonard-Don/quant-trading-system?style=flat-square)](https://github.com/Leonard-Don/quant-trading-system/releases/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-brightgreen?style=flat-square)](LICENSE)
@@ -127,7 +127,6 @@ cp .env.example .env
 |------|------|
 | **基础策略** | ✅ 均线交叉 · ✅ RSI · ✅ 布林带 · ✅ 买入持有 · ✅ 海龟交易 · ✅ 多因子 |
 | **高级策略** | ✅ 均值回归 · ✅ 动量 · ✅ VWAP · ✅ 随机振荡 · ✅ MACD · ✅ ATR 跟踪止损 · 组合策略 |
-| **技术分析** | Ichimoku 云图 · 随机指标 · CCI · 抛物线 SAR · 多指标融合 |
 | **配对交易** | 单对配对交易 · 多对配对交易 |
 | **机器学习** | 随机森林 · 逻辑回归 · 集成策略（需 scikit-learn） |
 | **深度学习** | LSTM · 深度学习集成 · 增强动量（需 TensorFlow） |
@@ -198,7 +197,7 @@ quant-trading-system/
 │       ├── schemas/                # Pydantic 请求/响应模型
 │       ├── services/               # 实时提醒、偏好、复盘
 │       └── websocket/              # WebSocket 路由与连接管理
-├── frontend/                       # React 18 前端 (Vite)
+├── frontend/                       # React 19 前端 (Vite)
 │   └── src/
 │       ├── components/             # 回测 / 实时 / 行业 / 跨市场等组件 (33 主组件 + 8 子模块，大组件已按职责拆分)
 │       ├── hooks/                  # 实时偏好、实验工作区等自定义 Hook
@@ -232,7 +231,7 @@ quant-trading-system/
 | 层级 | 技术 | 说明 |
 |------|------|------|
 | 后端框架 | FastAPI + Uvicorn | 异步 RESTful API，自动 OpenAPI 文档 |
-| 前端框架 | React 18 + Ant Design 5 | 懒加载、响应式布局、主题支持 |
+| 前端框架 | React 19 + Ant Design 6 | 懒加载、响应式布局、主题支持 |
 | 实时通信 | WebSocket | 实时行情推送广播 |
 | 数据获取 | yfinance · Tushare · AKShare · THS/Sina · Tencent 等多源 | 多 provider 聚合与故障回退 |
 | 任务队列 | Celery + Redis | 异步回测任务与后台调度 |

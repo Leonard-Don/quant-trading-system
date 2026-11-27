@@ -4,6 +4,8 @@
  */
 
 import { normalizeBacktestResult } from './backtest';
+import { isCnSymbol } from './strategyDefaults';
+import { buildXlsx, XLSX_MIME_TYPE } from './xlsx';
 
 /**
  * 将数据导出为 CSV 格式
@@ -52,7 +54,7 @@ export const exportToJSON = (data, filename) => {
 };
 
 /**
- * 将数据导出为 Excel 格式 (使用简单的 HTML 表格方式)
+ * 将数据导出为 Excel (.xlsx) 格式
  * @param {Array} data - 数据数组
  * @param {string} filename - 文件名
  * @param {Array} columns - 列配置
@@ -65,56 +67,11 @@ export const exportToExcel = (data, filename, columns = null, sheetName = 'Sheet
     }
 
     const cols = columns || Object.keys(data[0]).map(key => ({ key, title: key }));
-
-    // 构建 HTML 表格
-    let html = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
-    <head>
-      <meta charset="UTF-8">
-      <!--[if gte mso 9]>
-      <xml>
-        <x:ExcelWorkbook>
-          <x:ExcelWorksheets>
-            <x:ExcelWorksheet>
-              <x:Name>${sheetName}</x:Name>
-              <x:WorksheetOptions><x:Panes></x:Panes></x:WorksheetOptions>
-            </x:ExcelWorksheet>
-          </x:ExcelWorksheets>
-        </x:ExcelWorkbook>
-      </xml>
-      <![endif]-->
-      <style>
-        table { border-collapse: collapse; }
-        th, td { border: 1px solid #000; padding: 8px; }
-        th { background-color: #4472c4; color: white; font-weight: bold; }
-        tr:nth-child(even) { background-color: #f2f2f2; }
-      </style>
-    </head>
-    <body>
-      <table>
-        <thead>
-          <tr>
-            ${cols.map(col => `<th>${escapeHtml(col.title)}</th>`).join('')}
-          </tr>
-        </thead>
-        <tbody>
-          ${data.map(item => `
-            <tr>
-              ${cols.map(col => {
-        let value = item[col.key];
-        if (value === null || value === undefined) value = '';
-        if (typeof value === 'object') value = JSON.stringify(value);
-        return `<td>${escapeHtml(String(value))}</td>`;
-    }).join('')}
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </body>
-    </html>
-  `;
-
-    downloadFile(html, `${filename}.xls`, 'application/vnd.ms-excel');
+    const rows = [
+        cols.map(col => col.title),
+        ...data.map(item => cols.map(col => item[col.key])),
+    ];
+    downloadFile(buildXlsx([{ name: sheetName, rows }]), `${filename}.xlsx`, XLSX_MIME_TYPE);
 };
 
 /**
@@ -133,15 +90,6 @@ const downloadFile = (content, filename, mimeType) => {
 };
 
 /**
- * 转义 HTML 特殊字符
- */
-const escapeHtml = (text) => {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-};
-
-/**
  * 格式化回测结果用于导出
  * @param {Object} backtestResult - 回测结果对象
  */
@@ -149,6 +97,7 @@ export const formatBacktestForExport = (backtestResult) => {
     if (!backtestResult) return { metrics: [], trades: [], dailyData: [] };
 
     const normalized = normalizeBacktestResult(backtestResult);
+    const currencyPrefix = isCnSymbol(normalized.symbol || backtestResult.symbol) ? '¥' : '$';
     const summary = normalized.metrics || normalized.performance_metrics || normalized;
     const tradeRecords = normalized.trades || [];
     const portfolioHistory = normalized.portfolio_history || normalized.portfolio || [];
@@ -161,8 +110,8 @@ export const formatBacktestForExport = (backtestResult) => {
         { metric: '最大回撤', value: `${((summary.max_drawdown || 0) * 100).toFixed(2)}%` },
         { metric: '胜率', value: `${((summary.win_rate || 0) * 100).toFixed(2)}%` },
         { metric: '交易次数', value: summary.num_trades ?? summary.total_trades ?? 0 },
-        { metric: '初始资金', value: `$${summary.initial_capital?.toLocaleString() || 'N/A'}` },
-        { metric: '最终资金', value: `$${summary.final_value?.toLocaleString() || 'N/A'}` }
+        { metric: '初始资金', value: `${currencyPrefix}${summary.initial_capital?.toLocaleString() || 'N/A'}` },
+        { metric: '最终资金', value: `${currencyPrefix}${summary.final_value?.toLocaleString() || 'N/A'}` }
     ];
 
     // 格式化交易记录

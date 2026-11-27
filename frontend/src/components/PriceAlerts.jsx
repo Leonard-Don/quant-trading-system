@@ -188,7 +188,9 @@ const PriceAlerts = ({
             return;
         }
 
-        setAlertHitHistory(initialAlertHitHistory);
+        setAlertHitHistory((prev) => (
+            JSON.stringify(prev) === JSON.stringify(initialAlertHitHistory) ? prev : initialAlertHitHistory
+        ));
     }, [initialAlertHitHistory]);
 
     useEffect(() => {

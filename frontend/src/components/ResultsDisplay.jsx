@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Row,
   Col,
@@ -33,6 +33,8 @@ import { MetricGrid, StatCard, Panel } from '../design/components';
 import { downloadBacktestReport, runMarketRegimeBacktest } from '../services/api';
 import { getStrategyDetails, getStrategyName } from '../constants/strategies';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
+import { getCurrencyCode } from '../utils/strategyDefaults';
+import { buildXlsx, XLSX_MIME_TYPE } from '../utils/xlsx';
 import { normalizeBacktestResult } from '../utils/backtest';
 import { buildBacktestActionPosture, buildSignalExplanation } from '../utils/backtestResearch';
 import { buildMarketRegimeInsight } from '../utils/advancedBacktestLab';
@@ -87,6 +89,8 @@ const buildNoTradeGuideItems = (result = {}, diagnostics = {}) => {
 };
 
 const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, onContinueAdvancedExperiment }) => {
+  const currencyCode = getCurrencyCode(results?.symbol);
+  const formatMoney = useCallback((value) => formatCurrency(value, currencyCode), [currencyCode]);
   const message = useSafeMessageApi();
   const [activeTab, setActiveTab] = useState('overview');
   const [marketRegimeLoading, setMarketRegimeLoading] = useState(false);
@@ -127,7 +131,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       { label: '小数份额', value: executionDiagnostics.allow_fractional_shares ? '已开启' : '关闭' },
       { label: '仓位管理', value: executionDiagnostics.position_sizer || '默认仓位器' },
       { label: '风控组件', value: executionDiagnostics.risk_manager || '未启用' },
-      { label: '固定 / 最低手续费', value: `${formatCurrency(executionDiagnostics.fixed_commission || 0)} / ${formatCurrency(executionDiagnostics.min_commission || 0)}` },
+      { label: '固定 / 最低手续费', value: `${formatMoney(executionDiagnostics.fixed_commission || 0)} / ${formatMoney(executionDiagnostics.min_commission || 0)}` },
       { label: '冲击模型', value: `${executionDiagnostics.market_impact_model || 'constant'} · ${Number(executionDiagnostics.market_impact_bps || 0).toFixed(1)}bp` },
       {
         label: '止损 / 止盈',
@@ -136,19 +140,19 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
           : '未设',
       },
     ];
-  }, [executionDiagnostics]);
+  }, [executionDiagnostics, formatMoney]);
   const executionCostItems = useMemo(() => {
     const costs = normalizedResults.execution_costs || {};
     if (!costs || !Object.keys(costs).length) {
       return [];
     }
     return [
-      { label: '成交名义额', value: formatCurrency(costs.total_notional || 0) },
-      { label: '滑点成本估算', value: formatCurrency(costs.estimated_total_slippage_cost || 0) },
-      { label: '冲击成本估算', value: formatCurrency(costs.estimated_market_impact_cost || 0) },
+      { label: '成交名义额', value: formatMoney(costs.total_notional || 0) },
+      { label: '滑点成本估算', value: formatMoney(costs.estimated_total_slippage_cost || 0) },
+      { label: '冲击成本估算', value: formatMoney(costs.estimated_market_impact_cost || 0) },
       { label: '平均冲击率', value: `${(Number(costs.average_market_impact_rate || 0) * 10000).toFixed(2)}bp` },
     ];
-  }, [normalizedResults.execution_costs]);
+  }, [formatMoney, normalizedResults.execution_costs]);
   const marketRegimeInsight = useMemo(
     () => buildMarketRegimeInsight(marketRegimeResult),
     [marketRegimeResult]
@@ -285,7 +289,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       precision: 2,
       color: getValueColor(normalizedResults.total_return),
       icon: <DollarOutlined style={{ fontSize: '16px' }} />,
-      formatter: (value) => formatCurrency(Number(value || 0)),
+      formatter: (value) => formatMoney(Number(value || 0)),
     },
   ];
   const diagnosticMetrics = [
@@ -295,14 +299,14 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
     { label: '盈亏比', value: normalizedResults.profit_factor?.toFixed(2) || '不适用' },
     { label: '完成交易', value: `${normalizedResults.total_completed_trades || 0} 组` },
     { label: '持仓状态', value: normalizedResults.has_open_position ? '仍有未平仓' : '已全部平仓' },
-    { label: '净利润', value: formatCurrency(normalizedResults.net_profit || 0) },
+    { label: '净利润', value: formatMoney(normalizedResults.net_profit || 0) },
   ];
   const extendedMetrics = [
     {
       key: 'avg_win',
       title: '平均盈利',
       value: normalizedResults.avg_win || 0,
-      formatter: (value) => formatCurrency(Number(value || 0)),
+      formatter: (value) => formatMoney(Number(value || 0)),
       color: 'var(--accent-success)',
       icon: <RiseOutlined style={{ fontSize: '14px' }} />,
     },
@@ -310,7 +314,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       key: 'avg_loss',
       title: '平均亏损',
       value: normalizedResults.avg_loss || 0,
-      formatter: (value) => formatCurrency(Number(value || 0)),
+      formatter: (value) => formatMoney(Number(value || 0)),
       color: 'var(--accent-danger)',
       icon: <FallOutlined style={{ fontSize: '14px' }} />,
     },
@@ -327,7 +331,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       key: 'total_profit',
       title: '累计盈利',
       value: normalizedResults.total_profit || 0,
-      formatter: (value) => formatCurrency(Number(value || 0)),
+      formatter: (value) => formatMoney(Number(value || 0)),
       color: getValueColor(normalizedResults.total_profit),
       icon: <ThunderboltOutlined style={{ fontSize: '14px' }} />,
     },
@@ -473,59 +477,47 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
   // 导出为Excel (使用CSV格式，Excel可直接打开)
   const exportToExcel = () => {
     try {
-      // 构建HTML表格格式，Excel可以直接打开
-      let htmlContent = `
-        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
-        <head><meta charset="UTF-8"></head>
-        <body>
-        <table border="1">
-          <tr><th colspan="2" style="background:#1890ff;color:white;font-size:16px;">回测结果报告</th></tr>
-          <tr><th colspan="2" style="background:#f0f0f0;">生成时间: ${new Date().toLocaleString()}</th></tr>
-          <tr><td colspan="2"></td></tr>
-          <tr style="background:#e6f7ff;"><th>指标</th><th>数值</th></tr>
-          <tr><td>总收益率</td><td style="color:${normalizedResults.total_return >= 0 ? 'green' : 'red'};">${(normalizedResults.total_return * 100).toFixed(2)}%</td></tr>
-          <tr><td>年化收益率</td><td style="color:${normalizedResults.annualized_return >= 0 ? 'green' : 'red'};">${(normalizedResults.annualized_return * 100).toFixed(2)}%</td></tr>
-          <tr><td>夏普比率</td><td>${normalizedResults.sharpe_ratio?.toFixed(2) || '不适用'}</td></tr>
-          <tr><td>最大回撤</td><td style="color:red;">${(Math.abs(normalizedResults.max_drawdown) * 100).toFixed(2)}%</td></tr>
-          <tr><td>交易次数</td><td>${normalizedResults.num_trades || 0}</td></tr>
-          <tr><td>胜率</td><td>${(normalizedResults.win_rate * 100).toFixed(2)}%</td></tr>
-          <tr><td>盈亏比</td><td>${normalizedResults.profit_factor?.toFixed(2) || '不适用'}</td></tr>
-          <tr><td>最终价值</td><td>$${normalizedResults.final_value?.toFixed(2) || '不适用'}</td></tr>
-        </table>
-      `;
-
-      // 添加交易记录表
+      const toNumber = (value) => (Number.isFinite(Number(value)) ? Number(value) : null);
+      const summaryRows = [
+        ['回测结果报告'],
+        ['生成时间', new Date().toLocaleString()],
+        ['标的', normalizedResults.symbol || ''],
+        ['币种', currencyCode],
+        [],
+        ['指标', '数值'],
+        ['总收益率', toNumber(normalizedResults.total_return)],
+        ['年化收益率', toNumber(normalizedResults.annualized_return)],
+        ['夏普比率', toNumber(normalizedResults.sharpe_ratio)],
+        ['最大回撤', toNumber(normalizedResults.max_drawdown)],
+        ['交易次数', toNumber(normalizedResults.num_trades) ?? 0],
+        ['胜率', toNumber(normalizedResults.win_rate)],
+        ['盈亏比', toNumber(normalizedResults.profit_factor)],
+        ['最终价值', toNumber(normalizedResults.final_value)],
+      ];
+      const sheets = [{ name: '回测指标', rows: summaryRows }];
       if (trades.length > 0) {
-        htmlContent += `
-          <br/>
-          <table border="1">
-            <tr><th colspan="6" style="background:#1890ff;color:white;">交易记录</th></tr>
-            <tr style="background:#e6f7ff;"><th>日期</th><th>类型</th><th>价格</th><th>数量</th><th>金额</th><th>盈亏</th></tr>
-        `;
-        trades.forEach((trade) => {
-          const pnlColor = trade.pnl > 0 ? 'green' : (trade.pnl < 0 ? 'red' : 'black');
-          htmlContent += `
-            <tr>
-              <td>${new Date(trade.date).toLocaleDateString()}</td>
-              <td style="color:${trade.type === 'BUY' ? 'green' : 'red'};">${trade.type === 'BUY' ? '买入' : '卖出'}</td>
-              <td>$${trade.price?.toFixed(2)}</td>
-              <td>${trade.quantity}</td>
-              <td>$${trade.value?.toFixed(2)}</td>
-              <td style="color:${pnlColor};">${trade.pnl ? '$' + trade.pnl.toFixed(2) : '-'}</td>
-            </tr>
-          `;
+        sheets.push({
+          name: '交易记录',
+          rows: [
+            ['日期', '类型', '价格', '数量', '金额', '盈亏'],
+            ...trades.map((trade) => [
+              String(trade.date || '').slice(0, 10),
+              trade.type === 'BUY' ? '买入' : '卖出',
+              toNumber(trade.price),
+              toNumber(trade.quantity),
+              toNumber(trade.value),
+              toNumber(trade.pnl),
+            ]),
+          ],
         });
-        htmlContent += '</table>';
       }
 
-      htmlContent += '</body></html>';
-
-      // 下载文件
-      const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+      const blob = new Blob([buildXlsx(sheets)], { type: XLSX_MIME_TYPE });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `backtest_report_${new Date().toISOString().split('T')[0]}.xls`;
+      link.download = `backtest_report_${new Date().toISOString().split('T')[0]}.xlsx`;
       link.click();
+      URL.revokeObjectURL(link.href);
       message.success('Excel报告已导出');
     } catch (error) {
       message.error('导出失败: ' + error.message);
@@ -578,7 +570,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
     },
     {
       key: 'excel',
-      label: 'Excel格式 (.xls)',
+      label: 'Excel格式 (.xlsx)',
       icon: <FileExcelOutlined style={{ color: 'var(--accent-success)' }} />,
       onClick: exportToExcel,
     },
@@ -613,7 +605,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       title: '价格',
       dataIndex: 'price',
       key: 'price',
-      render: (price) => formatCurrency(price)
+      render: (price) => formatMoney(price)
     },
     {
       title: '数量',
@@ -624,7 +616,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       title: '金额',
       dataIndex: 'value',
       key: 'value',
-      render: (value) => formatCurrency(value)
+      render: (value) => formatMoney(value)
     },
     {
       title: '盈亏',
@@ -632,7 +624,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       key: 'pnl',
       render: (pnl) => (
         <span style={{ color: getValueColor(pnl) }}>
-          {pnl ? formatCurrency(pnl) : '-'}
+          {pnl ? formatMoney(pnl) : '-'}
         </span>
       )
     }

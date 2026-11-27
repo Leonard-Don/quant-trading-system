@@ -1,6 +1,6 @@
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 import joblib
@@ -13,7 +13,21 @@ from sklearn.preprocessing import StandardScaler
 
 from ..utils.config import ML_CONFIG
 
+
+def future_trading_dates(last_date, days: int, symbol: str | None = None) -> list[pd.Timestamp]:
+    """Return the next ``days`` trading dates after ``last_date``.
+
+    Crypto pairs trade every day; everything else skips weekends.
+    """
+    start = pd.Timestamp(last_date).normalize() + pd.Timedelta(days=1)
+    upper = (symbol or "").upper()
+    if upper.endswith(("-USD", "USDT")):
+        return list(pd.date_range(start, periods=days, freq="D"))
+    return list(pd.bdate_range(start, periods=days))
+
+
 logger = logging.getLogger(__name__)
+
 
 class PricePredictor:
     """
@@ -27,17 +41,27 @@ class PricePredictor:
         self.n_estimators = pred_config.get("n_estimators", 100)
         self.random_state = pred_config.get("random_state", 42)
 
-        self.model = RandomForestRegressor(n_estimators=self.n_estimators, random_state=self.random_state)
+        self.model = RandomForestRegressor(
+            n_estimators=self.n_estimators, random_state=self.random_state
+        )
         self.scaler = StandardScaler()
         self.is_trained = False
         self.trained_symbol = None  # Track which symbol the model was trained for
         self.model_metrics = {}  # Store performance metrics (MAE, RMSE, direction accuracy)
         self.feature_columns = [
-            'returns', 'log_returns', 'high_low_pct', 'close_sma5_ratio',
-            'close_sma20_ratio', 'rsi', 'volatility', 'volume_ratio'
+            "returns",
+            "log_returns",
+            "high_low_pct",
+            "close_sma5_ratio",
+            "close_sma20_ratio",
+            "rsi",
+            "volatility",
+            "volume_ratio",
         ]
-        self.model_path = os.fspath(model_path) if model_path is not None else os.path.join(
-            os.path.dirname(__file__), "model_data"
+        self.model_path = (
+            os.fspath(model_path)
+            if model_path is not None
+            else os.path.join(os.path.dirname(__file__), "model_data")
         )
         os.makedirs(self.model_path, exist_ok=True)
 
@@ -50,34 +74,34 @@ class PricePredictor:
         data = df.copy()
 
         # Returns-based features (price-level independent)
-        data['returns'] = data['close'].pct_change()
-        data['log_returns'] = np.log(data['close'] / data['close'].shift(1))
+        data["returns"] = data["close"].pct_change()
+        data["log_returns"] = np.log(data["close"] / data["close"].shift(1))
 
         # Relative range (high-low as % of close)
-        data['high_low_pct'] = (data['high'] - data['low']) / data['close']
+        data["high_low_pct"] = (data["high"] - data["low"]) / data["close"]
 
         # Price relative to moving averages (ratio form)
-        sma_5 = data['close'].rolling(window=5).mean()
-        sma_20 = data['close'].rolling(window=20).mean()
-        data['close_sma5_ratio'] = data['close'] / sma_5
-        data['close_sma20_ratio'] = data['close'] / sma_20
+        sma_5 = data["close"].rolling(window=5).mean()
+        sma_20 = data["close"].rolling(window=20).mean()
+        data["close_sma5_ratio"] = data["close"] / sma_5
+        data["close_sma20_ratio"] = data["close"] / sma_20
 
         # RSI (already 0-100 scale, price-independent)
-        delta = data['close'].diff()
+        delta = data["close"].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         rs = gain / (loss + 1e-10)
-        data['rsi'] = 100 - (100 / (1 + rs))
+        data["rsi"] = 100 - (100 / (1 + rs))
 
         # Volatility (std of returns, price-independent)
-        data['volatility'] = data['returns'].rolling(window=20).std()
+        data["volatility"] = data["returns"].rolling(window=20).std()
 
         # Volume ratio (relative to 20-day average)
-        vol_ma20 = data['volume'].rolling(window=20).mean()
-        data['volume_ratio'] = data['volume'] / (vol_ma20 + 1e-10)
+        vol_ma20 = data["volume"].rolling(window=20).mean()
+        data["volume_ratio"] = data["volume"] / (vol_ma20 + 1e-10)
 
         # Target: next-day return
-        data['next_return'] = data['returns'].shift(-1)
+        data["next_return"] = data["returns"].shift(-1)
 
         # Drop NaN created by rolling windows
         data = data.dropna(subset=self.feature_columns)
@@ -138,22 +162,27 @@ class PricePredictor:
                 raise ValueError("Insufficient data points for training (min 50 required)")
 
             # Create fresh model and scaler for this symbol
-            self.model = RandomForestRegressor(n_estimators=self.n_estimators, random_state=self.random_state)
+            self.model = RandomForestRegressor(
+                n_estimators=self.n_estimators, random_state=self.random_state
+            )
             self.scaler = StandardScaler()
 
             df_features = self._prepare_features(historical_data)
 
             # Target: next-day return (already computed in _prepare_features)
-            valid = df_features.dropna(subset=['next_return'])
+            valid = df_features.dropna(subset=["next_return"])
             X = valid[self.feature_columns]
-            y = valid['next_return']  # Predict next-day return
+            y = valid["next_return"]  # Predict next-day return
 
             if len(X) < 50:
                 raise ValueError(f"Insufficient valid samples after feature engineering: {len(X)}")
 
             # Split data for evaluation (80% train, 20% test)
             X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, shuffle=False  # Keep temporal order
+                X,
+                y,
+                test_size=0.2,
+                shuffle=False,  # Keep temporal order
             )
 
             # Scale features
@@ -182,7 +211,7 @@ class PricePredictor:
                 "direction_accuracy": round(direction_accuracy, 2),
                 "train_samples": len(X_train),
                 "test_samples": len(X_test),
-                "trained_at": datetime.now().isoformat()
+                "trained_at": datetime.now().isoformat(),
             }
 
             # Retrain on full data for production use
@@ -192,7 +221,9 @@ class PricePredictor:
             self.is_trained = True
             self.trained_symbol = symbol
             self.save_model(symbol)
-            logger.info(f"PricePredictor trained for {symbol}: MAE={mae:.6f}, RMSE={rmse:.6f}, Direction Acc={direction_accuracy:.2f}%")
+            logger.info(
+                f"PricePredictor trained for {symbol}: MAE={mae:.6f}, RMSE={rmse:.6f}, Direction Acc={direction_accuracy:.2f}%"
+            )
 
             return self.model_metrics
 
@@ -200,16 +231,16 @@ class PricePredictor:
             logger.error(f"Error training prediction model for {symbol}: {e}")
             raise
 
-    def predict_next_days(self, current_data: pd.DataFrame, days: int = 5, symbol: str = "UNKNOWN") -> dict[str, Any]:
+    def predict_next_days(
+        self, current_data: pd.DataFrame, days: int = 5, symbol: str = "UNKNOWN"
+    ) -> dict[str, Any]:
         """
         Predict prices for the next 'days' days using recursive prediction.
         Predicts next-day returns, then converts to absolute prices.
         """
         # Check if we need to train/load a model for this symbol
         needs_training = (
-            not self.is_trained
-            or self.trained_symbol != symbol
-            or self._is_model_stale()
+            not self.is_trained or self.trained_symbol != symbol or self._is_model_stale()
         )
         if needs_training:
             # Try to load existing model for this symbol
@@ -227,17 +258,22 @@ class PricePredictor:
             last_date = simulation_df.index[-1]
             if not isinstance(last_date, pd.Timestamp):
                 last_date = pd.to_datetime(last_date)
+            future_dates = future_trading_dates(last_date, days, symbol)
 
             # Current price is the anchor for converting returns → prices
-            current_price = float(simulation_df['close'].iloc[-1])
+            current_price = float(simulation_df["close"].iloc[-1])
 
             # Get model uncertainty from tree variance
             df_features_init = self._prepare_features(simulation_df)
             if len(df_features_init) == 0:
                 raise ValueError("Feature preparation produced no valid rows")
-            last_features_init = df_features_init.iloc[-1][self.feature_columns].values.reshape(1, -1)
+            last_features_init = df_features_init.iloc[-1][self.feature_columns].values.reshape(
+                1, -1
+            )
             scaled_input_init = self.scaler.transform(last_features_init)
-            returns_all_trees = np.array([tree.predict(scaled_input_init)[0] for tree in self.model.estimators_])
+            returns_all_trees = np.array(
+                [tree.predict(scaled_input_init)[0] for tree in self.model.estimators_]
+            )
             base_return_std = np.std(returns_all_trees)
 
             running_price = current_price
@@ -264,23 +300,24 @@ class PricePredictor:
                 return_ci = base_return_std * uncertainty_factor * 1.96
                 price_ci = next_price * return_ci
 
-                confidence_intervals.append({
-                    "upper": round(next_price + price_ci, 2),
-                    "lower": round(next_price - price_ci, 2)
-                })
+                confidence_intervals.append(
+                    {
+                        "upper": round(next_price + price_ci, 2),
+                        "lower": round(next_price - price_ci, 2),
+                    }
+                )
 
-                next_date = last_date + timedelta(days=i+1)
-                dates.append(next_date.isoformat())
+                dates.append(future_dates[i].isoformat())
 
                 # 6. Append predicted row for next iteration's rolling features
                 new_row = pd.Series(index=simulation_df.columns, dtype=float)
-                new_row['close'] = next_price
-                new_row['high'] = next_price * 1.005
-                new_row['low'] = next_price * 0.995
-                last_5_vol = simulation_df['volume'].tail(5).mean()
-                new_row['volume'] = last_5_vol
+                new_row["close"] = next_price
+                new_row["high"] = next_price * 1.005
+                new_row["low"] = next_price * 0.995
+                last_5_vol = simulation_df["volume"].tail(5).mean()
+                new_row["volume"] = last_5_vol
 
-                new_df_row = pd.DataFrame([new_row], index=[next_date])
+                new_df_row = pd.DataFrame([new_row], index=[future_dates[i]])
                 simulation_df = pd.concat([simulation_df, new_df_row])
 
             # Summary
@@ -317,9 +354,9 @@ class PricePredictor:
                     "price_change_pct": round(price_change_pct, 2),
                     "starting_price": first_price,
                     "ending_price": last_price,
-                    "confidence_score": round(confidence_score, 1)
+                    "confidence_score": round(confidence_score, 1),
                 },
-                "model_metrics": self.model_metrics if self.model_metrics else None
+                "model_metrics": self.model_metrics if self.model_metrics else None,
             }
 
         except Exception as e:
