@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Row,
   Col,
@@ -33,6 +33,7 @@ import { MetricGrid, StatCard, Panel } from '../design/components';
 import { downloadBacktestReport, runMarketRegimeBacktest } from '../services/api';
 import { getStrategyDetails, getStrategyName } from '../constants/strategies';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
+import { getCurrencyCode } from '../utils/strategyDefaults';
 import { normalizeBacktestResult } from '../utils/backtest';
 import { buildBacktestActionPosture, buildSignalExplanation } from '../utils/backtestResearch';
 import { buildMarketRegimeInsight } from '../utils/advancedBacktestLab';
@@ -87,6 +88,8 @@ const buildNoTradeGuideItems = (result = {}, diagnostics = {}) => {
 };
 
 const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, onContinueAdvancedExperiment }) => {
+  const currencyCode = getCurrencyCode(results?.symbol);
+  const formatMoney = useCallback((value) => formatCurrency(value, currencyCode), [currencyCode]);
   const message = useSafeMessageApi();
   const [activeTab, setActiveTab] = useState('overview');
   const [marketRegimeLoading, setMarketRegimeLoading] = useState(false);
@@ -127,7 +130,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       { label: '小数份额', value: executionDiagnostics.allow_fractional_shares ? '已开启' : '关闭' },
       { label: '仓位管理', value: executionDiagnostics.position_sizer || '默认仓位器' },
       { label: '风控组件', value: executionDiagnostics.risk_manager || '未启用' },
-      { label: '固定 / 最低手续费', value: `${formatCurrency(executionDiagnostics.fixed_commission || 0)} / ${formatCurrency(executionDiagnostics.min_commission || 0)}` },
+      { label: '固定 / 最低手续费', value: `${formatMoney(executionDiagnostics.fixed_commission || 0)} / ${formatMoney(executionDiagnostics.min_commission || 0)}` },
       { label: '冲击模型', value: `${executionDiagnostics.market_impact_model || 'constant'} · ${Number(executionDiagnostics.market_impact_bps || 0).toFixed(1)}bp` },
       {
         label: '止损 / 止盈',
@@ -136,19 +139,19 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
           : '未设',
       },
     ];
-  }, [executionDiagnostics]);
+  }, [executionDiagnostics, formatMoney]);
   const executionCostItems = useMemo(() => {
     const costs = normalizedResults.execution_costs || {};
     if (!costs || !Object.keys(costs).length) {
       return [];
     }
     return [
-      { label: '成交名义额', value: formatCurrency(costs.total_notional || 0) },
-      { label: '滑点成本估算', value: formatCurrency(costs.estimated_total_slippage_cost || 0) },
-      { label: '冲击成本估算', value: formatCurrency(costs.estimated_market_impact_cost || 0) },
+      { label: '成交名义额', value: formatMoney(costs.total_notional || 0) },
+      { label: '滑点成本估算', value: formatMoney(costs.estimated_total_slippage_cost || 0) },
+      { label: '冲击成本估算', value: formatMoney(costs.estimated_market_impact_cost || 0) },
       { label: '平均冲击率', value: `${(Number(costs.average_market_impact_rate || 0) * 10000).toFixed(2)}bp` },
     ];
-  }, [normalizedResults.execution_costs]);
+  }, [formatMoney, normalizedResults.execution_costs]);
   const marketRegimeInsight = useMemo(
     () => buildMarketRegimeInsight(marketRegimeResult),
     [marketRegimeResult]
@@ -285,7 +288,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       precision: 2,
       color: getValueColor(normalizedResults.total_return),
       icon: <DollarOutlined style={{ fontSize: '16px' }} />,
-      formatter: (value) => formatCurrency(Number(value || 0)),
+      formatter: (value) => formatMoney(Number(value || 0)),
     },
   ];
   const diagnosticMetrics = [
@@ -295,14 +298,14 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
     { label: '盈亏比', value: normalizedResults.profit_factor?.toFixed(2) || '不适用' },
     { label: '完成交易', value: `${normalizedResults.total_completed_trades || 0} 组` },
     { label: '持仓状态', value: normalizedResults.has_open_position ? '仍有未平仓' : '已全部平仓' },
-    { label: '净利润', value: formatCurrency(normalizedResults.net_profit || 0) },
+    { label: '净利润', value: formatMoney(normalizedResults.net_profit || 0) },
   ];
   const extendedMetrics = [
     {
       key: 'avg_win',
       title: '平均盈利',
       value: normalizedResults.avg_win || 0,
-      formatter: (value) => formatCurrency(Number(value || 0)),
+      formatter: (value) => formatMoney(Number(value || 0)),
       color: 'var(--accent-success)',
       icon: <RiseOutlined style={{ fontSize: '14px' }} />,
     },
@@ -310,7 +313,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       key: 'avg_loss',
       title: '平均亏损',
       value: normalizedResults.avg_loss || 0,
-      formatter: (value) => formatCurrency(Number(value || 0)),
+      formatter: (value) => formatMoney(Number(value || 0)),
       color: 'var(--accent-danger)',
       icon: <FallOutlined style={{ fontSize: '14px' }} />,
     },
@@ -327,7 +330,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       key: 'total_profit',
       title: '累计盈利',
       value: normalizedResults.total_profit || 0,
-      formatter: (value) => formatCurrency(Number(value || 0)),
+      formatter: (value) => formatMoney(Number(value || 0)),
       color: getValueColor(normalizedResults.total_profit),
       icon: <ThunderboltOutlined style={{ fontSize: '14px' }} />,
     },
@@ -613,7 +616,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       title: '价格',
       dataIndex: 'price',
       key: 'price',
-      render: (price) => formatCurrency(price)
+      render: (price) => formatMoney(price)
     },
     {
       title: '数量',
@@ -624,7 +627,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       title: '金额',
       dataIndex: 'value',
       key: 'value',
-      render: (value) => formatCurrency(value)
+      render: (value) => formatMoney(value)
     },
     {
       title: '盈亏',
@@ -632,7 +635,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
       key: 'pnl',
       render: (pnl) => (
         <span style={{ color: getValueColor(pnl) }}>
-          {pnl ? formatCurrency(pnl) : '-'}
+          {pnl ? formatMoney(pnl) : '-'}
         </span>
       )
     }

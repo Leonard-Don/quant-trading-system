@@ -4,6 +4,7 @@
  */
 
 import { normalizeBacktestResult } from './backtest';
+import { isCnSymbol } from './strategyDefaults';
 
 /**
  * 将数据导出为 CSV 格式
@@ -149,6 +150,7 @@ export const formatBacktestForExport = (backtestResult) => {
     if (!backtestResult) return { metrics: [], trades: [], dailyData: [] };
 
     const normalized = normalizeBacktestResult(backtestResult);
+    const currencyPrefix = isCnSymbol(normalized.symbol || backtestResult.symbol) ? '¥' : '$';
     const summary = normalized.metrics || normalized.performance_metrics || normalized;
     const tradeRecords = normalized.trades || [];
     const portfolioHistory = normalized.portfolio_history || normalized.portfolio || [];
@@ -161,8 +163,8 @@ export const formatBacktestForExport = (backtestResult) => {
         { metric: '最大回撤', value: `${((summary.max_drawdown || 0) * 100).toFixed(2)}%` },
         { metric: '胜率', value: `${((summary.win_rate || 0) * 100).toFixed(2)}%` },
         { metric: '交易次数', value: summary.num_trades ?? summary.total_trades ?? 0 },
-        { metric: '初始资金', value: `$${summary.initial_capital?.toLocaleString() || 'N/A'}` },
-        { metric: '最终资金', value: `$${summary.final_value?.toLocaleString() || 'N/A'}` }
+        { metric: '初始资金', value: `${currencyPrefix}${summary.initial_capital?.toLocaleString() || 'N/A'}` },
+        { metric: '最终资金', value: `${currencyPrefix}${summary.final_value?.toLocaleString() || 'N/A'}` }
     ];
 
     // 格式化交易记录

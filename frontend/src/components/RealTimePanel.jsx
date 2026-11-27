@@ -164,7 +164,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
     alertHitHistory,
     setAlertHitHistory,
     appendTimelineEvent,
-    handleAlertTriggered,
     reviewSnapshots,
     setReviewSnapshots,
     timelineEvents,
@@ -1455,7 +1454,6 @@ const RealTimePanel = ({ openAlertsSignal = null }) => {
             initialAlertHitHistory={alertHitHistory}
             liveQuotes={quotes}
             onAlertHitHistoryChange={setAlertHitHistory}
-            onAlertTriggered={handleAlertTriggered}
           />
         </Suspense>
       </Drawer>
