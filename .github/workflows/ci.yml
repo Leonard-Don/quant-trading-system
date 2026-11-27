@@ -148,7 +148,6 @@ jobs:
             src/analytics/trend_analyzer.py \
             src/analytics/volume_price_analyzer.py \
             src/analytics/industry/ \
-            src/analytics/macro_factors/ \
             src/backtest/__init__.py \
             src/backtest/base_backtester.py \
             src/backtest/batch_backtester.py \
@@ -164,7 +163,6 @@ jobs:
             src/data/derivatives.py \
             src/data/market_depth.py \
             src/data/sentiment_signals.py \
-            src/data/source_health.py \
             src/data/alternative/alt_data_manager.py \
             src/data/alternative/entity_resolution.py \
             src/data/alternative/runtime.py \
