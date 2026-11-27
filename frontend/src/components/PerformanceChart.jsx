@@ -4,7 +4,6 @@ import {
   Brush,
   CartesianGrid,
   ComposedChart,
-  Customized,
   Legend,
   Line,
   ResponsiveContainer,
@@ -12,6 +11,8 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  useXAxisScale,
+  useYAxisScale,
 } from 'recharts';
 import { Button, Dropdown, Segmented, Space, Tag } from 'antd';
 import {
@@ -29,6 +30,8 @@ import {
   formatChartPercent,
 } from '../utils/backtestCharts';
 
+
+const ChartScaleLayer = ({ render, yAxisId }) => render(useXAxisScale(), useYAxisScale(yAxisId));
 const palette = {
   portfolio: '#38bdf8',
   price: '#a78bfa',
@@ -147,33 +150,24 @@ const PerformanceChart = ({ data }) => {
   // wrapper), and a live marker lands on the latest net-value point — a radar
   // ripple, a breathing halo, the core dot, and the final value floating beside
   // it. We read the net-value series' last pixel coordinate from the chart's own
-  // computed geometry (via <Customized>), so the marker tracks the curve exactly.
+  // computed axis scales (via ChartScaleLayer), so the marker tracks the curve exactly.
   // Honors prefers-reduced-motion.
-  const renderEndpointGlow = (chartProps) => {
+  const renderEndpointGlow = (xScale, yScale) => {
     // Place the marker from the axis scales rather than the series' rendered
-    // points: under a Brush, recharts nulls out trailing point coordinates, so
-    // reading the last datapoint through the scales is what stays correct.
-    const xMap = chartProps?.xAxisMap || {};
-    const yMap = chartProps?.yAxisMap || {};
-    const xAxis = xMap[Object.keys(xMap)[0]];
-    const yAxis = yMap.left || yMap[Object.keys(yMap)[0]];
+    // points: under a Brush only the visible range is in the scale's domain, so
+    // walk back to the last datapoint the scale can position; the dot sits on the
+    // curve's tail while the label still reports the true final net value.
     const last = chartData[chartData.length - 1];
-    if (!xAxis?.scale || !yAxis?.scale || !last) {
+    if (!xScale || !yScale || !last) {
       return <g />;
     }
-    // A band scale leaves the very last category unplaced under a Brush, so walk
-    // back to the last datapoint the scale can position; the dot sits on the
-    // curve's tail while the label still reports the true final net value.
-    const half = typeof xAxis.scale.bandwidth === 'function'
-      ? xAxis.scale.bandwidth() / 2
-      : 0;
     let cx = null;
     let cy = null;
     for (let i = chartData.length - 1; i >= 0; i -= 1) {
-      const px = xAxis.scale(chartData[i].dateLabel);
+      const px = xScale(chartData[i].dateLabel, { position: 'middle' });
       if (Number.isFinite(px)) {
-        cx = px + half;
-        cy = yAxis.scale(chartData[i].portfolio_value);
+        cx = px;
+        cy = yScale(chartData[i].portfolio_value);
         break;
       }
     }
@@ -479,7 +473,7 @@ const PerformanceChart = ({ data }) => {
                 />
               ) : null}
 
-              <Customized component={renderEndpointGlow} />
+              <ChartScaleLayer yAxisId="left" render={renderEndpointGlow} />
 
               <Brush
                 dataKey="dateLabel"

@@ -331,7 +331,7 @@ function BatchBacktestResults({
                     data={batchRankingData}
                     margin={{ top: 8, right: 12, left: 8, bottom: 12 }}
                     onClick={(state) => {
-                      const nextTaskId = state?.activePayload?.[0]?.payload?.taskId;
+                      const nextTaskId = batchRankingData[Number(state?.activeTooltipIndex)]?.taskId;
                       if (nextTaskId) setFocusedBatchTaskId(nextTaskId);
                     }}
                   >
