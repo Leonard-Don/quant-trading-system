@@ -26,28 +26,50 @@ class TestIndustryAnalyzer:
         provider = Mock()
 
         # 模拟行业分类数据
-        provider.get_industry_classification.return_value = pd.DataFrame({
-            "industry_code": ["801080", "801150", "801750"],
-            "industry_name": ["电子", "医药生物", "计算机"]
-        })
+        provider.get_industry_classification.return_value = pd.DataFrame(
+            {
+                "industry_code": ["801080", "801150", "801750"],
+                "industry_name": ["电子", "医药生物", "计算机"],
+            }
+        )
 
         # 模拟资金流向数据
-        provider.get_industry_money_flow.return_value = pd.DataFrame({
-            "industry_name": ["电子", "医药生物", "计算机"],
-            "change_pct": [2.5, 1.8, -0.5],
-            "main_net_inflow": [5000000000, 3000000000, -1000000000],
-            "main_net_ratio": [0.05, 0.03, -0.01],
-            "flow_strength": [1.0, 0.6, -0.2],
-            "market_cap_source": ["snapshot_akshare_metadata", "akshare_metadata", "unknown"],
-            "market_cap_snapshot_age_hours": [30.0, None, None],
-            "market_cap_snapshot_is_stale": [True, False, False],
-        })
+        provider.get_industry_money_flow.return_value = pd.DataFrame(
+            {
+                "industry_name": ["电子", "医药生物", "计算机"],
+                "change_pct": [2.5, 1.8, -0.5],
+                "main_net_inflow": [5000000000, 3000000000, -1000000000],
+                "main_net_ratio": [0.05, 0.03, -0.01],
+                "flow_strength": [1.0, 0.6, -0.2],
+                "market_cap_source": ["snapshot_akshare_metadata", "akshare_metadata", "unknown"],
+                "market_cap_snapshot_age_hours": [30.0, None, None],
+                "market_cap_snapshot_is_stale": [True, False, False],
+            }
+        )
 
         # 模拟行业成分股数据
         provider.get_stock_list_by_industry.return_value = [
-            {"symbol": "000001", "name": "股票A", "change_pct": 3.5, "market_cap": 100000000000, "volume": 1000000},
-            {"symbol": "000002", "name": "股票B", "change_pct": 2.0, "market_cap": 80000000000, "volume": 800000},
-            {"symbol": "000003", "name": "股票C", "change_pct": -1.0, "market_cap": 50000000000, "volume": 500000},
+            {
+                "symbol": "000001",
+                "name": "股票A",
+                "change_pct": 3.5,
+                "market_cap": 100000000000,
+                "volume": 1000000,
+            },
+            {
+                "symbol": "000002",
+                "name": "股票B",
+                "change_pct": 2.0,
+                "market_cap": 80000000000,
+                "volume": 800000,
+            },
+            {
+                "symbol": "000003",
+                "name": "股票C",
+                "change_pct": -1.0,
+                "market_cap": 50000000000,
+                "volume": 500000,
+            },
         ]
         provider.get_stock_valuation.side_effect = lambda symbol: {
             "symbol": symbol,
@@ -74,6 +96,7 @@ class TestIndustryAnalyzer:
     def analyzer(self, mock_provider):
         """创建行业分析器实例"""
         from src.analytics.industry_analyzer import IndustryAnalyzer
+
         return IndustryAnalyzer(mock_provider)
 
     def test_initialization(self, analyzer):
@@ -93,13 +116,15 @@ class TestIndustryAnalyzer:
 
     def test_analyze_money_flow_recomputes_flat_flow_strength(self, analyzer, mock_provider):
         """上游返回全 0 flow_strength 时，应根据资金字段重建资金强度"""
-        mock_provider.get_industry_money_flow.return_value = pd.DataFrame({
-            "industry_name": ["电子", "医药生物", "计算机"],
-            "change_pct": [2.5, 1.8, -0.5],
-            "main_net_inflow": [5000000000, 3000000000, -1000000000],
-            "main_net_ratio": [5.0, 3.0, -1.0],
-            "flow_strength": [0.0, 0.0, 0.0],
-        })
+        mock_provider.get_industry_money_flow.return_value = pd.DataFrame(
+            {
+                "industry_name": ["电子", "医药生物", "计算机"],
+                "change_pct": [2.5, 1.8, -0.5],
+                "main_net_inflow": [5000000000, 3000000000, -1000000000],
+                "main_net_ratio": [5.0, 3.0, -1.0],
+                "flow_strength": [0.0, 0.0, 0.0],
+            }
+        )
         analyzer._clear_cache()
 
         result = analyzer.analyze_money_flow(days=5)
@@ -108,26 +133,31 @@ class TestIndustryAnalyzer:
 
     def test_analyze_money_flow_uses_tushare_after_close_fallback(self, analyzer, mock_provider):
         """主源无资金流时，应先尝试 Tushare 盘后行业资金流，再考虑 Sina 兜底。"""
+
         class FakeTushareFallback:
             def get_industry_moneyflow(self, trade_date):
-                return pd.DataFrame({
-                    "name": ["电子", "计算机"],
-                    "pct_change": [1.45, -0.62],
-                    "net_amount": [1_250_000_000, -320_000_000],
-                    "net_amount_rate": [2.6, -1.3],
-                })
+                return pd.DataFrame(
+                    {
+                        "name": ["电子", "计算机"],
+                        "pct_change": [1.45, -0.62],
+                        "net_amount": [1_250_000_000, -320_000_000],
+                        "net_amount_rate": [2.6, -1.3],
+                    }
+                )
 
             def get_dc_board_status(self, trade_date, idx_type="行业板块"):
-                return pd.DataFrame({
-                    "name": ["电子", "计算机"],
-                    "pct_change": [1.52, -0.71],
-                    "total_mv": [2_600_000_000_000, 1_400_000_000_000],
-                    "turnover_rate": [2.8, 3.1],
-                    "up_num": [84, 22],
-                    "down_num": [18, 66],
-                    "leading": ["立讯精密", "同花顺"],
-                    "leading_pct": [4.6, 2.2],
-                })
+                return pd.DataFrame(
+                    {
+                        "name": ["电子", "计算机"],
+                        "pct_change": [1.52, -0.71],
+                        "total_mv": [2_600_000_000_000, 1_400_000_000_000],
+                        "turnover_rate": [2.8, 3.1],
+                        "up_num": [84, 22],
+                        "down_num": [18, 66],
+                        "leading": ["立讯精密", "同花顺"],
+                        "leading_pct": [4.6, 2.2],
+                    }
+                )
 
         mock_provider.get_industry_money_flow.return_value = pd.DataFrame()
         analyzer._tushare_fallback = FakeTushareFallback()
@@ -150,26 +180,31 @@ class TestIndustryAnalyzer:
 
     def test_heatmap_uses_tushare_fallback_money_flow_metadata(self, analyzer, mock_provider):
         """热力图应保留 Tushare 盘后兜底带来的市值来源和数据源标记。"""
+
         class FakeTushareFallback:
             def get_industry_moneyflow(self, trade_date):
-                return pd.DataFrame({
-                    "name": ["电子"],
-                    "pct_change": [1.45],
-                    "net_amount": [1_250_000_000],
-                    "net_amount_rate": [2.6],
-                })
+                return pd.DataFrame(
+                    {
+                        "name": ["电子"],
+                        "pct_change": [1.45],
+                        "net_amount": [1_250_000_000],
+                        "net_amount_rate": [2.6],
+                    }
+                )
 
             def get_dc_board_status(self, trade_date, idx_type="行业板块"):
-                return pd.DataFrame({
-                    "name": ["电子"],
-                    "pct_change": [1.52],
-                    "total_mv": [2_600_000_000_000],
-                    "turnover_rate": [2.8],
-                    "up_num": [84],
-                    "down_num": [18],
-                    "leading": ["立讯精密"],
-                    "leading_pct": [4.6],
-                })
+                return pd.DataFrame(
+                    {
+                        "name": ["电子"],
+                        "pct_change": [1.52],
+                        "total_mv": [2_600_000_000_000],
+                        "turnover_rate": [2.8],
+                        "up_num": [84],
+                        "down_num": [18],
+                        "leading": ["立讯精密"],
+                        "leading_pct": [4.6],
+                    }
+                )
 
         mock_provider.get_industry_money_flow.return_value = pd.DataFrame()
         analyzer._tushare_fallback = FakeTushareFallback()
@@ -207,22 +242,33 @@ class TestIndustryAnalyzer:
             assert result[0]["rank"] == 1
             assert all(0 <= item["score"] <= 100 for item in result)
 
-    def test_rank_industries_uses_lightweight_money_flow_for_mini_trends(self, analyzer, mock_provider):
+    def test_rank_industries_uses_lightweight_money_flow_for_mini_trends(
+        self, analyzer, mock_provider
+    ):
         """迷你走势应优先走 lightweight 资金流通道，避免重复触发重增强链路。"""
+
         def _mock_money_flow(days=5, lightweight=False):
-            return pd.DataFrame({
-                "industry_name": ["电子", "医药生物", "计算机"],
-                "change_pct": [2.5 + days, 1.8 + days * 0.5, -0.5 + days * 0.2],
-                "main_net_inflow": [5000000000, 3000000000, -1000000000],
-                "main_net_ratio": [5.0, 3.0, -1.0],
-                "flow_strength": [0.05, 0.03, -0.01],
-                "market_cap_source": ["snapshot_akshare_metadata", "akshare_metadata", "unknown"],
-            })
+            return pd.DataFrame(
+                {
+                    "industry_name": ["电子", "医药生物", "计算机"],
+                    "change_pct": [2.5 + days, 1.8 + days * 0.5, -0.5 + days * 0.2],
+                    "main_net_inflow": [5000000000, 3000000000, -1000000000],
+                    "main_net_ratio": [5.0, 3.0, -1.0],
+                    "flow_strength": [0.05, 0.03, -0.01],
+                    "market_cap_source": [
+                        "snapshot_akshare_metadata",
+                        "akshare_metadata",
+                        "unknown",
+                    ],
+                }
+            )
 
         mock_provider.get_industry_money_flow.side_effect = _mock_money_flow
         analyzer._clear_cache()
 
-        with patch("src.analytics.industry_analyzer._load_heatmap_history_trend_lookup", return_value={}):
+        with patch(
+            "src.analytics.industry_analyzer._load_heatmap_history_trend_lookup", return_value={}
+        ):
             result = analyzer.rank_industries(top_n=2)
 
         assert len(result) == 2
@@ -248,7 +294,10 @@ class TestIndustryAnalyzer:
         }
         analyzer._clear_cache()
 
-        with patch("src.analytics.industry_analyzer._load_heatmap_history_trend_lookup", return_value=history_lookup):
+        with patch(
+            "src.analytics.industry_analyzer._load_heatmap_history_trend_lookup",
+            return_value=history_lookup,
+        ):
             result = analyzer.rank_industries(top_n=2)
 
         assert len(result) == 2
@@ -270,13 +319,15 @@ class TestIndustryAnalyzer:
                 call_count += 1
             started.set()
             call_gate.wait(timeout=1)
-            return pd.DataFrame({
-                "industry_name": ["电子", "医药生物", "计算机"],
-                "change_pct": [2.5, 1.8, -0.5],
-                "main_net_inflow": [5000000000, 3000000000, -1000000000],
-                "main_net_ratio": [5.0, 3.0, -1.0],
-                "flow_strength": [0.05, 0.03, -0.01],
-            })
+            return pd.DataFrame(
+                {
+                    "industry_name": ["电子", "医药生物", "计算机"],
+                    "change_pct": [2.5, 1.8, -0.5],
+                    "main_net_inflow": [5000000000, 3000000000, -1000000000],
+                    "main_net_ratio": [5.0, 3.0, -1.0],
+                    "flow_strength": [0.05, 0.03, -0.01],
+                }
+            )
 
         mock_provider.get_industry_money_flow.side_effect = _slow_money_flow
         analyzer._clear_cache()
@@ -311,7 +362,9 @@ class TestIndustryAnalyzer:
     def test_get_industry_heatmap_data_prefers_money_flow_fast_path(self, analyzer):
         """热力图首屏应直接复用聚合资金流结果，而不是先走整段 momentum 计算。"""
         analyzer._clear_cache()
-        analyzer.calculate_industry_momentum = MagicMock(side_effect=AssertionError("momentum path should not run"))
+        analyzer.calculate_industry_momentum = MagicMock(
+            side_effect=AssertionError("momentum path should not run")
+        )
 
         result = analyzer.get_industry_heatmap_data(days=5)
 
@@ -332,23 +385,31 @@ class TestIndustryAnalyzer:
 
     def test_rank_industries_fallback_keeps_market_cap_source(self, analyzer):
         """测试排行榜 fallback 路径也会保留市值来源字段"""
-        fallback_momentum = pd.DataFrame({
-            "industry_name": ["电子", "医药生物"],
-            "weighted_change": [2.0, 1.0],
-        })
-        fallback_flow = pd.DataFrame({
-            "industry_name": ["电子", "医药生物"],
-            "change_pct": [2.5, 1.8],
-            "main_net_inflow": [5000000000, 3000000000],
-            "flow_strength": [1.0, 0.6],
-            "stock_count": [31, 28],
-            "total_market_cap": [2.5e12, 1.8e12],
-            "market_cap_source": ["snapshot_akshare_metadata", "akshare_metadata"],
-        })
+        fallback_momentum = pd.DataFrame(
+            {
+                "industry_name": ["电子", "医药生物"],
+                "weighted_change": [2.0, 1.0],
+            }
+        )
+        fallback_flow = pd.DataFrame(
+            {
+                "industry_name": ["电子", "医药生物"],
+                "change_pct": [2.5, 1.8],
+                "main_net_inflow": [5000000000, 3000000000],
+                "flow_strength": [1.0, 0.6],
+                "stock_count": [31, 28],
+                "total_market_cap": [2.5e12, 1.8e12],
+                "market_cap_source": ["snapshot_akshare_metadata", "akshare_metadata"],
+            }
+        )
 
-        with patch.object(analyzer, "analyze_money_flow", return_value=pd.DataFrame()) as mock_fast_flow, \
-             patch.object(analyzer, "calculate_industry_momentum", return_value=fallback_momentum), \
-             patch.object(analyzer, "_merge_momentum_and_flow", return_value=fallback_flow):
+        with (
+            patch.object(
+                analyzer, "analyze_money_flow", return_value=pd.DataFrame()
+            ) as mock_fast_flow,
+            patch.object(analyzer, "calculate_industry_momentum", return_value=fallback_momentum),
+            patch.object(analyzer, "_merge_momentum_and_flow", return_value=fallback_flow),
+        ):
             result = analyzer.rank_industries(top_n=2)
 
         assert mock_fast_flow.called
@@ -362,7 +423,11 @@ class TestIndustryAnalyzer:
 
         assert isinstance(result, list)
         assert len(result) == 3
-        assert result[0]["industry_volatility"] >= result[1]["industry_volatility"] >= result[2]["industry_volatility"]
+        assert (
+            result[0]["industry_volatility"]
+            >= result[1]["industry_volatility"]
+            >= result[2]["industry_volatility"]
+        )
 
     def test_cluster_hot_industries(self, analyzer):
         """测试行业聚类"""
@@ -384,17 +449,52 @@ class TestIndustryAnalyzer:
             assert "industry_volatility" in result
             assert "industry_volatility_source" in result
 
-    def test_get_industry_trend_uses_enriched_stock_details_for_summary(self, analyzer, mock_provider):
+    def test_get_industry_trend_uses_enriched_stock_details_for_summary(
+        self, analyzer, mock_provider
+    ):
         """趋势摘要应复用补齐后的成分股明细口径"""
         mock_provider.get_stock_list_by_industry.return_value = [
-            {"symbol": "000001", "name": "股票A", "change_pct": 3.5, "market_cap": 0, "pe_ratio": 12.0},
-            {"symbol": "000002", "name": "股票B", "change_pct": 2.0, "market_cap": 0, "pe_ratio": 0},
-            {"symbol": "000003", "name": "股票C", "change_pct": -1.0, "market_cap": 50000000000, "pe_ratio": 18.0},
+            {
+                "symbol": "000001",
+                "name": "股票A",
+                "change_pct": 3.5,
+                "market_cap": 0,
+                "pe_ratio": 12.0,
+            },
+            {
+                "symbol": "000002",
+                "name": "股票B",
+                "change_pct": 2.0,
+                "market_cap": 0,
+                "pe_ratio": 0,
+            },
+            {
+                "symbol": "000003",
+                "name": "股票C",
+                "change_pct": -1.0,
+                "market_cap": 50000000000,
+                "pe_ratio": 18.0,
+            },
         ]
         valuation_map = {
-            "000001": {"symbol": "000001", "market_cap": 100000000000, "pe_ttm": 12.0, "change_pct": 3.5},
-            "000002": {"symbol": "000002", "market_cap": 80000000000, "pe_ttm": 15.0, "change_pct": 2.0},
-            "000003": {"symbol": "000003", "market_cap": 50000000000, "pe_ttm": 18.0, "change_pct": -1.0},
+            "000001": {
+                "symbol": "000001",
+                "market_cap": 100000000000,
+                "pe_ttm": 12.0,
+                "change_pct": 3.5,
+            },
+            "000002": {
+                "symbol": "000002",
+                "market_cap": 80000000000,
+                "pe_ttm": 15.0,
+                "change_pct": 2.0,
+            },
+            "000003": {
+                "symbol": "000003",
+                "market_cap": 50000000000,
+                "pe_ttm": 18.0,
+                "change_pct": -1.0,
+            },
         }
         mock_provider.get_stock_valuation.side_effect = lambda symbol: valuation_map[symbol]
 
@@ -405,12 +505,32 @@ class TestIndustryAnalyzer:
         assert result["top_gainers"][0]["symbol"] == "000001"
         assert result["top_losers"][0]["symbol"] == "000003"
 
-    def test_get_industry_trend_ignores_missing_change_pct_in_distribution(self, analyzer, mock_provider):
+    def test_get_industry_trend_ignores_missing_change_pct_in_distribution(
+        self, analyzer, mock_provider
+    ):
         """缺失 change_pct 的股票不应参与涨跌分布和涨跌榜"""
         mock_provider.get_stock_list_by_industry.return_value = [
-            {"symbol": "000001", "name": "股票A", "change_pct": None, "market_cap": 100000000000, "pe_ratio": 12.0},
-            {"symbol": "000002", "name": "股票B", "change_pct": 2.0, "market_cap": 80000000000, "pe_ratio": 15.0},
-            {"symbol": "000003", "name": "股票C", "change_pct": -1.0, "market_cap": 50000000000, "pe_ratio": 18.0},
+            {
+                "symbol": "000001",
+                "name": "股票A",
+                "change_pct": None,
+                "market_cap": 100000000000,
+                "pe_ratio": 12.0,
+            },
+            {
+                "symbol": "000002",
+                "name": "股票B",
+                "change_pct": 2.0,
+                "market_cap": 80000000000,
+                "pe_ratio": 15.0,
+            },
+            {
+                "symbol": "000003",
+                "name": "股票C",
+                "change_pct": -1.0,
+                "market_cap": 50000000000,
+                "pe_ratio": 18.0,
+            },
         ]
 
         result = analyzer.get_industry_trend("电子", days=30)
@@ -501,9 +621,33 @@ class TestLeaderStockScorer:
 
         # 模拟行业成分股
         provider.get_stock_list_by_industry.return_value = [
-            {"symbol": "000001", "name": "股票A", "market_cap": 100000000000, "pe_ratio": 20, "change_pct": 2.5, "volume": 1000000, "amount": 500000000},
-            {"symbol": "000002", "name": "股票B", "market_cap": 80000000000, "pe_ratio": 25, "change_pct": 1.5, "volume": 800000, "amount": 400000000},
-            {"symbol": "000003", "name": "股票C", "market_cap": 50000000000, "pe_ratio": 15, "change_pct": -0.5, "volume": 500000, "amount": 200000000},
+            {
+                "symbol": "000001",
+                "name": "股票A",
+                "market_cap": 100000000000,
+                "pe_ratio": 20,
+                "change_pct": 2.5,
+                "volume": 1000000,
+                "amount": 500000000,
+            },
+            {
+                "symbol": "000002",
+                "name": "股票B",
+                "market_cap": 80000000000,
+                "pe_ratio": 25,
+                "change_pct": 1.5,
+                "volume": 800000,
+                "amount": 400000000,
+            },
+            {
+                "symbol": "000003",
+                "name": "股票C",
+                "market_cap": 50000000000,
+                "pe_ratio": 15,
+                "change_pct": -0.5,
+                "volume": 500000,
+                "amount": 200000000,
+            },
         ]
 
         return provider
@@ -512,6 +656,7 @@ class TestLeaderStockScorer:
     def scorer(self, mock_provider):
         """创建龙头股评分器实例"""
         from src.analytics.leader_stock_scorer import LeaderStockScorer
+
         return LeaderStockScorer(mock_provider)
 
     def test_initialization(self, scorer):
@@ -531,7 +676,9 @@ class TestLeaderStockScorer:
             assert "total_score" in result
             assert "dimension_scores" in result
 
-    def test_score_stock_uses_neutral_financial_scores_when_financial_data_missing(self, scorer, mock_provider):
+    def test_score_stock_uses_neutral_financial_scores_when_financial_data_missing(
+        self, scorer, mock_provider
+    ):
         """财务数据缺失时，盈利/成长维度应回到中性分而不是惩罚分"""
         scorer.__class__._financial_cache = {}
         scorer.__class__._financial_cache_loaded = True
@@ -545,13 +692,16 @@ class TestLeaderStockScorer:
 
     def test_hot_score_uses_full_100_point_scale(self, scorer):
         """热点评分应使用完整 0-100 量尺，而不是被压缩到 50 分以内"""
-        result = scorer.score_stock_from_snapshot({
-            "symbol": "000001",
-            "name": "测试股票",
-            "change_pct": 15.0,
-            "net_inflow_ratio": 5.0,
-            "amount": 1000000000,
-        }, score_type="hot")
+        result = scorer.score_stock_from_snapshot(
+            {
+                "symbol": "000001",
+                "name": "测试股票",
+                "change_pct": 15.0,
+                "net_inflow_ratio": 5.0,
+                "amount": 1000000000,
+            },
+            score_type="hot",
+        )
 
         assert "error" not in result
         assert result["dimension_scores"]["score_type"] == "hot"
@@ -559,14 +709,17 @@ class TestLeaderStockScorer:
 
     def test_snapshot_core_score_keeps_missing_financials_neutral(self, scorer):
         """快评分阶段缺失财务数据时，也应保持中性分口径"""
-        result = scorer.score_stock_from_snapshot({
-            "symbol": "000001",
-            "name": "测试股票",
-            "market_cap": 100000000000,
-            "pe_ratio": 20,
-            "change_pct": 2.5,
-            "amount": 500000000,
-        }, score_type="core")
+        result = scorer.score_stock_from_snapshot(
+            {
+                "symbol": "000001",
+                "name": "测试股票",
+                "market_cap": 100000000000,
+                "pe_ratio": 20,
+                "change_pct": 2.5,
+                "amount": 500000000,
+            },
+            score_type="core",
+        )
 
         assert "error" not in result
         assert result["dimension_scores"]["profitability"] == pytest.approx(0.5, rel=0.001)
@@ -652,7 +805,9 @@ class TestLeaderStockScorer:
 
     def test_get_leader_stocks_homogeneous_global_rank(self, scorer):
         """get_leader_stocks 在同质 score_type 下仍正常产出 global_rank"""
-        result = scorer.get_leader_stocks(["电子", "医药生物"], top_per_industry=3, score_type="hot")
+        result = scorer.get_leader_stocks(
+            ["电子", "医药生物"], top_per_industry=3, score_type="hot"
+        )
         assert isinstance(result, list)
         if result:
             assert all(item.get("score_type") == "hot" for item in result)
@@ -664,98 +819,3 @@ class TestLeaderStockScorer:
         """optimize_weights 产出与 DEFAULT_WEIGHTS 不兼容的键、且无任何调用方，应已移除"""
         assert not hasattr(scorer, "optimize_weights")
         assert not hasattr(scorer, "_evaluate_weights")
-
-
-class _OfflineIndustryBacktestDataManager:
-    def get_historical_data(self, symbol, start_date=None, end_date=None):
-        start = pd.Timestamp(start_date or "2022-01-01").normalize()
-        end = pd.Timestamp(end_date or start + pd.Timedelta(days=400)).normalize()
-        dates = pd.date_range(start=start, end=end, freq="B")
-        if dates.empty:
-            return pd.DataFrame(columns=["close", "volume"])
-
-        symbol_score = sum(ord(char) for char in str(symbol))
-        base_price = 20 + (symbol_score % 80)
-        trend = np.linspace(0, 0.08 + (symbol_score % 7) / 100, len(dates))
-        cycle = np.sin(np.linspace(0, 4 * np.pi, len(dates))) * 0.015
-        close = base_price * (1 + trend + cycle)
-        volume = 1_000_000 + (symbol_score % 10) * 50_000
-        return pd.DataFrame({"close": close, "volume": volume}, index=dates)
-
-
-class TestIndustryBacktester:
-    """测试行业回测器"""
-
-    @pytest.fixture
-    def backtester(self):
-        """创建回测器实例"""
-        from src.backtest.industry_backtest import IndustryBacktester
-        return IndustryBacktester(
-            data_manager=_OfflineIndustryBacktestDataManager(),
-            initial_capital=1000000,
-        )
-
-    def test_initialization(self, backtester):
-        """测试初始化"""
-        assert backtester is not None
-        assert backtester.initial_capital == 1000000
-        assert backtester.commission_rate == 0.001
-
-    def test_run_backtest(self, backtester):
-        """测试运行回测"""
-        result = backtester.run_backtest(
-            start_date='2023-01-01',
-            end_date='2023-03-01',
-            rebalance_freq='monthly',
-            top_industries=3,
-            stocks_per_industry=3
-        )
-
-        assert result is not None
-        assert hasattr(result, 'total_return')
-        assert hasattr(result, 'sharpe_ratio')
-        assert hasattr(result, 'max_drawdown')
-
-    def test_compare_with_benchmark(self, backtester):
-        """测试与基准对比"""
-        result = backtester.run_backtest(
-            start_date='2023-01-01',
-            end_date='2023-03-01',
-            rebalance_freq='monthly'
-        )
-
-        comparison = backtester.compare_with_benchmark('000300.SH', result)
-
-        assert isinstance(comparison, dict)
-        assert "strategy_return" in comparison
-        assert "benchmark_return" in comparison
-        assert "excess_return" in comparison
-        assert "outperform" in comparison
-
-    def test_get_trade_history(self, backtester):
-        """测试获取交易历史"""
-        backtester.run_backtest(
-            start_date='2023-01-01',
-            end_date='2023-02-01',
-            rebalance_freq='weekly'
-        )
-
-        trades = backtester.get_trade_history()
-
-        assert isinstance(trades, list)
-
-    @pytest.mark.skip(reason="Legacy test method missing in newer implementation")
-    def test_calculate_max_drawdown(self, backtester):
-        """测试最大回撤计算"""
-        # 测试模拟资金曲线
-        # max_dd = backtester._calculate_max_drawdown(equity_values)
-
-        # 最大回撤应该是从120跌到100，回撤约16.67%
-        (120 - 100) / 120
-        # assert max_dd == pytest.approx(expected_dd, rel=0.01)
-
-    @pytest.mark.skip(reason="Legacy test method missing in newer implementation")
-    def test_empty_equity_values(self, backtester):
-        """测试空资金曲线"""
-        # max_dd = backtester._calculate_max_drawdown([])
-        # assert max_dd == 0.0
