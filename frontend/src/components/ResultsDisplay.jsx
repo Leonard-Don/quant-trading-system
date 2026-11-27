@@ -34,6 +34,7 @@ import { downloadBacktestReport, runMarketRegimeBacktest } from '../services/api
 import { getStrategyDetails, getStrategyName } from '../constants/strategies';
 import { formatCurrency, formatPercentage, getValueColor } from '../utils/formatting';
 import { getCurrencyCode } from '../utils/strategyDefaults';
+import { buildXlsx, XLSX_MIME_TYPE } from '../utils/xlsx';
 import { normalizeBacktestResult } from '../utils/backtest';
 import { buildBacktestActionPosture, buildSignalExplanation } from '../utils/backtestResearch';
 import { buildMarketRegimeInsight } from '../utils/advancedBacktestLab';
@@ -476,59 +477,47 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
   // 导出为Excel (使用CSV格式，Excel可直接打开)
   const exportToExcel = () => {
     try {
-      // 构建HTML表格格式，Excel可以直接打开
-      let htmlContent = `
-        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
-        <head><meta charset="UTF-8"></head>
-        <body>
-        <table border="1">
-          <tr><th colspan="2" style="background:#1890ff;color:white;font-size:16px;">回测结果报告</th></tr>
-          <tr><th colspan="2" style="background:#f0f0f0;">生成时间: ${new Date().toLocaleString()}</th></tr>
-          <tr><td colspan="2"></td></tr>
-          <tr style="background:#e6f7ff;"><th>指标</th><th>数值</th></tr>
-          <tr><td>总收益率</td><td style="color:${normalizedResults.total_return >= 0 ? 'green' : 'red'};">${(normalizedResults.total_return * 100).toFixed(2)}%</td></tr>
-          <tr><td>年化收益率</td><td style="color:${normalizedResults.annualized_return >= 0 ? 'green' : 'red'};">${(normalizedResults.annualized_return * 100).toFixed(2)}%</td></tr>
-          <tr><td>夏普比率</td><td>${normalizedResults.sharpe_ratio?.toFixed(2) || '不适用'}</td></tr>
-          <tr><td>最大回撤</td><td style="color:red;">${(Math.abs(normalizedResults.max_drawdown) * 100).toFixed(2)}%</td></tr>
-          <tr><td>交易次数</td><td>${normalizedResults.num_trades || 0}</td></tr>
-          <tr><td>胜率</td><td>${(normalizedResults.win_rate * 100).toFixed(2)}%</td></tr>
-          <tr><td>盈亏比</td><td>${normalizedResults.profit_factor?.toFixed(2) || '不适用'}</td></tr>
-          <tr><td>最终价值</td><td>$${normalizedResults.final_value?.toFixed(2) || '不适用'}</td></tr>
-        </table>
-      `;
-
-      // 添加交易记录表
+      const toNumber = (value) => (Number.isFinite(Number(value)) ? Number(value) : null);
+      const summaryRows = [
+        ['回测结果报告'],
+        ['生成时间', new Date().toLocaleString()],
+        ['标的', normalizedResults.symbol || ''],
+        ['币种', currencyCode],
+        [],
+        ['指标', '数值'],
+        ['总收益率', toNumber(normalizedResults.total_return)],
+        ['年化收益率', toNumber(normalizedResults.annualized_return)],
+        ['夏普比率', toNumber(normalizedResults.sharpe_ratio)],
+        ['最大回撤', toNumber(normalizedResults.max_drawdown)],
+        ['交易次数', toNumber(normalizedResults.num_trades) ?? 0],
+        ['胜率', toNumber(normalizedResults.win_rate)],
+        ['盈亏比', toNumber(normalizedResults.profit_factor)],
+        ['最终价值', toNumber(normalizedResults.final_value)],
+      ];
+      const sheets = [{ name: '回测指标', rows: summaryRows }];
       if (trades.length > 0) {
-        htmlContent += `
-          <br/>
-          <table border="1">
-            <tr><th colspan="6" style="background:#1890ff;color:white;">交易记录</th></tr>
-            <tr style="background:#e6f7ff;"><th>日期</th><th>类型</th><th>价格</th><th>数量</th><th>金额</th><th>盈亏</th></tr>
-        `;
-        trades.forEach((trade) => {
-          const pnlColor = trade.pnl > 0 ? 'green' : (trade.pnl < 0 ? 'red' : 'black');
-          htmlContent += `
-            <tr>
-              <td>${new Date(trade.date).toLocaleDateString()}</td>
-              <td style="color:${trade.type === 'BUY' ? 'green' : 'red'};">${trade.type === 'BUY' ? '买入' : '卖出'}</td>
-              <td>$${trade.price?.toFixed(2)}</td>
-              <td>${trade.quantity}</td>
-              <td>$${trade.value?.toFixed(2)}</td>
-              <td style="color:${pnlColor};">${trade.pnl ? '$' + trade.pnl.toFixed(2) : '-'}</td>
-            </tr>
-          `;
+        sheets.push({
+          name: '交易记录',
+          rows: [
+            ['日期', '类型', '价格', '数量', '金额', '盈亏'],
+            ...trades.map((trade) => [
+              String(trade.date || '').slice(0, 10),
+              trade.type === 'BUY' ? '买入' : '卖出',
+              toNumber(trade.price),
+              toNumber(trade.quantity),
+              toNumber(trade.value),
+              toNumber(trade.pnl),
+            ]),
+          ],
         });
-        htmlContent += '</table>';
       }
 
-      htmlContent += '</body></html>';
-
-      // 下载文件
-      const blob = new Blob([htmlContent], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+      const blob = new Blob([buildXlsx(sheets)], { type: XLSX_MIME_TYPE });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `backtest_report_${new Date().toISOString().split('T')[0]}.xls`;
+      link.download = `backtest_report_${new Date().toISOString().split('T')[0]}.xlsx`;
       link.click();
+      URL.revokeObjectURL(link.href);
       message.success('Excel报告已导出');
     } catch (error) {
       message.error('导出失败: ' + error.message);
@@ -581,7 +570,7 @@ const ResultsDisplay = ({ results, isRefreshing = false, onOpenHistoryRecord, on
     },
     {
       key: 'excel',
-      label: 'Excel格式 (.xls)',
+      label: 'Excel格式 (.xlsx)',
       icon: <FileExcelOutlined style={{ color: 'var(--accent-success)' }} />,
       onClick: exportToExcel,
     },

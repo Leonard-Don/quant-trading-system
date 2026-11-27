@@ -42,6 +42,7 @@ const HeatmapControls = ({
     policyOverlayOn,
     setPolicyOverlayOn,
     policyOverlayLoading,
+    policyMatchCount = null,
     policyColorMode,
     setPolicyColorMode,
     loadSource,
@@ -209,6 +210,11 @@ const HeatmapControls = ({
                             aria-label="切换政策雷达叠加"
                         />
                         <Text style={{ fontSize: 12, color: 'var(--text-secondary)' }}>政策</Text>
+                        {policyOverlayOn && !policyOverlayLoading && policyMatchCount !== null ? (
+                            <Text data-testid="heatmap-policy-match-count" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                                匹配 {policyMatchCount} 项
+                            </Text>
+                        ) : null}
                     </span>
                 </Tooltip>
                 <Tooltip title="切换为「政策信号着色」模式 —— tile 背景按 policy_radar 信号配色（红=偏多/绿=偏空/灰=中性/无数据），默认温度着色保持不变，只是当前模式下被覆盖。">

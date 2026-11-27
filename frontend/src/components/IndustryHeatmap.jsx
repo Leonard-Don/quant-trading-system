@@ -19,6 +19,7 @@ import {
 } from '../utils/industryHeatmapTokens';
 import {
     buildFallbackHeatmapPayload,
+    normalizeIndustrySearchText,
 } from '../utils/industrySearch';
 
 const { useBreakpoint } = Grid;
@@ -126,6 +127,12 @@ const IndustryHeatmap = ({
         if ((!policyOverlayOn && !policyColorMode) || !policyIndustrySignals) return null;
         return buildPolicyOverlay(data?.industries || [], policyIndustrySignals);
     }, [policyOverlayOn, policyColorMode, policyIndustrySignals, data]);
+    const policyMatchCount = useMemo(() => {
+        if (!policyOverlayMap) return null;
+        return (data?.industries || []).filter(
+            (industry) => policyOverlayMap[normalizeIndustrySearchText(industry?.name)]
+        ).length;
+    }, [policyOverlayMap, data]);
 
     useEffect(() => {
         if (!focusControlKey) return undefined;
@@ -586,6 +593,7 @@ const IndustryHeatmap = ({
             policyOverlayOn={policyOverlayOn}
             setPolicyOverlayOn={setPolicyOverlayOn}
             policyOverlayLoading={policyOverlayLoading}
+            policyMatchCount={policyMatchCount}
             policyColorMode={policyColorMode}
             setPolicyColorMode={setPolicyColorMode}
             loadSource={loadSource}

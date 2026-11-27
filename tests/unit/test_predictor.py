@@ -20,8 +20,14 @@ from src.analytics.predictor import PricePredictor
 _N_BARS = 180
 
 
-def _make_ohlcv(*, periods: int = _N_BARS, seed: int = 7, daily_drift: float = 0.0005,
-                daily_vol: float = 0.015, base_price: float = 100.0) -> pd.DataFrame:
+def _make_ohlcv(
+    *,
+    periods: int = _N_BARS,
+    seed: int = 7,
+    daily_drift: float = 0.0005,
+    daily_vol: float = 0.015,
+    base_price: float = 100.0,
+) -> pd.DataFrame:
     """构造确定性的合成 OHLCV 数据 (DatetimeIndex)。
 
     predict_next_days 依赖 ``index[-1]`` 取最后日期,因此索引必须是 DatetimeIndex。
@@ -102,7 +108,12 @@ def test_train_returns_metrics_and_sets_state(predictor, ohlcv):
     metrics = predictor.train(ohlcv, "TEST_RF")
 
     assert set(metrics) >= {
-        "mae", "rmse", "direction_accuracy", "train_samples", "test_samples", "trained_at",
+        "mae",
+        "rmse",
+        "direction_accuracy",
+        "train_samples",
+        "test_samples",
+        "trained_at",
     }
     assert metrics["mae"] >= 0.0
     assert metrics["rmse"] >= 0.0
@@ -151,8 +162,12 @@ def test_predict_next_days_structure_and_invariants(predictor, ohlcv):
     out = predictor.predict_next_days(ohlcv, days=5, symbol="PRED")
 
     assert set(out) >= {
-        "dates", "predicted_prices", "confidence_intervals", "currency",
-        "prediction_summary", "model_metrics",
+        "dates",
+        "predicted_prices",
+        "confidence_intervals",
+        "currency",
+        "prediction_summary",
+        "model_metrics",
     }
     assert len(out["predicted_prices"]) == 5
     assert len(out["dates"]) == 5
@@ -166,8 +181,13 @@ def test_predict_next_days_structure_and_invariants(predictor, ohlcv):
     summary = out["prediction_summary"]
     assert summary["trend"] in {"bullish", "bearish", "neutral"}
     assert set(summary) >= {
-        "trend", "trend_cn", "price_change", "price_change_pct",
-        "starting_price", "ending_price", "confidence_score",
+        "trend",
+        "trend_cn",
+        "price_change",
+        "price_change_pct",
+        "starting_price",
+        "ending_price",
+        "confidence_score",
     }
     # 日期严格递增
     parsed = [pd.to_datetime(d) for d in out["dates"]]
@@ -227,3 +247,23 @@ def test_predictions_depend_on_input_data(tmp_path):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_future_trading_dates_skip_weekends_for_equities():
+    from src.analytics.predictor import future_trading_dates
+
+    dates = future_trading_dates(pd.Timestamp("2026-11-26"), 5, "AAPL")
+    assert [d.strftime("%Y-%m-%d") for d in dates] == [
+        "2026-11-27",
+        "2026-11-30",
+        "2026-12-01",
+        "2026-12-02",
+        "2026-12-03",
+    ]
+
+
+def test_future_trading_dates_keep_weekends_for_crypto():
+    from src.analytics.predictor import future_trading_dates
+
+    dates = future_trading_dates(pd.Timestamp("2026-11-27"), 3, "BTC-USD")
+    assert [d.strftime("%Y-%m-%d") for d in dates] == ["2026-11-28", "2026-11-29", "2026-11-30"]

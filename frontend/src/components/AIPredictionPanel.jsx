@@ -3,6 +3,7 @@ import { Card, Spin, Alert, Typography, Row, Col, Statistic, Tag, Button, Toolti
 import { RobotOutlined, ArrowUpOutlined, ArrowDownOutlined, ExperimentOutlined, ReloadOutlined } from '@ant-design/icons';
 import { ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { compareModelPredictions, trainAllModels } from '../services/api';
+import { isCnSymbol } from '../utils/strategyDefaults';
 
 const { Text, Paragraph } = Typography;
 const AI_COLORS = {
@@ -146,6 +147,13 @@ const AIPredictionPanel = ({ symbol }) => {
     const lstmAvailable = lstmPrediction?.status === 'success'
         && Array.isArray(lstmPrediction.predicted_prices)
         && lstmPrediction.predicted_prices.length > 0;
+    const lstmIsFallback = /fallback/i.test(String(lstmPrediction?.model_type || ''));
+    const currencySymbol = isCnSymbol(symbol) ? '¥' : '$';
+    const modelDescription = randomForestAvailable && lstmAvailable
+        ? (lstmIsFallback
+            ? '随机森林 (50%) 与 LSTM 趋势回退 (50%) 等权融合；未安装 TensorFlow，LSTM 使用近期趋势外推代替神经网络。'
+            : '等权融合 LSTM (50%) 和随机森林 (50%) 的结果，提供更稳健的预测参考。')
+        : `仅 ${randomForestAvailable ? MODEL_LABELS.random_forest : MODEL_LABELS.lstm} 可用，路径直接使用该模型结果。`;
     const availableModelNames = [
         randomForestAvailable ? MODEL_LABELS.random_forest : null,
         lstmAvailable ? MODEL_LABELS.lstm : null,
@@ -164,7 +172,7 @@ const AIPredictionPanel = ({ symbol }) => {
         if (!data.dates) return [];
 
         return data.dates.map((date, index) => {
-            const item = { date: new Date(date).toLocaleDateString() };
+            const item = { date: String(date).slice(0, 10) };
             const rfPrice = getPricePoint(randomForestPrediction?.predicted_prices, index);
             const lstmPrice = getPricePoint(lstmPrediction?.predicted_prices, index);
 
@@ -231,7 +239,7 @@ const AIPredictionPanel = ({ symbol }) => {
                     </Tag>
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-                    等权融合 LSTM 与随机森林，输出未来 5 天的共识价格路径和区间判断。
+                    融合已接入的 LSTM 与随机森林，输出未来 5 个交易日的共识价格路径和区间判断。
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                     {availableModelNames.map((label) => (
@@ -279,7 +287,7 @@ const AIPredictionPanel = ({ symbol }) => {
                         title={<span style={{ color: 'var(--text-secondary)' }}>5日后预测均价</span>}
                         value={endPrice}
                         formatter={() => hasNumericValue(endPrice) ? Number(endPrice).toFixed(2) : '--'}
-                        prefix={hasNumericValue(endPrice) ? '$' : ''}
+                        prefix={hasNumericValue(endPrice) ? currencySymbol : ''}
                         styles={{ content: { color: isPositive ? AI_COLORS.positive : AI_COLORS.negative, fontSize: 24 } }}
                     />
                 </Card>
@@ -404,13 +412,13 @@ const AIPredictionPanel = ({ symbol }) => {
                             <Col span={24}>
                                 <Paragraph style={{ color: 'var(--text-secondary)', marginBottom: 0 }}>
                                     <Text strong style={{ color: AI_COLORS.primary }}>模型说明：</Text>
-                                    {'等权融合 LSTM (50%) 和随机森林 (50%) 的结果，提供更稳健的预测参考。'}
+                                    {modelDescription}
                                     <br />
                                     <Space style={{ marginTop: 8 }}>
                                         <Tag style={{ borderRadius: 999, background: AI_COLORS.secondarySoft, color: AI_COLORS.secondary, borderColor: 'transparent' }}>动态特征工程</Tag>
                                         <Tag style={{ borderRadius: 999, background: AI_COLORS.primarySoft, color: AI_COLORS.primary, borderColor: 'transparent' }}>5日共识路径</Tag>
                                         <Tag style={{ borderRadius: 999, background: AI_COLORS.neutralSoft, color: AI_COLORS.neutral, borderColor: 'transparent' }}>
-                                            终点均价 {hasNumericValue(endPrice) ? `$${Number(endPrice).toFixed(2)}` : '--'}
+                                            终点均价 {hasNumericValue(endPrice) ? `${currencySymbol}${Number(endPrice).toFixed(2)}` : '--'}
                                         </Tag>
                                     </Space>
                                 </Paragraph>

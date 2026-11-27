@@ -5,6 +5,7 @@
 
 import { normalizeBacktestResult } from './backtest';
 import { isCnSymbol } from './strategyDefaults';
+import { buildXlsx, XLSX_MIME_TYPE } from './xlsx';
 
 /**
  * 将数据导出为 CSV 格式
@@ -53,7 +54,7 @@ export const exportToJSON = (data, filename) => {
 };
 
 /**
- * 将数据导出为 Excel 格式 (使用简单的 HTML 表格方式)
+ * 将数据导出为 Excel (.xlsx) 格式
  * @param {Array} data - 数据数组
  * @param {string} filename - 文件名
  * @param {Array} columns - 列配置
@@ -66,56 +67,11 @@ export const exportToExcel = (data, filename, columns = null, sheetName = 'Sheet
     }
 
     const cols = columns || Object.keys(data[0]).map(key => ({ key, title: key }));
-
-    // 构建 HTML 表格
-    let html = `
-    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
-    <head>
-      <meta charset="UTF-8">
-      <!--[if gte mso 9]>
-      <xml>
-        <x:ExcelWorkbook>
-          <x:ExcelWorksheets>
-            <x:ExcelWorksheet>
-              <x:Name>${sheetName}</x:Name>
-              <x:WorksheetOptions><x:Panes></x:Panes></x:WorksheetOptions>
-            </x:ExcelWorksheet>
-          </x:ExcelWorksheets>
-        </x:ExcelWorkbook>
-      </xml>
-      <![endif]-->
-      <style>
-        table { border-collapse: collapse; }
-        th, td { border: 1px solid #000; padding: 8px; }
-        th { background-color: #4472c4; color: white; font-weight: bold; }
-        tr:nth-child(even) { background-color: #f2f2f2; }
-      </style>
-    </head>
-    <body>
-      <table>
-        <thead>
-          <tr>
-            ${cols.map(col => `<th>${escapeHtml(col.title)}</th>`).join('')}
-          </tr>
-        </thead>
-        <tbody>
-          ${data.map(item => `
-            <tr>
-              ${cols.map(col => {
-        let value = item[col.key];
-        if (value === null || value === undefined) value = '';
-        if (typeof value === 'object') value = JSON.stringify(value);
-        return `<td>${escapeHtml(String(value))}</td>`;
-    }).join('')}
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-    </body>
-    </html>
-  `;
-
-    downloadFile(html, `${filename}.xls`, 'application/vnd.ms-excel');
+    const rows = [
+        cols.map(col => col.title),
+        ...data.map(item => cols.map(col => item[col.key])),
+    ];
+    downloadFile(buildXlsx([{ name: sheetName, rows }]), `${filename}.xlsx`, XLSX_MIME_TYPE);
 };
 
 /**
@@ -131,15 +87,6 @@ const downloadFile = (content, filename, mimeType) => {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-};
-
-/**
- * 转义 HTML 特殊字符
- */
-const escapeHtml = (text) => {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
 };
 
 /**

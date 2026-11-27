@@ -9,43 +9,12 @@ from fastapi.concurrency import run_in_threadpool
 
 from backend.app.core.config import config
 from backend.app.core.error_handler import AppException
+from backend.app.services.backtest.runtime import STRATEGIES
 from backend.app.services.runtime_state import get_data_manager
-from src.strategy.advanced_strategies import (
-    ATRTrailingStop,
-    MACDStrategy,
-    MeanReversionStrategy,
-    MomentumStrategy,
-    StochasticOscillator,
-    VWAPStrategy,
-)
-from src.strategy.strategies import (
-    BollingerBands,
-    BuyAndHold,
-    MovingAverageCrossover,
-    MultiFactorStrategy,
-    RSIStrategy,
-    TurtleTradingStrategy,
-)
 from src.utils.performance import performance_metrics, performance_monitor
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
-
-# 策略列表用于计数
-STRATEGIES = {
-    "moving_average": MovingAverageCrossover,
-    "rsi": RSIStrategy,
-    "bollinger_bands": BollingerBands,
-    "buy_and_hold": BuyAndHold,
-    "macd": MACDStrategy,
-    "mean_reversion": MeanReversionStrategy,
-    "vwap": VWAPStrategy,
-    "momentum": MomentumStrategy,
-    "stochastic": StochasticOscillator,
-    "atr_trailing_stop": ATRTrailingStop,
-    "turtle_trading": TurtleTradingStrategy,
-    "multi_factor": MultiFactorStrategy,
-}
 
 
 def _sample_system_resources() -> dict:
@@ -207,7 +176,7 @@ def _probe_tushare_health() -> dict[str, Any]:
             "reason": result.get("reason", "error"),
             "detail": result.get("detail", ""),
         }
-    except Exception as exc:  # noqa: BLE001 - never let health probing break status
+    except Exception as exc:
         logger.warning("Tushare health probe failed: %s", exc)
         return {"ok": False, "reason": "error", "detail": f"{type(exc).__name__}: {exc}"}
 
@@ -216,7 +185,10 @@ def _get_tushare_health(now: float | None = None) -> dict[str, Any]:
     """Return Tushare health, served from a ~60s server-side cache."""
     now = time.monotonic() if now is None else now
     cached = _tushare_health_cache["result"]
-    if cached is not None and (now - _tushare_health_cache["fetched_at"]) < _TUSHARE_HEALTH_TTL_SECONDS:
+    if (
+        cached is not None
+        and (now - _tushare_health_cache["fetched_at"]) < _TUSHARE_HEALTH_TTL_SECONDS
+    ):
         return cached
     result = _probe_tushare_health()
     _tushare_health_cache["result"] = result
